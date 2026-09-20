@@ -2041,6 +2041,412 @@ static void checkChorus (const string &pluginPath)
                  "window and at five hundred");
 }
 
+/* ---- filt::comb --------------------------------------------------------- */
+
+/* What the node claims, and what each check is for:
+ *
+ *   - `damp = 0' is the node as it was: one sample in comes back out
+ *     every `rate/freq' samples, `feedback' quieter each turn and
+ *     nothing at all in between, which is the closed form a bare delay
+ *     line with a gain in it has;
+ *
+ *   - `damp' up, the harmonics above the fundamental decay faster than
+ *     it does -- the whole of the difference between a pipe and a
+ *     string, measured as two band-pass sums at two times;
+ *
+ *   - the ring is at `freq' to within a cent from 40 Hz to 2 kHz,
+ *     damped or not, which needs the read between samples and needs the
+ *     damper's own delay taken off the line's;
+ *
+ *   - and a window boundary is not an event.
+ */
+
+/* env::ad with no attack and a decay of one sample is exactly one sample
+   at full scale, which is the input whose output can be named. */
+static vector<NodeSpec> combImpulseGraph (float freq, float feedback,
+                                          float damp)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, comb;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", 1 };
+    Value p = { "p", TH_MAX };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    comb.name = "comb";
+    comb.spelling = "filt/comb";
+
+    Value f = { "freq", freq };
+    Value fb = { "feedback", feedback };
+    Value dp = { "damp", damp };
+    Value sz = { "size", (float)TH_DEFAULT_SAMPLES };
+    Wire  in = { "in", "src", "out" };
+
+    comb.values.push_back(f);
+    comb.values.push_back(fb);
+    comb.values.push_back(dp);
+    comb.values.push_back(sz);
+    comb.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(comb);
+
+    return spec;
+}
+
+/* A few cycles of a sine at the comb's own frequency and then silence.
+   The loop is linear, so a burst at the fundamental leaves the
+   fundamental ringing and next to nothing on the harmonics above it: the
+   tail is a decaying sine whose zero crossings are the loop's period and
+   not some sum of partials. */
+static vector<NodeSpec> combSineGraph (float freq, float feedback, float damp,
+                                       float cycles)
+{
+    vector<NodeSpec> spec = combImpulseGraph(freq, feedback, damp);
+    NodeSpec osc, gate;
+
+    /* Half the burst is the attack and half is the decay, so the window is
+       a bell and not a pair of steps: a burst switched on and off puts a
+       click's worth of energy into every other mode of the loop, and a
+       mode that decays at its own rate under the one being measured is a
+       waveform whose shape keeps changing. */
+    spec[0].name = "burst";
+    spec[0].values[0].value = cycles * TH_DEFAULT_SAMPLES / (2 * freq);
+    spec[0].values[1].value = cycles * TH_DEFAULT_SAMPLES / (2 * freq);
+
+    osc.name = "osc";
+    osc.spelling = "osc/simple";
+
+    Value f = { "freq", freq };
+    Value w = { "waveform", 0 };            /* sine */
+    Value a = { "amp", TH_MAX };
+
+    osc.values.push_back(f);
+    osc.values.push_back(w);
+    osc.values.push_back(a);
+
+    /* A math::mul and not the oscillator's own `amp': an `amp' of zero is
+       the one the callback reads as full scale, so an envelope on it is a
+       burst that never ends. */
+    gate.name = "src";
+    gate.spelling = "math/mul";
+
+    Wire g0 = { "in0", "osc", "out" };
+    Wire g1 = { "in1", "burst", "out" };
+
+    gate.wires.push_back(g0);
+    gate.wires.push_back(g1);
+
+    spec.push_back(osc);
+    spec.push_back(gate);
+
+    return spec;
+}
+
+/* And a noise burst, which puts energy on every partial the loop has, with
+   a band-pass on the fundamental and another on the octave above it to
+   watch them go. `res' high enough that neither band hears the other:
+   at a Q of 25 an octave away is 30 dB down. */
+static vector<NodeSpec> combNoiseGraph (float freq, float feedback, float damp)
+{
+    vector<NodeSpec> spec = combImpulseGraph(freq, feedback, damp);
+    NodeSpec src, gate, band1, band2;
+
+    spec[0].name = "burst";
+    spec[0].values[1].value = 64;
+
+    src.name = "noise";
+    src.spelling = "osc/noise";
+
+    Value color = { "color", 0 };           /* white */
+    Value amp = { "amp", TH_MAX };
+
+    src.values.push_back(color);
+    src.values.push_back(amp);
+
+    /* Gated the same way, and for the same reason. */
+    gate.name = "src";
+    gate.spelling = "math/mul";
+
+    Wire g0 = { "in0", "noise", "out" };
+    Wire g1 = { "in1", "burst", "out" };
+
+    gate.wires.push_back(g0);
+    gate.wires.push_back(g1);
+
+    band1.name = "band1";
+    band1.spelling = "filt/svf";
+
+    Value c1 = { "cutoff", freq };
+    Value r1 = { "res", 0.98f };
+    Wire  i1 = { "in", "comb", "out" };
+
+    band1.values.push_back(c1);
+    band1.values.push_back(r1);
+    band1.wires.push_back(i1);
+
+    band2 = band1;
+    band2.name = "band2";
+    band2.values[0].value = 2 * freq;
+
+    spec.push_back(src);
+    spec.push_back(gate);
+    spec.push_back(band1);
+    spec.push_back(band2);
+
+    return spec;
+}
+
+/* Every upward zero crossing after `from', at sub-sample resolution: where
+   the line between the two samples either side of it cuts zero. The
+   envelope does not move them -- a decaying sine crosses zero exactly
+   where the sine does -- so the spacing is the period however far the
+   ring has fallen. */
+static vector<double> upCrossings (const vector<float> &v, size_t from,
+                                   size_t to)
+{
+    vector<double> at;
+
+    for (size_t i = from + 1; i < to && i < v.size(); i++)
+        if (v[i - 1] <= 0 && v[i] > 0)
+            at.push_back((double)(i - 1) +
+                         (double)-v[i - 1] / ((double)v[i] - v[i - 1]));
+
+    return at;
+}
+
+/* The signal with its own offset taken off it.
+ *
+ * The loop rings at every multiple of `freq' and at nothing at all as well:
+ * DC goes round it with no damping whatever `damp' says, so under a decaying
+ * tone there is an offset decaying more slowly, and an offset walks a zero
+ * crossing. The mean of one period of a periodic signal is exactly its
+ * offset, so a running mean one period long is what to take off -- and it is
+ * symmetric about the sample it is taken from, so unlike a filter it moves
+ * nothing in time and has no transient of its own to wait out.
+ */
+static vector<float> deOffset (const vector<float> &v, double period)
+{
+    const size_t len = (size_t)(period + 0.5);
+    vector<double> sum(v.size() + 1, 0.0);
+    vector<float> out(v.size(), 0.0f);
+
+    for (size_t i = 0; i < v.size(); i++)
+        sum[i + 1] = sum[i] + v[i];
+
+    for (size_t i = len; i + len < v.size(); i++)
+        out[i] = (float)(v[i] - (sum[i + len / 2 + 1] - sum[i - len / 2]) /
+                                (len / 2 * 2 + 1));
+
+    return out;
+}
+
+/* The pitch the loop settled at, in hertz, or 0 if the tail was not a tone
+   with `want' cycles in it. */
+static double ringPitch (const vector<float> &v, size_t from, size_t to,
+                         unsigned want)
+{
+    const vector<double> at = upCrossings(v, from, to);
+
+    if (at.size() < want)
+        return 0;
+
+    return (double)TH_DEFAULT_SAMPLES * (at.size() - 1) /
+           (at[at.size() - 1] - at[0]);
+}
+
+static double cents (double got, double want)
+{
+    return 1200 * log(got / want) / log(2.0);
+}
+
+static void checkComb (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- `damp = 0' is a delay line with a gain in it ---- */
+
+    /* A hundred samples and a half, so that the read lands on a sample and
+       the answer is exact rather than nearly: the impulse comes back at
+       every multiple of the period at `feedback' to the power of the turn,
+       and every other sample is zero. Bit for bit, which is what makes this
+       a check on the node an existing graph still has rather than on a
+       tolerance. */
+    {
+        const unsigned period = 100;
+        const float feedback = 0.5f;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     combImpulseGraph((float)(rate / period), feedback, 0),
+                     "comb", "out", 256, 2000, out, why))
+            fail("filt::comb renders", why);
+        else
+        {
+            bool exact = true;
+            string detail;
+            float want = 1;
+
+            for (size_t i = 0; i < out.size() && exact; i++)
+            {
+                float expect;
+
+                if (i % period == 0 && i)
+                    want *= feedback;
+
+                expect = (i % period) ? 0 : want;
+
+                if (memcmp(&out[i], &expect, sizeof(float)) != 0)
+                {
+                    exact = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(out[i]) + " for " + num(expect);
+                }
+            }
+
+            okOrFail(exact, "filt::comb: at `damp = 0' an impulse comes back "
+                            "every period, `feedback' quieter, and nothing "
+                            "comes back in between", detail);
+        }
+    }
+
+    /* ---- `damp' takes the harmonics first ---- */
+
+    /* A noise burst puts the same energy on the fundamental and on the
+       octave above it; what the two bands measure is which one is left
+       later. With no damping the loop is a gain and they go together, and
+       that is the control: the same graph, the same noise, one knob. */
+    {
+        static const float damps[] = { 0, 0.5f };
+
+        const float freq = (float)(rate / 100);
+        double fell[2] = { 0, 0 };
+        bool bad = false;
+
+        for (size_t c = 0; c < 2 && !bad; c++)
+        {
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+
+            Watch w0 = { "band1", "out_band" };
+            Watch w1 = { "band2", "out_band" };
+
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath, combNoiseGraph(freq, 0.995f, damps[c]),
+                        watch, 256, (unsigned)(rate / 2), got, why))
+            {
+                fail("filt::comb renders", why);
+                bad = true;
+                break;
+            }
+
+            /* Two fiftieths of a second each, an eighth of a second apart:
+               eighty-eight turns of the loop between them. */
+            for (size_t b = 0; b < 2; b++)
+            {
+                const vector<float> &v = got[b];
+                vector<float> early(v.begin() + (size_t)(rate / 10),
+                                    v.begin() + (size_t)(rate / 10 +
+                                                         rate / 50));
+                vector<float> late(v.begin() + (size_t)(rate / 4),
+                                   v.begin() + (size_t)(rate / 4 + rate / 50));
+                const double was = rms(early, 0);
+
+                fell[b] = was > 0 ? rms(late, 0) / was : 0;
+            }
+
+            if (damps[c] == 0)
+                okOrFail(fell[0] > 0 && fabs(fell[1] / fell[0] - 1) < 0.15,
+                         "filt::comb: with no damping the octave decays with "
+                         "the fundamental",
+                         "the fundamental kept " + num(fell[0]) +
+                         " of itself and the octave " + num(fell[1]));
+            else
+                okOrFail(fell[0] > 0 && fell[1] < fell[0] * 0.7,
+                         "filt::comb: `damp' takes the octave faster than "
+                         "the fundamental, which is what a string does",
+                         "the fundamental kept " + num(fell[0]) +
+                         " of itself and the octave " + num(fell[1]));
+        }
+    }
+
+    /* ---- and it rings at `freq' ---- */
+
+    /* Within a cent, across five and a half octaves, damped and not. A
+       whole-sample read is a period rounded to a sample: at 2 kHz that is
+       78 cents, and it is why a comb was a reverb and not an instrument.
+       The damped pass is the second half of the same claim -- a filter in
+       a loop is a delay too, and a string that goes flat as it is damped
+       is a string that cannot play a scale. */
+    {
+        static const float hz[] = { 40, 110, 441, 1000, 2000 };
+        static const float damps[] = { 0, 0.5f };
+
+        for (size_t d = 0; d < 2; d++)
+        {
+            bool tuned = true;
+            string detail;
+
+            for (size_t c = 0; c < sizeof(hz) / sizeof(hz[0]) && tuned; c++)
+            {
+                const double period = rate / hz[c];
+                /* The burst, and two more periods for the loop to settle
+                   into its own tail, then forty turns of it. */
+                const size_t settle = (size_t)(12 * period);
+                const size_t last = settle + (size_t)(40 * period);
+                vector<float> out;
+                string why;
+                double pitch;
+
+                if (!render1(pluginPath,
+                             combSineGraph(hz[c], 0.995f, damps[d], 10),
+                             "comb", "out", 256, (unsigned)(last + period),
+                             out, why))
+                {
+                    fail("filt::comb renders", why);
+                    return;
+                }
+
+                pitch = ringPitch(deOffset(out, period), settle, last, 30);
+
+                if (!(pitch > 0) || fabs(cents(pitch, hz[c])) > 1)
+                {
+                    tuned = false;
+                    detail = num(hz[c]) + " Hz rang at " + num(pitch) +
+                             " Hz, " + num(cents(pitch, hz[c])) + " cents "
+                             "out";
+                }
+            }
+
+            okOrFail(tuned, damps[d] == 0
+                            ? "filt::comb: the ring is `freq' to within a "
+                              "cent from 40 Hz to 2 kHz"
+                            : "filt::comb: and it is still `freq' with the "
+                              "damper in the loop",
+                     detail);
+        }
+    }
+
+    /* The line, the write head and the damper's own memory all cross a
+       window boundary, and the line is its own input: three things to get
+       wrong and one measurement that sees all of them. */
+    windowsAgree(pluginPath, combNoiseGraph((float)(rate / 100), 0.995f, 0.5f),
+                 "comb", "out",
+                 "filt::comb: the same ring at one sample a window and at "
+                 "five hundred");
+}
+
 /* ---- osc::fmop ---------------------------------------------------------- */
 
 /* What the node claims, and why each one is here rather than left to a
@@ -3414,6 +3820,7 @@ int main (int argc, char **argv)
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);
     checkChorus(pluginPath);
+    checkComb(pluginPath);
     checkFmop(pluginPath);
     checkSample(pluginPath);
     checkCompressor(pluginPath);
