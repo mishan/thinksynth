@@ -335,12 +335,10 @@ private:
 
     std::vector<PendingNodeBind> pendingNodeBinds_;
 
-    /* Beats to a bar, for the `bars' a section's length is written in.
-       `sawSection_' is what makes a `meter' below the first section an
-       error rather than a line that quietly did nothing: bars are
-       folded to beats as they are read. */
+    /* Beats to a bar for sections and chain starts. Both are folded as
+       read, so a later meter must be rejected. */
     double meter_;
-    bool   sawSection_, sawSectionEnd_;
+    bool   sawSection_, sawBarStart_, sawSectionEnd_;
 
     /* One per section the file declares, in order, so a name a section
        gets wrong is reported against the line that got it wrong. */

@@ -103,6 +103,7 @@ public:
     struct Chain
     {
         std::string name;
+        std::string startText;  /* empty when the chain starts at zero */
         bool inputMidi;
         std::vector<Stage> stages;
         std::vector<Sink> sinks;

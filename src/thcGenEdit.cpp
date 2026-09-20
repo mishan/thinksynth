@@ -360,6 +360,7 @@ struct SectionIdx
 struct ChainIdx
 {
     std::string name;
+    std::string startText;
     size_t nameA, nameB;
     size_t stmtA, stmtB;
     size_t bodyClose;            /* the chain's '}'                      */
@@ -870,6 +871,16 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
             while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
             {
+                if (t[j].kind == Tok::WORD && t[j].text == "start" &&
+                    isPunct(t[j + 1], '=') && t[j + 2].kind == Tok::NUMBER &&
+                    t[j + 3].kind == Tok::WORD && isPunct(t[j + 4], ';'))
+                {
+                    c.startText = text.substr(t[j + 2].off,
+                        t[j + 3].end - t[j + 2].off);
+                    j += 5;
+                    continue;
+                }
+
                 if (t[j].kind == Tok::WORD && t[j].text == "input" &&
                     t[j + 1].kind == Tok::WORD && isPunct(t[j + 2], ';'))
                 {
@@ -1404,6 +1415,7 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         Chain out;
 
         out.name = c.name;
+        out.startText = c.startText;
         out.inputMidi = c.inputMidi;
 
         for (size_t si = 0; si < c.stages.size(); si++)

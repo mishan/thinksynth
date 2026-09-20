@@ -7624,6 +7624,131 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+static void
+checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
+                 thSynth *synth)
+{
+    const std::string body =
+        "tempo 120;\n"
+        "chain late {\n"
+        "  stage src gen::euclid { steps = 1; fills = 1; notes = \"C4\";"
+        " period = 1 s; hold = 0.1 s; };\n"
+        "  start = 2 s;\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+    const std::string path = thUtil::tempFile("gencheck-chain-start-");
+
+    if (path.empty())
+    {
+        fail("could not write the delayed-chain piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+        out << body;
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+        fail("delayed chain did not load: " +
+             (loader.errors().empty() ? std::string("unknown error") :
+                                        loader.errors()[0]));
+    else
+    {
+        const std::string first = render(sched, 3.1, 0.02);
+
+        if (first.find("N 2 0 60 ") != 0 ||
+            first.find("N 1 ") != std::string::npos)
+            fail("delayed chain did not first sound at two seconds");
+
+        sched.reset();
+
+        if (render(sched, 3.1, 0.02) != first)
+            fail("delayed chain changed after rewind");
+
+        thcGenEdit::Doc doc;
+        std::string why;
+
+        if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+            doc.chains.size() != 1 || doc.chains[0].startText != "2 s")
+            fail("the editor lost the chain's authored start");
+
+        if (thcGenEdit::setParam(path, "late", 0, "period", "1 s", why)
+            != thcGenEdit::OK || slurp(path) != body)
+            fail("the writer changed the delayed chain while editing a stage");
+    }
+
+    std::filesystem::remove(path);
+
+    const std::string clocked =
+        "tempo 120;\nchain c { start = 4 beats;"
+        " stage s gen::euclid { steps = 1; fills = 1; notes = \"C4\";"
+        " period = 1 s; hold = 0.1 s; };"
+        " sink { channel = 1; }; };\n";
+    const std::string beatTape = renderBody(plugins, synth, "chain-beat-start",
+                                             clocked, 2.1);
+
+    if (beatTape.find("N 2 0 60 ") != 0)
+        fail("a chain start in beats did not follow the tempo");
+
+    {
+        const std::string beatPath = thUtil::tempFile("gencheck-beat-start-");
+
+        if (!beatPath.empty())
+        {
+            {
+                std::ofstream out(beatPath.c_str(), std::ios::trunc);
+                out << clocked;
+            }
+
+            thcScheduler clock(synth);
+            thcGenLoader beatLoader(plugins);
+
+            if (!beatLoader.load(beatPath, &clock))
+                fail("could not load the clocked chain");
+            else
+            {
+                std::vector<double> heard;
+                sigc::connection conn = clock.sigDelivered.connect(
+                    [&heard](const thcEvent &ev) {
+                        if (ev.type == THC_EV_NOTE)
+                            heard.push_back(ev.at);
+                    });
+
+                clock.start();
+                clock.stepTransportTo(1.0);
+                clock.setTempo(60);
+                clock.stepTransportTo(2.9);
+
+                if (!heard.empty())
+                    fail("beat-valued chain started before the new tempo's beat");
+
+                clock.stepTransportTo(3.0);
+
+                if (heard.empty() || !near(heard[0], 3.0))
+                    fail("beat-valued chain did not move with a tempo change");
+
+                conn.disconnect();
+            }
+
+            std::filesystem::remove(beatPath);
+        }
+        else
+            fail("could not write the clocked-chain piece");
+    }
+
+    expectReject(plugins, synth, "chain-start-unit",
+        "chain c { start = 2; stage s gen::eno_line { };"
+        " sink { channel = 1; }; };", "start needs a unit");
+    expectReject(plugins, synth, "chain-start-twice",
+        "chain c { start = 1 s; start = 2 s;"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "sets start twice");
+}
+
 
 /* ---- voice leading (PIECES_PLAN.md 3a) ---------------------------------
  *
@@ -9111,6 +9236,7 @@ main (int argc, char *argv[])
     checkHeldNotes(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
+    checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);
     checkMasterEffect(plugins, &synth);

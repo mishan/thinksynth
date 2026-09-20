@@ -30,7 +30,8 @@
 
 thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
     : plugins_(plugins), pos_(0), exprDepth_(0), meter_(4),
-      sawSection_(false), sawSectionEnd_(false), hasSeed_(false), seed_(0)
+      sawSection_(false), sawBarStart_(false), sawSectionEnd_(false),
+      hasSeed_(false), seed_(0)
 {
 }
 
@@ -484,6 +485,7 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     sectionLines_.clear();
     meter_ = 4;
     sawSection_ = false;
+    sawBarStart_ = false;
     sawSectionEnd_ = false;
     pos_ = 0;
     name_.clear();
@@ -1107,14 +1109,12 @@ thcGenLoader::parsePreset (void)
 
 /* `meter 4;' -- beats to a bar, and nothing else.
  *
- * It exists so a section's length can be written in bars, which is how
- * an arrangement is thought about and counted. Nothing else in the
- * language reads it: a stage's `period = 1 beats' means a beat here as
- * it does everywhere.
+ * It lets sections and chain starts be written in bars. A stage's
+ * `period = 1 beats' means a beat here as it does everywhere.
  *
- * Before the first section, for the same reason a seed comes before the
- * first chain: bars are folded to beats as each section is read, so a
- * meter below one could not mean what it says.
+ * Before the first section or chain start in bars: both are folded to
+ * beats as they are read, so a meter below either could not mean what
+ * it says.
  */
 bool
 thcGenLoader::parseMeter (void)
@@ -1129,9 +1129,10 @@ thcGenLoader::parseMeter (void)
 
     Token n = take();
 
-    if (sawSection_)
+    if (sawSection_ || sawBarStart_)
     {
-        error(n.line, "meter must come before the first section");
+        error(n.line, "meter must come before the first section or "
+              "chain start in bars");
         return false;
     }
 
@@ -1778,6 +1779,7 @@ thcGenLoader::parseChain (thcScheduler *sched)
     bool sawSink = false;
     bool sawGenerator = false;
     bool sawInput = false;
+    bool sawStart = false;
     bool ok = true;
 
     while (true)
@@ -1799,8 +1801,80 @@ thcGenLoader::parseChain (thcScheduler *sched)
         if (t.kind != Token::WORD)
         {
             error(t.line, "chain " + nameTok.text +
-                  ": expected input, stage or sink");
+                  ": expected start, input, stage or sink");
             return false;
+        }
+
+        if (t.text == "start")
+        {
+            take();
+
+            if (sawSink)
+            {
+                error(t.line, "chain " + nameTok.text +
+                      ": start after sink (sinks come last)");
+                return false;
+            }
+
+            if (sawStart)
+            {
+                error(t.line, "chain " + nameTok.text + " sets start twice");
+                return false;
+            }
+
+            if (!expectPunct('='))
+                return false;
+
+            const Token &value = peek();
+
+            if (value.kind != Token::NUMBER || !std::isfinite(value.num) ||
+                value.num < 0)
+            {
+                error(value.line, "chain " + nameTok.text +
+                      ": start wants a nonnegative time");
+                return false;
+            }
+
+            Token number = take();
+            const Token &word = peek();
+
+            if (word.kind != Token::WORD ||
+                (word.text != "s" && word.text != "ms" &&
+                 word.text != "beats" && word.text != "b" &&
+                 word.text != "bars"))
+            {
+                error(word.line, "chain " + nameTok.text +
+                      ": start needs a unit (s, ms, beats or bars)");
+                return false;
+            }
+
+            Token unit = take();
+
+            if (!expectPunct(';'))
+                return false;
+
+            const bool beats = unit.text == "beats" || unit.text == "b" ||
+                               unit.text == "bars";
+            double at = number.num;
+
+            if (unit.text == "ms")
+                at /= 1000.0;
+            else if (unit.text == "bars")
+            {
+                at *= meter_;
+                sawBarStart_ = true;
+            }
+
+            if (!std::isfinite(at))
+            {
+                error(number.line, "chain " + nameTok.text +
+                      ": start is too large");
+                return false;
+            }
+
+            sched->setChainStart(chain, at, beats);
+            sawStart = true;
+            continue;
         }
 
         if (t.text == "input")
