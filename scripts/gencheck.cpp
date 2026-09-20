@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -8130,6 +8131,255 @@ checkMasterEffect (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* ---- a scale pickup before a written note ------------------------------ */
+
+static void
+checkRun (const std::map<std::string, thcPlugin *> &plugins,
+          thSynth *synth)
+{
+    if (plugins.find("run") == plugins.end())
+    {
+        fail("module 'run' is missing; build the plugins first");
+        return;
+    }
+
+    /* The grammar emits its whole phrase at transport zero. Its two
+       rests place C4 at 2 s, early enough for the transformer to send
+       a one-second pickup into the scheduler before the target sounds. */
+    const std::string line =
+        "seed 3;\n"
+        "scale cmaj \"C4 D4 E4 F4 G4 A4 B4\";\n"
+        "chain c {\n"
+        "  stage src gen::lsystem { axiom = \"rrF\"; depth = 0;\n"
+        "    notes = \"C4\"; step = 1 s; hold = 0.5 s; vel = 100; };\n"
+        "  stage r xform::run { scale = cmaj; time = 1 s; %s };\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+
+    auto played = [&](const char *what, const std::string &params)
+    {
+        std::string body = line;
+
+        body.replace(body.find("%s"), 2, params);
+
+        return playBody(plugins, synth, what, body, 3.1);
+    };
+
+    {
+        const std::vector<Heard> h =
+            played("ascending run", "steps = 7; prob = 1; vel = 70;");
+        const int pitch[] = { 48, 50, 52, 53, 55, 57, 59, 60 };
+        bool good = h.size() == 8;
+
+        for (size_t i = 0; i < h.size() && good; i++)
+        {
+            const double at = i < 7 ? 1 + (double)i / 7 : 2;
+            const double dur = i < 7 ? 1.0 / 7 : 0.5;
+            const int vel = i < 7 ? 70 : 100;
+
+            if (h[i].note != pitch[i] || !near(h[i].at, at) ||
+                !near(h[i].dur, dur) || h[i].vel != vel)
+                good = false;
+        }
+
+        if (!good)
+            fail("run: seven scale notes must precede the unchanged "
+                 "target at equal intervals");
+    }
+
+    {
+        const std::vector<Heard> h =
+            played("descending run", "steps = -3; prob = 1;");
+        const int pitch[] = { 65, 64, 62, 60 };
+        bool good = h.size() == 4;
+
+        for (size_t i = 0; i < h.size() && good; i++)
+            if (h[i].note != pitch[i] ||
+                !near(h[i].at, i < 3 ? 1 + (double)i / 3 : 2) ||
+                h[i].vel != 100)
+                good = false;
+
+        if (!good)
+            fail("run: negative steps descend from above into the target");
+    }
+
+    {
+        const std::vector<Heard> through =
+            played("run bypass", "steps = 7; prob = 0;");
+        const std::vector<Heard> plain = playBody(plugins, synth,
+            "run plain", "seed 3;\n"
+            "chain c { stage src gen::lsystem { axiom = \"rrF\";"
+            " depth = 0; notes = \"C4\"; step = 1 s; hold = 0.5 s;"
+            " vel = 100; }; sink { channel = 1; }; };\n", 3.1);
+
+        if (through.size() != plain.size() || through.size() != 1 ||
+            through[0].note != plain[0].note ||
+            through[0].vel != plain[0].vel ||
+            !near(through[0].at, plain[0].at) ||
+            !near(through[0].dur, plain[0].dur))
+            fail("run: prob = 0 must pass the phrase unchanged");
+    }
+
+    {
+        std::string body = line;
+
+        body.replace(body.find("rrF"), 3, "rrFFFF");
+        body.replace(body.find("%s"), 2,
+                     "steps = 3; prob = 0.5; vel = 70;");
+
+        const std::string first =
+            renderBody(plugins, synth, "run replay", body, 6.0);
+        const std::string again =
+            renderBody(plugins, synth, "run replay again", body, 6.0);
+
+        if (first.empty() || first != again)
+            fail("run: a seeded phrase must replay identically");
+    }
+
+    /* No pickup can precede the first instant of a piece. */
+    {
+        std::string early = line;
+
+        early.replace(early.find("rrF"), 3, "F");
+        early.replace(early.find("%s"), 2, "steps = 7; prob = 1;");
+
+        const std::vector<Heard> h =
+            playBody(plugins, synth, "early run", early, 0.9);
+
+        if (h.size() != 1 || h[0].note != 60 || !near(h[0].at, 0))
+            fail("run: a target at transport zero passes through (heard " +
+                 std::to_string(h.size()) +
+                 (h.empty() ? "" : ", first " + std::to_string(h[0].note) +
+                  " at " + std::to_string(h[0].at)) + ")");
+    }
+
+    /* A live knob can carry a non-finite value into a numeric param.
+       That must leave the scheduled target alone. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-run-nan-");
+
+        if (path.empty())
+            fail("run: could not write the non-finite probability piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                       "@chance = 1;\n"
+                       "scale cmaj \"C4 D4 E4 F4 G4 A4 B4\";\n"
+                       "chain c {\n"
+                       "  stage src gen::lsystem { axiom = \"rrF\";"
+                       " depth = 0; notes = \"C4\"; step = 1 s;"
+                       " hold = 0.5 s; vel = 100; };\n"
+                       "  stage r xform::run { scale = cmaj; steps = 7;"
+                       " time = 1 s; prob = @chance; };\n"
+                       "  sink { channel = 1; };\n"
+                       "};\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+            drainSynth();
+
+            if (!loader.load(path, &sched))
+                fail("run: the non-finite probability piece did not load");
+            else if (sched.knob("chance") == NULL)
+                fail("run: the probability knob is missing");
+            else
+            {
+                sched.knob("chance")->setValue(
+                    std::numeric_limits<float>::quiet_NaN());
+
+                const std::vector<Heard> h =
+                    notesOf(render(sched, 3.1, 0.02));
+
+                if (h.size() != 1 || h[0].note != 60 ||
+                    !near(h[0].at, 2))
+                    fail("run: non-finite probability must pass the "
+                         "target through");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
+    /* A live key has no known duration. Even after transport has run
+       long enough for a pickup, its press and release must stay paired. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-run-held-");
+
+        if (path.empty())
+            fail("run: could not write the held-note piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                       "chain c { input midi;"
+                       " stage r xform::run { steps = 7; time = 1 s;"
+                       " prob = 1; }; sink { channel = 1; }; };\n";
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("run: the held-note piece did not load");
+            else
+            {
+                int ons = 0, offs = 0;
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&ons, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            ons++;
+                        else if (ev.type == THC_EV_NOTEOFF)
+                            offs++;
+                    });
+
+                sched.start();
+                sched.stepTransport(2.0);
+
+                thcEvent ev = {};
+
+                ev.type = THC_EV_NOTE;
+                ev.at = sched.now();
+                ev.channel = 0;
+                ev.u.note.note = 60;
+                ev.u.note.velocity = 100;
+                ev.u.note.duration = 0;
+                sched.injectMidiEvent(ev);
+
+                sched.stepTransport(0.1);
+
+                ev.type = THC_EV_NOTEOFF;
+                ev.at = sched.now();
+                sched.injectMidiEvent(ev);
+
+                sched.stepTransport(0.1);
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (ons != 1 || offs != 1)
+                    fail("run: a held note and its release must pass "
+                         "through unchanged; heard " +
+                         std::to_string(ons) + " on and " +
+                         std::to_string(offs) + " off");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+}
+
 /* ---- variation (PIECES_PLAN.md 2) --------------------------------------
  *
  * The three stages that stop a written line repeating itself exactly:
@@ -8861,6 +9111,7 @@ main (int argc, char *argv[])
     checkHeldNotes(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
+    checkRun(plugins, &synth);
     checkVariation(plugins, &synth);
     checkMasterEffect(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
