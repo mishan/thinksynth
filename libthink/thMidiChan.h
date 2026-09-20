@@ -125,17 +125,19 @@ public:
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
 
-    /* How this channel allocates voices: `poly' and `mono' off the io node,
-     * read once at construction and never written again, so either thread may
-     * ask.
+    /* How this channel allocates voices: `poly', `mono' and `choke' off the
+     * io node, read once at construction and never written again, so either
+     * thread may ask.
      *
      * For anything that plays notes and then expects to find them -- a
      * harness, a panel, a voice display. A mono channel answers one note with
-     * one voice however many are played, and a poly-limited one retires down
-     * to its limit, so "I played three, where are they" is a question with a
-     * different answer per graph. polyMax() of 0 is no limit. */
+     * one voice however many are played, a choked one leaves only the newest
+     * still keyed, and a poly-limited one retires down to its limit, so "I
+     * played three, where are they" is a question with a different answer per
+     * graph. polyMax() of 0 is no limit. */
     int polyMax (void) const { return polymax_; }
     bool mono (void) const { return mono_; }
+    bool choke (void) const { return choke_; }
 
     thSynthTree *modnode (void) { return modnode_; }
 
@@ -271,6 +273,10 @@ private:
     /* `mono = 1' on the io node: a new note while one is held retunes the
        voice that is sounding instead of starting another. See insertNote. */
     bool mono_;
+
+    /* `choke = 1' on the io node: a new note sends every voice that is
+       sounding into its release and starts a fresh one. See insertNote. */
+    bool choke_;
 
     /* The pitches whose keys are down, oldest first, so the top of the stack
        is the one sounding. A fixed array rather than a vector because this is

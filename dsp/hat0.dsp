@@ -1,3 +1,15 @@
+# Hat 0 -- two squares ring-modulated, filtered by their own envelope.
+#
+# Velocity fades the release between `Closed Length' and `Open Length',
+# which is the hi-hat's one trick: the same part plays both, and which
+# one it is is in the hit.
+#
+# THE PEDAL. `choke = 1' makes that split a playable pair -- the open hat
+# on the `and' is cut by the closed one that lands on the beat, because
+# on a kit they are one instrument and a foot cannot be in two places.
+# Which voice to end is the channel's knowledge and not a graph's, so the
+# engine does the ending and `Pedal Close' only says how fast.
+
 name "Hat 0";
 author "Leif Ames";
 description "Electronic Hihat";
@@ -58,11 +70,23 @@ description "Electronic Hihat";
     @cutmax.max = 1;
     @cutmax.label = "Filter High";
 
+    @pedal = 12 ms;
+    @pedal.widget = 1;
+    @pedal.min = 1ms;
+    @pedal.max = 4000ms;
+    @pedal.label = "Pedal Close";
+
 node ionode {
     channels = 2;
+
+    # One hat sounding and one being cut: `choke' is what makes the pair
+    # and `poly' is the room their overlap needs.
+    choke = 1;
+    poly = 2;
+
     out0 = mixer->out;
     out1 = mixer->out;
-    play = adsr->play;
+    play = adsr->play * foot->out;
 
     waveform = 2;
 };
@@ -126,9 +150,28 @@ node filter filt::ds {
     cutoff = filtmap->out;
 };
 
+# The pedal. `choke = 1' on the io node sends every voice that is still
+# sounding into its release when the next hat lands, and marks it by
+# taking `trigger' negative -- so this is 1 for a key down, 1 for a key
+# up, and 0 only for a voice the choke took. A note-off therefore does
+# not shorten a hat, which is what a hat wants: its length is in the
+# velocity. `play' is multiplied by it too, so a choked voice retires as
+# soon as it is quiet rather than sitting out the rest of its decay.
+#
+# A `Pedal Close' at the top of its range is a hat that ignores the
+# pedal: the release outlasts the hat's own envelope, so nothing is ever
+# cut, which is the sound this graph had before it could be.
+node foot env::adsr {
+    a = 0;
+    d = 0;
+    s = th_max;
+    r = @pedal;
+    trigger = clamp(1 + ionode->trigger, 0, 1);
+};
+
 node mixer mixer::mul {
     in0 = filter->out_high;
-    in1 = adsr->out;
+    in1 = adsr->out * foot->out;
 };
 
 io ionode;

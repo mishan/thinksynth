@@ -60,6 +60,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     notecount_ = 0;
     notecount_decay_ = 0;
     mono_ = false;
+    choke_ = false;
     monoCount_ = 0;
     argSustain_ = NULL;
 
@@ -111,9 +112,10 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
         channels_ = 1;
     }
 
-    /* `poly' and `mono', the two things a .dsp can say about how its voices
-     * are allocated. Both are io-node constants like `channels', read once
-     * here, and both were literals in this constructor before.
+    /* `poly', `mono' and `choke', the three things a .dsp can say about how
+     * its voices are allocated. All are io-node constants like `channels',
+     * read once here, and the first two were literals in this constructor
+     * before.
      *
      * thNode::getArg rather than thSynthTree::getArg: the latter invents a
      * zero-valued arg for a name it cannot find, and for `poly' a zero is not
@@ -139,6 +141,16 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
         const thArg *monoarg = io->getArg("mono");
 
         mono_ = (monoarg && monoarg->values() && monoarg->values()[0] != 0);
+
+        const thArg *chokearg = io->getArg("choke");
+
+        /* Exclusive with `mono', and `mono' wins. Retuning the voice that is
+           sounding and cutting it off are opposite answers to the same
+           question, so a graph that asks for both has asked twice; resolving
+           it here keeps the note path with one branch per mode rather than
+           four. */
+        choke_ = (!mono_ && chokearg && chokearg->values() &&
+                  chokearg->values()[0] != 0);
     }
 
     output_ = new float[thOutputSamples(channels_, windowlength_)];
@@ -427,7 +439,11 @@ thMidiNote *thMidiChan::monoVoice (void)
     {
         thArg *trigger = resolveIOArg(i->second->synthTree(), triggerindex_);
 
-        if (trigger && (*trigger)[0] != 0)
+        /* `> 0' and not `!= 0': 1 is a key down and 2 is the pedal holding
+           one, and both are voices to slide into. A negative one is a voice
+           the choke has cut, which is not this channel's mode but is a value
+           this arg now carries. */
+        if (trigger && (*trigger)[0] > 0)
             return i->second;
     }
 
@@ -521,6 +537,41 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
             NoteMap::iterator dead = i++;
 
             decayNote(dead);
+        }
+    }
+
+    /* The choke: every voice that is keyed, not only the one at this pitch.
+       A closed hat and the open one it has to kill are different notes, which
+       is the whole reason a choke group is not a retrigger. They go where a
+       retrigger's voice goes -- into decaying_, still sounding, with their
+       envelopes in release -- and the new voice below attacks from the start.
+       `poly' is what decides how much of that overlap the channel can
+       afford.
+
+       `trigger' goes to -1 rather than 0, which is the same protocol the
+       pedal's 2 is: every envelope in the tree tests `> 0' for held, so a
+       negative one is a release exactly as a zero is. What it adds is a
+       voice that can tell the two apart -- a one-shot drum ignores the key
+       coming up and has to answer the choke, and `clamp(1 + trigger, 0, 1)'
+       inside the graph is that distinction and nothing else. */
+    if (choke_)
+    {
+        for (NoteMap::iterator c = notes_.begin(); c != notes_.end(); )
+        {
+            NoteMap::iterator dead = c++;
+            thMidiNote *cut = dead->second;
+
+            decayNote(dead);
+            cut->setArg("trigger", -1);
+
+            /* decayNote leaves notecount_ alone, because the voice it moves
+               is one a new note is taking the place of. Here one note
+               replaces however many were sounding, so they come off the
+               count here instead -- otherwise the polyphony test at the top
+               of process() reads a channel of two voices as a channel of
+               three and retires the release this is all for. */
+            if (notecount_ > 0)
+                notecount_--;
         }
     }
 

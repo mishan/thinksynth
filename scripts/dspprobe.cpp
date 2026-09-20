@@ -116,10 +116,11 @@ const int NUM_NOTES = 3;
 /* How many of NOTES this channel will hold at once.
  *
  * Three, unless the graph says otherwise on its io node: `mono = 1' answers
- * every note with the same voice, and `poly = N' retires down to N. A harness
- * that played three and then insisted on finding three would read a mono
- * graph as a graph that publishes nothing -- which is what dsp/bass.dsp did
- * to this one. */
+ * every note with the same voice, `choke = 1' leaves only the newest keyed
+ * and sends the rest into their release, and `poly = N' retires down to N. A
+ * harness that played three and then insisted on finding three would read a
+ * mono graph as a graph that publishes nothing -- which is what dsp/bass.dsp
+ * did to this one. */
 int voicesFor (thSynth &synth, int chan)
 {
     thMidiChan *c = synth.getChannel(chan);
@@ -127,7 +128,7 @@ int voicesFor (thSynth &synth, int chan)
     if (c == NULL)
         return NUM_NOTES;
 
-    if (c->mono())
+    if (c->mono() || c->choke())
         return 1;
 
     const int limit = c->polyMax();
@@ -162,6 +163,19 @@ bool allNotesSounding (thSynth &synth, int chan, int voices)
             return false;
 
     return true;
+}
+
+/* Does this channel answer a note by cutting the voices that are sounding?
+ *
+ * It matters here because referenceSum below walks the notes the channel
+ * still has keyed, and a choked voice is neither keyed nor gone: it is in
+ * decaying_, releasing, and the tap goes on accumulating it. The reference
+ * cannot see it, so a choked graph is played one note rather than three. */
+bool chokes (thSynth &synth, int chan)
+{
+    thMidiChan *c = synth.getChannel(chan);
+
+    return c != NULL && c->choke();
 }
 
 /* The independent path: every sounding note's tree, by name. */
@@ -328,13 +342,13 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
 
         r.ports++;
 
-        for (int n = 0; n < NUM_NOTES; n++)
-            synth.addNote(0, (float)NOTES[n], 100);
-
-        /* After the notes are queued and before the first process(): the
-           channel exists from the load, and what is asked of it is two
-           constants read when it was built. */
+        /* The channel exists from the load, and what is asked of it here is
+           the constants read when it was built. */
         const int voices = voicesFor(synth, 0);
+        const int first = chokes(synth, 0) ? NUM_NOTES - 1 : 0;
+
+        for (int n = first; n < NUM_NOTES; n++)
+            synth.addNote(0, (float)NOTES[n], 100);
 
         const int windowlen = synth.getWindowlen();
 

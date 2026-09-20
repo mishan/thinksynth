@@ -26,6 +26,11 @@
 # hat and a soft one is closed, and the velocity curve is squared to
 # keep the middle of the range from sitting between the two. A pattern
 # that wants dynamics instead of a pedal drives the channel's amplitude.
+#
+# And with `choke = 1' the pedal is a pedal: the open hat on the `and' is
+# cut by the closed one that lands on the beat, because a foot cannot be
+# in two places. Which voice to end is the channel's knowledge and not a
+# graph's, so the engine ends it and `Pedal Close' only says how fast.
 
 name "Hat 808";
 author "Misha Nasledov";
@@ -76,11 +81,23 @@ description "Six inharmonic partials through a band-pass, velocity opening the h
     @olen.max = 3000ms;
     @olen.label = "Open Decay";
 
+    @pedal = 12 ms;
+    @pedal.widget = 1;
+    @pedal.min = 1ms;
+    @pedal.max = 4000ms;
+    @pedal.label = "Pedal Close";
+
 node ionode {
     channels = 2;
+
+    # One hat sounding and one being cut: `choke' is what makes the pair
+    # and `poly' is the room their overlap needs.
+    choke = 1;
+    poly = 2;
+
     out0 = out->out;
     out1 = out->out;
-    play = env->play;
+    play = env->play * foot->out;
 };
 
 node metal osc::multiwave {
@@ -118,9 +135,28 @@ node env env::ad {
 
 # The high output over the band: the band is the body of the hat and
 # what is above it is the air, and a hat with no air is a woodblock.
+# The pedal. `choke = 1' on the io node sends every voice that is still
+# sounding into its release when the next hat lands, and marks it by
+# taking `trigger' negative -- so this is 1 for a key down, 1 for a key
+# up, and 0 only for a voice the choke took. A note-off therefore does
+# not shorten a hat, which is what a hat wants: its length is in the
+# velocity. `play' is multiplied by it too, so a choked voice retires as
+# soon as it is quiet rather than sitting out the rest of its decay.
+#
+# A `Pedal Close' at the top of its range is a hat that ignores the
+# pedal: the release outlasts the hat's own envelope, so nothing is ever
+# cut, which is the sound this graph had before it could be.
+node foot env::adsr {
+    a = 0;
+    d = 0;
+    s = th_max;
+    r = @pedal;
+    trigger = clamp(1 + ionode->trigger, 0, 1);
+};
+
 node out mixer::mul {
     in0 = band->out_band * 0.7 + band->out_high * 0.5;
-    in1 = env->out;
+    in1 = env->out * foot->out;
 };
 
 io ionode;
