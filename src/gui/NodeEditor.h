@@ -22,7 +22,7 @@
 #include "../NodeGraph.h"
 #include "../thVisual.h"
 #include "NodeCanvasWidget.h"
-#include "NodeParams.h"
+#include "NodeParamsView.h"
 #include "NodePalette.h"
 
 class thSynth;
@@ -459,7 +459,7 @@ private:
     Gtk::Paned split_{Gtk::Orientation::HORIZONTAL};  /* canvas  | parameters */
     Gtk::ScrolledWindow scroller_;
     NodeCanvasWidget canvas_;
-    NodeParams params_;
+    NodeParamsView params_;
     NodePalette palette_;
     Gtk::Label status_;
 

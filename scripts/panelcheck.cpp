@@ -75,6 +75,8 @@
 
 #include "ArgPanel.h"
 #include "KnobPanel.h"
+#include "NodeGraph.h"
+#include "NodePanel.h"
 
 static int failed = 0;
 
@@ -564,6 +566,221 @@ static void checkKnobs (void)
 
     for (size_t i = 0; i < knobs.size(); i++)
         delete knobs[i];
+}
+
+/* ---- a node's parameters --------------------------------------------- */
+
+/* A graph with one of each kind of parameter in it.
+ *
+ * What NodePanel has to get right is which of them a person may type into
+ * and what the others say instead of a number, and the corpus has no single
+ * node carrying all five: a plain value, a value the plugin writes, one
+ * driven by a wire, one driven by a control, and one whose values the plugin
+ * named. */
+static const char *GRAPH =
+    "name \"panelnode\";\n"
+    "\n"
+    "@cutoff = 0.25;\n"
+    "@cutoff.widget = 1;\n"
+    "@cutoff.min = 0;\n"
+    "@cutoff.max = 1;\n"
+    "\n"
+    "node ionode {\n"
+    "    out0 = osc->out;\n"
+    "    out1 = osc->out;\n"
+    "    channels = 2;\n"
+    "    play = 1;\n"
+    "};\n"
+    "\n"
+    "node lfo osc::simple {\n"
+    "    freq = 3;\n"
+    "};\n"
+    "\n"
+    "node osc osc::simple {\n"
+    "    freq = ionode->note;\n"
+    "    waveform = 2;\n"
+    "    pw = @cutoff;\n"
+    "    fm = lfo->out;\n"
+    "    mul = 1.5;\n"
+    "};\n"
+    "\n"
+    "io ionode;\n";
+
+static void checkNodes (const string &pluginPath, const string &file)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thSynthTree *tree = synth.parseTree(file);
+
+    if (tree == NULL)
+    {
+        fail("the node fixture parses", file);
+        return;
+    }
+
+    NodeGraph graph;
+
+    if (!graph.build(tree))
+    {
+        fail("it builds a graph", "");
+
+        delete tree;
+
+        return;
+    }
+
+    int box = -1;
+
+    for (size_t i = 0; i < graph.boxes().size(); i++)
+        if (graph.boxes()[i].name == "osc")
+            box = (int)i;
+
+    if (box < 0)
+    {
+        fail("the graph has the osc node in it", "");
+
+        delete tree;
+
+        return;
+    }
+
+    NodePanel panel;
+    thPanel built;
+
+    panel.setBox(&graph, box);
+
+    check(panel.build(built), "a node's parameters make a panel");
+    check(built.kind == thPanel::NODE_VALUE, "of their own kind");
+
+    /* A panel over one box of thirty has to say which, and the plugin's
+       spelling is how a reader knows what the rows mean. */
+    check(built.title == "osc" && built.subtitle == "osc::simple",
+          "named for the node and what it is",
+          built.title + " / " + built.subtitle);
+
+    const thPanelRow *mul = built.find("mul");
+
+    if (mul == NULL)
+        fail("a plain value has a row", idsOf(built));
+    else
+    {
+        check(mul->kind == thPanelRow::NUMBER && mul->editable,
+              "a plain value is a number box, and offered");
+
+        /* A number box and no slider. A node arg's min and max are not a
+           control's travel and most args have none, so a slider would be a
+           handle sweeping a range nobody declared. */
+        check(mul->text == "1.5",
+              "spelled the way the file spells it, not the panel's way",
+              mul->text);
+    }
+
+    const thPanelRow *waveform = built.find("waveform");
+
+    if (waveform == NULL)
+        fail("a named-value param has a row", idsOf(built));
+    else
+    {
+        /* The plugin named six waveforms, so this is a list. The panel it
+           replaced showed the names in a tooltip beside a spin button and
+           said why: one row of a grid of spin buttons behaving differently
+           was the worse trade. A panel row is drawn by its kind, so the
+           trade has gone. */
+        check(waveform->kind == thPanelRow::CHOICE,
+              "a param whose values the plugin named is a list");
+        check(waveform->choices.size() == 6 && waveform->text == "Square",
+              "with the plugin's own names on it",
+              to_string(waveform->choices.size()) + " / " + waveform->text);
+
+        /* Eight shipped patches say `.max = 5.1' for six waveforms --
+           padding for a slider that could not otherwise reach the last
+           one -- and honouring that would offer a seventh position that
+           does nothing. */
+        check(waveform->lo == 0 && waveform->hi == 5,
+              "and its travel is the list", to_string(waveform->hi));
+    }
+
+    const thPanelRow *out = built.find("out");
+
+    check(out && out->kind == thPanelRow::READONLY && !out->editable,
+          "an output is shown and not offered: the plugin writes it every "
+          "window");
+
+    const thPanelRow *fm = built.find("fm");
+
+    check(fm && fm->kind == thPanelRow::READONLY && !fm->editable &&
+          fm->text == "lfo->out",
+          "a wired param says where its value comes from",
+          fm ? fm->text : string("(no row)"));
+
+    const thPanelRow *pw = built.find("pw");
+
+    /* The control's name bare in `knob' -- what a lookup would use -- and
+       the spelling the file wrote in the text beside it. */
+    check(pw && pw->kind == thPanelRow::READONLY && !pw->editable &&
+          pw->knob == "cutoff" && pw->text == "@cutoff = 0.25",
+          "and so does one a control drives",
+          pw ? (pw->knob + " / " + pw->text) : string("(no row)"));
+
+    /* The tooltip precedence: the plugin's own description of the arg,
+       where the file said nothing about it. */
+    check(mul && mul->desc.find("Multiply") != string::npos,
+          "a row carries what the plugin says the arg is for",
+          mul ? mul->desc : string("(no row)"));
+
+    thPanelEdit edit;
+    thPanelResult r = panel.propose("mul", "2.25", edit);
+
+    check(r.ok && r.changed && edit.value == 2.25 &&
+          edit.kind == thPanelEdit::NODE_VALUE && edit.a == box,
+          "a typed number becomes a node intent, naming the box", r.why);
+
+    r = panel.propose("waveform", "Triangle", edit);
+
+    check(r.ok && edit.value == 3, "a list takes the value's name",
+          to_string(edit.value));
+
+    r = panel.propose("mul", "1.5", edit);
+
+    check(r.ok && !r.changed,
+          "an intent equal to what the file holds splices nothing", r.why);
+
+    /* A shown row is not an offered one, and a panel drawn before the graph
+       was rewired may still have one. */
+    r = panel.propose("fm", "1", edit);
+
+    check(!r.ok, "a wired param refuses an edit: the thing to change is the "
+                 "wire", r.why);
+
+    r = panel.propose("out", "1", edit);
+
+    check(!r.ok, "and so does an output", r.why);
+
+    r = panel.propose("nosucharg", "1", edit);
+
+    check(!r.ok, "an edit naming an arg the node has not got is refused",
+          r.why);
+
+    /* Which boxes have anything to set, asked once. The page's node view
+       and the harnesses that click on one both want this, and three
+       answers to it is two too many. */
+    check(NodePanel::settable(&graph, box),
+          "the osc node has something to set");
+
+    /* A control is a knob on the canvas and not a node with args on it:
+       nothing in its box is a number this panel could offer. */
+    int control = -1;
+
+    for (size_t i = 0; i < graph.boxes().size(); i++)
+        if (graph.boxes()[i].isControl)
+            control = (int)i;
+
+    check(control >= 0 && !NodePanel::settable(&graph, control),
+          "and a control box has not");
+
+    check(!NodePanel::settable(&graph, 9999),
+          "nor has a box that is not there");
+
+    delete tree;
 }
 
 /* ---- the instrument's panel ----------------------------------------- */
@@ -1212,8 +1429,10 @@ int main (int argc, char **argv)
 
     const string instrument = scratchPath("panelcheck-scratch.dsp");
     const string effect = scratchPath("panelcheck-scratch-fx.dsp");
+    const string graph = scratchPath("panelcheck-scratch-graph.dsp");
 
-    if (!writeFile(instrument, INSTRUMENT) || !writeFile(effect, EFFECT))
+    if (!writeFile(instrument, INSTRUMENT) || !writeFile(effect, EFFECT) ||
+        !writeFile(graph, GRAPH))
         return 1;
 
     if (!dumpDir.empty())
@@ -1259,10 +1478,12 @@ int main (int argc, char **argv)
         checkEffect(synth, effect);
     }
 
+    checkNodes(pluginPath, graph);
     checkRate(pluginPath, instrument);
 
     remove(instrument.c_str());
     remove(effect.c_str());
+    remove(graph.c_str());
 
     printf("\n%d failure(s)\n", failed);
 

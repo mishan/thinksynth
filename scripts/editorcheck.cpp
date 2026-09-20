@@ -63,6 +63,7 @@
 #include "gui/NodeEditor.h"
 #include "gui/ArgPanelView.h"
 #include "gui/PanelView.h"
+#include "gui/NodeParamsView.h"
 
 /* Picked up automatically by LeakSanitizer, the same way visualcheck and
  * dspstress supply theirs -- so this stays a real gate under CI's
@@ -458,6 +459,133 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
     delete win;
 }
 
+/* The panel over one node of a graph.
+ *
+ * What it says is scripts/panelcheck's business and is checked there with no
+ * toolkit anywhere. What is left for here is the half that needs a display:
+ * that a thPanel becomes real widgets, that a parameter the plugin writes is
+ * drawn without one to type into, and that typing in the one that is offered
+ * reports the edit the window is waiting for -- the box, the arg's name and
+ * the number.
+ *
+ * The signal and no write, because there is nothing to write: a node's value
+ * is a number in the .dsp, and splicing it is NodeEditor's.
+ */
+void checkNodePanel (thSynth &synth, const char *file)
+{
+    thSynthTree *tree = synth.parseTree(file);
+
+    if (tree == NULL)
+    {
+        ok(false, "the patch parses for the node panel");
+        return;
+    }
+
+    NodeGraph graph;
+
+    if (!graph.build(tree))
+    {
+        ok(false, "it builds a graph");
+
+        delete tree;
+
+        return;
+    }
+
+    /* The first node with something a person could type into, which is the
+       same question the page asks before it draws a panel at all. */
+    int box = -1;
+
+    for (size_t i = 0; i < graph.boxes().size() && box < 0; i++)
+        if (!graph.boxes()[i].isControl &&
+            NodePanel::settable(&graph, (int)i))
+            box = (int)i;
+
+    ok(box >= 0, "the patch has a node with a value to set");
+
+    if (box < 0)
+    {
+        delete tree;
+
+        return;
+    }
+
+    Gtk::Window *win = new Gtk::Window();
+    NodeParamsView *panel = Gtk::manage(new NodeParamsView);
+
+    int gotBox = -1;
+    string gotArg;
+    double gotValue = 0;
+    int edits = 0;
+
+    panel->signal_param_edited().connect(
+        [&] (int b, string arg, double v)
+        {
+            gotBox = b;
+            gotArg = arg;
+            gotValue = v;
+            edits++;
+        });
+
+    panel->setBox(&graph, box);
+
+    win->set_child(*panel);
+    win->set_default_size(420, 400);
+    win->present();
+
+    pump(0.2);
+
+    /* A spin button per offered row and none for the rest. Every shipped
+       graph has more parameters shown than offered -- outputs, wires,
+       controls -- so this is not the trivial case. */
+    std::vector<Gtk::SpinButton *> spins;
+
+    collectWidgets<Gtk::SpinButton>(panel, spins);
+
+    size_t offered = 0;
+
+    for (size_t i = 0; i < panel->panel().rows.size(); i++)
+        if (panel->panel().rows[i].editable)
+            offered++;
+
+    ok(offered > 0 && offered < panel->panel().rows.size(),
+       "the panel offers %zu of %zu rows, and shows the rest",
+       offered, panel->panel().rows.size());
+
+    ok(spins.size() == offered,
+       "a box to type in for each offered row (%zu of %zu)",
+       spins.size(), offered);
+
+    /* Building the panel must not report an edit. The other way round, a
+       patch was modified by the act of looking at it. */
+    ok(edits == 0, "drawing it reported no edit (%d)", edits);
+
+    if (!spins.empty())
+    {
+        const double want = spins[0]->get_value() + 1.0;
+
+        spins[0]->set_value(want);
+
+        /* Committed on Enter or on focus leaving, not on every increment:
+           a spin button moves once per arrow click and each of those would
+           otherwise be a separate splice into the file. */
+        win->set_focus(*win);
+
+        pump(0.2);
+
+        ok(edits == 1 && gotBox == box && !gotArg.empty() &&
+           fabs(gotValue - want) < 1e-6,
+           "typing in one reports the box, the arg and the number "
+           "(%d edits, box %d, `%s' = %f, wanted %f)",
+           edits, gotBox, gotArg.c_str(), gotValue, want);
+    }
+
+    win->set_visible(false);
+    delete win;
+
+    delete tree;
+}
+
 int run (const string &pluginPath, const char *file)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
@@ -790,6 +918,7 @@ int run (const string &pluginPath, const char *file)
        Gtk::manage means the editor goes with the window. */
     delete window;
 
+    checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
     checkPanelViewRows();
 

@@ -505,17 +505,14 @@ details { margin: 0.8em 0; }
     .panelrow > * { grid-column: 1; }
 }
 
-/*
- * The node editor's params panel: a row per arg, wrapping into columns on
- * anything wider than a phone.
- */
-.params {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem 1rem;
-    margin-top: 0.5rem;
-}
+/* The selected node's parameters, drawn by panel.js like everything else
+   this page has a panel for. */
+#nodeparams { margin-top: 0.5rem; }
 
+/*
+ * The composer canvas's params popover: a row per param, read-only, in a
+ * little panel beside the stage it is about.
+ */
 .paramrow {
     display: flex;
     align-items: baseline;

@@ -201,8 +201,8 @@ What a control *is* — its rows, its label, what it is worth in the unit it was
 written in, how many decimals are worth showing, which group it belongs to —
 is `thPanel`, in [`src/PanelModel.h`](../src/PanelModel.h). Plain data, no
 toolkit, built from live state by a provider (`src/ArgPanel.cpp` for a
-channel's args, `src/KnobPanel.cpp` for a piece's knobs) and rendered by a
-shell — `src/gui/PanelView.cpp` on the
+channel's args, `src/KnobPanel.cpp` for a piece's knobs, `src/NodePanel.cpp`
+for a selected node's) and rendered by a shell — `src/gui/PanelView.cpp` on the
 desktop, `wasm/web/panel.js` in the browser, which reaches it through
 `tw_panel_open`/`tw_panel_json`. It exists because those rules used to live
 inside a widget-building function and had to be written a second time,
@@ -215,7 +215,10 @@ the desktop that is an immediate `thArg::setValue`; in the browser it is a
 broadcast command, because the local tab has no privileged path to the
 scheduler. A knob is the case where the two deliveries visibly differ: a knob
 is heard, so a move has to land at the same transport time on every peer, and
-`tw_panel_edit` refuses one outright — `tw_knob` carries the stamp. `scripts/panelcheck` is the gate, and it needs no display;
+`tw_panel_edit` refuses one outright — `tw_knob` carries the stamp. A node's
+value is the case with no delivery at all: it is a number in the `.dsp`, so
+the intent becomes a splice into that text (`NodeEdit::setValue` on the
+desktop, `tw_edit_set_value` in the browser) and nothing live is written. `scripts/panelcheck` is the gate, and it needs no display;
 `wasm/web/panelcheck.mjs` is the other one, and diffs the module's
 description of a fixture against the native build's, byte for byte.
 

@@ -88,6 +88,32 @@ void PanelView::setPanel (const thPanel &panel)
     panel_ = panel;
     bound_.resize(panel_.rows.size());
 
+    /* What the panel is over, where it has anything to say: a panel over
+       one node of thirty has to name it, and the ones over a whole channel
+       leave both empty and get no header. */
+    if (!panel_.title.empty())
+    {
+        Gtk::Label *title = manage(new Gtk::Label());
+
+        title->set_markup("<b>" + Glib::Markup::escape_text(panel_.title) +
+                          "</b>");
+        title->set_xalign(0.0);
+        title->set_margin_start(4);
+
+        append(*title);
+    }
+
+    if (!panel_.subtitle.empty())
+    {
+        Gtk::Label *subtitle = manage(new Gtk::Label(panel_.subtitle));
+
+        subtitle->set_xalign(0.0);
+        subtitle->set_margin_start(4);
+        subtitle->set_sensitive(false);
+
+        append(*subtitle);
+    }
+
     std::vector<size_t> loose;
     std::map<string, std::vector<size_t> > grouped;
 
