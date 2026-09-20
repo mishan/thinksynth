@@ -225,7 +225,7 @@ files that is not really there.
 Direction can be recovered, because the engine's own use of the io node is
 narrow. `thMidiChan::process()` reads exactly three things off it: `OUTPUTPREFIX`
 plus a channel digit for the audio it mixes, `play` to learn the note has ended,
-and `channels` to size the mix. `poly` and `mono` are read once, at
+and `channels` to size the mix. `poly`, `mono` and `choke` are read once, at
 construction — see below. Everything else travels the other way —
 `thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp,
 `thChanEffect` writes `in<N>`, and the author's constants are read by whoever
@@ -233,7 +233,8 @@ wants them.
 
 So an arg is an input to the audio-out half if
 
-- the engine reads it — `out<N>`, `play`, `channels`, `poly`, `mono`; or
+- the engine reads it — `out<N>`, `play`, `channels`, `poly`, `mono`,
+  `choke`; or
 - **this file wires something into it.**
 
 The second clause is not decoration. 23 args across the corpus are written by a
@@ -247,10 +248,11 @@ forty other nodes read `ionode->res`. Args with no port on either side — a doz
 dead constants, mostly typos like `inwav` for `inwave` — belong to the source
 half, where a value the io node offers belongs even when nothing takes it up.
 
-### Voices: `poly` and `mono`
+### Voices: `poly`, `mono` and `choke`
 
-Two io-node constants, read once when the channel is built, that say how notes
-become voices. Both were literals in the engine before they were settings.
+Three io-node constants, read once when the channel is built, that say how
+notes become voices. The first two were literals in the engine before they
+were settings.
 
 ```
 node ionode { channels = 2; poly = 2; mono = 1; out0 = vca->out; };
@@ -284,6 +286,55 @@ a key going down takes it back off the pedal.
 note that started it, so the lag's state carries across the retune and the
 pitch slides into the new note. `dsp/bass.dsp` is that arrangement end to
 end.
+
+**`choke = 1`** is the drummer's pedal. A note arriving on a choked channel
+sends *every* voice that is keyed into its release — whatever pitch it was —
+and starts a fresh voice with a fresh attack at its own velocity:
+
+```
+node ionode { channels = 2; choke = 1; poly = 2; out0 = vca->out; };
+```
+
+That is not `mono`, which finds the voice that is sounding and retunes it
+without re-attacking, and it is not the retrigger a second note at the same
+pitch already gets: the open hat that has to die is a *different note* from
+the closed one that kills it, so nothing a graph can reach does this. Which
+voice to end is the channel's knowledge.
+
+The voices it cuts are released, not silenced, so their tails run under the
+new note's attack — which is what a hat pedal sounds like. `poly` is what
+leaves room for that: a hat wants at least 2, one sounding and one finishing,
+and at `poly = 1` the release is retired the moment the next note lands.
+The choke applies to the whole channel; other drum instruments belong on
+separate channels if they must not cut one another off.
+
+`mono` and `choke` are exclusive and `mono` wins, because retuning the voice
+that is sounding and cutting it off are opposite answers to the same question.
+
+**A cut voice is marked.** `trigger` goes to **-1** rather than 0 on a voice
+the choke ends — the same protocol the pedal's 2 is. Every envelope in the
+tree tests `> 0` for held, so a negative trigger is a release exactly as a
+zero is and no graph has to know about it. What it buys is the graph that
+*does*: a one-shot drum holds its envelope's trigger at a constant, because
+how long an open hat rings is its velocity's business and not the
+sequencer's, and it still has to answer the pedal. That graph writes
+
+```
+node foot env::adsr {
+    a = 0;  d = 0;  s = th_max;  r = @pedal;
+    trigger = clamp(1 + ionode->trigger, 0, 1);
+};
+```
+
+which is 1 for a key down, 1 for a key up, 1 for a voice the pedal is
+holding, and 0 only for one the choke took. `dsp/hat.dsp`, `dsp/hat0.dsp` and
+`dsp/hat808.dsp` multiply their output and their `play` by it, so a choked hat
+goes quiet over `@pedal` and the voice retires when it does.
+
+The top of `Pedal Close` gives a long release, not an off switch: an
+overlapping hat still fades, and `poly = 2` still limits the channel to two
+voices. An exact return to the old independent hats requires a graph without
+the choke and foot gate.
 
 ### An effect graph
 

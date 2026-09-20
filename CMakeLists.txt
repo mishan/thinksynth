@@ -38,9 +38,13 @@ include(TestBigEndian)
 # header and linked against a libthink that fills the vector with the older
 # ArgInfo therefore reads every arg at the wrong offset, and reads it silently.
 # That is the case the soname exists to make loud.
+#
+# 8: thMidiChan gained choke state and an inline choke() accessor. A client
+# built with that header must not silently use an older constructor that never
+# initializes the new state, even on targets where it fits in existing padding.
 # ---------------------------------------------------------------------------
 
-set(THINK_LIB_MAJOR 7)
+set(THINK_LIB_MAJOR 8)
 set(THINK_LIB_MINOR 0)
 
 # ---------------------------------------------------------------------------

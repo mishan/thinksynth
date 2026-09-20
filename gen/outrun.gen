@@ -154,7 +154,8 @@ instrument hat {
     res   = 0.2;
     a     = 0.5 ms;
     clen  = 45 ms;
-    olen  = 300 ms;
+    olen  = 600 ms;
+    pedal = 10 ms;
 };
 
 # The Simmons tom: a sine an octave down over its sweep, with noise and
@@ -268,6 +269,12 @@ chain snare {
     sink { instrument = snare; };
 };
 
+# The hats, and the pedal. hat.dsp splits open from closed by velocity,
+# so the accent on the `and' of two and four is not a louder hat: it is
+# the open one. `choke = 1' on that channel is what makes the pair play
+# -- the closed hat landing on the next beat cuts the open one, because a
+# foot cannot be in two places -- and `Open' is up at 600 ms so there is
+# something for it to cut.
 chain hats {
     stage src gen::euclid {
         steps = 8;  fills = 8;  rotate = 0;
@@ -275,6 +282,10 @@ chain hats {
         period = 0.5 beats;  hold = 0.2 beats;  vel = 56;
     };
     stage c xform::chance { prob = 0.92; };
+    stage a xform::accent {
+        pattern = "...x...x";  grid = 0.5 beats;
+        strong = 2.1;  weak = 1;
+    };
     sink { instrument = hat; };
 };
 

@@ -32,6 +32,13 @@
  *   poly    caps the voices. Three notes at once on a `poly = 1' channel are
  *           one voice, and the one left is the newest.
  *
+ *   choke   makes a second note cut the voices that are sounding rather than
+ *           sum with them: they go into their release, the new one attacks
+ *           from the start and at its own velocity, and the two overlap
+ *           while the old one finishes. That is a drummer's pedal on the
+ *           open hat, and it is not `mono' -- which retunes the voice it
+ *           finds and keeps the velocity the first note arrived with.
+ *
  *   mono    makes a second note retune the voice that is already sounding
  *           instead of starting another: the pitch moves, the level does not,
  *           and the velocity stays the first note's, because the envelopes
@@ -150,10 +157,13 @@ static bool writeFile (const string &path, const string &text)
  * either measurement below needs.
  *
  * `io' is whatever the case under test wants on the io node -- `poly = 1',
- * `mono = 1', neither -- and `extra' is the glide case's slew.
+ * `mono = 1', `choke = 1', neither -- `extra' is the glide case's slew,
+ * `release' is how long a cut voice takes to go, and `trigger' is what the
+ * envelope watches, which is the one-shot case's whole subject.
  */
 static string graph (const string &io, const string &freqSource,
-                     const string &extra)
+                     const string &extra, const string &release = "200 ms",
+                     const string &trigger = "ionode->trigger")
 {
     return
         string("name \"voicecheck\";\n\n") +
@@ -174,8 +184,8 @@ static string graph (const string &io, const string &freqSource,
         "    a = 1 ms;\n"
         "    d = 1 ms;\n"
         "    s = th_max;\n"
-        "    r = 200 ms;\n"
-        "    trigger = ionode->trigger;\n"
+        "    r = " + release + ";\n"
+        "    trigger = " + trigger + ";\n"
         "};\n\n"
         "node vca mixer::mul {\n"
         "    in0 = osc->out;\n"
@@ -393,6 +403,178 @@ int main (int argc, char **argv)
                      "poly: a channel that does not ask for a limit plays all "
                      "three", "one " + num(rms(one)) + ", three " +
                               num(rms(three)));
+        }
+    }
+
+    /* ---- choke: a second note cuts the first --------------------------- */
+
+    /* A drummer's pedal, and the reason a graph cannot do it: the hat that
+       has to die is not the note that kills it, so the retrigger path -- same
+       pitch, same voice -- never reaches it. With a release of ten
+       milliseconds, half a window, the cut voice is gone by the time the next
+       measurement starts, and what is left is one voice at the new pitch and
+       at the *new* velocity. `mono' answers the same two notes with one voice
+       at the first note's velocity, and a plain channel with two. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "", "10 ms")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `choke = 1' graph loads", "");
+        else
+        {
+            /* The second note is quieter on purpose: a retune would keep the
+               first note's velocity, and a fresh voice takes its own. */
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 16);
+            vector<float> after = s.settled(8);
+
+            okOrFail(near(pitch(first, rate), C4, 0.01) &&
+                     near(pitch(after, rate), C5, 0.01) &&
+                     near(rms(after), rms(first) * 16 / 40, 0.05),
+                     "choke: a second note leaves one voice, at its own pitch "
+                     "and its own velocity",
+                     num(pitch(first, rate)) + " Hz at " + num(rms(first)) +
+                     " becomes " + num(pitch(after, rate)) + " Hz at " +
+                     num(rms(after)));
+        }
+    }
+
+    /* ---- choke: the voice it cuts is not cut off ----------------------- */
+
+    /* Sent into its release, not silenced, so for as long as that release
+       lasts the two overlap -- which is what a pedal on an open hat sounds
+       like, and what `poly' has to leave room for. Measured a window after
+       the second note, while the first is still most of its own height. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> mid = s.take();
+
+            /* Past the 200 ms release: one voice, and at the same level as
+               the one it replaced, because the velocities match. */
+            vector<float> after = s.settled(32);
+
+            okOrFail(rms(mid) > rms(first) * 1.15 &&
+                     near(rms(after), rms(first), 0.02),
+                     "choke: the cut voice keeps its release, and the new one "
+                     "attacks under it",
+                     "release plus attack " + num(rms(mid)) + ", then " +
+                     num(rms(after)) + " against " + num(rms(first)));
+        }
+    }
+
+    /* With two release slots, three hits in quick succession must keep the
+       newest release under the third attack. An older release is at the back
+       of decaying_, even though the mixer visits the list from the front. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a rapid `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 20);
+            s.run(1);
+            const double first = rms(s.take());
+
+            s.synth.addNote(0, 72, 80);
+            s.run(1);
+            s.take();
+
+            s.synth.addNote(0, 84, 1);
+            s.run(1);
+            const double third = rms(s.take());
+
+            okOrFail(third > first * 2,
+                     "choke: a third hit keeps the newest release, not the "
+                     "oldest one",
+                     "first " + num(first) + ", third " + num(third));
+        }
+    }
+
+    /* And the same two notes on a channel that says nothing about voices keep
+       both sounding for ever. That is the control: without it the case above
+       would pass on a channel that had simply stopped playing the first
+       note. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a graph with no `choke' loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+            vector<float> after = s.settled(32);
+
+            /* Two sines at two pitches sum incoherently, so the level goes up
+               by about the root of two. */
+            okOrFail(rms(after) > rms(first) * 1.3,
+                     "choke: without it a second note sums with the first "
+                     "rather than replacing it",
+                     "one " + num(rms(first)) + ", two " + num(rms(after)));
+        }
+    }
+
+    /* ---- choke: a one-shot can tell the pedal from the key ------------- */
+
+    /* A drum ignores the key coming up: how long an open hat rings is its
+       velocity's business and not the sequencer's, which is why every hat in
+       the corpus holds its envelope's trigger at a constant. A choke has to
+       reach one anyway, so the channel marks a voice it has cut by taking
+       `trigger' negative -- and `clamp(1 + trigger, 0, 1)' is then 1 for a
+       key down, 1 for a key up, 1 for the pedal, and 0 only for a voice the
+       choke took. Both halves are heard here: the note-off does nothing, and
+       the next note ends it. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "", "10 ms",
+                              "clamp(1 + ionode->trigger, 0, 1)")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a one-shot `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.delNote(0, 60);
+            vector<float> lifted = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+            vector<float> next = s.settled(8);
+
+            okOrFail(near(rms(lifted), rms(first), 0.02) &&
+                     near(pitch(lifted, rate), C4, 0.01) &&
+                     near(pitch(next, rate), C5, 0.01) &&
+                     near(rms(next), rms(first), 0.02),
+                     "choke: a graph that ignores the key coming up still "
+                     "hears the choke",
+                     num(rms(lifted)) + " after the key came up, then " +
+                     num(pitch(next, rate)) + " Hz at " + num(rms(next)));
         }
     }
 

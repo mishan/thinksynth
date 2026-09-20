@@ -141,7 +141,8 @@ instrument hat {
     tone   = 9500;
     res    = 0.3;
     clen   = 50 ms;
-    olen   = 360 ms;
+    olen   = 420 ms;
+    pedal  = 10 ms;
 };
 
 instrument bell {
@@ -252,7 +253,10 @@ chain snare {
     sink { instrument = snare; };
 };
 
-# Sixteenths, one in seven missing.
+# Sixteenths, one in seven missing, and the `and' of two and four open.
+# hat808.dsp splits open from closed by velocity, so that accent is the
+# pedal up rather than a louder hat, and `choke = 1' on the channel is
+# what brings it back down: the next sixteenth cuts the open one.
 chain hats {
     stage src gen::euclid {
         steps = 16;  fills = 16;  rotate = 0;
@@ -260,6 +264,10 @@ chain hats {
         period = 0.25 beats;  hold = 0.1 beats;  vel = 52;
     };
     stage c xform::chance { prob = 0.86; };
+    stage a xform::accent {
+        pattern = "......x.......x.";  grid = 0.25 beats;
+        strong = 2.3;  weak = 1;
+    };
     sink { instrument = hat; };
 };
 

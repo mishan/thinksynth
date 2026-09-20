@@ -97,8 +97,7 @@ if(THINK_DL_LIBRARY)
   target_link_libraries(think PUBLIC ${THINK_DL_LIBRARY})
 endif()
 
-# libthink.so.6.0 with an soname of libthink.so.6, which is what the old
-# lib_revision scheme produced.
+# The major version is the soname; keep it aligned with THINK_LIB_MAJOR above.
 set_target_properties(think PROPERTIES
     OUTPUT_NAME think
     VERSION   "${THINK_LIB_MAJOR}.${THINK_LIB_MINOR}"
