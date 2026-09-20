@@ -44,9 +44,10 @@
  * characters of value box"; the desktop's PanelView decides the rest with a
  * FlowBox and the page decides it with CSS, and neither answer belongs here.
  *
- * The guard on the toolkit-free claim is the build: this compiles into the
- * wasm modules beside ComposerCanvas, and wasm/web/CMakeLists.txt links no
- * toolkit, so the first Gtk:: that gets in fails to build.
+ * The guard on the toolkit-free claim is the build: nothing that compiles
+ * this links a toolkit -- scripts/panelcheck builds the whole model and both
+ * of its providers with no gtkmm anywhere on the include path -- so the
+ * first Gtk:: that gets in fails to build.
  *
  * An edit does not write. A provider turns "row `cutoff', the person typed
  * 4000" into a thPanelEdit and says whether it is allowed; a shell delivers
@@ -167,8 +168,9 @@ struct thPanel
     vector<thPanelRow> rows;
     vector<thPanelAction> actions;
 
-    /* Bumped when rows appear, vanish or change editability -- never when a
-       value moves. A shell rebuilds its widgets when this changes and
+    /* Bumped when rows appear, vanish, change editability or change what a
+       control is made of -- its travel, its step, its width -- and never
+       when a value moves. A shell rebuilds its widgets when this changes and
        otherwise pushes values into the ones it has, which is what lets a
        panel follow a MIDI controller without being torn down sixty times a
        second. */

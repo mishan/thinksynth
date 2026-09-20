@@ -549,6 +549,68 @@ static void checkEdits (ArgPanel &argPanel, thSynth &synth)
 
     check(!r.ok, "an edit naming a control that has gone is refused", r.why);
     check(!argPanel.deliver(edit), "and delivering it writes nothing");
+
+    /* A control this panel does not draw is not a control it will write.
+       `quiet' is a live arg on this channel that the file said not to draw,
+       and the panel is the only thing between a command off the wire and the
+       write -- a shell cannot check what it was never told about. */
+    r = argPanel.propose("quiet", "0.9", edit);
+
+    check(!r.ok, "an edit of a control the file hid is refused too", r.why);
+
+    thArg *quiet = synth.getChanArg(0, "quiet");
+
+    check(!argPanel.deliver(edit) && quiet && fabs((double)(*quiet)[0] - 0.5)
+          < 1e-6, "and it stays where it was");
+
+    /* A number finer than the row shows cannot be left in the arg: the
+       control that would have to display it has four decimals, and the value
+       box would read one number while the arg held another. */
+    r = argPanel.propose("cutoff", "0.123456789", edit);
+
+    check(r.ok && fabs(edit.value - 0.1235) < 1e-9,
+          "a typed number is held to the row's resolution",
+          to_string(edit.value));
+
+    /* And it rounds in display units, before the fold, so the samples that
+       land are the ones the milliseconds shown spell. */
+    r = argPanel.propose("decay", "500.7", edit);
+
+    check(r.ok && fabs(edit.value - thPanelFromDisplay(501, "ms")) < 1e-6,
+          "a whole-number row rounds before it is folded",
+          to_string(edit.value));
+
+    /* The catching-up guard has to survive the round trip through the
+       spelling a row is drawn with, or it never fires at all: the arg holds a
+       float and the spelling folds back to a double, and comparing those two
+       at their own widths makes every edit a change. The failure is a patch
+       that reports itself modified when a control is put back where it was,
+       and a page that re-posts its own edit for ever. */
+    r = argPanel.propose("cutoff", "0.3", edit);
+
+    check(r.ok && r.changed && argPanel.deliver(edit),
+          "a value no float holds exactly is delivered", r.why);
+
+    thPanel spelled;
+
+    argPanel.build(spelled);
+
+    const thPanelRow *back = spelled.find("cutoff");
+
+    check(back && back->text == "0.3000",
+          "and the panel spells it back as it was typed",
+          back ? back->text : string("(gone)"));
+
+    if (back)
+    {
+        r = argPanel.propose("cutoff", back->text, edit);
+
+        check(r.ok && !r.changed,
+              "and proposing that same spelling again is an echo, not an "
+              "edit that never lands", r.why);
+    }
+
+    cutoff->setValue(0.25);
 }
 
 /* A value the plugin does not implement is already in the file: the display
@@ -636,6 +698,42 @@ static void checkShape (ArgPanel &argPanel, thSynth &synth)
           "a control the shell asks not to draw is not drawn");
     check(hidden.shape != first.shape,
           "and a panel with a row missing is a different shape");
+
+    thPanelEdit edit;
+
+    const thPanelResult r = fewer.propose("amp", "0.1", edit);
+
+    check(!r.ok, "and it is not one an edit can reach either", r.why);
+
+    /* The travel, the step and the width of the value box are cut into a
+       widget when it is made and cannot be pushed into one afterwards, so a
+       shape that does not cover them is a shape that leaves a 0..1 slider of
+       four decimals standing in front of a parameter running to 2000. */
+    if (cutoff)
+    {
+        const float wasMax = cutoff->max();
+
+        cutoff->setMax(2000);
+
+        thPanel wider;
+
+        argPanel.build(wider);
+
+        check(wider.find("cutoff") && wider.find("cutoff")->hi == 2000 &&
+              wider.find("cutoff")->decimals == 0,
+              "a wider range is a wider row");
+        check(wider.shape != first.shape,
+              "and a row whose range changed is a different shape");
+
+        cutoff->setMax(wasMax);
+
+        thPanel narrow;
+
+        argPanel.build(narrow);
+
+        check(narrow.shape == first.shape,
+              "and putting the range back puts the shape back");
+    }
 }
 
 /* The second arg map on the same channel, reached through the same lookup.

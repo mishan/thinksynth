@@ -155,7 +155,15 @@ void thPanelBuilder::add (const thPanelRow &row, const string &declared,
  * selected choice. Those move constantly and pushing them into the widgets
  * that already exist is the whole reason this number is separate from the
  * panel. What is in it is what a widget is made of: which rows there are, in
- * what order, drawn how, and whether each is offered or only shown. */
+ * what order, drawn how, whether each is offered or only shown, and the
+ * numbers a control is built out of.
+ *
+ * That last is easy to leave out and wrong to: a slider's travel, its step
+ * and the width of its value box are all cut into the widget when it is
+ * made, and none of them can be pushed into one afterwards. Two patches
+ * whose rows have the same names and differ only in `.max' are two different
+ * panels, and a shell told they were the same would leave a 0..1 four-decimal
+ * slider standing in front of a parameter that runs to 2000. */
 static void hashInto (unsigned &h, const string &s)
 {
     for (size_t i = 0; i < s.size(); i++)
@@ -171,6 +179,19 @@ static void hashInto (unsigned &h, const string &s)
 static void hashInto (unsigned &h, int n)
 {
     hashInto(h, to_string(n));
+}
+
+/* Spelled at full precision rather than hashed as bytes. %.17g is the same
+   seventeen digits for the same double under either toolchain and tells two
+   different doubles apart, which the layout of one's bytes is not something
+   to assume about a second compiler. */
+static void hashInto (unsigned &h, double v)
+{
+    char buf[40];
+
+    snprintf(buf, sizeof(buf), "%.17g", v);
+
+    hashInto(h, string(buf));
 }
 
 void thPanelBuilder::finish (thPanel &panel) const
@@ -247,6 +268,11 @@ void thPanelBuilder::finish (thPanel &panel) const
         hashInto(h, row.units);
         hashInto(h, row.editable ? 1 : 0);
         hashInto(h, row.knob);
+        hashInto(h, row.lo);
+        hashInto(h, row.hi);
+        hashInto(h, row.step);
+        hashInto(h, row.decimals);
+        hashInto(h, row.valueChars);
         hashInto(h, (int)row.choices.size());
 
         for (size_t c = 0; c < row.choices.size(); c++)

@@ -200,6 +200,20 @@ static thPanelRow rowFor (thArg *arg)
     return row;
 }
 
+bool ArgPanel::offers (const string &row, thArg *arg) const
+{
+    /* HIDE is the file saying not to draw it; CHANARG is not a control of
+       this channel's. Only a SLIDER is a parameter a person sets. */
+    if (arg == NULL || arg->widgetType() != thArg::SLIDER)
+        return false;
+
+    for (size_t i = 0; i < hidden_.size(); i++)
+        if (hidden_[i] == row)
+            return false;
+
+    return true;
+}
+
 bool ArgPanel::build (thPanel &out) const
 {
     out = thPanel();
@@ -225,21 +239,7 @@ bool ArgPanel::build (thPanel &out) const
     {
         thArg *arg = a->second;
 
-        if (arg == NULL)
-            continue;
-
-        /* HIDE is the file saying not to draw it; CHANARG is not a control
-           of this channel's. Only a SLIDER is a parameter a person sets. */
-        if (arg->widgetType() != thArg::SLIDER)
-            continue;
-
-        bool skip = false;
-
-        for (size_t i = 0; i < hidden_.size(); i++)
-            if (hidden_[i] == a->first)
-                skip = true;
-
-        if (skip)
+        if (!offers(a->first, arg))
             continue;
 
         const std::map<string, string>::const_iterator g =
@@ -279,8 +279,11 @@ thPanelResult ArgPanel::propose (const string &row, const string &valueText,
 
     /* Not an error a shell can do anything about, but not silence either: a
        row whose arg has gone is a panel drawn over a channel that has since
-       been loaded again, and saying so is how that gets noticed. */
-    if (arg == NULL)
+       been loaded again, and saying so is how that gets noticed. The same
+       answer for an arg that is there and is not a row of this panel -- an
+       output, or the amplitude the patch bar has already -- since from the
+       panel's side those are the same thing: no such row. */
+    if (!offers(row, arg))
         return thPanelResult::refuse("no parameter called " + row);
 
     const thPanelRow described = rowFor(arg);
@@ -343,13 +346,42 @@ thPanelResult ArgPanel::propose (const string &row, const string &valueText,
             if (held > described.hi) held = described.hi;
         }
 
+        /* And held to the row's resolution, by going out through the
+         * spelling the row would show it as and back.
+         *
+         * `step' is ten to the minus `decimals', so a number finer than that
+         * is one no control can display or hand back -- the invariant
+         * thPanelRow::step states. The desktop rounded as a side effect of
+         * the value box being a SpinButton; a number posted from the page
+         * arrives here having been near no such thing. Rounding before the
+         * clamp would be the wrong way round on a range whose own end is
+         * finer than its step, so the clamp goes again after it. */
+        double rounded = 0;
+
+        if (numberIn(thPanelSpell(held, described.decimals), rounded))
+            held = rounded;
+
+        if (described.hi >= described.lo)
+        {
+            if (held < described.lo) held = described.lo;
+            if (held > described.hi) held = described.hi;
+        }
+
         want = thPanelFromDisplay(held, described.units);
     }
 
     out.value = want;
 
-    /* The catching-up guard. See thPanelResult. */
-    if ((double)(*arg)[0] == want)
+    /* The catching-up guard. See thPanelResult.
+     *
+     * Compared at the width deliver() writes, not the width propose()
+     * computed in. The arg holds a float; `want' is a double folded back out
+     * of a decimal spelling, and 0.3 as a double is not 0.3 as a float. The
+     * two widths compared against each other make every edit a change that
+     * never lands -- a control returned to the value it already holds would
+     * mark the patch dirty, and the page would re-post the broadcast on
+     * every echo of its own edit, for ever. */
+    if ((*arg)[0] == (float)want)
         return thPanelResult::echo();
 
     return thPanelResult();
@@ -359,7 +391,14 @@ bool ArgPanel::deliver (const thPanelEdit &edit) const
 {
     thArg *arg = argFor(edit.row);
 
-    if (arg == NULL)
+    /* The same question propose() asks, asked again at the write.
+     *
+     * Not redundant: these are two calls and on the page they happen on two
+     * machines. An intent arrives here as a command off the wire, and the
+     * peer applying it has run no propose() of its own -- so a row this
+     * panel does not offer has to be refused here as well, or the check is
+     * one the sender could simply not have made. */
+    if (!offers(edit.row, arg))
         return false;
 
     /* A single-float write, which is safe from the GUI thread while the

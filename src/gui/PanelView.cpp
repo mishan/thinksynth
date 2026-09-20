@@ -97,19 +97,44 @@ void PanelView::setPanel (const thPanel &panel)
         else
             grouped[panel_.rows[i].group].push_back(i);
 
+    /* groupOrder says what order to draw the groups in. It is not the list
+       of which groups there are, and drawing only what it names would build
+       a row carrying some other group into bound_ -- findable by indexOf,
+       written to by setValue -- without ever appending it to a widget: a
+       parameter that is gone from the panel and still reported as being on
+       it. thPanelBuilder keeps the two in step; a provider filling a thPanel
+       by hand need not, and this is the public boundary. */
+    std::vector<string> order = panel_.groupOrder;
+
+    for (size_t i = 0; i < panel_.rows.size(); i++)
+    {
+        const string &group = panel_.rows[i].group;
+
+        if (group.empty())
+            continue;
+
+        size_t at = 0;
+
+        while (at < order.size() && order[at] != group)
+            at++;
+
+        if (at == order.size())
+            order.push_back(group);
+    }
+
     std::vector<Gtk::Widget *> blocks;
 
     if (!loose.empty())
         blocks.push_back(makeFlow(loose));
 
-    for (size_t g = 0; g < panel_.groupOrder.size(); g++)
+    for (size_t g = 0; g < order.size(); g++)
     {
-        const std::vector<size_t> &rows = grouped[panel_.groupOrder[g]];
+        const std::vector<size_t> &rows = grouped[order[g]];
 
         if (rows.empty())
             continue;
 
-        Gtk::Expander *exp = manage(new Gtk::Expander(panel_.groupOrder[g]));
+        Gtk::Expander *exp = manage(new Gtk::Expander(order[g]));
 
         /* Groups wrap like everything else. A group is a row of a front
            panel -- attack, decay, sustain, release across -- and holding it
@@ -455,8 +480,31 @@ void PanelView::setValue (const string &row, double display)
     }
     else if (b.toggle)
         b.toggle->set_active(display != 0);
+    else if (b.entry)
+        b.entry->set_text(thPanelSpell(display, b.row.decimals));
     else if (b.readout)
         b.readout->set_text(thPanelSpell(display, b.row.decimals));
+
+    settingValue_ = false;
+}
+
+void PanelView::setText (const string &row, const string &text)
+{
+    const int at = panel_.indexOf(row);
+
+    if (at < 0)
+        return;
+
+    Bound &b = bound_[(size_t)at];
+
+    b.row.text = text;
+
+    settingValue_ = true;
+
+    if (b.entry)
+        b.entry->set_text(text);
+    else if (b.readout)
+        b.readout->set_text(text);
 
     settingValue_ = false;
 }

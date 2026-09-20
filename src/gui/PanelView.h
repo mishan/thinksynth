@@ -60,6 +60,16 @@ public:
      * modified by the act of looking at it. */
     void setValue (const string &row, double display);
 
+    /* The same, for a row whose value is a string rather than a number: a
+     * note set, a file name, the words a READONLY row stands in for.
+     *
+     * Two calls and not one because the two cannot be told apart from the
+     * value alone -- spelling a double into a row that holds `driven by
+     * @cut' would replace it with a number that means nothing, and a TEXT
+     * row has no number to spell in the first place. The provider knows
+     * which of the two its row is, and this is where it says so. */
+    void setText (const string &row, const string &text);
+
     /* "The person put this in that row." Row id and the authored spelling. */
     typedef sigc::signal<void(const string &, const string &)>
             type_signal_edited;

@@ -74,9 +74,9 @@ target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
 # guard on the claim: the first Gtk:: in any of these files fails to build.
 # What a parameter panel is -- the rows, the units, the resolution, the
 # groups -- and the providers that build one from live state. Toolkit-free for
-# the reason the canvases are: src/PanelModel.h says it at length, and the
-# guard is the same one, that wasm/web/CMakeLists.txt links no toolkit and the
-# first Gtk:: here fails to build.
+# the reason the canvases are: src/PanelModel.h says it at length. The guard
+# is that scripts/panelcheck links this and no gtkmm, so the first Gtk:: here
+# fails to build.
 add_library(think_panel OBJECT PanelModel.cpp ArgPanel.cpp)
 target_include_directories(think_panel PUBLIC
     "${PROJECT_SOURCE_DIR}"

@@ -101,7 +101,10 @@ public:
      * two arrivals -- which is the whole reason propose() and deliver() are
      * two functions.
      *
-     * False when the arg has gone, which is what a stale intent looks like. */
+     * False when the arg has gone, or is not one this panel offers -- which
+     * is what a stale intent and a made-up one look like from here, and both
+     * of them arrive: a peer applying a broadcast edit has run no propose()
+     * of its own to have caught either. */
     bool deliver (const thPanelEdit &edit) const;
 
     /* What a row's control should be showing, from the arg as it stands
@@ -120,6 +123,17 @@ public:
     thArg *argFor (const string &row) const;
 
 private:
+    /* Whether this panel offers `row' at all: a live arg, of the widget type
+     * a person sets, and not one the shell excluded.
+     *
+     * build() and propose() have to answer that the same way. A panel is
+     * drawn from the first and edited through the second, and on the page
+     * the second is reached by a command off the wire rather than by a
+     * widget that could only have come from a row -- so propose() asking
+     * merely whether the arg exists would deliver an edit to a parameter no
+     * panel has ever drawn. */
+    bool offers (const string &row, thArg *arg) const;
+
     /* Which node drives each control, for grouping the panel by.
      *
      * Almost no patch declares `.group', but almost every patch groups its
