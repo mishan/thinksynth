@@ -125,14 +125,21 @@ struct thPanelRow
        that does nothing is worse than no row. */
     vector<pair<string, int> > choices;
 
-    /* The knob this row is read through, and empty for a plain value.
+    /* The named thing this row's value is read through, bare and without
+     * its `@', or empty for a plain value.
      *
-     * Two readings, and they are the same one from opposite ends. On a
-     * param row it is the binding -- `fmin = @warmth' -- which is why the
-     * row is shown and not offered: what moves it is the knob. On a KNOB
-     * panel's row it is the knob's own name, because there the row *is* the
-     * knob; the id is the number a command names it by and this is what the
-     * .gen calls it. */
+     * Three readings of one field, and they are the same one from different
+     * ends. On a composer param it is the knob binding -- `fmin = @warmth'
+     * -- which is why such a row is shown and not offered: what moves it is
+     * the knob. On a node's param it is the chanarg -- `in1 = @cutoff' --
+     * for the same reason, and the thing that moves that one is the
+     * channel's own panel. On a KNOB panel's row it is the knob's own name,
+     * because there the row *is* the knob; the id is the number a command
+     * names it by and this is what the .gen calls it.
+     *
+     * Bare in all three, because it is an identity and not a spelling: what
+     * a command, a preset or a lookup names. Where the `@' is wanted it is
+     * in the row's text, which is what a reader sees. */
     string knob;
 
     /* False for an output, a wired param, one bound to a knob. A shell draws

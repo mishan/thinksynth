@@ -47,9 +47,13 @@
 
 import { createCanvasView } from './canvasview.js';
 import { placePopover } from './popover.js';
+import { CHOICE, showPanel } from './panel.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
+
+/* thPanel::Kind, for the panel over the selected box. */
+const NODE_VALUE = 3;
 
 const SIG = {
     BOX_MOVED: 0,
@@ -599,14 +603,29 @@ export async function createNodeView ({ files, root = document,
             onStatus(`Added ${name} (${plugin}).`);
     }
 
-    /* The params panel: the selected box's args, with a box to type in for
-       the ones that are a plain number. What each is -- a value, a wire, a
-       control, an output -- is the graph's answer, not this file's. */
+    /* The params panel: the selected box's args, described by the module
+     * (src/NodePanel.cpp) and drawn by the renderer the knobs and the
+     * channel's parameters use.
+     *
+     * What each parameter is -- offered or only shown, a number or a list of
+     * the plugin's own names, and what a wired one says instead of a value
+     * -- is the panel's answer and not this file's. This used to be a
+     * thinner version of the desktop's answer to the same question, built
+     * from six C accessors, with no labels, no tooltips, no value names and
+     * no ranges in it.
+     *
+     * An edit is a splice, which is why there is no delivery in the module
+     * for one: a node's value is a number in the `.dsp', so the intent
+     * becomes tw_edit_set_value and the new text goes to whoever owns the
+     * file. A list's spelling is turned back into its number here, off the
+     * row's own choices -- a lookup in what the module handed over, not a
+     * second opinion about what the values are.
+     */
     function showParams ()
     {
-        const panel = $('nodeparams');
+        const box = $('nodeparams');
 
-        panel.replaceChildren();
+        box.replaceChildren();
 
         if (selected < 0)
         {
@@ -615,58 +634,31 @@ export async function createNodeView ({ files, root = document,
         }
 
         const node = call('tw_graph_box_name', ['number'], [selected]);
-        const plugin = call('tw_graph_box_plugin', ['number'], [selected]);
 
-        $('nodeselected').textContent = `${node} — ${plugin}`;
-
-        const many = M._tw_graph_param_count(selected);
-
-        for (let p = 0; p < many; p++)
+        if (M._tw_panel_open(NODE_VALUE, selected, 0) === 0)
         {
-            const name = call('tw_graph_param_name', ['number', 'number'],
-                              [selected, p]);
-            const row = document.createElement('label');
-
-            row.className = 'paramrow';
-            row.append(document.createTextNode(name));
-
-            /* An output is shown and not offered: the plugin writes it,
-               and a box to type in would invite an edit the next window
-               overwrites. A wired parameter has no number of its own. */
-            if (M._tw_graph_param_is_output(selected, p) ||
-                M._tw_graph_param_kind(selected, p) !== 0)
-            {
-                const said = document.createElement('span');
-
-                said.className = 'paramwhat';
-                said.textContent =
-                    M._tw_graph_param_is_output(selected, p)
-                        ? 'an output'
-                        /* 4 is NodeGraph::Param::TEXT -- a quoted name,
-                           which nothing drives and nothing can type a
-                           number into. */
-                        : M._tw_graph_param_kind(selected, p) === 4
-                            ? 'a name'
-                            : 'driven';
-                row.append(said);
-            }
-            else
-            {
-                const input = document.createElement('input');
-
-                input.type = 'number';
-                input.step = 'any';
-                input.value = String(M._tw_graph_param_value(selected, p));
-                input.dataset.arg = name;
-                input.addEventListener('change', () =>
-                    edit('tw_edit_set_value',
-                         ['string', 'string', 'string', 'number'],
-                         [node, name, Number(input.value)]));
-                row.append(input);
-            }
-
-            panel.append(row);
+            $('nodeselected').textContent = node;
+            return;
         }
+
+        const panel = JSON.parse(M.UTF8ToString(M._tw_panel_json()));
+
+        $('nodeselected').textContent = `${panel.title} — ${panel.subtitle}`;
+
+        showPanel(box, panel, (name, text) =>
+        {
+            const row = panel.rows.find((r) => r.id === name);
+            const value = row?.kind === CHOICE
+                ? row.choices.find((c) => c.name === text)?.value
+                : Number(text);
+
+            if (value === undefined || Number.isNaN(value))
+                return;
+
+            edit('tw_edit_set_value',
+                 ['string', 'string', 'string', 'number'],
+                 [node, name, value]);
+        });
     }
 
     /* ---- the file ---- */
@@ -803,13 +795,11 @@ export async function createNodeView ({ files, root = document,
         /* Whether anything on it is a plain number somebody could type
            into, which is what makes it worth clicking on for a test and
            for a person. */
-        let settable = false;
-
-        for (let p = 0; p < M._tw_graph_param_count(i); p++)
-            if (M._tw_graph_param_kind(i, p) === 0 &&
-                !M._tw_graph_param_is_output(i, p) &&
-                M._tw_graph_param_has_value(i, p))
-                settable = true;
+        /* Asked of the module rather than worked out here, and asked
+           without opening a panel: the page has one open for the selected
+           box, and a scan over every box that opened one per box would
+           throw it away. */
+        const settable = M._tw_graph_box_settable(i) !== 0;
 
         /* Its ports, where they sit: a port is where a wire starts and
            where a probe is armed, and only the layout knows where one

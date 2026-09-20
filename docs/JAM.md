@@ -275,7 +275,8 @@ On `jam-m6`. Where it stands:
   gets for nothing. Two browsers in a room paint the same Life board on
   the same beat.
 - The node editor over the shared document: the desktop's graph, canvas
-  and writer compiled to wasm, the palette and the params panel as HTML,
+  and writer compiled to wasm, the palette as HTML and the params panel
+  off the same description the desktop draws (`src/NodePanel.cpp`),
   and every edit a splice into the room's `.dsp` -- held, byte for byte,
   against what the desktop's own writer produces.
 - Probes: a tap in the worklet on what is being rendered, the samples to

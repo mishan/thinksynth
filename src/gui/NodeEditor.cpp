@@ -34,7 +34,7 @@
 #include "../NodeLayout.h"
 #include "../NodeEdit.h"
 #include "NodeCanvasWidget.h"
-#include "NodeParams.h"
+#include "NodeParamsView.h"
 #include "NodePalette.h"
 #include "../NodeCatalog.h"
 #include "NodeEditor.h"

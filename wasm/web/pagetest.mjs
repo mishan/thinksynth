@@ -1429,7 +1429,11 @@ try
             check(false, `${node.name} has nothing to type into`);
         else
         {
-            const arg = await field.evaluate((i) => i.dataset.arg);
+            /* The row carries its own identity; the control inside it
+               is just a control. panel.js puts the row's id on the row,
+               which for a node's panel is the arg's name. */
+            const arg = await field.evaluate(
+                (i) => i.closest('.panelrow').dataset.row);
 
             await field.fill('0.234');
             await field.press('Enter');

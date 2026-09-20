@@ -340,7 +340,10 @@ async function editTogether (pages)
         return;
     }
 
-    const arg = await input.evaluate((i) => i.dataset.arg);
+    /* The row carries its own identity, which for a node's panel is the
+       arg's name; the control inside it is just a control. */
+    const arg = await input.evaluate(
+        (i) => i.closest('.panelrow').dataset.row);
     const value = '0.321';
 
     await input.fill(value);
@@ -416,7 +419,21 @@ async function editTogether (pages)
 
     const boxesWere = graph.boxes;
 
-    await A.page.mouse.click(box.x + port.x, box.y + port.y,
+    /* The canvas's origin again, and not the one read before the edit
+       above: setting a value rewrites the file, which rebuilds the graph
+       and redraws the params panel under the canvas -- so a panel that
+       came out a different height has moved everything above it, and a
+       right-click aimed with the old origin lands beside the port rather
+       than on it. Ports are a few pixels across; the miss is silent and
+       looks like a menu that offered nothing. */
+    const canvasAt = await A.page.$eval('#nodecanvas', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+
+    await A.page.mouse.click(canvasAt.x + port.x, canvasAt.y + port.y,
                              { button: 'right' });
     await A.page.waitForFunction(
         () => document.querySelectorAll('#nodemenu button').length > 0,

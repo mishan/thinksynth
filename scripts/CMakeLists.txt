@@ -238,7 +238,7 @@ think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS PANEL PATCH
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParamsView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
@@ -335,7 +335,7 @@ think_harness(argtype   NODEMODEL)
 # widget-building function, which meant they could only be checked on a
 # machine with a display and were re-implemented, badly, for the browser.
 # Needs the plugins and nothing else: it writes its own .dsp files.
-think_harness(panelcheck PANEL)
+think_harness(panelcheck PANEL NODEMODEL)
 
 # The .patch format (src/PatchFile.h): every shipped patch parses and says
 # nothing the reader has to complain about, parse -> compose -> parse is

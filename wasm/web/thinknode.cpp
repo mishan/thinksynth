@@ -59,6 +59,9 @@
 #include "cairo2d.h"
 #include "cairomm/context.h"
 
+#include "NodePanel.h"
+#include "twnode.h"
+
 #include "twdraw.h"
 
 #include "thVisual.h"
@@ -402,6 +405,13 @@ WebNodeCanvas *canvas (void)
 
 } /* namespace */
 
+/* See twnode.h: the panel family lives in thinkweb.cpp and one of the four
+   panels is over a box of this graph. */
+const NodeGraph *twGraph (void)
+{
+    return &graph_;
+}
+
 extern "C" {
 
 /* ---- the graph ---------------------------------------------------------
@@ -504,16 +514,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_graph_box_name (int b)
     return box != NULL ? box->name.c_str() : "";
 }
 
-EMSCRIPTEN_KEEPALIVE const char *tw_graph_box_plugin (int b)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    return box != NULL ? box->plugin.c_str() : "";
-}
-
-/* What kind of box it is, which is what the page's panel switches on:
-   0 a node, 1 a control, 2 the io node's source half, 3 its sink half,
-   4 a probe panel. */
 EMSCRIPTEN_KEEPALIVE int tw_graph_box_kind (int b)
 {
     const NodeGraph::Box *box = boxAt(b);
@@ -645,76 +645,21 @@ TW_EDGE_FIELD(to_port,   toPort)
 
 #undef TW_EDGE_FIELD
 
-/* ---- a box's parameters, for the panel ---- */
+/* ---- what a box has on it ---- */
 
-EMSCRIPTEN_KEEPALIVE int tw_graph_param_count (int b)
+/* Whether anything on this box is a plain number somebody could type into.
+ *
+ * What a parameter is -- offered or only shown, a number or a list, and what
+ * a wired one says instead of a value -- is a panel now (src/NodePanel.cpp),
+ * read through tw_panel_open(NODE_VALUE, box) like any other. Seven
+ * accessors went with it; this one stayed, because it is the question asked
+ * *without* opening a panel: the page's node view decides whether a box is
+ * worth drawing one for, and a harness decides whether it is worth clicking
+ * on, and neither may disturb the panel the page has open. Answered by
+ * NodePanel all the same, so the three cannot come to disagree. */
+EMSCRIPTEN_KEEPALIVE int tw_graph_box_settable (int b)
 {
-    const NodeGraph::Box *box = boxAt(b);
-
-    return box != NULL ? (int)box->params.size() : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE const char *tw_graph_param_name (int b, int p)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    if (box == NULL || p < 0 || (size_t)p >= box->params.size())
-        return "";
-
-    return box->params[(size_t)p].name.c_str();
-}
-
-EMSCRIPTEN_KEEPALIVE double tw_graph_param_value (int b, int p)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    if (box == NULL || p < 0 || (size_t)p >= box->params.size())
-        return 0.0;
-
-    return box->params[(size_t)p].value;
-}
-
-/* NodeGraph::Param::Kind: what drives this parameter -- a value, a wire,
-   a control -- which is what decides whether the panel offers a box to
-   type in or a sentence saying where the number comes from. */
-EMSCRIPTEN_KEEPALIVE int tw_graph_param_kind (int b, int p)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    if (box == NULL || p < 0 || (size_t)p >= box->params.size())
-        return -1;
-
-    return (int)box->params[(size_t)p].kind;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_graph_param_is_port (int b, int p)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    if (box == NULL || p < 0 || (size_t)p >= box->params.size())
-        return 0;
-
-    return box->params[(size_t)p].isPort ? 1 : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_graph_param_is_output (int b, int p)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    if (box == NULL || p < 0 || (size_t)p >= box->params.size())
-        return 0;
-
-    return box->params[(size_t)p].isOutput ? 1 : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_graph_param_has_value (int b, int p)
-{
-    const NodeGraph::Box *box = boxAt(b);
-
-    if (box == NULL || p < 0 || (size_t)p >= box->params.size())
-        return 0;
-
-    return box->params[(size_t)p].hasValue ? 1 : 0;
+    return NodePanel::settable(&graph_, b) ? 1 : 0;
 }
 
 /* ---- the edits ---------------------------------------------------------

@@ -98,6 +98,8 @@
 #include "PatchFile.h"
 #include "PatchSet.h"
 #include "KnobPanel.h"
+#include "NodePanel.h"
+#include "twnode.h"
 
 #include "twevent.h"
 
@@ -2454,6 +2456,7 @@ EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
 
 static ArgPanel argPanel_;
 static KnobPanel knobPanel_;
+static NodePanel nodePanel_;
 static thPanel openPanel_;
 static std::string panelJson_;
 static std::string panelWhy_;
@@ -2492,6 +2495,14 @@ static bool buildPanel (int kind, int a, int b)
             knobPanel_.setKnobs(knobs_);
 
             return knobPanel_.build(openPanel_);
+
+        case thPanel::NODE_VALUE:
+            /* `a' is the box, in the numbering of the graph thinknode.cpp
+               last built -- which is the numbering everything else about
+               the node editor is in. See twnode.h. */
+            nodePanel_.setBox(twGraph(), a);
+
+            return nodePanel_.build(openPanel_);
     }
 
     return false;
@@ -2564,6 +2575,12 @@ EMSCRIPTEN_KEEPALIVE double tw_panel_value (int row)
         case thPanel::KNOB:
             knobPanel_.valueFor(openPanel_.rows[row].id, value);
             break;
+
+        /* Nothing to poll: a node's value is whatever the graph was built
+           from, and the graph is rebuilt from the text whenever the text
+           moves -- so the panel is re-opened rather than followed. */
+        case thPanel::NODE_VALUE:
+            break;
         default:
             break;
     }
@@ -2628,6 +2645,22 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
 
             return 1;
         }
+    }
+
+    /* A node's value is not set here either, and for a plainer reason:
+     * there is nothing live to write. It is a number in a `.dsp', and what
+     * changes one is a splice into that text -- tw_edit_set_value, which
+     * hands the new file back for the page to put in the document. So the
+     * page asks this panel what the rows are and sends the edit the way it
+     * sends every other edit to a file.
+     *
+     * Kept a refusal rather than left to fall through to "no such panel",
+     * because the two are different things and only one of them is a bug. */
+    if (kind == thPanel::NODE_VALUE)
+    {
+        panelWhy_ = "a node's value is set by splicing the file";
+
+        return 0;
     }
 
     /* A knob is not set here, and the refusal says so rather than
