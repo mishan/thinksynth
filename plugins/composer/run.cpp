@@ -145,11 +145,13 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     auto get = [&](int i) { return p->get(p->ctx, paramIndex[i]); };
     std::uniform_real_distribution<double> uni(0.0, 1.0);
     const double roll = uni(st->rng);
+    const double probability = get(P_PROB);
     const double rawSteps = get(P_STEPS);
     const double time = get(P_TIME);
 
-    if (roll >= get(P_PROB) || !std::isfinite(rawSteps) ||
-        !std::isfinite(time) || time <= 0 || ev->at < time ||
+    if (!std::isfinite(probability) || roll >= probability ||
+        !std::isfinite(rawSteps) || !std::isfinite(time) ||
+        time <= 0 || ev->at < time ||
         fabs(rawSteps) < 1 || ev->u.note.note < 0 ||
         ev->u.note.note > 127)
     {

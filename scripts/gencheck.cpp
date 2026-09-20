@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -8250,6 +8251,132 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
                  std::to_string(h.size()) +
                  (h.empty() ? "" : ", first " + std::to_string(h[0].note) +
                   " at " + std::to_string(h[0].at)) + ")");
+    }
+
+    /* A live knob can carry a non-finite value into a numeric param.
+       That must leave the scheduled target alone. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-run-nan-");
+
+        if (path.empty())
+            fail("run: could not write the non-finite probability piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                       "@chance = 1;\n"
+                       "scale cmaj \"C4 D4 E4 F4 G4 A4 B4\";\n"
+                       "chain c {\n"
+                       "  stage src gen::lsystem { axiom = \"rrF\";"
+                       " depth = 0; notes = \"C4\"; step = 1 s;"
+                       " hold = 0.5 s; vel = 100; };\n"
+                       "  stage r xform::run { scale = cmaj; steps = 7;"
+                       " time = 1 s; prob = @chance; };\n"
+                       "  sink { channel = 1; };\n"
+                       "};\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+            drainSynth();
+
+            if (!loader.load(path, &sched))
+                fail("run: the non-finite probability piece did not load");
+            else if (sched.knob("chance") == NULL)
+                fail("run: the probability knob is missing");
+            else
+            {
+                sched.knob("chance")->setValue(
+                    std::numeric_limits<float>::quiet_NaN());
+
+                const std::vector<Heard> h =
+                    notesOf(render(sched, 3.1, 0.02));
+
+                if (h.size() != 1 || h[0].note != 60 ||
+                    !near(h[0].at, 2))
+                    fail("run: non-finite probability must pass the "
+                         "target through");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
+    /* A live key has no known duration. Even after transport has run
+       long enough for a pickup, its press and release must stay paired. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-run-held-");
+
+        if (path.empty())
+            fail("run: could not write the held-note piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                       "chain c { input midi;"
+                       " stage r xform::run { steps = 7; time = 1 s;"
+                       " prob = 1; }; sink { channel = 1; }; };\n";
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("run: the held-note piece did not load");
+            else
+            {
+                int ons = 0, offs = 0;
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&ons, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            ons++;
+                        else if (ev.type == THC_EV_NOTEOFF)
+                            offs++;
+                    });
+
+                sched.start();
+                sched.stepTransport(2.0);
+
+                thcEvent ev = {};
+
+                ev.type = THC_EV_NOTE;
+                ev.at = sched.now();
+                ev.channel = 0;
+                ev.u.note.note = 60;
+                ev.u.note.velocity = 100;
+                ev.u.note.duration = 0;
+                sched.injectMidiEvent(ev);
+
+                sched.stepTransport(0.1);
+
+                ev.type = THC_EV_NOTEOFF;
+                ev.at = sched.now();
+                sched.injectMidiEvent(ev);
+
+                sched.stepTransport(0.1);
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (ons != 1 || offs != 1)
+                    fail("run: a held note and its release must pass "
+                         "through unchanged; heard " +
+                         std::to_string(ons) + " on and " +
+                         std::to_string(offs) + " off");
+            }
+
+            std::filesystem::remove(path);
+        }
     }
 }
 
