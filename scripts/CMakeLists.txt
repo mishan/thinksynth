@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -26,6 +26,14 @@ function(think_harness name)
 
   if(H_COMPOSERHOST)
     list(APPEND sources $<TARGET_OBJECTS:think_composerhost>)
+  endif()
+
+  # What a parameter panel is (src/PanelModel.h) and the providers that build
+  # one. No toolkit, which is the whole reason panelcheck can be a gate on
+  # every platform rather than a thing editorcheck has to press a widget to
+  # ask about.
+  if(H_PANEL)
+    list(APPEND sources $<TARGET_OBJECTS:think_panel>)
   endif()
 
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
@@ -195,17 +203,18 @@ target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 # holds them together. It needs a display for the same reason canvasbench does
 # -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
 # list below, guarded by whether a display can be had.
-# ArgTable and gthPatchfile join the list for the channel-effect panel: a
+# The panel and gthPatchfile join the list for the channel-effect panel: a
 # channel has two chanarg maps and one lookup reaches both, so the panel over
 # the second differs from the panel over the first by a prefix -- and the way
 # that fails is a slider that moves and changes nothing.
-think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS
+think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS PANEL
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ArgTable.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
@@ -234,6 +243,14 @@ target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM)
 # the control driving it, and the graph that draws the result. Builds its own
 # .dsp files -- the cases that matter are ones the corpus cannot contain.
 think_harness(argtype   NODEMODEL)
+
+# What a parameter panel says, before anybody draws it: units unfolded at the
+# synth's rate, decimals that suit the range, a selector's holes, the groups,
+# and what a typed value is allowed to become. Those were rules inside a
+# widget-building function, which meant they could only be checked on a
+# machine with a display and were re-implemented, badly, for the browser.
+# Needs the plugins and nothing else: it writes its own .dsp files.
+think_harness(panelcheck PANEL)
 
 # The composer framework: the .gen loader's validation (each bad file is
 # built on the fly and must fail with the right complaint), the shared pitch
@@ -501,6 +518,12 @@ add_test(NAME gencheck
 set_tests_properties(gencheck PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
+# Needs the plugins and nothing else: it writes its own .dsp files, and the
+# cases that matter -- a selector with a hole in it, a group of one -- are
+# ones the shipped corpus is careful not to have.
+add_test(NAME panelcheck
+         COMMAND panelcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
 
@@ -547,6 +570,7 @@ set_tests_properties(editorcheck PROPERTIES
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
                      exprcheck statecheck voicecheck fxcheck gencheck
+                     panelcheck
                      dspsweep dspsweep.guard
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)

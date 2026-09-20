@@ -72,6 +72,17 @@ target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
 # composer host, and a harness that wants one should not have to link the
 # other's dependencies to get it. None of them links gtkmm, and that is the
 # guard on the claim: the first Gtk:: in any of these files fails to build.
+# What a parameter panel is -- the rows, the units, the resolution, the
+# groups -- and the providers that build one from live state. Toolkit-free for
+# the reason the canvases are: src/PanelModel.h says it at length, and the
+# guard is the same one, that wasm/web/CMakeLists.txt links no toolkit and the
+# first Gtk:: here fails to build.
+add_library(think_panel OBJECT PanelModel.cpp ArgPanel.cpp)
+target_include_directories(think_panel PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_panel PUBLIC think)
+
 add_library(think_canvas OBJECT CanvasContent.cpp)
 target_include_directories(think_canvas PUBLIC
     "${PROJECT_SOURCE_DIR}"
@@ -107,7 +118,7 @@ set(THINKSYNTH_SOURCES
     gthMidiQueue.cpp
     gui/AboutBox.cpp
     gthConsole.cpp
-    gui/ArgTable.cpp
+    gui/ArgPanelView.cpp
     gui/ColumnUtil.cpp
     gui/Dialogs.cpp
     gui/Keyboard.cpp
@@ -119,6 +130,7 @@ set(THINKSYNTH_SOURCES
     gui/NodePalette.cpp
     gui/NodeParams.cpp
     gui/NodeEditor.cpp
+    gui/PanelView.cpp
     gui/SaveButton.cpp
     gui/PatchSelWindow.cpp
     gui/PianoRoll.cpp
@@ -200,6 +212,7 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_nodemodel>
     $<TARGET_OBJECTS:think_visualhost>
     $<TARGET_OBJECTS:think_composerhost>
+    $<TARGET_OBJECTS:think_panel>
     $<TARGET_OBJECTS:think_canvas>
     $<TARGET_OBJECTS:think_nodecanvas>
     $<TARGET_OBJECTS:think_composercanvas>)

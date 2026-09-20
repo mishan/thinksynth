@@ -24,11 +24,11 @@
 /*
  * The parameters of one selected node.
  *
- * ArgTable does the same job for a channel's args, but against live thArg
- * pointers that it edits in place. This one works from the graph's snapshot
- * and reports edits by signal, because what a node's arg needs changing is the
- * .dsp text -- there is no live thArg to poke. The window owns that decision;
- * this widget only knows what was typed.
+ * ArgPanel and PanelView do the same job for a channel's args, but against
+ * live thArg pointers. This one works from the graph's snapshot and reports
+ * edits by signal, because what a node's arg needs changing is the .dsp text
+ * -- there is no live thArg to poke. The window owns that decision; this
+ * widget only knows what was typed.
  */
 class NodeParams : public Gtk::Box
 {

@@ -44,7 +44,7 @@
 #include "../gthTheme.h"
 #include "AboutBox.h"
 #include "MidiMap.h"
-#include "ArgTable.h"
+#include "ArgPanelView.h"
 #include "NodeEditor.h"
 #include "Dialogs.h"
 #include "SaveButton.h"
@@ -740,7 +740,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     }
 
     Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
-    ArgTable *dsp_table = manage(new ArgTable);
+    ArgPanelView *dsp_table = manage(new ArgPanelView);
 
     dsp_frame->set_label("DSP Parameters");
     dsp_table->set_margin_start(6);
@@ -754,46 +754,19 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     tab_vbox->append(*dsp_frame);
     tab_vbox->append(*makeEffectFrame(num));
 
-    /* Which node drives each control, so the panel can gather them the way
-       the node editor does. */
-    std::map<string, string> groups = inferGroups(num);
-
-    /* populate each tab */
-    for (thArgMap::iterator j = args.begin();
-         j != args.end(); j++)
-    {
-        string argName = j->first;
-        thArg *arg = j->second;
-
-        if (arg == NULL)
-            continue;
-
-        /* The channel amplitude is a slider like the rest, and it is drawn
-           once already -- pinned to the patch bar above, where it is in the
-           same place on every page. Twice would be two controls for one
-           value. */
-        if (argName == "amp")
-            continue;
-
-        switch (arg->widgetType())
-        {
-            case thArg::HIDE:
-                break;
-            case thArg::SLIDER:
-            {
-                dsp_table->insertArg(arg, groups.count(argName)
-                                          ? groups[argName] : string());
-                break;                
-            }
-            default:
-                break;
-        }
-    }
-
+    /* Which parameters there are, what each is worth in the unit it was
+       written in and which node drives it -- all of that is ArgPanel's now,
+       so this says only which channel and which of its parameters not to
+       draw. The rest of it used to be forty lines here and a second forty in
+       the browser; src/PanelModel.h says why there are none. */
     dsp_table->setChannel(num);
 
-    /* Now that the count is known, the table can pick its column count. */
-    dsp_table->reflow();
+    /* The channel amplitude is a slider like the rest, and it is drawn once
+       already -- pinned to the patch bar above, where it is in the same
+       place on every page. Twice would be two controls for one value. */
+    dsp_table->exclude("amp");
+
+    dsp_table->rebuild();
 
     /* Two views of the same patch, side by side in the same window: the
        sliders, and the graph they came from. The node editor used to be a
@@ -912,29 +885,22 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
        second map -- see thSynth::getChanArg and TH_EFFECT_PREFIX. Same
        widget as the one above it, differing by the prefix its lookups
        carry. */
-    thArgMap fxargs = thSynth::instance()->getEffectArgs(chan);
+    ArgPanelView *table = new ArgPanelView;
 
-    if (!fxargs.empty())
+    table->setChannel(chan);
+    table->setPrefix(TH_EFFECT_PREFIX);
+
+    /* Built before it is managed, because an effect with no parameters gets
+       no panel and no separator above one -- and a managed widget nothing
+       ever takes is a widget nothing ever frees. */
+    if (table->rebuild())
     {
-        ArgTable *table = manage(new ArgTable);
-
-        for (thArgMap::iterator j = fxargs.begin(); j != fxargs.end(); j++)
-        {
-            if (j->second == NULL ||
-                j->second->widgetType() != thArg::SLIDER)
-                continue;
-
-            table->insertArg(j->second);
-        }
-
-        table->setChannel(chan);
-        table->setPrefix(TH_EFFECT_PREFIX);
-        table->reflow();
-
         body->append(*manage(new Gtk::Separator(
                                  Gtk::Orientation::HORIZONTAL)));
-        body->append(*table);
+        body->append(*manage(table));
     }
+    else
+        delete table;
 
     return frame;
 }
@@ -1284,64 +1250,6 @@ void MainSynthWindow::doSavePatch (string file, int chan)
 {
     if (!gthPatchManager::instance()->savePatch(file, chan))
         showError(this, "Could not write " + file);
-}
-
-/* Which node each control drives, for grouping the panel by.
- *
- * Almost no patch declares `.group', but almost every patch groups its
- * controls all the same -- by what they are wired to. `@a', `@d', `@s' and
- * `@r' all feed the same env node, and that is the envelope, whether or not
- * anyone wrote the word down. The node editor already draws them this way,
- * stacked on the node they drive; this is the same rule, so the two views
- * agree about what belongs together.
- *
- * Only controls with exactly one consumer are grouped. One read by several
- * nodes belongs to no single one of them -- it is a patch-wide control, and
- * the node editor leaves those as free-standing boxes for the same reason. */
-std::map<string, string> MainSynthWindow::inferGroups (int chan)
-{
-    std::map<string, string> host;
-    std::map<string, int> uses;
-
-    thMidiChan *channel = thSynth::instance()->getChannel(chan);
-
-    if (channel == NULL)
-        return host;
-
-    thSynthTree *tree = channel->modnode();
-
-    if (tree == NULL)
-        return host;
-
-    const thSynthTree::NodeMap &nodes = tree->nodes();
-
-    for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
-         n != nodes.end(); ++n)
-    {
-        if (n->second == NULL)
-            continue;
-
-        const thArgMap &args = n->second->args();
-
-        for (thArgMap::const_iterator a = args.begin(); a != args.end(); ++a)
-        {
-            if (a->second == NULL ||
-                a->second->type() != thArg::ARG_CHANNEL)
-                continue;
-
-            const string ctl = a->second->argPtrName();
-
-            uses[ctl]++;
-            host[ctl] = n->second->name();
-        }
-    }
-
-    for (std::map<string, int>::iterator u = uses.begin();
-         u != uses.end(); ++u)
-        if (u->second != 1)
-            host.erase(u->first);
-
-    return host;
 }
 
 /* A .dsp name as a patch stores it, turned into a path that can be opened.

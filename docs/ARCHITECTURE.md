@@ -195,6 +195,24 @@ and returns garbage without a diagnostic — the failure below, exactly.
 `THINK_LIB_MAJOR` went to 7 for it. `MODULE_IFACE_VER` guards libthink against
 a stale plugin; the soname guards a binary against a stale libthink.
 
+### Drawing it
+
+What a control *is* — its rows, its label, what it is worth in the unit it was
+written in, how many decimals are worth showing, which group it belongs to —
+is `thPanel`, in [`src/PanelModel.h`](../src/PanelModel.h). Plain data, no
+toolkit, built from live state by a provider (`src/ArgPanel.cpp` for a
+channel's args) and rendered by a shell (`src/gui/PanelView.cpp` on the
+desktop). It exists because those rules used to live inside a
+widget-building function and had to be written a second time, worse, for the
+browser — which meant an envelope time read `20000 ms` in one and `882000` in
+the other.
+
+An edit does not write. A provider turns "row `cutoff`, the person typed 4000"
+into a `thPanelEdit` and says whether it is allowed; the shell delivers it. On
+the desktop that is an immediate `thArg::setValue`; in the browser it is a
+broadcast command, because the local tab has no privileged path to the
+scheduler. `scripts/panelcheck` is the gate, and it needs no display.
+
 ### What an arg says about itself
 
 `regArg` gives an arg a name and a direction; five calls beside it carry the
@@ -251,7 +269,7 @@ enqueue the swap, free what comes back". No locks on either side.
 
 ### What this deliberately does not solve
 
-Slider moves. `ArgTable` calls `setValue()` from the GUI thread while the audio
+Slider moves. `ArgPanel::deliver` calls `setValue()` from the GUI thread while the audio
 thread reads the same arg — that is the whole point of a parameter control, and
 routing every drag through the queue would be silly. For a single float where
 `len_` is already 1, `setValue` does not reallocate, so the worst case is a torn

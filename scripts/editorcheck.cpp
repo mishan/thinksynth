@@ -61,7 +61,7 @@
 #include "think.h"
 #include "NodeGraph.h"
 #include "gui/NodeEditor.h"
-#include "gui/ArgTable.h"
+#include "gui/ArgPanelView.h"
 
 /* Picked up automatically by LeakSanitizer, the same way visualcheck and
  * dspstress supply theirs -- so this stays a real gate under CI's
@@ -251,7 +251,10 @@ void collectScales (Gtk::Widget *w, std::vector<Gtk::Scale *> &out)
  * moves and changes nothing, because the name it looked up was the
  * instrument's and there is nothing there.
  *
- * One arg in the table, so the one scale under it is unambiguous.
+ * What the panel says is scripts/panelcheck's business, and it says it with
+ * no toolkit anywhere. What is left here is the half that needs a display:
+ * that a thPanel becomes real widgets, and that dragging one of them reaches
+ * the arg its row stands for.
  */
 void checkEffectPanel (thSynth &synth, const string &pluginPath)
 {
@@ -277,12 +280,12 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
     const float before = (*mix)[0];
 
     Gtk::Window *win = new Gtk::Window();
-    ArgTable *table = Gtk::manage(new ArgTable);
+    ArgPanelView *table = Gtk::manage(new ArgPanelView);
 
-    table->insertArg(mix);
     table->setChannel(0);
     table->setPrefix(TH_EFFECT_PREFIX);
-    table->reflow();
+
+    ok(table->rebuild(), "the effect's parameters make a panel");
 
     win->set_child(*table);
     win->set_default_size(500, 200);
@@ -294,15 +297,20 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
 
     collectScales(table, scales);
 
-    ok(scales.size() == 1,
-       "the panel drew one slider for the one parameter (%zu)",
-       scales.size());
+    /* One slider per row, in the panel's own order -- which is what lets the
+       one belonging to `mix' be found without reaching into the widgets by
+       name. */
+    const int at = table->panel().indexOf("mix");
 
-    if (scales.size() == 1)
+    ok(scales.size() == table->panel().rows.size(),
+       "the panel drew a slider for each of its rows (%zu of %zu)",
+       scales.size(), table->panel().rows.size());
+
+    if (at >= 0 && scales.size() == table->panel().rows.size())
     {
         const double want = (before < 0.5) ? 0.8 : 0.2;
 
-        scales[0]->set_value(want);
+        scales[at]->set_value(want);
 
         pump(0.2);
 
@@ -311,6 +319,20 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
            "not there (%f -> %f, wanted %f)", (double)before,
            (double)(*mix)[0], want);
     }
+    else
+        ok(false, "the panel has a row for `mix' (%d)", at);
+
+    /* The other direction: the arg moves behind the panel -- a MIDI
+       controller, another window -- and the slider follows without that
+       coming back round as an edit. */
+    mix->setValue(0.35);
+
+    pump(0.2);
+
+    if (at >= 0 && (size_t)at < scales.size())
+        ok(fabs(scales[at]->get_value() - 0.35) < 1e-4,
+           "and the slider follows the arg when something else moves it "
+           "(%f)", scales[at]->get_value());
 
     win->set_visible(false);
     delete win;

@@ -120,10 +120,6 @@ protected:
        confirmation that takes no arguments. */
     void queueSavePatch (string file, int chan);
 
-    /* Which node each control drives, keyed by control name. Controls read
-       by more than one node are left out: they belong to no single node. */
-    std::map<string, string> inferGroups (int chan);
-
     /* A .dsp name as a patch stores it -- usually bare -- as a path that can
        actually be opened. */
     string resolveDspPath (const string &named);
