@@ -260,6 +260,8 @@ typedef struct {
 
 #define THC_GENERATOR   (1 << 0)
 #define THC_TRANSFORMER (1 << 1)
+#define THC_EMITS_AHEAD (1 << 2)  /* generator can emit future events */
+#define THC_NEEDS_AHEAD (1 << 3)  /* transformer places events earlier */
 
 /* Passed to composer_init. */
 typedef struct {

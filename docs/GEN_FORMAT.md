@@ -79,6 +79,14 @@ A bare number on a duration param is an error, not a defaulted second. Units
 were optional in `.dsp` and the corpus shows what that buys: every reader of
 an old file guessing. Not this time.
 
+`gen::euclid` normally emits each note when its step arrives. Set
+`ahead = 1` to emit a whole cycle at its start, with each note still dated
+for its own step. This gives a following `xform::run` time to place pickup
+notes before a target. A knob or channel arg driving the ring is sampled
+once per cycle in this mode, rather than once per step. The loader warns
+when a transformer that needs future events follows a generator that does
+not supply them; the piece still loads.
+
 ## 3. Piece knobs are chanargs
 
 `@density` above is stored, edited and displayed by exactly the machinery

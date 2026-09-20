@@ -762,6 +762,11 @@ ComposerWindow::parseWork (void)
     }
     else
     {
+        const std::vector<std::string> &warnings = loader.warnings();
+
+        for (size_t i = 0; i < warnings.size(); i++)
+            fprintf(stderr, "%s\n", warnings[i].c_str());
+
         std::string name = loader.pieceName();
 
         if (name.empty())
@@ -777,6 +782,9 @@ ComposerWindow::parseWork (void)
             snprintf(buf, sizeof(buf), " — seed %u", loader.seed());
             pieceLabel_ += buf;
         }
+
+        if (!warnings.empty())
+            pieceLabel_ += " — " + warnings[0];
     }
 
     releaseInstruments();
