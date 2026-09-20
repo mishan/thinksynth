@@ -207,11 +207,36 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             sync[i] = 1;
         }
 
+        /* One subtraction is all a cycle ever needs: `position' advances by a
+           sample at a time, so it passes the end of the cycle by less than
+           one. The fmod is for the other way a phase leaves its range --
+           `wavelength' moving under it. A note retuned upwards shortens the
+           wavelength by whatever the interval is, and the phase it left
+           behind is then several cycles long.
+
+           Taking one wavelength off that leaves `position' still past the
+           end, so `ratio' below came out at ten or fifteen rather than at
+           one, and every waveform ran off its scale until the subtractions
+           caught up a cycle at a time. A bare saw retuned from C1 to C5 put
+           four samples at roughly twenty-nine times full scale into the mix,
+           which the output clamp turned into a click. The same jump arrives
+           through an `fm' input large enough to carry the phase past a whole
+           cycle in one sample. */
         if(position > wavelength) {
             position -= wavelength;
+
+            if(position > wavelength) {
+                position = fmod(position, wavelength);
+            }
+
             sync[i] = 1;
         } else if (position < 0) {
             position += wavelength;
+
+            if(position < 0) {
+                position = fmod(position, wavelength) + wavelength;
+            }
+
             sync[i] = 1;
         } else {
             sync[i] = 0;

@@ -2924,6 +2924,165 @@ static void checkFmop (const string &pluginPath)
                  "sample a window and at five hundred");
 }
 
+/* ---- osc::simple -------------------------------------------------------- */
+
+/* The phase counter, which is the state, and the one property of it that is
+ * not visible in a render of the corpus: it has to stay inside the cycle
+ * when the *cycle* is what moved.
+ *
+ * `position' advances by a sample at a time, so one subtraction is all a
+ * wrap normally needs, and that is what the plugin did -- once, per sample.
+ * The other way a phase leaves its range is `wavelength' shrinking under it,
+ * and there are two of those. A note retuned upwards shortens the wavelength
+ * by the interval, so a mono channel with no lag in its graph hands the
+ * oscillator a phase several cycles long; and `fmamt' is a number of samples
+ * the phase jumps per sample, so a large one carries it past a whole cycle
+ * in one step. Either way `ratio' below arrived at ten or fifteen rather
+ * than at one, and every waveform but the sine ran off its scale until the
+ * subtractions caught up a cycle at a time -- roughly twenty-nine times full
+ * scale for four samples on a bare saw retuned from C1 to C5, which the
+ * output clamp turned into a click.
+ *
+ * Both are measured on the sawtooth. The sine is bounded by sin() whatever
+ * the phase is, which is exactly why this could not be found by listening to
+ * the node that is usually wired.
+ */
+
+/* A saw whose `freq' steps between two pitches, an octave and a half apart,
+   forty times a second: a square through env::map, which is the smallest
+   step generator these graphs can hold. */
+static vector<NodeSpec> simpleStepGraph (float low, float high)
+{
+    vector<NodeSpec> spec;
+    NodeSpec sq, map, osc;
+
+    sq.name = "sq";
+    sq.spelling = "osc/simple";
+
+    Value sqf = { "freq", 40 };
+    Value sqw = { "waveform", 2 };
+    Value sqa = { "amp", 1 };
+
+    sq.values.push_back(sqf);
+    sq.values.push_back(sqw);
+    sq.values.push_back(sqa);
+
+    map.name = "map";
+    map.spelling = "env/map";
+
+    Value mi = { "inmin", -1 };
+    Value ma = { "inmax", 1 };
+    Value mo = { "outmin", low };
+    Value mx = { "outmax", high };
+    Wire  mw = { "in", "sq", "out" };
+
+    map.values.push_back(mi);
+    map.values.push_back(ma);
+    map.values.push_back(mo);
+    map.values.push_back(mx);
+    map.wires.push_back(mw);
+
+    osc.name = "osc";
+    osc.spelling = "osc/simple";
+
+    Value ow = { "waveform", 1 };
+    Value oa = { "amp", 1 };
+    Wire  of = { "freq", "map", "out" };
+
+    osc.values.push_back(ow);
+    osc.values.push_back(oa);
+    osc.wires.push_back(of);
+
+    spec.push_back(sq);
+    spec.push_back(map);
+    spec.push_back(osc);
+
+    return spec;
+}
+
+/* The same saw, at one pitch, with `fmamt' samples of phase per sample
+   coming from a sine -- the other way to carry the phase past a cycle. */
+static vector<NodeSpec> simpleFmGraph (float hz, float fmamt)
+{
+    vector<NodeSpec> spec;
+    NodeSpec mod, osc;
+
+    mod.name = "mod";
+    mod.spelling = "osc/simple";
+
+    Value mf = { "freq", 3 };
+    Value mw = { "waveform", 0 };
+    Value mamp = { "amp", 1 };
+
+    mod.values.push_back(mf);
+    mod.values.push_back(mw);
+    mod.values.push_back(mamp);
+
+    osc.name = "osc";
+    osc.spelling = "osc/simple";
+
+    Value of = { "freq", hz };
+    Value ow = { "waveform", 1 };
+    Value oa = { "amp", 1 };
+    Value ox = { "fmamt", fmamt };
+    Wire  om = { "fm", "mod", "out" };
+
+    osc.values.push_back(of);
+    osc.values.push_back(ow);
+    osc.values.push_back(oa);
+    osc.values.push_back(ox);
+    osc.wires.push_back(om);
+
+    spec.push_back(mod);
+    spec.push_back(osc);
+
+    return spec;
+}
+
+static void checkSimple (const string &pluginPath)
+{
+    /* C1 and C5, which is the jump the bug report was made on. */
+    const vector<NodeSpec> stepped = simpleStepGraph(32.7032f, 523.2511f);
+
+    vector<float> got;
+    string why;
+
+    if (!render1(pluginPath, stepped, "osc", "out", 512, 44100, got, why))
+    {
+        fail("osc::simple: a saw whose pitch steps renders", why);
+    }
+    else
+    {
+        /* `amp' is 1, the arg declares its range as -1..1, and a sawtooth
+           reaches both ends of it every cycle. Anything past that is phase
+           that was not brought back inside the cycle. */
+        okOrFail(allFinite(got) && peak(got, 0) <= 1.0001,
+                 "osc::simple: a pitch that steps up an octave and a half "
+                 "leaves the phase inside the cycle",
+                 "peak " + num(peak(got, 0)));
+    }
+
+    /* Fifty cycles of phase in one sample at the pitch below, which is more
+       than any number of single subtractions inside one sample can undo. */
+    const vector<NodeSpec> modulated = simpleFmGraph(440, 5000);
+
+    if (!render1(pluginPath, modulated, "osc", "out", 512, 44100, got, why))
+    {
+        fail("osc::simple: a saw under deep FM renders", why);
+    }
+    else
+    {
+        okOrFail(allFinite(got) && peak(got, 0) <= 1.0001,
+                 "osc::simple: an `fm' input that carries the phase past a "
+                 "whole cycle leaves it inside the cycle",
+                 "peak " + num(peak(got, 0)));
+    }
+
+    windowsAgree(pluginPath, stepped, "osc", "out",
+                 "osc::simple: the same stepping saw at one sample a window "
+                 "and at five hundred");
+}
+
 /* ---- osc::sample -------------------------------------------------------- */
 
 /* The node that plays a file, and the only one here whose input is not a
@@ -4024,6 +4183,7 @@ int main (int argc, char **argv)
     checkChorus(pluginPath);
     checkComb(pluginPath);
     checkFmop(pluginPath);
+    checkSimple(pluginPath);
     checkSample(pluginPath);
     checkCompressor(pluginPath);
 

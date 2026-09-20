@@ -47,6 +47,35 @@ public:
 
     void process (int length);
 
+    /* Audio thread. A voice the channel has run out of room for.
+     *
+     * Stealing used to be `retireNote' and nothing else, so a voice sounding
+     * at half full scale became a zero between one sample and the next --
+     * dsp/bass.dsp asks for `poly = 2', and a slide up the keyboard blew that
+     * budget on every step, putting a 0.53 step at the window boundary. The
+     * voice is instead mixed for `samples' more with its contribution ramped
+     * to nothing, and retired when the ramp runs out.
+     *
+     * Deliberately not a release: `r' is the instrument's, it is as long as
+     * the instrument says, and a channel out of voices cannot wait that long
+     * for the room. This is the cut it always was, with a slope on it.
+     *
+     * Linear rather than a curve. What a ramp this short has to do is get
+     * the step out of the signal; at a few milliseconds the shape of it is
+     * not audible, and a straight line is the one that is obviously
+     * monotonic and obviously reaches zero. */
+    void beginFade (int samples);
+
+    /* The gain this voice is mixed at, `offset' samples into the window that
+       is being rendered. 1 for a voice that is not fading. */
+    float fadeGain (int offset) const;
+
+    bool fading (void) const { return fadelen_ > 0; }
+
+    /* Audio thread. Charges a rendered window against the ramp. True once
+       the ramp has run out, which is when the caller retires the voice. */
+    bool advanceFade (int samples);
+
     void setArg (const string &name, float value);
     void setArg (const string &name, const float *value, int len);
 
@@ -57,6 +86,10 @@ private:
        what the channel keys notes_ by; this is what a retune has to preserve
        when a composer asks for something between two keys. */
     float note_;
+
+    /* The steal ramp: how long it is, and how much of it is left. Both zero
+       on a voice nothing has stolen, which is what fading() reads. */
+    int fadelen_, faderemaining_;
 };
 
 #endif /* TH_MIDINOTE_H */

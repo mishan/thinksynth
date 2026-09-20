@@ -206,6 +206,24 @@ static double rms (const vector<float> &v)
     return v.empty() ? 0 : sqrt(sum / v.size());
 }
 
+/* The largest step the waveform takes from one sample to the next -- which
+   is what a cut in the middle of a voice looks like, against what the
+   waveform does on its own. */
+static double maxStep (const vector<float> &v)
+{
+    double worst = 0;
+
+    for (size_t i = 1; i < v.size(); i++)
+    {
+        const double step = fabs((double)v[i] - v[i - 1]);
+
+        if (step > worst)
+            worst = step;
+    }
+
+    return worst;
+}
+
 /* Hertz, from the upward zero crossings.
  *
  * Exact for one sine and meaningless for two, which is deliberate: where a
@@ -403,6 +421,60 @@ int main (int argc, char **argv)
                      "poly: a channel that does not ask for a limit plays all "
                      "three", "one " + num(rms(one)) + ", three " +
                               num(rms(three)));
+        }
+    }
+
+    /* ---- a stolen voice is ramped out, not cut ------------------------- */
+
+    /* What the case above leaves unsaid: the voice `poly' takes back was
+       *sounding*, and where in its waveform it happened to be is not the
+       channel's to decide. Dropping its contribution between one sample and
+       the next puts a step into the output the size of wherever it stood,
+       which is a click -- at the window boundary, on every note that costs a
+       voice. dsp/bass.dsp asks for `poly = 2' so a retrigger does not cut the
+       previous note's release, and a slide up the keyboard spends that on
+       every step: the output went from half full scale to exactly zero and
+       the next voice attacked from silence.
+
+       Measured at the seam rather than over the window, because the seam is
+       the only sample where the two readings differ by construction: the
+       voice that arrives is a millisecond into an attack that starts at
+       nothing, so whatever crosses the boundary is the voice that is
+       leaving. Against the waveform's own largest step, so the claim is
+       about a discontinuity and not about a level. */
+    if (writeFile(file, graph("    poly = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `poly = 1' graph loads for the steal", "");
+        else
+        {
+            s.synth.addNote(0, 60, 100);
+            s.settled(8);
+
+            s.run(1);
+
+            vector<float> before = s.take();
+
+            /* Over budget, so this one costs the note above its voice. */
+            s.synth.addNote(0, 72, 100);
+
+            s.run(1);
+
+            vector<float> after = s.take();
+
+            const double slope = maxStep(before);
+            const double seam = fabs((double)after.front() - before.back());
+
+            /* The check is only worth anything if the voice was somewhere a
+               cut would show, so say where it was. */
+            okOrFail(slope > 0 && fabs(before.back()) > slope * 4 &&
+                     seam <= slope * 2,
+                     "poly: a stolen voice is ramped out rather than cut",
+                     "seam " + num(seam) + " where the voice stood at " +
+                     num(fabs(before.back())) + " and its own largest step "
+                     "is " + num(slope));
         }
     }
 

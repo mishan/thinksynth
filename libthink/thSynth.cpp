@@ -1262,7 +1262,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     /* Build the replacement fully before publishing it, then queue the swap.
        Deleting the old channel here would free it under a callback that may be
        inside it; the audio thread hands it back once it is unreachable. */
-    thMidiChan *newchan = new thMidiChan(tree, amp, windowlen_);
+    thMidiChan *newchan = new thMidiChan(tree, amp, windowlen_, sampleRate_);
 
     /* Base name rather than path: the log line has to answer "which
        instrument", and a full path is the same answer at greater length. */
