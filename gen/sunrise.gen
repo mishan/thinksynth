@@ -43,9 +43,8 @@
 # THE SWOOP is section.dsp's per-note slide, an octave over a second
 # and a half, on its own channel because the graph is polyphonic and a
 # slide per note is not a portamento between two. One chain fires it
-# three beats before the main and three beats before the drop, a
-# thirty-two-step ring with its one onset on step thirty-one, so the slide
-# lands on the downbeat.
+# three beats before the main and three beats before the drop: it starts at
+# beat ninety-three and repeats every ninety-six beats.
 #
 # The tape echo is on the clap, a dotted eighth with wow on it; the
 # pulse throws into a cleaner one. A limiter holds the sum.
@@ -466,14 +465,13 @@ chain section {
     sink { instrument = section; };
 };
 
-# The slide into the main and into the drop: one onset in ninety-six
-# beats, at beat ninety-three: `rotate' turns the ring backward, so
-# one step of it puts the onset on step thirty-one.
+# The slide into the main and into the drop, three beats before each.
 chain swoop {
+    start = 93 beats;
     stage src gen::euclid {
-        steps = 32;  fills = 1;  rotate = 1;
+        steps = 1;  fills = 1;
         notes = "C4";
-        period = 3 beats;  hold = 9 beats;  vel = 96;
+        period = 96 beats;  hold = 9 beats;  vel = 96;
     };
     sink { instrument = swoop; };
 };
