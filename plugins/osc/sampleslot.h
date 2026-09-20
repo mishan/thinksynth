@@ -92,6 +92,9 @@ struct thSampleSlot
 {
     std::atomic<const thPlugin *>        owner;
     std::map<std::string, thSampleData> *table;  /* owner's thread only */
+    /* The next velocity layer for each primary file. All voices in a synth
+       reach the same slot, so alternate hits do not restart at layer one. */
+    std::map<std::string, unsigned char> alternates;
 };
 
 static thSampleSlot thSampleSlots[THINK_SAMPLE_SLOTS];
@@ -116,6 +119,7 @@ static inline void thSampleClaim (const thPlugin *plugin)
         {
             delete thSampleSlots[i].table;
             thSampleSlots[i].table = new std::map<std::string, thSampleData>();
+            thSampleSlots[i].alternates.clear();
             return;
         }
     }
@@ -128,9 +132,28 @@ static inline void thSampleRelease (const thPlugin *plugin)
         {
             delete thSampleSlots[i].table;
             thSampleSlots[i].table = NULL;
+            thSampleSlots[i].alternates.clear();
             thSampleSlots[i].owner.store(NULL, std::memory_order_release);
             return;
         }
+}
+
+/* Count a trigger once across every voice using this primary file. The slot
+   belongs to one synth and is cleared when that synth releases its plugin. */
+static inline unsigned thSampleNextLayer (const thPlugin *plugin,
+                                           const std::string &name)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+
+    if (slot == NULL)
+        return 0;
+
+    unsigned char &next = slot->alternates[name];
+    const unsigned chosen = next;
+
+    next = (unsigned char)((next + 1) % 3);
+
+    return chosen;
 }
 
 /* ---- the reader ---------------------------------------------------------

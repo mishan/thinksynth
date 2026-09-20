@@ -52,6 +52,11 @@
  * The frames-from-the-end spelling rather than a loop point is what lets
  * a file be re-trimmed without the number in the graph going stale.
  *
+ * `file2' AND `file3' ARE VELOCITY LAYERS. `select' chooses one on the
+ * trigger edge and that file stays under the voice until its next edge.
+ * Omitted layers fall back to the one below them. With `alternate = 1',
+ * a counter shared by this synth's voices chooses 1, 2, 3, 1 instead.
+ *
  * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
  * of a kit share one copy of the kick. See osc/sampleslot.h, which also
  * says why the read happens on the first window that asks for it rather
@@ -76,7 +81,8 @@
 
 #include "sampleslot.h"
 
-enum {IN_FILE, IN_FREQ, IN_ROOT, IN_START, IN_LOOP, IN_TRIGGER,
+enum {IN_FILE, IN_FILE2, IN_FILE3, IN_FREQ, IN_ROOT, IN_START, IN_LOOP,
+      IN_TRIGGER, IN_SELECT, IN_SPLIT1, IN_SPLIT2, IN_ALTERNATE,
       OUT_ARG, OUT_PLAY, INOUT_STATE};
 
 int args[INOUT_STATE + 1];
@@ -119,6 +125,12 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_FILE],
                        "The wav to play, found under samples/ on "
                        "THINK_DSP_PATH");
+    args[IN_FILE2] = plugin->regArg("file2", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FILE2],
+                       "Middle layer wav; an empty slot uses file");
+    args[IN_FILE3] = plugin->regArg("file3", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FILE3],
+                       "Upper layer wav; an empty slot uses file2 or file");
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FREQ], "The note to play it at");
     plugin->setArgUnits(args[IN_FREQ], "Hz");
@@ -142,6 +154,24 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_TRIGGER],
                        "Start again from `start' when this rises above 0");
     plugin->setArgRange(args[IN_TRIGGER], 0, 1);
+    args[IN_SELECT] = plugin->regArg("select", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SELECT],
+                       "Layer choice at trigger: below split1 is file, "
+                       "below split2 is file2, above is file3");
+    plugin->setArgRange(args[IN_SELECT], 0, 1);
+    args[IN_SPLIT1] = plugin->regArg("split1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SPLIT1], "Boundary between file and file2");
+    plugin->setArgRange(args[IN_SPLIT1], 0, 1);
+    plugin->setArgDefault(args[IN_SPLIT1], 1.0f / 3.0f);
+    args[IN_SPLIT2] = plugin->regArg("split2", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SPLIT2], "Boundary between file2 and file3");
+    plugin->setArgRange(args[IN_SPLIT2], 0, 1);
+    plugin->setArgDefault(args[IN_SPLIT2], 2.0f / 3.0f);
+    args[IN_ALTERNATE] = plugin->regArg("alternate", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ALTERNATE],
+                       "Cycle layers 1, 2, 3 across this synth's triggers");
+    plugin->setArgRange(args[IN_ALTERNATE], 0, 1);
+    plugin->setArgStep(args[IN_ALTERNATE], 1);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The file");
@@ -153,7 +183,7 @@ int module_init (thPlugin *plugin)
                        "can be the sample's own length");
     plugin->setArgRange(args[OUT_PLAY], 0, 1);
 
-    /* [0] the playhead in frames, [1] the last trigger. */
+    /* [0] the playhead, [1] the last trigger, [2] the chosen layer. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     return 0;
@@ -164,18 +194,27 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 {
     float *out, *play;
     float *state;
-    thArg *in_file, *in_freq, *in_root, *in_start, *in_loop, *in_trigger;
+    thArg *in_file, *in_file2, *in_file3, *in_freq, *in_root;
+    thArg *in_start, *in_loop, *in_trigger, *in_select, *in_split1;
+    thArg *in_split2, *in_alternate;
     thArg *out_arg, *out_play;
     thArg *inout_state;
     unsigned int i;
     float at, lastTrigger;
+    unsigned layer;
 
     in_file = mod->getArg(node, args[IN_FILE]);
+    in_file2 = mod->getArg(node, args[IN_FILE2]);
+    in_file3 = mod->getArg(node, args[IN_FILE3]);
     in_freq = mod->getArg(node, args[IN_FREQ]);
     in_root = mod->getArg(node, args[IN_ROOT]);
     in_start = mod->getArg(node, args[IN_START]);
     in_loop = mod->getArg(node, args[IN_LOOP]);
     in_trigger = mod->getArg(node, args[IN_TRIGGER]);
+    in_select = mod->getArg(node, args[IN_SELECT]);
+    in_split1 = mod->getArg(node, args[IN_SPLIT1]);
+    in_split2 = mod->getArg(node, args[IN_SPLIT2]);
+    in_alternate = mod->getArg(node, args[IN_ALTERNATE]);
 
     inout_state = mod->getArg(node, args[INOUT_STATE]);
 
@@ -187,52 +226,67 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
        period held eight seconds. */
     at = (*inout_state)[0];
     lastTrigger = (*inout_state)[1];
-    state = inout_state->allocate(2);
+    layer = (unsigned)thClampArg((*inout_state)[2], 0, 2);
+    state = inout_state->allocate(3);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
     out_play = mod->getArg(node, args[OUT_PLAY]);
     play = out_play->allocate(windowlen);
 
-    /* The file, by the name the .dsp wrote. Looked up per window rather
-       than cached on the node: a map lookup on a short string once a
-       window is nothing beside the work below, and a node has nowhere to
-       keep a pointer that survives the per-note tree copy. */
-    const thSampleData *smp =
-        thSampleGet(node->plugin(), in_file->text(), samples);
-    const size_t len = (smp != NULL) ? smp->frames.size() : 0;
-
-    if (len == 0)
-    {
-        for (i = 0; i < windowlen; i++)
-        {
-            out[i] = 0;
-            play[i] = 0;
-        }
-
-        state[0] = at;
-        state[1] = lastTrigger;
-
-        return 0;
-    }
-
-    const float *frames = &smp->frames[0];
+    /* Resolve at most once per window, and once more if a retrigger changes
+       layer inside it. The counter lives in the synth's shared sample slot;
+       the chosen layer and playhead live in this voice's state arg. */
+    const thSampleData *smp = NULL;
+    size_t len = 0;
+    unsigned loadedLayer = 3;
 
     for (i = 0; i < windowlen; i++)
     {
         const float trigger = (*in_trigger)[i];
-        const float start = thClampArg((*in_start)[i], 0, (float)(len - 1));
-        const float loop = thClampArg((*in_loop)[i], 0, (float)len);
-        const float root = (*in_root)[i];
+        const bool edge = trigger > 0 && !(lastTrigger > 0);
         float step;
 
-        /* A rising edge. A note holds its trigger at 1 for as long as
-           the key is down, so a level test would pin the playhead to
-           `start' and the file would never move. */
-        if (trigger > 0 && !(lastTrigger > 0))
-            at = start;
+        if (edge)
+        {
+            if ((*in_alternate)[i] > 0)
+                layer = thSampleNextLayer(node->plugin(), in_file->text());
+            else
+            {
+                const float select = thClampArg((*in_select)[i], 0, 1);
+                const float split1 = thClampArg((*in_split1)[i], 0, 1);
+                const float split2 = thClampArg((*in_split2)[i], split1, 1);
+
+                layer = select < split1 ? 0 : select < split2 ? 1 : 2;
+            }
+        }
 
         lastTrigger = trigger;
+
+        if (loadedLayer != layer)
+        {
+            const std::string &name =
+                (layer == 2 && !in_file3->text().empty()) ? in_file3->text() :
+                (layer >= 1 && !in_file2->text().empty()) ? in_file2->text() :
+                in_file->text();
+
+            smp = thSampleGet(node->plugin(), name, samples);
+            len = (smp != NULL) ? smp->frames.size() : 0;
+            loadedLayer = layer;
+        }
+
+        if (edge)
+            at = len ? thClampArg((*in_start)[i], 0, (float)(len - 1)) : 0;
+
+        if (len == 0)
+        {
+            out[i] = 0;
+            play[i] = 0;
+            continue;
+        }
+
+        const float loop = thClampArg((*in_loop)[i], 0, (float)len);
+        const float root = (*in_root)[i];
 
         /* Both bounded, so a root of 0 -- which is what an unwired
            `root' reads as before its default is applied -- is middle C
@@ -264,8 +318,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const size_t k = (size_t)at;
             const float frac = at - (float)k;
-            const float a = frames[k];
-            const float b = frames[(k + 1 < len) ? k + 1 : k];
+            const float a = smp->frames[k];
+            const float b = smp->frames[(k + 1 < len) ? k + 1 : k];
 
             out[i] = TH_MAX * (a + (b - a) * frac);
         }
@@ -276,6 +330,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     state[0] = at;
     state[1] = lastTrigger;
+    state[2] = (float)layer;
 
     return 0;
 }

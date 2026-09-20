@@ -75,6 +75,10 @@ fi
 # A sample's own level is the least interesting thing about it -- the
 # graph that plays it sets that -- so the number is chosen to be clean
 # rather than to match the others.
+# The five kit_ graphs add three strokes each. The hat's velocity also
+# moves its pedal, so its soft, mid and hard files have different lengths.
+# All fifteen names are under dsp/samples/, which the web build already
+# includes with its *.wav glob.
 kit="
 kick909       kick909      C2   96  0.42
 snare         snare        C3  110  0.22
@@ -83,6 +87,21 @@ hat_closed    hat0         C4   40  0.32
 hat_open      hat0         C4  110  0.85
 bd10          bd10         C2   45  0.22
 orchhit       stab+brass   C4   70  1.10
+kit_kick_soft  kit_kick     C2   35  0.40
+kit_kick_mid   kit_kick     C2   70  0.40
+kit_kick_hard  kit_kick     C2  105  0.40
+kit_snare_soft kit_snare    D2   35  0.28
+kit_snare_mid  kit_snare    D2   70  0.28
+kit_snare_hard kit_snare    D2  105  0.28
+kit_hat_soft   kit_hat      F#2  35  0.16
+kit_hat_mid    kit_hat      F#2  70  0.42
+kit_hat_hard   kit_hat      F#2 105  0.85
+kit_ride_soft  kit_ride     C4   35  2.35
+kit_ride_mid   kit_ride     C4   70  2.35
+kit_ride_hard  kit_ride     C4  105  2.35
+kit_tom_soft   kit_tom      C3   35  0.55
+kit_tom_mid    kit_tom      C3   70  0.55
+kit_tom_hard   kit_tom      C3  105  0.55
 "
 
 mkdir -p "$OUT"

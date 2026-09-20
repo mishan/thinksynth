@@ -886,11 +886,17 @@ Sample Player (a wav at a voice's pitch)
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `file` | in | The wav to play, found under samples/ on THINK_DSP_PATH |  |  |  |  |
+| `file2` | in | Middle layer wav; an empty slot uses file |  |  |  |  |
+| `file3` | in | Upper layer wav; an empty slot uses file2 or file |  |  |  |  |
 | `freq` | in | The note to play it at |  |  | Hz |  |
 | `root` | in | The frequency the file was recorded at; `root = freq' plays it unpitched | 261.63 |  | Hz |  |
 | `start` | in | Where in the file a hit begins |  |  | samples |  |
 | `loop` | in | How many frames at the end repeat; 0 is a one-shot |  |  | samples |  |
 | `trigger` | in | Start again from `start' when this rises above 0 |  | 0 to 1 |  |  |
+| `select` | in | Layer choice at trigger: below split1 is file, below split2 is file2, above is file3 |  | 0 to 1 |  |  |
+| `split1` | in | Boundary between file and file2 | 0.333333 | 0 to 1 |  |  |
+| `split2` | in | Boundary between file2 and file3 | 0.666667 | 0 to 1 |  |  |
+| `alternate` | in | Cycle layers 1, 2, 3 across this synth's triggers |  | 0 to 1 |  |  |
 | `out` | out | The file |  | -1 to 1 | full scale |  |
 | `play` | out | 1 while there is file left, so a one-shot's note can be the sample's own length |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
