@@ -34,7 +34,8 @@
 /* Never reset, never reused. See thMidiChan::serial(). */
 std::atomic<unsigned long> thMidiChan::nextSerial_(1);
 
-thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
+thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
+                        long samplerate)
 {
     const thArg *chanarg = NULL;
 
@@ -43,6 +44,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     modnode_ = mod;
     effect_ = NULL;
     windowlength_ = windowlen;
+    samplerate_ = (samplerate > 0) ? samplerate : TH_DEFAULT_SAMPLES;
     dirty_ = 1;
     channels_ = 1;
     output_ = NULL;
@@ -179,9 +181,9 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
 
 thMidiChan::~thMidiChan (void)
 {
-    /* clearAll() covers notes_, decaying_ and noteorder_; the old destructor
-       only walked notes_ and leaked every decaying note. Notes hold copies of
-       modnode_, so they have to go first.
+    /* clearAll() covers notes_, decaying_, fading_ and noteorder_; the old
+       destructor only walked notes_ and leaked every decaying note. Notes
+       hold copies of modnode_, so they have to go first.
 
        NULL retire queue: by the time a channel is destroyed the GUI thread has
        already taken it back off the audio thread, so there is nobody left to
@@ -444,6 +446,17 @@ void thMidiChan::decayNote (NoteMap::iterator i)
         notecount_--;
 }
 
+/* Audio thread. See the header, and TH_VOICE_FADE_MS for the length. */
+void thMidiChan::fadeNote (thMidiNote *note)
+{
+    if (note == NULL)
+        return;
+
+    note->beginFade((int)((samplerate_ * TH_VOICE_FADE_MS) / 1000));
+
+    fading_.push_back(note);
+}
+
 /* Audio thread. The one voice a mono channel is playing, or NULL. See the
    header for why a releasing voice does not count. */
 thMidiNote *thMidiChan::monoVoice (void)
@@ -675,6 +688,13 @@ void thMidiChan::clearAll (RetireQueue *retire)
     }
     decaying_.clear();
 
+    /* Mid-ramp, and there is no window left to finish the ramp in. */
+    for (NoteList::iterator k = fading_.begin(); k != fading_.end(); ++k)
+    {
+        retireNote(*k, retire);
+    }
+    fading_.clear();
+
     noteorder_.clear();
 
     notecount_ = 0;
@@ -806,7 +826,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
             while (!decaying_.empty() && notecount_decay_ > 0 &&
                    notecount_ + notecount_decay_ > polymax_)
             {
-                retireNote(decaying_.back(), retire);
+                fadeNote(decaying_.back());
                 decaying_.pop_back();
                 notecount_decay_--;
             }
@@ -817,7 +837,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
             while (iter != noteorder_.end() && notecount_ > polymax_)
             {
                 notes_.erase((*iter)->id());
-                retireNote(*iter, retire);
+                fadeNote(*iter);
                 iter = noteorder_.erase(iter);
                 notecount_--;
             }
@@ -872,6 +892,33 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
         else
         {
             diter++;
+        }
+    }
+
+    /* And the voices that were stolen, which are neither held nor released:
+       they are being ramped out by mixNote() and retired when the ramp runs
+       out. Not counted by either counter above -- see fading_ -- so a channel
+       already at its limit does not pay for a steal with another steal.
+
+       Retired early on `play' as well, because a voice whose graph has
+       finished anyway has nothing left to ramp. */
+    NoteList::iterator fiter = fading_.begin();
+
+    while (fiter != fading_.end())
+    {
+        data = *fiter;
+
+        play = mixNote(data, sustain, probes, nprobes);
+
+        if (data->advanceFade(windowlength_) ||
+            (play && (*play)[windowlength_ - 1] == 0))
+        {
+            fiter = fading_.erase(fiter);
+            retireNote(data, retire);
+        }
+        else
+        {
+            fiter++;
         }
     }
 
@@ -1090,6 +1137,8 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
         return play;
     }
 
+    const bool fading = note->fading();
+
     /* channels_ is clamped to TH_MAX_CHANNELS in the constructor, which is what
        makes outindex_ big enough. */
     for (int i = 0; i < channels_; i++)
@@ -1108,10 +1157,27 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
 
         int index = i;
 
-        for (int j = 0; j < windowlength_; j++)
+        if (fading)
         {
-            output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX);
-            index += channels_;
+            /* A stolen voice, on its way out. The ramp is per window rather
+               than per channel, so every channel of the voice is scaled by
+               the same number at the same sample and the image does not move
+               while it goes. The window is charged against the ramp once,
+               by the loop in process() that owns fading_. */
+            for (int j = 0; j < windowlength_; j++)
+            {
+                output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
+                                  note->fadeGain(j);
+                index += channels_;
+            }
+        }
+        else
+        {
+            for (int j = 0; j < windowlength_; j++)
+            {
+                output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX);
+                index += channels_;
+            }
         }
     }
 

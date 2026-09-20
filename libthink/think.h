@@ -145,6 +145,26 @@ using namespace std;
  * is overriding. */
 #define TH_DEFAULT_POLY 10
 
+/* How long a stolen voice takes to get out of the way, in milliseconds.
+ *
+ * A channel over its `poly' budget used to hand the oldest voice straight to
+ * the retire queue, so whatever it was sounding at became a zero between one
+ * sample and the next -- a step at the window boundary, which is a click.
+ * dsp/bass.dsp asks for `poly = 2' so that a retrigger does not cut the
+ * previous note's release; a slide up the keyboard exceeded that on every
+ * step and put a step of 0.53 full scale in the output.
+ *
+ * Three milliseconds is chosen from both ends. Long enough that the ramp is
+ * gentler than anything an instrument's own attack does -- so it is the
+ * envelope, not the ramp, that is the fastest edge in the signal -- and
+ * short enough that the steal is still a steal. The room it frees is free
+ * the moment it is asked for: a voice on its way out stops being counted
+ * against `poly' when it is stolen, not when the ramp finishes, so this
+ * does not lengthen what a channel is holding.
+ *
+ * See thMidiNote::beginFade for why this is a ramp and not a release. */
+#define TH_VOICE_FADE_MS 3
+
 /* How many keys a mono channel remembers are down.
  *
  * MIDI has 128 pitches and the stack holds each at most once, so this cannot

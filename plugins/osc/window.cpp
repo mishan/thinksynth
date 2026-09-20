@@ -155,8 +155,25 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         wavelength = samples/thBoundFreq(freq, samples);
 
-        if(position > wavelength || (*in_reset)[i] == 1) {
+        /* A reset is the arg's own description -- "Reset position to 0" --
+           and taking a wavelength off instead put the phase *behind* the
+           start of the cycle whenever it had not reached the end, where
+           `ratio' is negative and every waveform below runs off its scale.
+           osc::simple's reset has always zeroed it.
+
+           The subtraction is right for the other case, where `position' has
+           advanced a sample past the end of the cycle. It is not enough when
+           `wavelength' is what moved: a note retuned upwards shortens it by
+           the interval, leaving a phase several cycles long that one
+           subtraction does not bring back. */
+        if((*in_reset)[i] == 1) {
+            position = 0;
+        } else if(position > wavelength) {
             position -= wavelength;
+
+            if(position > wavelength) {
+                position = fmod(position, wavelength);
+            }
         }
 
         sync[i] = 0;

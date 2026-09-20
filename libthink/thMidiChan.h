@@ -30,7 +30,8 @@ public:
        nodes, so a tree shared between two channels has its pointers overwritten
        by whichever was constructed last, and destroying either channel leaves
        the other dereferencing freed args. */
-    thMidiChan (thSynthTree *mod, float amp, int windowlen);
+    thMidiChan (thSynthTree *mod, float amp, int windowlen,
+                long samplerate = TH_DEFAULT_SAMPLES);
     ~thMidiChan (void);
 
     typedef map<int, thMidiNote*> NoteMap;
@@ -213,6 +214,15 @@ private:
        case; mono needs it for a collision on any pitch. */
     void decayNote (NoteMap::iterator i);
 
+    /* Audio thread. Steals a voice: starts its ramp and moves it to
+       fading_, where it is mixed until the ramp runs out and then retired.
+       The caller is the one that takes it off whichever list it was on, and
+       off the count -- a stolen voice is no longer anybody's polyphony.
+
+       This is what the polyphony test in process() calls instead of
+       retireNote(). See TH_VOICE_FADE_MS. */
+    void fadeNote (thMidiNote *note);
+
     /* Audio thread. The voice a mono channel is playing, or NULL.
      *
      * Not simply notes_.begin(): a voice whose key has come up is still in
@@ -238,7 +248,15 @@ private:
     NoteMap notes_;
     NoteList decaying_;  /* linked list for decaying notes */
     NoteList noteorder_; /* order of the notes for polyphony limits */
+
+    /* Voices that have been stolen and are ramping out. Deliberately not
+       counted by either polyphony counter: they are leaving, they cannot be
+       stolen again, and counting them would make a channel at its limit
+       steal a second voice to pay for the first. */
+    NoteList fading_;
+
     int channels_, windowlength_;
+    long samplerate_;    /* what TH_VOICE_FADE_MS is measured against */
     float *output_;
 
     /* Scratch for the mix loop, sized once. These were VLAs declared inside

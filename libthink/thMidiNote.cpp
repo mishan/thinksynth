@@ -36,6 +36,7 @@ thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity)
 
     note_ = note;
     noteid_ = (int)note;
+    fadelen_ = faderemaining_ = 0;
 }
 
 thMidiNote::thMidiNote (thSynthTree *tree)
@@ -50,6 +51,7 @@ thMidiNote::thMidiNote (thSynthTree *tree)
 
     note_ = 0;
     noteid_ = 0;
+    fadelen_ = faderemaining_ = 0;
 }
 
 thMidiNote::~thMidiNote ()
@@ -68,6 +70,45 @@ void thMidiNote::retune (float note)
 
     note_ = note;
     noteid_ = (int)note;
+}
+
+/* Audio thread. See the header. */
+void thMidiNote::beginFade (int samples)
+{
+    /* Already going: a second steal in the same window must not hand the
+       voice a fresh ramp and a longer life. */
+    if (fadelen_ > 0)
+        return;
+
+    /* A fade of nothing is a cut, and a cut is what this exists to stop, so
+       the floor is one sample -- at which the voice is simply gone after the
+       window it is in, as it was before. */
+    fadelen_ = faderemaining_ = (samples > 0) ? samples : 1;
+}
+
+/* Audio thread. See the header. */
+float thMidiNote::fadeGain (int offset) const
+{
+    if (fadelen_ <= 0)
+        return 1.0f;
+
+    const int left = faderemaining_ - offset;
+
+    if (left <= 0)
+        return 0.0f;
+
+    return (float)left / (float)fadelen_;
+}
+
+/* Audio thread. See the header. */
+bool thMidiNote::advanceFade (int samples)
+{
+    if (fadelen_ <= 0)
+        return false;
+
+    faderemaining_ -= samples;
+
+    return faderemaining_ <= 0;
 }
 
 void thMidiNote::process (int length)

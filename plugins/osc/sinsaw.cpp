@@ -85,6 +85,18 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for(i=0; i < (int)windowlen; i++) {
         wavelength = samples * (1.0/thBoundFreq((*in_freq)[i], samples));
 
+        /* The wrap below takes the phase back to zero a cycle at a time,
+           which is enough while `position' only ever advances by a sample.
+           It is not enough when `wavelength' moves instead: a note retuned
+           upwards shortens it by the interval, and the phase left behind is
+           then several cycles long. `posratio' is that phase over the
+           wavelength, so it arrives at ten or fifteen rather than at one,
+           and pow() raises it to `factor' before it is mixed. Reduced here
+           because it has to happen before the phase is read, not after. */
+        if(position > wavelength) {
+            position = fmod(position, wavelength);
+        }
+
         posratio = 2*(position/wavelength)-1;
         out[i] = (1-pow(fabs(posratio), (*in_factor)[i]))*posratio*TH_MAX;
         //    printf("%f \t%f\n", position, out[i]);
