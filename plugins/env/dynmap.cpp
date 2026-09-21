@@ -43,8 +43,9 @@ int module_init (thPlugin *plugin)
 
     /* out = (in - inmin)/(inmax - inmin) * (outmax - outmin) + outmin. It
        does not clamp, so an input outside inmin..inmax is extrapolated rather
-       than held -- which is how dsp/old/bd9.dsp got a note of 4210 out of a
-       range declared 10 to 52. And inmax == inmin divides by zero. */
+       than held -- which is how scripts/guard/divergent.dsp gets a
+       cutoff a hundred times full scale out of a range declared 30 to 90,
+       and why it diverges. And inmax == inmin divides by zero. */
     args[IN_INMIN] = plugin->regArg("inmin", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_INMIN], "Bottom of the range coming in");
     args[IN_INMAX] = plugin->regArg("inmax", thPlugin::ARG_IN);

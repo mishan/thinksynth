@@ -37,7 +37,7 @@
  * is therefore a measuring instrument rather than a CI gate, and it is not in
  * the ctest list.
  *
- *   xvfb-run -a ./build/scripts/canvasbench -p build/plugins/ dsp/old/bd9.dsp
+ *   xvfb-run -a ./build/scripts/canvasbench -p build/plugins/ dsp/fx/vocoder.dsp
  *
  * What it reports, per file: the graph's size, and the mean and worst
  * wall-clock time NodeCanvas::drawGraph took. The number that matters is the

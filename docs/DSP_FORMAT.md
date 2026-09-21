@@ -622,20 +622,24 @@ Both are invisible to everything that is not the editor. See
 
 ## 5. Known-bad files
 
-**2 of the shipped DSPs do not load at all** — `dsp/old/wav.dsp` and
-`dsp/old/wlantest.dsp`. They reference `input/wav` or `misc/wlan`, plugins that
-compile but are deliberately not in the build, `wav.cpp`'s own description
-string being `"Wav Input (BROKEN)"`. There were eleven until the
-`dsp/effects/` drawer went: nine graphs from before an effect could be fed a
-channel, which read a wav file or the ALSA input because there was nothing
-else to read. `dsp/fx/` is where that idea lives now.
+**Every shipped DSP loads.** Eleven did not, until recently: nine in
+`dsp/effects/` that read `input/wav` or `input/alsa` because they predated an
+effect being able to hear a channel, and two in `dsp/old/` on `input/wav` and
+`misc/wlan`. Those plugins compile and are deliberately not in the build —
+`wav.cpp`'s own description string is `"Wav Input (BROKEN)"` — and all eleven
+files have gone. `dsp/fx/` is where the effects idea lives now.
+
+`cmake/RunHarness.cmake` still filters on what a file references, so building
+one of those plugins would bring any file naming it back into the sweep. The
+filter matching nothing is the point of it.
 
 **All 101 patches load.** Two of them did not until recently:
 `patches/pads/Rythmic.patch` and `Rythmic-2.patch` named an absolute
 `/usr/local/share//thinksynth/dsp/mfm03.dsp` that was never in the tree, and
 now name `mfm01.dsp`, which declares exactly the chanargs they set.
 
-The CI gates therefore run over 138 DSPs and all 101 patches.
+The CI gates therefore run over all 77 DSPs and all 101 patches, plus the
+three specimens in `scripts/guard/`.
 `cmake/RunHarness.cmake` filters DSPs by what a file *references* rather than
 by name, so the exclusion cannot go stale. It strips comments before it looks,
 which it did not always do: `dsp/fx/vocoder.dsp` explains in prose why it needs

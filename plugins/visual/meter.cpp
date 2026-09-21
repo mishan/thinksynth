@@ -82,9 +82,10 @@ struct Meter {
 };
 
 /* A NaN reaching a display is not hypothetical: docs/AUDIO.md records four DSPs
-   whose filters diverge, and mixer.out on dsp/noargs/bd1.dsp reads -inf within
-   seven windows. Comparing a NaN never yields true, so peak tracking would
-   silently ignore it and the meter would read a confident 0.0 for a signal
+   whose filters diverge, and mixer.out on scripts/guard/divergent.dsp reads
+   -inf within seven windows. Comparing a NaN never yields true, so peak
+   tracking would silently ignore it and the meter would read a confident 0.0
+   for a signal
    that has blown up -- which is precisely the case someone has a meter open
    for. So they are counted and shown, not filtered. */
 bool finite (float x)

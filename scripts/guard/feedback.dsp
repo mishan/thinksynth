@@ -1,6 +1,31 @@
-name "test";
-# delay feedback
-# leif ames 1-2-2004
+# feedback.dsp -- a graph with a real cycle in it, kept for the code that has
+# to cope with one.
+#
+# Beside the harness rather than in dsp/, for the reason the other fixtures
+# here give: it is not an instrument and every corpus sweep globs dsp/.
+#
+# THE CYCLE: `osc' is frequency-modulated by `delay', and `delay' is fed from
+# `osc'. The engine breaks a loop like that by letting one node read the
+# previous window, so the loop's delay *is* the window length -- 23 ms at
+# 1024 frames, 5.3 ms at 256. The file therefore sounds different at
+# different buffer sizes, which is why it is a fixture and not a preset, and
+# why DSP_FORMAT.md tells authors not to write one.
+#
+# It is the last cycle in the tree. Two things were checked against it and one
+# other file and have nothing else to run on:
+#
+#   scripts/dspab -B 256      that a buffer-size change is audible here and
+#                             nowhere else (docs/JAM.md)
+#   the node editor's layout  back-edges: a feedback arc set, reversed for
+#                             layering (docs/NODE_EDITOR.md)
+#
+# This is dsp/noargs/dfb.dsp, 2004, by Leif Ames. Its `dcalc' node writes `in'
+# to a `misc::freq2samples' whose input is called `freq', so nothing reads it
+# and nothing ever did; left as it was, because what is being preserved is the
+# graph somebody actually wrote.
+
+name "Guard: feedback";
+description "An oscillator FM'd by a delay line fed from itself. Window-length dependent by construction.";
 
 node ionode {
     channels = 2;

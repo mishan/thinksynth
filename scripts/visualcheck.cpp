@@ -31,9 +31,9 @@
  *                      2650 ports dspprobe measures are exactly this
  *   DC                 a constant arg, which is what a length-1 arg reads as
  *   full scale         a square at +-1
- *   1e5                dsp/old/test.dsp peaks at 1.75e5 (docs/AUDIO.md)
- *   -inf and NaN       mixer.out on dsp/noargs/bd1.dsp reaches -inf in seven
- *                      windows; four shipped DSPs have diverging filters
+ *   1e5                a DSP that peaks at 1.75e5 (docs/AUDIO.md)
+ *   -inf and NaN       mixer.out on scripts/guard/divergent.dsp reaches -inf
+ *                      in seven windows
  *   one sample         the smallest thing a feed can be
  *
  * The NaN case is the one worth having. Every comparison against a NaN is

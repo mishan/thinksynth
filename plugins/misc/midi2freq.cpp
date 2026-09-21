@@ -96,8 +96,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
          * the range. That would answer an absurdly high note with 0 Hz, an
          * infinite wavelength and silence.
          *
-         * dsp/old/bd9.dsp maps an envelope sustaining at a hundred times full
-         * scale onto a note range; note 4210 arrives here. */
+         * Not hypothetical: a graph that maps an envelope sustaining at a
+         * hundred times full scale onto a note range sends note 4210 in
+         * here. The file that did it was one of the 2003-04 drawers and is
+         * gone, but the mistake is a missing `%' on a sustain and is one
+         * character away in any file. */
         double hz = 440.0*pow(2.0, (buf_in[i] - 69) / 12.0);
 
         if (!(hz >= 0.0))       /* NaN: every comparison with one is false */

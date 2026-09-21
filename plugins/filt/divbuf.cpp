@@ -31,9 +31,10 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    |1 - k| < 1, that is for k in (0, 2). k is the factor to the fourth power,
    so the arg's ceiling is the fourth root of 2 and FACTORMAX sits under it.
 
-   dsp/noargs/bd1.dsp drives the factor from an envelope sustaining at a
-   hundred times full scale: k arrived at 1e8 and the graph had never made a
-   sound. */
+   scripts/guard/divergent.dsp drives the factor from an envelope sustaining
+   at a hundred times full scale: k arrived at 1e8 and the graph had never
+   made a sound. It is kept beside the harness for exactly that, and is the
+   only user of this plugin anywhere in the tree. */
 #define FACTORMAX 1.18f
 
 void module_cleanup (thPlugin *plugin)

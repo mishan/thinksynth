@@ -141,9 +141,9 @@ int voicesFor (thSynth &synth, int chan)
  * thMidiChan retires a note the moment its `play' arg reaches zero, which
  * happens inside process() -- so from out here the note is already gone while
  * the window it contributed to is the one about to be read. Percussive patches
- * reach that within a few windows (dsp/noargs/bd1.dsp does it in seven), and
- * comparing past it means comparing the tap against a reference that can no
- * longer see what the tap correctly still holds.
+ * reach that within a few windows (scripts/guard/divergent.dsp does it in
+ * seven), and comparing past it means comparing the tap against a reference
+ * that can no longer see what the tap correctly still holds.
  *
  * So the comparison stops at that boundary rather than pretending to cover
  * it. What happens to a probe during a release is the tap's business and it is
