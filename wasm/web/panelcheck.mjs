@@ -418,6 +418,15 @@ const edit = (row, text, b = INSTRUMENT) =>
  * page, so the channel panel's checks come first and stay above this.
  */
 {
+    /* The instruments the fixture declares, handed over by name.
+     *
+       A module has no file system: the page fetches a piece's .dsp files and
+       gives them to it, and this does the same. The native side finds the
+       same text on the dsp path, which scripts/panelcheck points at the
+       directory it wrote the fixture into. */
+    M.ccall('tw_instrument', 'number', ['string', 'string'],
+            ['panelcheck-scratch.dsp', dsp]);
+
     if (M.ccall('tw_piece_load', 'number', ['string', 'number'],
                 [gen, 7]) === 0)
         fail('the fixture .gen loads in the module');

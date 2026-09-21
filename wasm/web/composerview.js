@@ -218,11 +218,21 @@ export function createComposerView ({ root = document, toMirror,
 
         box.append(body);
 
+        /* Which stage this panel is about, held rather than read back off
+         * `params' when an edit arrives.
+         *
+         * The two are the same object right now and stop being it a moment
+         * later: a box commits its value on `change', which fires when the
+         * focus leaves -- and clicking away from the popover is how the
+         * focus leaves. That click closes the popover first, in a capture
+         * handler that sets `params' to null, so reading it here threw and
+         * the edit somebody had just typed went nowhere. */
+        const about = params;
+
         params.panel = panel;
         params.setValue = showPanel(
             body, panel,
-            (row, text) => onParamEdit(params.chain, params.stage, row,
-                                       text));
+            (row, text) => onParamEdit(about.chain, about.stage, row, text));
     };
 
     const showParams = (m) =>
