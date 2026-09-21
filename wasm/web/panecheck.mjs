@@ -153,7 +153,8 @@ try
     await page.waitForFunction(
         () => document.getElementById('range').textContent !== '');
 
-    check(await page.evaluate(() => !document.body.classList.contains('tiled')),
+    check(await page.evaluate(
+              () => !document.body.classList.contains('tiled')),
           'and a narrow one is the document whatever the query string says');
 
     const before = await photograph();

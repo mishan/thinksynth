@@ -171,8 +171,9 @@ export function createPanes ({ root, catalog, layouts, mode,
 
         /* A page that does not have this one. The catalogs are two
            lists over two documents that share most of their panes, and
-           the one that is missing is not an error -- see panecheck.mjs,
-           which is where a name that is in neither is caught. */
+           the one that is missing here is not an error -- a name listed
+           by a page and marked in no element of it is catalogcheck.mjs's
+           to catch, before a browser is ever opened. */
         if (el === null || !el.hasAttribute('data-pane'))
             continue;
 
@@ -353,9 +354,9 @@ export function createPanes ({ root, catalog, layouts, mode,
         {
             const tabs = node.tabs.filter((id) => panes.has(id));
 
-            return tabs.length === 0
-                ? null
-                : { tabs, active: Math.min(node.active ?? 0, tabs.length - 1) };
+            return tabs.length === 0 ? null
+                 : { tabs,
+                     active: Math.min(node.active ?? 0, tabs.length - 1) };
         }
 
         const kids = [], size = [];
@@ -734,7 +735,6 @@ export function createPanes ({ root, catalog, layouts, mode,
            lands in a canvas never reaches this box otherwise. */
         box.addEventListener('pointerdown', () => { focus = leaf; }, true);
 
-        leaf.active = Math.min(leaf.active, ids.length - 1);
         box.style.minWidth = `${minAcross(leaf, true)}px`;
         box.style.minHeight = `${LEAF}px`;
         box.prepend(strip);
@@ -814,11 +814,15 @@ export function createPanes ({ root, catalog, layouts, mode,
             const both = was + (row ? rb.width : rb.height);
             const floor = minAcross(node.kids[ia], row);
             const ceiling = both - minAcross(node.kids[ib], row);
-            const now = Math.max(floor, Math.min(ceiling, was + pixels));
             const sum = node.size[ia] + node.size[ib];
 
+            /* Two panes that cannot both have what they asked for: the
+               browser has already overflowed them and there is no
+               fraction that makes it better. */
             if (ceiling < floor)
                 return;
+
+            const now = Math.max(floor, Math.min(ceiling, was + pixels));
 
             node.size[ia] = sum * (now / both);
             node.size[ib] = sum - node.size[ia];
@@ -964,14 +968,14 @@ export function createPanes ({ root, catalog, layouts, mode,
        not closed the rest. */
     let inLayout = new Set();
 
-    const holding = (node, into = new Set()) =>
+    const holding = (node, found = new Set()) =>
     {
         if (isLeaf(node))
-            node.tabs.filter(playable).forEach((id) => into.add(id));
+            node.tabs.filter(playable).forEach((id) => found.add(id));
         else
-            node.kids.forEach((k) => holding(k, into));
+            node.kids.forEach((k) => holding(k, found));
 
-        return into;
+        return found;
     };
 
     /* Whether a node is still part of the tree: a split that collapsed
@@ -1168,6 +1172,11 @@ export function createPanes ({ root, catalog, layouts, mode,
         const ids = liveTabs(leaf);
         const id = ids[leaf.active];
         const way = WAY[e.code];
+
+        /* Everything below Alt and a plain arrow is about a pane, and a
+           layout with nothing in it has none. */
+        if (id === undefined && !(way !== undefined && !e.shiftKey))
+            return;
 
         if (way !== undefined && !e.shiftKey)
         {

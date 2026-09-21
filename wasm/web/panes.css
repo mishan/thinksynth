@@ -105,8 +105,6 @@ body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
 /* A leaf is its strip of tabs and the pane under them. */
 .paneleaf { flex-direction: column; }
 
-
-
 /* The divider. Six pixels of it, which is SPLIT in panes.js -- what
    refuses a drag and what is drawn have to be the same number -- with a
    hit area that does not have to be aimed at and a line down the middle
