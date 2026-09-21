@@ -1387,7 +1387,7 @@ async function init ()
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'panes:solo',
         layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT },
-        mode: mode(),
+        mode: mode(), on: true,
         onShow: (id, on) =>
         {
             if (id === 'composerview')

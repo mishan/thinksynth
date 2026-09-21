@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>thinksynth &mdash; a room</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="panes.css">
 </head>
 <body>
 <h1>thinksynth <span class="dim">&mdash; a room</span></h1>
@@ -39,9 +40,18 @@
 
   <p id="about"></p>
 
-  <canvas id="roll" width="1200" height="360"></canvas>
+  <!-- Where the tiler puts the panes below, when there is one. Empty and
+       invisible otherwise, and the page is the document it has always
+       been: panes.js adopts what is marked `data-pane' and puts every one
+       of them back where it was when the layout goes away. -->
+  <div id="panes" class="panes"></div>
 
-  <div id="knobs"></div>
+  <canvas id="roll" width="1200" height="360"
+          data-pane data-pane-title="Piano roll" data-pane-min="320"></canvas>
+
+  <div id="knobs"
+       data-pane data-pane-title="The piece's knobs"
+       data-pane-min="240"></div>
 
   <!-- The piece's picture, drawn by the mirror: a second scheduler in a
        worker, fed the same commands this page's worklet is fed, holding
@@ -49,7 +59,8 @@
        command like a knob -- stamped, sent, and applied at its time on
        every peer, so what one person paints everybody sees on the same
        beat. -->
-  <details id="composerview" open>
+  <details id="composerview" open
+           data-pane data-pane-min="360">
     <summary>The composers</summary>
     <div id="composerscroll" class="canvasview">
       <canvas id="composer" tabindex="0"></canvas>
@@ -58,13 +69,9 @@
     <p id="composerstatus" class="hint"></p>
   </details>
 
-  <!-- What a stage's params handle asks for: what that stage is playing,
-       beside the box that is playing it. Read-only -- the canvas
-       reports and the document writes. -->
-  <div id="composerparams" class="popover" hidden></div>
-
   <!-- The instrument, as on the solo page. -->
-  <section id="keyboard">
+  <section id="keyboard"
+           data-pane data-pane-title="Keys" data-pane-min="280">
     <div class="row">
       <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
       <span id="range"></span>
@@ -75,7 +82,8 @@
 
   <!-- The document: a tab per file, everyone's cursors, and Apply, which
        is Play from a new origin with the text as it stands. -->
-  <details id="documentbox" open>
+  <details id="documentbox" open
+           data-pane data-pane-min="380">
     <summary>The piece</summary>
     <div class="row">
       <span id="tabs" class="tabs"></span>
@@ -89,7 +97,8 @@
        this page's own instance of the module. An edit is a splice into
        the shared file, so it is everybody's edit, and the piece plays it
        at the next Apply. -->
-  <details id="nodeview">
+  <details id="nodeview"
+           data-pane data-pane-min="400">
     <summary>The instrument</summary>
     <div class="row">
       <label>File <select id="nodefile"></select></label>
@@ -104,14 +113,8 @@
     <div id="nodeparams" class="params"></div>
   </details>
 
-  <!-- What a right-click on a port offers: which display to watch it
-       with, or stop watching it. Positioned by nodeview.js beside the
-       pointer, because the canvas says where the pointer was and nothing
-       about the menu -- which is the division NodeEditor has on the
-       desktop too. -->
-  <div id="nodemenu" class="popover" hidden></div>
-
-  <details id="detail">
+  <details id="detail"
+           data-pane data-pane-min="240">
     <summary>The numbers</summary>
     <div class="row">
       <label>Knob lead <input id="knoblead" type="number" min="0" max="5" step="0.01" size="5"> s</label>
@@ -122,6 +125,13 @@
     <pre id="log"></pre>
   </details>
 </section>
+
+<!-- What a stage's params handle asks for, and what a right-click on a
+     port offers: placed in page coordinates beside whatever asked for
+     them, so where they sit in the document says nothing -- except that
+     being after every pane is what keeps them over one. -->
+<div id="composerparams" class="popover" hidden></div>
+<div id="nodemenu" class="popover" hidden></div>
 
 <script type="module" src="jam.js"></script>
 </body>

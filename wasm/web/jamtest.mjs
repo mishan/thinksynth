@@ -139,7 +139,7 @@ async function paintTogether (pages)
 
     for (const { label, page } of pages)
     {
-        await page.goto(`${url}?room=jampaint&name=${label}` +
+        await page.goto(`${url}&room=jampaint&name=${label}` +
                         `&piece=${PAINT_PIECE}`);
         await page.waitForFunction(
             () => !document.getElementById('roompanel').hidden,
@@ -525,7 +525,12 @@ if (!fs.existsSync(path.join(build, 'jam.js')))
 const relayServer = await relay({ port: 0, host: '127.0.0.1', tree: top });
 const relayUrl = `ws://127.0.0.1:${relayServer.address().port}`;
 const site = await serve(build, 0, '127.0.0.1', relayUrl);
-const url = `http://127.0.0.1:${site.address().port}/jam.html`;
+/* The document rather than the tiled layout. Both are the page -- panes.js
+   adopts what is in the markup and puts it back, and below 60em or under a
+   finger the tiled one is not offered at all -- and what is under test
+   here is two peers agreeing on a piece, not where either of them puts
+   the piece on screen. panecheck.mjs is the harness for that. */
+const url = `http://127.0.0.1:${site.address().port}/jam.html?panes=0`;
 
 const browsers = [];
 const pages = [];
@@ -548,7 +553,7 @@ try
                 errors.push(`${label} console: ${m.text()}`);
         });
 
-        await page.goto(`${url}?room=jamtest&name=${label}&piece=${PIECE}`);
+        await page.goto(`${url}&room=jamtest&name=${label}&piece=${PIECE}`);
         browsers.push(browser);
         pages.push({ label, page });
     }

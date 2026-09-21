@@ -95,7 +95,14 @@ if (!fs.existsSync(path.join(build, 'main.js')))
 }
 
 const site = await serve(build, 0, '127.0.0.1', null);
-const url = `http://127.0.0.1:${site.address().port}/index.html`;
+
+/* The document rather than the tiled layout. Both are the page -- panes.js
+   adopts what is in the markup and puts it back, and below 60em or under
+   a finger the tiled one is not offered at all -- and this harness is
+   about what the page plays rather than where it puts it. panecheck.mjs
+   is the other one, and takes the same page across that threshold and
+   back. */
+const url = `http://127.0.0.1:${site.address().port}/index.html?panes=0`;
 const errors = [];
 
 const browser = await chromium.launch(

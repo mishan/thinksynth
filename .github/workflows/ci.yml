@@ -530,6 +530,15 @@ jobs:
         working-directory: wasm/web
         run: npm ci
 
+      # The two pages' panes, which are written down twice on purpose: the
+      # markup says what a pane is and each page's script says which of
+      # them it has and where they go. Neither can be derived from the
+      # other, so what nothing catches by itself is the two drifting
+      # apart. No browser and no build -- it reads the pages as text.
+      - name: The panes each page declares, against the panes it lists
+        working-directory: wasm/web
+        run: node catalogcheck.mjs
+
       # browsertest.mjs plays a phrase through the worklet in Chromium and
       # in Firefox and holds each against the module run directly, to the
       # bit, then runs the same piece comparison through the worklet at a

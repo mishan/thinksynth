@@ -59,6 +59,16 @@ body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
 body.tiled #status { margin: 0.2em 0; }
 body.tiled .row { margin: 0.4em 0; }
 
+/* The room page keeps everything but the join row in a section of its
+   own, so the column goes through it. */
+body.tiled #roompanel
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
 /* The drawer above, the layout under it. */
 body.tiled #panes
 {

@@ -133,14 +133,28 @@ try
             errors.push(m.text());
     });
 
-    /* Asked for, and refused by the screen: the fallback is the page as
-       it is, and it is what every other harness here runs against. */
+    /* Refused by hand, in a window that would otherwise tile: the page is
+       the document, which is what `?panes=0' is for and what every other
+       harness here runs against. */
+    await page.setViewportSize(WIDE);
+    await page.goto(`${base}?panes=0`);
+    await page.waitForFunction(
+        () => document.getElementById('range').textContent !== '');
+
+    check(await page.evaluate(
+              () => !document.body.classList.contains('tiled') &&
+                    document.getElementById('panes').children.length === 0),
+          'a wide window with ?panes=0 is the document');
+
+    /* And asked for, and refused by the screen: a finger cannot grab a
+       divider and a 60em layout is four slivers in half that. */
+    await page.setViewportSize(NARROW);
     await page.goto(`${base}?panes=1`);
     await page.waitForFunction(
         () => document.getElementById('range').textContent !== '');
 
     check(await page.evaluate(() => !document.body.classList.contains('tiled')),
-          'a narrow window is the document, whatever the query string says');
+          'and a narrow one is the document whatever the query string says');
 
     const before = await photograph();
 
@@ -590,6 +604,55 @@ try
     }
 
     await page.keyboard.press('Alt+Enter');
+
+    /* ---- and the room page, which is the same catalog again ---- */
+
+    /* The two pages share most of their panes and all of their tiler.
+       What is particular here is that the room's panes live inside a
+       section that is hidden until somebody has joined, so the layout is
+       built over a document nobody can see yet and has to be right when
+       it appears. Joining wants a relay; being in the room is jamtest's
+       business, and this is about the layout. */
+    const room = await browser.newPage({ viewport: WIDE });
+
+    room.on('pageerror', (e) => errors.push(`jam: ${e.message}`));
+
+    await room.goto(`http://127.0.0.1:${site.address().port}/jam.html`);
+    await room.waitForFunction(
+        () => document.body.classList.contains('tiled'));
+    await room.evaluate(() =>
+    {
+        document.getElementById('roompanel').hidden = false;
+    });
+
+    const inRoom = await room.evaluate(() =>
+        window.jam.panes().map((id) =>
+        {
+            const el = document.getElementById(id);
+
+            return [id, el.closest('#panes .pane')?.id ?? null,
+                    el.closest('.paneleaf') !== null &&
+                        el.checkVisibility()];
+        }));
+
+    check(inRoom.length > 0 &&
+          inRoom.every(([id, host]) => host === `pane-${id}`),
+          `the room page adopts its ${inRoom.length} panes the same way`);
+
+    check(inRoom.filter(([, , up]) => up).length >= 5,
+          `and its layout shows ` +
+          `${inRoom.filter(([, , up]) => up).length} of them at once`);
+
+    await room.setViewportSize(NARROW);
+    await room.waitForFunction(
+        () => !document.body.classList.contains('tiled'));
+
+    check(await room.evaluate(() =>
+              window.jam.panes().every(
+                  (id) => document.getElementById(id).closest('#roompanel')
+                          !== null) &&
+              document.getElementById('panes').children.length === 0),
+          'and a narrow window puts every one of them back in the room');
 
     for (const e of errors)
         check(false, `page error: ${e}`);
