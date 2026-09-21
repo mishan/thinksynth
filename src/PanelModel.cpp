@@ -91,17 +91,32 @@ int thPanelDecimals (double hi)
     return 4;
 }
 
+/* Narrow enough to read as a column, wide enough for the widest value in
+   the range. Six is the floor: a box sized to "0.50" beside one sized to
+   "882000" reads as a mistake, and nothing useful fits in fewer. */
+static const int PANEL_MIN_VALUE_CHARS = 6;
+
 int thPanelValueChars (double hi, int decimals)
 {
-    double m = fabs(hi);
+    const double m = fabs(hi);
+
+    /* A range with no finite end has nothing to say about how wide a box
+       should be, and asking it does not merely give a poor answer -- the
+       count below never comes back from one, since inf / 10 is inf. Reachable
+       from a file: `@x.max = inf' is a number a .dsp may write, and so is one
+       big enough to have overflowed the float it was read into. */
+    if (!std::isfinite(m))
+        return PANEL_MIN_VALUE_CHARS;
+
     int intDigits = 1;
 
-    while (m >= 10) { m /= 10; intDigits++; }
+    for (double left = m; left >= 10; left /= 10)
+        intDigits++;
 
     /* integer part, the point and its decimals, and one for a minus sign */
     const int chars = intDigits + (decimals ? decimals + 1 : 0) + 1;
 
-    return chars < 6 ? 6 : chars;
+    return chars < PANEL_MIN_VALUE_CHARS ? PANEL_MIN_VALUE_CHARS : chars;
 }
 
 string thPanelSpell (double value, int decimals)

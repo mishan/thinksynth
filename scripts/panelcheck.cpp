@@ -280,6 +280,26 @@ static void checkArithmetic (void)
           "a short range still gets six",
           to_string(thPanelValueChars(12, 0)));
 
+    /* A range with no finite end.
+     *
+       This one is a hang and not a wrong answer: the digits were counted by
+       dividing by ten until the number fell under it, and inf / 10 is inf.
+       `@x.max = inf' is a number a .dsp may write, and so is one big enough
+       to overflow the float it is read into -- so the way this used to fail
+       was the editor never coming back from opening a patch. Reaching the
+       check below at all is most of what it is for. */
+    check(thPanelValueChars(INFINITY, 4) == 6,
+          "an endless range gets the floor rather than a loop that never "
+          "ends", to_string(thPanelValueChars(INFINITY, 4)));
+    check(thPanelValueChars(-INFINITY, 0) == 6,
+          "and so does one endless the other way",
+          to_string(thPanelValueChars(-INFINITY, 0)));
+    check(thPanelValueChars(NAN, 2) == 6, "and one that is not a number",
+          to_string(thPanelValueChars(NAN, 2)));
+    check(thPanelDecimals(INFINITY) == 0,
+          "an endless range is spelled whole",
+          to_string(thPanelDecimals(INFINITY)));
+
     check(thPanelSpell(0.25, 4) == "0.2500" && thPanelSpell(500, 0) == "500",
           "a number is spelled at the row's resolution",
           thPanelSpell(0.25, 4) + " / " + thPanelSpell(500, 0));
