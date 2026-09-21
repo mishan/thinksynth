@@ -148,7 +148,8 @@ export function tapeLine (e)
 export function tapeBefore (text, seconds)
 {
     return text.split('\n')
-        .filter((l) => l !== '' && parseFloat(l.split(' ')[1]) < seconds)
+        .filter((l) => l !== '' && !l.startsWith('#') &&
+                       parseFloat(l.split(' ')[1]) < seconds)
         .map((l) => l + '\n')
         .join('');
 }

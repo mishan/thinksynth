@@ -836,3 +836,18 @@ stage, a new chain) contains:
 | `section end`          | the transport stops itself after the last section    |
 | `meter`                | beats to a bar, folding a section's `bars` to beats  |
 | `@knobs` + metadata    | the existing chanarg/param-panel machinery          |
+
+## Rendering and measuring
+
+`scripts/genwav --levels --sections gen/anthem.gen` renders once and reports
+each loaded channel's peak and RMS beside its instrument name, followed by
+the final mix's RMS in each section. Channel levels are measured after the
+channel effect, before the master mix. Section levels are measured after the
+master effect and output limiter, during the arrangement; release tails after
+the transport stops are excluded. A section that has not played yet reads
+zero. Repeated sections accumulate into one row per section name.
+
+With `-t`, the tape begins with `# channel N = name` lines for the piece's
+instruments. `N` is the zero-based channel number used by event lines; the
+level table uses the one-based channel numbers shown in the application.
+The event lines keep their existing format.

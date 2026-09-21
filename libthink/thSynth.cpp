@@ -1961,6 +1961,20 @@ float *thSynth::getOutput (void) const
     return output_;
 }
 
+const float *thSynth::getChannelOutput (int chan, int *channels) const
+{
+    if (channels != NULL)
+        *channels = 0;
+
+    if (chan < 0 || chan >= midiChannelCnt_ || midiChannels_[chan] == NULL)
+        return NULL;
+
+    if (channels != NULL)
+        *channels = midiChannels_[chan]->numChannels();
+
+    return midiChannels_[chan]->output();
+}
+
 float *thSynth::getChanBuffer (int chan)
 {
     return &output_[chan * windowlen_];

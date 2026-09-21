@@ -169,6 +169,12 @@ public:
 
     float *getOutput (void) const;
 
+    /* Audio thread only, immediately after process(): the channel's
+       interleaved sum after its effect, before the master mix. NULL when
+       the slot is empty. The buffer lasts until the next process() call.
+       `channels' receives the number of channels in that buffer. */
+    const float *getChannelOutput (int chan, int *channels) const;
+
     float *getChanBuffer (int chan);
 
     long getSampleRate (void) const { return sampleRate_; }

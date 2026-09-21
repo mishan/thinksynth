@@ -96,6 +96,8 @@ static void usage (const char *argv0)
            "  -s, --seconds N         how long to run the transport (default 120)\n"
            "  -o, --output FILE       write the audio here, 16-bit PCM WAV\n"
            "  -t, --tape FILE         write the delivered events here (- for stdout)\n"
+           "      --levels            peak and RMS by instrument channel\n"
+           "      --sections          mix RMS by arrangement section\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
            "  -q, --quiet             no summary\n",
            argv0);
@@ -163,7 +165,7 @@ struct HeldComposers {
 /* One line per delivered event, in gencheck's spelling minus the
    seventeen digits: N time channel note velocity duration, C for a
    chanarg, P for a swap, E for a node-arg edit. Channels are the
-   engine's, counted from zero. */
+   engine's, counted from zero; the tape names those channels first. */
 static void writeEvent (FILE *tape, const thcEvent &ev)
 {
     switch (ev.type)
@@ -236,6 +238,26 @@ static bool writeWav (const std::string &path, const std::vector<float> &pcm,
     return fclose(w) == 0;
 }
 
+struct Level
+{
+    double sumsq = 0;
+    size_t count = 0;
+    float peak = 0;
+
+    void add (float value)
+    {
+        const float a = fabsf(value);
+
+        if (a > peak)
+            peak = a;
+
+        sumsq += (double)value * value;
+        count++;
+    }
+
+    double rms (void) const { return count ? sqrt(sumsq / count) : 0; }
+};
+
 int main (int argc, char **argv)
 {
     Glib::init();
@@ -245,6 +267,7 @@ int main (int argc, char **argv)
     bool mono = false;
     double seconds = 120;
     bool quiet = false;
+    bool levels = false, sections = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -270,6 +293,10 @@ int main (int argc, char **argv)
         }
         else if (!strcmp(argv[i], "-m") || !strcmp(argv[i], "--mono"))
             mono = true;
+        else if (!strcmp(argv[i], "--levels"))
+            levels = true;
+        else if (!strcmp(argv[i], "--sections"))
+            sections = true;
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
             quiet = true;
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
@@ -292,7 +319,7 @@ int main (int argc, char **argv)
         return 2;
     }
 
-    if (wavFile.empty() && tapeFile.empty() && quiet)
+    if (wavFile.empty() && tapeFile.empty() && quiet && !levels && !sections)
     {
         fprintf(stderr, "%s: nothing to write and nothing to say\n", argv[0]);
         return 2;
@@ -344,6 +371,12 @@ int main (int argc, char **argv)
         }
     }
 
+    if (tape != NULL)
+        for (const thcInstrument &inst : sched.instruments())
+            if (inst.channel >= 0)
+                fprintf(tape, "# channel %d = %s\n", inst.channel,
+                        inst.name.c_str());
+
     size_t notes = 0;
 
     sigc::connection conn = sched.sigDelivered.connect(
@@ -362,13 +395,15 @@ int main (int argc, char **argv)
     const size_t frame = (size_t)channels * window;
 
     std::vector<float> pcm;
+    std::vector<Level> channelLevels(levels ? synth.midiChanCount() : 0);
+    std::vector<Level> sectionLevels(sections ? sched.sections().size() : 0);
 
     pcm.reserve((size_t)((seconds + TAIL_MAX) / dt + 1) * frame);
 
     /* One window of audio per step of the clock. The scheduler enqueues
        what it delivers and process() applies it, exactly as the GUI's
        timer and the audio thread do between them. */
-    auto renderWindow = [&]() -> float
+    auto renderWindow = [&](bool transportWindow, double windowStart) -> float
     {
         synth.process();
 
@@ -382,6 +417,28 @@ int main (int argc, char **argv)
             if (a > peak)
                 peak = a;
         }
+
+        if (levels)
+            for (int ch = 0; ch < synth.midiChanCount(); ch++)
+            {
+                int outputs = 0;
+                const float *signal = synth.getChannelOutput(ch, &outputs);
+
+                if (signal != NULL)
+                    for (int i = 0; i < outputs * window; i++)
+                        channelLevels[ch].add(signal[i]);
+            }
+
+        if (sections && transportWindow)
+            for (int i = 0; i < window; i++)
+            {
+                const int section = sched.sectionAt(
+                    windowStart + (i + 0.5) / (double)TH_DEFAULT_SAMPLES);
+
+                if (section >= 0)
+                    for (int ch = 0; ch < channels; ch++)
+                        sectionLevels[section].add(buf[ch * window + i]);
+            }
 
         /* getOutput() is planar -- a window of channel 0, then a window of
            channel 1 -- and a WAV is interleaved. Copied as it stood, every
@@ -404,8 +461,9 @@ int main (int argc, char **argv)
        stopped scheduler for the rest of the render. */
     while (sched.now() < seconds && sched.running())
     {
+        const double windowStart = sched.now();
         sched.stepTransport(dt);
-        renderWindow();
+        renderWindow(true, windowStart);
     }
 
     /* stop() flushes the note-offs for whatever is still sounding; the
@@ -414,7 +472,7 @@ int main (int argc, char **argv)
     conn.disconnect();
 
     for (double tail = 0; tail < TAIL_MAX; tail += dt)
-        if (renderWindow() < TAIL_SILENT)
+        if (renderWindow(false, 0) < TAIL_SILENT)
             break;
 
     if (tape != NULL && tape != stdout)
@@ -495,6 +553,34 @@ int main (int argc, char **argv)
         if (badVoices > 0)
             fprintf(stderr, "%s: non-finite voices: %lu\n", genFile.c_str(),
                     badVoices);
+    }
+
+    if (levels)
+    {
+        fprintf(stderr, "channel  instrument               peak     RMS\n");
+
+        for (size_t ch = 0; ch < channelLevels.size(); ch++)
+        {
+            const Level &level = channelLevels[ch];
+
+            if (!level.count)
+                continue;
+
+            const std::string name = sched.holding((int)ch);
+
+            fprintf(stderr, "%7zu  %-24s %.3f  %.4f\n", ch + 1,
+                    name.empty() ? "-" : name.c_str(), level.peak,
+                    level.rms());
+        }
+    }
+
+    if (sections)
+    {
+        fprintf(stderr, "section                   mix RMS\n");
+
+        for (size_t i = 0; i < sectionLevels.size(); i++)
+            fprintf(stderr, "%-24s  %.4f\n", sched.sections()[i].name.c_str(),
+                    sectionLevels[i].rms());
     }
 
     /* 4 before 3: a piece that clips is loud, a piece with a non-finite

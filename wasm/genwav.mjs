@@ -73,6 +73,8 @@ function usage (argv0)
         '  -s, --seconds N         how long to run the transport (default 120)\n' +
         '  -o, --output FILE       write the audio here, 16-bit PCM WAV\n' +
         '  -t, --tape FILE         write the delivered events here (- for stdout)\n' +
+        '      --levels            peak and RMS by instrument channel\n' +
+        '      --sections          mix RMS by arrangement section\n' +
         '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
         '                          time AT: "AT knob NAME VALUE", "AT tempo BPM"\n' +
         '                          or "AT stop"; repeatable\n' +
@@ -131,6 +133,7 @@ async function main (argv0, args)
     let genFile = '', wavFile = '', tapeFile = '';
     let seconds = 120;
     let quiet = false;
+    let levels = false, sections = false;
     const commands = [];
 
     for (let i = 0; i < args.length; i++)
@@ -178,6 +181,10 @@ async function main (argv0, args)
         }
         else if (a === '-q' || a === '--quiet')
             quiet = true;
+        else if (a === '--levels')
+            levels = true;
+        else if (a === '--sections')
+            sections = true;
         else if (a === '-h' || a === '--help')
         {
             usage(argv0);
@@ -198,7 +205,7 @@ async function main (argv0, args)
         return 2;
     }
 
-    if (wavFile === '' && tapeFile === '' && quiet)
+    if (wavFile === '' && tapeFile === '' && quiet && !levels && !sections)
     {
         process.stderr.write(`${argv0}: nothing to write and nothing to say\n`);
         return 2;
@@ -275,6 +282,11 @@ async function main (argv0, args)
     let notes = 0;
     let tapeText = '';
 
+    if (tape !== null)
+        for (let i = 0; i < M._tw_instrument_count(); i++)
+            tapeText += `# channel ${M._tw_instrument_channel(i)} = ` +
+                        `${M.UTF8ToString(M._tw_instrument_name(i))}\n`;
+
     /* genwav.cpp's sigDelivered handler, run after the fact: the events a
        step delivered are queued on the wasm side and taken here. */
     const drain = () =>
@@ -301,12 +313,26 @@ async function main (argv0, args)
     const dt = window / rate;
     const frame = channels * window;
 
+    const meter = () => ({ sumsq: 0, count: 0, peak: 0 });
+    const channelLevels = levels
+        ? Array.from({ length: M._tw_midi_channels() }, meter) : [];
+    const sectionLevels = sections
+        ? Array.from({ length: M._tw_section_count() }, meter) : [];
+    const sectionNames = sectionLevels.map((_, i) =>
+        M.UTF8ToString(M._tw_section_name(i)));
+    const addSample = (stat, value) =>
+    {
+        stat.peak = Math.max(stat.peak, Math.abs(value));
+        stat.sumsq += value * value;
+        stat.count++;
+    };
+
     const windows = [];
 
     /* One window of audio per step of the clock, copied out of the heap
        before the next one overwrites it -- and interleaved on the way, as
        genwav.cpp does, since the synth's window is planar. */
-    const renderWindow = () =>
+    const renderWindow = (transportWindow, windowStart) =>
     {
         const p = M._tw_process() >> 2;
         const planar = M.HEAPF32.subarray(p, p + frame);
@@ -325,6 +351,29 @@ async function main (argv0, args)
             if (a > peak)
                 peak = a;
         }
+
+        if (levels)
+            for (let ch = 0; ch < channelLevels.length; ch++)
+            {
+                const outputs = M._tw_channel_outputs(ch);
+                const p = M._tw_channel_output(ch) >> 2;
+
+                if (outputs > 0 && p !== 0)
+                    for (let i = 0; i < outputs * window; i++)
+                        addSample(channelLevels[ch], M.HEAPF32[p + i]);
+            }
+
+        if (sections && transportWindow)
+            for (let i = 0; i < window; i++)
+            {
+                const section = M._tw_section_at(
+                    windowStart + (i + 0.5) / rate);
+
+                if (section >= 0)
+                    for (let ch = 0; ch < channels; ch++)
+                        addSample(sectionLevels[section],
+                                  planar[ch * window + i]);
+            }
 
         windows.push(buf);
 
@@ -375,6 +424,7 @@ async function main (argv0, args)
        after that would move. */
     while (!stopped && M._tw_running() && M._tw_now() < seconds)
     {
+        const windowStart = M._tw_now();
         const target = M._tw_now() + dt;
 
         for (; next < commands.length && commands[next].at <= target; next++)
@@ -399,7 +449,7 @@ async function main (argv0, args)
             M._tw_step_to(target);
 
         drain();
-        renderWindow();
+        renderWindow(true, windowStart);
     }
 
     /* stop() flushes the note-offs for whatever is still sounding; the
@@ -408,7 +458,7 @@ async function main (argv0, args)
     drain();
 
     for (let tail = 0; tail < TAIL_MAX; tail += dt)
-        if (renderWindow() < TAIL_SILENT)
+        if (renderWindow(false, 0) < TAIL_SILENT)
             break;
 
     if (tape !== null)
@@ -459,17 +509,54 @@ async function main (argv0, args)
     /* genwav.cpp's `non-finite voices' line and its exit 4. */
     const badVoices = M._tw_nonfinite();
 
+    /* The comparison runner captures stderr through a pipe. Node can leave
+       an asynchronous stream write behind when the module exits, so reports
+       use the descriptor directly. */
     if (!quiet)
     {
-        process.stderr.write(
+        fs.writeSync(2,
             `${genFile}: ${fixed(samples / frame * dt, 1)} s rendered, ` +
             `${notes} notes, peak ${fixed(peak, 3)}, ` +
             `RMS ${fixed(samples === 0 ? 0 : Math.sqrt(sumsq / samples), 4)}, ` +
             `${clipped} clipped sample${clipped === 1 ? '' : 's'}\n`);
 
         if (badVoices > 0)
-            process.stderr.write(
+            fs.writeSync(2,
                 `${genFile}: non-finite voices: ${badVoices}\n`);
+    }
+
+    if (levels)
+    {
+        fs.writeSync(2, 'channel  instrument               peak     RMS\n');
+
+        for (let ch = 0; ch < channelLevels.length; ch++)
+        {
+            const stat = channelLevels[ch];
+
+            if (stat.count === 0)
+                continue;
+
+            const name = M.UTF8ToString(M._tw_channel_name(ch)) || '-';
+
+            fs.writeSync(2,
+                `${String(ch + 1).padStart(7)}  ${name.padEnd(24)} ` +
+                `${fixed(stat.peak, 3)}  ` +
+                `${fixed(Math.sqrt(stat.sumsq / stat.count), 4)}\n`);
+        }
+    }
+
+    if (sections)
+    {
+        fs.writeSync(2, 'section                   mix RMS\n');
+
+        for (let i = 0; i < sectionLevels.length; i++)
+        {
+            const stat = sectionLevels[i];
+            const rms = stat.count ? Math.sqrt(stat.sumsq / stat.count) : 0;
+
+            fs.writeSync(2,
+                `${sectionNames[i].padEnd(24)}  ${fixed(rms, 4)}\n`);
+        }
     }
 
     /* 4 before 3, as in genwav.cpp. */
