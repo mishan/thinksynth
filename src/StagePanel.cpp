@@ -457,6 +457,17 @@ static thPanelRow rowFor (const thcPlugin::ParamInfo *pi,
         row.editable = false;
         row.value = (*bound)[0];
         row.units = pi->isDuration() ? UNITS[0] : row.units;
+
+        /* And no unit menu on it.
+         *
+           The menu means `2 s' and `2 beats' are different pieces rather
+           than two spellings of one, and a bound line is neither: it carries
+           no unit for anybody to change. Offered all the same -- both shells
+           draw one for any row that has the choices, and neither disables it
+           -- picking from it took the isUnitOf branch, spliced the knob's
+           current number with a unit after it, and unbound the knob without
+           anybody saying so. */
+        row.unitChoices.clear();
     }
     else
         row.value = v.num;
@@ -548,14 +559,19 @@ static bool namesAPreset (const thcGenEdit::Doc *doc, const string &text)
     return false;
 }
 
-/* Every name in `list' is an instrument this piece declares; `bad' is the
-   first one that is not. The separators are the loader's: a comma, and the
-   whitespace a quoted string may hold. */
+/* Every name in `list' is an instrument this piece declares, and none of them
+   twice; `why' is the refusal when one of those is untrue. The separators are
+   the loader's: a comma, and the whitespace a quoted string may hold.
+ *
+ * Both halves are the loader's checks, made here because the panel is where
+ * the person is. Only the first was, so a list naming one instrument twice
+ * was spliced happily and then refused -- "'bell' is named twice" -- by the
+ * next person to open the file, which is the failure this exists to stop. */
 static bool namesInstruments (const thcGenEdit::Doc *doc, const string &list,
-                              string &bad)
+                              string &why)
 {
     string one;
-    bool any = false;
+    vector<string> seen;
 
     for (size_t i = 0; i <= list.size(); i++)
     {
@@ -578,18 +594,31 @@ static bool namesInstruments (const thcGenEdit::Doc *doc, const string &list,
 
         if (k == doc->instruments.size())
         {
-            bad = one;
+            why = "this piece declares no instrument called '" + one + "'";
 
             return false;
         }
 
-        any = true;
+        for (size_t j = 0; j < seen.size(); j++)
+            if (seen[j] == one)
+            {
+                why = "'" + one + "' is named twice";
+
+                return false;
+            }
+
+        seen.push_back(one);
         one.clear();
     }
 
-    bad = list;
+    if (seen.empty())
+    {
+        why = "the names of instruments this piece declares";
 
-    return any;
+        return false;
+    }
+
+    return true;
 }
 
 static bool namesAScale (const thcGenEdit::Doc *doc, const string &text)
@@ -709,12 +738,10 @@ thPanelResult StagePanel::propose (const string &row, const string &valueText,
                    the person who made it rather than a piece that will not
                    load the next time anyone opens it. The loader checks the
                    same list at the same boundary and for the same reason. */
-                string bad;
+                string why;
 
-                if (!namesInstruments(doc_, valueText, bad))
-                    return thPanelResult::refuse(
-                        "this piece declares no instrument called '" + bad +
-                        "'");
+                if (!namesInstruments(doc_, valueText, why))
+                    return thPanelResult::refuse(why);
 
                 wrote = "\"" + valueText + "\"";
                 break;
@@ -787,19 +814,26 @@ thPanelResult StagePanel::propose (const string &row, const string &valueText,
         if (sp != string::npos)
         {
             numText = valueText.substr(0, sp);
-            unit = valueText.substr(valueText.find_first_not_of(" \t", sp));
+
+            /* There may be nothing after the blanks at all -- "4 " is what a
+               value box hands back -- and substr() from npos throws rather
+               than answering "". This text arrives off a room command
+               through tw_param with no shape to it, so the throw was the
+               module gone, where the two branches beside this one were
+               written to produce a refusal. */
+            const size_t at = valueText.find_first_not_of(" \t", sp);
+
+            if (at != string::npos)
+                unit = valueText.substr(at);
         }
 
         if (!unit.empty() && !isUnitOf(described, unit))
             return thPanelResult::refuse("'" + unit + "' is not a unit " +
                                          row + " can be written in");
 
-        const char *s = numText.c_str();
-        char *end = NULL;
+        double typed = 0;
 
-        const double typed = strtod(s, &end);
-
-        if (end == s || *end != '\0' || !std::isfinite(typed))
+        if (!thPanelNumberIn(numText, typed))
             return thPanelResult::refuse(valueText + " is not a number");
 
         string num;

@@ -667,9 +667,8 @@ try
     check(typing === '0.12',
           `a half-typed number survives the poll: "${typing}"`);
 
-    /* While it is being typed into, the box is the only thing on the panel
-       that is not showing the module: the slider beside it is the same row
-       and keeps following. */
+    /* While it is being typed into, the box is not showing the module: it
+       holds what was typed and the module still holds something else. */
     const apart = await page.evaluate(() =>
     {
         const box = document.querySelector('#params .value');
@@ -678,8 +677,8 @@ try
     });
 
     check(Number(apart.shown) !== Number(apart.range),
-          `and only that box holds back: box ${apart.shown}, slider ` +
-          `${apart.range}`);
+          `and holds what was typed, not what the module has: box ` +
+          `${apart.shown}, slider ${apart.range}`);
 
     /* And it is let go of the moment it stops being typed into. Leaving the
        box is what confirms the number, so this is the edit landing and the
@@ -1070,6 +1069,51 @@ try
 
             check(true, `a stage's ${row} took ${want} and came back with ` +
                         'it');
+        }
+
+        /* A value typed and then clicked away from, rather than entered.
+         *
+           Which is how most numbers get committed: a box reports on
+           `change', and `change' fires when the focus leaves. The press
+           that takes the focus away is also the press that closes the
+           popover, and the popover closing used to throw away what the
+           panel was about -- so the edit went to a TypeError instead of to
+           the piece, and the number somebody had just typed vanished with
+           the popover. Read back by opening it again, since by then there
+           is nothing on screen to read. */
+        const box3 = await page.$(
+            '#composerparams .panelrow input[type="number"]:not([disabled])');
+
+        if (box3 !== null)
+        {
+            const row = await box3.evaluate(
+                (e) => e.closest('.panelrow').dataset.row);
+            const want = String(Number(await box3.inputValue()) + 1);
+
+            await box3.fill(want);
+
+            /* Somewhere that is not the popover: this both blurs the box
+               and closes it. */
+            await page.mouse.click(box.x + box.w / 2, box.y + box.h - 4);
+
+            await page.waitForFunction(
+                () => document.getElementById('composerparams').hidden,
+                null, { timeout: 15000 });
+
+            await page.mouse.click(box.x + handle.x, box.y + handle.y);
+            await page.waitForFunction(
+                () => !document.getElementById('composerparams').hidden,
+                null, { timeout: 15000 });
+
+            const kept = await page.waitForFunction(
+                ([id, value]) => document.querySelector(
+                    `#composerparams .panelrow[data-row="${id}"] ` +
+                    'input[type="number"]')?.value === value,
+                [row, want], { timeout: 15000 }).then(() => true, () => false);
+
+            check(kept,
+                  `a stage's ${row} typed and clicked away from still ` +
+                  `reached the piece: ${want}`);
         }
 
         /* And it goes away with the next press somewhere else. */

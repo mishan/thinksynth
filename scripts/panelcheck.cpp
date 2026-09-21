@@ -840,6 +840,10 @@ static const char *PIECE =
     "\n"
     "scale minor \"C4 D4 Eb4 F4 G4 Ab4 Bb4\";\n"
     "\n"
+    "instrument bell { dsp \"panelcheck-scratch.dsp\"; };\n"
+    "instrument horn { dsp \"panelcheck-scratch.dsp\"; };\n"
+    "\n"
+    "\n"
     "chain c {\n"
     "    stage lfo osc::simple { freq = 0.2; };\n"
     "    stage src gen::eno_line {\n"
@@ -851,6 +855,12 @@ static const char *PIECE =
     "        vel = 90;\n"
     "    };\n"
     "    stage bare gen::eno_line { };\n"
+    "    stage slow gen::eno_line {\n"
+    "        period = @warmth;\n"
+    "    };\n"
+    "    stage moving gen::swap {\n"
+    "        instruments = \"bell\";\n"
+    "    };\n"
     "    sink { channel = 1; };\n"
     "};\n";
 
@@ -1127,6 +1137,32 @@ static void checkStageEdits (StagePanel &stage, const thPanel &panel)
               "a quote in a typed string is refused, by the panel", r.why);
     }
 
+    /* A number with blanks after it and no unit.
+     *
+       "4 " is what a value box hands back, and the unit was read with a
+       substr() from the first non-blank after the space -- which is npos
+       when there is none, and substr(npos) throws. This text arrives off a
+       room command through tw_param with no shape to it, so what that threw
+       was the module, where every other bad text here is a refusal. */
+    {
+        const thPanelResult r = stage.propose("period", "8 ", edit);
+
+        check(r.ok && edit.valueText == "8 beats",
+              "a number with nothing after the blanks keeps its unit",
+              r.ok ? edit.valueText : r.why);
+
+        const thPanelResult tabbed = stage.propose("period", "6\t", edit);
+
+        check(tabbed.ok && edit.valueText == "6 beats",
+              "and so does one with a tab after it",
+              tabbed.ok ? edit.valueText : tabbed.why);
+
+        const thPanelResult blank = stage.propose("period", "   ", edit);
+
+        check(!blank.ok, "and blanks alone are refused, not read as zero",
+              blank.why);
+    }
+
     check(!stage.propose("nosuchparam", "1", edit).ok,
           "an edit naming a param that is not there is refused");
 }
@@ -1190,6 +1226,107 @@ static void checkStageDelivery (StagePanel &stage, thcStage *live)
  * `lfo' is a stage in the file and a node in the chain, so the scheduler's
  * list is one shorter and everything after it is off by one. Read raw, a
  * panel over "stage 2" would describe `src' and splice `thin'. */
+/* A duration a knob drives.
+ *
+ * The unit menu is the thing to get wrong here. A duration offers one
+ * because `2 s' and `2 beats' are different pieces rather than two spellings
+ * of one -- but a bound line carries no unit for anybody to change, and both
+ * shells draw the menu for any row that has the choices. Picking from it
+ * spliced the knob's current number with a unit after it and unbound the
+ * knob, which nobody asked for and nothing said. */
+static void checkBoundDuration (StagePanel &stage, const thPanel &panel)
+{
+    const thPanelRow *period = panel.find("period");
+
+    if (period == NULL)
+    {
+        fail("the bound duration has a row", idsOf(panel));
+        return;
+    }
+
+    check(period->knob == "warmth" && !period->editable && period->bindable,
+          "a bound duration says which knob and offers the binding",
+          period->knob);
+
+    /* Seconds, whatever a menu would have said: the knob's number reaches
+       the plugin as the seconds it reads. */
+    check(period->units == "s", "and reads in seconds", period->units);
+
+    check(period->unitChoices.empty(),
+          "and offers no unit to change, having none in the file",
+          to_string(period->unitChoices.size()));
+
+    thPanelEdit edit;
+
+    /* And the same answer for an intent that names one anyway, which is what
+       a stale panel or a peer's command is. */
+    const thPanelResult r = stage.propose("period", "ms", edit);
+
+    check(!r.ok, "picking one anyway does not quietly unbind the knob",
+          r.ok ? edit.valueText : r.why);
+
+    const thPanelResult still = stage.propose("period", "beats", edit);
+
+    check(!still.ok, "in either unit", still.ok ? edit.valueText : still.why);
+}
+
+/* The list of instruments a stage moves between.
+ *
+ * Checked here and not left to the load, so that a typo is an answer to the
+ * person who made it rather than a piece that will not open the next time
+ * anyone tries. Which is the whole argument, and it was made for half the
+ * check: a name the piece does not declare was refused and a name given
+ * twice was spliced, and the loader refuses that one -- "'bell' is named
+ * twice" -- to whoever opens the file next. */
+static void checkInstrumentSet (StagePanel &stage, const thPanel &panel)
+{
+    const thPanelRow *list = panel.find("instruments");
+
+    if (list == NULL)
+    {
+        fail("the swap stage has an instruments row", idsOf(panel));
+        return;
+    }
+
+    check(list->kind == thPanelRow::TEXT,
+          "a set of instruments is typed, not picked from a list");
+
+    thPanelEdit edit;
+
+    thPanelResult r = stage.propose("instruments", "bell,horn", edit);
+
+    check(r.ok && edit.valueText == "\"bell,horn\"",
+          "names the piece declares are taken, and quoted into the file",
+          r.ok ? edit.valueText : r.why);
+
+    r = stage.propose("instruments", "bell, horn", edit);
+
+    check(r.ok, "the whitespace a quoted list may hold is allowed", r.why);
+
+    r = stage.propose("instruments", "bell,gong", edit);
+
+    check(!r.ok && r.why.find("gong") != string::npos,
+          "a name the piece does not declare is refused, by name", r.why);
+
+    r = stage.propose("instruments", "bell,bell", edit);
+
+    check(!r.ok && r.why.find("twice") != string::npos,
+          "and so is one named twice, rather than left for the loader to "
+          "refuse to whoever opens the file next", r.why);
+
+    r = stage.propose("instruments", "bell, horn ,bell", edit);
+
+    check(!r.ok, "however it is spaced", r.why);
+
+    r = stage.propose("instruments", "", edit);
+
+    check(!r.ok, "and an empty list is refused", r.why);
+
+    r = stage.propose("instruments", " , ", edit);
+
+    check(!r.ok, "and so is one holding nothing but separators", r.why);
+}
+
 static void checkStageIndex (const thcGenEdit::Doc &doc, thcScheduler &sched)
 {
     StagePanel stage;
@@ -1273,6 +1410,30 @@ static void checkStages (const string &pluginPath, const string &file)
         checkDefaults(defaults);
     else
         fail("the stage with no params written has a panel", "");
+
+    /* The stage whose duration a knob drives. */
+    StagePanel driven;
+    thPanel bound;
+
+    driven.setPiece(&doc, &sched);
+    driven.setStage(0, 2);
+
+    if (driven.build(bound))
+        checkBoundDuration(driven, bound);
+    else
+        fail("the stage with a bound duration has a panel", "");
+
+    /* The stage that names instruments. */
+    StagePanel swap;
+    thPanel moving;
+
+    swap.setPiece(&doc, &sched);
+    swap.setStage(0, 3);
+
+    if (swap.build(moving))
+        checkInstrumentSet(swap, moving);
+    else
+        fail("the stage that names instruments has a panel", "");
 
     /* Delivery last: it moves the stage the rows above were read from. */
     checkStageDelivery(stage, sched.chain(0)->stages[0].get());
@@ -1979,6 +2140,18 @@ int main (int argc, char **argv)
     if (!writeFile(instrument, INSTRUMENT) || !writeFile(effect, EFFECT) ||
         !writeFile(graph, GRAPH) || !writeFile(piece, PIECE))
         return 1;
+
+    /* The piece declares instruments, and an instrument is a .dsp the loader
+       looks up on the dsp path rather than beside the .gen. Pointed at the
+       directory these were just written into, so that what this harness
+       needs is still only what it wrote -- `needs no corpus' is the property
+       that lets it run everywhere gencheck does.
+
+       Here and not further in, because -j loads the same piece and returns
+       below without reaching any of the checks. */
+    setenv("THINK_DSP_PATH",
+           std::filesystem::path(instrument).parent_path().string().c_str(),
+           1);
 
     if (!dumpDir.empty())
     {
