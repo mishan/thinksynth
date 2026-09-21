@@ -46,11 +46,14 @@ audio out. Which arg goes to which half is
 display preference: before it was worked out, 1000 of the 1347 ports on the
 audio-out box were phantoms.
 
-**Five files have genuine feedback**: `effects/reverb01`,
-`effects/whistlesynth01`, `noargs/dfb`, `noargs/smoothie`, `old/randompw`. Real
-audio feedback loops, entirely legitimate. Layered layout handles them the usual
-way — pick a feedback arc set, reverse those edges for layering, draw them as
-back-edges.
+**Three files have genuine feedback**: `noargs/dfb`, `noargs/smoothie` and
+`old/randompw`. Real audio feedback loops, entirely legitimate. Layered layout
+handles them the usual way — pick a feedback arc set, reverse those edges for
+layering, draw them as back-edges. Two more used to be counted here —
+`effects/reverb01` and `effects/whistlesynth01` — and both are gone: the first
+had a cycle the effect format now refuses outright, and the second's was a
+`fm = osc1->out` that `osc::fmop` has an arg for. `fx/resynth.dsp` is what
+replaced it.
 
 **`ARG_STATE` args never appear.** 69 args are internal plugin state and no
 shipped `.dsp` references one. Wiring a delay line's internal buffer invites

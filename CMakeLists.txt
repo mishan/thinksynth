@@ -488,13 +488,13 @@ endif()
 # looks a wav up under samples/ on the same path a .dsp is looked up on,
 # and on an installed copy that path is this directory.
 #
-# The three EXCLUDEs are the drawers, and what they leave behind is what
-# the web build has always copied: dsp/*.dsp and dsp/fx/. They are 77 of
-# the 147 .dsp in the tree and none of them is an instrument anybody
-# should be offered --
+# The EXCLUDEs are the drawers, and what they leave behind is what the
+# web build has always copied: dsp/*.dsp and dsp/fx/. They are 68 of the
+# 140 .dsp in the tree and none of them is an instrument anybody should
+# be offered --
 #
-#   - eleven cannot load at all. They name input::wav, input::alsa or
-#     misc::wlan, which compile and are deliberately not built (see
+#   - two cannot load at all. They name input::wav or misc::wlan, which
+#     compile and are deliberately not built (see
 #     plugins/CMakeLists.txt). An installed chooser listed them anyway.
 #   - three basenames are ambiguous across the tree -- bd10.dsp,
 #     rpiano1.dsp and supersaw.dsp each name two different graphs, one in
@@ -510,7 +510,6 @@ endif()
 # installed copy offers.
 install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
         FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav"
-        PATTERN "effects" EXCLUDE
         PATTERN "noargs"  EXCLUDE
         PATTERN "old"     EXCLUDE)
 

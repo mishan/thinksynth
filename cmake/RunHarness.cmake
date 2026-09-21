@@ -18,14 +18,24 @@ if(MODE STREQUAL "dsp")
   file(GLOB_RECURSE candidates "${CORPUS}/*.dsp")
 
   # Plugins that compile but are deliberately not in the built set: input/wav,
-  # input/alsa, misc/wlan. Eleven of the 92 shipped DSPs reference one of
-  # them and cannot load. Excluded by what they reference, so the list cannot
-  # drift -- build the plugin and its DSPs join the sweep by themselves.
+  # input/alsa, misc/wlan. Two DSPs reference one of them and cannot load.
+  # Excluded by what they reference, so the list cannot drift -- build the
+  # plugin and its DSPs join the sweep by themselves.
   set(exclude_re "(input::|misc::wlan|fft::|test::)")
 
   set(files "")
   foreach(f IN LISTS candidates)
     file(READ "${f}" contents)
+
+    # Comments first. `#' runs to the end of the line in this grammar, and a
+    # file that *mentions* a plugin is not a file that references one:
+    # dsp/fx/vocoder.dsp spends a paragraph on why it needs a side channel
+    # rather than the input:: nodes the graphs before it read, and was
+    # dropped from every corpus sweep for the whole time it said so. A
+    # sixteen-band effect that nothing loaded is exactly what this filter
+    # exists to prevent.
+    string(REGEX REPLACE "#[^\n]*" "" contents "${contents}")
+
     if(NOT contents MATCHES "${exclude_re}")
       list(APPEND files "${f}")
     endif()
