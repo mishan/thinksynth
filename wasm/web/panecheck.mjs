@@ -157,6 +157,30 @@ try
               () => !document.body.classList.contains('tiled')),
           'and a narrow one is the document whatever the query string says');
 
+    /* And the verbs a pane has, asked of a page that has never tiled:
+       there is no layout yet to raise one in and no drawer to put one
+       into, because the page is the document it always was. Asking anyway
+       is quiet rather than an error -- whatever calls them does not know
+       which side of the threshold it is on. */
+    check(await page.evaluate(() =>
+          {
+              try
+              {
+                  window.solo.pane('present', 'detail');
+                  window.solo.pane('close', 'detail');
+
+                  return window.solo.layout() === null &&
+                         document.getElementById('detail').isConnected &&
+                         document.getElementById('panes').children.length
+                             === 0;
+              }
+              catch
+              {
+                  return false;
+              }
+          }),
+          'and raising or closing a pane there is quiet, not an error');
+
     const before = await photograph();
 
     check(before.length > 0, `${before.length} panes in the catalog`);
@@ -632,6 +656,32 @@ try
 
     check(await page.textContent('#panetab-detail') === 'What it is doing',
           'and its tab says what it was told to say');
+
+    /* ---- and closing one beside it ---- */
+
+    /* A leaf keeps which of its tabs is in front as an index, and closing
+       a tab before that one moves everything after it up. Three tabs with
+       the middle one in front, and the first closed: what was in front is
+       still in front, one place to its left. */
+    await page.evaluate(() =>
+    {
+        const three = ['keyboard', 'paramview', 'detail'];
+
+        for (const id of three)
+            window.solo.pane('close', id);
+
+        for (const id of three)
+            window.solo.pane('present', id);
+
+        window.solo.pane('present', 'paramview');
+        window.solo.pane('close', 'keyboard');
+    });
+    await page.waitForTimeout(150);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-paramview').checkVisibility() &&
+              !document.getElementById('pane-detail').checkVisibility()),
+          'closing the tab before the one in front leaves it in front');
 
     /* ---- and the room page, which is the same catalog again ---- */
 

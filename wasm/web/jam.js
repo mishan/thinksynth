@@ -706,9 +706,12 @@ function showNodeChannel ()
         (i) => i.dsp === $('nodefile').value)?.channel ?? -1);
 }
 
-function showComposer ()
+function showComposer (on)
 {
-    if (composer === null && !panes.visible('composerview'))
+    /* Made when it is first wanted and never for a pane nobody has
+       looked at: onShow says `no' for every pane at load, and a view
+       built to be told that would have started a worker for nothing. */
+    if (composer === null && (!on || synth === null))
         return;
 
     /* A gesture is a command like a knob: stamped with the knob lead,
@@ -721,7 +724,7 @@ function showComposer ()
                                            g.y, g.w, g.h, g.button)),
     });
 
-    composer.show(panes.visible('composerview'));
+    composer.show(on);
 }
 
 function exportTape ()
@@ -871,7 +874,7 @@ async function start ()
     setInterval(() => { sampleAudioClock(); showNumbers(); enable(); },
                 1000);
 
-    showComposer();
+    showComposer(panes.visible('composerview'));
 
     try
     {
@@ -976,7 +979,7 @@ function init ()
         onShow: (id, on) =>
         {
             if (id === 'composerview')
-                composer?.show(on);
+                showComposer(on);
             else if (id === 'nodeview')
                 nodes?.show(on);
         },

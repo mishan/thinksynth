@@ -480,9 +480,18 @@ export function createPanes ({ root, catalog, layouts, mode,
         if (leaf === null)
             return;
 
+        /* What was in front stays in front, which is an index that
+           shifts when the tab leaving sat before it. Clamping alone
+           would leave the index where it was and raise the neighbor
+           instead. Counted over the tabs in play, since that is what
+           `active' is an index into. */
+        const at = liveTabs(leaf).indexOf(id);
+        const was = leaf.active ?? 0;
+
         leaf.tabs.splice(leaf.tabs.indexOf(id), 1);
-        leaf.active = Math.max(0, Math.min(leaf.active ?? 0,
-                                           leaf.tabs.length - 1));
+        leaf.active = Math.max(0, Math.min(at !== -1 && at < was ? was - 1
+                                                                : was,
+                                           liveTabs(leaf).length - 1));
 
         if (leaf.tabs.length === 0)
             empty(leaf);
@@ -1072,7 +1081,10 @@ export function createPanes ({ root, catalog, layouts, mode,
             return;
         }
 
-        const back = (tab !== null && root.querySelector(`#${tab}`)) ??
+        /* `||' and not `??': the first of these is `false' whenever the
+           focus was not on a tab, and a nullish fallback does not fall
+           through a `false'. */
+        const back = (tab !== null && root.querySelector(`#${tab}`)) ||
                      (from !== null &&
                       root.querySelector(`#panetab-${from}`));
 
@@ -1346,10 +1358,12 @@ export function createPanes ({ root, catalog, layouts, mode,
         layout: () => (tree === null ? null : structuredClone(tree)),
 
         /* Raised: in front of whatever leaf holds it, and out of the
-           drawer if that is where it was. */
+           drawer if that is where it was. Nothing to raise it above
+           without a layout -- untiled, the page is the document it
+           always was and every pane is already on it. */
         present: (id) =>
         {
-            if (!panes.has(id) || !playable(id))
+            if (!tiled || !panes.has(id) || !playable(id))
                 return;
 
             const leaf = leafWith(id) ?? focus ?? firstLeaf();
@@ -1365,10 +1379,11 @@ export function createPanes ({ root, catalog, layouts, mode,
             root.querySelector(`#panetab-${id}`)?.focus();
         },
 
-        /* And put away, which is the drawer and not the bin. */
+        /* And put away, which is the drawer and not the bin. There is
+           no drawer without a layout, for the same reason. */
         close: (id) =>
         {
-            if (!panes.has(id))
+            if (!tiled || !panes.has(id))
                 return;
 
             drawer(id);
