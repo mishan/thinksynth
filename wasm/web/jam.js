@@ -423,7 +423,13 @@ async function loadFromDoc (seed = -1)
     {
         status(`${pieceName(doc)} did not parse; see the numbers.`);
         it.errors.forEach(log);
+
+        /* The fold, for the document, and the pane, for the layout: a
+           box tiled behind another tab is open already and still not
+           where anybody can read it. Neither takes the focus -- what
+           went wrong went wrong in somebody else's edit. */
         $('detail').open = true;
+        panes?.present('detail', { focus: false });
         listens = new Set();
     }
     else

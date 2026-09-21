@@ -189,6 +189,28 @@ function log (text)
     $('log').scrollTop = $('log').scrollHeight;
 }
 
+/* The box the status line means by "see below", brought to where it can
+ * be seen.
+ *
+ * Two answers, because there are two layouts and each is quiet about the
+ * other. In the document the box is a fold and opening it is the whole
+ * of it. Tiled, the fold is open already and held that way, and what is
+ * in front of the box instead is another tab -- or nothing at all,
+ * because somebody closed the pane and it is waiting in the drawer. A
+ * page that says see below and shows nothing is worse than one that
+ * says nothing.
+ *
+ * Without the focus, which is the difference between raising a pane for
+ * somebody and raising one at them: a .dsp that did not parse is read by
+ * whoever was editing it, and taking the cursor out of the text box to
+ * point at the reason costs them their place in it.
+ */
+function seeBelow ()
+{
+    $('detail').open = true;
+    panes?.present('detail', { focus: false });
+}
+
 function ms (seconds)
 {
     return seconds === undefined ? 'not reported'
@@ -332,7 +354,7 @@ async function loadPatch ()
                                  : 'That .dsp did not parse; see below.';
 
     if (!ok)
-        $('detail').open = true;
+        seeBelow();
 
     await showParams();
 }
@@ -381,7 +403,7 @@ async function loadPiece ()
     {
         $('status').textContent = 'That .gen did not parse; see below.';
         it.errors.forEach(log);
-        $('detail').open = true;
+        seeBelow();
     }
     else if (aiming.failed.length > 0)
     {
@@ -389,7 +411,7 @@ async function loadPiece ()
             `Loaded ${piece.name || $('piece').value}, but not everything ` +
             'it asked for; see below.';
         aiming.failed.forEach(log);
-        $('detail').open = true;
+        seeBelow();
     }
     else
         $('status').textContent =
@@ -673,7 +695,7 @@ async function aimByHand (channel, name)
         $('status').textContent =
             `Channel ${channel + 1}: ${e.message}; see below.`;
         log(`channel ${channel + 1}: ${e.message}`);
-        $('detail').open = true;
+        seeBelow();
 
         /* The menu is showing something that is not there; the row is
            drawn from what is. */
@@ -912,7 +934,7 @@ async function start ()
 
         $('status').textContent = `Could not start: ${e.message}`;
         log(e.message);
-        $('detail').open = true;
+        seeBelow();
         $('start').disabled = false;
         return;
     }
