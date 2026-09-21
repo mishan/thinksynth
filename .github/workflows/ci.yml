@@ -845,6 +845,39 @@ jobs:
             https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-glib2-2.88.3-1-any.pkg.tar.zst \
             https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gtk4-4.22.4-1-any.pkg.tar.zst
 
+      # cairo 1.18.6 (in ucrt64 since 2026-09-21) aborts the process shortly
+      # after anything draws text. It moved the Direct2D factory that the
+      # DirectWrite path needs into per-thread data, and that data is set up
+      # from a TLS callback registered by placing a pointer in `.CRT$XLD'.
+      # For MSVC that macro also emits `/INCLUDE:_tls_used', which forces the
+      # linker to write a TLS directory; the GCC branch of the same macro has
+      # no equivalent, and nothing else in the library references TLS. So the
+      # DLL ucrt64 ships has entry 9 of its PE data directory -- Thread
+      # Storage -- at 0/0, and the callback never runs:
+      #
+      #     objdump -p ucrt64/bin/libcairo-2.dll | grep 'Entry 9'
+      #     Entry 9 0000000000000000 00000000 Thread Storage Directory
+      #
+      # cairo_win32_thread_data_initialize is therefore never called, the
+      # thread-data array keeps the element size of zero it was born with,
+      # and its second growth asks realloc for zero bytes. UCRT frees the
+      # block and hands back NULL for that, which cairo reads as out of
+      # memory and answers with a bare abort() -- exit code 0xc0000409, and
+      # no output at all, because a fail-fast does not flush stdio.
+      #
+      # visualcheck is what catches it: every visual module labels itself,
+      # and it is the only gate here that drives cairo with no toolkit in
+      # between. Nothing about it is headless, though. A Windows build
+      # against 1.18.6 would abort the first time a meter drew its numbers.
+      #
+      # Drop this once ucrt64 ships a cairo whose libcairo-2.dll has a TLS
+      # directory; the objdump line above is the whole test.
+      - name: Hold cairo where drawing text does not abort
+        run: |
+          set -e
+          pacman -U --noconfirm \
+            https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-cairo-1.18.4-4-any.pkg.tar.zst
+
       - name: Configure
         run: cmake -S . -B build -G Ninja
 
