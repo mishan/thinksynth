@@ -85,6 +85,7 @@
 #include "NodePanel.h"
 #include "StagePanel.h"
 #include "thcGenFile.h"
+#include "libthink/thDynLib.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 
@@ -892,6 +893,19 @@ static void loadComposers (const string &pluginPath,
         }
 
         out[p->name()] = p;
+
+        /* Pin the module's mapping, and its dependency closure with it, for
+           the life of the process. scripts/gencheck.cpp says why at length
+           where it does the same thing: a plugin's dlopen is what first
+           brings up the glib stack on a runner whose cairo links gobject,
+           and the dlclose in ~thcPlugin drops the last reference, unmaps
+           those libraries, and turns their documented never-freed init heap
+           into LeakSanitizer reports -- which cannot even be suppressed by
+           name, since an unmapped library symbolizes as "<unknown module>".
+
+           dlclose still runs and its path is still exercised; this reference
+           only means the count never reaches zero. */
+        thDynLib::open(f.path().string());
     }
 }
 
