@@ -253,6 +253,19 @@ struct thPanelResult
 double thPanelToDisplay (double raw, const string &units);
 double thPanelFromDisplay (double shown, const string &units);
 
+/* The whole of `text' as a number, or false.
+ *
+ * strtod alone is not that: it reads a prefix, so "4k" is 4 and "" is 0, and
+ * a panel that took either would write a number nobody typed. Trailing space
+ * is allowed because a value box hands back what is in it.
+ *
+ * Here rather than in a provider because every provider needs it and the
+ * copies drifted: the check that the number had any digits at all was made
+ * after the trailing blanks were skipped in two of them, which accepts "   "
+ * as a valid nothing and calls it 0. A knob set to 0 by an empty box is a
+ * knob outside its own range. */
+bool thPanelNumberIn (const string &text, double &out);
+
 /* Decimal places worth showing for a control whose range runs to `hi'.
  *
  * The resolution that matters is relative: a filter cutoff between 0 and 1

@@ -148,15 +148,12 @@ thPanelResult KnobPanel::propose (const string &row, const string &valueText,
 
     out.a = at;
 
-    const char *s = valueText.c_str();
-    char *end = NULL;
+    double typed = 0;
 
-    const double typed = strtod(s, &end);
-
-    while (*end == ' ' || *end == '\t')
-        end++;
-
-    if (end == s || *end != '\0' || !std::isfinite(typed))
+    /* The model's, not a copy: this one skipped the trailing blanks before
+       asking whether any digit had been read, which takes "   " for a
+       perfectly good 0 -- and 0 is outside the range of plenty of knobs. */
+    if (!thPanelNumberIn(valueText, typed))
         return thPanelResult::refuse(valueText + " is not a number");
 
     /* Held to the range the piece declared, which is the travel its slider
@@ -172,10 +169,24 @@ thPanelResult KnobPanel::propose (const string &row, const string &valueText,
         if (want > described.hi) want = described.hi;
     }
 
+    /* And to the row's resolution, by the spelling it is drawn with --
+       ArgPanel::propose says why at length. */
+    double rounded = 0;
+
+    if (thPanelNumberIn(thPanelSpell(want, described.decimals), rounded))
+        want = rounded;
+
+    if (described.hi >= described.lo)
+    {
+        if (want < described.lo) want = described.lo;
+        if (want > described.hi) want = described.hi;
+    }
+
     out.value = want;
 
-    /* The catching-up guard. See thPanelResult. */
-    if ((double)(*knobs_[at])[0] == want)
+    /* The catching-up guard, compared at the width deliver() writes rather
+       than at the width this computed in. See ArgPanel::propose. */
+    if ((*knobs_[at])[0] == (float)want)
         return thPanelResult::echo();
 
     return thPanelResult();

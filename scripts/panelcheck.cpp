@@ -523,6 +523,45 @@ static void checkKnobs (void)
 
     check(!r.ok, "or by a number no knob has", r.why);
 
+    /* An empty value box, and a box holding nothing but blanks.
+     *
+     * Both read as a perfectly good 0 through a strtod that is asked whether
+     * it read any digits only after the trailing blanks have been skipped --
+     * and 0 is not merely wrong, it is outside the declared range of plenty
+     * of a piece's knobs. The model's own parse is the one every provider
+     * uses now, and it asks first. */
+    r = panel.propose("3", "", edit);
+
+    check(!r.ok, "an empty box is not a knob set to zero", r.why);
+
+    r = panel.propose("3", "   ", edit);
+
+    check(!r.ok, "and neither is one holding blanks", r.why);
+
+    check((double)(*knobs[3])[0] == 12000,
+          "and the knob stayed where it was",
+          to_string((double)(*knobs[3])[0]));
+
+    /* A knob's resolution binds what it can be left holding, the way a
+       chanarg's does: the slider running to 20000 shows no decimals, so a
+       number between two of them is a number no control can show or hand
+       back. */
+    r = panel.propose("3", "12345.678", edit);
+
+    check(r.ok && edit.value == 12346,
+          "a typed number is held to the knob's resolution",
+          to_string(edit.value));
+
+    r = panel.propose("0", "0.30", edit);
+
+    check(r.ok && r.changed && panel.deliver(edit),
+          "a value no float holds exactly is delivered", r.why);
+
+    r = panel.propose("0", "0.3000", edit);
+
+    check(r.ok && !r.changed,
+          "and proposing the spelling the row now shows is an echo", r.why);
+
     for (size_t i = 0; i < knobs.size(); i++)
         delete knobs[i];
 }

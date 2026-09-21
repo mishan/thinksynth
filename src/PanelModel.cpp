@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <cmath>
 
@@ -118,6 +119,30 @@ int thPanelValueChars (double hi, int decimals)
     const int chars = intDigits + (decimals ? decimals + 1 : 0) + 1;
 
     return chars < PANEL_MIN_VALUE_CHARS ? PANEL_MIN_VALUE_CHARS : chars;
+}
+
+bool thPanelNumberIn (const string &text, double &out)
+{
+    const char *s = text.c_str();
+    char *end = NULL;
+
+    const double v = strtod(s, &end);
+
+    /* Before the blanks are skipped, not after: skipping first moves `end'
+       off `s' whether or not a digit was read, so "" and "   " both come out
+       as a good 0. */
+    if (end == s)
+        return false;
+
+    while (*end == ' ' || *end == '\t')
+        end++;
+
+    if (*end != '\0' || !std::isfinite(v))
+        return false;
+
+    out = v;
+
+    return true;
 }
 
 string thPanelSpell (double value, int decimals)

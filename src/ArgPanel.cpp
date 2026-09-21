@@ -108,32 +108,6 @@ std::map<string, string> ArgPanel::inferGroups (thSynthTree *tree)
     return host;
 }
 
-/* The whole of `text' as a number, or false.
- *
- * strtod alone is not that: it reads a prefix, so "4k" is 4 and "" is 0, and
- * a panel that took either would write a number nobody typed. Trailing space
- * is allowed because a value box hands back what is in it. */
-static bool numberIn (const string &text, double &out)
-{
-    const char *s = text.c_str();
-    char *end = NULL;
-
-    const double v = strtod(s, &end);
-
-    if (end == s)
-        return false;
-
-    while (*end == ' ' || *end == '\t')
-        end++;
-
-    if (*end != '\0' || !std::isfinite(v))
-        return false;
-
-    out = v;
-
-    return true;
-}
-
 /* One parameter, described.
  *
  * Named values are a list and not a range: six waveforms have no order worth
@@ -308,7 +282,7 @@ thPanelResult ArgPanel::propose (const string &row, const string &valueText,
         else
         {
             double n = 0;
-            const int at = numberIn(valueText, n)
+            const int at = thPanelNumberIn(valueText, n)
                            ? thPanelChoiceIndex(described.choices, n) : -1;
 
             /* A value the plugin does not implement has no row and is
@@ -326,7 +300,7 @@ thPanelResult ArgPanel::propose (const string &row, const string &valueText,
     {
         double shown = 0;
 
-        if (!numberIn(valueText, shown))
+        if (!thPanelNumberIn(valueText, shown))
             return thPanelResult::refuse(valueText + " is not a number");
 
         /* Held to the range the control declares.
@@ -358,7 +332,7 @@ thPanelResult ArgPanel::propose (const string &row, const string &valueText,
          * finer than its step, so the clamp goes again after it. */
         double rounded = 0;
 
-        if (numberIn(thPanelSpell(held, described.decimals), rounded))
+        if (thPanelNumberIn(thPanelSpell(held, described.decimals), rounded))
             held = rounded;
 
         if (described.hi >= described.lo)

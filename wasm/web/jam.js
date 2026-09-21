@@ -48,7 +48,7 @@ import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
-import { showPanel } from './panel.js';
+import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
@@ -559,9 +559,17 @@ async function drawKnobs ()
         return;
     }
 
+    /* Held before it is sent, and not after: this one goes out to the room
+       as a stamped command and every peer applies it to the same knob. See
+       the same handler in main.js. */
     setKnobValue = showPanel($('knobs'), JSON.parse(answer.json),
                              (row, text) =>
-                                 send(maker.knob(Number(row), Number(text))));
+                             {
+                                 const value = numberIn(text);
+
+                                 if (value !== null)
+                                     send(maker.knob(Number(row), value));
+                             });
 }
 
 function showNumbers ()

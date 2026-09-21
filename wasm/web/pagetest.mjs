@@ -343,6 +343,52 @@ try
           `a nudge moves the slider and the number beside it: ` +
           `${was} -> ${now}, showing ${shown}`);
 
+    /* An emptied box is not a knob set to zero.
+     *
+       A knob is delivered by a stamped command and not by tw_panel_edit, so
+       nothing between the box and the write reads what is in it: Number('')
+       is 0, and 0 is outside the range of plenty of a piece's knobs. Nor is
+       a number typed past the end of the range applied unheld while the
+       slider beside it clamps. */
+    const knobBox = '#knobs .panelrow .value';
+
+    await page.fill(knobBox, '');
+    await page.evaluate((sel) => document.querySelector(sel).blur(), knobBox);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const emptied = await page.evaluate((sel) =>
+    {
+        const box = document.querySelector(sel);
+
+        return { shown: box.value,
+                 range: box.previousElementSibling.value };
+    }, knobBox);
+
+    check(Number(emptied.range) === Number(now) &&
+          Number(emptied.shown) === Number(now),
+          `emptying a knob's box moves nothing: still ${emptied.shown}`);
+
+    /* And past the end of its travel it goes to the end and not past it. */
+    const knobMax = await page.evaluate((sel) =>
+        document.querySelector(sel).previousElementSibling.max, knobBox);
+
+    await page.fill(knobBox, String(Number(knobMax) * 10 + 1));
+    await page.evaluate((sel) => document.querySelector(sel).blur(), knobBox);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const past = await page.evaluate((sel) =>
+    {
+        const box = document.querySelector(sel);
+
+        return { shown: box.value,
+                 range: box.previousElementSibling.value };
+    }, knobBox);
+
+    check(Number(past.shown) === Number(knobMax) &&
+          Number(past.range) === Number(knobMax),
+          `and a number past its end is held to it: ${past.shown} of ` +
+          `${knobMax}`);
+
     /* A computer key holds an on-screen key and lets it go. The slider
        just dragged still has the focus, and a focused input is somewhere
        a key means typing. */

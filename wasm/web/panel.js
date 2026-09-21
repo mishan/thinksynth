@@ -143,6 +143,62 @@ export function spell (value, decimals)
     return /^-[0.]*$/.test(text) ? text.slice(1) : text;
 }
 
+/* The whole of `text' as a number, or null.
+ *
+ * thPanelNumberIn, in JavaScript, and it is here for the same reason spell()
+ * is: Number('') is 0 and Number(' ') is 0, so a box someone emptied reads as
+ * a perfectly good zero -- and 0 is outside the range of plenty of a piece's
+ * knobs.
+ */
+export function numberIn (text)
+{
+    const s = String(text).trim();
+
+    if (s === '' || !/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s))
+        return null;
+
+    const v = Number(s);
+
+    return Number.isFinite(v) ? v : null;
+}
+
+/* What a row will accept, spelled: held inside its travel and rounded to its
+ * resolution, or null for a text that is not a number at all.
+ *
+ * The same three rules ArgPanel::propose applies, applied before the edit
+ * leaves the page rather than after it arrives.
+ *
+ * For a chanarg that is belt and braces -- the module does it again, and a
+ * peer's intent is checked where it lands. For a knob it is the only place
+ * there is: a knob is heard, so its delivery is a stamped command rather
+ * than tw_panel_edit, and the command carries a number that nothing between
+ * here and the write looks at. An empty box sent that path wrote 0, and a
+ * number typed past the end of the range was applied unheld while the slider
+ * beside it clamped.
+ */
+export function hold (row, text)
+{
+    const v = numberIn(text);
+
+    if (v === null)
+        return null;
+
+    let held = v;
+
+    if (row.hi >= row.lo)
+        held = Math.min(Math.max(held, row.lo), row.hi);
+
+    const spelled = spell(held, row.decimals);
+    const rounded = numberIn(spelled);
+
+    if (rounded === null || row.hi < row.lo)
+        return spelled;
+
+    /* Rounding can carry a value past an end whose own spelling is finer
+       than the step, so the travel is checked once more after it. */
+    return spell(Math.min(Math.max(rounded, row.lo), row.hi), row.decimals);
+}
+
 /* The control for one row, and how to put a value into it afterwards.
  *
  * Each returns the element to place and registers itself in `bound' under
@@ -190,8 +246,21 @@ function makeSlider (row, emit, bound)
 
     shown.addEventListener('change', () =>
     {
-        input.value = shown.value;
-        emit(shown.value);
+        const held = hold(row, shown.value);
+
+        /* A box holding something that is not a number has nothing to send.
+           It is put back to what the row last showed rather than left
+           saying it, since what is on the panel is what the module has. */
+        if (held === null)
+        {
+            shown.value = spell(input.value, row.decimals);
+            return;
+        }
+
+        shown.value = held;
+        input.value = held;
+
+        emit(held);
     });
 
     box.append(input, shown);
@@ -227,7 +296,20 @@ function makeNumber (row, emit, bound)
     input.disabled = !row.editable;
     input.style.width = `${row.valueChars + 2}ch`;
 
-    input.addEventListener('change', () => emit(input.value));
+    input.addEventListener('change', () =>
+    {
+        const held = hold(row, input.value);
+
+        if (held === null)
+        {
+            input.value = spell(row.value, row.decimals);
+            return;
+        }
+
+        input.value = held;
+
+        emit(held);
+    });
 
     bound.set(row.id, (value) =>
     {

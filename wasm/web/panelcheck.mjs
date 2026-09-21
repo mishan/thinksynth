@@ -273,7 +273,8 @@ const edit = (row, text, b = INSTRUMENT) =>
  * page -- and a slider put back where it started would then read as an edit,
  * for ever, since the comparison it loses is the catching-up guard. */
 {
-    const { spell } = await import(pathToFileURL(path.join(here, 'panel.js')));
+    const { spell, numberIn, hold } =
+        await import(pathToFileURL(path.join(here, 'panel.js')));
 
     const table = JSON.parse(
         fs.readFileSync(path.join(scratch, 'spell.json'), 'utf8'));
@@ -288,6 +289,36 @@ const edit = (row, text, b = INSTRUMENT) =>
     check(table.length > 0 && wrong === null,
           `panel.js spells all ${table.length} of them as the module does`,
           wrong ?? '');
+
+    /* And what it refuses. Number('') is 0 and Number('  ') is 0, and for a
+       knob the page's check is the only one there is: its delivery is a
+       stamped command, which carries a number nothing looks at again. */
+    const refuses = ['', '   ', '\t', 'loud', '4k', '1.2.3', 'NaN',
+                     'Infinity', '0x10', '1,5', '+', '-'];
+    const takes = [['0', 0], ['4000', 4000], [' 2.5 ', 2.5], ['-0.5', -0.5],
+                   ['1e3', 1000], ['.5', 0.5], ['+7', 7]];
+
+    const badRefusal = refuses.find((t) => numberIn(t) !== null);
+    const badTake = takes.find(([t, v]) => numberIn(t) !== v);
+
+    check(badRefusal === undefined && badTake === undefined,
+          'panel.js takes a number for a number and nothing else for one',
+          badRefusal !== undefined
+              ? `took "${badRefusal}" as ${numberIn(badRefusal)}`
+              : (badTake ? `read "${badTake[0]}" as ${numberIn(badTake[0])}`
+                         : ''));
+
+    /* hold() is the three rules ArgPanel::propose applies, applied before an
+       edit leaves the page: a text that is not a number, the travel, and the
+       resolution. */
+    const row = { lo: 0, hi: 20000, step: 1, decimals: 0, value: 7000 };
+
+    check(hold(row, '') === null && hold(row, '   ') === null &&
+          hold(row, '99999') === '20000' && hold(row, '-1') === '0' &&
+          hold(row, '12345.678') === '12346',
+          'and holds one inside the row it came from',
+          [hold(row, ''), hold(row, '99999'), hold(row, '-1'),
+           hold(row, '12345.678')].join(' '));
 }
 
 /* ---- a piece's knobs --------------------------------------------------- */

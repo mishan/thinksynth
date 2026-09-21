@@ -65,7 +65,7 @@ import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
-import { showPanel } from './panel.js';
+import { numberIn, showPanel } from './panel.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
 
@@ -338,11 +338,24 @@ async function loadPiece ()
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
 
-    await drawKnobs();
-    showChannels();
-    showNodes();
-    await showParams();
-    roll.draw();
+    /* The redraw, as one thing a harness can wait for.
+     *
+     * Two of these now ask the worklet for a panel and wait for the answer,
+     * and that round trip is not a load: quietly() does not know about it and
+     * `quiet' is stable while it is still in flight. A harness that pressed
+     * on before it landed found the knob row replaced under it between a
+     * focus and a keypress -- which is the thing settled() exists to stop,
+     * so settled() waits for this too. */
+    drawn = (async () =>
+    {
+        await drawKnobs();
+        showChannels();
+        showNodes();
+        await showParams();
+        roll.draw();
+    })();
+
+    await drawn;
 }
 
 async function pickPiece ()
@@ -361,6 +374,10 @@ async function pickPiece ()
  * have the first one's resume land in the middle of its own graph build
  * -- so each waits for the one before. */
 let quiet = Promise.resolve();
+
+/* The tail of a load: the panels it redraws, which are asked of the worklet
+   and arrive after the load itself is done with. See loadPiece. */
+let drawn = Promise.resolve();
 
 function quietly (what)
 {
@@ -407,8 +424,18 @@ async function drawKnobs ()
         return;
     }
 
-    showPanel($('knobs'), JSON.parse(answer.json),
-              (row, text) => synth.knob(Number(row), Number(text)));
+    /* tw_knob takes a number and checks nothing: a knob is delivered by a
+       stamped command rather than by tw_panel_edit, so KnobPanel::propose is
+       on no path between this and the write. panel.js holds what it emits
+       inside the row's travel; this is the last look before it becomes a
+       command every peer applies. */
+    showPanel($('knobs'), JSON.parse(answer.json), (row, text) =>
+    {
+        const value = numberIn(text);
+
+        if (value !== null)
+            synth.knob(Number(row), value);
+    });
 }
 
 /* ---- the channels row ---- */
@@ -1040,14 +1067,18 @@ window.solo = {
 
        The loop is for a load queued while an earlier one was being
        waited on: quiet is reassigned by every quietly(), so it is stable
-       only once nothing has been added across an await and a frame. */
+       only once nothing has been added across an await and a frame. And
+       `drawn' beside it, because the panels a load redraws are asked of the
+       worklet and land after the load that quiet tracks is finished. */
     settled: async () =>
     {
-        for (let was = null; was !== quiet; )
+        for (let was = null, drew = null; was !== quiet || drew !== drawn; )
         {
             was = quiet;
+            drew = drawn;
 
             await quiet;
+            await drawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
         }
 
