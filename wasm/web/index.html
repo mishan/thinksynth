@@ -25,7 +25,6 @@
 <section id="patchmode">
   <div class="row">
     <label>Patch <select id="patch"></select></label>
-    <button id="load" disabled>Load</button>
   </div>
 </section>
 
@@ -39,7 +38,6 @@
 <section id="piecemode" hidden>
   <div class="row">
     <label>Piece <select id="piece"></select></label>
-    <button id="loadpiece" disabled>Load</button>
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <button id="rewind" disabled>Rewind</button>
@@ -132,9 +130,9 @@
      canvas, its layout and its writer compiled to wasm and run in this
      page's own instance of the module. In patch mode it edits the .dsp in
      the box below and reloads it, so an edit is heard at once; in piece
-     mode it edits one of the piece's instruments, which the next Load
-     plays. Right-click a node's output to watch it with a meter or a
-     scope. -->
+     mode it edits one of the piece's instruments, which the piece
+     source's Load edits plays. Right-click a node's output to watch it
+     with a meter or a scope. -->
 <details id="nodeview"
          data-pane data-pane-title="The graph" data-pane-min="400">
   <summary>The instrument, as a graph</summary>
@@ -175,11 +173,19 @@
   </p>
 </section>
 
+<!-- The source, and the button that plays what is in it. Picking a patch
+     above fills this box and loads it; editing the box does neither until
+     this is pressed, which is what the button is for and why it sits here
+     rather than beside the menu it was mistaken for a part of. -->
 <details id="patchsource"
          data-pane data-pane-min="320">
   <summary>Patch source (.dsp)</summary>
   <textarea id="dsp" spellcheck="false" autocomplete="off"
             autocapitalize="off" autocorrect="off"></textarea>
+  <div class="row">
+    <button id="load" disabled>Load edits</button>
+    <span class="hint">Plays the .dsp in the box above.</span>
+  </div>
 </details>
 
 <details id="piecesource" hidden
@@ -187,6 +193,10 @@
   <summary>Piece source (.gen)</summary>
   <textarea id="gen" spellcheck="false" autocomplete="off"
             autocapitalize="off" autocorrect="off"></textarea>
+  <div class="row">
+    <button id="loadpiece" disabled>Load edits</button>
+    <span class="hint">Loads the .gen in the box above.</span>
+  </div>
 </details>
 
 <details id="detail"

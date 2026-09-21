@@ -489,6 +489,78 @@ try
               document.getElementById('pane-roll').checkVisibility()),
           'and Alt 0 is the layout this page opens on');
 
+    /* ---- closed from its own tab, and brought back ---- */
+
+    /* What a split's children leave over, which is what a gap in one is.
+       A column is the whole of its panes and the dividers between them,
+       so anything else is room nobody can reach. */
+    const spare = (id) => page.evaluate((which) =>
+    {
+        const col = document.getElementById(`pane-${which}`)
+                            .closest('.paneleaf').parentElement;
+        const kids = [...col.children].reduce(
+            (a, k) => a + k.getBoundingClientRect().height, 0);
+
+        return Math.round(col.getBoundingClientRect().height - kids);
+    }, id);
+
+    check(await spare('channelbox') <= 1,
+          'a column of four panes fills the column it is in');
+
+    /* The chord is there for somebody who knows it; the cross is there
+       for everybody else. Both put the pane in the drawer, which is the
+       one place a pane goes when it leaves the layout -- there is no way
+       from here to lose one, because there is nothing here that makes
+       one. */
+    await page.click('#paneshut-knobs');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              document.getElementById('panetab-knobs') === null &&
+              document.getElementById('panereopen-knobs') !== null &&
+              document.getElementById('knobs').isConnected),
+          'the cross on a tab closes its pane to the drawer, element ' +
+          'and all');
+
+    check(await page.evaluate(
+              () => document.activeElement.id === 'panereopen-knobs'),
+          'and leaves the focus on the button that brings it back');
+
+    /* The fractions left in a split sum to less than one when one of
+       them leaves, and a `flex-grow' under one is the CSS rule nobody
+       means: the children take that much of the box and the remainder is
+       a gap with no pane in it and no divider to drag. It used to be a
+       fifth of a column, dead and unreclaimable. */
+    const left = await spare('channelbox');
+
+    check(left <= 1,
+          `and the three left fill the column the fourth left: ${left}px ` +
+          'over');
+
+    await page.click('#panereopen-knobs');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-knobs').checkVisibility() &&
+              document.activeElement.id === 'panetab-knobs'),
+          'and the drawer button puts it back, in front and focused');
+
+    /* And puts it back where it was, rather than wherever the pointer
+       last happened to be: the leaf it left is remembered, and the leaf
+       last touched is the fallback for when that one closed with it.
+       Touched here on purpose, so the two answers differ. */
+    await drag('#panetab-knobs', '#pane-keyboard .panebody');
+    await page.click('#paneshut-knobs');
+    await page.waitForTimeout(200);
+    await page.click('#pane-roll .panebody');
+    await page.click('#panereopen-knobs');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-knobs').closest('.paneleaf') ===
+              document.getElementById('pane-keyboard').closest('.paneleaf')),
+          'and the leaf it was closed from, not the one last pressed in');
+
     /* A chord typed into a text box is text. The source box is a pane of
        its own here, and W in it must be a W. */
     await page.click('#gen');

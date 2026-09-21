@@ -232,18 +232,35 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     overflow: hidden;
 }
 
+/* A tab and the cross that closes it are one item of the strip, so the
+   line under the tab in front runs under both of them and the border
+   between panes falls after the cross rather than before it. */
+.panetabwrap
+{
+    flex: 0 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
+    border-right: 1px solid var(--line);
+    border-bottom: 2px solid transparent;
+}
+
+.panetabwrap:has(> .panetab[aria-selected="true"])
+{
+    background: var(--bg);
+    border-bottom-color: var(--held);
+}
+
 .panetab
 {
     flex: 0 1 auto;
     min-width: 0;
-    padding: 0.25em 0.7em;
+    padding: 0.25em 0.2em 0.25em 0.7em;
     font: inherit;
     font-size: 0.85em;
     color: var(--dim);
     background: transparent;
     border: 0;
-    border-right: 1px solid var(--line);
-    border-bottom: 2px solid transparent;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -251,14 +268,34 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     touch-action: none;         /* a tab drags; it does not scroll */
 }
 
-.panetab[aria-selected="true"]
-{
-    color: var(--fg);
-    background: var(--bg);
-    border-bottom-color: var(--held);
-}
+.panetab[aria-selected="true"] { color: var(--fg); }
 
 .panetab.dragging { opacity: 0.5; }
+
+/* Closing a pane puts it in the drawer, so the cross is a quiet one: on
+   the tab in front, and on whichever tab the pointer or the focus is at.
+   Hidden by `visibility' and not by `display', or a strip of them would
+   change width under the pointer and the tab being aimed at would move
+   out from under it. */
+.paneshut
+{
+    flex: 0 0 auto;
+    padding: 0 0.45em 0 0.2em;
+    font: inherit;
+    font-size: 0.85em;
+    line-height: 1;
+    color: var(--dim);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    visibility: hidden;
+}
+
+.panetabwrap:hover > .paneshut,
+.panetabwrap:focus-within > .paneshut,
+.panetab[aria-selected="true"] + .paneshut { visibility: visible; }
+
+.paneshut:hover { color: var(--fg); }
 
 /* ---- the drawer ----
  *
@@ -272,6 +309,15 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     gap: 0.3em;
     flex-wrap: wrap;
     margin-bottom: 0.4em;
+}
+
+/* What the row is, for somebody who has just made it appear by closing
+   a pane and is looking for where it went. */
+.panedrawerlabel
+{
+    align-self: center;
+    font-size: 0.85em;
+    color: var(--dim);
 }
 
 .paneclosed
@@ -288,6 +334,17 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
 }
 
 .paneclosed:hover, .panetab:hover { color: var(--fg); }
+
+/* A layout with every pane closed out of it, which is a box with nothing
+   in it and needs to say that it is empty rather than broken. */
+.paneempty
+{
+    margin: auto;
+    padding: 1em;
+    font-size: 0.9em;
+    color: var(--dim);
+    text-align: center;
+}
 
 /* Where a dragged tab would land, over the pane it would land in. */
 .panedrop

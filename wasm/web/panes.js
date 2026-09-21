@@ -61,8 +61,13 @@
  *
  * A leaf holds more than one pane as tabs, and the panes no leaf holds
  * are the DRAWER: listed above the layout, one click from being put back.
- * Nothing is ever destroyed, and two canvases stacked as tabs is where
- * the tiling pays for itself -- the one behind stops drawing.
+ * A pane is closed to it by the cross on its own tab, by Alt W, or by
+ * dragging its tab onto the drawer, and reopened by the button there
+ * with its name on. Nothing is ever destroyed -- closing a pane is
+ * putting it away, which is why there is nowhere here that makes one.
+ *
+ * Two canvases stacked as tabs is where the tiling pays for itself: the
+ * one behind stops drawing.
  */
 
 /* The screen a tiled layout is worth having on. Both halves matter, and
@@ -139,6 +144,15 @@ export function createPanes ({ root, catalog, layouts, mode,
 
     /* id -> what onShow was last told, so it is told only of changes. */
     const shown = new Map();
+
+    /* id -> the leaf it was last in, so that reopening a pane is putting
+       it back rather than dropping it wherever the pointer last was.
+       The leaf itself and not an address: a split collapses when the
+       last pane leaves it, and every index around it moves. A leaf the
+       tree no longer holds is no answer, and then the drawer falls back
+       to the leaf that was last touched -- which is what it always
+       did. */
+    const home = new Map();
 
     const media = matchMedia(TILED);
     const wanted = asked(on);
@@ -309,6 +323,26 @@ export function createPanes ({ root, catalog, layouts, mode,
         isLeaf(node) ? liveTabs(node).length > 0 : node.kids.some(alive);
 
     const liveKids = (node) => node.kids.filter(alive);
+
+    /* What a fraction is worth as `flex-grow': its share of the live
+     * children's, rather than the number itself.
+     *
+     * The numbers are shares of a split and a split's children come and
+     * go -- one closed to the drawer, one whose mode is not up -- so
+     * what is left of them sums to less than one. A `flex-grow' under
+     * one is the CSS rule nobody means: the children take that much of
+     * the box and the remainder is a gap with no pane in it and no
+     * divider to drag. Closing the third of three panes used to leave a
+     * fifth of the column behind that way, dead and unreclaimable.
+     * Dividing by what they come to is the whole of the fix.
+     */
+    const grow = (node, i) =>
+    {
+        const total = liveKids(node).reduce(
+            (a, k) => a + node.size[node.kids.indexOf(k)], 0);
+
+        return String(node.size[i] / (total > 0 ? total : 1));
+    };
 
     /* How narrow a node may be made: a pane's own minimum, a row's the
        sum of its children's with the dividers between them, a column's
@@ -489,6 +523,8 @@ export function createPanes ({ root, catalog, layouts, mode,
            `active' is an index into. */
         const at = liveTabs(leaf).indexOf(id);
         const was = leaf.active ?? 0;
+
+        home.set(id, leaf);
 
         leaf.tabs.splice(leaf.tabs.indexOf(id), 1);
         leaf.active = Math.max(0, Math.min(at !== -1 && at < was ? was - 1
@@ -711,8 +747,18 @@ export function createPanes ({ root, catalog, layouts, mode,
         {
             const p = panes.get(id);
             const host = adopt(p);
+
+            /* The tab and the cross that closes it, in a wrapper of
+               their own. A tablist's children are tabs, and a cross is
+               not one -- `presentation' is what lets a tablist hold the
+               pair and go on owning the tab inside it. It is also what
+               keeps a tab's text the pane's title and nothing else. */
+            const wrap = el('panetabwrap');
             const tab = document.createElement('button');
+            const shut = document.createElement('button');
             const front = i === leaf.active;
+
+            wrap.setAttribute('role', 'presentation');
 
             tab.type = 'button';
             tab.className = 'panetab';
@@ -722,13 +768,23 @@ export function createPanes ({ root, catalog, layouts, mode,
             tab.setAttribute('aria-controls', host.id);
             tab.setAttribute('aria-selected', String(front));
 
-            /* Roving: one stop for the strip, which is the tab in front.
-               Tabbing through a layout should pass the panes, not every
-               tab of every one of them. */
+            /* Roving: one pane, one stop -- and the cross beside it, so
+               closing a pane needs no chord to be found. Tabbing through
+               a layout should pass the panes, not every tab of every one
+               of them. */
             tab.tabIndex = front ? 0 : -1;
             tab.addEventListener('click', () => raise(leaf, i));
             tab.addEventListener('keydown', (e) => along(e, leaf, ids, i));
             grab(tab, id);
+
+            shut.type = 'button';
+            shut.className = 'paneshut';
+            shut.id = `paneshut-${id}`;
+            shut.textContent = '\u00d7';
+            shut.title = `Close ${p.title}`;
+            shut.setAttribute('aria-label', `Close ${p.title}`);
+            shut.tabIndex = front ? 0 : -1;
+            shut.addEventListener('click', () => shutTab(id, leaf));
 
             host.hidden = !front;
             host.setAttribute('aria-labelledby', tab.id);
@@ -737,7 +793,8 @@ export function createPanes ({ root, catalog, layouts, mode,
                 onScreen.add(id);
 
             attached.add(id);
-            strip.append(tab);
+            wrap.append(tab, shut);
+            strip.append(wrap);
             box.append(host);
         });
 
@@ -752,6 +809,24 @@ export function createPanes ({ root, catalog, layouts, mode,
         seen.set(box, leaf);
 
         return box;
+    };
+
+    /* A pane put away from its own tab, which is the drawer and not the
+     * bin.
+     *
+     * The focus follows it, onto the drawer button that brings it back
+     * -- the one thing left on the page that names it. A cross that
+     * closed a pane and left the keyboard somewhere up the document is
+     * how a person ends up not finding it again, and the drawer is only
+     * an answer to that if it is where they are looking.
+     */
+    const shutTab = (id, leaf) =>
+    {
+        drawer(id);
+        focus = leaf;
+        save();
+        render();
+        root.querySelector(`#panereopen-${id}`)?.focus();
     };
 
     /* The tab in front of a leaf, with the focus left where the person
@@ -837,8 +912,8 @@ export function createPanes ({ root, catalog, layouts, mode,
 
             node.size[ia] = sum * (now / both);
             node.size[ib] = sum - node.size[ia];
-            ea.style.flexGrow = String(node.size[ia]);
-            eb.style.flexGrow = String(node.size[ib]);
+            ea.style.flexGrow = grow(node, ia);
+            eb.style.flexGrow = grow(node, ib);
             told();
         };
 
@@ -924,7 +999,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         {
             const child = nodeOf(k);
 
-            child.style.flexGrow = String(node.size[node.kids.indexOf(k)]);
+            child.style.flexGrow = grow(node, node.kids.indexOf(k));
             made.push(child);
         }
 
@@ -942,16 +1017,28 @@ export function createPanes ({ root, catalog, layouts, mode,
     };
 
     /* The panes no leaf has room for, listed above the layout: one click
-       from being put back, into whichever leaf was last touched. Nothing
-       here is a pane that has gone -- a drawer is what makes closing one
+       from being put back, into the leaf they left or -- where that leaf
+       closed with them -- whichever one was last touched. Nothing here
+       is a pane that has gone; a drawer is what makes closing one
        something other than losing it. */
-    const drawerOf = () =>
+    const drawerOf = (out) =>
     {
         const box = el('panedrawer');
-        const out = [...panes.keys()].filter(
-            (id) => playable(id) && !inLayout.has(id));
 
         box.hidden = out.length === 0;
+
+        if (out.length > 0)
+        {
+            /* Said, rather than left to be inferred from a row of
+               dashed buttons: what these are is the panes that are not
+               on the screen, and a person who has just closed one is
+               looking for exactly that sentence. */
+            const said = document.createElement('span');
+
+            said.className = 'panedrawerlabel';
+            said.textContent = 'Closed:';
+            box.append(said);
+        }
 
         for (const id of out)
         {
@@ -959,12 +1046,18 @@ export function createPanes ({ root, catalog, layouts, mode,
 
             button.type = 'button';
             button.className = 'paneclosed';
+            button.id = `panereopen-${id}`;
             button.textContent = panes.get(id).title;
+            button.title = `Reopen ${panes.get(id).title}`;
             button.addEventListener('click', () =>
             {
-                into(id, focus ?? firstLeaf());
+                const back = home.get(id);
+
+                into(id, back !== undefined && holds(back)
+                             ? back : focus ?? firstLeaf());
                 save();
                 render();
+                root.querySelector(`#panetab-${id}`)?.focus();
             });
 
             grab(button, id);
@@ -988,6 +1081,11 @@ export function createPanes ({ root, catalog, layouts, mode,
 
         return found;
     };
+
+    /* The drawer's list: every pane the mode has that the layout does
+       not. Closing one puts it here and nothing else happens to it. */
+    const closed = () => [...panes.keys()].filter(
+        (id) => playable(id) && !inLayout.has(id));
 
     /* Whether a node is still part of the tree: a split that collapsed
        took its children's addresses with it. */
@@ -1038,7 +1136,20 @@ export function createPanes ({ root, catalog, layouts, mode,
         inLayout = holding(tree);
 
         const shown = zoom ?? tree;
+        const out = closed();
         const made = alive(shown) ? nodeOf(shown) : el('paneleaf');
+
+        /* A layout every pane has been closed out of, which is a blank
+           box and reads as a broken page rather than an empty one. The
+           drawer above it holds all of them; this says so. */
+        if (!alive(shown) && out.length > 0)
+        {
+            const note = el('paneempty');
+
+            note.textContent = 'Every pane is closed. Reopen one from ' +
+                               'the row above.';
+            made.append(note);
+        }
 
         /* The ones this render did not draw, kept out of sight but in the
            document. Out of the document they would be out of
@@ -1058,7 +1169,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         if (focus !== null && boxOf(focus) === undefined)
             focus = null;
 
-        root.replaceChildren(drawerOf(), made, kept);
+        root.replaceChildren(drawerOf(out), made, kept);
         settle();
         refocus(was, from, tab);
     };
@@ -1223,8 +1334,7 @@ export function createPanes ({ root, catalog, layouts, mode,
                leaf with nothing else in it has nothing to split off, so
                it opens the first pane in the drawer there instead. */
             const dir = e.code === 'Backslash' ? 'row' : 'col';
-            const other = [...panes.keys()].find(
-                (n) => playable(n) && !inLayout.has(n));
+            const other = closed()[0];
 
             if (ids.length > 1)
                 beside(id, leaf, dir, true);
