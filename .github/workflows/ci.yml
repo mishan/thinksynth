@@ -858,6 +858,10 @@ jobs:
       #     objdump -p ucrt64/bin/libcairo-2.dll | grep 'Entry 9'
       #     Entry 9 0000000000000000 00000000 Thread Storage Directory
       #
+      # 1.18.4 reads 0000000000110780 00000028 there. It used _Thread_local,
+      # which pulled a TLS directory in as a side effect and made the callback
+      # fire; dropping that is what took the callback with it.
+      #
       # cairo_win32_thread_data_initialize is therefore never called, the
       # thread-data array keeps the element size of zero it was born with,
       # and its second growth asks realloc for zero bytes. UCRT frees the
