@@ -532,6 +532,16 @@ install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
 #
 # A new drawer trips the first of these and an ordinary name clash the
 # second, so neither check has a list in it that can go stale.
+#
+# `list(FIND)' rather than `if(... IN_LIST ...)'. The generated
+# cmake_install.cmake carries no cmake_minimum_required and no
+# cmake_policy, so everything in here runs in script mode at whatever
+# policy defaults the running CMake happens to have. CMP0057 -- which is
+# what makes IN_LIST an operator rather than three words -- is not among
+# them on the CMake the Linux packaging job runs, and `cpack' failed on
+# "if given arguments: _base IN_LIST _seen" while `cmake --install' on a
+# newer CMake had gone through fine. Nothing in this block may use a
+# command that needs a policy set.
 install(CODE "
   set(_dsp \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${THINK_PKG_DATA_DIR}/dsp\")
   file(GLOB_RECURSE _installed RELATIVE \"\${_dsp}\" \"\${_dsp}/*.dsp\")
@@ -546,7 +556,8 @@ install(CODE "
     endif()
 
     get_filename_component(_base \"\${_rel}\" NAME)
-    if(_base IN_LIST _seen)
+    list(FIND _seen \"\${_base}\" _at)
+    if(NOT _at EQUAL -1)
       list(APPEND _dupes \"\${_base}\")
     endif()
     list(APPEND _seen \"\${_base}\")
