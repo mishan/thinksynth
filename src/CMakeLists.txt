@@ -93,8 +93,11 @@ target_link_libraries(think_panel PUBLIC think)
 #
 # PatchApply joins it: putting a document on a channel needs a synth but not a
 # file, and it is the other half both shells were writing twice -- the load
-# order, the side clamp and the rule about a name nothing declares.
-add_library(think_patch OBJECT PatchFile.cpp PatchApply.cpp)
+# order, the side clamp and the rule about a name nothing declares. So does
+# PatchSet, the slots: which channel holds which document, whether it has been
+# edited and what it was called needs neither a file nor a synth. It links
+# sigc++ for its three signals, which libthink already does.
+add_library(think_patch OBJECT PatchFile.cpp PatchApply.cpp PatchSet.cpp)
 target_include_directories(think_patch PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -786,7 +786,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     sub->signal_switch_page().connect(
         sigc::bind(
             sigc::mem_fun(*this, &MainSynthWindow::onSubTab),
-            holder, patchMgr->getPatch(num) ? patchMgr->getPatch(num)->dspFile
+            holder, patchMgr->getPatch(num) ? patchMgr->getPatch(num)->doc.dsp
                                             : string(),
             num));
 
@@ -830,7 +830,7 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
     body->set_margin_top(6);
     body->set_margin_bottom(6);
 
-    const string name = patch ? patch->effectFile : string();
+    const string name = patch ? patch->doc.effect : string();
 
     Gtk::Box *bar = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
@@ -1183,12 +1183,12 @@ void MainSynthWindow::onSavePatchAs (int chan)
     {
         fileSel->set_file(Gio::File::create_for_path(patch->filename));
     }
-    else if (patch->dspFile.length() > 0)
+    else if (patch->doc.dsp.length() > 0)
     {
         /* A starting point rather than a guess at what it should be called:
            the DSP's own name with the patch extension, which is at least in
            the right family. */
-        string suggest = thUtil::basename(patch->dspFile.c_str());
+        string suggest = thUtil::basename(patch->doc.dsp.c_str());
         const string::size_type dot = suggest.rfind('.');
 
         if (dot != string::npos)
@@ -1581,7 +1581,7 @@ void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
         return;
     }
 
-    dspEntry_.set_text(patch->dspFile);
+    dspEntry_.set_text(patch->doc.dsp);
 }
 
 void MainSynthWindow::onDspEntryActivate (void)

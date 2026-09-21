@@ -249,7 +249,7 @@ int main (int argc, char **argv)
         {
             gthPatchManager::PatchFile *p = patchMgr->getPatch((int)i);
 
-            if (p != NULL && !p->dspFile.empty())
+            if (p != NULL && !p->doc.dsp.empty())
                 loaded++;
         }
 
@@ -309,7 +309,7 @@ int main (int argc, char **argv)
         {
             gthPatchManager::PatchFile *p = patchMgr->getPatch((int)i);
 
-            if (p != NULL && !p->dspFile.empty())
+            if (p != NULL && !p->doc.dsp.empty())
                 loaded++;
         }
 
@@ -440,7 +440,7 @@ int main (int argc, char **argv)
                 const gthPatchManager::PatchFile *p = patchMgr->getPatch(chan);
 
                 ok(synth->getEffect(chan) == NULL &&
-                   p != NULL && p->effectFile.empty(),
+                   p != NULL && p->doc.effect.empty(),
                    "which takes the effect off and forgets its name");
 
                 const string orphan = tmp + "/orphan.patch";
@@ -524,7 +524,7 @@ int main (int argc, char **argv)
 
                 const gthPatchManager::PatchFile *p = patchMgr->getPatch(chan);
 
-                ok(p != NULL && p->effectSide == -1,
+                ok(p != NULL && p->doc.side == -1,
                    "and no side, which is where an unusable one lands");
 
                 /* And so it survives the round trip that would have lost

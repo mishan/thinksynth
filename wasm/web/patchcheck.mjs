@@ -142,11 +142,11 @@ M.ccall('tw_instrument', 'number', ['string', 'string'],
 const SHIPPED = fs.readFileSync(
     path.join(top, 'patches', 'leads', 'SuperRes.patch'), 'utf8');
 
-const apply = (channel, text) =>
-    M.ccall('tw_patch_apply', 'number', ['number', 'string'],
-            [channel, text]) !== 0;
+const apply = (channel, text, name = '') =>
+    M.ccall('tw_patch_apply', 'number', ['number', 'string', 'string'],
+            [channel, text, name]) !== 0;
 
-check(apply(0, SHIPPED),
+check(apply(0, SHIPPED, 'leads/SuperRes.patch'),
       'a shipped patch goes on a channel');
 
 check(M.ccall('tw_patch_why', 'string', [], []) === '',
@@ -172,6 +172,42 @@ if (json !== '')
           `got ${JSON.stringify(doc.args.cutoff)}`);
 }
 
+/* ---- and what the slot remembers ---- */
+
+/* The three things a slot knows that the file does not. They are what the
+ * page draws its channel row from, and what the desktop has been able to say
+ * for twenty years: which file this is, whether it has been edited since it
+ * was read, and which load it is.
+ */
+if (json !== '')
+{
+    const slot = JSON.parse(json);
+
+    check(slot.name === 'leads/SuperRes.patch',
+          'the slot is named by the file it came from', `got ${slot.name}`);
+    check(slot.dirty === false, 'and a patch just read is not edited');
+    check(slot.generation > 0, 'and carries a generation',
+          `got ${slot.generation}`);
+
+    /* A chanarg edit is what makes it dirty, and it arrives the way every
+       edit on the page does: as a command, applied through tw_panel_edit. */
+    const edited = M.ccall('tw_panel_edit', 'number',
+                           ['number', 'number', 'number', 'string', 'string'],
+                           [0, 0, 0, 'cutoff', '2.0']);
+
+    check(edited === 1, 'moving a control is an edit',
+          M.ccall('tw_panel_why', 'string', [], []));
+    check(M.ccall('tw_patch_dirty', 'number', ['number'], [0]) === 1,
+          'and the channel says its patch has been edited');
+
+    const after = JSON.parse(
+        M.ccall('tw_patch_json', 'string', ['number'], [0]));
+
+    check(after.dirty === true, 'which is in the row the page draws');
+    check(after.generation === slot.generation,
+          'and editing one is not loading another');
+}
+
 /* A graph nothing has handed over. The refusal is the point, and so is what
    it leaves behind: the channel is not touched, so whatever was playing is
    still playing and the patch that is recorded there is still the last one
@@ -181,9 +217,11 @@ check(!apply(0, 'dsp nosuchgraph.dsp\n'),
 
 check(M.ccall('tw_patch_why', 'string', [], []) !== '', 'and says why');
 
-const after = M.ccall('tw_patch_json', 'string', ['number'], [0]);
+const untouched = M.ccall('tw_patch_json', 'string', ['number'], [0]);
 
-check(after === json, 'and leaves the channel as it was');
+check(untouched === M.ccall('tw_patch_json', 'string', ['number'], [0]) &&
+      JSON.parse(untouched).generation === JSON.parse(json).generation,
+      'and leaves the channel as it was');
 
 /* Text that is not a patch at all reaches here as a refusal and not as a
    half-loaded channel. */

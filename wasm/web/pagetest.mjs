@@ -635,26 +635,65 @@ try
 
     check(rows > 0, `${AIMED_PIECE} left ${rows} channels for the page to aim`);
 
+    /* The channel the parameters pane is already showing, so that the patch
+       chosen below and the controls moved after it are the same channel
+       without switching either of them under the other. */
+    const chan = await page.$eval('#paramchan', (sel) => Number(sel.value));
+
     /* The first .patch the menu offers, chosen. The status line says what
        went on, by the title the file gives itself -- which only something
        that has read the file knows, and nothing on the page reads one. */
-    const chosen = await page.$eval(
-        '#channels select',
-        (sel) => [...sel.querySelectorAll('option')]
-            .find((o) => o.value.endsWith('.patch'))?.value ?? '');
+    const chosen = await page.evaluate((c) =>
+    {
+        const row = [...document.querySelectorAll('#channels .channel')]
+            .find((r) => r.querySelector(`.edited[data-channel="${c}"]`));
 
-    check(chosen !== '', 'and the menu offers a .patch');
+        return [...(row?.querySelectorAll('select option') ?? [])]
+            .find((o) => o.value.endsWith('.patch'))?.value ?? '';
+    }, chan);
+
+    check(chosen !== '', `channel ${chan + 1} offers a .patch to choose`);
 
     if (chosen !== '')
     {
-        await page.selectOption('#channels select', chosen);
+        await page.selectOption(
+            `#channels .channel:has(.edited[data-channel="${chan}"]) select`,
+            chosen);
         await page.waitForFunction(
             () => /on channel \d+\. Play\.$/.test(
                 document.getElementById('status').textContent),
             null, { timeout: 60000 });
+        await page.evaluate(() => window.solo.settled());
 
         check(true, `choosing ${chosen} loads it: ` +
                     `${await page.textContent('#status')}`);
+
+        /* And the row says whether what is on the channel is still what the
+         * file says. A patch just read is not edited; moving one of its
+         * controls makes it so. The desktop has lit a Save button off this
+         * since 2004, and the page could not say it at all until the slots
+         * were shared (src/PatchSet.h).
+         */
+        const edited = () => page.$eval(
+            `#channels .edited[data-channel="${chan}"]`, (m) => !m.hidden);
+
+        check(await edited() === false,
+              'and the row does not say it has been edited');
+
+        /* Through the panel, which is how a person would do it: the page
+           has no other door to a chanarg. An arrow key on the slider, for
+           the reason the nudge above uses one -- it is one edit, and it is
+           the one a person makes. */
+        await page.evaluate(() => window.solo.pollChanParams());
+        await page.focus('#params input[type="range"]');
+        await page.keyboard.press('ArrowRight');
+
+        await page.waitForFunction(
+            (c) => !document.querySelector(
+                `#channels .edited[data-channel="${c}"]`).hidden,
+            chan, { timeout: 60000 });
+
+        check(true, 'and moving one of its controls says it has');
     }
 
     /* ---- the instrument as a graph ---- */

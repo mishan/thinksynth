@@ -48,6 +48,10 @@
     --key-edge:  #b0b0b0;
     --key-black: #202020;
     --held:      #5050ff;
+
+    /* Something a person should notice but nothing is broken: a patch
+       edited and not written. Not the red an error gets. */
+    --warn:      #a05000;
     --key-c:     #eaf7fa;
 }
 
@@ -64,6 +68,7 @@
         --key-edge:  #555555;
         --key-black: #101010;
         --held:      #6a6aff;
+        --warn:      #d09040;
         --key-c:     #2b3a3d;
     }
 }
@@ -170,6 +175,17 @@ details { margin: 0.8em 0; }
 /* A channel the piece aimed itself. Nothing to choose, so nothing that
    looks like a control. */
 #channels .own { color: var(--dim); }
+
+/* A patch that has been changed since it was read. Beside the menu rather
+   than in it: the menu says what was chosen and this says what has happened
+   to it since, and a menu row that changed its own text under somebody
+   would be the wrong place to say so. */
+#channels .edited
+{
+    margin-left: 0.5em;
+    font: 12px ui-monospace, monospace;
+    color: var(--warn);
+}
 
 #about { margin: 0.4em 0; color: var(--dim); }
 

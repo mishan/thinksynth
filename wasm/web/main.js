@@ -564,9 +564,57 @@ function showChannels ()
             line.append(own);
         }
         else
+        {
             line.append(chooser(channel));
 
+            /* And whether it has been edited since it was read.
+             *
+             * The desktop has said this for twenty years -- it is what its
+             * Save button is lit by -- and the page could not, because the
+             * page had no idea what was on a channel beyond the name it had
+             * asked for. The slots are shared now (src/PatchSet.h), so the
+             * module answers it, and a mark here is the whole of the record
+             * that the file and the channel have parted company: nothing
+             * writes a .patch by itself in either shell. */
+            const mark = document.createElement('span');
+
+            mark.className = 'edited';
+            mark.dataset.channel = String(channel);
+            mark.hidden = true;
+            mark.textContent = 'edited';
+            mark.title = 'This patch has been changed since it was loaded.';
+            line.append(mark);
+        }
+
         box.append(line);
+    }
+
+    /* The marks, once the rows they hang off exist. Not awaited: a row that
+       has just been drawn is correct until the module says otherwise, and
+       the caller has nothing to do differently either way. */
+    showEdited();
+}
+
+/* The `edited' marks, refreshed from the module.
+ *
+ * Asked rather than remembered: an edit can arrive from a piece's knob
+ * wired to a chanarg as readily as from somebody typing, and what the row
+ * must agree with is the slot the module keeps, not a guess the page made
+ * when it last drew itself.
+ *
+ * Only the channels that have a mark, which is the channels the page aimed:
+ * one the piece filled is the piece's and has no file behind it to have
+ * parted company with. */
+async function showEdited ()
+{
+    if (synth === null)
+        return;
+
+    for (const mark of $('channels').querySelectorAll('.edited'))
+    {
+        const { json } = await synth.patchState(Number(mark.dataset.channel));
+
+        mark.hidden = json === '' || !JSON.parse(json).dirty;
     }
 }
 
@@ -764,7 +812,15 @@ async function showParams ()
 
     const setValue = showPanel(
         $('params'), panel,
-        (row, text) => synth.panelEdit(0, channel, 0, row, text));
+        async (row, text) =>
+        {
+            await synth.panelEdit(0, channel, 0, row, text);
+
+            /* Moving a control is editing the patch, and the row above says
+               so. Here rather than in the poll because an edit is a thing
+               that happened once and a poll is a thing that runs for ever. */
+            await showEdited();
+        });
 
     params = { channel, panel, setValue };
 }

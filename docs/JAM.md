@@ -296,7 +296,10 @@ On `jam-m6`. Where it stands:
   is gone, and with it the two things it got wrong -- a channel effect
   dropped on the floor, and `side` sent to the engine as a chanarg called
   `side`. `wasm/web/patchcheck.mjs` holds the module's reading against the
-  desktop's, byte for byte.
+  desktop's, byte for byte. The slots are shared too (`src/PatchSet.h`), so
+  the channel row can say which file is on a channel and whether it has been
+  edited since -- which the desktop has lit a Save button off since 2004 and
+  the page could not say at all.
 - And the knobs a piece declares, off the same description
   (`src/KnobPanel.cpp`) and drawn by the same renderer on both pages. A
   knob is where the two deliveries differ and can be seen to: the panel

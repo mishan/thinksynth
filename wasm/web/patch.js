@@ -133,7 +133,7 @@ export function index ()
  */
 export async function load (synth, channel, name)
 {
-    const r = await synth.patch(channel, await patchText(name));
+    const r = await synth.patch(channel, await patchText(name), name);
 
     if (!r.ok)
         throw new Error(`${name}: ${r.why}`);
@@ -143,7 +143,7 @@ export async function load (synth, channel, name)
     /* What to call it in a row: the title the file gives itself, or its
        bare name without the drawer it lives in -- `SuperRes', which is
        what the menu offering it says too. */
-    return { patch: name, dsp: doc.dsp,
+    return { patch: name, dsp: doc.dsp, generation: doc.generation,
              title: doc.info.title ??
                     name.split('/').pop().replace(/\.patch$/, '') };
 }

@@ -386,11 +386,11 @@ bool PatchSelWindow::LoadPatch (void)
                 patchSelection->set_selected(chanNum);
 
                 /* load up metadata */
-                patchRevised.set_text(patch->info["revised"]);
-                patchCategory.set_text(patch->info["category"]);
-                patchAuthor.set_text(patch->info["author"]);
-                patchTitle.set_text(patch->info["title"]);
-                patchComments.get_buffer()->set_text(patch->info["comments"]);
+                patchRevised.set_text(patch->doc.info["revised"]);
+                patchCategory.set_text(patch->doc.info["category"]);
+                patchAuthor.set_text(patch->doc.info["author"]);
+                patchTitle.set_text(patch->doc.info["title"]);
+                patchComments.get_buffer()->set_text(patch->doc.info["comments"]);
 
                 return true;
             }
@@ -578,11 +578,11 @@ void PatchSelWindow::writePatch (string file, int chan)
         return;
 
     /* cull metadata */
-    patch->info["revised"] = patchRevised.get_text();
-    patch->info["category"] = patchCategory.get_text();
-    patch->info["author"] = patchAuthor.get_text();
-    patch->info["title"] = patchTitle.get_text();
-    patch->info["comments"] = patchComments.get_buffer()->get_text();
+    patch->doc.info["revised"] = patchRevised.get_text();
+    patch->doc.info["category"] = patchCategory.get_text();
+    patch->doc.info["author"] = patchAuthor.get_text();
+    patch->doc.info["title"] = patchTitle.get_text();
+    patch->doc.info["comments"] = patchComments.get_buffer()->get_text();
 
     patchManager->savePatch(file, chan);
 
@@ -661,11 +661,11 @@ void PatchSelWindow::CursorChanged (void)
         /* save metadata from old patch */
         if (oldpatch)
         {
-            oldpatch->info["revised"] = patchRevised.get_text();
-            oldpatch->info["category"] = patchCategory.get_text();
-            oldpatch->info["author"] = patchAuthor.get_text();
-            oldpatch->info["title"] = patchTitle.get_text();
-            oldpatch->info["comments"] = patchComments.get_buffer()->get_text();
+            oldpatch->doc.info["revised"] = patchRevised.get_text();
+            oldpatch->doc.info["category"] = patchCategory.get_text();
+            oldpatch->doc.info["author"] = patchAuthor.get_text();
+            oldpatch->doc.info["title"] = patchTitle.get_text();
+            oldpatch->doc.info["comments"] = patchComments.get_buffer()->get_text();
         }
 
         if (row)
@@ -703,12 +703,12 @@ void PatchSelWindow::CursorChanged (void)
                less when the panel was folded away and hard to look at. */
             loading_ = true;
 
-            patchTitle.set_text(loaded ? patch->info["title"] : string());
-            patchCategory.set_text(loaded ? patch->info["category"] : string());
-            patchAuthor.set_text(loaded ? patch->info["author"] : string());
-            patchRevised.set_text(loaded ? patch->info["revised"] : string());
+            patchTitle.set_text(loaded ? patch->doc.info["title"] : string());
+            patchCategory.set_text(loaded ? patch->doc.info["category"] : string());
+            patchAuthor.set_text(loaded ? patch->doc.info["author"] : string());
+            patchRevised.set_text(loaded ? patch->doc.info["revised"] : string());
             patchComments.get_buffer()->set_text(
-                loaded ? patch->info["comments"] : string());
+                loaded ? patch->doc.info["comments"] : string());
 
             loading_ = false;
 

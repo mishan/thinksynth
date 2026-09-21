@@ -225,6 +225,25 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* What is on a channel and whether it has been edited since it
+         * was read.
+         *
+         * A question, like the panel above and for the same reason: what
+         * the page draws is what the thing that sounds holds. The edits
+         * that make it dirty are commands and have already been applied on
+         * both instances by the time anybody asks.
+         */
+        if (m.type === 'patchstate')
+        {
+            this.port.postMessage({
+                type: 'patchstate', id: m.id,
+                json: this.M.ccall('tw_patch_json', 'string', ['number'],
+                                   [m.channel]),
+            });
+
+            return;
+        }
+
         /* A tap, armed on this thread -- which is the GUI thread and the
            audio thread at once here, so the call that resolves the node
            and the call that drains the ring are on the same one. */

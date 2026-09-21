@@ -37,43 +37,17 @@
 
 gthPatchManager *gthPatchManager::instance_ = NULL;
 
-/* Stamped on every PatchFile, never reused. See the field's comment for why
-   this exists rather than a filename comparison or a pointer. GUI thread
-   only, like everything else here. */
-static unsigned patchGeneration = 0;
-
-gthPatchManager::PatchFile::PatchFile (void)
-    : effectSide(-1), dirty(false), generation(++patchGeneration)
-{
-}
-
 gthPatchManager::gthPatchManager (int numPatches)
+    : patches_(numPatches)
 {
-    numPatches_ = numPatches;
-
     if (instance_ == NULL)
         instance_ = this;
-
-    patches_ = new PatchFile*[numPatches_];
-
-    /* init patches to NULL */
-    for (int i = 0; i < numPatches_; i++)
-        patches_[i] = NULL;
 }
 
 gthPatchManager::~gthPatchManager (void)
 {
     if (instance_ == this)
         instance_ = NULL;
-
-    for (int i = 0; i < numPatches_; i++)
-    {
-        delete patches_[i];
-        patches_[i] = NULL;
-    }
-
-    delete [] patches_;   /* the array itself was never freed */
-    patches_ = NULL;
 }
 
 gthPatchManager *gthPatchManager::instance (void) {
@@ -107,21 +81,16 @@ string gthPatchManager::resolvePatch (const string &patchName)
 
 bool gthPatchManager::newPatch (const string &dspName, int chan)
 {
-    /* The same guard loadPatch, unloadPatch, isLoaded and getChannelArgs all
-       carry, and the one place it was missing. Nothing reaches here with a bad
-       channel now the notebook always holds sixteen pages, but the first thing
-       below is `delete patches_[chan]'. */
-    if ((chan < 0) || (chan >= numPatches_))
+    if ((chan < 0) || (chan >= patches_.count()))
         return false;
 
     thSynth *synth = thSynth::instance();
     thArg *amparg = NULL;
-    bool r = true;
 
     /* Read before the load, because loadTree is what replaces the channel
-       the value is being read off. Whether the old PatchFile survives is
-       decided below, after we know if there is a new one. */
-    if (patches_[chan])
+       the value is being read off. Whether the old slot survives is decided
+       below, after we know if there is a new one. */
+    if (patches_.loaded(chan))
         amparg = new thArg (synth->getChanArg(chan, "amp"));
 
     /* Load the resolved path but remember the name as given, so a patch saved
@@ -131,53 +100,49 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
        Selector and raise it -- which looked like a broken DSP rather than a
        volume at the bottom of its range. The scale here is MIDI's 0..127; why
        TH_DEFAULT_CHAN_AMP sits where it does is argued where it is defined. */
-    thSynthTree *mod = synth->loadTree(resolveDsp(dspName).c_str(), chan,
-                                       TH_DEFAULT_CHAN_AMP);
-
-    if (mod == NULL)
+    if (synth->loadTree(resolveDsp(dspName).c_str(), chan,
+                        TH_DEFAULT_CHAN_AMP) == NULL)
     {
-        /* The old PatchFile used to be deleted before the load was
-           attempted, so a DSP that failed to parse left the channel still
-           playing the previous graph with nothing here describing it: no
-           tab contents, no filename, nothing able to unload it. loadTree
-           does not touch the channel unless it succeeds, so neither does
-           this -- the failure is now a failure to change anything. */
-        r = false;
+        /* The old slot used to be deleted before the load was attempted, so
+           a DSP that failed to parse left the channel still playing the
+           previous graph with nothing here describing it: no tab contents,
+           no filename, nothing able to unload it. loadTree does not touch
+           the channel unless it succeeds, so neither does this -- the
+           failure is now a failure to change anything. */
         delete amparg;
-    }
-    else
-    {
-        delete patches_[chan];
 
-        patches_[chan] = new PatchFile;
-        patches_[chan]->dspFile = dspName;
+        patches_.emitChanged();
 
-        /* A patch that has only just been given a DSP has been changed by
-           definition: there is no file holding what is on screen. */
-        patches_[chan]->dirty = true;
-
-        if (amparg != NULL)
-            synth->setChanArg(chan, amparg);
+        return false;
     }
 
-    m_signal_patches_changed();
+    thPatchDoc doc;
 
-    return r;
+    doc.dsp = dspName;
+
+    /* A patch that has only just been given a DSP has been changed by
+       definition: there is no file holding what is on screen. So: dirty,
+       and no filename. put() says the patches changed. */
+    patches_.put(chan, doc, string(), true);
+
+    if (amparg != NULL)
+        synth->setChanArg(chan, amparg);
+
+    return true;
 }
 
 /* See the header. */
 bool gthPatchManager::setEffect (int chan, const string &effectName,
                                  int side)
 {
-    if ((chan < 0) || (chan >= numPatches_))
-        return false;
+    PatchFile *patch = patches_.get(chan);
 
     /* An effect belongs to a channel and the channel is the patch, so there
        is nowhere to put one. Asking for none is already true of a channel
        with nothing on it, and answering false there would fail every
        instrument that declares no effect. */
-    if (patches_[chan] == NULL)
-        return effectName.empty();
+    if (patch == NULL)
+        return (chan >= 0 && chan < patches_.count()) && effectName.empty();
 
     thSynth *synth = thSynth::instance();
 
@@ -191,27 +156,38 @@ bool gthPatchManager::setEffect (int chan, const string &effectName,
      * the same reason and in the same words; this is that promise kept for
      * the second graph on the channel.
      *
-     * effectFile is the right thing to test against because a channel that
-     * was rebuilt underneath it arrives here with a fresh PatchFile and an
-     * empty one -- see newPatch. */
-    if (!effectName.empty() && patches_[chan]->effectFile == effectName &&
-        patches_[chan]->effectSide == side &&
-        synth->getEffect(chan) != NULL)
+     * The document's effect is the right thing to test against because a
+     * channel that was rebuilt underneath it arrives here with a fresh slot
+     * and an empty one -- see newPatch. */
+    if (!effectName.empty() && patch->doc.effect == effectName &&
+        patch->doc.side == side && synth->getEffect(chan) != NULL)
         return true;
 
     if (effectName.empty())
     {
         /* Nothing to take off and nothing recorded: not a change, so not a
            reason to mark the patch dirty or rebuild every page. */
-        if (patches_[chan]->effectFile.empty() &&
-            synth->getEffect(chan) == NULL)
+        if (patch->doc.effect.empty() && synth->getEffect(chan) == NULL)
             return true;
 
         if (!synth->removeEffect(chan))
             return false;
 
-        patches_[chan]->effectFile.clear();
-        patches_[chan]->effectSide = -1;
+        patch->doc.effect.clear();
+        patch->doc.side = -1;
+
+        /* And its parameters, which have nowhere to land now. Left behind,
+           they would be written back into the file under an `effect' line
+           that is no longer there -- a patch the reader then refuses one
+           `fx.' name at a time. thPatchCompose drops them for the same
+           reason; this is the slot agreeing with it. */
+        for (map<string, vector<float> >::iterator j = patch->doc.args.begin();
+             j != patch->doc.args.end(); )
+            if (j->first.compare(0, strlen(TH_EFFECT_PREFIX),
+                                 TH_EFFECT_PREFIX) == 0)
+                patch->doc.args.erase(j++);
+            else
+                ++j;
     }
     else
     {
@@ -223,43 +199,42 @@ bool gthPatchManager::setEffect (int chan, const string &effectName,
                               side) == NULL)
             return false;
 
-        patches_[chan]->effectFile = effectName;
-        patches_[chan]->effectSide = side;
+        patch->doc.effect = effectName;
+        patch->doc.side = side;
     }
 
-    patches_[chan]->dirty = true;
-
-    m_signal_patch_dirty(chan);
-    m_signal_patches_changed();
+    patches_.markDirty(chan);
+    patches_.emitChanged();
 
     return true;
 }
 
 bool gthPatchManager::loadPatch (const string &filename, int chan)
 {
-    if ((chan < 0) || (chan >= numPatches_))
+    if ((chan < 0) || (chan >= patches_.count()))
         return false;
 
-    bool r = parse(filename, chan);
+    /* parse() fills the slot, and putting a document in one is already a
+       change everybody watching hears about. What is left for this to say is
+       the failure, which nothing else can. */
+    if (parse(filename, chan))
+        return true;
 
-    if (r)
-        m_signal_patches_changed();
-    else
-        m_signal_patch_load_error(filename.c_str());
-    
-    return r;
+    patches_.emitLoadError(filename);
+
+    return false;
 }
 
 bool gthPatchManager::unloadPatch (int chan)
 {
-    if ((chan < 0) || (chan >= numPatches_) || (patches_[chan] == NULL))
+    if (!patches_.loaded(chan))
         return false;
 
     thSynth *synth = thSynth::instance();
 
     /* Only forget it if the audio thread was actually told to drop it. A
        dropped command means the channel is still loaded and still sounding;
-       deleting the PatchFile anyway left the graph playing with isLoaded()
+       deleting the slot anyway left the graph playing with isLoaded()
        saying false, no tab contents naming it, and nothing able to unload it
        on a second attempt -- and the next thing looking for a free channel
        would take that one. removeChan says which happened, exactly so this
@@ -267,25 +242,17 @@ bool gthPatchManager::unloadPatch (int chan)
     if (!synth->removeChan(chan))
         return false;
 
-    delete patches_[chan];
-    patches_[chan] = NULL;
-
-    m_signal_patches_changed();
-
-    return true;
+    return patches_.clear(chan);
 }
 
 bool gthPatchManager::isLoaded (int chan)
 {
-    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
-        return false;
-
-    return true;
+    return patches_.loaded(chan);
 }
 
 thArgMap gthPatchManager::getChannelArgs (int chan)
 {
-    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
+    if (!patches_.loaded(chan))
         return thArgMap();
 
     thSynth *synth = thSynth::instance();
@@ -366,28 +333,19 @@ bool gthPatchManager::parse (const string &filename, int chan)
         return false;
     }
 
+    /* What went on, not what was asked for: the effect may have failed and
+       the side may have been clamped, and this is what a Save writes back. */
+    doc.effect = got.effect;
+    doc.side = got.side;
+
     /* Only now. thSynth::loadTree does not touch the channel unless it
        succeeds, so a patch naming a .dsp that will not parse is a failure to
        change anything -- rather than one that left the old graph playing with
-       no PatchFile describing it: no tab contents, no filename, and nothing
-       able to unload it. newPatch makes the same promise in the same words. */
-    delete patches_[chan];
+       no slot describing it: no tab contents, no filename, and nothing able
+       to unload it. newPatch makes the same promise in the same words.
 
-    patches_[chan] = new PatchFile;
-    patches_[chan]->filename = filename;
-    patches_[chan]->dspFile = doc.dsp;
-    patches_[chan]->info = doc.info;
-    patches_[chan]->dirty = false;
-
-    /* What went on, not what was asked for: the effect may have failed and
-       the side may have been clamped, and this is what a Save writes back. */
-    patches_[chan]->effectFile = got.effect;
-    patches_[chan]->effectSide = got.side;
-
-    for (map<string, vector<float> >::const_iterator j = doc.args.begin();
-         j != doc.args.end(); ++j)
-        if (!j->second.empty())
-            patches_[chan]->args[j->first] = j->second[0];
+       Not dirty: this is what the file says, and nothing has changed it. */
+    patches_.put(chan, doc, filename, false);
 
     return true;
 }
@@ -413,9 +371,9 @@ static vector<float> allValues (thArg *arg)
 
 bool gthPatchManager::savePatch (const string &filename, int chan)
 {
-    /* The guard every other method here carries, and the one place it was
-       missing: the next line is `patches_[chan]'. */
-    if ((chan < 0) || (chan >= numPatches_) || (patches_[chan] == NULL))
+    PatchFile *patch = patches_.get(chan);
+
+    if (patch == NULL)
         return false;
 
     /* What the file will say: the patch's own record of what it is, and the
@@ -423,12 +381,13 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
      * Save writes and what a load reads are one description of the format --
      * which is what makes scripts/patchcheck's round trip a claim about this
      * function rather than about a test fixture. */
-    thPatchDoc doc;
+    thPatchDoc doc = patch->doc;
 
-    doc.dsp = patches_[chan]->dspFile;
-    doc.effect = patches_[chan]->effectFile;
-    doc.side = patches_[chan]->effectSide;
-    doc.info = patches_[chan]->info;
+    /* The document's own args are what the file was read with; what goes back
+       out is what the channel holds now, which is the whole point of a Save.
+       Everything else -- the graph, the effect, the side, the info -- is the
+       slot's and is written as it stands. */
+    doc.args.clear();
 
     thArgMap args = getChannelArgs(chan);
 
@@ -471,32 +430,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     if (!out)
         return false;
 
-    patches_[chan]->filename = filename;
-    patches_[chan]->dirty = false;
-
-    m_signal_patch_dirty(chan);
-    m_signal_patches_changed();
+    patches_.markSaved(chan, filename);
 
     return true;
-}
-
-void gthPatchManager::markDirty (int chan)
-{
-    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
-        return;
-
-    if (patches_[chan]->dirty)
-        return;
-
-    patches_[chan]->dirty = true;
-
-    m_signal_patch_dirty(chan);
-}
-
-bool gthPatchManager::isDirty (int chan)
-{
-    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
-        return false;
-
-    return patches_[chan]->dirty;
 }

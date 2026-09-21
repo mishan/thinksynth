@@ -276,7 +276,7 @@ void MidiMap::fillDestChanCombo (void)
         idStr << i;
 
         destChanCombo_->append(idStr.str(), chanStr.str() +
-                thUtil::basename(patch->dspFile.c_str()));
+                thUtil::basename(patch->doc.dsp.c_str()));
 
         if (first)
         {

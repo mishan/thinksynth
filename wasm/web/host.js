@@ -152,6 +152,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'piece':
             case 'panel':
             case 'panelvalues':
+            case 'patchstate':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -221,10 +222,22 @@ export async function createSynth (ctx, { windowlen = 256,
            `{ ok, why, json }' -- the document it read, so the page can say
            what it put on without reading the file a second time.
 
+           `name' is what to call the slot -- the name the page fetched it
+           by, which the bytes do not carry and which a Save would offer
+           back.
+
            The .dsp it names is not sent: the page has already handed every
            shipped graph to instrument() above, which is where a patch's
            `dsp' line is resolved from. */
-        patch: (channel, text) => ask({ type: 'patch', channel, text }),
+        patch: (channel, text, name = '') =>
+            ask({ type: 'patch', channel, text, name }),
+
+        /* What is on a channel now: the document, the name it was given,
+           and whether it has been edited since. Resolves to `{ json }',
+           empty for a channel nothing has been put on. Asked of the
+           worklet alone -- it is a question, and the instance that sounds
+           is the one whose answer counts. */
+        patchState: (channel) => ask({ type: 'patchstate', channel }),
 
         /* One chanarg of whatever is loaded on a channel. The other half of
            load() for anything that drives the two by hand; a .patch goes

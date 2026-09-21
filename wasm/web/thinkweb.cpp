@@ -90,8 +90,10 @@
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
+#include "JsonOut.h"
 #include "PatchApply.h"
 #include "PatchFile.h"
+#include "PatchSet.h"
 #include "KnobPanel.h"
 
 #include "twevent.h"
@@ -1186,8 +1188,14 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
 static std::string patchWhy_;
 static std::string patchJson_;
 
-/* What each channel was last given, for tw_patch_json. */
-static std::map<int, thPatchDoc> patchDocs_;
+/* What each channel was given, and whether it has been edited since.
+ *
+ * The same slots the application keeps (src/PatchSet.h), instantiated rather
+ * than reached through a singleton -- which is what the singleton being the
+ * application's idea, and staying there, is for. The signals go unconnected:
+ * a page polls, and there is nothing on this side of the ABI to hang a
+ * handler on. */
+static thPatchSet patches_(TH_MIDI_CHANNELS);
 
 /* Reads `text' and puts it on `channel': the graph it names, its side, its
  * effect and its overrides, in the order the format requires.
@@ -1200,8 +1208,14 @@ static std::map<int, thPatchDoc> patchDocs_;
  * to tw_instrument before the first load, and a patch's `dsp' line is
  * resolved against those -- the same lookup a piece's `instrument' block
  * uses, and the same one the application makes under DSP_PATH.
+ *
+ * `name' is what to call the slot -- `leads/SuperRes.patch', the name the
+ * page fetched it by. The text does not carry it and a document does not
+ * know it, and it is what a Save would offer back; "" for a patch that came
+ * from nowhere a name would mean anything.
  */
-EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text)
+EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text,
+                                         const char *name)
 {
     patchWhy_.clear();
 
@@ -1240,7 +1254,9 @@ EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text)
     doc.effect = got.effect;
     doc.side = got.side;
 
-    patchDocs_[channel] = doc;
+    /* Not dirty: this is what the text said, and nothing has changed it
+       yet. A chanarg edit through tw_panel_edit is what does. */
+    patches_.put(channel, doc, name != NULL ? name : "", false);
 
     return 1;
 }
@@ -1290,12 +1306,40 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_why (void)
  */
 EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
 {
-    std::map<int, thPatchDoc>::const_iterator it = patchDocs_.find(channel);
+    const thPatchSet::Slot *slot = patches_.get(channel);
 
-    patchJson_ = (it == patchDocs_.end())
-        ? std::string() : thPatchDocToJson(it->second);
+    patchJson_.clear();
+
+    if (slot != NULL)
+    {
+        /* The document, and what the slot knows that the file does not: what
+           it was called, whether it has been edited since it was read, and
+           which load this is. The page draws a row out of these. */
+        patchJson_ = thPatchDocToJson(slot->doc);
+        patchJson_.erase(patchJson_.size() - 1);      /* the closing brace */
+        patchJson_ += ",\"name\":";
+        jsonString(patchJson_, slot->filename);
+        patchJson_ += ",\"dirty\":";
+        patchJson_ += slot->dirty ? "true" : "false";
+        patchJson_ += ",\"generation\":";
+        jsonUnsigned(patchJson_, slot->generation);
+        patchJson_ += "}";
+    }
 
     return patchJson_.c_str();
+}
+
+/* A channel's patch has been edited.
+ *
+ * The browser's markDirty. On the desktop, moving a control goes through
+ * ArgPanelView, which says so to the patch manager; here the same edit
+ * arrives as a command and is applied by tw_panel_edit, which says so to
+ * the slots. Nothing writes a .patch by itself in either shell, so this flag
+ * is the whole of the record that the file and the channel have parted
+ * company. */
+EMSCRIPTEN_KEEPALIVE int tw_patch_dirty (int channel)
+{
+    return patches_.isDirty(channel) ? 1 : 0;
 }
 
 /* ---- the piece's chains and stages, and their pictures ----
@@ -1924,7 +1968,16 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
             if (!r.changed)
                 return 0;
 
-            return target.deliver(edit) ? 1 : 0;
+            if (!target.deliver(edit))
+                return 0;
+
+            /* Moving a control is editing the patch, and the page has a
+               Save to light up over it now that the slots are shared. The
+               desktop says the same thing in the same words, from
+               ArgPanelView. */
+            patches_.markDirty(a);
+
+            return 1;
         }
     }
 

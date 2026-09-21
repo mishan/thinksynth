@@ -19,13 +19,21 @@
 #ifndef GTH_PATCHFILE_H
 #define GTH_PATCHFILE_H
 
+/*
+ * The application's patches: a thPatchSet, a filesystem and a singleton.
+ *
+ * What a .patch says is src/PatchFile.h's, what it does to a channel is
+ * src/PatchApply.h's, and which channel holds which document is
+ * src/PatchSet.h's -- all three toolkit-free, and all three compiled into
+ * the browser's module as well. What is left here is the part that is a
+ * desktop's and nothing else's: finding the file under PATCH_PATH, opening
+ * it, writing it back, and being reachable as instance() from every window
+ * in src/gui/.
+ */
+
+#include "PatchSet.h"
+
 #define NUM_PATCHES 16
-
-typedef sigc::signal<void()> type_signal_patches_changed;
-
-/* Which channel's patch changed, or stopped being changed. */
-typedef sigc::signal<void(int)> type_signal_patch_dirty;
-typedef sigc::signal<void(const char*)> type_signal_patch_load_error;
 
 class thArg;
 class thMidiChan;
@@ -45,7 +53,7 @@ public:
     bool isLoaded (int chan);
 
     int numPatches (void) {
-        return numPatches_;
+        return patches_.count();
     }
 
     thArgMap getChannelArgs (int chan);
@@ -55,7 +63,11 @@ public:
        one into a path that can actually be opened: absolute names and names
        that resolve from the cwd are left alone, anything else is looked for
        in DSP_PATH. Returns the input unchanged if nothing works, so callers
-       can report the name the user typed. */
+       can report the name the user typed.
+
+       thPatchResolveDsp's, because the page resolves a graph the same way and
+       there is no second answer to give -- see PatchApply.h for why this is
+       the one lookup that crosses and resolvePatch below is not. */
     static string resolveDsp (const string &dspName);
 
     /* Puts `effectName' on `chan' as its channel effect, or takes the
@@ -86,91 +98,51 @@ public:
      *
      * As with resolveDsp, the name is resolved for *opening* and the name as
      * given is what gets recorded, so a portable config stays portable
-     * across a save. */
+     * across a save.
+     *
+     * Not shared with the page, and deliberately: a browser has no
+     * PATCH_PATH and should not pretend to. It fetches the file and hands
+     * the text in. */
     static string resolvePatch (const string &patchName);
 
-    typedef map<string, float> PatchFileArgs;
-    typedef map<string, string> PatchFileInfo;
-    struct PatchFile {
-        PatchFileArgs args;
-        PatchFileInfo info;
-
-        string dspFile;
-
-        /* The graph running on this channel's summed voices, or empty.
-         *
-         * Named the way `dspFile' is -- by the name the patch gave, not the
-         * path it resolved to -- so a patch saved afterwards carries the
-         * short name it came with. A channel has at most one. */
-        string effectFile;
-
-        /* The channel that effect listens to besides this one, in engine
-           numbering, or -1. Saved as a 1-based `side' line beside the
-           `effect' one, because the number a person reads off the mixer is
-           the one they will expect to find in the file. */
-        int effectSide;
-
-        string filename;
-
-        /* Anything changed since it was loaded or last written.
-         *
-         * Nothing here saves by itself -- a .patch is only ever written by
-         * someone clicking Save -- so this is what stands between a session's
-         * work and losing it. It is also what Save is for: with nothing
-         * changed there is nothing to write, and a Save button that is always
-         * live says nothing about whether it is worth pressing. */
-        bool dirty;
-
-        /* Which load this is, counted once across the whole program.
-         *
-         * Identity, for anything that has to know whether the patch on a
-         * channel is still the one it put there. The filename cannot answer
-         * that: somebody who loads their own copy of amb01.dsp onto a channel
-         * a piece filled has still replaced it, and a composer comparing
-         * `dspFile' would decide the patch was its own and take it away from
-         * them. Nor can the PatchFile's address, which the allocator is free
-         * to hand out again the moment the old one is freed. A number that
-         * only ever goes up cannot be mistaken for a previous one. */
-        unsigned generation;
-
-        PatchFile (void);
-    };
+    /* One channel's slot, or NULL. The name the application has called this
+       for twenty years, over thPatchSet's slot -- which holds the document
+       (`doc.dsp', `doc.info', `doc.effect'), the filename it was given, the
+       dirty flag and the generation. */
+    typedef thPatchSet::Slot PatchFile;
 
     PatchFile *getPatch (int chan)
     {
-        if ((chan < 0) || (chan >= NUM_PATCHES))
-            return NULL;
-
-        return patches_[chan];
+        return patches_.get(chan);
     }
+
+    /* The slots themselves, for anything that wants to watch rather than
+       ask. */
+    thPatchSet &set (void) { return patches_; }
 
     /* Says a patch has been edited, or has just been saved and so has not.
        Both windows show a Save button and neither owns the patch. */
     type_signal_patch_dirty signal_patch_dirty (void) {
-        return m_signal_patch_dirty;
+        return patches_.signal_patch_dirty();
     }
 
     /* Marks a channel's patch as edited. Cheap and idempotent: it emits only
        on the change, so a slider drag does not fire per pixel. */
-    void markDirty (int chan);
-    bool isDirty (int chan);
+    void markDirty (int chan) { patches_.markDirty(chan); }
+    bool isDirty (int chan) { return patches_.isDirty(chan); }
 
     type_signal_patches_changed signal_patches_changed (void) {
-        return m_signal_patches_changed;
+        return patches_.signal_patches_changed();
     }
     type_signal_patch_load_error signal_patch_load_error (void) {
-        return m_signal_patch_load_error;
+        return patches_.signal_patch_load_error();
     }
-    
+
 private:
     bool parse (const string &filename, int chan);
 
-    int numPatches_;
-    PatchFile **patches_;
+    thPatchSet patches_;
     static gthPatchManager *instance_;
-    type_signal_patches_changed m_signal_patches_changed;
-    type_signal_patch_dirty m_signal_patch_dirty;
-    type_signal_patch_load_error m_signal_patch_load_error;
 };
 
 #endif /* GTH_PATCHFILE_H */

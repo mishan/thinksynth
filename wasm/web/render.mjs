@@ -258,8 +258,9 @@ export async function playAimed (createThinkWeb,
            requires. This used to be a tw_load and a loop of tw_chanarg
            done here in the right order by hand -- a third copy of that
            order, beside patch.js's and the application's. */
-        if (M.ccall('tw_patch_apply', 'number', ['number', 'string'],
-                    [channel, what.text]) === 0)
+        if (M.ccall('tw_patch_apply', 'number',
+                    ['number', 'string', 'string'],
+                    [channel, what.text, what.name]) === 0)
         {
             log.push(`channel ${channel + 1}: ${what.name}: ` +
                      M.ccall('tw_patch_why', 'string', [], []));
