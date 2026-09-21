@@ -184,11 +184,71 @@ try
               () => document.getElementById('panes').children.length === 0),
           'and the tiler has nothing left in it');
 
-    /* ---- the mode is availability, not the layout ---- */
+    /* ---- the dividers ---- */
 
     await page.setViewportSize(WIDE);
     await page.waitForFunction(
         () => document.body.classList.contains('tiled'));
+
+    /* A drag moves one fraction and leaves the rest of the tree alone,
+       and what it moves is what the pointer moved: the arithmetic is in
+       pixels for exactly that reason. */
+    const bar = page.locator('#panes > .panebox > .panesplit').first();
+    const was = await page.evaluate(() =>
+    {
+        const kids = [...document.querySelectorAll(
+            '#panes > .panebox > :not(.panesplit)')];
+
+        return kids.map((k) => Math.round(k.getBoundingClientRect().width));
+    });
+
+    const grip = await bar.boundingBox();
+
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip.x + grip.width / 2 - 120,
+                          grip.y + grip.height / 2, { steps: 8 });
+    await page.mouse.up();
+
+    const now = await page.evaluate(() =>
+        [...document.querySelectorAll('#panes > .panebox > :not(.panesplit)')]
+            .map((k) => Math.round(k.getBoundingClientRect().width)));
+
+    check(Math.abs((was[0] - now[0]) - 120) <= 2 &&
+          Math.abs((now[1] - was[1]) - 120) <= 2,
+          `a divider dragged 120 pixels moved 120 pixels: ` +
+          `${was.join('/')} -> ${now.join('/')}`);
+
+    /* And it will not take a pane below what the markup said it needs.
+       The left column holds the graph, which asks for 400. */
+    await page.mouse.move(grip.x + grip.width / 2 - 120,
+                          grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip.x - 1200, grip.y + grip.height / 2,
+                          { steps: 12 });
+    await page.mouse.up();
+
+    const floor = await page.evaluate(() =>
+        Math.round(document.querySelector('#panes > .panebox > *')
+                           .getBoundingClientRect().width));
+
+    check(floor >= 400 && floor < 460,
+          `and stops at the minimum the graph asked for: ${floor} of 400`);
+
+    /* ---- and it is remembered ---- */
+
+    const kept = await page.evaluate(() => window.solo.layout());
+
+    await page.reload();
+    await page.waitForFunction(
+        () => document.body.classList.contains('tiled') &&
+              document.getElementById('range').textContent !== '');
+
+    check(JSON.stringify(await page.evaluate(() => window.solo.layout())) ===
+              JSON.stringify(kept),
+          'a reload opens on the layout somebody left');
+
+    /* ---- the mode is availability, not the layout ---- */
 
     const inMode = () => page.evaluate(() =>
         window.solo.panes().filter(

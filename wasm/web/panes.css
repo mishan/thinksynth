@@ -59,20 +59,69 @@ body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
 body.tiled #status { margin: 0.2em 0; }
 body.tiled .row { margin: 0.4em 0; }
 
-/* One column, in the document's order: what lands first is the adoption
-   and the contract, not the tiling. It scrolls, because a column of ten
-   panes sharing a window's height is ten slivers. */
 body.tiled #panes
 {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
-    flex-direction: column;
-    gap: 0.4em;
-    overflow: auto;
 }
 
-.panes > .pane { flex: 0 0 auto; }
+/* ---- the tree ----
+ *
+ * A split is a flex box with a direction; its children carry their
+ * fraction as `flex-grow' over a basis of nothing, so what each is worth
+ * is its share of what there is and the browser works out the rest. The
+ * minimum is on the child rather than on the pane inside it, because the
+ * child is what a divider has to refuse to shrink.
+ */
+
+.panebox, .paneleaf
+{
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+}
+
+.panebox[data-dir="row"] { flex-direction: row; }
+.panebox[data-dir="col"] { flex-direction: column; }
+
+#panes > .panebox, #panes > .paneleaf { flex: 1 1 auto; }
+
+/* The divider. Six pixels of it, which is SPLIT in panes.js -- what
+   refuses a drag and what is drawn have to be the same number -- with a
+   hit area that does not have to be aimed at and a line down the middle
+   that does not move. */
+.panesplit
+{
+    flex: 0 0 6px;
+    position: relative;
+    background: transparent;
+    border: 0;
+    padding: 0;
+}
+
+.panebox[data-dir="row"] > .panesplit { cursor: col-resize; }
+.panebox[data-dir="col"] > .panesplit { cursor: row-resize; }
+
+.panesplit::after
+{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--line);
+    border-radius: 1px;
+}
+
+.panebox[data-dir="row"] > .panesplit::after { inset: 0 2px; }
+.panebox[data-dir="col"] > .panesplit::after { inset: 2px 0; }
+
+.panesplit:hover::after, .panesplit:focus-visible::after
+{
+    background: var(--held);
+}
+
+.panesplit:focus-visible { outline: none; }
 
 /* ---- a pane ---- */
 
@@ -88,6 +137,62 @@ body.tiled #panes
     background: var(--bg);
     overflow: hidden;
 }
+
+/* What was a block in a document is a column in a pane: the box that
+   wants the room takes it, and the rows around it keep their height.
+   Which box that is is said below rather than guessed at. */
+.panebody > details,
+.panebody > section
+{
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+}
+
+/* A <details> keeps what it discloses in a box of its own, and that box
+   is the flex item -- so the column has to go through it, or the text
+   area inside is laid out against nothing and comes out three rows tall.
+   An engine without ::details-content slots the children straight into
+   the rule above and does not need this one; the two together are every
+   engine, which is why both are here. */
+.panebody > details::details-content
+{
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* The boxes that are meant to take the room there is. The canvas view's
+   maximum goes with them: 60vh is a share of the window, and in a pane
+   the share that matters is the pane's. */
+body.tiled .panebody .canvasview
+{
+    flex: 1 1 8rem;
+    min-height: 6rem;
+    max-height: none;
+}
+
+body.tiled .panebody textarea
+{
+    flex: 1 1 8rem;
+    height: auto;
+    min-height: 4em;
+}
+
+body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
+
+body.tiled .panebody #editor { flex: 1 1 8rem; min-height: 0; }
+body.tiled .panebody #editor .cm-editor { height: 100%; }
+
+/* And the ones that are not: a row of controls is as tall as its
+   controls, and the keys say how tall they are themselves. */
+body.tiled .panebody > .row,
+body.tiled .panebody .row,
+body.tiled .panebody .hint,
+body.tiled .panebody #keys { flex: 0 0 auto; }
 
 /* A pane whose element the page has hidden -- the mode it belongs to is
    not up -- is not a gap in the layout. Said in CSS rather than in
@@ -114,6 +219,65 @@ body.tiled #panes
     min-height: 0;
     overflow: auto;
     padding: 0 0.6em 0.6em;
+    display: flex;
+    flex-direction: column;
+}
+
+/*
+ * A panel wraps into as many column pairs as there is room for, and in a
+ * pane the room there is is the pane's rather than the window's.
+ *
+ * style.css asks the window, because in a document those are the same
+ * question. Tiled they are not, and a panel laid out three pairs wide in
+ * a 300-pixel pane is the answer to the wrong one -- names over their own
+ * sliders and a row that runs off the edge. So the same wrapping again,
+ * asked of the box the rows are actually in. It is the desktop's FlowBox
+ * either way (src/gui/PanelView.cpp): how many fit, rather than how many
+ * were guessed at.
+ */
+body.tiled .panebody { container-type: inline-size; }
+
+body.tiled .panelrows
+{
+    grid-template-columns: max-content minmax(12rem, 1fr);
+}
+
+@container (min-width: 44em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+@container (min-width: 70em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+/* And a pane narrow enough that a name column would leave the slider too
+   short to aim at: the name over the thing it names, as a phone gets. */
+@container (max-width: 26em)
+{
+    body.tiled .panelrows { grid-template-columns: 1fr; }
+
+    body.tiled .panelrow
+    {
+        grid-column: span 1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto auto;
+        gap: 0.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    body.tiled .panelrow label { text-align: left; }
+    body.tiled .panelrow > * { grid-column: 1; }
 }
 
 /*

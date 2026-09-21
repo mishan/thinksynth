@@ -92,6 +92,43 @@ const PIECE_PANES = ['roll', 'composerview', 'knobs', 'channelbox',
                      'piecesource'];
 const PATCH_PANES = ['patchsource'];
 
+/* Where they go, the first time somebody opens this page in a window
+ * with room to tile.
+ *
+ * Data, and this page's: panes.js knows how to divide a window and
+ * nothing about what a keyboard is. A layout names the panes it has room
+ * for and the rest wait in the drawer, which is why there is one of these
+ * per mode rather than one with everything in it -- a patch has no piano
+ * roll to show and a piece has no .dsp of its own.
+ *
+ * The fractions are shares of a split and the minimums are the markup's,
+ * so a default that cannot be laid out at the threshold this turns on at
+ * is a default that is wrong: the two columns of each of these come to
+ * about 730 pixels of minimum, and the threshold is 60em.
+ */
+const PATCH_LAYOUT = {
+    dir: 'row', size: [0.58, 0.42], kids: [
+        { dir: 'col', size: [0.64, 0.36], kids: [
+            { tabs: ['nodeview'] },
+            { tabs: ['keyboard'] }] },
+        { dir: 'col', size: [0.44, 0.38, 0.18], kids: [
+            { tabs: ['paramview'] },
+            { tabs: ['patchsource'] },
+            { tabs: ['detail'] }] }],
+};
+
+const PIECE_LAYOUT = {
+    dir: 'row', size: [0.6, 0.4], kids: [
+        { dir: 'col', size: [0.62, 0.38], kids: [
+            { tabs: ['composerview'] },
+            { tabs: ['roll'] }] },
+        { dir: 'col', size: [0.26, 0.24, 0.26, 0.24], kids: [
+            { tabs: ['knobs'] },
+            { tabs: ['channelbox'] },
+            { tabs: ['piecesource'] },
+            { tabs: ['keyboard'] }] }],
+};
+
 /* The layout. Made at the end of init(), because what it adopts has to be
    in the document and the folds the page opens by hand have to be set. */
 let panes = null;
@@ -1131,8 +1168,10 @@ window.solo = {
     pollChanParams: () => pollParams(),
 
     /* The panes this page has, so a harness reads the catalog rather
-       than writing the list down a second time. */
+       than writing the list down a second time, and the layout they are
+       in, which is what a drag has to be checked against. */
     panes: () => PANES,
+    layout: () => panes.layout(),
 
     /* Which of the two canvases is asking for frames. A pane in a
        background tab, folded away or in the mode that is not up costs
@@ -1168,6 +1207,8 @@ async function pickMode ()
 
     for (const id of PATCH_PANES)
         panes.available(id, !piecing);
+
+    panes.mode(piecing ? 'piece' : 'patch');
 
     if (synth === null)
         return;
@@ -1344,7 +1385,9 @@ async function init ()
      * this page has work to stop. They are the same calls the folds and
      * the mode switch made before, asked for in one place. */
     panes = createPanes({
-        root: $('panes'), catalog: PANES,
+        root: $('panes'), catalog: PANES, store: 'panes:solo',
+        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT },
+        mode: mode(),
         onShow: (id, on) =>
         {
             if (id === 'composerview')
