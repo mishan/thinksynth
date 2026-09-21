@@ -37,6 +37,7 @@
  *   transport  { at, op: 'tempo', bpm }
  *   knob       { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
+ *   param      { at, chain, stage, row, text }
  *   note       { at, seat, note, velocity }
  *   noteoff    { at, seat, note }
  *
@@ -116,6 +117,26 @@ export class Maker
     input (chain, stage, kind, x, y, w, h, button = 1)
     {
         return this.make('input', { chain, stage, kind, x, y, w, h, button },
+                         this.knobLead);
+    }
+
+    /* A stage's parameter, set.
+     *
+       Stamped with the knob's lead and for the same reason: it is heard. A
+       `period' that changes a window earlier on one peer than another moves
+       that stage's next firing by a window, and from there the two are
+       composing different pieces. The typist hears their own edit a lead
+       late, as they hear their own knob.
+     *
+       `row' is the param's name -- not an index, because a peer a revision
+       behind would then set its neighbour -- and `text' is the part of the
+       line the person touched: a number, a unit, a binding, a note set.
+       What it completes to is worked out on arrival, by every peer, against
+       the file each of them holds (src/StagePanel.h). Completing it here
+       would be the sender telling the others what their own file says. */
+    param (chain, stage, row, text)
+    {
+        return this.make('param', { chain, stage, row, text },
                          this.knobLead);
     }
 
@@ -249,6 +270,10 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 
         case 'input':
             synth.input(cmd);
+            break;
+
+        case 'param':
+            synth.param(cmd);
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.

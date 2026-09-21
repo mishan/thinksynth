@@ -317,6 +317,15 @@ On `jam-m6`. Where it stands:
   screen or a finger gets the document it always was, and it is what lets
   a pane nobody is looking at stop drawing: two wasm canvases stacked as
   tabs cost one picture a frame, not two.
+- A composer stage's parameters, settable, off the same description again
+  (`src/StagePanel.cpp`). The popover beside a stage box was a list of
+  numbers to read; it takes them now, and a `param` command carries what
+  was typed to every peer at the transport time it applies at -- for the
+  same reason a knob does, since a `period` that changes a window earlier
+  on one peer moves that stage's next firing. Each peer splices its own
+  copy of the `.gen` off that one command, so no text crosses and the
+  copies cannot part. Two browsers in a room are held to one tape across
+  one of these by `wasm/web/jamtest.mjs`.
 - Not yet: the by-hand pass in two browsers (M6's gate 8.4).
 
 ## 1. The three kinds of state
@@ -563,6 +572,7 @@ beat it applies at; every peer applies it at that beat.
 ```
 transport   { at, op: start | stop | tempo, origin, seed, bpm }
 knob        { at, name, value, from }                latest at wins
+param       { at, chain, stage, row, text }         a stage's line, spliced
 note        { at, seat, note, velocity, mode }       mode: direct | quantised | ahead
 noteoff     { at, seat, note }
 ping / pong { sent, received }

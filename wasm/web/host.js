@@ -400,6 +400,16 @@ export async function createSynth (ctx, { windowlen = 256,
         stageParam: ({ at = -1, chain, stage, param, value }) =>
             post({ type: 'stageparam', at, chain, stage, param, value }),
 
+        /* A stage's parameter, at a transport time.
+         *
+         * A command, and stamped -- which is where it differs from
+         * panelEdit above, whose args are what an instrument is rather than
+         * something a composer is heard through. `row' is the param's name
+         * and `text' is the part of the line the person touched; every
+         * instance completes it against the piece it holds. */
+        param: ({ at = -1, chain, stage, row, text }) =>
+            post({ type: 'param', at, chain, stage, row, text }),
+
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
            of it is one the module wants. */

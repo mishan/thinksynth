@@ -2009,6 +2009,14 @@ function showComposer (on)
     composer ??= createComposerView({
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
+
+        /* A stage's param, set. Stamped for the next window, as this
+           page's knobs and gestures are, and it still goes the long way
+           round: out as a command, back in at its time, applied by every
+           instance including this one. One path, whether or not there is
+           anybody else in the room. */
+        onParamEdit: (chain, stage, row, text) =>
+            synth?.param({ at: -1, chain, stage, row, text }),
     });
 
     composer.show(on);
@@ -2234,6 +2242,7 @@ window.solo = {
     /* And a poll on demand, since the timer's quarter second is a long
        time to wait on and longer still to guess at. */
     pollChanParams: () => pollParams(),
+    pollParams: () => composer?.pollParams(),
 
     /* The panes this page has, so a harness reads the catalog rather
        than writing the list down a second time, and the layout they are
@@ -2562,6 +2571,12 @@ async function init ()
 
     $('paramchan').addEventListener('change', showParams);
     $('parampatch').addEventListener('change', pickPreset);
+
+    /* And the composer's popover, on the same beat. It is a different panel
+       over a different thing -- a stage's line in the .gen rather than an
+       arg on a channel -- so it polls the instance that holds the piece's
+       picture rather than the one that sounds. */
+    setInterval(() => composer?.pollParams(), 250);
 
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));

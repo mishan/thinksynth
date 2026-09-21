@@ -169,6 +169,38 @@ readFile (const std::string &path)
                        std::istreambuf_iterator<char>());
 }
 
+/* Every widget of one kind under `w', in the order they are laid out.
+ *
+ * The params popover is a StageParamsView now -- a PanelView over
+ * src/StagePanel.cpp -- and which widget a row is drawn as is the view's
+ * business, so this asks the tree rather than the class. Re-collected after
+ * every edit, because an edit re-describes the panel and the widgets that
+ * reported it are gone by the time it returns. */
+template <class T>
+static void collect (Gtk::Widget *w, std::vector<T *> &out)
+{
+    if (w == NULL)
+        return;
+
+    T *found = dynamic_cast<T *>(w);
+
+    if (found != NULL)
+        out.push_back(found);
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        collect(c, out);
+}
+
+/* The work copy, as text: what a splice is asserted against. */
+static std::string readAll (const std::string &path)
+{
+    std::ifstream in(path.c_str());
+
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
+
 /* Put a piece where the window will look for it.
  *
  * THINK_GEN_PATH names a *directory* -- findDataFile joins it with the
@@ -549,6 +581,70 @@ run (const std::string &pluginPath, const char *genFile)
             }
             else
                 ok("...without the box changing size");
+
+            /* The rows are controls, and pressing one reaches the file.
+             *
+               This is the half of a parameter panel no headless harness
+               can ask about. What the rows *say* -- which unit a duration
+               was written in, which knobs a value may be read through,
+               what a typed note set is allowed to be -- is
+               scripts/panelcheck's, and it says it with no toolkit
+               anywhere. What is left here is that a thPanel became real
+               widgets and that moving one splices the piece.
+
+               Everything is re-collected between edits: an edit
+               re-describes the panel, so the widget that reported it has
+               been destroyed by the time set_value returns. */
+            if (win->paramPop_ != NULL)
+            {
+                std::vector<Gtk::SpinButton *> spins;
+                std::vector<Gtk::DropDown *> menus;
+
+                collect(win->paramPop_, spins);
+                collect(win->paramPop_, menus);
+
+                if (spins.empty())
+                    fail("the params popover has nothing to type into");
+                else
+                {
+                    const std::string before = readAll(win->workPath_);
+                    const double want = spins[0]->get_value() + 1.0;
+
+                    spins[0]->set_value(want);
+                    pump(4);
+
+                    if (readAll(win->workPath_) == before)
+                        fail("typing a number into the popover changed "
+                             "nothing in the piece");
+                    else
+                        ok("...and typing in one splices the piece");
+                }
+
+                /* A menu beside a value rather than being one: the unit a
+                   duration is written in, or the knob it is read through.
+                   Either is an edit of the same line, and neither existed
+                   as a rule anything but the window could see before. */
+                menus.clear();
+                collect(win->paramPop_, menus);
+
+                if (menus.empty())
+                    fail("the params popover offers no unit or binding");
+                else
+                {
+                    const std::string before = readAll(win->workPath_);
+                    const guint was = menus[0]->get_selected();
+
+                    menus[0]->set_selected(was == 0 ? 1 : 0);
+                    pump(4);
+
+                    if (readAll(win->workPath_) == before)
+                        fail("picking from a row's menu changed nothing "
+                             "in the piece");
+                    else
+                        ok("...and a row's menu is an edit of the same "
+                           "line");
+                }
+            }
 
             /* And it puts itself away, so the popover is not a mode
                either. Guarded, because the branch above can have found

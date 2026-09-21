@@ -31,11 +31,12 @@
  * were only ever exercised by hand, on the page a change to either is
  * most likely to break.
  *
- * The parameter panel is here for the half of it that needs a browser: that
+ * A parameter panel is here for the half of it that needs a browser: that
  * the module's description of a channel's controls became elements, and
- * that moving one reaches the arg. What the description says, and that it
- * is the same description the desktop draws, is scripts/panelcheck's and
- * wasm/web/panelcheck.mjs's.
+ * that moving one reaches the arg -- and the same for a composer stage's
+ * params, which the popover beside a stage box now takes as well as shows.
+ * What a description says, and that it is the same description the desktop
+ * draws, is scripts/panelcheck's and wasm/web/panelcheck.mjs's.
  *
  * Small on purpose: the octave, the sliders, the channel's parameter panel,
  * a key down and up, and a key typed into a text box, which must play
@@ -1031,6 +1032,45 @@ try
 
         check(rows.length > 0,
               `the params handle opens ${title}: ${rows.join(', ')}`);
+
+        /* And the rows can be typed into, which is the thing this panel
+         * could not do at all.
+         *
+         * A number box, found by asking the DOM rather than by knowing
+         * which stage the piece opens with: what the rows are is the
+         * module's and is checked where the module is
+         * (wasm/web/panelcheck.mjs). What is checked here is the round
+         * trip -- an element takes a number, the edit leaves as a command,
+         * every instance applies it, and the description that comes back
+         * carries it.
+         */
+        const box2 = await page.$(
+            '#composerparams .panelrow input[type="number"]:not([disabled])');
+
+        if (box2 === null)
+            check(false, 'the popover has a number to type into');
+        else
+        {
+            const row = await box2.evaluate(
+                (e) => e.closest('.panelrow').dataset.row);
+            const was = await box2.inputValue();
+            const want = String(Number(was) + 1);
+
+            await box2.fill(want);
+            await box2.press('Enter');
+
+            /* The panel follows the piece rather than the box: what is
+               waited for is the description coming back with the new
+               number in it, which is the module having taken the edit. */
+            await page.waitForFunction(
+                ([id, value]) => document.querySelector(
+                    `#composerparams .panelrow[data-row="${id}"] ` +
+                    'input[type="number"]')?.value === value,
+                [row, want], { timeout: 15000 });
+
+            check(true, `a stage's ${row} took ${want} and came back with ` +
+                        'it');
+        }
 
         /* And it goes away with the next press somewhere else. */
         await page.mouse.click(box.x + box.w / 2, box.y + box.h - 4);

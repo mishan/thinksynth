@@ -280,7 +280,90 @@ Gtk::Widget *PanelView::makeRow (size_t at)
     box->append(*label);
     box->append(*makeControl(at));
 
+    /* And the menus that are about the value rather than being it. They go
+       after the control because they qualify what is already there -- "4000,
+       milliseconds, read from no knob" is the order it is said in. */
+    if (!row.unitChoices.empty())
+        box->append(*makeUnit(at));
+
+    if (row.bindable)
+        box->append(*makeBind(at));
+
     return box;
+}
+
+/* Which of the units a number is written in.
+ *
+ * A menu and not a label, because on a composer's duration the unit is part
+ * of what the author said: `period = 4 beats' follows the tempo and
+ * `period = 2 s' does not, and the two are different pieces rather than two
+ * spellings of one. Changing it keeps the number and changes what it means,
+ * which is what somebody reaching for this menu is saying. */
+Gtk::Widget *PanelView::makeUnit (size_t at)
+{
+    const thPanelRow &row = panel_.rows[at];
+
+    std::vector<Glib::ustring> shown;
+    size_t sel = 0;
+
+    for (size_t i = 0; i < row.unitChoices.size(); i++)
+    {
+        shown.push_back(row.unitChoices[i]);
+
+        if (row.unitChoices[i] == row.units)
+            sel = i;
+    }
+
+    Gtk::DropDown *unit = manage(new Gtk::DropDown(shown));
+
+    bound_[at].unit = unit;
+
+    /* Before anything is listening, for the reason the slider gives. */
+    unit->set_selected((guint)sel);
+
+    /* Offered even while the number is not. A bound duration carries no
+       unit in the file and reads as seconds; picking one here is how the
+       unbinding that follows knows what to write. */
+    unit->property_selected().signal_changed().connect(
+        sigc::bind(sigc::mem_fun(*this, &PanelView::onUnit), at));
+
+    return unit;
+}
+
+/* The knob this value is read through, or none of them.
+ *
+ * `(value)' first, so that letting a binding go is one press rather than a
+ * thing to work out. A bound row's number is shown and not offered -- what
+ * moves it is the knob -- which makes this the only control on such a row
+ * that does anything, and the reason it is drawn whether or not the number
+ * beside it is sensitive. */
+Gtk::Widget *PanelView::makeBind (size_t at)
+{
+    const thPanelRow &row = panel_.rows[at];
+
+    std::vector<Glib::ustring> shown;
+    size_t sel = 0;
+
+    shown.push_back("(value)");
+
+    for (size_t i = 0; i < panel_.knobs.size(); i++)
+    {
+        shown.push_back("@" + panel_.knobs[i]);
+
+        if (panel_.knobs[i] == row.knob)
+            sel = i + 1;
+    }
+
+    Gtk::DropDown *bind = manage(new Gtk::DropDown(shown));
+
+    bound_[at].bind = bind;
+
+    bind->set_selected((guint)sel);
+
+    bind->property_selected().signal_changed().connect(
+        sigc::bind(sigc::mem_fun(*this, &PanelView::onBind), at));
+
+    return bind;
 }
 
 Gtk::Widget *PanelView::makeControl (size_t at)
@@ -582,6 +665,35 @@ void PanelView::onToggle (size_t at)
     const Bound &b = bound_[at];
 
     emitEdit(b.row.id, b.toggle->get_active() ? "1" : "0");
+}
+
+/* The unit alone, which is the whole of what this control says. The number
+   it applies to is the one the provider already has. */
+void PanelView::onUnit (size_t at)
+{
+    const Bound &b = bound_[at];
+
+    const guint sel = b.unit->get_selected();
+
+    if (sel >= b.row.unitChoices.size())
+        return;
+
+    emitEdit(b.row.id, b.row.unitChoices[sel]);
+}
+
+/* `@name' to bind, `@' on its own to let go -- the spelling StagePanel.h
+   documents, and the reason a bare `@' is safe to mean it is that no knob
+   has an empty name. */
+void PanelView::onBind (size_t at)
+{
+    const Bound &b = bound_[at];
+
+    const guint sel = b.bind->get_selected();
+
+    if (sel == GTK_INVALID_LIST_POSITION || sel > panel_.knobs.size())
+        return;
+
+    emitEdit(b.row.id, sel == 0 ? "@" : "@" + panel_.knobs[sel - 1]);
 }
 
 void PanelView::onAction (string id)

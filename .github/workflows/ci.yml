@@ -704,12 +704,13 @@ jobs:
       # The solo page itself, which nothing above opens: the octave, the
       # sliders a piece's knobs are drawn as, the channel's parameter panel
       # and a computer key held and let go. Both pages share keyboard.js and
-      # knobs.js, so this is where a change to either shows up first. Then
+      # panel.js, so this is where a change to either shows up first. Then
       # the composer view,
       # which has a whole second engine behind it: the picture arrives
-      # from the mirror worker and is replayed, a stage is enlarged, and
-      # a drag on it leaves as a command and comes back as a board that
-      # has changed.
+      # from the mirror worker and is replayed, a stage is enlarged, a
+      # drag on it leaves as a command and comes back as a board that
+      # has changed, and a number typed into a stage's params popover
+      # leaves the same way and comes back in the description.
       - name: The page's keys, knobs, parameters and composer view
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
@@ -818,8 +819,11 @@ jobs:
       #
       # Then the composer view's: a second room on a piece whose picture is
       # a control, where one page plays and the other paints a line across
-      # gen::life's board with a pointer. One tape between the two, and not
-      # the tape of the run nobody painted on. And then the .dsp canvas: one
+      # gen::life's board with a pointer while the first types a number into
+      # a stage's params popover. One tape between the two -- which is what
+      # says both stamped commands landed at the same transport time on both
+      # peers -- and not the tape of the run nobody touched. And then the
+      # .dsp canvas: one
       # page types a number into a node, and the file in both documents is
       # the one native NodeEdit writes -- which is why the build job builds
       # dspedit.

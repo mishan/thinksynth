@@ -310,6 +310,7 @@ add_executable(thinkweb
     "${THINK_TOP}/src/PatchApply.cpp"
     "${THINK_TOP}/src/PatchSet.cpp"
     "${THINK_TOP}/src/NodePanel.cpp"
+    "${THINK_TOP}/src/StagePanel.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
     thinkweb.cpp

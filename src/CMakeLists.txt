@@ -130,6 +130,17 @@ target_include_directories(think_gencatalog PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(think_gencatalog PUBLIC think PkgConfig::GLIBMM)
+# The fourth provider, on its own because of what it needs: a composer
+# stage's parameters are the plugin's registered ParamInfo crossed with the
+# .gen's own text and the running stage's param store, so this is the one
+# that wants the composer host and glibmm behind it. Same argument the
+# canvases are three libraries for -- a harness drawing a channel's
+# parameters should not have to link the scheduler to get them.
+add_library(think_stagepanel OBJECT StagePanel.cpp)
+target_include_directories(think_stagepanel PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_stagepanel PUBLIC think PkgConfig::GLIBMM)
 
 add_library(think_canvas OBJECT CanvasContent.cpp)
 target_include_directories(think_canvas PUBLIC
@@ -189,6 +200,7 @@ set(THINKSYNTH_SOURCES
     gui/NodeCanvasWidget.cpp
     gui/NodePalette.cpp
     gui/NodeParamsView.cpp
+    gui/StageParamsView.cpp
     gui/NodeEditor.cpp
     gui/PanelView.cpp
     gui/SaveButton.cpp
@@ -276,6 +288,7 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_patch>
     $<TARGET_OBJECTS:think_dspcatalog>
     $<TARGET_OBJECTS:think_gencatalog>
+    $<TARGET_OBJECTS:think_stagepanel>
     $<TARGET_OBJECTS:think_canvas>
     $<TARGET_OBJECTS:think_nodecanvas>
     $<TARGET_OBJECTS:think_composercanvas>
