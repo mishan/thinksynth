@@ -694,6 +694,44 @@ try
             chan, { timeout: 60000 });
 
         check(true, 'and moving one of its controls says it has');
+
+        /* And Save hands the file over. A page has nowhere to write to, so
+         * what a Save is here is a download -- which is what the desktop's
+         * is too, from where a person is standing. The bytes are the
+         * application's (thPatchCapture, thPatchCompose), so what comes
+         * down opens there.
+         */
+        const [download] = await Promise.all([
+            page.waitForEvent('download', { timeout: 60000 }),
+            page.click(`#channels .save[data-channel="${chan}"]`),
+        ]);
+
+        const saved = fs.readFileSync(await download.path(), 'utf8');
+
+        check(saved.startsWith('# Thinksynth Patch File\n') &&
+              /^dsp \S+$/m.test(saved),
+              `Save downloads ${download.suggestedFilename()}, ` +
+              `${saved.split('\n').length} lines of .patch`);
+
+        /* And what came down is what is on the channel, edit and all: the
+           value moved above is in the file, not the one it was loaded
+           with. */
+        const wrote = await page.evaluate(
+            (c) => window.solo.chanParams()?.rows
+                .find((r) => r.editable && r.kind === 0)?.id, chan);
+
+        check(wrote === undefined ||
+              new RegExp(`^${wrote} `, 'm').test(saved),
+              `and it carries ${wrote}, the control that was moved`);
+
+        /* Saved is not edited. Neither shell watches the file afterwards,
+           so this is as far as either of them can tell. */
+        await page.waitForFunction(
+            (c) => document.querySelector(
+                `#channels .edited[data-channel="${c}"]`).hidden,
+            chan, { timeout: 60000 });
+
+        check(true, 'and the row stops saying it has been edited');
     }
 
     /* ---- the instrument as a graph ---- */

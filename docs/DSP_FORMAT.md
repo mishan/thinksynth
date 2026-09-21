@@ -529,7 +529,12 @@ that need a synth, so they are answered when the document is put on a channel
 and not when it is read. What the reader does is the format, and it
 round-trips: parse, compose, parse again, and the second document equals the
 first. `scripts/patchcheck` holds every shipped file and a fixture per row
-above to that.
+above to that, and `wasm/web/patchcheck.mjs` holds the browser's reading
+against the desktop's, byte for byte.
+
+That the writing is one thing too is what makes a `.patch` saved in a browser
+a file the application opens: the bytes come from `thPatchCompose` on both
+sides, and all 101 shipped patches compose back to themselves byte for byte.
 
 ## 3. Writing a `.dsp`
 

@@ -107,6 +107,20 @@ struct thPatchApplied
 thPatchApplied thPatchApply (thSynth *synth, int channel,
                              const thPatchDoc &doc);
 
+/* And back: the document a Save would write for `channel'.
+ *
+ * `was' is what the slot holds -- the graph, the effect, the side and the
+ * info, none of which the engine knows about -- and the values come off the
+ * live channel, because what a Save is for is writing down what somebody has
+ * moved. A hidden arg is left out, as it always has been: it has no control
+ * to have been moved by.
+ *
+ * Shared because the browser writing the same bytes as the desktop is the
+ * point of it existing at all. A .patch downloaded from a page opens in the
+ * application, and neither shell rewrites the other's file on its first save.
+ */
+thPatchDoc thPatchCapture (thSynth *synth, int channel, const thPatchDoc &was);
+
 /* The path a `dsp' or `effect' line names, for opening.
  *
  * Absolute names and names that resolve from the working directory are left

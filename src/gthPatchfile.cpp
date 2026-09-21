@@ -350,25 +350,6 @@ bool gthPatchManager::parse (const string &filename, int chan)
     return true;
 }
 
-/* Every value an arg holds, not only its first.
- *
- * A thArg has always held a list and the format has always written
- * `value[,value]', but the writer took `(*arg)[0]' and the reader took the
- * first field -- so a parameter declared as a list was quietly flattened by
- * the first Save anybody pressed. The browser's parser kept all of them and
- * said in a comment that it meant to; this is that reading, on both sides of
- * the file now. No shipped .patch has a multi-value line, which is what makes
- * it safe to take. */
-static vector<float> allValues (thArg *arg)
-{
-    vector<float> out;
-
-    for (unsigned int i = 0; i < arg->len(); i++)
-        out.push_back((*arg)[i]);
-
-    return out;
-}
-
 bool gthPatchManager::savePatch (const string &filename, int chan)
 {
     PatchFile *patch = patches_.get(chan);
@@ -377,41 +358,13 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
         return false;
 
     /* What the file will say: the patch's own record of what it is, and the
-     * channel's live values. The bytes come from thPatchCompose, so what a
-     * Save writes and what a load reads are one description of the format --
-     * which is what makes scripts/patchcheck's round trip a claim about this
-     * function rather than about a test fixture. */
-    thPatchDoc doc = patch->doc;
-
-    /* The document's own args are what the file was read with; what goes back
-       out is what the channel holds now, which is the whole point of a Save.
-       Everything else -- the graph, the effect, the side, the info -- is the
-       slot's and is written as it stands. */
-    doc.args.clear();
-
-    thArgMap args = getChannelArgs(chan);
-
-    for (thArgMap::iterator j = args.begin(); j != args.end(); j++)
-        if (j->second && j->second->widgetType() != j->second->HIDE)
-            doc.args[j->first] = allValues(j->second);
-
-    /* And the effect's, under the name the rest of the engine addresses them
-     * by. A second map on the synth's side, so a patch that sets `a' and an
-     * effect that declares one are two lines and two numbers.
-     *
-     * Only where there is an effect line to hold them: values with no file to
-     * attach them to are values the reader refuses one by one, since it has no
-     * effect on the channel to look their names up in. thPatchCompose drops
-     * them for the same reason, so this is the cheaper half of one rule. */
-    if (!doc.effect.empty())
-    {
-        thArgMap fxargs = thSynth::instance()->getEffectArgs(chan);
-
-        for (thArgMap::iterator j = fxargs.begin(); j != fxargs.end(); j++)
-            if (j->second && j->second->widgetType() != j->second->HIDE)
-                doc.args[string(TH_EFFECT_PREFIX) + j->first] =
-                    allValues(j->second);
-    }
+     * channel's live values. Both halves are shared -- thPatchCapture reads
+     * the channel back into a document, thPatchCompose turns one into bytes
+     * -- which is what makes a .patch a browser writes open here and a .patch
+     * written here open there. It is also what makes scripts/patchcheck's
+     * round trip a claim about this function rather than about a fixture. */
+    const thPatchDoc doc =
+        thPatchCapture(thSynth::instance(), chan, patch->doc);
 
     time_t t = time(NULL);
     ofstream out(filename.c_str(), ios::binary | ios::trunc);

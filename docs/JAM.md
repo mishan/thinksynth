@@ -299,7 +299,10 @@ On `jam-m6`. Where it stands:
   desktop's, byte for byte. The slots are shared too (`src/PatchSet.h`), so
   the channel row can say which file is on a channel and whether it has been
   edited since -- which the desktop has lit a Save button off since 2004 and
-  the page could not say at all.
+  the page could not say at all. And a Save beside it: the module composes
+  the bytes the application writes and the page hands them over as a
+  download, so a patch tweaked in a browser is a file that opens on the
+  desktop rather than one that lasted until the tab closed.
 - And the knobs a piece declares, off the same description
   (`src/KnobPanel.cpp`) and drawn by the same renderer on both pages. A
   knob is where the two deliveries differ and can be seen to: the panel

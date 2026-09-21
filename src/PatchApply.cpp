@@ -178,3 +178,69 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
 
     return out;
 }
+
+/* Every value an arg holds, not only its first.
+ *
+ * A thArg has always held a list and the format has always written
+ * `value[,value]', but the writer took `(*arg)[0]' and the reader took the
+ * first field -- so a parameter declared as a list was quietly flattened by
+ * the first Save anybody pressed. The reading is the page's now, on both
+ * sides of the file; this is the writing to match. */
+static vector<float> allValues (thArg *arg)
+{
+    vector<float> out;
+
+    for (unsigned int i = 0; i < arg->len(); i++)
+        out.push_back((*arg)[i]);
+
+    return out;
+}
+
+thPatchDoc thPatchCapture (thSynth *synth, int channel, const thPatchDoc &was)
+{
+    thPatchDoc doc = was;
+
+    /* The document's own args are what it was read with; what goes back out
+       is what the channel holds now, which is the whole point of a Save. */
+    doc.args.clear();
+
+    /* Complaints are about lines in a file, and this document is not one that
+       came from a file. Carrying them would put somebody else's typo in the
+       output of a Save. */
+    doc.complaints.clear();
+
+    if (synth == NULL)
+        return doc;
+
+    thMidiChan *chan = synth->getChannel(channel);
+
+    if (chan != NULL)
+    {
+        thArgMap args = chan->args();
+
+        for (thArgMap::iterator j = args.begin(); j != args.end(); j++)
+            if (j->second && j->second->widgetType() != j->second->HIDE)
+                doc.args[j->first] = allValues(j->second);
+    }
+
+    /* And the effect's, under the name the rest of the engine addresses them
+     * by. A second map on the synth's side, so a patch that sets `a' and an
+     * effect that declares one are two lines and two numbers.
+     *
+     * Only where there is an effect to hold them: values with no file to
+     * attach them to are values the reader refuses one by one, since it has
+     * no effect on the channel to look their names up in. thPatchCompose
+     * drops them for the same reason, so this is the cheaper half of one
+     * rule. */
+    if (!doc.effect.empty())
+    {
+        thArgMap fxargs = synth->getEffectArgs(channel);
+
+        for (thArgMap::iterator j = fxargs.begin(); j != fxargs.end(); j++)
+            if (j->second && j->second->widgetType() != j->second->HIDE)
+                doc.args[string(TH_EFFECT_PREFIX) + j->first] =
+                    allValues(j->second);
+    }
+
+    return doc;
+}

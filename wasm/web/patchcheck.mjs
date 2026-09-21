@@ -230,6 +230,53 @@ if (json !== '')
           'and editing one is not loading another');
 }
 
+/* ---- and back out ---- */
+
+/* The bytes a Save would write, which is the first time a browser can save a
+ * patch at all. They are the bytes the desktop writes -- both halves are
+ * shared -- so what is asserted here is that they come back in: compose,
+ * read, and the document is the one the channel holds, edit and all.
+ */
+{
+    const text = M.ccall('tw_patch_compose', 'string', ['number', 'string'],
+                         [0, 'Wed Jan  1 00:00:00 2025']);
+
+    check(text.startsWith('# Thinksynth Patch File\n'),
+          'a channel composes back into a .patch');
+
+    const back = M.ccall('tw_patch_read', 'string', ['string'], [text]);
+
+    check(back !== '', 'which reads as a patch');
+
+    if (back !== '')
+    {
+        const doc = JSON.parse(back);
+        const now = JSON.parse(
+            M.ccall('tw_patch_json', 'string', ['number'], [0]));
+
+        check(doc.dsp === now.dsp, 'naming the graph the channel is playing',
+              `got ${doc.dsp}`);
+
+        /* The edit above, not the 1.040810 the file gave: what a Save is for
+           is writing down what somebody has moved. */
+        check(doc.args.cutoff?.[0] === 2, 'with the value that was typed, ' +
+              'not the one the file gave', `got ${doc.args.cutoff}`);
+    }
+
+    /* And a page that kept them says so, which is what puts the mark out. */
+    check(M.ccall('tw_patch_saved', 'number', ['number', 'string'],
+                  [0, 'mine.patch']) === 1, 'a patch can be marked saved');
+    check(M.ccall('tw_patch_dirty', 'number', ['number'], [0]) === 0,
+          'and is no longer edited');
+    check(JSON.parse(M.ccall('tw_patch_json', 'string', ['number'], [0]))
+              .name === 'mine.patch',
+          'under the name it was saved as');
+
+    check(M.ccall('tw_patch_compose', 'string', ['number', 'string'],
+                  [9, '']) === '',
+          'a channel with nothing on it composes nothing');
+}
+
 /* A graph nothing has handed over. The refusal is the point, and so is what
    it leaves behind: the channel is not touched, so whatever was playing is
    still playing and the patch that is recorded there is still the last one

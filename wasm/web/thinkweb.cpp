@@ -1329,6 +1329,57 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
     return patchJson_.c_str();
 }
 
+/* What a Save would write for `channel': the bytes of a .patch, or "" for a
+ * channel nothing has been put on.
+ *
+ * The graph, the effect, the side and the info come off the slot; the values
+ * come off the live channel, which is the whole point -- what a Save is for
+ * is writing down what somebody has moved. Both halves are shared with the
+ * application (thPatchCapture, thPatchCompose), so these are the bytes the
+ * desktop writes, which is what makes this worth having at all: a .patch
+ * downloaded from a page opens in the application, and neither shell
+ * rewrites the other's file on its first save.
+ *
+ * `stamp' is the date for the banner comment -- the one thing in the output
+ * that a document cannot know. The application passes ctime()'s line; a page
+ * passes a Date. There is no locale here to make one from.
+ *
+ * This is the first time a browser can save a patch at all. It does not
+ * write anything: a page has nowhere to write to, so what it gets is the
+ * bytes and what it does with them is its own business. tw_patch_saved is
+ * how it says it kept them.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_compose (int channel,
+                                                   const char *stamp)
+{
+    const thPatchSet::Slot *slot = patches_.get(channel);
+
+    patchJson_ = (slot == NULL)
+        ? std::string()
+        : thPatchCompose(thPatchCapture(synth_, channel, slot->doc),
+                         stamp != NULL ? stamp : "");
+
+    return patchJson_.c_str();
+}
+
+/* And that it was kept, under this name.
+ *
+ * The other half of tw_patch_dirty, and the reason the name is an argument:
+ * a page downloading a patch has named the file it went into. Separate from
+ * composing because composing is a read and this is not -- a page that asked
+ * what a Save would write and then thought better of it has not saved
+ * anything.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_patch_saved (int channel, const char *name)
+{
+    if (!patches_.loaded(channel))
+        return 0;
+
+    patches_.markSaved(channel, name != NULL ? name : "");
+
+    return 1;
+}
+
 /* What belongs on a channel nothing has aimed: the first-run configuration,
  * by relative name (src/PatchSet.h). "" for a channel with no answer.
  *

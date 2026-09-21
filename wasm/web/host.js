@@ -153,6 +153,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'panel':
             case 'panelvalues':
             case 'patchstate':
+            case 'patchcompose':
             case 'patchdefault':
             case 'patchdefaults':
                 waiting.get(m.id)?.(m);
@@ -240,6 +241,21 @@ export async function createSynth (ctx, { windowlen = 256,
            worklet alone -- it is a question, and the instance that sounds
            is the one whose answer counts. */
         patchState: (channel) => ask({ type: 'patchstate', channel }),
+
+        /* The bytes a Save would write for a channel: the slot's graph,
+           effect, side and info, and the values the channel holds now.
+           Resolves to `{ text }', empty for a channel nothing is on. The
+           same bytes the desktop writes, which is what makes a patch saved
+           in a browser one the application opens. */
+        patchCompose: (channel, stamp) =>
+            ask({ type: 'patchcompose', channel, stamp }),
+
+        /* And that they were kept, under this name: the other half of the
+           dirty flag the channel row draws. Told rather than asked -- a
+           page that composed a patch and then thought better of it has not
+           saved anything, so this is a separate thing to say. */
+        patchSaved: (channel, name) =>
+            post({ type: 'patchsaved', channel, name }),
 
         /* What belongs on a channel nothing has aimed. Resolves to
            `{ name }', empty for a channel with no answer; patchDefaults()

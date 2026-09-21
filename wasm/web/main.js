@@ -584,6 +584,19 @@ function showChannels ()
             mark.textContent = 'edited';
             mark.title = 'This patch has been changed since it was loaded.';
             line.append(mark);
+
+            /* And a way to keep it. The desktop has had a Save button for
+               twenty years and the page had nothing: a patch tweaked here
+               was a patch that lasted until the tab closed. */
+            const save = document.createElement('button');
+
+            save.className = 'save';
+            save.dataset.channel = String(channel);
+            save.hidden = true;
+            save.textContent = 'Save';
+            save.title = 'Download this patch as a .patch file.';
+            save.addEventListener('click', () => savePatch(channel));
+            line.append(save);
         }
 
         box.append(line);
@@ -593,6 +606,60 @@ function showChannels ()
        has just been drawn is correct until the module says otherwise, and
        the caller has nothing to do differently either way. */
     showEdited();
+}
+
+/* One channel's patch, downloaded.
+ *
+ * The bytes are the module's (tw_patch_compose) and are the bytes the
+ * application writes -- the slot's graph, effect, side and info, and the
+ * values the channel holds now. So a patch saved here opens on the desktop,
+ * and the desktop will not rewrite it on its first save.
+ *
+ * A download and not a write: a page has nowhere to write to. What it can do
+ * is hand somebody a file, which is what the desktop's Save does too from
+ * where they are standing.
+ */
+async function savePatch (channel)
+{
+    if (synth === null)
+        return;
+
+    /* Where ctime()'s line goes in the banner comment. A Date is the nearest
+       thing a page has, and the line is a comment either way. */
+    const { text } = await synth.patchCompose(channel, new Date().toString());
+
+    if (text === '')
+    {
+        $('status').textContent =
+            `Channel ${channel + 1}: nothing to save.`;
+        return;
+    }
+
+    /* The name it came with, or the graph's with the extension changed --
+       which is what the desktop's Save As offers for a patch that has never
+       had a name. Without the drawer: a browser download names a file, not a
+       place to put it. */
+    const was = placed.get(channel);
+    const name = (was?.patch ?? `${was?.dsp ?? 'patch'}`)
+        .split('/').pop().replace(/\.(patch|dsp)$/, '') + '.patch';
+
+    const url = URL.createObjectURL(
+        new Blob([text], { type: 'text/plain' }));
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = name;
+    link.click();
+
+    URL.revokeObjectURL(url);
+
+    /* Saved, as far as anything here can tell -- which is exactly as far as
+       the desktop can tell, since neither of them watches the file
+       afterwards. The mark goes out. */
+    synth.patchSaved(channel, name);
+    await showEdited();
+
+    $('status').textContent = `Channel ${channel + 1} saved as ${name}.`;
 }
 
 /* The `edited' marks, refreshed from the module.
@@ -612,9 +679,20 @@ async function showEdited ()
 
     for (const mark of $('channels').querySelectorAll('.edited'))
     {
-        const { json } = await synth.patchState(Number(mark.dataset.channel));
+        const channel = Number(mark.dataset.channel);
+        const { json } = await synth.patchState(channel);
+        const on = json !== '';
 
-        mark.hidden = json === '' || !JSON.parse(json).dirty;
+        mark.hidden = !on || !JSON.parse(json).dirty;
+
+        /* Save is offered for anything that is actually on a channel, not
+           only for something edited: somebody may want the file for a patch
+           they chose and left alone. */
+        const save = $('channels').querySelector(
+            `.save[data-channel="${channel}"]`);
+
+        if (save !== null)
+            save.hidden = !on;
     }
 }
 

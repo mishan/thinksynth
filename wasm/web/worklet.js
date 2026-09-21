@@ -244,6 +244,35 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The bytes a Save would write for a channel, and the note that
+         * they were kept.
+         *
+         * A question and then a command, because that is what they are: a
+         * page that asked what a Save would write and then thought better
+         * of it has not saved anything. Both of this instance, which is
+         * the one that sounds and therefore the one whose values are the
+         * ones worth writing down.
+         */
+        if (m.type === 'patchcompose')
+        {
+            this.port.postMessage({
+                type: 'patchcompose', id: m.id,
+                text: this.M.ccall('tw_patch_compose', 'string',
+                                   ['number', 'string'],
+                                   [m.channel, m.stamp ?? '']),
+            });
+
+            return;
+        }
+
+        if (m.type === 'patchsaved')
+        {
+            this.M.ccall('tw_patch_saved', 'number', ['number', 'string'],
+                         [m.channel, m.name ?? '']);
+
+            return;
+        }
+
         /* The first-run configuration: what belongs on a channel nothing
            has aimed, and how many distinct answers there are. The rule is
            the module's (src/PatchSet.h); the page fetches what it names. */
