@@ -26,6 +26,7 @@
 #include "think.h"
 #include "thUnits.h"
 
+#include "JsonOut.h"
 #include "PanelModel.h"
 
 int thPanel::indexOf (const string &id) const
@@ -191,86 +192,6 @@ void thPanelBuilder::add (const thPanelRow &row, const string &declared,
 }
 
 /* ---- the readout ---------------------------------------------------- */
-
-/* A JSON string: the quotes, the six escapes JSON requires, and \u00xx for
- * anything else below a space.
- *
- * Bytes above 127 pass through untouched. A label comes out of a .dsp or a
- * plugin and is whatever the file's author wrote; JSON is UTF-8 by
- * definition and so is that, so escaping it would be inventing a difference
- * between the two dumps this is compared across. */
-static void jsonString (string &out, const string &s)
-{
-    out += '"';
-
-    for (size_t i = 0; i < s.size(); i++)
-    {
-        const unsigned char c = (unsigned char)s[i];
-
-        switch (c)
-        {
-            case '"':  out += "\\\""; continue;
-            case '\\': out += "\\\\"; continue;
-            case '\b': out += "\\b"; continue;
-            case '\f': out += "\\f"; continue;
-            case '\n': out += "\\n"; continue;
-            case '\r': out += "\\r"; continue;
-            case '\t': out += "\\t"; continue;
-        }
-
-        if (c < 0x20)
-        {
-            char esc[8];
-
-            snprintf(esc, sizeof esc, "\\u%04x", c);
-
-            out += esc;
-        }
-        else
-            out += (char)c;
-    }
-
-    out += '"';
-}
-
-/* A double, exactly.
- *
- * %.17g is the shortest format that round-trips every double through text,
- * and round-tripping is the whole requirement: what is compared is a native
- * dump against a wasm one, and a value that differs in the last bit is a
- * difference worth failing on rather than one to hide behind %g's six
- * figures. A non-finite value has no JSON spelling at all and becomes 0 --
- * it cannot reach here from a panel, and a bare NaN in the output would make
- * the page's JSON.parse throw rather than show one odd row. */
-static void jsonNumber (string &out, double v)
-{
-    char buf[40];
-
-    if (!std::isfinite(v))
-        v = 0;
-
-    snprintf(buf, sizeof buf, "%.17g", v);
-
-    out += buf;
-}
-
-static void jsonInt (string &out, long v)
-{
-    out += to_string(v);
-}
-
-/* The shape, and nothing else.
- *
- * Its own function because `long' is 64 bits natively and 32 under wasm, so
- * a 32-bit hash handed to the signed writer came out as 3237944777 on one
- * side and -1057022519 on the other -- a panel that was identical in every
- * row and differed in the number a page polls to decide whether to redraw
- * it. The parity gate found it the first time it ran, which is what it is
- * for. */
-static void jsonUnsigned (string &out, unsigned v)
-{
-    out += to_string((unsigned long long)v);
-}
 
 string thPanelToJson (const thPanel &panel)
 {

@@ -73,7 +73,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { seeded, tapeBefore } from '../tape.mjs';
-import { defaultFor, parse } from './patch.js';
+import { defaultFor } from './patch.js';
 import { playAimed, playAt, playPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -360,16 +360,19 @@ async function checkKeys (createThinkWeb, dsps, kit, all)
 
 /* What the page would put on a channel a piece named and aimed at nothing
  * of its own: gthPrefs.cpp's first-run patch for that channel, read out of
- * the build's patches/ and through patch.js's own parser -- the same file
- * the page reads it with, so this gate cannot pass on a parser the page
- * does not have.
+ * the build's patches/ and handed over whole.
  *
- * `dsps' is the shipped .dsp texts, which is where a .patch's `dsp' line
- * resolves for the page too. Returns null for a patch this build does not
- * ship; playAimed hands those channels back in `unaimed' and checkAudible
- * names them as a build to fix rather than a piece to blame.
+ * The bytes and not a reading of them. The module reads a .patch with the
+ * same code the application does (src/PatchFile.h), so there is nothing
+ * left here that could pass on a reading the page does not have -- which is
+ * what this used to be careful about by calling patch.js's parser.
+ *
+ * Returns null for a patch this build does not ship. One whose .dsp the
+ * build does not ship is refused by the module instead; playAimed hands
+ * both kinds of channel back in `unaimed' and checkAudible names them as a
+ * build to fix rather than a piece to blame.
  */
-export function defaults (buildDir, dsps)
+export function defaults (buildDir)
 {
     return (channel) =>
     {
@@ -379,12 +382,7 @@ export function defaults (buildDir, dsps)
         if (!fs.existsSync(file))
             return null;
 
-        const p = parse(fs.readFileSync(file, 'utf8'));
-
-        if (p.dsp === null || dsps[p.dsp] === undefined)
-            return null;
-
-        return { name, dsp: dsps[p.dsp], args: p.args };
+        return { name, text: fs.readFileSync(file, 'utf8') };
     };
 }
 
@@ -402,7 +400,7 @@ const FLOOR = 0.001;
  */
 async function checkAudible (createThinkWeb, dsps, kit, all, buildDir)
 {
-    const patchFor = defaults(buildDir, dsps);
+    const patchFor = defaults(buildDir);
     let failures = 0;
 
     for (const piece of all)

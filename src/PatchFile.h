@@ -168,4 +168,11 @@ bool thPatchParse (const string &text, thPatchDoc &doc, string &why);
  * it ran. */
 string thPatchCompose (const thPatchDoc &doc, const string &stamp = "");
 
+/* And as a page reads it: every field, including the complaints.
+ *
+ * Compiled twice and diffed byte for byte -- once into scripts/patchcheck,
+ * once into the browser's module behind tw_patch_json -- which is the gate
+ * that keeps one reading of the format from becoming two again. */
+string thPatchDocToJson (const thPatchDoc &doc);
+
 #endif /* PATCH_FILE_H */

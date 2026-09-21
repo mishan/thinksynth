@@ -40,15 +40,22 @@
  * and put nothing on, and it is a function of the piece and of what the
  * person has chosen by hand -- of nothing else.
  *
- * A .patch is not a graph: it is a `dsp' line, `info' lines and flat `name
- * value[,value]' overrides for that DSP's chanargs (docs/DSP_FORMAT.md).
- * load() does what gthPatchManager::parse does, in the same order -- the .dsp
- * onto the channel, then each override -- at the same level,
- * TH_DEFAULT_CHAN_AMP, which tw_load applies for us.
+ * WHAT A .patch MEANS IS NOT DECIDED HERE. This file fetches, and that is
+ * all it does. The text goes to the module, which reads it with the same
+ * code the application runs (src/PatchFile.h) and puts it on the channel in
+ * the order the format requires (src/PatchApply.h).
  *
- * The .dsp a patch names is not fetched here. The page already fetches
- * every shipped .dsp at Start, to hand to the worklet as the instruments
- * a piece may look up, and those texts are what a patch's `dsp' line is
+ * There used to be a parser here -- a second reading of docs/DSP_FORMAT.md,
+ * written separately -- and it had drifted. An `effect' line parsed as a
+ * chanarg whose value was not a number and was dropped on the floor, so a
+ * patch with a channel effect on it sounded different in a browser and said
+ * nothing about why; `side' went to the engine as a chanarg called `side'.
+ * Both of those work now, and no code here does them: they arrived by
+ * deletion.
+ *
+ * The .dsp a patch names is not fetched here either. The page already
+ * fetches every shipped .dsp at Start, to hand to the worklet as the
+ * instruments a piece may look up, and that is what a patch's `dsp' line is
  * resolved against.
  */
 
@@ -114,106 +121,30 @@ export function index ()
     return fetch(`${PATCH_DIR}/index.json`).then((r) => r.json());
 }
 
-/* A .patch, read.
+/* A .patch onto a channel.
  *
- * gthPatchManager::parse's rules: leading space trimmed, blank lines and
- * `#' skipped, a line split at its first space and one with no space
- * ignored. `info NAME rest of line' is metadata, with `\n' unescaped.
- * Everything else is a chanarg and its comma-separated values.
+ * Fetch the file, hand the text over, and say what went on. Resolves to what
+ * was put there, or throws with something a person can read, since every
+ * caller has a status line and a log.
  *
- * The whole list of values is kept, where the desktop's parser reads only
- * the first. A thArg holds as many as it was given, the format writes
- * `value[,value]', and dropping the rest here would make a .patch mean
- * something different in the page than on the desktop for the one file
- * that ever used it.
+ * The document comes back from the module rather than being read here: what
+ * a patch calls itself is an `info title' line, and only something that has
+ * read the file knows it.
  */
-export function parse (text)
+export async function load (synth, channel, name)
 {
-    const out = { dsp: null, info: {}, args: [] };
+    const r = await synth.patch(channel, await patchText(name));
 
-    for (const line of text.split('\n'))
-    {
-        const trimmed = line.replace(/^[ \t]+/, '').replace(/[\r]+$/, '');
+    if (!r.ok)
+        throw new Error(`${name}: ${r.why}`);
 
-        if (trimmed === '' || trimmed.startsWith('#'))
-            continue;
-
-        const at = trimmed.indexOf(' ');
-
-        if (at < 0)
-            continue;
-
-        const key = trimmed.slice(0, at);
-        const rest = trimmed.slice(at + 1).replace(/^[ \t]+/, '');
-
-        if (rest === '')
-            continue;
-
-        if (key === 'info')
-        {
-            const space = rest.indexOf(' ');
-
-            /* `info foo' names a property and gives it nothing. */
-            if (space < 0)
-                continue;
-
-            out.info[rest.slice(0, space)] =
-                rest.slice(space + 1).replaceAll('\\n', '\n');
-            continue;
-        }
-
-        const values = rest.split(',').map(Number);
-
-        if (key === 'dsp')
-        {
-            /* Not a number: the first field is a file name. */
-            out.dsp = rest.split(',')[0];
-            continue;
-        }
-
-        if (values.some((v) => !Number.isFinite(v)))
-            continue;
-
-        out.args.push({ name: key, values });
-    }
-
-    return out;
-}
-
-/* A .patch onto a channel: the .dsp it names, then its overrides.
- *
- * `dsps' is the shipped .dsp texts by name -- the ones the page fetched
- * at Start and handed the worklet. Resolves to what was put there, or
- * throws with something a person can read, since every caller has a
- * status line and a log.
- */
-export async function load (synth, channel, name, dsps)
-{
-    const patch = parse(await patchText(name));
-
-    if (patch.dsp === null)
-        throw new Error(`${name} names no .dsp`);
-
-    const text = dsps[patch.dsp];
-
-    if (text === undefined)
-        throw new Error(`${name} wants ${patch.dsp}, which this build ` +
-                        'does not ship');
-
-    if (!await synth.load(text, channel))
-        throw new Error(`${patch.dsp} did not parse`);
-
-    /* After the load and not before: loading a .dsp builds the channel's
-       chanargs from the file's declarations, and an override set first
-       would be thrown away with the tree it was set on. */
-    for (const a of patch.args)
-        synth.chanarg(channel, a.name, a.values);
+    const doc = JSON.parse(r.json);
 
     /* What to call it in a row: the title the file gives itself, or its
        bare name without the drawer it lives in -- `SuperRes', which is
        what the menu offering it says too. */
-    return { patch: name, dsp: patch.dsp,
-             title: patch.info.title ??
+    return { patch: name, dsp: doc.dsp,
+             title: doc.info.title ??
                     name.split('/').pop().replace(/\.patch$/, '') };
 }
 
@@ -233,7 +164,7 @@ export async function load (synth, channel, name, dsps)
  * Resolves to what went where, so a caller can draw it, and to the
  * failures, so a caller can say them.
  */
-export async function aim (synth, channels, dsps, chosen = new Map())
+export async function aim (synth, channels, chosen = new Map())
 {
     const placed = new Map();
     const failed = [];
@@ -247,7 +178,7 @@ export async function aim (synth, channels, dsps, chosen = new Map())
 
         try
         {
-            placed.set(channel, await load(synth, channel, name, dsps));
+            placed.set(channel, await load(synth, channel, name));
         }
         catch (e)
         {

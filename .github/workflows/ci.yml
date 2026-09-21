@@ -511,6 +511,15 @@ jobs:
       - name: The parameter panel, against the desktop's
         run: node wasm/web/panelcheck.mjs build-web build
 
+      # And the .patch format, for the same reason and with more history
+      # behind it: the page used to carry its own parser, and the two
+      # readings had drifted -- an `effect' line was dropped on the floor
+      # here and nowhere else. Every awkward fixture is read natively and
+      # in the module and the two documents compared byte for byte, and
+      # then a shipped patch is actually put on a channel.
+      - name: The .patch format, against the desktop's
+        run: node wasm/web/patchcheck.mjs build-web build
+
   # The page and the worklet, in the two engines the page has to work in.
   wasm-browsers:
     name: wasm (emscripten) in browsers

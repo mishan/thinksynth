@@ -223,6 +223,17 @@ is heard, so a move has to land at the same transport time on every peer, and
 `wasm/web/panelcheck.mjs` is the other one, and diffs the module's
 description of a fixture against the native build's, byte for byte.
 
+What a `.patch` is went the same way and for the same reason.
+`src/PatchFile.h` is the format — text in, a `thPatchDoc` out, and the
+document back to text — and `src/PatchApply.h` is the order it goes onto a
+channel in. `src/gthPatchfile.cpp` keeps what only a desktop has (`PATCH_PATH`,
+`fopen`, thinkrc) and the page keeps `fetch`; everything between those two
+ends is one reading, compiled twice. `wasm/web/patch.js` used to hold a second
+one, and the two had drifted —
+[DSP_FORMAT.md](DSP_FORMAT.md#one-reader) says how. `scripts/patchcheck` and
+`wasm/web/patchcheck.mjs` are the pair of gates, in the shape the panel's
+are.
+
 ### What an arg says about itself
 
 `regArg` gives an arg a name and a direction; five calls beside it carry the

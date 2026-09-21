@@ -197,10 +197,12 @@ export function schedule (M, c)
  * the same answer, resolved by the caller because only the caller can
  * read a file.
  *
- * `patchFor(channel)' returns `{ name, dsp, args }': the .dsp's text and
- * the chanarg overrides to set on it afterwards, which is a .patch. null
+ * `patchFor(channel)' returns `{ name, text }': the .patch's own bytes,
+ * which the module reads and puts on the channel (src/PatchApply.h). null
  * for a channel it has nothing for, and those channels come back in
- * `unaimed' so the caller can say so.
+ * `unaimed' so the caller can say so -- as does one whose patch the module
+ * refuses, which is what a build shipping a .patch and not the .dsp it
+ * names looks like from here.
  *
  * A piece fed by `input midi' composes nothing until somebody plays it,
  * so `chord' is held down on every channel it listens on -- there is no
@@ -245,23 +247,25 @@ export async function playAimed (createThinkWeb,
         const channel = M._tw_sink_channel(i);
         const what = patchFor(channel);
 
-        if (what === null || what.dsp === undefined)
+        if (what === null || what.text === undefined)
         {
             unaimed.push(channel);
             continue;
         }
 
-        M.ccall('tw_load', 'number', ['number', 'string'],
-                [channel, what.dsp]);
-
-        /* After the load, as gthPatchManager::parse does it: the
-           overrides are for the tree that load just built. */
-        for (const a of what.args ?? [])
-            M.ccall('tw_chanarg', 'number',
-                    ['number', 'string', 'array', 'number'],
-                    [channel, a.name,
-                     new Uint8Array(Float32Array.from(a.values).buffer),
-                     a.values.length]);
+        /* The whole .patch, read by the module: the graph it names, its
+           side, its effect and its overrides, in the order the format
+           requires. This used to be a tw_load and a loop of tw_chanarg
+           done here in the right order by hand -- a third copy of that
+           order, beside patch.js's and the application's. */
+        if (M.ccall('tw_patch_apply', 'number', ['number', 'string'],
+                    [channel, what.text]) === 0)
+        {
+            log.push(`channel ${channel + 1}: ${what.name}: ` +
+                     M.ccall('tw_patch_why', 'string', [], []));
+            unaimed.push(channel);
+            continue;
+        }
 
         aimed.push({ channel, patch: what.name });
     }

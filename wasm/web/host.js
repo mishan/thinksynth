@@ -144,8 +144,9 @@ export async function createSynth (ctx, { windowlen = 256,
                 waiting.get(m.id)?.(m.ok);
                 waiting.delete(m.id);
                 break;
+            case 'patched':
             case 'probed':
-                waiting.get(m.id)?.({ slot: m.slot, why: m.why });
+                waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
             case 'piece':
@@ -215,11 +216,21 @@ export async function createSynth (ctx, { windowlen = 256,
            is not text. */
         sample: (name, bytes) => post({ type: 'sample', name, bytes }),
 
-        /* One chanarg of whatever is loaded on a channel, at the value a
-           .patch overrides it to. The other half of load(), in that
-           order: patch.js does the two together, as
-           gthPatchManager::parse does. A name the tree does not declare
-           is ignored and said once in the log. */
+        /* A whole .patch, as text: the module reads it and puts it on the
+           channel, in the order the format requires. Resolves to
+           `{ ok, why, json }' -- the document it read, so the page can say
+           what it put on without reading the file a second time.
+
+           The .dsp it names is not sent: the page has already handed every
+           shipped graph to instrument() above, which is where a patch's
+           `dsp' line is resolved from. */
+        patch: (channel, text) => ask({ type: 'patch', channel, text }),
+
+        /* One chanarg of whatever is loaded on a channel. The other half of
+           load() for anything that drives the two by hand; a .patch goes
+           through patch() above, which does them in the order
+           src/PatchApply.h sets out. A name the tree does not declare is
+           ignored and said once in the log. */
         chanarg: (channel, name, values) =>
             post({ type: 'chanarg', channel, name,
                    values: Array.isArray(values) ? values : [values] }),

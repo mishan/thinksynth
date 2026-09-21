@@ -90,7 +90,11 @@ target_link_libraries(think_panel PUBLIC think)
 # corpus directory -- no plugins, no channels, nothing to load onto -- which
 # is what lets the format be a gate on every platform rather than something
 # only the application starting up ever exercised.
-add_library(think_patch OBJECT PatchFile.cpp)
+#
+# PatchApply joins it: putting a document on a channel needs a synth but not a
+# file, and it is the other half both shells were writing twice -- the load
+# order, the side clamp and the rule about a name nothing declares.
+add_library(think_patch OBJECT PatchFile.cpp PatchApply.cpp)
 target_include_directories(think_patch PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")

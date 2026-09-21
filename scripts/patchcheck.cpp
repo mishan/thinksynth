@@ -70,6 +70,7 @@
 #include "PatchFile.h"
 
 using std::ifstream;
+using std::ofstream;
 using std::ostringstream;
 
 static int failed = 0;
@@ -314,6 +315,58 @@ static void checkCorpus (const string &dir)
 /* The awkward lines                                                    */
 /* ------------------------------------------------------------------ */
 
+/* Every fixture, named, in one table.
+ *
+ * Named rather than written where they are asserted about because they are
+ * read twice: the checks below, and `-j', which dumps each one's document for
+ * wasm/web/patchcheck.mjs to hold the module's reading of the same bytes
+ * against. A fixture the two gates disagreed about the text of would be a
+ * parity gate that proved nothing. */
+struct Fixture
+{
+    const char *name;
+    const char *text;
+};
+
+static const Fixture FIXTURES[] = {
+    { "no-dsp",        "cutoff 1.0\n" },
+    { "empty",         "" },
+    { "dsp-only",      " \t dsp ts1.dsp\n" },
+    { "info-no-value", "dsp ts1.dsp\ninfo foo\ncutoff 2.5\n" },
+    { "lone-word",     "dsp ts1.dsp\ncutoff\n" },
+    { "crlf",          "dsp ts1.dsp\r\ninfo title Super Res\r\n"
+                       "cutoff 2.5\r\n" },
+    { "side-99",       "dsp ts1.dsp\nside 99\neffect fx/delay.dsp\n" },
+    { "side-4",        "dsp ts1.dsp\nside 4\neffect fx/delay.dsp\n" },
+    { "side-0",        "dsp ts1.dsp\nside 0\neffect fx/delay.dsp\n" },
+    { "side-negative", "dsp ts1.dsp\nside -1\neffect fx/delay.dsp\n" },
+    { "effect",        "dsp ts1.dsp\neffect fx/delay.dsp\nfx.wet 0.5\n" },
+    { "fx-orphan",     "dsp ts1.dsp\nfx.nosuchthing 0.5\n" },
+    { "multi-value",   "dsp ts1.dsp\nwave 1,2,3\n" },
+    { "not-a-number",  "dsp ts1.dsp\ncutoff abc\nres 4abc\nq 1,,3\n" },
+    { "comments",      "# a comment\n\n   # an indented one\ndsp ts1.dsp\n"
+                       "info comments one\\ntwo\n" },
+    { "no-final-nl",   "dsp ts1.dsp\ncutoff 2.5" },
+    { "everything",    "dsp ts1.dsp\nside 4\neffect fx/delay.dsp\n"
+                       "info title Super Res\ninfo comments one\\ntwo\n"
+                       "cutoff 2.5\nwave 1,2,3\nfx.wet 0.5\n" },
+};
+
+static const size_t FIXTURE_COUNT = sizeof(FIXTURES) / sizeof(FIXTURES[0]);
+
+/* The one named, or a loud empty string: a typo in a name below would
+   otherwise quietly assert things about nothing at all. */
+static string fixture (const char *name)
+{
+    for (size_t i = 0; i < FIXTURE_COUNT; i++)
+        if (strcmp(FIXTURES[i].name, name) == 0)
+            return FIXTURES[i].text;
+
+    fail(string("there is a fixture called `") + name + "'", "");
+
+    return string();
+}
+
 /* Parses, and the caller gets the document. Fails the named check and
    returns false otherwise, so each fixture below reads as its assertion. */
 static bool parses (const string &text, thPatchDoc &doc, const string &what)
@@ -336,13 +389,13 @@ static void checkFixtures (void)
         thPatchDoc doc;
         string why;
 
-        check(!thPatchParse("cutoff 1.0\n", doc, why),
+        check(!thPatchParse(fixture("no-dsp"), doc, why),
               "a file with no dsp line is not a patch");
         check(why == "names no dsp", "and says so", why);
 
-        check(!thPatchParse("", doc, why), "nor is an empty one");
+        check(!thPatchParse(fixture("empty"), doc, why), "nor is an empty one");
 
-        if (parses(" \t dsp ts1.dsp\n", doc, "a dsp line alone is a patch"))
+        if (parses(fixture("dsp-only"), doc, "a dsp line alone is a patch"))
         {
             ok("a dsp line alone is a patch");
             checkEq(doc.dsp, "ts1.dsp", "leading whitespace is not the name");
@@ -356,7 +409,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\ninfo foo\ncutoff 2.5\n", doc,
+        if (parses(fixture("info-no-value"), doc,
                    "an info line with no value does not fail the patch"))
         {
             ok("an info line with no value does not fail the patch");
@@ -372,7 +425,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\ncutoff\n", doc,
+        if (parses(fixture("lone-word"), doc,
                    "a line with no space in it is not an arg"))
         {
             ok("a line with no space in it is not an arg");
@@ -404,8 +457,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\r\ninfo title Super Res\r\ncutoff 2.5\r\n",
-                   doc, "a file with CRLF endings parses"))
+        if (parses(fixture("crlf"), doc, "a file with CRLF endings parses"))
         {
             ok("a file with CRLF endings parses");
             checkEq(doc.dsp, "ts1.dsp", "with no CR in the graph's name");
@@ -424,22 +476,22 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\nside 99\neffect fx/delay.dsp\n", doc,
+        if (parses(fixture("side-99"), doc,
                    "side is read 1-based"))
         {
             ok("side is read 1-based");
             check(doc.side == 98, "and kept even where no such channel is");
         }
 
-        if (parses("dsp ts1.dsp\nside 4\neffect fx/delay.dsp\n", doc,
+        if (parses(fixture("side-4"), doc,
                    "a side names a channel"))
             check(doc.side == 3, "a side is one less than what is written");
 
-        if (parses("dsp ts1.dsp\nside 0\neffect fx/delay.dsp\n", doc,
+        if (parses(fixture("side-0"), doc,
                    "side 0 is no side"))
             check(doc.side == -1, "side 0 is no side");
 
-        if (parses("dsp ts1.dsp\nside -1\neffect fx/delay.dsp\n", doc,
+        if (parses(fixture("side-negative"), doc,
                    "a negative side is no side"))
             check(doc.side == -1, "a negative side is no side");
     }
@@ -451,7 +503,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\neffect fx/delay.dsp\nfx.wet 0.5\n", doc,
+        if (parses(fixture("effect"), doc,
                    "an effect line is read"))
         {
             ok("an effect line is read");
@@ -478,7 +530,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\nfx.nosuchthing 0.5\n", doc,
+        if (parses(fixture("fx-orphan"), doc,
                    "an fx. name with no effect parses"))
         {
             ok("an fx. name with no effect parses");
@@ -494,7 +546,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\nwave 1,2,3\n", doc,
+        if (parses(fixture("multi-value"), doc,
                    "a multi-value arg keeps every value"))
         {
             ok("a multi-value arg keeps every value");
@@ -515,7 +567,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\ncutoff abc\nres 4abc\nq 1,,3\n", doc,
+        if (parses(fixture("not-a-number"), doc,
                    "a value that is not a number is not a zero"))
         {
             ok("a value that is not a number is not a zero");
@@ -528,8 +580,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("# a comment\n\n   # an indented one\ndsp ts1.dsp\n"
-                   "info comments one\\ntwo\n", doc,
+        if (parses(fixture("comments"), doc,
                    "comments and blank lines are skipped"))
         {
             ok("comments and blank lines are skipped");
@@ -544,7 +595,7 @@ static void checkFixtures (void)
     {
         thPatchDoc doc;
 
-        if (parses("dsp ts1.dsp\ncutoff 2.5", doc,
+        if (parses(fixture("no-final-nl"), doc,
                    "a file with no trailing newline is whole"))
         {
             ok("a file with no trailing newline is whole");
@@ -555,14 +606,77 @@ static void checkFixtures (void)
     /* And every fixture that is a patch round-trips, which is the property
        the corpus cannot test: no shipped file has an effect, a side, a
        multi-value arg or an escaped newline in it. */
-    roundTrips("dsp ts1.dsp\nside 4\neffect fx/delay.dsp\n"
-               "info title Super Res\ninfo comments one\\ntwo\n"
-               "cutoff 2.5\nwave 1,2,3\nfx.wet 0.5\n",
+    roundTrips(fixture("everything"),
                "a patch using every line the format has");
+}
+
+/* ------------------------------------------------------------------ */
+/* The dump the parity gate compares                                    */
+/* ------------------------------------------------------------------ */
+
+/* Every fixture, written out beside its document: `<dir>/<name>.patch' and
+ * `<dir>/<name>.json', and an index naming them in order.
+ *
+ * The bytes go out with the dump so that the wasm side reads exactly the text
+ * this one did -- the same thing scripts/panelcheck -j does with its fixture
+ * .dsp, and for the same reason: a gate that compared two readings of two
+ * different files would pass for the wrong reason. A fixture that is not a
+ * patch has an empty document and its refusal in `why', because that answer
+ * has to match across the two builds too.
+ */
+static int dumpFixtures (const string &dir)
+{
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir, ec);
+
+    string index;
+
+    for (size_t i = 0; i < FIXTURE_COUNT; i++)
+    {
+        const string name = FIXTURES[i].name;
+        const string text = FIXTURES[i].text;
+
+        thPatchDoc doc;
+        string why;
+
+        const bool good = thPatchParse(text, doc, why);
+
+        ofstream patch((std::filesystem::path(dir) / (name + ".patch")),
+                            std::ios::binary | std::ios::trunc);
+        ofstream json((std::filesystem::path(dir) / (name + ".json")),
+                           std::ios::binary | std::ios::trunc);
+
+        if (!patch || !json)
+        {
+            fprintf(stderr, "patchcheck: could not write into %s\n",
+                    dir.c_str());
+            return 1;
+        }
+
+        patch << text;
+        json << (good ? thPatchDocToJson(doc) : string()) << "\n" << why
+             << "\n";
+
+        index += name + "\n";
+    }
+
+    ofstream list((std::filesystem::path(dir) / "index.txt"),
+                       std::ios::binary | std::ios::trunc);
+
+    list << index;
+
+    return 0;
 }
 
 int main (int argc, char *argv[])
 {
+    /* `-j <dir>' prints nothing and checks nothing: it writes the fixtures
+       and their documents for wasm/web/patchcheck.mjs, which is the gate that
+       keeps one reading of the format from becoming two again. */
+    if (argc > 2 && strcmp(argv[1], "-j") == 0)
+        return dumpFixtures(argv[2]);
+
     checkFixtures();
 
     if (argc > 1)

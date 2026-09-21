@@ -166,6 +166,11 @@ class ThinkProcessor extends AudioWorkletProcessor
         if (apply(this.M, m, {
                 loaded: (id, ok) =>
                     this.port.postMessage({ type: 'loaded', id, ok }),
+                /* More than ok: a refusal has a reason, and a patch that
+                   loaded has a document the page reads its title off. */
+                patched: (id, ok, why, json) =>
+                    this.port.postMessage({ type: 'patched', id, ok, why,
+                                            json }),
                 piece: (id, ok) =>
                     this.port.postMessage({ type: 'piece', id,
                                             ...this.piece(ok) }),

@@ -32,6 +32,7 @@
 #include "think.h"
 
 #include "gthPatchfile.h"
+#include "PatchApply.h"
 #include "PatchFile.h"
 
 gthPatchManager *gthPatchManager::instance_ = NULL;
@@ -84,20 +85,12 @@ gthPatchManager *gthPatchManager::instance (void) {
 
 string gthPatchManager::resolveDsp (const string &dspName)
 {
-    if (dspName.empty())
-        return dspName;
-
-    /* A .patch names its DSP by bare filename -- `dsp ts1.dsp' -- so this has
-       to search. It used to try exactly two places, the name as given and
-       DSP_PATH, which meant a patch only loaded if you were standing in the
-       right directory or had run `make install'. That looked like it worked
-       for a long time on a machine with a stale /usr/local install on it. */
-    const string found =
-        thUtil::findDataFile(dspName, "dsp", "THINK_DSP_PATH", DSP_PATH);
-
-    /* Hand back the original if nothing matched, so the error message names
-       what the patch actually asked for. */
-    return found.empty() ? dspName : found;
+    /* PatchApply's, because the page resolves a graph the same way and there
+       is no second answer to give: see the header comment there for why this
+       is the one lookup that crosses and resolvePatch below is not. Kept as a
+       static on the manager because every call site in src/gui/ names it that
+       way and a patch's graph is what they are asking about. */
+    return thPatchResolveDsp(dspName);
 }
 
 string gthPatchManager::resolvePatch (const string &patchName)
@@ -327,17 +320,10 @@ static bool readWhole (const string &path, string &out)
 /* A .patch onto a channel.
  *
  * What is left of the 240-line loop this used to be: find the file, read it,
- * hand the text to the one reader of the format (src/PatchFile.h), and put
- * what came back on the channel. The rules about what a line means are not
- * here any more, and neither is the browser's second copy of them.
- *
- * The order below is the format's and is not free to change: the graph first,
- * because loading one is what builds the chanargs an override would otherwise
- * be set on and thrown away with the tree; the side before the effect, because
- * the effect is built when it is loaded and its side is part of building it;
- * and the effect before its `fx.' values, because they have nowhere to land
- * until it is on the channel. savePatch writes them in that order for the same
- * reason -- the writer decides the order so the reader need not tolerate both.
+ * hand the text to the one reader of the format (src/PatchFile.h), hand the
+ * document to the one thing that puts one on a channel (src/PatchApply.h),
+ * and record what happened. Finding the file is the only part of this the
+ * browser does differently, which is why it is the only part still here.
  */
 bool gthPatchManager::parse (const string &filename, int chan)
 {
@@ -367,22 +353,24 @@ bool gthPatchManager::parse (const string &filename, int chan)
         fprintf(stderr, "%s: %s\n", filename.c_str(),
                 doc.complaints[i].c_str());
 
-    thSynth *synth = thSynth::instance();
+    const thPatchApplied got =
+        thPatchApply(thSynth::instance(), chan, doc);
 
-    /* Before anything is thrown away. loadTree does not touch the channel
-       unless it succeeds, so neither does this: a patch naming a .dsp that
-       will not parse is now a failure to change anything, rather than one
-       that left the old graph playing with no PatchFile describing it -- no
-       tab contents, no filename, and nothing able to unload it. newPatch
-       makes the same promise in the same words. */
-    if (synth->loadTree(resolveDsp(doc.dsp).c_str(), chan,
-                        TH_DEFAULT_CHAN_AMP) == NULL)
+    for (size_t i = 0; i < got.complaints.size(); i++)
+        fprintf(stderr, "%s: %s\n", filename.c_str(),
+                got.complaints[i].c_str());
+
+    if (!got.ok)
     {
-        fprintf(stderr, "%s: could not load the graph '%s'\n",
-                filename.c_str(), doc.dsp.c_str());
+        fprintf(stderr, "%s: %s\n", filename.c_str(), got.why.c_str());
         return false;
     }
 
+    /* Only now. thSynth::loadTree does not touch the channel unless it
+       succeeds, so a patch naming a .dsp that will not parse is a failure to
+       change anything -- rather than one that left the old graph playing with
+       no PatchFile describing it: no tab contents, no filename, and nothing
+       able to unload it. newPatch makes the same promise in the same words. */
     delete patches_[chan];
 
     patches_[chan] = new PatchFile;
@@ -391,82 +379,15 @@ bool gthPatchManager::parse (const string &filename, int chan)
     patches_[chan]->info = doc.info;
     patches_[chan]->dirty = false;
 
-    /* The side, clamped: out of range is no side rather than a refused patch,
-     * since what is lost is a sidechain and the instrument still plays. A
-     * channel naming itself is the same kind of wrong and has to be caught
-     * here rather than left to loadEffect, which answers a cycle with NULL --
-     * the effect would be dropped from a patch that is otherwise fine, and
-     * then written back out without it the next time the patch was saved.
-     *
-     * Not in the document, because how many channels there are is not
-     * something a file can know; see thPatchDoc::side. */
-    const int side =
-        (doc.side >= 0 && doc.side < numPatches_ && doc.side != chan)
-        ? doc.side : -1;
-
-    if (!doc.effect.empty())
-    {
-        /* Resolved for opening, remembered as given -- resolveDsp's rule. */
-        if (synth->loadEffect(resolveDsp(doc.effect).c_str(), chan,
-                              side) == NULL)
-        {
-            /* Not a failed patch. The instrument is up and playable; what is
-               missing is a delay. Saying so beats refusing a patch somebody
-               can still use. */
-            fprintf(stderr, "%s: could not load the effect '%s'; the patch is "
-                    "loaded without it\n", filename.c_str(),
-                    doc.effect.c_str());
-        }
-        else
-        {
-            patches_[chan]->effectFile = doc.effect;
-            patches_[chan]->effectSide = side;
-        }
-    }
+    /* What went on, not what was asked for: the effect may have failed and
+       the side may have been clamped, and this is what a Save writes back. */
+    patches_[chan]->effectFile = got.effect;
+    patches_[chan]->effectSide = got.side;
 
     for (map<string, vector<float> >::const_iterator j = doc.args.begin();
          j != doc.args.end(); ++j)
-    {
-        const string &key = j->first;
-        const vector<float> &values = j->second;
-
-        if (values.empty())
-            continue;
-
-        patches_[chan]->args[key] = values[0];
-
-        thArg *arg = synth->getChanArg(chan, key);
-
-        if (arg == NULL)
-        {
-            /* An unknown `fx.' name is not invented. See thSynth::setChanArg:
-               the tolerance for names no graph declares belongs to the
-               instrument's side, where the corpus has a history of them, and
-               an invented one here would land in a map nothing reads. */
-            if (key.compare(0, strlen(TH_EFFECT_PREFIX),
-                            TH_EFFECT_PREFIX) == 0)
-            {
-                fprintf(stderr, "%s: no effect parameter called '%s'\n",
-                        filename.c_str(), key.c_str());
-                continue;
-            }
-
-            synth->setChanArg(chan, new thArg(key, &values[0],
-                                              (int)values.size()));
-        }
-        else if (values.size() == 1)
-        {
-            /* A single float is safe to write while the audio thread reads;
-               a longer one reallocates, so it goes through setChanArg, which
-               queues the swap. thArg::setValue says so at both overloads. */
-            arg->setValue(values[0]);
-        }
-        else
-        {
-            synth->setChanArg(chan, new thArg(key, &values[0],
-                                              (int)values.size()));
-        }
-    }
+        if (!j->second.empty())
+            patches_[chan]->args[j->first] = j->second[0];
 
     return true;
 }

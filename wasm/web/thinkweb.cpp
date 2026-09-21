@@ -90,6 +90,8 @@
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
+#include "PatchApply.h"
+#include "PatchFile.h"
 #include "KnobPanel.h"
 
 #include "twevent.h"
@@ -1160,6 +1162,140 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
         synth_->setChanArg(channel, new thArg(name, values, count));
 
     return 1;
+}
+
+/* ---- a .patch, read and put on a channel ----
+ *
+ * The page fetches the file and hands over its text; everything the bytes
+ * mean happens here, in the same code the application runs
+ * (src/PatchFile.h, src/PatchApply.h).
+ *
+ * It used to be a second parser in wasm/web/patch.js, written from
+ * docs/DSP_FORMAT.md separately, and it had drifted: an `effect' line
+ * parsed as a chanarg whose value was not a number and was dropped, so a
+ * patch with a channel effect on it sounded different in a browser and
+ * said nothing about why; `side' went to the engine as a chanarg called
+ * `side'. Both of those arrive for free now, by deletion -- there is no
+ * new page code behind them.
+ *
+ * What does not cross is finding the file. A browser has no PATCH_PATH and
+ * should not pretend to; the page has fetch() and an index.json, and hands
+ * text in exactly as it already does for tw_load and tw_instrument.
+ */
+
+static std::string patchWhy_;
+static std::string patchJson_;
+
+/* What each channel was last given, for tw_patch_json. */
+static std::map<int, thPatchDoc> patchDocs_;
+
+/* Reads `text' and puts it on `channel': the graph it names, its side, its
+ * effect and its overrides, in the order the format requires.
+ *
+ * 1 if the patch is on the channel. 0 leaves the channel exactly as it was,
+ * with tw_patch_why saying which of the two things went wrong -- the text
+ * is not a patch, or the graph it names would not load.
+ *
+ * The .dsp is not fetched here either. The page hands every shipped graph
+ * to tw_instrument before the first load, and a patch's `dsp' line is
+ * resolved against those -- the same lookup a piece's `instrument' block
+ * uses, and the same one the application makes under DSP_PATH.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text)
+{
+    patchWhy_.clear();
+
+    if (text == NULL)
+    {
+        patchWhy_ = "no patch text";
+        return 0;
+    }
+
+    thPatchDoc doc;
+
+    if (!thPatchParse(text, doc, patchWhy_))
+        return 0;
+
+    const thPatchApplied got = thPatchApply(synth_, channel, doc);
+
+    /* Both lists, in the order they happened: the lines the reader could not
+       use, then what the channel could not do with the rest. The page logs
+       them; neither is a failure on its own. */
+    for (size_t i = 0; i < doc.complaints.size(); i++)
+        fprintf(stderr, "channel %d: %s\n", channel + 1,
+                doc.complaints[i].c_str());
+
+    for (size_t i = 0; i < got.complaints.size(); i++)
+        fprintf(stderr, "channel %d: %s\n", channel + 1,
+                got.complaints[i].c_str());
+
+    if (!got.ok)
+    {
+        patchWhy_ = got.why;
+        return 0;
+    }
+
+    /* What went on, not what was asked for: the effect may have failed and
+       the side may have been clamped. */
+    doc.effect = got.effect;
+    doc.side = got.side;
+
+    patchDocs_[channel] = doc;
+
+    return 1;
+}
+
+/* What a .patch says, without putting it anywhere.
+ *
+ * The reading on its own: the same thPatchParse the application runs, with no
+ * channel and no synth involved, returned as the document it made. "" for
+ * text that is not a patch, with tw_patch_why saying so.
+ *
+ * Its own entry point rather than a mode of tw_patch_apply because applying
+ * changes the answer -- an effect that would not load is not in the document
+ * the channel ends up with -- and what the parity gate has to compare is the
+ * reading, which is the part compiled twice. It is also what a menu wants: a
+ * patch's `info title' is in the file, and showing it should not mean loading
+ * the patch to find out.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_read (const char *text)
+{
+    patchWhy_.clear();
+    patchJson_.clear();
+
+    thPatchDoc doc;
+
+    if (text != NULL && thPatchParse(text, doc, patchWhy_))
+        patchJson_ = thPatchDocToJson(doc);
+    else if (text == NULL)
+        patchWhy_ = "no patch text";
+
+    return patchJson_.c_str();
+}
+
+/* Why the last tw_patch_apply or tw_patch_read refused, or "". Valid until
+   the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_why (void)
+{
+    return patchWhy_.c_str();
+}
+
+/* What is on `channel', as the document it was given -- its graph, its
+ * effect, its info and its overrides. "" for a channel no patch has been put
+ * on.
+ *
+ * The dump is thPatchDocToJson's, which is compiled into the native harness
+ * as well and diffed against this byte for byte (wasm/web/patchcheck.mjs):
+ * one reading of the format, or the build fails. Valid until the next call.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
+{
+    std::map<int, thPatchDoc>::const_iterator it = patchDocs_.find(channel);
+
+    patchJson_ = (it == patchDocs_.end())
+        ? std::string() : thPatchDocToJson(it->second);
+
+    return patchJson_.c_str();
 }
 
 /* ---- the piece's chains and stages, and their pictures ----

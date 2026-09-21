@@ -39,7 +39,8 @@
  * through whatever the last mode had left lying there, or through nothing
  * at all. So a load is followed by the aiming and never preceded by it, and
  * the aiming is a function of the piece and of what somebody chose by hand.
- * patch.js holds the rule, the defaults and the .patch reader.
+ * patch.js holds the rule and the defaults; what a .patch means is the
+ * module's (src/PatchFile.h).
  *
  * TWO KINDS OF FINGER, ONE PATH. There is an on-screen keyboard
  * (keyboard.js) and there is the computer keyboard, and both go through
@@ -368,7 +369,7 @@ async function loadPiece ()
         const loaded = await synth.loadPiece($('gen').value);
 
         if (loaded.errors.length === 0)
-            aiming = await patch.aim(synth, loaded.sinks, dspTexts, aimed);
+            aiming = await patch.aim(synth, loaded.sinks, aimed);
 
         return loaded;
     });
@@ -658,7 +659,7 @@ async function aimByHand (channel, name)
     try
     {
         const what = await quietly(
-            () => patch.load(synth, channel, name, dspTexts));
+            () => patch.load(synth, channel, name));
 
         /* Remembered once it is actually on the channel. A choice that
            did not load is not a choice to repeat at every load of every

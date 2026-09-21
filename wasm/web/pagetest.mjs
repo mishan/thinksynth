@@ -74,6 +74,10 @@ const PIECE = 'airports.gen';
    composer view's gestures are tried on. */
 const COMPOSER_PIECE = 'colony.gen';
 
+/* A piece that names channels and declares no instrument for any of them,
+   so the page has to aim them and offers a menu per channel. */
+const AIMED_PIECE = 'fern.gen';
+
 let failures = 0;
 
 function check (cond, what)
@@ -611,6 +615,46 @@ try
         await page.mouse.click(box.x + box.w / 2, box.y + box.h - 4);
         check(await page.$eval('#composerparams', (e) => e.hidden),
               'and the next press closes it');
+    }
+
+    /* ---- a channel the piece left for the page to aim ---- */
+
+    /* A piece that names channels and declares no instrument of its own is
+     * the case patch.js exists for: what sounds there is the page's default,
+     * and a person may choose something else. Both halves go through the
+     * module now -- it reads the .patch and puts it on the channel -- so what
+     * is checked here is that a choice arrives, which is the one part of that
+     * path no headless gate walks.
+     */
+    await page.selectOption('#mode', 'piece');
+    await page.selectOption('#piece', AIMED_PIECE);
+    await page.waitForSelector('#channels select', { timeout: 60000 });
+    await page.evaluate(() => window.solo.settled());
+
+    const rows = await page.$$eval('#channels .channel', (all) => all.length);
+
+    check(rows > 0, `${AIMED_PIECE} left ${rows} channels for the page to aim`);
+
+    /* The first .patch the menu offers, chosen. The status line says what
+       went on, by the title the file gives itself -- which only something
+       that has read the file knows, and nothing on the page reads one. */
+    const chosen = await page.$eval(
+        '#channels select',
+        (sel) => [...sel.querySelectorAll('option')]
+            .find((o) => o.value.endsWith('.patch'))?.value ?? '');
+
+    check(chosen !== '', 'and the menu offers a .patch');
+
+    if (chosen !== '')
+    {
+        await page.selectOption('#channels select', chosen);
+        await page.waitForFunction(
+            () => /on channel \d+\. Play\.$/.test(
+                document.getElementById('status').textContent),
+            null, { timeout: 60000 });
+
+        check(true, `choosing ${chosen} loads it: ` +
+                    `${await page.textContent('#status')}`);
     }
 
     /* ---- the instrument as a graph ---- */

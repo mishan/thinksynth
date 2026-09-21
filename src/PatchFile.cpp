@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "JsonOut.h"
 #include "PatchFile.h"
 
 /* `fx.', the prefix every effect parameter is addressed by. Spelled out
@@ -389,6 +390,81 @@ string thPatchCompose (const thPatchDoc &doc, const string &stamp)
              j != doc.args.end(); ++j)
             if (hasPrefix(j->first, PATCH_FX_PREFIX))
                 out += j->first + " " + values(j->second) + "\n";
+
+    return out;
+}
+
+/* The document, as a page reads it.
+ *
+ * Here rather than in thinkweb.cpp for the reason the panel dump is in
+ * PanelModel.cpp: it is compiled twice -- once into the native harness, once
+ * into the module -- and the two dumps are diffed byte for byte
+ * (wasm/web/patchcheck.mjs). One parser compiled twice, or the build fails.
+ * A dump written by hand on the wasm side would be the third reading of the
+ * format this whole exercise exists to be rid of.
+ *
+ * The complaints are in it. A page that loads a patch with a typo in it has
+ * a log, and the line that said nothing is what a person needs to see.
+ */
+string thPatchDocToJson (const thPatchDoc &doc)
+{
+    string out = "{\"dsp\":";
+
+    jsonString(out, doc.dsp);
+    out += ",\"effect\":";
+    jsonString(out, doc.effect);
+    out += ",\"side\":";
+    jsonInt(out, doc.side);
+
+    /* Every property, not just `title'. What a shell shows is a shell's
+       decision, and a document that handed over only the one it guessed would
+       be a document nothing could ever grow a second use for. */
+    out += ",\"info\":{";
+
+    for (map<string, string>::const_iterator k = doc.info.begin();
+         k != doc.info.end(); ++k)
+    {
+        if (k != doc.info.begin())
+            out += ',';
+
+        jsonString(out, k->first);
+        out += ':';
+        jsonString(out, k->second);
+    }
+
+    out += "},\"args\":{";
+
+    for (map<string, vector<float> >::const_iterator j = doc.args.begin();
+         j != doc.args.end(); ++j)
+    {
+        if (j != doc.args.begin())
+            out += ',';
+
+        jsonString(out, j->first);
+        out += ":[";
+
+        for (size_t i = 0; i < j->second.size(); i++)
+        {
+            if (i)
+                out += ',';
+
+            jsonNumber(out, j->second[i]);
+        }
+
+        out += ']';
+    }
+
+    out += "},\"complaints\":[";
+
+    for (size_t i = 0; i < doc.complaints.size(); i++)
+    {
+        if (i)
+            out += ',';
+
+        jsonString(out, doc.complaints[i]);
+    }
+
+    out += "]}";
 
     return out;
 }
