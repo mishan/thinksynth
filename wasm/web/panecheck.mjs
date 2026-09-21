@@ -359,7 +359,7 @@ try
        these are a wasm instance drawing a frame a frame: stacked, one of
        them stops, and the page pays for one picture rather than two. */
     await page.click('#pane-composerview .panebody');
-    await page.getByRole('button', { name: 'The graph', exact: true })
+    await page.getByRole('button', { name: 'Patch graph', exact: true })
               .click();
     await page.waitForFunction(() => window.solo.drawing().nodes,
                                null, { timeout: 60000 });
@@ -393,7 +393,7 @@ try
 
     check(await page.evaluate(() =>
               [...document.querySelectorAll('.paneclosed')]
-                  .some((b) => b.textContent === 'The graph')),
+                  .some((b) => b.textContent === 'Patch graph')),
           'a tab dragged onto the drawer closes to it, drawing nothing');
 
     /* ---- and one dragged onto an edge, which is a split ---- */
@@ -408,7 +408,7 @@ try
 
     const had = await splits();
 
-    await drag('.panedrawer button:text-is("The graph")', '#pane-roll',
+    await drag('.panedrawer button:text-is("Patch graph")', '#pane-roll',
                { x: 0.92, y: 0.5 });
 
     check(await splits() === had + 1 &&

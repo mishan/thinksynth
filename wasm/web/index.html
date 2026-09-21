@@ -117,7 +117,7 @@
      module's answer and not this page's (src/PanelModel.h). The desktop
      draws the same answer with gtkmm; panel.js draws it here. -->
 <details id="paramview" open
-         data-pane data-pane-min="280">
+         data-pane data-pane-title="Patch params" data-pane-min="280">
   <summary>The instrument's parameters</summary>
   <div class="row">
     <label>Channel <select id="paramchan"></select></label>
@@ -134,7 +134,7 @@
      source's Load edits plays. Right-click a node's output to watch it
      with a meter or a scope. -->
 <details id="nodeview"
-         data-pane data-pane-title="The graph" data-pane-min="400">
+         data-pane data-pane-title="Patch graph" data-pane-min="400">
   <summary>The instrument, as a graph</summary>
   <div class="row">
     <label>File <select id="nodefile"></select></label>
@@ -200,7 +200,7 @@
 </details>
 
 <details id="detail"
-         data-pane data-pane-min="240">
+         data-pane data-pane-title="Debug" data-pane-min="240">
   <summary>What the browser reports</summary>
   <pre id="latency"></pre>
   <pre id="log"></pre>
