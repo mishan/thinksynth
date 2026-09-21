@@ -30,6 +30,7 @@
    do -- and it is the same header ComposerCanvas already pulls in. */
 #include "thcScheduler.h"
 #include "ComposerCanvasWidget.h"
+#include "StageParamsView.h"
 
 class thSynth;
 class thArg;
@@ -181,8 +182,10 @@ protected:
                                     std::vector<std::string> &targets);
     void buildAddChain (void);
 
-    void addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
-                      const thcPlugin *plugin, int paramIndex);
+    /* One stage's parameters, drawn and bound: StagePanel through
+       PanelView. Made afresh at each use for the reason the popover is --
+       a reload replaces every ParamInfo behind the rows. */
+    StageParamsView *makeStageParams (size_t ci, size_t si);
 
     /* Canvas callbacks. */
     void onCanvasSelection (const ComposerCanvas::Selection &sel);

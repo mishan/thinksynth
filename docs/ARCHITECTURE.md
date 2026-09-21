@@ -202,8 +202,9 @@ written in, how many decimals are worth showing, which group it belongs to —
 is `thPanel`, in [`src/PanelModel.h`](../src/PanelModel.h). Plain data, no
 toolkit, built from live state by a provider (`src/ArgPanel.cpp` for a
 channel's args, `src/KnobPanel.cpp` for a piece's knobs, `src/NodePanel.cpp`
-for a selected node's) and rendered by a shell — `src/gui/PanelView.cpp` on the
-desktop, `wasm/web/panel.js` in the browser, which reaches it through
+for a selected node's, `src/StagePanel.cpp` for a composer stage's) and
+rendered by a shell — `src/gui/PanelView.cpp` on the desktop,
+`wasm/web/panel.js` in the browser, which reaches it through
 `tw_panel_open`/`tw_panel_json`. It exists because those rules used to live
 inside a widget-building function and had to be written a second time,
 worse, for the browser — which meant an envelope time read `20000 ms` in one
@@ -218,9 +219,25 @@ is heard, so a move has to land at the same transport time on every peer, and
 `tw_panel_edit` refuses one outright — `tw_knob` carries the stamp. A node's
 value is the case with no delivery at all: it is a number in the `.dsp`, so
 the intent becomes a splice into that text (`NodeEdit::setValue` on the
-desktop, `tw_edit_set_value` in the browser) and nothing live is written. `scripts/panelcheck` is the gate, and it needs no display;
+desktop, `tw_edit_set_value` in the browser) and nothing live is written.
+
+A composer stage's param is the case with both halves at once, and the only
+panel whose rows are read out of a file rather than off live objects. What a
+row carries is what the `.gen` line says — the number in the unit it was
+written in, the knob it is read through, the note names rather than the MIDI
+numbers the store holds — so the intent is a whole authored right-hand side,
+and delivering one is a splice (`thcGenEdit::setParam`) followed by
+`StagePanel::deliver` into the running stage. A shell hands over only the
+part the person touched — `4000`, `ms`, `@warmth`, `@` — and the provider
+completes it against the line. It is stamped like a knob, for the same
+reason: a `period` that changes a window earlier on one peer moves that
+stage's next firing, and from there the peers are composing different
+pieces.
+
+`scripts/panelcheck` is the gate, and it needs no display;
 `wasm/web/panelcheck.mjs` is the other one, and diffs the module's
-description of a fixture against the native build's, byte for byte.
+description of two fixtures — a channel's panel and a stage's — against the
+native build's, byte for byte.
 
 ### What an arg says about itself
 

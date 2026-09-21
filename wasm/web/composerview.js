@@ -36,9 +36,10 @@
  */
 
 import { createCanvasView } from './canvasview.js';
+import { showPanel } from './panel.js';
 
 export function createComposerView ({ root = document, toMirror,
-                                      onGesture })
+                                      onGesture, onParamEdit })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -150,6 +151,11 @@ export function createComposerView ({ root = document, toMirror,
             case 'params':
                 showParams(m);
                 return true;
+
+            /* The open panel, asked for again. */
+            case 'panel':
+                followParams(m);
+                return true;
         }
 
         return false;
@@ -157,68 +163,129 @@ export function createComposerView ({ root = document, toMirror,
 
     /* ---- a stage's parameters ----
      *
-     * What it is playing, beside the box that is playing it. Read-only: the
-     * canvas reports rather than edits, and editing the piece from it is
-     * the step after this one -- on the desktop a param goes through
-     * thcGenEdit into the file, and in a room the text in the editor is the
-     * piece.
+     * What it is playing, beside the box that is playing it -- and settable,
+     * which it was not. The rows are the module's description of the stage
+     * (src/StagePanel.cpp) and they are drawn by panel.js, which is the same
+     * renderer the knob strip and the channel's parameters use: one class
+     * set, one spelling of a number, one idea of what a duration is worth in
+     * milliseconds.
+     *
+     * An edit does not write anything here. It leaves as a command, and
+     * every instance applies it -- the worklet, so it sounds; the mirror, so
+     * the picture follows; every peer, so the room stays one piece. The page
+     * that typed it is the nearest peer and not a privileged one, so its own
+     * box moves because the module took the edit (docs/JAM.md).
      */
-    const showParams = (m) =>
+
+    /* The panel that is up: which stage it is over, where the popover is
+       pointed, what the module said the rows were, and the function
+       showPanel handed back for putting a value into one of them. */
+    let params = null;
+
+    /* The rows into the popover, replacing whatever was there. `panel' is
+       null for a stage with nothing to show -- a dsp node run at control
+       rate, a plugin that did not load -- which is said rather than left as
+       an empty popover somebody presses twice. */
+    const draw = (panel) =>
     {
-        const panel = $('composerparams');
-
-        panel.replaceChildren();
-
+        const box = $('composerparams');
         const title = document.createElement('div');
 
-        title.className = 'menutitle';
-        title.textContent = `${m.name} in ${m.chainName}`;
-        panel.append(title);
+        box.replaceChildren();
 
-        if (m.params.length === 0)
+        title.className = 'menutitle';
+        title.textContent = panel === null
+            ? `in ${params.chainName}`
+            : `${panel.title} in ${params.chainName}`;
+        box.append(title);
+
+        if (panel === null)
         {
             const none = document.createElement('div');
 
             none.className = 'paramwhat';
             none.textContent = 'no parameters';
-            panel.append(none);
+            box.append(none);
+            params.panel = null;
+
+            return;
         }
 
-        for (const p of m.params)
-        {
-            const row = document.createElement('div');
-            const name = document.createElement('span');
-            const value = document.createElement('span');
+        /* The rows go in a box of their own: showPanel replaces everything
+           in what it is given, and the line above it saying which stage
+           this is about is not one of its rows. */
+        const body = document.createElement('div');
 
-            row.className = 'paramrow';
-            name.textContent = p.name;
+        box.append(body);
 
-            /* A string-valued param says its text; a number says its
-               number, with the unit the plugin declared. And a param read
-               through a piece knob says so, because a number that moves
-               on its own is otherwise a mystery. */
-            value.className = 'paramwhat';
-            value.textContent = p.text !== ''
-                ? p.text
-                : `${Number(p.value.toPrecision(4))}${p.units}`;
+        params.panel = panel;
+        params.setValue = showPanel(
+            body, panel,
+            (row, text) => onParamEdit(params.chain, params.stage, row,
+                                       text));
+    };
 
-            if (p.knob !== '')
-                value.textContent += ` (@${p.knob})`;
+    const showParams = (m) =>
+    {
+        const box = $('composerparams');
 
-            if (p.desc !== '')
-                row.title = p.desc;
+        params = { chain: m.chain, stage: m.stage, chainName: m.chainName,
+                   panel: null, setValue: () => {} };
 
-            row.append(name, value);
-            panel.append(row);
-        }
+        draw(m.panel === null ? null : JSON.parse(m.panel));
 
         /* Beside the box, in the page's own coordinates: the canvas said
            where in its own pixels and the element says where it is. */
         const at = $('composer').getBoundingClientRect();
 
-        panel.style.left = `${at.left + window.scrollX + m.at.x + m.at.w + 6}px`;
-        panel.style.top = `${at.top + window.scrollY + m.at.y}px`;
-        panel.hidden = false;
+        box.style.left = `${at.left + window.scrollX + m.at.x + m.at.w + 6}px`;
+        box.style.top = `${at.top + window.scrollY + m.at.y}px`;
+        box.hidden = false;
+    };
+
+    /* The panel following the piece.
+     *
+     * A stage's rows come out of the .gen and move when somebody edits it,
+     * which is what the shape is for: an edit from a peer, or this page's
+     * own coming back round, changes the line and the rows are described
+     * again. The one number that moves on its own is a param read through a
+     * knob, and it arrives in the same description -- so there is no value
+     * poll here, unlike the channel's panel, and the rebuild is the poll.
+     *
+     * Asked of the mirror rather than the worklet: this popover is over a
+     * stage the canvas pointed at, and the canvas is the mirror's. Both
+     * instances hold the same piece and apply the same commands, so there is
+     * no third answer for them to disagree with.
+     */
+    const followParams = (m) =>
+    {
+        if (params === null || m.panel === null ||
+            m.chain !== params.chain || m.stage !== params.stage)
+            return;
+
+        const panel = JSON.parse(m.panel);
+
+        /* The rows themselves have changed -- a value became a binding, a
+           knob was declared -- so the widgets are not the right ones any
+           more. Where the popover is pointing has not changed with them. */
+        if (params.panel === null || panel.shape !== params.panel.shape)
+        {
+            draw(panel);
+            return;
+        }
+
+        for (const row of panel.rows)
+            params.setValue(row.id, row.value, row.text);
+    };
+
+    /* Asked for on the frames the view already runs, and only while the
+       popover is up: a panel nobody is looking at is a description built
+       for nobody. */
+    const pollParams = () =>
+    {
+        if (params !== null && !$('composerparams').hidden)
+            toMirror({ type: 'panel', chain: params.chain,
+                       stage: params.stage });
     };
 
     /* A popover closes when something else is pressed: the next gesture
@@ -228,7 +295,10 @@ export function createComposerView ({ root = document, toMirror,
         const panel = $('composerparams');
 
         if (!panel.hidden && !panel.contains(e.target))
+        {
             panel.hidden = true;
+            params = null;
+        }
     }, true);
 
     /* Shown when its own box is open and the page is where it belongs.
@@ -250,8 +320,8 @@ export function createComposerView ({ root = document, toMirror,
     $('composerview').addEventListener(
         'toggle', () => view.show(wanted && $('composerview').open));
 
-    return { fromMirror, show, handleOf,
+    return { fromMirror, show, handleOf, pollParams,
              /* What the popover is showing, for a harness to read. */
              params: () => [...$('composerparams').querySelectorAll(
-                 '.paramrow')].map((r) => r.textContent) };
+                 '.panelrow')].map((r) => r.textContent) };
 }

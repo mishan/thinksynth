@@ -172,41 +172,38 @@ function sendGestures ()
 
     const chain = M._tw_canvas_params_chain();
     const stage = M._tw_canvas_params_stage();
-    const params = [];
-
-    for (let p = 0; p < M._tw_stage_param_count(chain, stage); p++)
-        params.push({
-            name: string('tw_stage_param_name', chain, stage, p),
-            desc: string('tw_stage_param_desc', chain, stage, p),
-            units: string('tw_stage_param_units', chain, stage, p),
-            knob: string('tw_stage_param_knob', chain, stage, p),
-            text: string('tw_stage_param_text', chain, stage, p),
-            type: M._tw_stage_param_type(chain, stage, p),
-            value: M._tw_stage_param_value(chain, stage, p),
-            min: M._tw_stage_param_min(chain, stage, p),
-            max: M._tw_stage_param_max(chain, stage, p),
-        });
 
     post({
         type: 'params',
         chain,
         stage,
-        name: M.UTF8ToString(M.ccall('tw_stage_name', 'number',
-                                     ['number', 'number'], [chain, stage])),
         chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
                                           ['number'], [chain])),
         at: { x: M._tw_canvas_params_x(), y: M._tw_canvas_params_y(),
               w: M._tw_canvas_params_w(), h: M._tw_canvas_params_h() },
-        params,
+        panel: panelOf(chain, stage),
     });
 }
 
-/* One of the many `const char *' exports, as a string. */
-function string (name, chain, stage, p)
+/* A stage's parameters, as the module describes them.
+ *
+ * One call and a JSON.parse on the other side, where there were ten
+ * accessors and a field-by-field loop over every row. The rows are
+ * src/StagePanel.cpp's now, and the difference is not only the line count:
+ * what came across before was what the plugin declared, so the page had to
+ * guess at a resolution with toPrecision(4) and could not have told a value
+ * written in beats from one written in seconds if it had wanted to.
+ *
+ * Null when the stage has no panel -- a dsp node run at control rate, a
+ * plugin that did not load -- which is a popover saying so rather than an
+ * empty one. */
+function panelOf (chain, stage)
 {
-    return M.UTF8ToString(
-        M.ccall(name, 'number', ['number', 'number', 'number'],
-                [chain, stage, p]));
+    /* thPanel::GEN_PARAM. */
+    if (M._tw_panel_open(2, chain, stage) === 0)
+        return null;
+
+    return M.UTF8ToString(M._tw_panel_json());
 }
 
 /* One frame of the canvas: the list, the strings it indexes and the
@@ -354,6 +351,17 @@ function receive (m)
 
         case 'enlarge':
             M._tw_canvas_enlarge(m.chain ?? -1, m.stage ?? -1);
+            break;
+
+        /* The open panel again, values and all: a param read through a
+           knob moves while the popover is up, and the panel is described
+           afresh rather than polled row by row -- a stage's rows come out
+           of the document and the knob's number comes with them. The page
+           compares the shape and redraws only when the rows themselves
+           have changed. */
+        case 'panel':
+            post({ type: 'panel', chain: m.chain, stage: m.stage,
+                   panel: panelOf(m.chain, m.stage) });
             break;
 
         /* Where a stage's params handle is, for a page that wants to

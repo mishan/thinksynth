@@ -290,6 +290,7 @@ add_executable(thinkweb
     "${THINK_TOP}/src/ArgPanel.cpp"
     "${THINK_TOP}/src/KnobPanel.cpp"
     "${THINK_TOP}/src/NodePanel.cpp"
+    "${THINK_TOP}/src/StagePanel.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
     thinkweb.cpp

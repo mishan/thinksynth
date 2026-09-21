@@ -679,6 +679,12 @@ function showComposer ()
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => send(maker.input(g.chain, g.stage, g.kind, g.x,
                                            g.y, g.w, g.h, g.button)),
+
+        /* A stage's param, out to the room and back at its time -- to this
+           peer as to every other, which is what keeps one piece one
+           piece. */
+        onParamEdit: (chain, stage, row, text) =>
+            send(maker.param(chain, stage, row, text)),
     });
 
     composer.show(true);
@@ -831,6 +837,13 @@ async function start ()
     setInterval(() => { sampleAudioClock(); showNumbers(); enable(); },
                 1000);
 
+    /* The stage popover, kept up to date. Four times a second, which is
+       about the desktop's draw timer and far below an animation frame: a
+       peer's edit of the line this is showing arrives at its stamp, and a
+       param read through a knob moves whenever the knob does. Nothing
+       happens while the popover is down. */
+    setInterval(() => composer?.pollParams(), 250);
+
     showComposer();
 
     try
@@ -948,6 +961,13 @@ function init ()
            edit against, and what one page holds the other's document
            against. */
         file: (name) => readFile(doc, name),
+
+        /* The composer canvas's params popover: where a stage's handle is,
+           so a harness can press one rather than aim at a guess, and what
+           the popover ended up showing. The layout is the canvas's, which
+           makes asking it the only honest way. */
+        handleOf: (chain, stage) => composer?.handleOf(chain, stage),
+        params: () => composer?.params() ?? [],
 
         /* The instrument canvas: where its boxes are, so a harness can
            press on one rather than at a guess, and what it has selected. */

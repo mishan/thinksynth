@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;STAGEPANEL" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -34,6 +34,13 @@ function(think_harness name)
   # ask about.
   if(H_PANEL)
     list(APPEND sources $<TARGET_OBJECTS:think_panel>)
+  endif()
+
+  # And the fourth provider. Wanted with COMPOSERHOST, always: a stage's
+  # parameters are the .gen's own text crossed with what the plugin
+  # registered, and it reads both through that library.
+  if(H_STAGEPANEL)
+    list(APPEND sources $<TARGET_OBJECTS:think_stagepanel>)
   endif()
 
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
@@ -231,8 +238,11 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
 think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS
+              PANEL STAGEPANEL
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
@@ -250,7 +260,7 @@ think_harness(argtype   NODEMODEL)
 # widget-building function, which meant they could only be checked on a
 # machine with a display and were re-implemented, badly, for the browser.
 # Needs the plugins and nothing else: it writes its own .dsp files.
-think_harness(panelcheck PANEL NODEMODEL)
+think_harness(panelcheck PANEL STAGEPANEL COMPOSERHOST NODEMODEL)
 
 # The composer framework: the .gen loader's validation (each bad file is
 # built on the fly and must fail with the right complaint), the shared pitch

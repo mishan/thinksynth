@@ -50,91 +50,6 @@ copyOver (const std::string &from, const std::string &to)
     return !ec;
 }
 
-/* What kind of right-hand side an authored value is. */
-struct ValueShape
-{
-    enum Kind { NUMBER, KNOB, QUOTED, WORD } kind;
-
-    double num;
-    std::string unit;        /* "", "s", "ms", "beats"                  */
-    std::string text;        /* knob name / string body / bare word     */
-};
-
-static ValueShape
-shapeOf (const std::string &valueText)
-{
-    ValueShape v;
-
-    v.num = 0;
-
-    if (!valueText.empty() && valueText[0] == '@')
-    {
-        v.kind = ValueShape::KNOB;
-        v.text = valueText.substr(1);
-        return v;
-    }
-
-    if (!valueText.empty() && valueText[0] == '"')
-    {
-        v.kind = ValueShape::QUOTED;
-        v.text = valueText.substr(1, valueText.size() > 1
-                                     ? valueText.size() - 2 : 0);
-        return v;
-    }
-
-    if (!valueText.empty() &&
-        ((valueText[0] >= '0' && valueText[0] <= '9') ||
-         valueText[0] == '-' || valueText[0] == '.'))
-    {
-        v.kind = ValueShape::NUMBER;
-        v.num = atof(valueText.c_str());
-
-        size_t sp = valueText.find_first_of(" \t");
-
-        if (sp != std::string::npos)
-        {
-            std::string u = valueText.substr(
-                valueText.find_first_not_of(" \t", sp));
-
-            v.unit = u == "b" ? "beats" : u;
-        }
-
-        return v;
-    }
-
-    v.kind = ValueShape::WORD;
-    v.text = valueText;
-
-    return v;
-}
-
-/* "53,56,60" -> "F3 Ab3 C4", for showing a resolved default as notes. */
-static std::string
-intsToNotes (const std::string &ints)
-{
-    std::string out;
-    const char *s = ints.c_str();
-
-    while (s && *s)
-    {
-        std::string n = thcGenLoader::noteName(atoi(s));
-
-        if (!n.empty())
-        {
-            if (!out.empty())
-                out += " ";
-            out += n;
-        }
-
-        s = strchr(s, ',');
-
-        if (s)
-            s++;
-    }
-
-    return out;
-}
-
 /* ---- construction ----------------------------------------------------- */
 
 ComposerWindow::ComposerWindow (thSynth *synth)
@@ -1506,25 +1421,36 @@ ComposerWindow::buildKnobSelection (size_t ki)
                 Gtk::Button *cut = manage(new Gtk::Button("Unbind"));
 
                 const std::string param = info->name;
-                const double keep = (*bound)[0];
 
-                /* A duration keeps its unit. The knob's value is already
-                   in seconds -- a knob is not tempo-scaled -- so the
-                   number is right either way; what the `s' buys is a
-                   line that says what it means to the next reader. */
-                const bool dur = info->isDuration();
-
+                /* Through the panel's own rule rather than a second copy of
+                   it: letting a binding go holds the number the knob was at,
+                   spelled the way a knob's number is spelled, and a duration
+                   keeps a unit. StagePanel.h calls that "@", and this is the
+                   same request a person makes by picking `(value)' out of a
+                   row's binding menu. */
                 cut->signal_clicked().connect(
-                    [this, ci, si, param, keep, dur]
+                    [this, ci, si, param]
                     {
-                        std::string text;
+                        StagePanel panel;
+                        thPanelEdit edit;
 
-                        thcGenEdit::format(keep, text);
+                        panel.setPiece(&doc_, sched_);
+                        panel.setStage((int)ci,
+                                       thcGenEdit::liveIndex(doc_.chains[ci],
+                                                             si));
 
-                        if (dur)
-                            text += " s";
+                        const thPanelResult r =
+                            panel.propose(param, "@", edit);
 
-                        applyParam(ci, si, param, text);
+                        if (!r.ok)
+                        {
+                            status_->set_text(r.why);
+                            return;
+                        }
+
+                        if (r.changed)
+                            applyParam(ci, si, param, edit.valueText);
+
                         rebuildSelection();
                     });
 
@@ -1743,19 +1669,77 @@ ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
     paramPop_->popup();
 }
 
+/* One stage's parameters, drawn and bound.
+ *
+ * Both places the window shows them are this call: the Selection tab and the
+ * popover the canvas's params handle brings up. What they are is StagePanel
+ * through PanelView, which is the same description the browser draws from
+ * -- so the two pages of this program stopped guessing separately at what a
+ * duration is worth in milliseconds and which knobs a param may be read
+ * through.
+ *
+ * Made afresh at each use rather than kept: a reload replaces every
+ * ParamInfo behind these widgets, and a panel that outlived one would be
+ * editing a stage that no longer exists.
+ *
+ * `si' is the document's stage index, which is what the window counts in;
+ * the panel names one by the scheduler's, so the two meet here. */
+StageParamsView *
+ComposerWindow::makeStageParams (size_t ci, size_t si)
+{
+    StageParamsView *view = manage(new StageParamsView());
+
+    view->setStage(&doc_, sched_, (int)ci,
+                   thcGenEdit::liveIndex(doc_.chains[ci], si));
+
+    view->signal_param_edited().connect(
+        [this, ci, si, view](const thPanelEdit &edit)
+        {
+            applyParam(ci, si, edit.row, edit.valueText);
+
+            /* Described again from the document the splice just changed: a
+             * row that has become a binding is shown and no longer offered,
+             * and a unit that has changed changes what the number means.
+             *
+             * On an idle and not here, because redrawing destroys the
+             * widget whose signal this is -- GTK would be left finishing an
+             * emission on an object it has already disposed, which is a
+             * critical in the log and worse than that under a sanitizer.
+             * Tracked on the view, so a panel taken down before the idle
+             * runs -- the popover closes on the next press anywhere -- is
+             * not one this goes looking for. */
+            Glib::signal_idle().connect_once(
+                sigc::track_obj(
+                    [this, view, edit]
+                    {
+                        view->setStage(&doc_, sched_, edit.a, edit.b);
+                    },
+                    *view));
+        });
+
+    /* The refusals this panel can produce are ones somebody just caused --
+       `H4' is not a note name, this piece declares no preset called that --
+       unlike the channel's, where every control is a number or a list. So
+       they go where the person is looking. */
+    view->signal_edited().connect(
+        [this, view](const string &, const string &)
+        {
+            if (!view->why().empty())
+                status_->set_text(view->why());
+        });
+
+    return view;
+}
+
 /* The params handle on a stage box, pressed.
  *
- * The rows are the Edit panel's rows -- addParamRow, the same call the
+ * The rows are the Edit panel's rows -- makeStageParams, the same call the
  * Selection tab makes -- in a popover pointed at the box. That is the
- * whole of why this is a popover and not a drawing: spin buttons that
- * take typed numbers, unit menus that say `ms' or `beats', and the knob
- * binding dropdown all already exist and all already splice the file
- * correctly. A canvas would have had to grow its own versions of the
- * three, in eight-pixel text, and would still not have let anyone type.
- *
- * Rebuilt each time rather than kept: a reload replaces every ParamInfo
- * behind these widgets, and a popover that outlived one would be editing
- * a stage that no longer exists. */
+ * whole of why this is a popover and not a drawing: boxes that take typed
+ * numbers, unit menus that say `ms' or `beats', and the knob binding
+ * dropdown are what a parameter is, and a canvas would have had to grow its
+ * own versions of the three, in eight-pixel text, and would still not have
+ * let anyone type. */
 void
 ComposerWindow::closeParams (void)
 {
@@ -1773,51 +1757,19 @@ ComposerWindow::onCanvasParams (size_t chain, size_t stage,
 {
     closeParams();
 
-    thcStage *live = liveStage(chain, stage);
-
-    if (live == NULL || chain >= doc_.chains.size() ||
+    if (liveStage(chain, stage) == NULL || chain >= doc_.chains.size() ||
         stage >= doc_.chains[chain].stages.size())
         return;
 
-    const thcPlugin *plugin = live->plugin;
+    StageParamsView *params = makeStageParams(chain, stage);
 
-    Gtk::Grid *grid = manage(new Gtk::Grid());
-
-    grid->set_row_spacing(4);
-    grid->set_column_spacing(8);
-    grid->set_margin(10);
-
-    Gtk::Label *head = manage(new Gtk::Label());
-
-    head->set_markup("<b>" +
-                     Glib::Markup::escape_text(doc_.chains[chain]
-                                               .stages[stage].name) +
-                     "</b>  " +
-                     Glib::Markup::escape_text(
-                         doc_.chains[chain].stages[stage].category + "::" +
-                         doc_.chains[chain].stages[stage].plugin));
-    head->set_xalign(0);
-    head->set_margin_bottom(4);
-    grid->attach(*head, 0, 0, 3);
-
-    int row = 1;
-
-    for (int pi = 0; pi < plugin->paramCount(); pi++)
-        addParamRow(grid, row++, chain, stage, plugin, pi);
-
-    if (row == 1)
-    {
-        Gtk::Label *none = manage(new Gtk::Label("no parameters"));
-
-        none->set_sensitive(false);
-        grid->attach(*none, 0, 1, 3);
-    }
+    params->set_margin(10);
 
     /* Tall stages exist -- gen::life has eight -- and a popover taller
        than the window is one with an unreachable bottom. */
     Gtk::ScrolledWindow *scroll = manage(new Gtk::ScrolledWindow());
 
-    scroll->set_child(*grid);
+    scroll->set_child(*params);
     scroll->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
     scroll->set_propagate_natural_width(true);
     scroll->set_propagate_natural_height(true);
@@ -1881,74 +1833,17 @@ std::vector<std::pair<std::string, std::string> >
 ComposerWindow::defaultParams (const thcPlugin *plugin)
 {
     /* Every registered param, spelled out -- a .gen should survive a
-       plugin's defaults changing; this is the lesson of noargs/. */
+       plugin's defaults changing; this is the lesson of noargs/.
+     *
+       The spelling is StagePanel's, which is the same answer the panel over
+       this stage will read back. A stage written with one set of rules and
+       described with another is how a freshly added stage comes to show a
+       value nobody wrote. */
     std::vector<std::pair<std::string, std::string> > out;
 
     for (int i = 0; i < plugin->paramCount(); i++)
-    {
-        const thcPlugin::ParamInfo *p = plugin->paramInfo(i);
-        std::string v;
-
-        /* Every enumerator named, and no `default:'.
-         *
-         * This switch had one, and a param type added years after it was
-         * written fell through to the numeric case and wrote `from = 0;'
-         * -- a generated stage the loader then refused. -Wall's -Wswitch
-         * only fires on a switch that covers the enum and misses a value,
-         * so a default label is exactly what buys the silence. Spelling
-         * the numeric types out costs three lines and turns the next
-         * addition into a compiler warning instead of a bug report. */
-        switch (p->type)
-        {
-            case THC_PARAM_NOTESET:
-                v = "\"" + intsToNotes(p->defString) + "\"";
-                break;
-            case THC_PARAM_STRING:
-                v = "\"" + p->defString + "\"";
-                break;
-
-            case THC_PARAM_PRESET:
-                /* The one param that gets left out, and the rule above is
-                   why rather than in spite of. "Write every param" exists
-                   so a piece survives a plugin's *defaults* changing -- a
-                   preset param has no default that can be written at all,
-                   because the only legal value is the name of something
-                   this piece declares, and a new stage cannot know one.
-                   Falling through to the numeric case would write `from =
-                   0;', which the loader rejects by name and line: a
-                   generated stage that will not load is worse than an
-                   absent line the loader is happy to default.
-                 *
-                   Left out with an *empty value*, not skipped. The
-                   returned vector is indexed by param index by the arg
-                   panel, which reads defs[paramIndex] to show what a
-                   line the file omits will actually do; skipping shifted
-                   every param after this one up by a slot -- so a preset
-                   param showed its neighbour's default -- and read one
-                   past the end when the omitted param was the last.
-                   thcGenEdit's writers drop the empties. */
-                break;
-
-            case THC_PARAM_INSTRSET:
-                /* And out for the same reason, one noun along: the only
-                   legal value is the name of an instrument this piece
-                   declares, which a freshly added stage cannot know.
-                   The warning that sent me here is the tripwire the
-                   paragraph above installed, doing its job. */
-                break;
-
-            case THC_PARAM_FLOAT:
-            case THC_PARAM_INT:
-            case THC_PARAM_NOTE:
-                thcGenEdit::format(p->def, v);
-
-                if (p->isDuration())
-                    v += " s";
-                break;
-        }
-
-        out.push_back(std::make_pair(p->name, v));
-    }
+        out.push_back(std::make_pair(plugin->paramInfo(i)->name,
+                                     StagePanel::defaultText(plugin, i)));
 
     return out;
 }
@@ -1991,136 +1886,26 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
         }
     }
 
-    /* And poke the live piece so the edit is audible now. */
-    thcStage *s = liveStage(ci, si);
+    /* And poke the live piece so the edit is audible now.
+     *
+       What a line means to a running stage -- bind this knob, hold that many
+       beats, resolve these note names -- is StagePanel's, and is the same
+       call the browser makes when the same edit arrives there as a command.
+       After the splice, because the panel is described from the document and
+       a stage poked first would be heard before it was written. */
+    thPanelEdit edit;
 
-    if (s == NULL)
-        return;
+    edit.kind = thPanelEdit::GEN_PARAM;
+    edit.row = param;
+    edit.valueText = valueText;
+    edit.a = (int)ci;
+    edit.b = thcGenEdit::liveIndex(doc_.chains[ci], si);
 
-    int idx = s->plugin->paramIndex(param);
+    StagePanel live;
 
-    if (idx < 0)
-        return;
-
-    ValueShape v = shapeOf(valueText);
-
-    switch (v.kind)
-    {
-        case ValueShape::KNOB:
-            /* A knob reads as plain seconds; a beats flag left over
-               from "2 beats" would tempo-scale it, which is not what
-               either spelling says -- and not what a reload would do. */
-            s->params.setBeats(idx, false);
-            sched_->bindKnob(s, idx, sched_->knob(v.text));
-            break;
-
-        case ValueShape::NUMBER:
-        {
-            sched_->unbindParam(s, idx);
-
-            double stored = v.unit == "ms" ? v.num / 1000.0 : v.num;
-
-            s->params.setBeats(idx, v.unit == "beats");
-            s->params.set(idx, stored);
-            break;
-        }
-
-        case ValueShape::QUOTED:
-        {
-            /* A binding shadows the stored value; without this unbind
-               the new notes would be set and never heard. */
-            sched_->unbindParam(s, idx);
-
-            const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
-
-            if (pi->type == THC_PARAM_NOTESET ||
-                pi->type == THC_PARAM_NOTE)
-            {
-                std::vector<int> notes;
-                std::string bad;
-
-                if (thcGenLoader::parseNoteList(v.text, notes, bad))
-                {
-                    if (pi->type == THC_PARAM_NOTE && notes.size() == 1)
-                        s->params.set(idx, notes[0]);
-                    else
-                    {
-                        std::ostringstream ints;
-
-                        for (size_t i = 0; i < notes.size(); i++)
-                            ints << (i ? "," : "") << notes[i];
-
-                        s->params.setString(idx, ints.str());
-                    }
-                }
-            }
-            else
-                s->params.setString(idx, v.text);
-            break;
-        }
-
-        case ValueShape::WORD:
-        {
-            /* A scale's name or a preset's -- the two kinds of named
-               object a param can refer to, spelled identically. Which
-               one it is comes from the param's type, not from the word.
-               And the same unbind QUOTED needs, for the same shadowing
-               reason. */
-            sched_->unbindParam(s, idx);
-
-            const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
-
-            if (pi != NULL && pi->type == THC_PARAM_PRESET)
-            {
-                for (size_t i = 0; i < doc_.presets.size(); i++)
-                {
-                    if (doc_.presets[i].name != v.text)
-                        continue;
-
-                    /* The same "name=value,..." the loader hands a
-                       plugin, built the same way, so a preset changed
-                       through the panel and one read from the file are
-                       indistinguishable to the composer. */
-                    std::ostringstream vec;
-
-                    for (size_t k = 0;
-                         k < doc_.presets[i].values.size(); k++)
-                    {
-                        std::string num;
-
-                        thcGenEdit::format(doc_.presets[i].values[k].value,
-                                           num);
-
-                        vec << (k ? "," : "")
-                            << doc_.presets[i].values[k].name << "=" << num;
-                    }
-
-                    s->params.setString(idx, vec.str());
-                }
-
-                break;
-            }
-
-            for (size_t i = 0; i < doc_.scales.size(); i++)
-                if (doc_.scales[i].name == v.text)
-                {
-                    std::vector<int> notes;
-                    std::string bad;
-
-                    if (thcGenLoader::parseNoteList(doc_.scales[i].notes,
-                                                    notes, bad))
-                    {
-                        std::ostringstream ints;
-
-                        for (size_t j = 0; j < notes.size(); j++)
-                            ints << (j ? "," : "") << notes[j];
-
-                        s->params.setString(idx, ints.str());
-                    }
-                }
-            break;
-        }
-    }
+    live.setPiece(&doc_, sched_);
+    live.setStage(edit.a, edit.b);
+    live.deliver(edit);
 }
 
 void
@@ -2896,15 +2681,7 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
 
     if (found != composers_.end())
     {
-        Gtk::Grid *grid = manage(new Gtk::Grid());
-
-        grid->set_column_spacing(6);
-        grid->set_row_spacing(2);
-
-        for (int pi = 0; pi < found->second->paramCount(); pi++)
-            addParamRow(grid, pi, ci, si, found->second, pi);
-
-        selBox_->append(*grid);
+        selBox_->append(*makeStageParams(ci, si));
     }
     else if (stage.category != "gen" && stage.category != "xform")
     {
@@ -3303,258 +3080,4 @@ ComposerWindow::buildAddChain (void)
     row->append(*chanSel);
     row->append(*addBtn);
     selBox_->append(*row);
-}
-
-void
-ComposerWindow::addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
-                             const thcPlugin *plugin, int paramIndex)
-{
-    const thcPlugin::ParamInfo *pi = plugin->paramInfo(paramIndex);
-    const thcGenEdit::Stage &stage = doc_.chains[ci].stages[si];
-
-    /* The authored text, or the default's spelling for a line the file
-       does not have. */
-    std::string authored;
-    bool inFile = false;
-
-    for (size_t i = 0; i < stage.params.size(); i++)
-        if (stage.params[i].name == pi->name)
-        {
-            authored = stage.params[i].valueText;
-            inFile = true;
-        }
-
-    if (!inFile)
-    {
-        std::vector<std::pair<std::string, std::string> > defs =
-            defaultParams(plugin);
-
-        authored = defs[paramIndex].second;
-    }
-
-    ValueShape v = shapeOf(authored);
-
-    Gtk::Label *lbl = manage(new Gtk::Label(pi->name));
-
-    lbl->set_xalign(0);
-
-    if (!pi->desc.empty())
-        lbl->set_tooltip_text(pi->desc);
-
-    grid->attach(*lbl, 0, row);
-
-    std::string paramName = pi->name;
-
-    if (pi->type == THC_PARAM_FLOAT || pi->type == THC_PARAM_INT)
-    {
-        bool isInt = pi->type == THC_PARAM_INT;
-
-        /* Wide bounds rather than the declared ones when a unit scales
-           the number: 600 seconds of period is 600000 ms. */
-        Gtk::SpinButton *spin = manage(new Gtk::SpinButton(
-            Gtk::Adjustment::create(v.kind == ValueShape::NUMBER ? v.num
-                                                                 : pi->def,
-                                    isInt ? pi->min : -1e6,
-                                    isInt ? pi->max : 1e6,
-                                    isInt ? 1 : 0.1),
-            0, isInt ? 0 : 3));
-
-        Gtk::DropDown *unitSel = NULL;
-        static const char *unitNames[3] = { "s", "ms", "beats" };
-
-        if (pi->isDuration())
-        {
-            std::vector<Glib::ustring> units;
-
-            units.push_back("s");
-            units.push_back("ms");
-            units.push_back("beats");
-            unitSel = manage(new Gtk::DropDown(units));
-
-            guint u = 0;
-
-            if (v.unit == "ms")
-                u = 1;
-            else if (v.unit == "beats")
-                u = 2;
-
-            unitSel->set_selected(u);
-        }
-
-        /* The binding: a plain value, or any of the piece's knobs. */
-        std::vector<Glib::ustring> bindShown;
-        std::vector<std::string> bindNames;
-
-        bindShown.push_back("(value)");
-
-        for (size_t i = 0; i < doc_.knobs.size(); i++)
-        {
-            bindShown.push_back("@" + doc_.knobs[i].name);
-            bindNames.push_back(doc_.knobs[i].name);
-        }
-
-        Gtk::DropDown *bindSel = manage(new Gtk::DropDown(bindShown));
-
-        if (v.kind == ValueShape::KNOB)
-            for (size_t i = 0; i < bindNames.size(); i++)
-                if (bindNames[i] == v.text)
-                    bindSel->set_selected((guint)i + 1);
-
-        bool bound = v.kind == ValueShape::KNOB;
-
-        spin->set_sensitive(!bound);
-
-        if (unitSel != NULL)
-            unitSel->set_sensitive(!bound);
-
-        auto compose = [this, ci, si, paramName, spin, unitSel, bindSel,
-                        bindNames, pi]
-        {
-            std::string text;
-
-            if (bindSel->get_selected() > 0 &&
-                bindSel->get_selected() <= bindNames.size())
-                text = "@" + bindNames[bindSel->get_selected() - 1];
-            else
-            {
-                thcGenEdit::format(spin->get_value(), text);
-
-                if (unitSel != NULL)
-                    text += std::string(" ") +
-                        unitNames[std::min(unitSel->get_selected(),
-                                           (guint)2)];
-            }
-
-            applyParam(ci, si, paramName, text);
-        };
-
-        spin->signal_value_changed().connect(compose);
-
-        if (unitSel != NULL)
-            unitSel->property_selected().signal_changed().connect(compose);
-
-        bindSel->property_selected().signal_changed().connect(
-            [compose, spin, unitSel, bindSel]
-            {
-                bool nowBound = bindSel->get_selected() > 0;
-
-                spin->set_sensitive(!nowBound);
-
-                if (unitSel != NULL)
-                    unitSel->set_sensitive(!nowBound);
-
-                compose();
-            });
-
-        grid->attach(*spin, 1, row);
-
-        if (unitSel != NULL)
-            grid->attach(*unitSel, 2, row);
-
-        grid->attach(*bindSel, 3, row);
-    }
-    else
-    {
-        /* NOTESET, NOTE, STRING and PRESET: an entry. What the typed
-           text becomes is worked out below from the param's type -- a
-           NOTESET takes note names or a scale's name, a PRESET takes a
-           preset's name and nothing else. */
-        Gtk::Entry *entry = manage(new Gtk::Entry());
-
-        entry->set_text(v.kind == ValueShape::QUOTED ? v.text : authored);
-        entry->set_hexpand(true);
-
-        if (pi->type == THC_PARAM_NOTESET)
-            entry->set_tooltip_text(
-                "Note names, or a scale's name; Enter applies");
-        else if (pi->type == THC_PARAM_PRESET)
-            entry->set_tooltip_text(
-                "The name of a preset this piece declares; Enter applies");
-        else
-            entry->set_tooltip_text("Enter applies");
-
-        thcParamType type = pi->type;
-
-        entry->signal_activate().connect(
-            [this, ci, si, paramName, entry, type]
-            {
-                std::string text = entry->get_text();
-                std::string valueText;
-
-                if (type == THC_PARAM_NOTESET)
-                {
-                    bool isScale = false;
-
-                    for (size_t i = 0; i < doc_.scales.size(); i++)
-                        if (doc_.scales[i].name == text)
-                            isScale = true;
-
-                    if (isScale)
-                        valueText = text;
-                    else
-                    {
-                        std::vector<int> notes;
-                        std::string bad;
-
-                        if (!thcGenLoader::parseNoteList(text, notes, bad))
-                        {
-                            status_->set_text("'" + bad +
-                                              "' is not a note name");
-                            return;
-                        }
-
-                        valueText = "\"" + text + "\"";
-                    }
-                }
-                else if (type == THC_PARAM_PRESET)
-                {
-                    /* Bare, not quoted. A preset is referred to by name,
-                       the way a scale is, and the loader refuses a
-                       quoted one on purpose -- a timbre vector spelled
-                       inline is a preset that cannot be saved under a
-                       name. Checked here rather than left to the load,
-                       because the panel is where the person is. */
-                    bool ok = !text.empty() &&
-                        ((text[0] >= 'a' && text[0] <= 'z') ||
-                         (text[0] >= 'A' && text[0] <= 'Z'));
-
-                    for (size_t i = 1; ok && i < text.size(); i++)
-                    {
-                        const char c = text[i];
-
-                        ok = (c >= 'a' && c <= 'z') ||
-                             (c >= 'A' && c <= 'Z') ||
-                             (c >= '0' && c <= '9') || c == '_';
-                    }
-
-                    if (!ok)
-                    {
-                        status_->set_text("a preset's name, like `warm'");
-                        return;
-                    }
-
-                    valueText = text;
-                }
-                else if (type == THC_PARAM_NOTE)
-                {
-                    std::vector<int> notes;
-                    std::string bad;
-
-                    if (!thcGenLoader::parseNoteList(text, notes, bad) ||
-                        notes.size() != 1)
-                    {
-                        status_->set_text("one note name, like C4");
-                        return;
-                    }
-
-                    valueText = "\"" + text + "\"";
-                }
-                else
-                    valueText = "\"" + text + "\"";
-
-                applyParam(ci, si, paramName, valueText);
-            });
-
-        grid->attach(*entry, 1, row, 3, 1);
-    }
 }

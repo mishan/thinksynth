@@ -42,9 +42,14 @@
  * and moves nothing, which is what keeps a panel following a knob from
  * reporting an edit nobody made.
  *
- * And then the other provider the module carries: a piece's knobs, whose
- * rows are numbered by the command that moves them and which tw_panel_edit
- * refuses outright, because a knob is heard and its delivery is a stamp.
+ * And then the other two providers the module carries. A piece's knobs,
+ * whose rows are numbered by the command that moves them and which
+ * tw_panel_edit refuses outright, because a knob is heard and its delivery
+ * is a stamp. And a composer stage's params, which are compared against a
+ * second native dump -- they are read out of a .gen rather than off a live
+ * object, so they are the rows with the most to disagree about -- and then
+ * edited through tw_param, which is the stamped door a param has for the
+ * same reason a knob does.
  *
  * And the one rule the page does implement itself. A row arrives spelled,
  * but a value that moves is spelled on the page as it moves, so panel.js
@@ -101,6 +106,9 @@ execFileSync(harness, ['-p', path.join(native, 'plugins') + path.sep,
 
 const wanted = fs.readFileSync(path.join(scratch, 'panel.json'), 'utf8');
 const dsp = fs.readFileSync(path.join(scratch, 'panel.dsp'), 'utf8');
+const wantedStage = fs.readFileSync(path.join(scratch, 'stage.json'),
+                                    'utf8');
+const gen = fs.readFileSync(path.join(scratch, 'panel.gen'), 'utf8');
 
 const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
@@ -114,6 +122,7 @@ const M = await createThinkWeb({
 /* thPanel::Kind, and the flag that picks a channel's second arg map. */
 const CHANARG = 0;
 const KNOB = 1;
+const GEN_PARAM = 2;
 const INSTRUMENT = 0;
 
 /* A shipped piece with knobs in it, for the knob panel below. */
@@ -150,25 +159,34 @@ const shape = M._tw_panel_open(CHANARG, 0, INSTRUMENT) >>> 0;
 
 check(shape !== 0, 'the channel has a panel');
 
-const got = `${M.UTF8ToString(M._tw_panel_json())}\n`;
-
-if (got === wanted)
-    ok('the module describes the panel exactly as the native build does');
-else
+/* Two dumps, held against each other.
+ *
+ * Where they differ rather than both of them: a dump is a few thousand
+ * characters and a diff nobody can find the place in is a diff nobody
+ * reads. */
+const same = (got, want, what) =>
 {
-    /* Where, rather than both of them: the dump is a few thousand
-       characters and a diff nobody can find the place in is a diff nobody
-       reads. */
+    if (got === want)
+    {
+        ok(what);
+        return;
+    }
+
     let at = 0;
 
-    while (at < got.length && at < wanted.length && got[at] === wanted[at])
+    while (at < got.length && at < want.length && got[at] === want[at])
         at++;
 
-    fail('the module describes the panel exactly as the native build does',
+    fail(what,
          `first difference at ${at}\n` +
-         `      native: ...${wanted.slice(Math.max(0, at - 40), at + 60)}\n` +
+         `      native: ...${want.slice(Math.max(0, at - 40), at + 60)}\n` +
          `      module: ...${got.slice(Math.max(0, at - 40), at + 60)}`);
-}
+};
+
+const got = `${M.UTF8ToString(M._tw_panel_json())}\n`;
+
+same(got, wanted,
+     'the module describes the panel exactly as the native build does');
 
 const panel = JSON.parse(got);
 
@@ -385,6 +403,113 @@ const edit = (row, text, b = INSTRUMENT) =>
 
         check(refused === 0 && why !== '',
               'a knob is not set by an edit, and the refusal says why', why);
+    }
+}
+
+/* ---- a composer stage's parameters ------------------------------------- */
+
+/* The provider that reads a file rather than a live object, and so the one
+ * with the most to disagree about between two builds: what a row says is
+ * what the .gen says, down to which of the three units a duration was
+ * written in.
+ *
+ * Loaded last because a piece takes the channel the .dsp above was on
+ * (thinkweb.cpp, tw_piece_load): the two are modes here as they are on the
+ * page, so the channel panel's checks come first and stay above this.
+ */
+{
+    if (M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                [gen, 7]) === 0)
+        fail('the fixture .gen loads in the module');
+    else
+    {
+        ok('the fixture .gen loads in the module');
+
+        const shape = M._tw_panel_open(GEN_PARAM, 0, 0) >>> 0;
+
+        check(shape !== 0, 'the first stage has a panel');
+
+        same(`${M.UTF8ToString(M._tw_panel_json())}\n`, wantedStage,
+             'and the module describes it exactly as the native build does');
+
+        const stage = JSON.parse(M.UTF8ToString(M._tw_panel_json()));
+
+        /* Not through tw_panel_edit, and the refusal says so rather than
+           quietly doing nothing: a param is heard, so it goes through
+           tw_param and lands at a transport time on every peer. */
+        const refused = M.ccall(
+            'tw_panel_edit', 'number',
+            ['number', 'number', 'number', 'string', 'string'],
+            [GEN_PARAM, 0, 0, 'period', '8']);
+        const why = M.UTF8ToString(M._tw_panel_why());
+
+        check(refused === 0 && why !== '',
+              'a stage param is not set by an edit, and the refusal says why',
+              why);
+
+        /* The door it does go through. Stamped below zero, which is "the
+           top of the next window" -- what a solo page and a stopped
+           transport send -- so one step applies it. */
+        const param = (row, text) =>
+        {
+            M.ccall('tw_param', null,
+                    ['number', 'number', 'number', 'string', 'string'],
+                    [-1, 0, 0, row, text]);
+
+            M._tw_step(M._tw_frame() + 4096);
+        };
+
+        const rowOf = (id) =>
+        {
+            M._tw_panel_open(GEN_PARAM, 0, 0);
+
+            return JSON.parse(M.UTF8ToString(M._tw_panel_json()))
+                .rows.find((r) => r.id === id);
+        };
+
+        param('period', '8');
+
+        check(rowOf('period').value === 8 &&
+              rowOf('period').units === 'beats',
+              'a number typed into the box keeps the unit the line had',
+              JSON.stringify(rowOf('period')?.text));
+
+        param('period', 'ms');
+
+        check(rowOf('period').units === 'ms' &&
+              rowOf('period').value === 8,
+              'and the menu alone keeps the number');
+
+        /* The splice is the lasting half, and the page reads it back: the
+           edit is in the piece's own text, in this instance and in every
+           other that applied the same command. */
+        check(M.UTF8ToString(M._tw_piece_text()).includes('period = 8 ms'),
+              'an edit is spliced into the piece, as the file spells it');
+
+        param('prob', '@warmth');
+
+        check(rowOf('prob').knob === 'warmth' && !rowOf('prob').editable,
+              'a binding rebinds, and the row stops offering a number');
+
+        param('prob', '@');
+
+        check(rowOf('prob').knob === '' && rowOf('prob').editable &&
+              rowOf('prob').value === 0.35,
+              'and letting it go holds the number the knob was at',
+              String(rowOf('prob').value));
+
+        /* Refused, and nothing written. A refusal reaching the file would
+           be worse than a refusal: the peers' copies would part. */
+        const before = M.UTF8ToString(M._tw_piece_text());
+
+        param('notes', 'H4');
+
+        check(M.UTF8ToString(M._tw_piece_text()) === before,
+              'a value the param cannot take changes nothing');
+
+        check(stage.rows.some((r) => r.bindable) &&
+              stage.knobs.length === 2,
+              'the panel carries the knobs a bindable row may be bound to');
     }
 }
 

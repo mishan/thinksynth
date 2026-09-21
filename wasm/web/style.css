@@ -473,6 +473,19 @@ details { margin: 0.8em 0; }
     text-align: right;
 }
 
+/* A value and the menus that qualify it: which unit a composer's duration
+   is written in, which knob it is read through. One cell of the row, so the
+   menus do not fall into the next row's name column. */
+.panelvalue
+{
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.panelvalue .panelunit, .panelvalue .panelbind { flex: 0 0 auto; }
+
 /* A group -- an envelope's four controls, a filter's two -- as its own
    foldable block, open to begin with: a parameter you cannot see is a
    parameter you will not remember the patch has. */
@@ -510,19 +523,26 @@ details { margin: 0.8em 0; }
 #nodeparams { margin-top: 0.5rem; }
 
 /*
- * The composer canvas's params popover: a row per param, read-only, in a
- * little panel beside the stage it is about.
+ * The composer canvas's params popover: a stage's panel, drawn by panel.js
+ * like every other one this page has, in a little box beside the stage it is
+ * about.
+ *
+ * One pair of columns whatever the window is. The media queries above ask
+ * about the viewport, and this is not in the viewport's width -- it is in a
+ * popover a quarter of it wide, where four columns would be four columns of
+ * nothing.
  */
-.paramrow {
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
+#composerparams .panelrows {
+    grid-template-columns: max-content minmax(7rem, 1fr);
     font-size: 0.9rem;
 }
 
-.paramrow input {
-    width: 7rem;
-}
+#composerparams .panelrow { grid-column: span 2; }
+
+/* Wider than the port menu it shares a class with: a stage's row is a name,
+   a number box, a unit menu and a binding menu, and 22rem cuts the last of
+   them off. */
+#composerparams { max-width: 32rem; }
 
 /* What a parameter is when it is not a number to type in: an output the
    plugin writes, or a value something else drives. */

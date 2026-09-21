@@ -299,6 +299,16 @@ string thPanelToJson (const thPanel &panel)
         jsonString(out, panel.groupOrder[i]);
     }
 
+    out += "],\"knobs\":[";
+
+    for (size_t i = 0; i < panel.knobs.size(); i++)
+    {
+        if (i)
+            out += ',';
+
+        jsonString(out, panel.knobs[i]);
+    }
+
     out += "],\"rows\":[";
 
     for (size_t i = 0; i < panel.rows.size(); i++)
@@ -338,8 +348,20 @@ string thPanelToJson (const thPanel &panel)
         jsonString(out, row.knob);
         out += ",\"editable\":";
         out += row.editable ? "true" : "false";
+        out += ",\"bindable\":";
+        out += row.bindable ? "true" : "false";
 
-        out += ",\"choices\":[";
+        out += ",\"unitChoices\":[";
+
+        for (size_t u = 0; u < row.unitChoices.size(); u++)
+        {
+            if (u)
+                out += ',';
+
+            jsonString(out, row.unitChoices[u]);
+        }
+
+        out += "],\"choices\":[";
 
         for (size_t c = 0; c < row.choices.size(); c++)
         {
@@ -495,6 +517,7 @@ void thPanelBuilder::finish (thPanel &panel) const
         hashInto(h, row.label);
         hashInto(h, row.units);
         hashInto(h, row.editable ? 1 : 0);
+        hashInto(h, row.bindable ? 1 : 0);
         hashInto(h, row.knob);
         hashInto(h, row.lo);
         hashInto(h, row.hi);
@@ -508,7 +531,16 @@ void thPanelBuilder::finish (thPanel &panel) const
             hashInto(h, row.choices[c].first);
             hashInto(h, row.choices[c].second);
         }
+
+        for (size_t u = 0; u < row.unitChoices.size(); u++)
+            hashInto(h, row.unitChoices[u]);
     }
+
+    /* The knobs, because a row's binding menu is made of them: declaring one
+       while a stage panel is open is a widget the panel does not have yet,
+       and a shell that did not rebuild would go on offering the old list. */
+    for (size_t i = 0; i < panel.knobs.size(); i++)
+        hashInto(h, panel.knobs[i]);
 
     for (size_t i = 0; i < panel.actions.size(); i++)
     {

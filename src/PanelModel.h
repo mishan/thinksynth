@@ -125,6 +125,23 @@ struct thPanelRow
        that does nothing is worse than no row. */
     vector<pair<string, int> > choices;
 
+    /* The units this row's number may be written in, `units' being whichever
+     * of them it is written in now. Empty where the unit is a fact rather
+     * than a choice, which is every row but a composer's duration.
+     *
+     * A duration is the one value in the corpus whose unit is part of what
+     * the author said: `period = 4 beats' is clocked and `period = 2 s' is
+     * free-running, and the two are different pieces rather than two
+     * spellings of one (thcParamStore::setBeats). So the unit travels with
+     * the value in an edit -- "4000 ms" is one spelling and not a number
+     * with a label beside it -- and a shell that could not change it could
+     * not write half the values the format allows.
+     *
+     * Not a `choices' row, and the difference is what the row is *about*: a
+     * selector's value is the choice, and here the choice says how to read a
+     * number that is still the value. */
+    vector<string> unitChoices;
+
     /* The named thing this row's value is read through, bare and without
      * its `@', or empty for a plain value.
      *
@@ -147,9 +164,24 @@ struct thPanelRow
        -- but does not offer to change it. */
     bool editable;
 
+    /* True where this row's value may be made to come from one of the
+     * panel's knobs instead of being held -- and where a bound one may be
+     * let go again.
+     *
+     * Separate from `editable' because they are opposites here: a row
+     * reading `prob = @density' is not editable, since what moves it is the
+     * knob, and it is exactly the row somebody wants to unbind. So a shell
+     * offers the binding whether or not it offers the number, and `knob'
+     * says which way round it currently is.
+     *
+     * False everywhere but a composer's numeric param. A channel's arg is
+     * the thing a knob would be bound *to*; a node's value is a number in a
+     * file. */
+    bool bindable;
+
     thPanelRow (void)
         : kind(SLIDER), value(0), lo(0), hi(0), step(0), decimals(0),
-          valueChars(0), editable(true) {}
+          valueChars(0), editable(true), bindable(false) {}
 };
 
 /* A button the panel carries: "Capture to file", "Remove stage". Named
@@ -179,6 +211,16 @@ struct thPanel
     /* The groups, in the order they were first seen. Rows carrying no group
        come first in `rows'; each group's rows follow, contiguously. */
     vector<string> groupOrder;
+
+    /* What a `bindable' row may be bound to: the piece's knobs, bare and in
+     * the order it declared them. Empty for a panel with no bindable row and
+     * for a piece that declares none.
+     *
+     * On the panel rather than on each row because it is the piece's list
+     * and not the parameter's -- every row of a stage may be bound to every
+     * knob -- and a panel is read whole, so a copy per row would be the same
+     * dozen names a dozen times in the JSON a page parses. */
+    vector<string> knobs;
 
     vector<thPanelRow> rows;
     vector<thPanelAction> actions;
@@ -352,7 +394,11 @@ public:
               const string &inferred);
 
     /* Fills `panel.rows', `panel.groupOrder' and `panel.shape'. Leaves the
-       panel's title, kind and subject alone -- those are the provider's. */
+       panel's title, kind and subject alone -- those are the provider's.
+     *
+       `actions' and `knobs' have to be in already: both are made of widgets
+       and so both are in the shape, and a provider that filled them after
+       this would get a number that did not describe its panel. */
     void finish (thPanel &panel) const;
 
 private:

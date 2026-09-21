@@ -44,12 +44,18 @@
  *
  * Exit status is the number of failures.
  *
- * `-j' prints the channel's panel instead of checking anything: the rows as
- * tw_panel_json would hand them to a page. That is the reference
- * wasm/web/panelcheck.mjs holds the module's own dump against, which is the
- * gate that keeps one description from becoming two again -- one model, two
- * builds, byte-identical rows, or the build fails. It writes the fixture
- * .dsp beside the dump, so the wasm side loads exactly the same text.
+ * `-j' prints two panels instead of checking anything -- a channel's and a
+ * composer stage's, as tw_panel_json would hand them to a page. Those are
+ * the reference wasm/web/panelcheck.mjs holds the module's own dumps
+ * against, which is the gate that keeps one description from becoming two
+ * again: one model, two builds, byte-identical rows, or the build fails. It
+ * writes the fixture .dsp and .gen beside them, so the wasm side loads
+ * exactly the same text.
+ *
+ * Those two and not all four, because they are the two a browser can
+ * actually be put in front of the same inputs for. The stage panel is also
+ * the one with the most to disagree about: every other provider reads live
+ * objects, and this one reads a file.
  *
  * The instrument alone, and not the effect panel checked below it: a
  * channel effect reaches the browser through a piece's `effect' clause and
@@ -77,6 +83,10 @@
 #include "KnobPanel.h"
 #include "NodeGraph.h"
 #include "NodePanel.h"
+#include "StagePanel.h"
+#include "thcGenFile.h"
+#include "thcPlugin.h"
+#include "thcScheduler.h"
 
 static int failed = 0;
 
@@ -799,6 +809,479 @@ static void checkNodes (const string &pluginPath, const string &file)
     delete tree;
 }
 
+/* ---- a composer stage's panel ---------------------------------------- */
+
+/* The piece.
+ *
+ * Every spelling a param may be written in, on one stage, because the whole
+ * of what this provider does is read them: a note set as notes, a duration
+ * in beats, another in milliseconds, a number read through a knob, an
+ * expression the writer must not splice over, and a plain whole number. The
+ * shipped corpus has all six and no single stage has more than three.
+ *
+ * `lfo' is there for the expression to reach, and `chance' for a second
+ * stage with nothing unusual on it. The sink takes a raw channel so that the
+ * piece needs no .dsp beside it. */
+static const char *PIECE =
+    "name \"panelcheck\";\n"
+    "tempo 120;\n"
+    "seed 7;\n"
+    "\n"
+    "@density = 0.5;\n"
+    "@density.widget = 1;\n"
+    "@density.min = 0;\n"
+    "@density.max = 1;\n"
+    "\n"
+    "@warmth = 0.35;\n"
+    "@warmth.widget = 1;\n"
+    "@warmth.min = 0;\n"
+    "@warmth.max = 1;\n"
+    "@warmth.label = \"Warmth\";\n"
+    "\n"
+    "scale minor \"C4 D4 Eb4 F4 G4 Ab4 Bb4\";\n"
+    "\n"
+    "chain c {\n"
+    "    stage lfo osc::simple { freq = 0.2; };\n"
+    "    stage src gen::eno_line {\n"
+    "        notes = \"C4 E4 G4\";\n"
+    "        period = 4 beats;\n"
+    "        jitter = 250 ms;\n"
+    "        prob = @density;\n"
+    "        hold = lfo->out * 0.5 + 0.5;\n"
+    "        vel = 90;\n"
+    "    };\n"
+    "    stage bare gen::eno_line { };\n"
+    "    sink { channel = 1; };\n"
+    "};\n";
+
+/* The composer modules, by name, as the loader wants them. */
+static void loadComposers (const string &pluginPath,
+                           std::map<string, thcPlugin *> &out)
+{
+    std::error_code ec;
+    const std::filesystem::path root =
+        std::filesystem::path(pluginPath) / "composer";
+
+    if (!std::filesystem::is_directory(root, ec))
+        return;
+
+    for (const auto &f : std::filesystem::directory_iterator(root, ec))
+    {
+        if (ec)
+            break;
+
+        if (f.path().extension() != PLUGIN_SUFFIX)
+            continue;
+
+        thcPlugin *p = new thcPlugin(f.path().string());
+
+        if (p->state() != thcPlugin::LOADED)
+        {
+            delete p;
+            continue;
+        }
+
+        out[p->name()] = p;
+    }
+}
+
+/* What the src stage's rows say. `panel' is over scheduler stage 1, which is
+   document stage 1 as well here -- `lfo' is a dsp node in the file and a
+   node in the chain, so the two numberings agree by luck; checkStageIndex
+   below is the case where they do not. */
+static void checkStageRows (const thPanel &panel)
+{
+    check(panel.kind == thPanel::GEN_PARAM, "a stage's panel is its own kind");
+    check(panel.title == "src" && panel.subtitle == "gen::eno_line",
+          "and says which stage it is over",
+          panel.title + " / " + panel.subtitle);
+
+    check(idsOf(panel) == "notes,period,jitter,prob,hold,vel,vel_jitter",
+          "a row per registered param, in the plugin's order", idsOf(panel));
+
+    /* Every knob the piece declares, whether or not any row uses it: the
+       binding menu is a list of what a value *could* be read through. */
+    check(panel.knobs.size() == 2 && panel.knobs[0] == "density" &&
+          panel.knobs[1] == "warmth",
+          "and the piece's knobs, for a bindable row to be bound to");
+
+    const thPanelRow *notes = panel.find("notes");
+
+    if (notes == NULL)
+        fail("the panel has a row for `notes'", idsOf(panel));
+    else
+    {
+        check(notes->kind == thPanelRow::TEXT && notes->text == "C4 E4 G4",
+              "a note set is the file's own spelling, not the MIDI numbers "
+              "the store holds", notes->text);
+        check(!notes->bindable && notes->unitChoices.empty(),
+              "and is neither a duration nor something a knob can drive");
+    }
+
+    const thPanelRow *period = panel.find("period");
+
+    if (period == NULL)
+        fail("the panel has a row for `period'", idsOf(panel));
+    else
+    {
+        /* Four beats, and four beats -- not the two seconds 120bpm makes
+           of them. What the file says is what the panel says, or editing
+           it would quietly restate a clocked value as a free-running
+           one. */
+        check(period->value == 4 && period->units == "beats",
+              "a duration reads in the unit it was written in",
+              thPanelSpell(period->value, 4) + " " + period->units);
+        check(period->unitChoices.size() == 3 &&
+              period->unitChoices[0] == "s" &&
+              period->unitChoices[1] == "ms" &&
+              period->unitChoices[2] == "beats",
+              "and offers the three the format has");
+        check(period->bindable && period->knob.empty() && period->editable,
+              "a plain number is offered, and so is binding it to a knob");
+    }
+
+    const thPanelRow *jitter = panel.find("jitter");
+
+    check(jitter && jitter->value == 250 && jitter->units == "ms",
+          "milliseconds are milliseconds too",
+          jitter ? thPanelSpell(jitter->value, 0) + " " + jitter->units
+                 : string("(no row)"));
+
+    const thPanelRow *prob = panel.find("prob");
+
+    if (prob == NULL)
+        fail("the panel has a row for `prob'", idsOf(panel));
+    else
+    {
+        /* Shown at what the knob is at, and not offered: what moves it is
+           the knob. The binding is the thing there is to change. */
+        check(prob->knob == "density" && !prob->editable && prob->bindable,
+              "a bound param says which knob, and offers only the binding");
+        check(prob->value == 0.5,
+              "and reads the number the knob is at",
+              thPanelSpell(prob->value, 4));
+    }
+
+    const thPanelRow *hold = panel.find("hold");
+
+    if (hold == NULL)
+        fail("the panel has a row for `hold'", idsOf(panel));
+    else
+    {
+        /* The writer refuses to splice a number across arithmetic, so a
+           box to type one into would be a box whose every use is refused. */
+        check(hold->kind == thPanelRow::READONLY && !hold->editable,
+              "arithmetic is shown and not offered");
+        check(hold->text == "lfo->out * 0.5 + 0.5",
+              "whole, as the file spells it", hold->text);
+    }
+
+    const thPanelRow *vel = panel.find("vel");
+
+    check(vel && vel->decimals == 0 && vel->step == 1 && vel->value == 90,
+          "a whole number steps by one and shows no decimals",
+          vel ? to_string(vel->decimals) : string("(no row)"));
+
+    /* A param the file does not mention: the plugin's default, spelled the
+       way a .gen would have to write it, because editing one inserts a whole
+       line. */
+    const thPanelRow *spread = panel.find("vel_jitter");
+
+    check(spread && spread->value == 0 && spread->text == "0",
+          "a param the file omits shows the default it is running on",
+          spread ? spread->text : string("(no row)"));
+}
+
+/* A stage the file does not set: every row is a default, and one of them has
+   no default that can be written down. */
+static void checkDefaults (const thPanel &panel)
+{
+    const thPanelRow *prob = panel.find("prob");
+
+    check(prob != NULL && prob->editable && prob->kind == thPanelRow::NUMBER,
+          "an unwritten param is still a row somebody may set");
+
+    /* And an unwritten note set shows the plugin's default as notes, not as
+       the "53,56,60" the plugin registered it in. Nobody writes a piece in
+       MIDI numbers, and a box whose contents have to be translated before
+       they can be read is a box nobody can use. */
+    const thPanelRow *notes = panel.find("notes");
+
+    check(notes != NULL && notes->text == "F3 Ab3 C4",
+          "and an unwritten note set shows its default as note names",
+          notes ? notes->text : string("(no row)"));
+
+    /* A duration's default is a duration, and the loader refuses a bare
+       number on one -- so the row a panel offers has to carry a unit or the
+       line it writes would not load. */
+    const thPanelRow *period = panel.find("period");
+
+    check(period != NULL && !period->units.empty(),
+          "and an unwritten duration knows which unit it is in",
+          period ? period->units : string("(no row)"));
+}
+
+static void checkStageEdits (StagePanel &stage, const thPanel &panel)
+{
+    thPanelEdit edit;
+
+    /* A number typed into the box says nothing about seconds or beats: the
+       unit the row was already written in stays. */
+    {
+        const thPanelResult r = stage.propose("period", "8", edit);
+
+        check(r.ok && r.changed && edit.valueText == "8 beats",
+              "a number keeps the unit the line had", edit.valueText);
+    }
+
+    /* And the menu alone says nothing about the number. Changing it is
+       somebody saying the same number means something else -- which is the
+       whole reason a duration's unit is a control and not a label. */
+    {
+        const thPanelResult r = stage.propose("period", "s", edit);
+
+        check(r.ok && edit.valueText == "4 s",
+              "a unit keeps the number", edit.valueText);
+    }
+
+    {
+        const thPanelResult r = stage.propose("period", "@warmth", edit);
+
+        check(r.ok && edit.valueText == "@warmth",
+              "a binding is the whole right-hand side", edit.valueText);
+
+        const thPanelResult bad = stage.propose("period", "@nosuch", edit);
+
+        check(!bad.ok && !bad.why.empty(),
+              "a knob the piece does not declare is refused, with a reason",
+              bad.why);
+    }
+
+    /* Letting a binding go holds the number the knob had it at, which is
+       what anybody watching the panel was looking at when they did it. */
+    {
+        const thPanelResult r = stage.propose("prob", "@", edit);
+
+        check(r.ok && edit.valueText == "0.5",
+              "unbinding holds the value the knob was at", edit.valueText);
+    }
+
+    {
+        const thPanelResult r = stage.propose("notes", "C4 Eb4 G4", edit);
+
+        check(r.ok && edit.valueText == "\"C4 Eb4 G4\"",
+              "a note set is quoted on the way into the file",
+              edit.valueText);
+
+        /* A scale's name is a legal note set too, and is *not* quoted: the
+           file refers to it, so that renaming the scale's notes moves every
+           stage that names it. */
+        const thPanelResult named = stage.propose("notes", "minor", edit);
+
+        check(named.ok && edit.valueText == "minor",
+              "and the name of a declared scale is not", edit.valueText);
+
+        const thPanelResult bad = stage.propose("notes", "H4", edit);
+
+        check(!bad.ok && bad.why.find("H4") != string::npos,
+              "a note name that is not one is refused, by name", bad.why);
+    }
+
+    /* The catching-up guard, and here it compares the line rather than the
+       number: a panel is rebuilt from the document after every splice, so a
+       row reporting what it was just given would splice it again. */
+    {
+        const thPanelResult same = stage.propose("period", "4 beats", edit);
+
+        check(same.ok && !same.changed,
+              "an edit equal to the line that is there moves nothing",
+              same.why);
+    }
+
+    {
+        const thPanelResult r = stage.propose("hold", "2", edit);
+
+        check(!r.ok && !r.why.empty(),
+              "and arithmetic refuses the number it would be spliced over",
+              r.why);
+    }
+
+    /* A whole number is written whole. `vel = 90.7' is a velocity the
+       plugin reads as 90 and a file that says something else. */
+    {
+        const thPanelResult r = stage.propose("vel", "90.7", edit);
+
+        check(r.ok && edit.valueText == "91",
+              "a whole number is rounded rather than written long",
+              edit.valueText);
+    }
+
+    /* A .gen string literal holds no quotes and no newlines -- the lexer's
+       pattern has no escapes at all -- so a box that takes free text has to
+       say so where the person is, rather than leave the writer to refuse it
+       three layers down. */
+    {
+        const thPanelResult r = stage.propose("notes", "C4 \"E4", edit);
+
+        check(!r.ok && !r.why.empty(),
+              "a quote in a typed string is refused, by the panel", r.why);
+    }
+
+    check(!stage.propose("nosuchparam", "1", edit).ok,
+          "an edit naming a param that is not there is refused");
+}
+
+/* What the edit does to the stage that is playing -- the half a splice into
+   the file does not do, and the half both shells share. */
+static void checkStageDelivery (StagePanel &stage, thcStage *live)
+{
+    const int period = live->plugin->paramIndex("period");
+    const int notes = live->plugin->paramIndex("notes");
+
+    thPanelEdit edit;
+
+    stage.propose("period", "500", edit);
+    edit.valueText = "500 ms";
+
+    check(stage.deliver(edit) && live->params.get(period) == 0.5,
+          "milliseconds reach the store as seconds",
+          to_string(live->params.get(period)));
+
+    edit.valueText = "@density";
+
+    check(stage.deliver(edit) &&
+          live->params.knobBinding(period) != NULL,
+          "and a binding reaches it as a binding");
+
+    /* Bound, and the beats flag from `4 beats' is down: a knob reads as
+       plain seconds, and a flag only ever raised never comes down. */
+    check(live->params.get(period) == 0.5,
+          "a bound duration is the knob's number and not a tempo-scaled one",
+          to_string(live->params.get(period)));
+
+    edit.valueText = "2 s";
+
+    check(stage.deliver(edit) &&
+          live->params.knobBinding(period) == NULL &&
+          live->params.get(period) == 2,
+          "and a number after it releases the knob",
+          to_string(live->params.get(period)));
+
+    edit.row = "notes";
+    edit.valueText = "\"C4 E4\"";
+
+    check(stage.deliver(edit) &&
+          string(live->params.getString(notes)) == "60,64",
+          "note names are resolved at the panel, as they are at the file",
+          live->params.getString(notes));
+
+    /* A scale's name resolves the same way: the host looks it up once and
+       no plugin ever parses pitch text. */
+    edit.valueText = "minor";
+
+    check(stage.deliver(edit) &&
+          string(live->params.getString(notes)) == "60,62,63,65,67,68,70",
+          "and so does a scale's", live->params.getString(notes));
+}
+
+/* The two numberings, which are the same list only when a chain has no dsp
+   nodes in it.
+ *
+ * `lfo' is a stage in the file and a node in the chain, so the scheduler's
+ * list is one shorter and everything after it is off by one. Read raw, a
+ * panel over "stage 2" would describe `src' and splice `thin'. */
+static void checkStageIndex (const thcGenEdit::Doc &doc, thcScheduler &sched)
+{
+    StagePanel stage;
+    thPanel panel;
+
+    stage.setPiece(&doc, &sched);
+    stage.setStage(0, 1);
+
+    check(stage.build(panel) && panel.title == "bare",
+          "a stage is named by its place in the scheduler's list",
+          panel.title);
+
+    stage.setStage(0, 99);
+
+    check(!stage.build(panel), "and one that is not there has no panel");
+}
+
+static void checkStages (const string &pluginPath, const string &file)
+{
+    std::map<string, thcPlugin *> composers;
+
+    loadComposers(pluginPath, composers);
+
+    if (composers.empty())
+    {
+        fail("the composer modules load", pluginPath);
+        return;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thcScheduler sched(&synth);
+    thcGenLoader loader(composers);
+
+    if (!loader.load(file, &sched))
+    {
+        string why;
+
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            why += (i ? "; " : "") + loader.errors()[i];
+
+        fail("the piece loads", why);
+        return;
+    }
+
+    thcGenEdit::Doc doc;
+    string why;
+
+    if (thcGenEdit::describe(file, doc, why) != thcGenEdit::OK)
+    {
+        fail("and describes", why);
+        return;
+    }
+
+    checkStageIndex(doc, sched);
+
+    StagePanel stage;
+    thPanel panel;
+
+    stage.setPiece(&doc, &sched);
+    stage.setStage(0, 0);
+
+    if (!stage.build(panel))
+    {
+        fail("the src stage has a panel", "");
+        return;
+    }
+
+    ok("the src stage has a panel");
+
+    checkStageRows(panel);
+    checkStageEdits(stage, panel);
+
+    /* The stage the file leaves entirely to the plugin's defaults. */
+    StagePanel bare;
+    thPanel defaults;
+
+    bare.setPiece(&doc, &sched);
+    bare.setStage(0, 1);
+
+    if (bare.build(defaults))
+        checkDefaults(defaults);
+    else
+        fail("the stage with no params written has a panel", "");
+
+    /* Delivery last: it moves the stage the rows above were read from. */
+    checkStageDelivery(stage, sched.chain(0)->stages[0].get());
+
+    for (std::map<string, thcPlugin *>::iterator i = composers.begin();
+         i != composers.end(); ++i)
+        delete i->second;
+}
+
 /* ---- the instrument's panel ----------------------------------------- */
 
 static void checkRows (const thPanel &panel)
@@ -1388,14 +1871,16 @@ static string spellings (void)
 }
 
 static int dumpTo (const string &dir, const string &pluginPath,
-                   const string &instrument)
+                   const string &instrument, const string &piece)
 {
     std::error_code ec;
 
     std::filesystem::create_directories(dir, ec);
 
     if (!writeFile((std::filesystem::path(dir) / "panel.dsp").string(),
-                   INSTRUMENT))
+                   INSTRUMENT) ||
+        !writeFile((std::filesystem::path(dir) / "panel.gen").string(),
+                   PIECE))
         return 1;
 
     /* The level tw_load uses, so that `amp' holds the same number on both
@@ -1426,6 +1911,49 @@ static int dumpTo (const string &dir, const string &pluginPath,
 
     fputs(text.c_str(), stdout);
 
+    /* And the stage panel, which is the one whose rows are read out of a
+     * file rather than off live objects -- so it is the one where the two
+     * builds have the most to disagree about, and the one worth comparing
+     * hardest. Its own dump because it is over a different subject: a panel
+     * is compared whole, and there is no one panel both of these are part
+     * of. */
+    std::map<string, thcPlugin *> composers;
+
+    loadComposers(pluginPath, composers);
+
+    thcScheduler sched(&synth);
+    thcGenLoader loader(composers);
+    thcGenEdit::Doc doc;
+    string why;
+
+    if (!loader.load(piece, &sched) ||
+        thcGenEdit::describe(piece, doc, why) != thcGenEdit::OK)
+    {
+        fprintf(stderr, "panelcheck: the piece did not load: %s\n",
+                why.c_str());
+
+        return 1;
+    }
+
+    StagePanel stage;
+    thPanel stagePanel;
+
+    stage.setPiece(&doc, &sched);
+    stage.setStage(0, 0);
+    stage.build(stagePanel);
+
+    const string stageText = thPanelToJson(stagePanel) + "\n";
+
+    if (!writeFile((std::filesystem::path(dir) / "stage.json").string(),
+                   stageText))
+        return 1;
+
+    fputs(stageText.c_str(), stdout);
+
+    for (std::map<string, thcPlugin *>::iterator i = composers.begin();
+         i != composers.end(); ++i)
+        delete i->second;
+
     return 0;
 }
 
@@ -1446,17 +1974,20 @@ int main (int argc, char **argv)
     const string instrument = scratchPath("panelcheck-scratch.dsp");
     const string effect = scratchPath("panelcheck-scratch-fx.dsp");
     const string graph = scratchPath("panelcheck-scratch-graph.dsp");
+    const string piece = scratchPath("panelcheck-scratch.gen");
 
     if (!writeFile(instrument, INSTRUMENT) || !writeFile(effect, EFFECT) ||
-        !writeFile(graph, GRAPH))
+        !writeFile(graph, GRAPH) || !writeFile(piece, PIECE))
         return 1;
 
     if (!dumpDir.empty())
     {
-        const int bad = dumpTo(dumpDir, pluginPath, instrument);
+        const int bad = dumpTo(dumpDir, pluginPath, instrument, piece);
 
         remove(instrument.c_str());
         remove(effect.c_str());
+        remove(graph.c_str());
+        remove(piece.c_str());
 
         return bad;
     }
@@ -1495,11 +2026,13 @@ int main (int argc, char **argv)
     }
 
     checkNodes(pluginPath, graph);
+    checkStages(pluginPath, piece);
     checkRate(pluginPath, instrument);
 
     remove(instrument.c_str());
     remove(effect.c_str());
     remove(graph.c_str());
+    remove(piece.c_str());
 
     printf("\n%d failure(s)\n", failed);
 

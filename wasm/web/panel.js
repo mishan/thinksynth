@@ -143,6 +143,17 @@ export function spell (value, decimals)
     return /^-[0.]*$/.test(text) ? text.slice(1) : text;
 }
 
+/* True while somebody is using this control.
+ *
+ * A panel follows what is behind it, and what is behind it moves while a
+ * person is typing into the box in front of it: a poll landing between the
+ * `4' and the `000' of a number, or in the middle of a note set, replaces
+ * what they have written with what the module still holds. So a value
+ * arriving from behind the panel is not pushed into the one control that has
+ * the focus -- which is also the right answer for a slider being dragged,
+ * since the drag is the more recent statement of where it should be. */
+const held = (el) => el === el.ownerDocument.activeElement;
+
 /* The whole of `text' as a number, or null.
  *
  * thPanelNumberIn, in JavaScript, and it is here for the same reason spell()
@@ -183,12 +194,12 @@ export function hold (row, text)
     if (v === null)
         return null;
 
-    let held = v;
+    let inside = v;
 
     if (row.hi >= row.lo)
-        held = Math.min(Math.max(held, row.lo), row.hi);
+        inside = Math.min(Math.max(inside, row.lo), row.hi);
 
-    const spelled = spell(held, row.decimals);
+    const spelled = spell(inside, row.decimals);
     const rounded = numberIn(spelled);
 
     if (rounded === null || row.hi < row.lo)
@@ -246,38 +257,37 @@ function makeSlider (row, emit, bound)
 
     shown.addEventListener('change', () =>
     {
-        const held = hold(row, shown.value);
+        const taken = hold(row, shown.value);
 
         /* A box holding something that is not a number has nothing to send.
            It is put back to what the row last showed rather than left
            saying it, since what is on the panel is what the module has. */
-        if (held === null)
+        if (taken === null)
         {
             shown.value = spell(input.value, row.decimals);
             return;
         }
 
-        shown.value = held;
-        input.value = held;
+        shown.value = taken;
+        input.value = taken;
 
-        emit(held);
+        emit(taken);
     });
 
     box.append(input, shown);
 
+    /* Neither half while either has the focus. The module's value arrives
+       four times a second whether or not this page asked for it, and half a
+       typed number replaced by the value that is still there is a number
+       that can never be finished -- and a slider being dragged is the more
+       recent statement of where it should be. */
     bound.set(row.id, (value) =>
     {
-        input.value = value;
+        if (held(input) || held(shown))
+            return;
 
-        /* Not into a box someone is typing in.
-         *
-         * The module's value arrives four times a second whether or not this
-         * page asked for it, and half a typed number replaced by the value
-         * that is still there is a number that can never be finished. The
-         * slider beside it keeps following, since it is the box and not the
-         * row that is being edited. */
-        if (document.activeElement !== shown)
-            shown.value = spell(value, row.decimals);
+        input.value = value;
+        shown.value = spell(value, row.decimals);
     });
 
     return box;
@@ -298,22 +308,22 @@ function makeNumber (row, emit, bound)
 
     input.addEventListener('change', () =>
     {
-        const held = hold(row, input.value);
+        const taken = hold(row, input.value);
 
-        if (held === null)
+        if (taken === null)
         {
             input.value = spell(row.value, row.decimals);
             return;
         }
 
-        input.value = held;
+        input.value = taken;
 
-        emit(held);
+        emit(taken);
     });
 
     bound.set(row.id, (value) =>
     {
-        if (document.activeElement !== input)
+        if (!held(input))
             input.value = spell(value, row.decimals);
     });
 
@@ -374,10 +384,10 @@ function makeText (row, emit, bound)
        for every row in the panel, and writing it here put the string
        "undefined" in the box -- a TEXT row holds words and follows only
        words, which is the same split PanelView::setText draws on the
-       desktop. Nor over what is being typed. */
+       desktop. */
     bound.set(row.id, (value, text) =>
     {
-        if (text !== undefined && document.activeElement !== input)
+        if (text !== undefined && !held(input))
             input.value = text;
     });
 
@@ -438,7 +448,64 @@ const CONTROLS = {
     [TOGGLE]: makeToggle,
 };
 
-function makeRow (row, onEdit, bound)
+/* Which of the units a number is written in.
+ *
+ * A menu and not a label, because on a composer's duration the unit is part
+ * of what the author said: `period = 4 beats' follows the tempo and
+ * `period = 2 s' does not, and the two are different pieces rather than two
+ * spellings of one. Changing it keeps the number and changes what it means,
+ * which is what somebody reaching for this menu is saying -- so what it
+ * reports is the unit alone and the provider composes the line.
+ */
+function makeUnit (row, onEdit)
+{
+    const select = document.createElement('select');
+
+    select.className = 'panelunit';
+
+    for (const unit of row.unitChoices)
+        select.append(new Option(unit, unit));
+
+    select.value = row.units;
+
+    /* Offered even while the number is not. A bound duration carries no unit
+       in the file and reads as seconds; picking one here is how the
+       unbinding that follows knows what to write. */
+    select.addEventListener('change', () => onEdit(row.id, select.value));
+
+    return select;
+}
+
+/* The knob this value is read through, or none of them.
+ *
+ * `(value)' first, so that letting a binding go is one press rather than a
+ * thing to work out. A bound row's number is shown and not offered -- what
+ * moves it is the knob -- which makes this the only control on such a row
+ * that does anything, and the reason it is drawn whether or not the number
+ * beside it is greyed.
+ *
+ * `@name' to bind and a bare `@' to let go, which is the spelling
+ * src/StagePanel.h documents; no knob has an empty name, so the second
+ * cannot be mistaken for the first.
+ */
+function makeBind (row, panel, onEdit)
+{
+    const select = document.createElement('select');
+
+    select.className = 'panelbind';
+    select.append(new Option('(value)', '@'));
+
+    for (const knob of panel.knobs)
+        select.append(new Option(`@${knob}`, `@${knob}`));
+
+    select.value = row.knob === '' ? '@' : `@${row.knob}`;
+
+    select.addEventListener('change', () => onEdit(row.id, select.value));
+
+    return select;
+}
+
+function makeRow (row, panel, onEdit, bound)
 {
     const line = document.createElement('div');
     const label = document.createElement('label');
@@ -471,7 +538,32 @@ function makeRow (row, onEdit, bound)
     const emit = (text) => onEdit(row.id, text);
     const control = (CONTROLS[row.kind] ?? makeReadonly)(row, emit, bound);
 
-    line.append(label, control);
+    /* The menus that are about the value rather than being it, after the
+     * control, because they qualify what is already there -- "4000,
+     * milliseconds, read from no knob" is the order it is said in.
+     *
+     * In a box with it, so that the row stays the two cells the grid gives
+     * it: the label's column and the value's. A third child would take the
+     * next row's label column, which is a unit menu under somebody else's
+     * name. */
+    const menus = [];
+
+    if (row.unitChoices.length > 0)
+        menus.push(makeUnit(row, onEdit));
+
+    if (row.bindable)
+        menus.push(makeBind(row, panel, onEdit));
+
+    if (menus.length === 0)
+        line.append(label, control);
+    else
+    {
+        const value = document.createElement('span');
+
+        value.className = 'panelvalue';
+        value.append(control, ...menus);
+        line.append(label, value);
+    }
 
     return line;
 }
@@ -504,7 +596,7 @@ export function showPanel (box, panel, onEdit)
 
     for (const row of panel.rows)
         if (row.group === '')
-            loose.append(makeRow(row, onEdit, bound));
+            loose.append(makeRow(row, panel, onEdit, bound));
 
     if (loose.childElementCount > 0)
         box.append(loose);
@@ -534,7 +626,7 @@ export function showPanel (box, panel, onEdit)
 
         for (const row of panel.rows)
             if (row.group === group)
-                rows.append(makeRow(row, onEdit, bound));
+                rows.append(makeRow(row, panel, onEdit, bound));
 
         block.append(title, rows);
         box.append(block);
