@@ -555,9 +555,14 @@ int main (int argc, char **argv)
                     badVoices);
     }
 
+    /* Both numbers, because this one command prints both: `channel' is
+       the one-based number the application shows, `engine' the
+       zero-based one the tape's event lines carry. Naming only one of
+       them left the reader to discover the other by being wrong. */
     if (levels)
     {
-        fprintf(stderr, "channel  instrument               peak     RMS\n");
+        fprintf(stderr,
+                "channel  engine  instrument               peak     RMS\n");
 
         for (size_t ch = 0; ch < channelLevels.size(); ch++)
         {
@@ -568,7 +573,7 @@ int main (int argc, char **argv)
 
             const std::string name = sched.holding((int)ch);
 
-            fprintf(stderr, "%7zu  %-24s %.3f  %.4f\n", ch + 1,
+            fprintf(stderr, "%7zu  %6zu  %-24s %.3f  %.4f\n", ch + 1, ch,
                     name.empty() ? "-" : name.c_str(), level.peak,
                     level.rms());
         }

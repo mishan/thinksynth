@@ -356,11 +356,11 @@ async function main (argv0, args)
             for (let ch = 0; ch < channelLevels.length; ch++)
             {
                 const outputs = M._tw_channel_outputs(ch);
-                const p = M._tw_channel_output(ch) >> 2;
+                const q = M._tw_channel_output(ch) >> 2;
 
-                if (outputs > 0 && p !== 0)
+                if (outputs > 0 && q !== 0)
                     for (let i = 0; i < outputs * window; i++)
-                        addSample(channelLevels[ch], M.HEAPF32[p + i]);
+                        addSample(channelLevels[ch], M.HEAPF32[q + i]);
             }
 
         if (sections && transportWindow)
@@ -527,7 +527,8 @@ async function main (argv0, args)
 
     if (levels)
     {
-        fs.writeSync(2, 'channel  instrument               peak     RMS\n');
+        fs.writeSync(2,
+            'channel  engine  instrument               peak     RMS\n');
 
         for (let ch = 0; ch < channelLevels.length; ch++)
         {
@@ -539,7 +540,8 @@ async function main (argv0, args)
             const name = M.UTF8ToString(M._tw_channel_name(ch)) || '-';
 
             fs.writeSync(2,
-                `${String(ch + 1).padStart(7)}  ${name.padEnd(24)} ` +
+                `${String(ch + 1).padStart(7)}  ${String(ch).padStart(6)}  ` +
+                `${name.padEnd(24)} ` +
                 `${fixed(stat.peak, 3)}  ` +
                 `${fixed(Math.sqrt(stat.sumsq / stat.count), 4)}\n`);
         }
