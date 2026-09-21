@@ -9,43 +9,50 @@
 <link rel="stylesheet" href="panes.css">
 </head>
 <body>
-<h1>thinksynth</h1>
+<!-- The chrome: the title, what to play, the transport, and whatever the
+     page has to say about it. One strip and not four lines of them,
+     because tiled the window's height is the layout's and every line
+     spent up here is a line the panes below do not get -- which is why
+     the status sits beside the controls rather than over them, and why
+     Start goes once there is a synth to have started. It is what a
+     Gtk::HeaderBar is on the desktop. -->
+<div class="row" id="chrome">
+  <h1>thinksynth</h1>
 
-<p id="status">Press Start, then play.</p>
-
-<div class="row">
   <button id="start">Start</button>
+
   <label>Play <select id="mode">
     <option value="patch">a patch</option>
     <option value="piece">a piece</option>
   </select></label>
-</div>
 
-<!-- Patch mode: one .dsp, played from the keyboard. -->
-<section id="patchmode">
-  <div class="row">
+  <!-- Patch mode: one .dsp, played from the keyboard. -->
+  <span id="patchmode" class="group">
     <label>Patch <select id="patch"></select></label>
-  </div>
-</section>
+  </span>
 
-<!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
-     keyboard still plays, into whatever chains asked for `input midi'.
+  <!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
+       keyboard still plays, into whatever chains asked for `input midi'.
 
-     What is left in this section is the chrome -- the piece to play and
-     the transport, which every layout keeps. What it used to wrap are
-     panes now, below, each hidden by its own `hidden' in the other mode
-     rather than by this section going away. -->
-<section id="piecemode" hidden>
-  <div class="row">
+       What this holds is the chrome of that mode -- the piece to play
+       and the transport, which every layout keeps. What it used to wrap
+       are panes now, below, each hidden by its own `hidden' in the other
+       mode rather than by this going away. -->
+  <span id="piecemode" class="group" hidden>
     <label>Piece <select id="piece"></select></label>
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <button id="rewind" disabled>Rewind</button>
     <span id="clock">0:00.0</span>
-  </div>
+  </span>
 
-  <p id="about"></p>
-</section>
+  <span id="status">Press Start, then play.</span>
+</div>
+
+<!-- What the piece says about itself, when it is a piece that is playing
+     and it says anything. Out of the piece section and into a line of its
+     own, which is a line it takes only when it has something in it. -->
+<p id="about" hidden></p>
 
 <!-- Where the tiler puts the panes below, when there is a tiler. Empty
      and invisible otherwise, and the page is the document it has always
