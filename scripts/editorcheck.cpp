@@ -578,6 +578,27 @@ void checkNodePanel (thSynth &synth, const char *file)
            "typing in one reports the box, the arg and the number "
            "(%d edits, box %d, `%s' = %f, wanted %f)",
            edits, gotBox, gotArg.c_str(), gotValue, want);
+
+        /* And typing it back to what the file holds is reported too.
+         *
+           A node's value is not written when it is typed: the window keeps
+           it as a pending edit until Save, so the panel goes on showing the
+           file's number and typing that number back is how a person takes
+           the edit back. Dropped as an echo -- which is the right answer for
+           a channel's arg, where the write has already happened -- the
+           window keeps the edit, stays modified, and saves a number the
+           panel is not showing. */
+        const double back = want - 1.0;
+
+        spins[0]->set_value(back);
+        win->set_focus(*win);
+
+        pump(0.2);
+
+        ok(edits == 2 && fabs(gotValue - back) < 1e-6,
+           "and typing it back to what the file holds is reported as well, "
+           "so the window can forget the edit (%d edits, %f)",
+           edits, gotValue);
     }
 
     win->set_visible(false);
