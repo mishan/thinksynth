@@ -294,6 +294,13 @@ On `jam-m6`. Where it stands:
   knob is where the two deliveries differ and can be seen to: the panel
   describes it and a stamped `knob` command moves it, so it lands at the
   same transport time on every peer.
+- Both pages tiled rather than stacked (`wasm/web/panes.js`): the panels a
+  person wants side by side -- the piece, the keys, the parameters, the
+  graph -- in splits with a divider each, tabs, a drawer and a chord for
+  every command. It adopts the markup and creates nothing, so a narrow
+  screen or a finger gets the document it always was, and it is what lets
+  a pane nobody is looking at stop drawing: two wasm canvases stacked as
+  tabs cost one picture a frame, not two.
 - Not yet: the by-hand pass in two browsers (M6's gate 8.4).
 
 ## 1. The three kinds of state

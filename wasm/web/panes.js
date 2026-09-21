@@ -1336,6 +1336,52 @@ export function createPanes ({ root, catalog, layouts, mode,
            itself later. */
         layout: () => (tree === null ? null : structuredClone(tree)),
 
+        /* Raised: in front of whatever leaf holds it, and out of the
+           drawer if that is where it was. */
+        present: (id) =>
+        {
+            if (!panes.has(id) || !playable(id))
+                return;
+
+            const leaf = leafWith(id) ?? focus ?? firstLeaf();
+
+            if (leafWith(id) === null)
+                into(id, leaf);
+            else
+                leaf.active = liveTabs(leaf).indexOf(id);
+
+            focus = leaf;
+            save();
+            render();
+            root.querySelector(`#panetab-${id}`)?.focus();
+        },
+
+        /* And put away, which is the drawer and not the bin. */
+        close: (id) =>
+        {
+            if (!panes.has(id))
+                return;
+
+            drawer(id);
+            save();
+            render();
+        },
+
+        /* What its tab says. The markup's title is what a pane opens
+           with; this is for a pane whose title is a file somebody has
+           just opened in it. */
+        setTitle: (id, text) =>
+        {
+            const p = panes.get(id);
+
+            if (p === undefined)
+                return;
+
+            p.title = text;
+            p.host?.setAttribute('aria-label', text);
+            render();
+        },
+
         tiled: () => tiled,
     };
 }

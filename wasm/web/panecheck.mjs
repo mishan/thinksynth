@@ -605,6 +605,33 @@ try
 
     await page.keyboard.press('Alt+Enter');
 
+    /* ---- a pane, asked for by name ---- */
+
+    /* Which is the whole of what a pane is to anything outside this
+       page: raise it, rename it, put it away. A window's four verbs, and
+       the reason the layout can become one later without the tiler being
+       told what a window is. */
+    await page.evaluate(() => window.solo.pane('close', 'detail'));
+    await page.waitForTimeout(150);
+
+    check(await page.evaluate(() =>
+              !document.getElementById('pane-detail').checkVisibility()),
+          'a pane closed by name is put away');
+
+    await page.evaluate(() => window.solo.pane('present', 'detail'));
+    await page.waitForTimeout(150);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-detail').checkVisibility()),
+          'and presented by name is in front again');
+
+    await page.evaluate(() =>
+        window.solo.pane('setTitle', 'detail', 'What it is doing'));
+    await page.waitForTimeout(150);
+
+    check(await page.textContent('#panetab-detail') === 'What it is doing',
+          'and its tab says what it was told to say');
+
     /* ---- and the room page, which is the same catalog again ---- */
 
     /* The two pages share most of their panes and all of their tiler.

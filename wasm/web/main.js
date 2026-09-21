@@ -1173,6 +1173,11 @@ window.solo = {
     panes: () => PANES,
     layout: () => panes.layout(),
 
+    /* And the four verbs a pane has: raise one, put one away, rename
+       one. What a top-level window would become if the desktop's shell
+       were ever compiled for this page. */
+    pane: (what, ...args) => panes[what](...args),
+
     /* Which of the two canvases is asking for frames. A pane in a
        background tab, folded away or in the mode that is not up costs
        nothing, and this is the only way to see from outside that it
