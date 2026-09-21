@@ -487,8 +487,85 @@ endif()
 # `*.dsp' alone shipped a sampler with nothing to sample -- the node
 # looks a wav up under samples/ on the same path a .dsp is looked up on,
 # and on an installed copy that path is this directory.
+#
+# The three EXCLUDEs are the drawers, and what they leave behind is what
+# the web build has always copied: dsp/*.dsp and dsp/fx/. They are 77 of
+# the 147 .dsp in the tree and none of them is an instrument anybody
+# should be offered --
+#
+#   - eleven cannot load at all. They name input::wav, input::alsa or
+#     misc::wlan, which compile and are deliberately not built (see
+#     plugins/CMakeLists.txt). An installed chooser listed them anyway.
+#   - three basenames are ambiguous across the tree -- bd10.dsp,
+#     rpiano1.dsp and supersaw.dsp each name two different graphs, one in
+#     a drawer and one at the top -- and thUtil::findDataFile resolves a
+#     bare name against a list of directories. Installing both halves of
+#     a collision is how it becomes a bug report.
+#   - the rest are a 2003-04 sketchbook. Seventeen never tell the engine
+#     the note ended, so a voice sounds until `poly' steals it.
+#
+# They stay in the tree, and the corpus gates still sweep them:
+# cmake/RunHarness.cmake globs recursively, so dspcheck and dsplevel
+# cover a drawer exactly as they did. What changes is only what an
+# installed copy offers.
 install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
-        FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav")
+        FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav"
+        PATTERN "effects" EXCLUDE
+        PATTERN "noargs"  EXCLUDE
+        PATTERN "old"     EXCLUDE)
+
+# And then check the install did what it was told.
+#
+# Two things have to stay true of an installed dsp/, and neither is
+# visible from the rule above once somebody adds a directory:
+#
+#   it is flat, plus fx/.  thUtil::findDataFile resolves a bare name
+#      against a list of directories and does not recurse, which is why
+#      a piece writes `effect "fx/echo.dsp"' with the subdirectory in
+#      the name. A DSP installed any deeper is one nothing can open.
+#
+#   no two share a basename.  dsp/bd10.dsp and dsp/old/bd10.dsp are
+#      different graphs, and so are the two rpiano1 and the two
+#      supersaw. While all three drawers installed, which one a bare
+#      name reached was down to the order findDataFile happens to
+#      search. A collision inside what ships is the same bug with
+#      nowhere left to hide.
+#
+# A new drawer trips the first of these and an ordinary name clash the
+# second, so neither check has a list in it that can go stale.
+install(CODE "
+  set(_dsp \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${THINK_PKG_DATA_DIR}/dsp\")
+  file(GLOB_RECURSE _installed RELATIVE \"\${_dsp}\" \"\${_dsp}/*.dsp\")
+
+  set(_deep \"\")
+  set(_seen \"\")
+  set(_dupes \"\")
+
+  foreach(_rel IN LISTS _installed)
+    if(NOT _rel MATCHES \"^(fx/)?[^/]+$\")
+      list(APPEND _deep \"\${_rel}\")
+    endif()
+
+    get_filename_component(_base \"\${_rel}\" NAME)
+    if(_base IN_LIST _seen)
+      list(APPEND _dupes \"\${_base}\")
+    endif()
+    list(APPEND _seen \"\${_base}\")
+  endforeach()
+
+  if(_deep)
+    message(FATAL_ERROR
+        \"these DSPs installed below dsp/ or dsp/fx/, where \"
+        \"thUtil::findDataFile cannot reach them: \${_deep}\")
+  endif()
+
+  if(_dupes)
+    message(FATAL_ERROR
+        \"two installed DSPs share a basename, so which one a bare name \"
+        \"resolves to is down to search order: \${_dupes}\")
+  endif()
+")
+
 install(DIRECTORY patches/ DESTINATION "${THINK_PKG_DATA_DIR}/patches"
         FILES_MATCHING PATTERN "*.patch")
 
