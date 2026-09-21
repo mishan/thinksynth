@@ -14,6 +14,7 @@
 
 #include "config.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -360,7 +361,8 @@ struct SectionIdx
 struct ChainIdx
 {
     std::string name;
-    std::string startText;
+    std::string startText;       /* empty when the chain starts at zero  */
+    size_t startA, startB;
     size_t nameA, nameB;
     size_t stmtA, stmtB;
     size_t bodyClose;            /* the chain's '}'                      */
@@ -863,6 +865,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             c.stmtA = t[i].off;
             c.inputMidi = false;
             c.inputA = c.inputB = 0;
+            c.startA = c.startB = 0;
 
             if (ix.firstChainOff == std::string::npos)
                 ix.firstChainOff = c.stmtA;
@@ -877,6 +880,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                 {
                     c.startText = text.substr(t[j + 2].off,
                         t[j + 3].end - t[j + 2].off);
+                    c.startA = t[j].off;
+                    c.startB = t[j + 4].end;
                     j += 5;
                     continue;
                 }
@@ -1091,7 +1096,7 @@ thcGenEdit::validName (const std::string &name)
     static const char *reserved[] = {
         "name", "author", "description", "tempo", "seed", "scale",
         "preset", "instrument", "meter", "section", "effect",
-        "chain", "input", "stage", "sink", "midi",
+        "chain", "input", "start", "stage", "sink", "midi",
         "s", "ms", "beats", "b", "bars", NULL
     };
 
@@ -2807,6 +2812,109 @@ thcGenEdit::setChainInput (const std::string &filename,
     }
     else if (!midi && c->inputMidi)
         edits.push_back(eraseStmt(text, c->inputA, c->inputB));
+
+    return finish(filename, text, edits, why);
+}
+
+/* `93 beats': digits, an optional fraction, and one of the loader's
+ * units. Deliberately narrower than strtod -- no sign, no exponent, no
+ * hex -- because the point is to write only what the loader's own lexer
+ * will read back, and a file this editor wrote that the next load
+ * refuses is the one outcome worth ruling out here. */
+static bool
+validStart (const std::string &text, std::string &why)
+{
+    size_t i = 0;
+    bool digit = false;
+
+    while (i < text.size() && isdigit((unsigned char)text[i]))
+        i++, digit = true;
+
+    if (i < text.size() && text[i] == '.')
+        for (i++; i < text.size() && isdigit((unsigned char)text[i]); i++)
+            digit = true;
+
+    const size_t end = i;
+
+    while (i < text.size() && (text[i] == ' ' || text[i] == '\t'))
+        i++;
+
+    if (!digit || i == end)
+    {
+        why = "a chain start is a nonnegative time and a unit, "
+              "not '" + text + "'";
+        return false;
+    }
+
+    const std::string unit = text.substr(i);
+
+    if (unit != "s" && unit != "ms" && unit != "beats" && unit != "b" &&
+        unit != "bars")
+    {
+        why = "'" + unit + "' is not a unit a chain start takes; "
+              "write s, ms, beats, b or bars";
+        return false;
+    }
+
+    return true;
+}
+
+/* `start = 93 beats;', or "" to take the line out and have the chain
+ * start with the transport.
+ *
+ * The value is checked here rather than left to the next load, because
+ * an editor that writes a file the loader will refuse has turned a
+ * question into a broken piece. Same set of units as the loader's, and
+ * the same rule about `bars' needing a meter above it -- which the
+ * loader enforces and this only has to not write past.
+ */
+R
+thcGenEdit::setChainStart (const std::string &filename,
+                           const std::string &chain,
+                           const std::string &start, std::string &why)
+{
+    std::string trimmed = start;
+    const size_t a = trimmed.find_first_not_of(" \t");
+
+    trimmed = a == std::string::npos
+        ? "" : trimmed.substr(a, trimmed.find_last_not_of(" \t") + 1 - a);
+
+    if (!trimmed.empty() && !validStart(trimmed, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    if (trimmed.empty())
+    {
+        if (!c->startText.empty())
+            edits.push_back(eraseStmt(text, c->startA, c->startB));
+    }
+    else if (!c->startText.empty())
+        edits.push_back({ c->startA, c->startB, "start = " + trimmed + ";" });
+    else
+    {
+        /* On its own line right after the opening brace, above the
+           input and the stages: the chain's own clock reads first. */
+        size_t nl = text.find('\n', c->stmtA);
+        size_t at = nl == std::string::npos ? text.size() : nl + 1;
+
+        edits.push_back({ at, at, "    start = " + trimmed + ";\n" });
+    }
 
     return finish(filename, text, edits, why);
 }

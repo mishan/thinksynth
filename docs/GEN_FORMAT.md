@@ -367,7 +367,9 @@ A chain body holds, in order:
   that transport position. Seconds (`s`), milliseconds (`ms`), beats (`beats`
   or `b`), and bars are accepted; bars use the piece's `meter`. The default
   is zero. A rewind arms the generators at the same position again. Live MIDI
-  input is unaffected. Write `meter` before a chain start in bars.
+  input is unaffected, so a chain with no generator stage may not set one.
+  Write `meter` before a chain start in bars. The composer panel's chain
+  strip has an entry for it beside the name.
 - optionally `input midi;` — the chain is fed by live MIDI arriving on the
   sink channel (arpeggiators, Markov training). A chain may have an input, a
   generator stage, both, or neither only if it is all transformers reached by

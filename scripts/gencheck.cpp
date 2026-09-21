@@ -7679,6 +7679,47 @@ checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
         if (thcGenEdit::setParam(path, "late", 0, "period", "1 s", why)
             != thcGenEdit::OK || slurp(path) != body)
             fail("the writer changed the delayed chain while editing a stage");
+
+        /* And the writer the panel's entry calls: a start moved, then
+           taken out, then put back on a chain that has none -- the last
+           of the three is the insert, which goes above the stages. */
+        auto startOf = [&](void)
+        {
+            thcGenEdit::Doc d;
+            std::string w;
+
+            return thcGenEdit::describe(path, d, w) == thcGenEdit::OK &&
+                   d.chains.size() == 1 ? d.chains[0].startText
+                                        : std::string("<unreadable>");
+        };
+
+        if (thcGenEdit::setChainStart(path, "late", "4 beats", why)
+                != thcGenEdit::OK || startOf() != "4 beats")
+            fail("the writer would not move the chain's start");
+
+        if (thcGenEdit::setChainStart(path, "late", "", why)
+                != thcGenEdit::OK || !startOf().empty())
+            fail("the writer would not take the chain's start out");
+
+        if (thcGenEdit::setChainStart(path, "late", "1 bars", why)
+                != thcGenEdit::OK || startOf() != "1 bars")
+            fail("the writer would not give a chain a start it had none");
+
+        thcScheduler after(synth);
+        thcGenLoader reload(plugins);
+
+        if (!reload.load(path, &after))
+            fail("the piece the start writer left did not load: " +
+                 (reload.errors().empty() ? std::string("unknown error")
+                                          : reload.errors()[0]));
+
+        if (thcGenEdit::setChainStart(path, "late", "2", why)
+                != thcGenEdit::REFUSED ||
+            thcGenEdit::setChainStart(path, "late", "2 fortnights", why)
+                != thcGenEdit::REFUSED ||
+            thcGenEdit::setChainStart(path, "nosuch", "2 s", why)
+                != thcGenEdit::NOT_FOUND)
+            fail("the start writer accepted what the loader would refuse");
     }
 
     std::filesystem::remove(path);
@@ -7747,6 +7788,27 @@ checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
         "chain c { start = 1 s; start = 2 s;"
         " stage s gen::eno_line { }; sink { channel = 1; }; };",
         "sets start twice");
+    expectReject(plugins, synth, "chain-start-after-sink",
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; };"
+        " start = 1 s; };", "start after sink");
+    expectReject(plugins, synth, "chain-start-negative",
+        "chain c { start = -1 s; stage s gen::eno_line { };"
+        " sink { channel = 1; }; };", "start wants a nonnegative time");
+
+    /* A bar is meter beats, folded as the start is read, so a meter
+       under one could not mean what it says -- the same rule a section
+       in bars is held to, and the one this adds a second caller to. */
+    expectReject(plugins, synth, "chain-start-bars-then-meter",
+        "chain c { start = 1 bars; stage s gen::eno_line { };"
+        " sink { channel = 1; }; };\nmeter 3;",
+        "meter must come before the first section or chain start in bars");
+
+    /* A start holds generators back, and a chain fed by live MIDI has
+       none to hold. */
+    expectReject(plugins, synth, "chain-start-no-generator",
+        "chain c { start = 1 s; input midi;"
+        " stage x xform::echo { }; sink { channel = 1; }; };",
+        "has no generator stage");
 }
 
 

@@ -450,12 +450,20 @@ thcScheduler::setChainStart (size_t chain, double at, bool beats)
         chains_[chain].start = at;
         chains_[chain].startBeats = beats;
 
+        /* The stages this chain already has: `start' may be written
+           below them, and a wake armed at the old time has to move. */
+        bool moved = false;
+
         for (size_t i = 0; i < wakeups_.size(); i++)
             if (wakeups_[i].chain == chain &&
                 chains_[chain].stages[wakeups_[i].stage]->awaitingStart)
+            {
                 wakeups_[i].at = chainStartTime(chains_[chain]);
+                moved = true;
+            }
 
-        std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+        if (moved)
+            std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
     }
 }
 
@@ -2401,16 +2409,22 @@ thcScheduler::setTempo (double bpm)
 
         /* A beat-valued chain start follows the clock until its first
            tick. Once the generator has begun, its own schedule owns it. */
+        bool moved = false;
+
         for (size_t i = 0; i < wakeups_.size(); i++)
         {
             Wakeup &w = wakeups_[i];
             const thcChain &c = chains_[w.chain];
 
             if (c.startBeats && c.stages[w.stage]->awaitingStart)
+            {
                 w.at = chainStartTime(c);
+                moved = true;
+            }
         }
 
-        std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+        if (moved)
+            std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
     }
 }
 

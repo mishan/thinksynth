@@ -1962,6 +1962,19 @@ thcGenLoader::parseChain (thcScheduler *sched)
         ok = false;
     }
 
+    /* A start is a time the chain's generators first wake at, and a
+       chain with none has nothing for it to hold back: live MIDI
+       arrives when it arrives. Refused rather than ignored, because a
+       line that silently does nothing is the kind a piece is then
+       written around. */
+    if (sawStart && !sawGenerator)
+    {
+        error(nameTok.line, "chain " + nameTok.text +
+              " sets start but has no generator stage -- a start holds "
+              "generators back, and live MIDI arrives when it arrives");
+        ok = false;
+    }
+
     /* The chain's nodes, now that every name in it is known -- a wire
        may point forwards, exactly as one in a .dsp may, so nothing can
        be resolved until the body has been read to its end. */

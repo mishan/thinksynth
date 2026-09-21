@@ -339,6 +339,13 @@ public:
                                  const std::string &chain, bool midi,
                                  std::string &why);
 
+    /* `"93 beats"', or "" to remove the line. Refuses anything the
+       loader would not read back. */
+    static Result setChainStart (const std::string &filename,
+                                 const std::string &chain,
+                                 const std::string &start,
+                                 std::string &why);
+
     /* ---- stages ------------------------------------------------------- */
 
     /* Inserted before the first sink: textual order is execution order,

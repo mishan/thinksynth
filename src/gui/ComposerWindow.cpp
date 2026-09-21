@@ -2812,6 +2812,7 @@ ComposerWindow::buildChainSelection (size_t ci)
 
     Gtk::Box *head = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::Entry *nameEntry = manage(new Gtk::Entry());
+    Gtk::Entry *startEntry = manage(new Gtk::Entry());
     Gtk::CheckButton *mute = manage(new Gtk::CheckButton("mute"));
     Gtk::CheckButton *input = manage(new Gtk::CheckButton("MIDI in"));
     Gtk::Button *rm = manage(new Gtk::Button("Remove chain"));
@@ -2819,6 +2820,13 @@ ComposerWindow::buildChainSelection (size_t ci)
     nameEntry->set_text(chainName);
     nameEntry->set_max_width_chars(12);
     nameEntry->set_tooltip_text("Enter renames");
+
+    startEntry->set_text(chain.startText);
+    startEntry->set_max_width_chars(10);
+    startEntry->set_placeholder_text("start");
+    startEntry->set_tooltip_text("When this chain's generators first "
+                                 "wake -- \"8 bars\", \"2 s\"; "
+                                 "empty starts with the transport");
 
     thcChain *live = sched_->chain(ci);
 
@@ -2844,6 +2852,16 @@ ComposerWindow::buildChainSelection (size_t ci)
             canvas_->queue_draw();
         });
 
+    startEntry->signal_activate().connect(
+        [this, chainName, startEntry]
+        {
+            std::string why;
+
+            if (editOk(thcGenEdit::setChainStart(workPath_, chainName,
+                    startEntry->get_text(), why), why))
+                structuralReload();
+        });
+
     input->signal_toggled().connect(
         [this, chainName, input]
         {
@@ -2865,6 +2883,7 @@ ComposerWindow::buildChainSelection (size_t ci)
         });
 
     head->append(*nameEntry);
+    head->append(*startEntry);
     head->append(*mute);
     head->append(*input);
     selBox_->append(*head);
