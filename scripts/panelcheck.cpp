@@ -1344,18 +1344,19 @@ static void checkStageIndex (const thcGenEdit::Doc &doc, thcScheduler &sched)
     check(!stage.build(panel), "and one that is not there has no panel");
 }
 
-static void checkStages (const string &pluginPath, const string &file)
+/* The stage checks, with the plugins handed in rather than owned.
+ *
+ * Split from checkStages so that the scheduler and the synth are destroyed
+ * before the plugins are. A chain holds stages, a stage holds state its
+ * plugin made, and the plugin is the only thing that can free it
+ * (thcPlugin::destroy) -- so deleting the plugins while a scheduler is still
+ * standing unloads the module out from under the free that is still to come.
+ * The explicit delete loop ran at the end of the function body, which is
+ * before any local's destructor, so it did exactly that. A use-after-free
+ * the address sanitizer sees and an ordinary run walks past. */
+static void checkStagesIn (const string &pluginPath, const string &file,
+                           std::map<string, thcPlugin *> &composers)
 {
-    std::map<string, thcPlugin *> composers;
-
-    loadComposers(pluginPath, composers);
-
-    if (composers.empty())
-    {
-        fail("the composer modules load", pluginPath);
-        return;
-    }
-
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thcScheduler sched(&synth);
     thcGenLoader loader(composers);
@@ -1437,7 +1438,24 @@ static void checkStages (const string &pluginPath, const string &file)
 
     /* Delivery last: it moves the stage the rows above were read from. */
     checkStageDelivery(stage, sched.chain(0)->stages[0].get());
+}
 
+static void checkStages (const string &pluginPath, const string &file)
+{
+    std::map<string, thcPlugin *> composers;
+
+    loadComposers(pluginPath, composers);
+
+    if (composers.empty())
+    {
+        fail("the composer modules load", pluginPath);
+        return;
+    }
+
+    checkStagesIn(pluginPath, file, composers);
+
+    /* And the plugins after everything that holds anything they made: see
+       checkStagesIn. */
     for (std::map<string, thcPlugin *>::iterator i = composers.begin();
          i != composers.end(); ++i)
         delete i->second;
@@ -2148,10 +2166,20 @@ int main (int argc, char **argv)
        that lets it run everywhere gencheck does.
 
        Here and not further in, because -j loads the same piece and returns
-       below without reaching any of the checks. */
-    setenv("THINK_DSP_PATH",
-           std::filesystem::path(instrument).parent_path().string().c_str(),
-           1);
+       below without reaching any of the checks.
+
+       Spelled with an `#ifdef' rather than with Glib::setenv, which is what
+       composercheck uses: POSIX setenv does not exist on MinGW's UCRT, and
+       this harness links nothing it does not have to -- the same reason
+       pathcheck spells it this way. */
+    const string dspDir =
+        std::filesystem::path(instrument).parent_path().string();
+
+#ifdef _WIN32
+    _putenv_s("THINK_DSP_PATH", dspDir.c_str());
+#else
+    setenv("THINK_DSP_PATH", dspDir.c_str(), 1);
+#endif
 
     if (!dumpDir.empty())
     {
