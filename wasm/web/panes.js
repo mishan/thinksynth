@@ -1470,15 +1470,35 @@ export function createPanes ({ root, catalog, layouts, mode,
         layout: () => (tree === null ? null : structuredClone(tree)),
 
         /* Raised: in front of whatever leaf holds it, and out of the
-           drawer if that is where it was. Nothing to raise it above
-           without a layout -- untiled, the page is the document it
-           always was and every pane is already on it. */
-        present: (id) =>
+         * drawer if that is where it was. Nothing to raise it above
+         * without a layout -- untiled, the page is the document it
+         * always was and every pane is already on it.
+         *
+         * With the focus by default, since what asks for a pane by name
+         * is usually somebody who wants to be in it. `focus: false' is
+         * for the other caller: a page raising a box to show somebody
+         * a message they did not ask for. A .dsp that did not parse is
+         * read by whoever was editing it, and taking the cursor out of
+         * the text box to point at the reason costs them their place
+         * in it.
+         */
+        present: (id, { focus: take = true } = {}) =>
         {
             if (!tiled || !panes.has(id) || !playable(id))
                 return;
 
-            const leaf = leafWith(id) ?? focus ?? firstLeaf();
+            /* Where it goes when the layout does not have it at all.
+               Asked for, it goes where the person is. Raised at them, it
+               goes anywhere but there: a box put in front of the .dsp
+               somebody was editing, at the moment they pressed a button
+               in it, answers one question by hiding another. */
+            const at = take ? null : document.activeElement;
+            const busy = at instanceof Element
+                ? seen.get(at.closest('.paneleaf')) : undefined;
+            const away = busy === undefined
+                ? null : [...seen.values()].find((n) => n !== busy) ?? null;
+
+            const leaf = leafWith(id) ?? away ?? focus ?? firstLeaf();
 
             if (leafWith(id) === null)
                 into(id, leaf);
@@ -1488,7 +1508,9 @@ export function createPanes ({ root, catalog, layouts, mode,
             focus = leaf;
             save();
             render();
-            root.querySelector(`#panetab-${id}`)?.focus();
+
+            if (take)
+                root.querySelector(`#panetab-${id}`)?.focus();
         },
 
         /* And put away, which is the drawer and not the bin. There is

@@ -755,6 +755,46 @@ try
               !document.getElementById('pane-detail').checkVisibility()),
           'closing the tab before the one in front leaves it in front');
 
+    /* ---- and the box a message points at ---- */
+
+    /* "See below" is a document's sentence: the box is under the message
+     * and opening its fold is the whole of it. Tiled, the fold is open
+     * already and held that way, and what is between the message and the
+     * box is another tab in front of it -- or the drawer, if somebody
+     * closed the pane. A page that says see below and shows nothing is
+     * worse than one that says nothing.
+     *
+     * And it does not take the focus doing it: the .dsp that did not
+     * parse is read by whoever was editing it, and the box is put beside
+     * their text rather than over it.
+     */
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.press('Alt+Digit0');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => window.solo.pane('close', 'detail'));
+    await page.waitForTimeout(150);
+
+    await page.click('#dsp');
+    await page.evaluate(() =>
+    {
+        /* Pressed rather than clicked, so that what the focus does next
+           is the layout's doing and not the pointer's. */
+        document.getElementById('dsp').value = 'this is not a patch {';
+        document.getElementById('load').click();
+    });
+    await page.evaluate(() => window.solo.settled());
+    await page.waitForTimeout(250);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-detail').checkVisibility() &&
+              document.getElementById('pane-patchsource')
+                      .checkVisibility()),
+          'a .dsp that did not parse raises the box the status line ' +
+          'points at, and not over the source it came from');
+
+    check(await page.evaluate(() => document.activeElement.id === 'dsp'),
+          'and leaves the caret where the reader left it');
+
     /* ---- and the room page, which is the same catalog again ---- */
 
     /* The two pages share most of their panes and all of their tiler.
