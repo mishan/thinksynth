@@ -649,9 +649,17 @@ async function savePatch (channel)
 
     link.href = url;
     link.download = name;
-    link.click();
 
-    URL.revokeObjectURL(url);
+    /* In the document for the click, and the URL let go on the turn after
+       it. A detached anchor is a link nothing has to follow, and a blob URL
+       revoked in the same turn as the click is a download that races the
+       browser fetching it -- Chromium takes both and not every browser
+       does. */
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 0);
 
     /* Saved, as far as anything here can tell -- which is exactly as far as
        the desktop can tell, since neither of them watches the file
@@ -794,6 +802,12 @@ async function aimByHand (channel, name)
         placed.set(channel, what);
         $('status').textContent =
             `${what.title} on channel ${channel + 1}. Play.`;
+
+        /* And the row, which is drawn from the slot rather than from this:
+           the mark belongs to the patch that is on the channel now, not to
+           whatever was there a moment ago, and Save is offered for anything
+           that loaded -- including a channel whose last choice did not. */
+        await showEdited();
     }
     catch (e)
     {

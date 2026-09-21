@@ -513,9 +513,12 @@ fails a patch is the one thing that makes it not a patch: no `dsp` line.
 | `info foo` — a property named, no value | complaint; no property is invented |
 | `cutoff` — a word with no value after it | complaint |
 | `cutoff abc`, `wave 1,,3` | complaint; the arg keeps what the `.dsp` declared |
+| `cutoff nan`, `res inf` | complaint; `strtof` spells both, and neither is a value anything downstream can use |
+| `cutoff 1.04 `, `wave 1, 2 ,3` | the blanks around a value are not part of it |
 | a line starting with `#`, or blank | skipped, in silence |
 | CRLF endings | the CR is not part of the value |
 | `side 99`, `side` naming its own channel | read as written, then clamped to no side when it is put on a channel |
+| `side` with no `effect` under it | read, kept and written back; there is nothing to put it on, but it is what the file said |
 | `fx.` name nothing declares | reported and dropped when it is put on a channel |
 
 A value that is not a number used to become a silent zero, because `strtof`

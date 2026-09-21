@@ -349,6 +349,10 @@ static const Fixture FIXTURES[] = {
     { "fx-orphan",     "dsp ts1.dsp\nfx.nosuchthing 0.5\n" },
     { "multi-value",   "dsp ts1.dsp\nwave 1,2,3\n" },
     { "not-a-number",  "dsp ts1.dsp\ncutoff abc\nres 4abc\nq 1,,3\n" },
+    { "not-finite",    "dsp ts1.dsp\ncutoff nan\nres inf\nq -Infinity\n" },
+    { "blanks",        "dsp ts1.dsp\nside 4 \neffect fx/delay.dsp\n"
+                       "cutoff 1.04 \nwave 1, 2 ,3\n" },
+    { "side-alone",    "dsp ts1.dsp\nside 4\n" },
     { "comments",      "# a comment\n\n   # an indented one\ndsp ts1.dsp\n"
                        "info comments one\\ntwo\n" },
     { "no-final-nl",   "dsp ts1.dsp\ncutoff 2.5" },
@@ -581,6 +585,60 @@ static void checkFixtures (void)
         }
     }
 
+    /* Nor is a value arithmetic cannot use. strtof spells `nan' and `inf'
+       and consumes either whole, so both got past "the field was consumed"
+       and onto a chanarg -- where one NaN poisons everything downstream of
+       it, and where the page was told it was a 0, JSON having no spelling
+       for one. */
+    {
+        thPatchDoc doc;
+
+        if (parses(fixture("not-finite"), doc,
+                   "a value that is not finite is not a value"))
+        {
+            ok("a value that is not finite is not a value");
+            check(doc.args.empty(), "and sets nothing");
+            check(doc.complaints.size() == 3,
+                  "and each line is complained about");
+        }
+    }
+
+    /* And the blanks around a value are not part of it. Both readings this
+       replaces skipped them -- strtof does and Number() does -- so a file
+       with a space after a value, or spaces around the commas in a list,
+       loaded in both and would have been a complaint in one reading. */
+    {
+        thPatchDoc doc;
+
+        if (parses(fixture("blanks"), doc,
+                   "a value with blanks around it is a value"))
+        {
+            ok("a value with blanks around it is a value");
+            check(doc.complaints.empty(), "with nothing to complain about",
+                  doc.complaints.empty() ? "" : doc.complaints[0]);
+            check(doc.args["wave"].size() == 3,
+                  "and a list keeps every one of its values");
+            check(doc.side == 3, "and a side with a space after it is a side");
+        }
+    }
+
+    /* A side with no effect to hear it. Nothing puts it anywhere -- there is
+       no effect to put it on -- but it is what the file said, and a document
+       that quietly drops it is a file that does not come back the way it
+       went in. */
+    {
+        thPatchDoc doc;
+
+        if (parses(fixture("side-alone"), doc,
+                   "a side with no effect line is read"))
+        {
+            ok("a side with no effect line is read");
+            check(doc.side == 3, "and kept");
+            check(thPatchCompose(doc).find("side 4\n") != string::npos,
+                  "and written back out, effect or no effect");
+        }
+    }
+
     /* Comments, blank lines and the escape. */
     {
         thPatchDoc doc;
@@ -613,6 +671,8 @@ static void checkFixtures (void)
        multi-value arg or an escaped newline in it. */
     roundTrips(fixture("everything"),
                "a patch using every line the format has");
+    roundTrips(fixture("blanks"), "a patch with blanks around its values");
+    roundTrips(fixture("side-alone"), "a patch with a side and no effect");
 }
 
 /* ------------------------------------------------------------------ */

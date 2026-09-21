@@ -32,6 +32,7 @@
 
 #include "config.h"
 
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,20 +97,42 @@ static string leadingTrim (const string &s)
  * Requiring the field to be consumed is the page's reading (Number() gives
  * NaN and the line is dropped) and the one worth documenting: a value that is
  * not a number is a complaint, and the arg keeps whatever the .dsp declared.
+ *
+ * Consumed to the end of what was written, though, and not to the end of the
+ * field: both readings this replaces skipped the blanks on either side --
+ * strtof does and Number() does -- so `cutoff 1.04 ' and `wave 1, 2 ,3' are
+ * values in both of them, and would be complaints here.
+ *
+ * And a number arithmetic can use. strtof spells `nan' and `inf' and consumes
+ * either whole, and either on a chanarg is a value that poisons everything
+ * downstream of it with nothing in the file to say where it came from --
+ * while the page is told it is 0, since JSON has no spelling for one
+ * (JsonOut.h). Number("nan") was NaN and the line went; it goes here too.
  */
 static bool wholeNumber (const string &field, float &out)
 {
-    const string t = trimLine(leadingTrim(field));
-
-    if (t.empty())
-        return false;
-
+    const string t = trimLine(field);
     const char *s = t.c_str();
     char *end = NULL;
 
-    out = strtof(s, &end);
+    const float v = strtof(s, &end);
 
-    return end != NULL && *end == '\0';
+    /* Before the blanks are skipped, not after, for the reason
+       thPanelNumberIn gives: skipping first moves `end' off `s' whether or
+       not a digit was read, so "" and "   " would both come out as a good
+       0. */
+    if (end == s)
+        return false;
+
+    while (*end == ' ' || *end == '\t')
+        end++;
+
+    if (*end != '\0' || !std::isfinite(v))
+        return false;
+
+    out = v;
+
+    return true;
 }
 
 static string lineNo (int n)
@@ -338,19 +361,22 @@ string thPatchCompose (const thPatchDoc &doc, const string &stamp)
        the order a reader needs them in: the effect is built when its line is
        read, its side is part of building it, and its parameters have nowhere
        to land until it is on the channel. The writer decides the order so
-       that the reader does not have to tolerate both -- see PatchApply. */
-    if (!doc.effect.empty())
+       that the reader does not have to tolerate both -- see PatchApply.
+     *
+       A side with no effect to hear it is written all the same. It says
+       nothing to PatchApply, which has no effect to put it on, but a
+       document is what the file said and the round trip is exact: a line
+       dropped here is a file that does not come back the way it went in. */
+    if (doc.side >= 0)
     {
-        if (doc.side >= 0)
-        {
-            char buf[32];
+        char buf[32];
 
-            snprintf(buf, sizeof(buf), "side %d\n", doc.side + 1);
-            out += buf;
-        }
-
-        out += "effect " + doc.effect + "\n";
+        snprintf(buf, sizeof(buf), "side %d\n", doc.side + 1);
+        out += buf;
     }
+
+    if (!doc.effect.empty())
+        out += "effect " + doc.effect + "\n";
 
     out += "\n";
 

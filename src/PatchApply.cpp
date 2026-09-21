@@ -131,9 +131,13 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
         }
     }
 
-    /* And the values. The `fx.' ones land now that there is an effect to hold
-       them; the map is sorted, so they come after the instrument's, which is
-       the order the file is written in and costs nothing to depend on. */
+    /* And the values, in whatever order the map hands them over -- which is
+       not the file's: one map holds both kinds and it sorts by name, so
+       `fx.wet' comes before `res' (PatchFile.cpp says the same where it
+       writes them in two passes to keep the file's order). Nothing here
+       depends on the order, because the effect is on the channel before this
+       loop starts and an `fx.' name has somewhere to land from the first
+       one. */
     for (map<string, vector<float> >::const_iterator j = doc.args.begin();
          j != doc.args.end(); ++j)
     {

@@ -732,6 +732,45 @@ try
             chan, { timeout: 60000 });
 
         check(true, 'and the row stops saying it has been edited');
+
+        /* And a patch chosen by hand takes the row with it. The mark says
+           what is on the channel now, and what is on it after a choice is a
+           file just read -- so the mark goes out whatever the patch before
+           it had become. */
+        const another = await page.evaluate(({ c, was }) =>
+        {
+            const row = [...document.querySelectorAll('#channels .channel')]
+                .find((r) => r.querySelector(`.edited[data-channel="${c}"]`));
+            const all = [...(row?.querySelectorAll('select option') ?? [])]
+                .map((o) => o.value)
+                .filter((v) => v !== '' && v !== was);
+
+            return all.find((v) => v.endsWith('.patch')) ?? all[0] ?? '';
+        }, { c: chan, was: chosen });
+
+        if (another !== '')
+        {
+            await page.evaluate(() => window.solo.pollChanParams());
+            await page.focus('#params input[type="range"]');
+            await page.keyboard.press('ArrowRight');
+            await page.waitForFunction(
+                (c) => !document.querySelector(
+                    `#channels .edited[data-channel="${c}"]`).hidden,
+                chan, { timeout: 60000 });
+
+            await page.selectOption(
+                `#channels .channel:has(.edited[data-channel="${chan}"]) ` +
+                'select', another);
+            await page.waitForFunction(
+                () => /on channel \d+\. Play\.$/.test(
+                    document.getElementById('status').textContent),
+                null, { timeout: 60000 });
+            await page.evaluate(() => window.solo.settled());
+
+            check(await edited() === false,
+                  `and choosing ${another} over an edited patch leaves a ` +
+                  'row that does not say edited');
+        }
     }
 
     /* ---- the instrument as a graph ---- */
