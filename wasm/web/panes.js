@@ -58,6 +58,11 @@
  * keyboard goes. What a person does to it is kept under the page and the
  * mode, and a saved layout that names a pane this page has never heard
  * of drops it rather than being thrown away.
+ *
+ * A leaf holds more than one pane as tabs, and the panes no leaf holds
+ * are the DRAWER: listed above the layout, one click from being put back.
+ * Nothing is ever destroyed, and two canvases stacked as tabs is where
+ * the tiling pays for itself -- the one behind stops drawing.
  */
 
 /* The screen a tiled layout is worth having on. Both halves matter, and
@@ -99,15 +104,22 @@ export function createPanes ({ root, catalog, layouts, mode,
     const wanted = asked(on);
 
     let tiled = false;
-    let over = null;
+    let above = null;           /* the overlay, once anything wants one */
+    let hint = null;            /* where a dragged tab would land */
 
     /* The layout that is up, and which of the page's it came from. */
     let tree = null;
     let where = mode;
 
-    /* Which panes the layout has room for now, so that a pane's work is
-       told of a leaf it is not in. Rebuilt by every render. */
-    let inTree = new Set();
+    /* What each render found: which panes are in front of somebody, which
+       are in the tree at all, and which node each rendered leaf is. */
+    let onScreen = new Set();
+    let placed = new Set();
+    let seen = new Map();
+
+    /* The leaf the next pane out of the drawer goes into, and the one
+       the keyboard is in. */
+    let focus = null;
 
     for (const id of catalog)
     {
@@ -153,7 +165,7 @@ export function createPanes ({ root, catalog, layouts, mode,
      * to be out of -- it is not in it. */
     const visible = (p) =>
         !p.el.hidden &&
-        (tiled ? inTree.has(p.id) : p.summary === null || p.el.open);
+        (tiled ? onScreen.has(p.id) : p.summary === null || p.el.open);
 
     /* Whether a pane is in play at all: this page has it and the mode it
        belongs to is up. Everything the layout does is over these. */
@@ -188,13 +200,13 @@ export function createPanes ({ root, catalog, layouts, mode,
         if (p.host !== null)
             return p.host;
 
-        const head = document.createElement('div');
         const body = document.createElement('div');
 
-        head.className = 'panehead';
-        head.textContent = p.title;
         body.className = 'panebody';
 
+        /* The leaf's tab strip is this pane's header, so the pane itself
+           is the region and nothing more: a box with what was adopted in
+           it, labelled by the tab that raises it. */
         p.host = document.createElement('section');
         p.host.className = 'pane';
         p.host.id = `pane-${p.id}`;
@@ -203,7 +215,7 @@ export function createPanes ({ root, catalog, layouts, mode,
 
         p.el.replaceWith(p.slot);
         body.append(p.el);
-        p.host.append(head, body);
+        p.host.append(body);
 
         /* Forced open, and the summary hidden: the pane's own header is
            the disclosure now. What it was folded to is kept for the way
@@ -358,6 +370,258 @@ export function createPanes ({ root, catalog, layouts, mode,
         tree = known(from) ?? { tabs: [...panes.keys()] };
     };
 
+    /* ---- moving a pane about ---- */
+
+    /* Which leaf holds a pane, and which split holds a node. The tree is
+       small -- a handful of leaves -- so it is walked rather than kept
+       with parent links, which would be one more thing for a saved
+       layout to be wrong about. */
+    const leafWith = (id, node = tree) =>
+        isLeaf(node)
+            ? (node.tabs.includes(id) ? node : null)
+            : node.kids.reduce((f, k) => f ?? leafWith(id, k), null);
+
+    const parentOf = (target, node = tree) =>
+        isLeaf(node) ? null
+            : node.kids.includes(target) ? node
+            : node.kids.reduce((f, k) => f ?? parentOf(target, k), null);
+
+    const firstLeaf = (node = tree) =>
+        isLeaf(node) ? node : firstLeaf(node.kids[0]);
+
+    /* The element a leaf was last drawn as, which is how anything that
+       needs pixels -- whether a split would fit, where a drop would land
+       -- asks the browser rather than working them out again. */
+    const boxOf = (leaf) =>
+        [...seen].find(([, node]) => node === leaf)?.[0];
+
+    /* A leaf with nothing left in it, taken out of the tree, and the
+       split above it collapsed if that leaves it with one child --
+       a split of one is not a split. */
+    const empty = (leaf) =>
+    {
+        const up = parentOf(leaf);
+
+        if (up === null)
+        {
+            tree = { tabs: [], active: 0 };
+            return;
+        }
+
+        const i = up.kids.indexOf(leaf);
+
+        up.kids.splice(i, 1);
+        up.size.splice(i, 1);
+
+        if (up.kids.length > 1)
+            return;
+
+        const only = up.kids[0];
+        const over = parentOf(up);
+
+        if (over === null)
+            tree = only;
+        else
+            over.kids[over.kids.indexOf(up)] = only;
+    };
+
+    /* Out of the layout: into the drawer, which is where every pane not
+       in the tree is. Nothing is destroyed -- a drawer is the whole
+       reason closing a pane is not losing it. */
+    const drawer = (id) =>
+    {
+        const leaf = leafWith(id);
+
+        if (leaf === null)
+            return;
+
+        leaf.tabs.splice(leaf.tabs.indexOf(id), 1);
+        leaf.active = Math.max(0, Math.min(leaf.active ?? 0,
+                                           leaf.tabs.length - 1));
+
+        if (leaf.tabs.length === 0)
+            empty(leaf);
+    };
+
+    /* Into a leaf, as the tab in front of it. */
+    const into = (id, leaf) =>
+    {
+        if (leafWith(id) === leaf && leaf.tabs.length === 1)
+            return;
+
+        drawer(id);
+        leaf.tabs.push(id);
+        leaf.active = leaf.tabs.length - 1;
+    };
+
+    /* And beside one, which is what splitting is: the leaf is replaced by
+       a split holding it and the newcomer, each with half of what the
+       leaf had. Refused where the two could not both have their minimum
+       -- a split nobody can see either side of is not a split. */
+    const beside = (id, leaf, dir, after) =>
+    {
+        const from = leafWith(id);
+
+        if (from === leaf && leaf.tabs.length === 1)
+            return;
+
+        drawer(id);
+
+        const made = { tabs: [id], active: 0 };
+        const split = { dir, size: [0.5, 0.5],
+                        kids: after ? [leaf, made] : [made, leaf] };
+        const up = parentOf(leaf);
+
+        if (up === null)
+            tree = split;
+        else
+            up.kids[up.kids.indexOf(leaf)] = split;
+    };
+
+    /* Whether a leaf has room to be split in a direction: both halves
+       have to fit what the panes under them asked for. */
+    const splittable = (leaf, id, dir) =>
+    {
+        const box = boxOf(leaf);
+
+        if (box === undefined)
+            return false;
+
+        const rect = box.getBoundingClientRect();
+        const row = dir === 'row';
+        const want = minAcross(leaf, row) +
+                     (row ? panes.get(id).min : LEAF) + SPLIT;
+
+        return (row ? rect.width : rect.height) >= want;
+    };
+
+    /* ---- dragging a tab ---- */
+
+    /* Where a tab would land if it were let go here: a leaf to be moved
+       into, an edge of one to be split off, or the drawer.
+     *
+     * An edge is the outer fifth of the leaf, which is enough to aim at
+     * with a pointer and small enough that the middle -- the common
+       answer, "put it in this one" -- is most of the box.
+     */
+    const EDGE = 0.2;
+
+    const under = (x, y, id) =>
+    {
+        const at = document.elementFromPoint(x, y);
+
+        if (at === null)
+            return null;
+
+        if (at.closest('.panedrawer') !== null)
+            return { drop: 'drawer' };
+
+        const box = at.closest('.paneleaf');
+        const leaf = seen.get(box);
+
+        if (leaf === undefined)
+            return null;
+
+        const r = box.getBoundingClientRect();
+        const fx = (x - r.left) / r.width;
+        const fy = (y - r.top) / r.height;
+        const edge =
+            fx < EDGE ? ['row', false] : fx > 1 - EDGE ? ['row', true]
+          : fy < EDGE ? ['col', false] : fy > 1 - EDGE ? ['col', true]
+          : null;
+
+        if (edge === null || !splittable(leaf, id, edge[0]))
+            return { drop: 'into', leaf, box };
+
+        return { drop: 'beside', leaf, box, dir: edge[0], after: edge[1] };
+    };
+
+    /* What the drop would do, drawn over the pane it would do it to. */
+    const mark = (where) =>
+    {
+        if (hint === null)
+        {
+            hint = el('panedrop');
+            hint.hidden = true;
+            root.append(hint);
+        }
+
+        if (where === null)
+        {
+            hint.hidden = true;
+            return;
+        }
+
+        const r = (where.box ?? root).getBoundingClientRect();
+        const o = root.getBoundingClientRect();
+        const half = where.drop === 'beside';
+        const row = where.dir === 'row';
+
+        hint.hidden = false;
+        hint.style.left = `${r.left - o.left +
+            (half && row && where.after ? r.width / 2 : 0)}px`;
+        hint.style.top = `${r.top - o.top +
+            (half && !row && where.after ? r.height / 2 : 0)}px`;
+        hint.style.width = `${half && row ? r.width / 2 : r.width}px`;
+        hint.style.height = `${half && !row ? r.height / 2 : r.height}px`;
+    };
+
+    /* A tab, dragged. Pointer events rather than the browser's own drag:
+       what is being moved is a box in a layout, and what has to be shown
+       while it moves is where it would land, which the browser's drag
+       image knows nothing about. */
+    const grab = (tab, id) =>
+    {
+        tab.addEventListener('pointerdown', (e) =>
+        {
+            const from = { x: e.clientX, y: e.clientY };
+            let dragging = false;
+            let where = null;
+
+            const move = (m) =>
+            {
+                if (!dragging &&
+                    Math.hypot(m.clientX - from.x, m.clientY - from.y) < 5)
+                    return;
+
+                dragging = true;
+                tab.classList.add('dragging');
+                where = under(m.clientX, m.clientY, id);
+                mark(where);
+            };
+
+            const up = () =>
+            {
+                tab.removeEventListener('pointermove', move);
+                tab.removeEventListener('pointerup', up);
+                tab.removeEventListener('pointercancel', up);
+                tab.classList.remove('dragging');
+                mark(null);
+
+                if (!dragging || where === null)
+                    return;
+
+                if (where.drop === 'drawer')
+                    drawer(id);
+                else if (where.drop === 'into')
+                    into(id, where.leaf);
+                else
+                    beside(id, where.leaf, where.dir, where.after);
+
+                save();
+                render();
+            };
+
+            /* The capture is what makes elementFromPoint the question
+               being asked: without it the tab stops hearing the pointer
+               the moment it leaves its own box. */
+            tab.setPointerCapture(e.pointerId);
+            tab.addEventListener('pointermove', move);
+            tab.addEventListener('pointerup', up);
+            tab.addEventListener('pointercancel', up);
+        });
+    };
+
     /* ---- drawing it ---- */
 
     const el = (cls) =>
@@ -369,21 +633,102 @@ export function createPanes ({ root, catalog, layouts, mode,
         return d;
     };
 
-    /* A leaf: the pane it has in front, in a box that carries the
-       minimum. The minimum is the flex item's and not the pane's,
-       because the flex item is what a divider has to refuse to shrink. */
+    /* A leaf: a strip of tabs and a host per pane, with the one in front
+     * shown and the rest kept beside it.
+     *
+     * The strip is the pane's header when there is one pane, and a row of
+     * them when there are more; it is the same element either way, which
+     * is why a <details> adopted here can hand its disclosure over to it
+     * without the page having two kinds of header to style.
+     */
     const leafOf = (leaf) =>
     {
         const ids = liveTabs(leaf);
         const box = el('paneleaf');
+        const strip = el('panetabs');
 
-        leaf.active = Math.min(leaf.active ?? 0, ids.length - 1);
+        leaf.active = Math.min(Math.max(leaf.active ?? 0, 0), ids.length - 1);
+        strip.setAttribute('role', 'tablist');
+        strip.setAttribute('aria-label', 'Panes');
+
+        ids.forEach((id, i) =>
+        {
+            const p = panes.get(id);
+            const host = adopt(p);
+            const tab = document.createElement('button');
+            const front = i === leaf.active;
+
+            tab.type = 'button';
+            tab.className = 'panetab';
+            tab.id = `panetab-${id}`;
+            tab.textContent = p.title;
+            tab.setAttribute('role', 'tab');
+            tab.setAttribute('aria-controls', host.id);
+            tab.setAttribute('aria-selected', String(front));
+
+            /* Roving: one stop for the strip, which is the tab in front.
+               Tabbing through a layout should pass the panes, not every
+               tab of every one of them. */
+            tab.tabIndex = front ? 0 : -1;
+            tab.addEventListener('click', () => raise(leaf, i));
+            tab.addEventListener('keydown', (e) => along(e, leaf, ids, i));
+            grab(tab, id);
+
+            host.hidden = !front;
+            host.setAttribute('aria-labelledby', tab.id);
+
+            if (front)
+                onScreen.add(id);
+
+            placed.add(id);
+            strip.append(tab);
+            box.append(host);
+        });
+
+        /* Which leaf the next thing out of the drawer goes into, and
+           which one the keyboard is in. Captured, because a press that
+           lands in a canvas never reaches this box otherwise. */
+        box.addEventListener('pointerdown', () => { focus = leaf; }, true);
+
+        leaf.active = Math.min(leaf.active, ids.length - 1);
         box.style.minWidth = `${minAcross(leaf, true)}px`;
         box.style.minHeight = `${LEAF}px`;
-        box.append(adopt(panes.get(ids[leaf.active])));
-        inTree.add(ids[leaf.active]);
+        box.prepend(strip);
+        seen.set(box, leaf);
 
         return box;
+    };
+
+    /* The tab in front of a leaf, with the focus left where the person
+       put it: a tab they clicked is a tab they are on. */
+    const raise = (leaf, i) =>
+    {
+        const id = liveTabs(leaf)[i];
+
+        if (leaf.active === i)
+            return;
+
+        leaf.active = i;
+        save();
+        render();
+        root.querySelector(`#panetab-${id}`)?.focus();
+    };
+
+    /* Along the strip. Moving the focus moves the tab, which is what a
+       tablist does when what a tab shows costs nothing to show. */
+    const along = (e, leaf, ids, i) =>
+    {
+        const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+        const to = e.key === 'Home' ? 0
+                 : e.key === 'End' ? ids.length - 1
+                 : step === undefined ? -1
+                 : (i + step + ids.length) % ids.length;
+
+        if (to < 0)
+            return;
+
+        raise(leaf, to);
+        e.preventDefault();
     };
 
     /* A divider between two of a split's children, which is the one
@@ -537,6 +882,39 @@ export function createPanes ({ root, catalog, layouts, mode,
         return box;
     };
 
+    /* The panes no leaf has room for, listed above the layout: one click
+       from being put back, into whichever leaf was last touched. Nothing
+       here is a pane that has gone -- a drawer is what makes closing one
+       something other than losing it. */
+    const drawerOf = () =>
+    {
+        const box = el('panedrawer');
+        const out = [...panes.keys()].filter(
+            (id) => playable(id) && !placed.has(id));
+
+        box.hidden = out.length === 0;
+
+        for (const id of out)
+        {
+            const button = document.createElement('button');
+
+            button.type = 'button';
+            button.className = 'paneclosed';
+            button.textContent = panes.get(id).title;
+            button.addEventListener('click', () =>
+            {
+                into(id, focus ?? firstLeaf());
+                save();
+                render();
+            });
+
+            grab(button, id);
+            box.append(button);
+        }
+
+        return box;
+    };
+
     const render = () =>
     {
         if (!tiled)
@@ -544,7 +922,10 @@ export function createPanes ({ root, catalog, layouts, mode,
             for (const p of panes.values())
                 restore(p);
 
-            inTree = new Set();
+            onScreen = new Set();
+            placed = new Set();
+            seen = new Map();
+            hint = null;
             root.replaceChildren();
             settle();
 
@@ -560,12 +941,15 @@ export function createPanes ({ root, catalog, layouts, mode,
         for (const p of panes.values())
             adopt(p);
 
-        inTree = new Set();
+        onScreen = new Set();
+        placed = new Set();
+        seen = new Map();
+        hint = null;
 
         const made = alive(tree) ? nodeOf(tree) : el('paneleaf');
 
-        /* And the ones the layout has no room for, kept out of sight but
-           in the document. Out of the document they would be out of
+        /* The ones the layout has no room for, kept out of sight but in
+           the document. Out of the document they would be out of
            getElementById too, and every module on this page was handed
            its element by name -- a pane in the drawer is put away, not
            taken apart. */
@@ -574,10 +958,15 @@ export function createPanes ({ root, catalog, layouts, mode,
         kept.hidden = true;
 
         for (const p of panes.values())
-            if (!inTree.has(p.id))
+            if (!placed.has(p.id))
                 kept.append(p.host);
 
-        root.replaceChildren(made, kept);
+        /* A leaf that went away takes the focus with it: a split that
+           collapsed is not a place to put the next pane into. */
+        if (focus !== null && boxOf(focus) === undefined)
+            focus = null;
+
+        root.replaceChildren(drawerOf(), made, kept);
         settle();
     };
 
@@ -655,14 +1044,14 @@ export function createPanes ({ root, catalog, layouts, mode,
            body held it. */
         overlay: () =>
         {
-            if (over === null)
+            if (above === null)
             {
-                over = document.createElement('div');
-                over.className = 'paneoverlay';
-                document.body.append(over);
+                above = document.createElement('div');
+                above.className = 'paneoverlay';
+                document.body.append(above);
             }
 
-            return over;
+            return above;
         },
 
         /* The layout as it stands, which is what is kept and what comes

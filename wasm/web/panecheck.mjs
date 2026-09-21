@@ -105,6 +105,23 @@ const photograph = () => page.evaluate(() =>
 
 let page = null;
 
+/* A press, a move and a release over a target -- the layout's own
+   gestures, which are pointer events and not the browser's drag: what is
+   being moved is a box in a layout, and where it would land is drawn by
+   the page rather than by a drag image. */
+const drag = async (from, to, at = { x: 0.5, y: 0.5 }) =>
+{
+    const a = await page.locator(from).boundingBox();
+    const b = await page.locator(to).boundingBox();
+
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width * at.x, b.y + b.height * at.y,
+                          { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+};
+
 try
 {
     page = await browser.newPage({ viewport: NARROW });
@@ -296,6 +313,70 @@ try
     await page.waitForFunction(() => window.solo.drawing().composer,
                                null, { timeout: 60000 });
     check(true, 'and asks for them again when its pane is in front');
+
+    /* ---- two canvases, one leaf ---- */
+
+    /* Which is the whole of the performance argument for tabs. Both of
+       these are a wasm instance drawing a frame a frame: stacked, one of
+       them stops, and the page pays for one picture rather than two. */
+    await page.click('#pane-composerview .panebody');
+    await page.getByRole('button', { name: 'The graph', exact: true })
+              .click();
+    await page.waitForFunction(() => window.solo.drawing().nodes,
+                               null, { timeout: 60000 });
+
+    const stacked = await page.evaluate(() => window.solo.drawing());
+
+    check(!stacked.composer && stacked.nodes,
+          'the graph raised over the piece\'s picture leaves one of them ' +
+          'drawing, not two');
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-composerview')
+                      .closest('.paneleaf') ===
+              document.getElementById('pane-nodeview').closest('.paneleaf')),
+          'and they are two tabs of one leaf');
+
+    await page.click('#panetab-composerview');
+    await page.waitForFunction(() => window.solo.drawing().composer,
+                               null, { timeout: 60000 });
+
+    const swapped = await page.evaluate(() => window.solo.drawing());
+
+    check(swapped.composer && !swapped.nodes,
+          'and raising the other one turns the first one off');
+
+    /* ---- a tab dragged to the drawer, and back out of it ---- */
+
+    await drag('#panetab-nodeview', '.panedrawer');
+    await page.waitForFunction(() => !window.solo.drawing().nodes,
+                               null, { timeout: 15000 });
+
+    check(await page.evaluate(() =>
+              [...document.querySelectorAll('.paneclosed')]
+                  .some((b) => b.textContent === 'The graph')),
+          'a tab dragged onto the drawer closes to it, drawing nothing');
+
+    /* ---- and one dragged onto an edge, which is a split ---- */
+
+    const splits = () => page.evaluate(() =>
+    {
+        const count = (n) => n.tabs !== undefined
+            ? 0 : 1 + n.kids.reduce((a, k) => a + count(k), 0);
+
+        return count(window.solo.layout());
+    });
+
+    const had = await splits();
+
+    await drag('.panedrawer button:text-is("The graph")', '#pane-roll',
+               { x: 0.92, y: 0.5 });
+
+    check(await splits() === had + 1 &&
+          await page.evaluate(() =>
+              document.getElementById('pane-nodeview').closest('.paneleaf')
+                      .parentElement.dataset.dir === 'row'),
+          'and one dropped on a leaf\'s edge splits it that way');
 
     for (const e of errors)
         check(false, `page error: ${e}`);

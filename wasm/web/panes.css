@@ -59,12 +59,18 @@ body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
 body.tiled #status { margin: 0.2em 0; }
 body.tiled .row { margin: 0.4em 0; }
 
+/* The drawer above, the layout under it. */
 body.tiled #panes
 {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
+    flex-direction: column;
+    position: relative;
 }
+
+body.tiled #panes > .panebox,
+body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
 
 /* ---- the tree ----
  *
@@ -86,7 +92,10 @@ body.tiled #panes
 .panebox[data-dir="row"] { flex-direction: row; }
 .panebox[data-dir="col"] { flex-direction: column; }
 
-#panes > .panebox, #panes > .paneleaf { flex: 1 1 auto; }
+/* A leaf is its strip of tabs and the pane under them. */
+.paneleaf { flex-direction: column; }
+
+
 
 /* The divider. Six pixels of it, which is SPLIT in panes.js -- what
    refuses a drag and what is drawn have to be the same number -- with a
@@ -200,17 +209,87 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
    whoever set it. */
 .pane:has(> .panebody > [hidden]) { display: none; }
 
-.panehead
+/* ---- the tabs ----
+ *
+ * One tab is a pane's header; several are a choice, and the same strip
+ * either way. Which is what makes a <details> able to hand its
+ * disclosure over to it: the pane always has a header to be one.
+ */
+.panetabs
 {
     flex: 0 0 auto;
-    padding: 0.25em 0.6em;
-    font-size: 0.85em;
-    color: var(--dim);
+    display: flex;
     background: var(--panel);
     border-bottom: 1px solid var(--line);
+    overflow: hidden;
+}
+
+.panetab
+{
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0.25em 0.7em;
+    font: inherit;
+    font-size: 0.85em;
+    color: var(--dim);
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-bottom: 2px solid transparent;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: pointer;
+    touch-action: none;         /* a tab drags; it does not scroll */
+}
+
+.panetab[aria-selected="true"]
+{
+    color: var(--fg);
+    background: var(--bg);
+    border-bottom-color: var(--held);
+}
+
+.panetab.dragging { opacity: 0.5; }
+
+/* ---- the drawer ----
+ *
+ * The panes no leaf has room for. A closed pane is put away and not lost,
+ * so this is a list of them and not a list of things to be made again.
+ */
+.panedrawer
+{
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.3em;
+    flex-wrap: wrap;
+    margin-bottom: 0.4em;
+}
+
+.paneclosed
+{
+    padding: 0.15em 0.6em;
+    font: inherit;
+    font-size: 0.85em;
+    color: var(--dim);
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: 3px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.paneclosed:hover, .panetab:hover { color: var(--fg); }
+
+/* Where a dragged tab would land, over the pane it would land in. */
+.panedrop
+{
+    position: absolute;
+    z-index: 3;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--held) 20%, transparent);
+    border: 2px solid var(--held);
+    border-radius: 4px;
 }
 
 .panebody
