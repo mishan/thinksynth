@@ -65,6 +65,7 @@ import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
+import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
 import * as patch from './patch.js';
@@ -141,6 +142,7 @@ let ctx = null;
 let synth = null;
 let keyboard = null;
 let keys = null;                 /* the computer keyboard as a musical one */
+let keyfocus = null;             /* and who has it, the page or the keys  */
 
 /* note -> { count, piece, channel }: how many fingers are on it, and the
    route it went out by, which is the route its release has to take. */
@@ -1332,7 +1334,12 @@ async function init ()
     roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'),
                             { onPress: press, onRelease: release });
-    keys = new TypingKeys({ press, release, shifted,
+    /* Who has the keyboard, and the one line on the page that says so.
+       Escape hands it back, and lets go of anything it was holding on
+       the way -- a note whose key-up is about to land somewhere else. */
+    keyfocus = createKeyFocus({ indicator: $('keysstate'),
+                                onRelease: releaseAll });
+    keys = new TypingKeys({ press, release, shifted, focus: keyfocus,
                             playable: () => synth !== null });
     keyboard.setLowest(keys.lowest);
     keyboard.fit();
