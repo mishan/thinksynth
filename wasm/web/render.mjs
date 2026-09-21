@@ -192,17 +192,17 @@ export function schedule (M, c)
  * The page's rule, in Node: what a channel sounds like is the piece's to
  * decide, and where the piece is silent on it, the page's defaults'. So
  * the piece goes in first, the module says which channels its sinks named
- * and its own instruments did not take, and `patchFor' is asked what
- * belongs on each -- the same question patch.js asks for the page, with
- * the same answer, resolved by the caller because only the caller can
- * read a file.
+ * and its own instruments did not take, and each of those is aimed.
  *
- * `patchFor(channel)' returns `{ name, text }': the .patch's own bytes,
- * which the module reads and puts on the channel (src/PatchApply.h). null
- * for a channel it has nothing for, and those channels come back in
- * `unaimed' so the caller can say so -- as does one whose patch the module
- * refuses, which is what a build shipping a .patch and not the .dsp it
- * names looks like from here.
+ * Which patch belongs on a channel the piece left is the module's answer
+ * (tw_patch_default, src/PatchSet.h) and not the caller's: the first-run
+ * table and the rule for a channel above the end of it are one thing, and
+ * for a while they were two. `patchFor(name)' is asked only for the bytes,
+ * because reading a file is the one part of this a module cannot do. null
+ * for a name it has nothing for, and those channels come back in `unaimed'
+ * so the caller can say so -- as does one whose patch the module refuses,
+ * which is what a build shipping a .patch and not the .dsp it names looks
+ * like from here.
  *
  * A piece fed by `input midi' composes nothing until somebody plays it,
  * so `chord' is held down on every channel it listens on -- there is no
@@ -245,11 +245,13 @@ export async function playAimed (createThinkWeb,
     for (let i = 0; i < M._tw_sink_count(); i++)
     {
         const channel = M._tw_sink_channel(i);
-        const what = patchFor(channel);
+        const want = M.ccall('tw_patch_default', 'string', ['number'],
+                             [channel]);
+        const text = want === '' ? null : patchFor(want);
 
-        if (what === null || what.text === undefined)
+        if (text === null || text === undefined)
         {
-            unaimed.push(channel);
+            unaimed.push({ channel, wanted: want });
             continue;
         }
 
@@ -260,15 +262,15 @@ export async function playAimed (createThinkWeb,
            order, beside patch.js's and the application's. */
         if (M.ccall('tw_patch_apply', 'number',
                     ['number', 'string', 'string'],
-                    [channel, what.text, what.name]) === 0)
+                    [channel, text, want]) === 0)
         {
-            log.push(`channel ${channel + 1}: ${what.name}: ` +
+            log.push(`channel ${channel + 1}: ${want}: ` +
                      M.ccall('tw_patch_why', 'string', [], []));
-            unaimed.push(channel);
+            unaimed.push({ channel, wanted: want });
             continue;
         }
 
-        aimed.push({ channel, patch: what.name });
+        aimed.push({ channel, patch: want });
     }
 
     const listens = [];

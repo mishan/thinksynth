@@ -64,25 +64,23 @@
    thinkrc calls them too. */
 const PATCH_DIR = 'patches';
 
-/* The application's first-run configuration, gthPrefs.cpp's
-   thinkDefaultChannels, exactly.
+/* The first-run configuration is the module's (src/PatchSet.h), and so is
+ * the rule for a channel above the last entry in it. There used to be an
+ * array here with a comment saying it was gthPrefs.cpp's table "exactly",
+ * which is the kind of promise nothing keeps.
  *
- * A channel above the last of these takes the entry at `c mod 4', so a
- * piece naming channel 7 sounds rather than not. The application leaves
- * channels 4 to 15 empty and gets away with it: it has a thinkrc a person
- * can edit, and a Patch Selector open in front of them. A page has no
- * first-run file, so it should not have the same gap. */
-export const DEFAULTS = [
-    'leads/SuperRes.patch',
-    'bass/FunkMachine.patch',
-    'organs/Organ1.patch',
-    'pads/SynString.patch',
-];
+ * Asked once and kept: the aiming below happens inside a load and a load has
+ * no time to wait for anything, and the answer cannot change while a page is
+ * open. What the page still does is fetch what the names name.
+ */
+let defaults = null;
 
-export function defaultFor (channel)
+export async function defaultNames (synth)
 {
-    return DEFAULTS[((channel % DEFAULTS.length) + DEFAULTS.length) %
-                    DEFAULTS.length];
+    if (defaults === null)
+        defaults = (await synth.patchDefaults()).names;
+
+    return defaults;
 }
 
 /* Fetched once each. A piece reload aims the same channels again, and the
@@ -174,7 +172,8 @@ export async function aim (synth, channels, chosen = new Map())
        the load these belong to. */
     for (const channel of channels)
     {
-        const name = chosen.get(channel) ?? defaultFor(channel);
+        const name = chosen.get(channel) ??
+                     (await synth.patchDefault(channel)).name;
 
         try
         {

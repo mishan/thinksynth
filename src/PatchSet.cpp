@@ -25,6 +25,30 @@
 
 #include "PatchSet.h"
 
+/* See the header. Index is the channel, which is what the application's
+   table of pairs always was. */
+static const char *const patchDefaults[] = {
+    "leads/SuperRes.patch",
+    "bass/FunkMachine.patch",
+    "organs/Organ1.patch",
+    "pads/SynString.patch",
+};
+
+int thPatchDefaultCount (void)
+{
+    return (int)(sizeof(patchDefaults) / sizeof(patchDefaults[0]));
+}
+
+string thPatchDefaultFor (int channel)
+{
+    const int n = thPatchDefaultCount();
+
+    if (channel < 0 || n <= 0)
+        return string();
+
+    return patchDefaults[channel % n];
+}
+
 /* Stamped on every slot, never reused, counted once across the program --
    which is why it is here and not a member. See Slot::generation for why a
    filename or an address will not do. GUI thread only, like everything

@@ -1329,6 +1329,30 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
     return patchJson_.c_str();
 }
 
+/* What belongs on a channel nothing has aimed: the first-run configuration,
+ * by relative name (src/PatchSet.h). "" for a channel with no answer.
+ *
+ * The page fetches what this names; it does not get the bytes from here, for
+ * the reason nothing else does either. What it does get is the rule -- a
+ * channel above the last entry takes the one at `c mod count' -- which used
+ * to be written down twice, once here as an array in patch.js and once in
+ * gthPrefs.cpp, with a comment on the page's promising they were the same.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_default (int channel)
+{
+    patchJson_ = thPatchDefaultFor(channel);
+
+    return patchJson_.c_str();
+}
+
+/* How many there are, so a page can fetch each of them once before the first
+   load -- the aiming happens inside a load, and a load has no time to wait
+   for the network. */
+EMSCRIPTEN_KEEPALIVE int tw_patch_default_count (void)
+{
+    return thPatchDefaultCount();
+}
+
 /* A channel's patch has been edited.
  *
  * The browser's markDirty. On the desktop, moving a control goes through

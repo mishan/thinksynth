@@ -125,6 +125,28 @@ for (const name of names)
           `native "${wantWhy}", wasm "${gotWhy}"`);
 }
 
+/* ---- the first-run configuration ---- */
+
+/* The four patches a channel gets when nothing has aimed it, and the rule
+ * for a channel above the last of them. The page had a copy of both, with a
+ * comment saying the list was gthPrefs.cpp's "exactly" -- which is the kind
+ * of promise nothing keeps, so now it is this.
+ */
+{
+    const wanted = fs.readFileSync(path.join(scratch, 'defaults.txt'), 'utf8')
+        .split('\n').slice(0, -1);
+
+    const got = wanted.map((_, c) =>
+        M.ccall('tw_patch_default', 'string', ['number'], [c]));
+
+    check(got.join('\n') === wanted.join('\n'),
+          'the first-run defaults are the same on both sides',
+          `\n    native ${wanted.join(', ')}\n    wasm   ${got.join(', ')}`);
+
+    check(M._tw_patch_default_count() === new Set(wanted).size,
+          'and there are as many of them as there are distinct names');
+}
+
 /* ---- and onto a channel ---- */
 
 /* The graph a shipped patch names, and the shipped patch itself. The module

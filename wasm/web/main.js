@@ -986,7 +986,8 @@ async function start ()
        here: a default that cannot be fetched is reported by the load that
        wanted it, which is where it means something. */
     await Promise.all(
-        patch.DEFAULTS.map((name) => patch.patchText(name).catch(() => {})));
+        (await patch.defaultNames(synth))
+            .map((name) => patch.patchText(name).catch(() => {})));
 
     $('load').disabled = false;
     $('loadpiece').disabled = false;

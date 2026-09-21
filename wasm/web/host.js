@@ -153,6 +153,8 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'panel':
             case 'panelvalues':
             case 'patchstate':
+            case 'patchdefault':
+            case 'patchdefaults':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -238,6 +240,13 @@ export async function createSynth (ctx, { windowlen = 256,
            worklet alone -- it is a question, and the instance that sounds
            is the one whose answer counts. */
         patchState: (channel) => ask({ type: 'patchstate', channel }),
+
+        /* What belongs on a channel nothing has aimed. Resolves to
+           `{ name }', empty for a channel with no answer; patchDefaults()
+           is the distinct list, for fetching them all before the first
+           load. The rule is the module's -- see src/PatchSet.h. */
+        patchDefault: (channel) => ask({ type: 'patchdefault', channel }),
+        patchDefaults: () => ask({ type: 'patchdefaults' }),
 
         /* One chanarg of whatever is loaded on a channel. The other half of
            load() for anything that drives the two by hand; a .patch goes

@@ -872,7 +872,8 @@ async function start ()
            means. */
         names.forEach((n, i) => synth.instrument(n, texts[i]));
 
-        await Promise.all(patch.DEFAULTS.map((n) => patch.patchText(n)));
+        await Promise.all(
+            (await patch.defaultNames(synth)).map((n) => patch.patchText(n)));
     }
     catch (e)
     {

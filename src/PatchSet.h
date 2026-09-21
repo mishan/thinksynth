@@ -77,6 +77,43 @@ typedef sigc::signal<void(int)> type_signal_patch_dirty;
 /* A file that would not load, by the name it was asked for. */
 typedef sigc::signal<void(const char*)> type_signal_patch_load_error;
 
+/* ---- the first-run configuration ----
+ *
+ * What a channel sounds like when nothing has said otherwise: four patches,
+ * one of each obvious kind, on the first four channels.
+ *
+ * Built in rather than shipped as a file. The file this replaces was
+ * configure_file'd with absolute paths, which made it correct only on a
+ * machine installed to the prefix the build was configured with -- not a
+ * relocatable tarball, not a .app, not a Windows zip, and not a Flatpak. The
+ * names here are relative and are resolved by whoever is asking: the
+ * application searches PATCH_PATH, the page fetches under patches/.
+ *
+ * Four, not sixteen: enough that the first few channels anyone tries make a
+ * sound, few enough that starting up is not several seconds of parsing DSPs
+ * nobody asked for. One of each obvious kind, so the keyboard demonstrates
+ * that channels differ.
+ *
+ * Both shells had this list. The application's was a table of channel-and-
+ * patch pairs in gthPrefs.cpp -- always channels 0 to 3, in order -- and the
+ * page's was an array in patch.js with a comment saying it was
+ * "gthPrefs.cpp's thinkDefaultChannels, exactly". Two lists that had to agree
+ * and nothing that made them.
+ */
+
+/* How many there are. */
+int thPatchDefaultCount (void);
+
+/* What belongs on a channel, or "" for a channel with no answer.
+ *
+ * A channel above the last entry takes the one at `c mod count', so a piece
+ * naming channel 7 sounds rather than not. The application leaves channels 4
+ * to 15 empty and gets away with it: it has a thinkrc a person can edit and a
+ * Patch Selector open in front of them. A page has no first-run file, so it
+ * should not have the same gap -- and the rule for closing it lives here so
+ * that there is one of it. */
+string thPatchDefaultFor (int channel);
+
 class thPatchSet
 {
 public:

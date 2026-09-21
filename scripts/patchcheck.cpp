@@ -38,6 +38,10 @@
  *   browser write a .patch the desktop reads back, and what stops compose
  *   from being judged by eye.
  *
+ *   The first-run configuration, which both shells used to write down: the
+ *   four patches a channel gets when nothing has aimed it, and the rule for
+ *   a channel above the last of them.
+ *
  *   The awkward lines. A fixture per documented answer, asserting the answer
  *   rather than whatever the code happens to do -- an `info' with no value, a
  *   line with no space in it, a line that starts with a NUL, CRLF endings,
@@ -68,6 +72,7 @@
 #include <sstream>
 
 #include "PatchFile.h"
+#include "PatchSet.h"
 
 using std::ifstream;
 using std::ofstream;
@@ -662,9 +667,19 @@ static int dumpFixtures (const string &dir)
     }
 
     ofstream list((std::filesystem::path(dir) / "index.txt"),
-                       std::ios::binary | std::ios::trunc);
+                  std::ios::binary | std::ios::trunc);
 
     list << index;
+
+    /* And the first-run configuration, one line per channel, past the end of
+     * the table on purpose: what a channel above the last entry gets is a
+     * rule and not a row, and it is the half of this that a list of four
+     * names would not catch. The page had its own copy of both. */
+    ofstream defaults((std::filesystem::path(dir) / "defaults.txt"),
+                      std::ios::binary | std::ios::trunc);
+
+    for (int c = 0; c < thPatchDefaultCount() * 2 + 1; c++)
+        defaults << thPatchDefaultFor(c) << "\n";
 
     return 0;
 }

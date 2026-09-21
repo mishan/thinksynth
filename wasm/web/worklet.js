@@ -244,6 +244,33 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The first-run configuration: what belongs on a channel nothing
+           has aimed, and how many distinct answers there are. The rule is
+           the module's (src/PatchSet.h); the page fetches what it names. */
+        if (m.type === 'patchdefaults')
+        {
+            const names = [];
+
+            for (let c = 0; c < this.M._tw_patch_default_count(); c++)
+                names.push(this.M.ccall('tw_patch_default', 'string',
+                                        ['number'], [c]));
+
+            this.port.postMessage({ type: 'patchdefaults', id: m.id, names });
+
+            return;
+        }
+
+        if (m.type === 'patchdefault')
+        {
+            this.port.postMessage({
+                type: 'patchdefault', id: m.id,
+                name: this.M.ccall('tw_patch_default', 'string', ['number'],
+                                   [m.channel]),
+            });
+
+            return;
+        }
+
         /* A tap, armed on this thread -- which is the GUI thread and the
            audio thread at once here, so the call that resolves the node
            and the call that drains the ring are on the same one. */
