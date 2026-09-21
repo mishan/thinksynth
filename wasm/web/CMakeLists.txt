@@ -274,6 +274,15 @@ const size_t thStaticVisualCount =
 # control is, in as many words as it takes and none of them a widget
 # (src/PanelModel.h). The guard is this line -- they are built here, and
 # nothing here links a toolkit.
+#
+# PatchFile and PatchApply are the same move again, for what a .patch means:
+# the format, and the order a document goes onto a channel in. patch.js used
+# to hold a second reading of both, and the two had drifted -- a channel
+# effect was dropped on the floor here and nowhere else. Neither file knows
+# what a fetch is; the page hands text in. PatchSet is the slots the two
+# shells keep them in -- sixteen documents, a dirty flag and a generation --
+# so the page can say what is on a channel and whether it has been edited,
+# which is a thing the desktop has always been able to say.
 add_executable(thinkweb
     ${STATIC_SOURCES}
     "${PROJECT_BINARY_DIR}/static/registry.cpp"
@@ -289,6 +298,9 @@ add_executable(thinkweb
     "${THINK_TOP}/src/PanelModel.cpp"
     "${THINK_TOP}/src/ArgPanel.cpp"
     "${THINK_TOP}/src/KnobPanel.cpp"
+    "${THINK_TOP}/src/PatchFile.cpp"
+    "${THINK_TOP}/src/PatchApply.cpp"
+    "${THINK_TOP}/src/PatchSet.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
     thinkweb.cpp

@@ -157,10 +157,6 @@ const dedupe = new Dedupe();
 let piece = null;               /* the worklet's word on the loaded piece */
 let listens = new Set();        /* channels the piece takes input on */
 
-/* The shipped .dsp texts, for the channels a piece names and aims at
-   nothing of its own. The document's instruments are the piece's and come
-   from the document; these are the page's defaults' (patch.js). */
-let dspTexts = {};
 const sounding = new Map();     /* note -> { count, seat } */
 
 /* What the numbers panel and the harness read back. Bounded, the way
@@ -410,7 +406,7 @@ async function loadFromDoc (seed = -1)
        tapes are compared on. */
     if (it.errors.length === 0)
     {
-        const aiming = await patch.aim(synth, it.sinks, dspTexts);
+        const aiming = await patch.aim(synth, it.sinks);
 
         aiming.failed.forEach(log);
     }
@@ -869,9 +865,21 @@ async function start ()
         const texts = await Promise.all(
             names.map((n) => fetch(`dsp/${n}`).then((r) => r.text())));
 
-        dspTexts = Object.fromEntries(names.map((n, i) => [n, texts[i]]));
+        /* Into the module's own MEMFS, which is where a .patch's `dsp'
+           line is resolved from -- the same handover the solo page does,
+           and the same one a piece's `instrument' block relies on. It
+           used to be a map kept here, because patch.js read the .patch
+           itself and handed the graph's text over a channel at a time;
+           the module reads the .patch now and looks the graph up by name,
+           so what it needs is the graphs, not a map of them.
 
-        await Promise.all(patch.DEFAULTS.map((n) => patch.patchText(n)));
+           A document's own instruments are written over these at load
+           (above), which is what a piece carrying its own amb01.dsp
+           means. */
+        names.forEach((n, i) => synth.instrument(n, texts[i]));
+
+        await Promise.all(
+            (await patch.defaultNames(synth)).map((n) => patch.patchText(n)));
     }
     catch (e)
     {

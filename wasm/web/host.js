@@ -144,13 +144,18 @@ export async function createSynth (ctx, { windowlen = 256,
                 waiting.get(m.id)?.(m.ok);
                 waiting.delete(m.id);
                 break;
+            case 'patched':
             case 'probed':
-                waiting.get(m.id)?.({ slot: m.slot, why: m.why });
+                waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
             case 'piece':
             case 'panel':
             case 'panelvalues':
+            case 'patchstate':
+            case 'patchcompose':
+            case 'patchdefault':
+            case 'patchdefaults':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -215,11 +220,55 @@ export async function createSynth (ctx, { windowlen = 256,
            is not text. */
         sample: (name, bytes) => post({ type: 'sample', name, bytes }),
 
-        /* One chanarg of whatever is loaded on a channel, at the value a
-           .patch overrides it to. The other half of load(), in that
-           order: patch.js does the two together, as
-           gthPatchManager::parse does. A name the tree does not declare
-           is ignored and said once in the log. */
+        /* A whole .patch, as text: the module reads it and puts it on the
+           channel, in the order the format requires. Resolves to
+           `{ ok, why, json }' -- the document it read, so the page can say
+           what it put on without reading the file a second time.
+
+           `name' is what to call the slot -- the name the page fetched it
+           by, which the bytes do not carry and which a Save would offer
+           back.
+
+           The .dsp it names is not sent: the page has already handed every
+           shipped graph to instrument() above, which is where a patch's
+           `dsp' line is resolved from. */
+        patch: (channel, text, name = '') =>
+            ask({ type: 'patch', channel, text, name }),
+
+        /* What is on a channel now: the document, the name it was given,
+           and whether it has been edited since. Resolves to `{ json }',
+           empty for a channel nothing has been put on. Asked of the
+           worklet alone -- it is a question, and the instance that sounds
+           is the one whose answer counts. */
+        patchState: (channel) => ask({ type: 'patchstate', channel }),
+
+        /* The bytes a Save would write for a channel: the slot's graph,
+           effect, side and info, and the values the channel holds now.
+           Resolves to `{ text }', empty for a channel nothing is on. The
+           same bytes the desktop writes, which is what makes a patch saved
+           in a browser one the application opens. */
+        patchCompose: (channel, stamp) =>
+            ask({ type: 'patchcompose', channel, stamp }),
+
+        /* And that they were kept, under this name: the other half of the
+           dirty flag the channel row draws. Told rather than asked -- a
+           page that composed a patch and then thought better of it has not
+           saved anything, so this is a separate thing to say. */
+        patchSaved: (channel, name) =>
+            post({ type: 'patchsaved', channel, name }),
+
+        /* What belongs on a channel nothing has aimed. Resolves to
+           `{ name }', empty for a channel with no answer; patchDefaults()
+           is the distinct list, for fetching them all before the first
+           load. The rule is the module's -- see src/PatchSet.h. */
+        patchDefault: (channel) => ask({ type: 'patchdefault', channel }),
+        patchDefaults: () => ask({ type: 'patchdefaults' }),
+
+        /* One chanarg of whatever is loaded on a channel. The other half of
+           load() for anything that drives the two by hand; a .patch goes
+           through patch() above, which does them in the order
+           src/PatchApply.h sets out. A name the tree does not declare is
+           ignored and said once in the log. */
         chanarg: (channel, name, values) =>
             post({ type: 'chanarg', channel, name,
                    values: Array.isArray(values) ? values : [values] }),

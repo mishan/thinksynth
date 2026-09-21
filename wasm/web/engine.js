@@ -19,7 +19,7 @@
 /*
  * engine.js -- what a message means to an instance of the module.
  *
- * One switch: a `load', `instrument', `chanarg', `piece', `transport', `begin',
+ * One switch: a `load', `instrument', `patch', `chanarg', `piece', `transport', `begin',
  * `at', `knob', `paneledit', `input', `midion', `midioff', `on', `off' or
  * `alloff' message, turned into the tw_ call that applies it. It used to live in worklet.js, and
  * moved here when there were two instances to apply it to.
@@ -43,6 +43,7 @@ export const TRANSPORT = { start: 0, stop: 1, rewind: 2, tempo: 3 };
 
 const NOWHERE = {
     loaded: () => {},
+    patched: () => {},
     piece: () => {},
     log: () => {},
 };
@@ -54,7 +55,7 @@ const NOWHERE = {
  */
 export function apply (M, m, host = NOWHERE)
 {
-    const { loaded, piece, log } = { ...NOWHERE, ...host };
+    const { loaded, patched, piece, log } = { ...NOWHERE, ...host };
 
     switch (m.type)
     {
@@ -77,6 +78,29 @@ export function apply (M, m, host = NOWHERE)
                     ['string', 'array', 'number'],
                     [m.name, m.bytes, m.bytes.length]);
             return true;
+
+        case 'patch':
+            /* A whole .patch, as text. The module reads it and puts it on
+               the channel -- the graph it names, its side, its effect and
+               its overrides, in the order the format requires
+               (src/PatchApply.h). patch.js used to do the reading here in
+               JavaScript and drove `load' and `chanarg' below by hand; what
+               is left of it fetches.
+
+               The document comes back so the page can say what it put on:
+               what a .patch calls itself is an `info title' line, and only
+               something that has read the file knows it. */
+        {
+            const ok = M.ccall('tw_patch_apply', 'number',
+                               ['number', 'string', 'string'],
+                               [m.channel, m.text, m.name ?? '']) !== 0;
+
+            patched(m.id, ok,
+                    M.ccall('tw_patch_why', 'string', [], []),
+                    ok ? M.ccall('tw_patch_json', 'string', ['number'],
+                                 [m.channel]) : '');
+            return true;
+        }
 
         case 'chanarg':
             /* The overrides half of a .patch (patch.js). `array' is the

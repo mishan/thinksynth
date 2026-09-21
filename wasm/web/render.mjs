@@ -192,15 +192,17 @@ export function schedule (M, c)
  * The page's rule, in Node: what a channel sounds like is the piece's to
  * decide, and where the piece is silent on it, the page's defaults'. So
  * the piece goes in first, the module says which channels its sinks named
- * and its own instruments did not take, and `patchFor' is asked what
- * belongs on each -- the same question patch.js asks for the page, with
- * the same answer, resolved by the caller because only the caller can
- * read a file.
+ * and its own instruments did not take, and each of those is aimed.
  *
- * `patchFor(channel)' returns `{ name, dsp, args }': the .dsp's text and
- * the chanarg overrides to set on it afterwards, which is a .patch. null
- * for a channel it has nothing for, and those channels come back in
- * `unaimed' so the caller can say so.
+ * Which patch belongs on a channel the piece left is the module's answer
+ * (tw_patch_default, src/PatchSet.h) and not the caller's: the first-run
+ * table and the rule for a channel above the end of it are one thing, and
+ * for a while they were two. `patchFor(name)' is asked only for the bytes,
+ * because reading a file is the one part of this a module cannot do. null
+ * for a name it has nothing for, and those channels come back in `unaimed'
+ * so the caller can say so -- as does one whose patch the module refuses,
+ * which is what a build shipping a .patch and not the .dsp it names looks
+ * like from here.
  *
  * A piece fed by `input midi' composes nothing until somebody plays it,
  * so `chord' is held down on every channel it listens on -- there is no
@@ -243,27 +245,32 @@ export async function playAimed (createThinkWeb,
     for (let i = 0; i < M._tw_sink_count(); i++)
     {
         const channel = M._tw_sink_channel(i);
-        const what = patchFor(channel);
+        const want = M.ccall('tw_patch_default', 'string', ['number'],
+                             [channel]);
+        const text = want === '' ? null : patchFor(want);
 
-        if (what === null || what.dsp === undefined)
+        if (text === null || text === undefined)
         {
-            unaimed.push(channel);
+            unaimed.push({ channel, wanted: want });
             continue;
         }
 
-        M.ccall('tw_load', 'number', ['number', 'string'],
-                [channel, what.dsp]);
+        /* The whole .patch, read by the module: the graph it names, its
+           side, its effect and its overrides, in the order the format
+           requires. This used to be a tw_load and a loop of tw_chanarg
+           done here in the right order by hand -- a third copy of that
+           order, beside patch.js's and the application's. */
+        if (M.ccall('tw_patch_apply', 'number',
+                    ['number', 'string', 'string'],
+                    [channel, text, want]) === 0)
+        {
+            log.push(`channel ${channel + 1}: ${want}: ` +
+                     M.ccall('tw_patch_why', 'string', [], []));
+            unaimed.push({ channel, wanted: want });
+            continue;
+        }
 
-        /* After the load, as gthPatchManager::parse does it: the
-           overrides are for the tree that load just built. */
-        for (const a of what.args ?? [])
-            M.ccall('tw_chanarg', 'number',
-                    ['number', 'string', 'array', 'number'],
-                    [channel, a.name,
-                     new Uint8Array(Float32Array.from(a.values).buffer),
-                     a.values.length]);
-
-        aimed.push({ channel, patch: what.name });
+        aimed.push({ channel, patch: want });
     }
 
     const listens = [];

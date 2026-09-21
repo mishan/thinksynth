@@ -166,6 +166,11 @@ class ThinkProcessor extends AudioWorkletProcessor
         if (apply(this.M, m, {
                 loaded: (id, ok) =>
                     this.port.postMessage({ type: 'loaded', id, ok }),
+                /* More than ok: a refusal has a reason, and a patch that
+                   loaded has a document the page reads its title off. */
+                patched: (id, ok, why, json) =>
+                    this.port.postMessage({ type: 'patched', id, ok, why,
+                                            json }),
                 piece: (id, ok) =>
                     this.port.postMessage({ type: 'piece', id,
                                             ...this.piece(ok) }),
@@ -216,6 +221,81 @@ class ThinkProcessor extends AudioWorkletProcessor
 
             this.port.postMessage({ type: 'panelvalues', id: m.id, shape,
                                     values });
+
+            return;
+        }
+
+        /* What is on a channel and whether it has been edited since it
+         * was read.
+         *
+         * A question, like the panel above and for the same reason: what
+         * the page draws is what the thing that sounds holds. The edits
+         * that make it dirty are commands and have already been applied on
+         * both instances by the time anybody asks.
+         */
+        if (m.type === 'patchstate')
+        {
+            this.port.postMessage({
+                type: 'patchstate', id: m.id,
+                json: this.M.ccall('tw_patch_json', 'string', ['number'],
+                                   [m.channel]),
+            });
+
+            return;
+        }
+
+        /* The bytes a Save would write for a channel, and the note that
+         * they were kept.
+         *
+         * A question and then a command, because that is what they are: a
+         * page that asked what a Save would write and then thought better
+         * of it has not saved anything. Both of this instance, which is
+         * the one that sounds and therefore the one whose values are the
+         * ones worth writing down.
+         */
+        if (m.type === 'patchcompose')
+        {
+            this.port.postMessage({
+                type: 'patchcompose', id: m.id,
+                text: this.M.ccall('tw_patch_compose', 'string',
+                                   ['number', 'string'],
+                                   [m.channel, m.stamp ?? '']),
+            });
+
+            return;
+        }
+
+        if (m.type === 'patchsaved')
+        {
+            this.M.ccall('tw_patch_saved', 'number', ['number', 'string'],
+                         [m.channel, m.name ?? '']);
+
+            return;
+        }
+
+        /* The first-run configuration: what belongs on a channel nothing
+           has aimed, and how many distinct answers there are. The rule is
+           the module's (src/PatchSet.h); the page fetches what it names. */
+        if (m.type === 'patchdefaults')
+        {
+            const names = [];
+
+            for (let c = 0; c < this.M._tw_patch_default_count(); c++)
+                names.push(this.M.ccall('tw_patch_default', 'string',
+                                        ['number'], [c]));
+
+            this.port.postMessage({ type: 'patchdefaults', id: m.id, names });
+
+            return;
+        }
+
+        if (m.type === 'patchdefault')
+        {
+            this.port.postMessage({
+                type: 'patchdefault', id: m.id,
+                name: this.M.ccall('tw_patch_default', 'string', ['number'],
+                                   [m.channel]),
+            });
 
             return;
         }

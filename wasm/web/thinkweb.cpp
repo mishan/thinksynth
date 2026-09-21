@@ -90,6 +90,10 @@
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
+#include "JsonOut.h"
+#include "PatchApply.h"
+#include "PatchFile.h"
+#include "PatchSet.h"
 #include "KnobPanel.h"
 
 #include "twevent.h"
@@ -1162,6 +1166,257 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
     return 1;
 }
 
+/* ---- a .patch, read and put on a channel ----
+ *
+ * The page fetches the file and hands over its text; everything the bytes
+ * mean happens here, in the same code the application runs
+ * (src/PatchFile.h, src/PatchApply.h).
+ *
+ * It used to be a second parser in wasm/web/patch.js, written from
+ * docs/DSP_FORMAT.md separately, and it had drifted: an `effect' line
+ * parsed as a chanarg whose value was not a number and was dropped, so a
+ * patch with a channel effect on it sounded different in a browser and
+ * said nothing about why; `side' went to the engine as a chanarg called
+ * `side'. Both of those arrive for free now, by deletion -- there is no
+ * new page code behind them.
+ *
+ * What does not cross is finding the file. A browser has no PATCH_PATH and
+ * should not pretend to; the page has fetch() and an index.json, and hands
+ * text in exactly as it already does for tw_load and tw_instrument.
+ */
+
+static std::string patchWhy_;
+static std::string patchJson_;
+
+/* What each channel was given, and whether it has been edited since.
+ *
+ * The same slots the application keeps (src/PatchSet.h), instantiated rather
+ * than reached through a singleton -- which is what the singleton being the
+ * application's idea, and staying there, is for. The signals go unconnected:
+ * a page polls, and there is nothing on this side of the ABI to hang a
+ * handler on. */
+static thPatchSet patches_(TH_MIDI_CHANNELS);
+
+/* Reads `text' and puts it on `channel': the graph it names, its side, its
+ * effect and its overrides, in the order the format requires.
+ *
+ * 1 if the patch is on the channel. 0 leaves the channel exactly as it was,
+ * with tw_patch_why saying which of the two things went wrong -- the text
+ * is not a patch, or the graph it names would not load.
+ *
+ * The .dsp is not fetched here either. The page hands every shipped graph
+ * to tw_instrument before the first load, and a patch's `dsp' line is
+ * resolved against those -- the same lookup a piece's `instrument' block
+ * uses, and the same one the application makes under DSP_PATH.
+ *
+ * `name' is what to call the slot -- `leads/SuperRes.patch', the name the
+ * page fetched it by. The text does not carry it and a document does not
+ * know it, and it is what a Save would offer back; "" for a patch that came
+ * from nowhere a name would mean anything.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text,
+                                         const char *name)
+{
+    patchWhy_.clear();
+
+    if (text == NULL)
+    {
+        patchWhy_ = "no patch text";
+        return 0;
+    }
+
+    thPatchDoc doc;
+
+    if (!thPatchParse(text, doc, patchWhy_))
+        return 0;
+
+    const thPatchApplied got = thPatchApply(synth_, channel, doc);
+
+    /* Both lists, in the order they happened: the lines the reader could not
+       use, then what the channel could not do with the rest. The page logs
+       them; neither is a failure on its own. */
+    for (size_t i = 0; i < doc.complaints.size(); i++)
+        fprintf(stderr, "channel %d: %s\n", channel + 1,
+                doc.complaints[i].c_str());
+
+    for (size_t i = 0; i < got.complaints.size(); i++)
+        fprintf(stderr, "channel %d: %s\n", channel + 1,
+                got.complaints[i].c_str());
+
+    if (!got.ok)
+    {
+        patchWhy_ = got.why;
+        return 0;
+    }
+
+    /* What went on, not what was asked for: the effect may have failed and
+       the side may have been clamped. */
+    doc.effect = got.effect;
+    doc.side = got.side;
+
+    /* Not dirty: this is what the text said, and nothing has changed it
+       yet. A chanarg edit through tw_panel_edit is what does. */
+    patches_.put(channel, doc, name != NULL ? name : "", false);
+
+    return 1;
+}
+
+/* What a .patch says, without putting it anywhere.
+ *
+ * The reading on its own: the same thPatchParse the application runs, with no
+ * channel and no synth involved, returned as the document it made. "" for
+ * text that is not a patch, with tw_patch_why saying so.
+ *
+ * Its own entry point rather than a mode of tw_patch_apply because applying
+ * changes the answer -- an effect that would not load is not in the document
+ * the channel ends up with -- and what the parity gate has to compare is the
+ * reading, which is the part compiled twice. It is also what a menu wants: a
+ * patch's `info title' is in the file, and showing it should not mean loading
+ * the patch to find out.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_read (const char *text)
+{
+    patchWhy_.clear();
+    patchJson_.clear();
+
+    thPatchDoc doc;
+
+    if (text != NULL && thPatchParse(text, doc, patchWhy_))
+        patchJson_ = thPatchDocToJson(doc);
+    else if (text == NULL)
+        patchWhy_ = "no patch text";
+
+    return patchJson_.c_str();
+}
+
+/* Why the last tw_patch_apply or tw_patch_read refused, or "". Valid until
+   the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_why (void)
+{
+    return patchWhy_.c_str();
+}
+
+/* What is on `channel', as the document it was given -- its graph, its
+ * effect, its info and its overrides. "" for a channel no patch has been put
+ * on.
+ *
+ * The dump is thPatchDocToJson's, which is compiled into the native harness
+ * as well and diffed against this byte for byte (wasm/web/patchcheck.mjs):
+ * one reading of the format, or the build fails. Valid until the next call.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
+{
+    const thPatchSet::Slot *slot = patches_.get(channel);
+
+    patchJson_.clear();
+
+    if (slot != NULL)
+    {
+        /* The document, and what the slot knows that the file does not: what
+           it was called, whether it has been edited since it was read, and
+           which load this is. The page draws a row out of these. */
+        patchJson_ = thPatchDocToJson(slot->doc);
+        patchJson_.erase(patchJson_.size() - 1);      /* the closing brace */
+        patchJson_ += ",\"name\":";
+        jsonString(patchJson_, slot->filename);
+        patchJson_ += ",\"dirty\":";
+        patchJson_ += slot->dirty ? "true" : "false";
+        patchJson_ += ",\"generation\":";
+        jsonUnsigned(patchJson_, slot->generation);
+        patchJson_ += "}";
+    }
+
+    return patchJson_.c_str();
+}
+
+/* What a Save would write for `channel': the bytes of a .patch, or "" for a
+ * channel nothing has been put on.
+ *
+ * The graph, the effect, the side and the info come off the slot; the values
+ * come off the live channel, which is the whole point -- what a Save is for
+ * is writing down what somebody has moved. Both halves are shared with the
+ * application (thPatchCapture, thPatchCompose), so these are the bytes the
+ * desktop writes, which is what makes this worth having at all: a .patch
+ * downloaded from a page opens in the application, and neither shell
+ * rewrites the other's file on its first save.
+ *
+ * `stamp' is the date for the banner comment -- the one thing in the output
+ * that a document cannot know. The application passes ctime()'s line; a page
+ * passes a Date. There is no locale here to make one from.
+ *
+ * This is the first time a browser can save a patch at all. It does not
+ * write anything: a page has nowhere to write to, so what it gets is the
+ * bytes and what it does with them is its own business. tw_patch_saved is
+ * how it says it kept them.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_compose (int channel,
+                                                   const char *stamp)
+{
+    const thPatchSet::Slot *slot = patches_.get(channel);
+
+    patchJson_ = (slot == NULL)
+        ? std::string()
+        : thPatchCompose(thPatchCapture(synth_, channel, slot->doc),
+                         stamp != NULL ? stamp : "");
+
+    return patchJson_.c_str();
+}
+
+/* And that it was kept, under this name.
+ *
+ * The other half of tw_patch_dirty, and the reason the name is an argument:
+ * a page downloading a patch has named the file it went into. Separate from
+ * composing because composing is a read and this is not -- a page that asked
+ * what a Save would write and then thought better of it has not saved
+ * anything.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_patch_saved (int channel, const char *name)
+{
+    if (!patches_.loaded(channel))
+        return 0;
+
+    patches_.markSaved(channel, name != NULL ? name : "");
+
+    return 1;
+}
+
+/* What belongs on a channel nothing has aimed: the first-run configuration,
+ * by relative name (src/PatchSet.h). "" for a channel with no answer.
+ *
+ * The page fetches what this names; it does not get the bytes from here, for
+ * the reason nothing else does either. What it does get is the rule -- a
+ * channel above the last entry takes the one at `c mod count' -- which used
+ * to be written down twice, once here as an array in patch.js and once in
+ * gthPrefs.cpp, with a comment on the page's promising they were the same.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_default (int channel)
+{
+    patchJson_ = thPatchDefaultFor(channel);
+
+    return patchJson_.c_str();
+}
+
+/* How many there are, so a page can fetch each of them once before the first
+   load -- the aiming happens inside a load, and a load has no time to wait
+   for the network. */
+EMSCRIPTEN_KEEPALIVE int tw_patch_default_count (void)
+{
+    return thPatchDefaultCount();
+}
+
+/* A channel's patch has been edited.
+ *
+ * The browser's markDirty. On the desktop, moving a control goes through
+ * ArgPanelView, which says so to the patch manager; here the same edit
+ * arrives as a command and is applied by tw_panel_edit, which says so to
+ * the slots. Nothing writes a .patch by itself in either shell, so this flag
+ * is the whole of the record that the file and the channel have parted
+ * company. */
+EMSCRIPTEN_KEEPALIVE int tw_patch_dirty (int channel)
+{
+    return patches_.isDirty(channel) ? 1 : 0;
+}
+
 /* ---- the piece's chains and stages, and their pictures ----
  *
  * What a composer draws is what the composer view shows: a Life board, a
@@ -1788,7 +2043,16 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
             if (!r.changed)
                 return 0;
 
-            return target.deliver(edit) ? 1 : 0;
+            if (!target.deliver(edit))
+                return 0;
+
+            /* Moving a control is editing the patch, and the page has a
+               Save to light up over it now that the slots are shared. The
+               desktop says the same thing in the same words, from
+               ArgPanelView. */
+            patches_.markDirty(a);
+
+            return 1;
         }
     }
 

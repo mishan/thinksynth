@@ -83,6 +83,26 @@ target_include_directories(think_panel PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(think_panel PUBLIC think)
 
+# What a .patch says (src/PatchFile.h), with no file and no synth around it.
+# Toolkit-free for the reason the panel is, and filesystem-free besides: the
+# format had two readings, one of them in JavaScript, and they had drifted.
+# Its own object library because scripts/patchcheck wants exactly this and a
+# corpus directory -- no plugins, no channels, nothing to load onto -- which
+# is what lets the format be a gate on every platform rather than something
+# only the application starting up ever exercised.
+#
+# PatchApply joins it: putting a document on a channel needs a synth but not a
+# file, and it is the other half both shells were writing twice -- the load
+# order, the side clamp and the rule about a name nothing declares. So does
+# PatchSet, the slots: which channel holds which document, whether it has been
+# edited and what it was called needs neither a file nor a synth. It links
+# sigc++ for its three signals, which libthink already does.
+add_library(think_patch OBJECT PatchFile.cpp PatchApply.cpp PatchSet.cpp)
+target_include_directories(think_patch PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_patch PUBLIC think)
+
 add_library(think_canvas OBJECT CanvasContent.cpp)
 target_include_directories(think_canvas PUBLIC
     "${PROJECT_SOURCE_DIR}"
@@ -213,6 +233,7 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_visualhost>
     $<TARGET_OBJECTS:think_composerhost>
     $<TARGET_OBJECTS:think_panel>
+    $<TARGET_OBJECTS:think_patch>
     $<TARGET_OBJECTS:think_canvas>
     $<TARGET_OBJECTS:think_nodecanvas>
     $<TARGET_OBJECTS:think_composercanvas>)

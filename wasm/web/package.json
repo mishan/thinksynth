@@ -12,6 +12,7 @@
     "browsertest": "node browsertest.mjs",
     "pagetest": "node pagetest.mjs",
     "keycheck": "node keycheck.mjs",
+    "patchcheck": "node patchcheck.mjs",
     "jamtest": "node jamtest.mjs",
     "bench": "node bench.mjs"
   },

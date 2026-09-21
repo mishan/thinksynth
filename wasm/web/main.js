@@ -39,7 +39,8 @@
  * through whatever the last mode had left lying there, or through nothing
  * at all. So a load is followed by the aiming and never preceded by it, and
  * the aiming is a function of the piece and of what somebody chose by hand.
- * patch.js holds the rule, the defaults and the .patch reader.
+ * patch.js holds the rule and the defaults; what a .patch means is the
+ * module's (src/PatchFile.h).
  *
  * TWO KINDS OF FINGER, ONE PATH. There is an on-screen keyboard
  * (keyboard.js) and there is the computer keyboard, and both go through
@@ -390,7 +391,7 @@ async function loadPiece ()
         const loaded = await synth.loadPiece($('gen').value);
 
         if (loaded.errors.length === 0)
-            aiming = await patch.aim(synth, loaded.sinks, dspTexts, aimed);
+            aiming = await patch.aim(synth, loaded.sinks, aimed);
 
         return loaded;
     });
@@ -585,9 +586,143 @@ function showChannels ()
             line.append(own);
         }
         else
+        {
             line.append(chooser(channel));
 
+            /* And whether it has been edited since it was read.
+             *
+             * The desktop has said this for twenty years -- it is what its
+             * Save button is lit by -- and the page could not, because the
+             * page had no idea what was on a channel beyond the name it had
+             * asked for. The slots are shared now (src/PatchSet.h), so the
+             * module answers it, and a mark here is the whole of the record
+             * that the file and the channel have parted company: nothing
+             * writes a .patch by itself in either shell. */
+            const mark = document.createElement('span');
+
+            mark.className = 'edited';
+            mark.dataset.channel = String(channel);
+            mark.hidden = true;
+            mark.textContent = 'edited';
+            mark.title = 'This patch has been changed since it was loaded.';
+            line.append(mark);
+
+            /* And a way to keep it. The desktop has had a Save button for
+               twenty years and the page had nothing: a patch tweaked here
+               was a patch that lasted until the tab closed. */
+            const save = document.createElement('button');
+
+            save.className = 'save';
+            save.dataset.channel = String(channel);
+            save.hidden = true;
+            save.textContent = 'Save';
+            save.title = 'Download this patch as a .patch file.';
+            save.addEventListener('click', () => savePatch(channel));
+            line.append(save);
+        }
+
         box.append(line);
+    }
+
+    /* The marks, once the rows they hang off exist. Not awaited: a row that
+       has just been drawn is correct until the module says otherwise, and
+       the caller has nothing to do differently either way. */
+    showEdited();
+}
+
+/* One channel's patch, downloaded.
+ *
+ * The bytes are the module's (tw_patch_compose) and are the bytes the
+ * application writes -- the slot's graph, effect, side and info, and the
+ * values the channel holds now. So a patch saved here opens on the desktop,
+ * and the desktop will not rewrite it on its first save.
+ *
+ * A download and not a write: a page has nowhere to write to. What it can do
+ * is hand somebody a file, which is what the desktop's Save does too from
+ * where they are standing.
+ */
+async function savePatch (channel)
+{
+    if (synth === null)
+        return;
+
+    /* Where ctime()'s line goes in the banner comment. A Date is the nearest
+       thing a page has, and the line is a comment either way. */
+    const { text } = await synth.patchCompose(channel, new Date().toString());
+
+    if (text === '')
+    {
+        $('status').textContent =
+            `Channel ${channel + 1}: nothing to save.`;
+        return;
+    }
+
+    /* The name it came with, or the graph's with the extension changed --
+       which is what the desktop's Save As offers for a patch that has never
+       had a name. Without the drawer: a browser download names a file, not a
+       place to put it. */
+    const was = placed.get(channel);
+    const name = (was?.patch ?? `${was?.dsp ?? 'patch'}`)
+        .split('/').pop().replace(/\.(patch|dsp)$/, '') + '.patch';
+
+    const url = URL.createObjectURL(
+        new Blob([text], { type: 'text/plain' }));
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = name;
+
+    /* In the document for the click, and the URL let go on the turn after
+       it. A detached anchor is a link nothing has to follow, and a blob URL
+       revoked in the same turn as the click is a download that races the
+       browser fetching it -- Chromium takes both and not every browser
+       does. */
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+
+    /* Saved, as far as anything here can tell -- which is exactly as far as
+       the desktop can tell, since neither of them watches the file
+       afterwards. The mark goes out. */
+    synth.patchSaved(channel, name);
+    await showEdited();
+
+    $('status').textContent = `Channel ${channel + 1} saved as ${name}.`;
+}
+
+/* The `edited' marks, refreshed from the module.
+ *
+ * Asked rather than remembered: an edit can arrive from a piece's knob
+ * wired to a chanarg as readily as from somebody typing, and what the row
+ * must agree with is the slot the module keeps, not a guess the page made
+ * when it last drew itself.
+ *
+ * Only the channels that have a mark, which is the channels the page aimed:
+ * one the piece filled is the piece's and has no file behind it to have
+ * parted company with. */
+async function showEdited ()
+{
+    if (synth === null)
+        return;
+
+    for (const mark of $('channels').querySelectorAll('.edited'))
+    {
+        const channel = Number(mark.dataset.channel);
+        const { json } = await synth.patchState(channel);
+        const on = json !== '';
+
+        mark.hidden = !on || !JSON.parse(json).dirty;
+
+        /* Save is offered for anything that is actually on a channel, not
+           only for something edited: somebody may want the file for a patch
+           they chose and left alone. */
+        const save = $('channels').querySelector(
+            `.save[data-channel="${channel}"]`);
+
+        if (save !== null)
+            save.hidden = !on;
     }
 }
 
@@ -680,7 +815,7 @@ async function aimByHand (channel, name)
     try
     {
         const what = await quietly(
-            () => patch.load(synth, channel, name, dspTexts));
+            () => patch.load(synth, channel, name));
 
         /* Remembered once it is actually on the channel. A choice that
            did not load is not a choice to repeat at every load of every
@@ -689,6 +824,12 @@ async function aimByHand (channel, name)
         placed.set(channel, what);
         $('status').textContent =
             `${what.title} on channel ${channel + 1}. Play.`;
+
+        /* And the row, which is drawn from the slot rather than from this:
+           the mark belongs to the patch that is on the channel now, not to
+           whatever was there a moment ago, and Save is offered for anything
+           that loaded -- including a channel whose last choice did not. */
+        await showEdited();
     }
     catch (e)
     {
@@ -785,7 +926,15 @@ async function showParams ()
 
     const setValue = showPanel(
         $('params'), panel,
-        (row, text) => synth.panelEdit(0, channel, 0, row, text));
+        async (row, text) =>
+        {
+            await synth.panelEdit(0, channel, 0, row, text);
+
+            /* Moving a control is editing the patch, and the row above says
+               so. Here rather than in the poll because an edit is a thing
+               that happened once and a poll is a thing that runs for ever. */
+            await showEdited();
+        });
 
     params = { channel, panel, setValue };
 }
@@ -951,7 +1100,8 @@ async function start ()
        here: a default that cannot be fetched is reported by the load that
        wanted it, which is where it means something. */
     await Promise.all(
-        patch.DEFAULTS.map((name) => patch.patchText(name).catch(() => {})));
+        (await patch.defaultNames(synth))
+            .map((name) => patch.patchText(name).catch(() => {})));
 
     $('load').disabled = false;
     $('loadpiece').disabled = false;

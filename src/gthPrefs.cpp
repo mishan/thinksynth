@@ -38,34 +38,6 @@ namespace fs = std::filesystem;
 
 gthPrefs *gthPrefs::instance_ = NULL;
 
-/* What a first run gets.
- *
- * Built in rather than shipped as a file. The file this replaces was
- * configure_file'd with absolute paths, which made it correct only on a
- * machine installed to the prefix the build was configured with -- not a
- * relocatable tarball, not a .app, not a Windows zip, and not a Flatpak. The
- * paths here are relative and go through gthPatchManager::resolvePatch, which
- * is the same search the rest of the program already uses to find its data.
- *
- * Four channels, not sixteen: enough that the first few channels anyone tries
- * make a sound, few enough that starting up is not several seconds of parsing
- * DSPs nobody asked for. One of each obvious kind, so the keyboard demonstrates
- * that channels differ.
- *
- * TH_DEFAULT_CHAN_AMP because that is what loading a patch by hand gives it;
- * a channel that came from here and a channel the user loaded should not sit
- * at different volumes for no reason a user can see. Four channels at once is
- * the case that number is chosen for -- see where it is defined.
- */
-static const struct {
-    int chan;
-    const char *patch;
-} thinkDefaultChannels[] = {
-    { 0, "leads/SuperRes.patch"   },
-    { 1, "bass/FunkMachine.patch" },
-    { 2, "organs/Organ1.patch"    },
-    { 3, "pads/SynString.patch"   },
-};
 
 #if 0
 static void remove_string(char *line, int index, int numchars)
@@ -319,19 +291,36 @@ bool gthPrefs::LoadDefaults (void)
         return false;
     }
 
-    const size_t n =
-        sizeof(thinkDefaultChannels) / sizeof(thinkDefaultChannels[0]);
+    /* What a first run gets: src/PatchSet.h's table, because the page has
+     * the same one and the two used to be written down separately -- with a
+     * comment on the page's saying it was this one "exactly", which is the
+     * kind of promise nothing keeps. Index is the channel there, which is
+     * what the pairs here always were.
+     *
+     * The names are relative and go through gthPatchManager::resolvePatch,
+     * the same search the rest of the program uses to find its data; the
+     * page fetches them under patches/ instead, and that asymmetry is why
+     * the table holds names rather than paths. The file this replaced was
+     * configure_file'd with absolute ones, which made it correct only on a
+     * machine installed to the prefix the build was configured with.
+     *
+     * TH_DEFAULT_CHAN_AMP because that is what loading a patch by hand gives
+     * it; a channel that came from here and a channel the user loaded should
+     * not sit at different volumes for no reason a user can see. Four
+     * channels at once is the case that number is chosen for -- see where it
+     * is defined. */
+    const int n = thPatchDefaultCount();
 
     size_t loaded = 0;
 
-    for (size_t i = 0; i < n; i++)
+    for (int chan = 0; chan < n; chan++)
     {
-        const int chan = thinkDefaultChannels[i].chan;
+        const string want = thPatchDefaultFor(chan);
 
-        if (!patchMgr->loadPatch(thinkDefaultChannels[i].patch, chan))
+        if (!patchMgr->loadPatch(want, chan))
         {
             fprintf(stderr, "could not load default patch %s\n",
-                    thinkDefaultChannels[i].patch);
+                    want.c_str());
             continue;
         }
 

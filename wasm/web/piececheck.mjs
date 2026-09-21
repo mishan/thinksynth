@@ -73,7 +73,6 @@ import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { seeded, tapeBefore } from '../tape.mjs';
-import { defaultFor, parse } from './patch.js';
 import { playAimed, playAt, playPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -358,33 +357,27 @@ async function checkKeys (createThinkWeb, dsps, kit, all)
     return 0;
 }
 
-/* What the page would put on a channel a piece named and aimed at nothing
- * of its own: gthPrefs.cpp's first-run patch for that channel, read out of
- * the build's patches/ and through patch.js's own parser -- the same file
- * the page reads it with, so this gate cannot pass on a parser the page
- * does not have.
+/* The bytes of a .patch the module asked for by name, out of the build's
+ * patches/.
  *
- * `dsps' is the shipped .dsp texts, which is where a .patch's `dsp' line
- * resolves for the page too. Returns null for a patch this build does not
- * ship; playAimed hands those channels back in `unaimed' and checkAudible
- * names them as a build to fix rather than a piece to blame.
+ * Which patch belongs on which channel is not decided here any more: the
+ * module answers that (tw_patch_default), with the same table and the same
+ * rule the application's first run uses. This reads a file, which is the one
+ * part of it a module cannot do -- and it hands the bytes over rather than a
+ * reading of them, so there is nothing left here that could pass on a
+ * reading the page does not have.
+ *
+ * null for a name this build does not ship; playAimed hands those channels
+ * back in `unaimed' and checkAudible names them as a build to fix rather
+ * than a piece to blame.
  */
-export function defaults (buildDir, dsps)
+export function defaults (buildDir)
 {
-    return (channel) =>
+    return (name) =>
     {
-        const name = defaultFor(channel);
         const file = path.join(buildDir, 'patches', name);
 
-        if (!fs.existsSync(file))
-            return null;
-
-        const p = parse(fs.readFileSync(file, 'utf8'));
-
-        if (p.dsp === null || dsps[p.dsp] === undefined)
-            return null;
-
-        return { name, dsp: dsps[p.dsp], args: p.args };
+        return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
     };
 }
 
@@ -402,7 +395,7 @@ const FLOOR = 0.001;
  */
 async function checkAudible (createThinkWeb, dsps, kit, all, buildDir)
 {
-    const patchFor = defaults(buildDir, dsps);
+    const patchFor = defaults(buildDir);
     let failures = 0;
 
     for (const piece of all)
@@ -427,8 +420,9 @@ async function checkAudible (createThinkWeb, dsps, kit, all, buildDir)
         if (r.unaimed.length > 0)
             process.stdout.write(
                 `      ${' '.repeat(14)} this build ships no patch for ` +
-                `channel ${r.unaimed.map((c) => c + 1).join(', ')} -- ` +
-                `${[...new Set(r.unaimed.map(defaultFor))].join(', ')} ` +
+                `channel ${r.unaimed.map((u) => u.channel + 1).join(', ')} ` +
+                `-- ${[...new Set(r.unaimed.map((u) => u.wanted))]
+                    .join(', ')} ` +
                 'is not under patches/; fix the build, not the piece\n');
 
         if (r.peak <= FLOOR)
