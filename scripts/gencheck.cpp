@@ -7788,6 +7788,57 @@ checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
         "chain c { start = 1 s; start = 2 s;"
         " stage s gen::eno_line { }; sink { channel = 1; }; };",
         "sets start twice");
+    /* A chain written on one line. An insert anchored on the first
+       newline after the `chain' keyword lands past the chain's own
+       closing brace here, which is a file the next load refuses. */
+    {
+        const std::string flat =
+            "chain one { stage s gen::euclid { steps = 1; fills = 1;"
+            " notes = \"C4\"; period = 1 s; hold = 0.1 s; };"
+            " sink { channel = 1; }; };\n";
+        const std::string path = thUtil::tempFile("gencheck-flat-chain-");
+        std::string why;
+
+        if (path.empty())
+            fail("could not write the one-line chain");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+                out << flat;
+            }
+
+            if (thcGenEdit::setChainStart(path, "one", "1 s", why)
+                    != thcGenEdit::OK ||
+                thcGenEdit::setChainInput(path, "one", true, why)
+                    != thcGenEdit::OK)
+                fail("the editor would not write into a one-line chain");
+
+            thcGenEdit::Doc doc;
+
+            if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+                doc.chains.size() != 1 ||
+                doc.chains[0].startText != "1 s" ||
+                !doc.chains[0].inputMidi)
+                fail("a one-line chain lost what the editor wrote into it: "
+                     + slurp(path));
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler flatSched(synth);
+            thcGenLoader flatLoader(plugins);
+
+            if (!flatLoader.load(path, &flatSched))
+                fail("the one-line chain the editor wrote does not load: " +
+                     (flatLoader.errors().empty()
+                          ? std::string("unknown error")
+                          : flatLoader.errors()[0]));
+
+            std::filesystem::remove(path);
+        }
+    }
+
     expectReject(plugins, synth, "chain-start-after-sink",
         "chain c { stage s gen::eno_line { }; sink { channel = 1; };"
         " start = 1 s; };", "start after sink");

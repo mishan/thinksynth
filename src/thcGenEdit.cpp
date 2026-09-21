@@ -365,6 +365,7 @@ struct ChainIdx
     size_t startA, startB;
     size_t nameA, nameB;
     size_t stmtA, stmtB;
+    size_t bodyOpen;             /* the chain's '{'                      */
     size_t bodyClose;            /* the chain's '}'                      */
     bool   inputMidi;
     size_t inputA, inputB;
@@ -863,6 +864,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             c.nameA = t[i + 1].off;
             c.nameB = t[i + 1].end;
             c.stmtA = t[i].off;
+            c.bodyOpen = t[i + 2].off;
             c.inputMidi = false;
             c.inputA = c.inputB = 0;
             c.startA = c.startB = 0;
@@ -2780,6 +2782,31 @@ thcGenEdit::renameChain (const std::string &filename,
     return finish(filename, text, edits, why);
 }
 
+/* A statement on its own line just inside the chain's opening brace.
+ *
+ * Anchored on the brace rather than on the first newline after the
+ * `chain' keyword: a chain written on one line has its next newline
+ * past its own closing brace, and a statement inserted there lands
+ * outside the body -- a file this editor wrote that the next load
+ * refuses. Such a chain takes the statement inline instead, on the one
+ * line it was already written on.
+ */
+static Edit
+insertInBody (const std::string &text, const ChainIdx &c,
+              const std::string &stmt)
+{
+    const size_t at = c.bodyOpen + 1;
+    size_t scan = at;
+
+    while (scan < text.size() && (text[scan] == ' ' || text[scan] == '\t'))
+        scan++;
+
+    if (scan < text.size() && text[scan] == '\n')
+        return { scan + 1, scan + 1, "    " + stmt + "\n" };
+
+    return { at, at, " " + stmt };
+}
+
 R
 thcGenEdit::setChainInput (const std::string &filename,
                            const std::string &chain, bool midi,
@@ -2803,13 +2830,7 @@ thcGenEdit::setChainInput (const std::string &filename,
     std::vector<Edit> edits;
 
     if (midi && !c->inputMidi)
-    {
-        /* On its own line right after the opening brace. */
-        size_t nl = text.find('\n', c->stmtA);
-        size_t at = nl == std::string::npos ? text.size() : nl + 1;
-
-        edits.push_back({ at, at, "    input midi;\n" });
-    }
+        edits.push_back(insertInBody(text, *c, "input midi;"));
     else if (!midi && c->inputMidi)
         edits.push_back(eraseStmt(text, c->inputA, c->inputB));
 
@@ -2907,14 +2928,10 @@ thcGenEdit::setChainStart (const std::string &filename,
     else if (!c->startText.empty())
         edits.push_back({ c->startA, c->startB, "start = " + trimmed + ";" });
     else
-    {
-        /* On its own line right after the opening brace, above the
-           input and the stages: the chain's own clock reads first. */
-        size_t nl = text.find('\n', c->stmtA);
-        size_t at = nl == std::string::npos ? text.size() : nl + 1;
-
-        edits.push_back({ at, at, "    start = " + trimmed + ";\n" });
-    }
+        /* Above the input and the stages: the chain's own clock reads
+           first. */
+        edits.push_back(insertInBody(text, *c,
+                                     "start = " + trimmed + ";"));
 
     return finish(filename, text, edits, why);
 }
