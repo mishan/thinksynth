@@ -343,6 +343,29 @@ try
         () => !document.getElementById('loadpiece').disabled,
         null, { timeout: 60000 });
 
+    /* ---- and the chrome, which is one strip ---- */
+
+    /* Every line across the top is a line the layout does not get, so
+       what is up there has to be earning it. A synth is started once and
+       the button that did it cannot do anything else; a piece's
+       description belongs to the mode that has pieces in it. */
+    /* What stands above the layout and costs it height. By the box and
+       not by `hidden', since the overlay the popovers live in is a body
+       child of no size and is not a line of anything. */
+    const strip = () => page.evaluate(() =>
+        [...document.querySelectorAll('body > *')]
+            .filter((el) => el.id !== 'panes' && el.checkVisibility() &&
+                            el.getBoundingClientRect().height > 0)
+            .map((el) => el.id || el.tagName.toLowerCase()));
+
+    check(await page.evaluate(
+              () => !document.getElementById('start').checkVisibility()),
+          'Start goes once there is a synth to have started');
+
+    check(JSON.stringify(await strip()) === JSON.stringify(['chrome']),
+          `and patch mode's chrome is the one strip: ${
+              (await strip()).join(', ')}`);
+
     const quiet = await page.evaluate(() => window.solo.drawing());
 
     check(!quiet.composer,

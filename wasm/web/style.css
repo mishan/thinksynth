@@ -115,6 +115,35 @@ pre
     flex-wrap: wrap;
 }
 
+/* The chrome, which is a row with the title in it rather than a title
+   with rows under it. */
+#chrome h1 { margin: 0; }
+
+/* A mode's own controls, wrapping as a group rather than one at a time:
+   a Rewind on a line of its own, away from the Play it belongs with, is
+   not a row wrapping usefully. */
+.group
+{
+    display: flex;
+    gap: 0.6em;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* What the page has to say, at the end of the strip rather than on a
+   line over it: whatever room the controls left, which on a wide screen
+   is none and on a narrow one is a line of its own.
+ *
+   Under `#chrome' and not on its own, because the room page has a
+   status of its own that is a paragraph under a heading and is right to
+   be one -- it is the first thing that page says, not the last thing
+   this one has to add. */
+#chrome #status
+{
+    margin-left: auto;
+    color: var(--dim);
+}
+
 kbd
 {
     border: 1px solid var(--key-edge);

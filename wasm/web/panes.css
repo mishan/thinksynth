@@ -56,7 +56,7 @@ body.tiled
 }
 
 body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
-body.tiled #status { margin: 0.2em 0; }
+body.tiled #about { margin: 0.2em 0; }
 body.tiled .row { margin: 0.4em 0; }
 
 /* The room page keeps everything but the join row in a section of its

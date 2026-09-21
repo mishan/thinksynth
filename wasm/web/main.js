@@ -222,6 +222,18 @@ function mode ()
     return $('mode').value;
 }
 
+/* What the piece says about itself: shown when a piece is what is
+   playing and it says anything at all.
+ *
+ * It used to sit inside the piece section and go away with it. Out in
+ * the strip it has to be told, and it is worth telling: an empty
+ * paragraph across the top of a tiled layout is a line charged to every
+ * pane under it for nothing. */
+function showAbout ()
+{
+    $('about').hidden = mode() !== 'piece' || $('about').textContent === '';
+}
+
 function keyChannel ()
 {
     return Number($('keychan').value);
@@ -418,6 +430,7 @@ async function loadPiece ()
             `Loaded ${piece.name || $('piece').value}. Press Play.`;
 
     $('about').textContent = piece === null ? '' : piece.description;
+    showAbout();
 
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
@@ -953,6 +966,12 @@ async function start ()
     await Promise.all(
         patch.DEFAULTS.map((name) => patch.patchText(name).catch(() => {})));
 
+    /* And the button that started it goes. A synth is started once, and
+       a control that can no longer do anything is a line of chrome
+       charged to every layout for the rest of the session. The failures
+       above leave it where it is and enabled again, since those are the
+       ones somebody retries. */
+    $('start').hidden = true;
     $('load').disabled = false;
     $('loadpiece').disabled = false;
 
@@ -1230,6 +1249,7 @@ async function pickMode ()
        to a mode puts its panes where they were. */
     $('patchmode').hidden = piecing;
     $('piecemode').hidden = !piecing;
+    showAbout();
 
     for (const id of PIECE_PANES)
         panes.available(id, piecing);
