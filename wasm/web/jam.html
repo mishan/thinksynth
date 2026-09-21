@@ -76,6 +76,12 @@
       <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
       <span id="range"></span>
       <button id="up" class="octave" aria-label="An octave up">&#9654;</button>
+
+      <!-- Whether a letter is a note at the moment, which it is unless
+           something was tabbed to or is being typed into (keyfocus.js).
+           Empty the rest of the time: the ordinary state is not worth a
+           word, and a line that is always there is one nobody reads. -->
+      <span id="keysstate" class="hint" aria-live="polite"></span>
     </div>
     <svg id="keys" role="application" aria-label="Keyboard"></svg>
   </section>

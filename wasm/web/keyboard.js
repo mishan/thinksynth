@@ -366,29 +366,41 @@ export class TypingKeys
        whether there is anything to play into at all: before Start a key
        is only ever typing. `shifted' is called with the new lowest note
        after the octave moves, and does whatever the page shows of it --
-       the on-screen keyboard, the range, the latency. `editing' is a
-       selector for anything beside a text box that a key means editing
-       in; the room page has a code editor. */
-    constructor ({ press, release, playable, shifted, editing = '',
-                   lowest = 48 })
+       the on-screen keyboard, the range, the latency.
+     *
+       `focus' answers the only hard question here -- whether the element
+       the key arrived at wants the keyboard for itself (keyfocus.js).
+       Without one, anything focusable is taken to want it, which is what
+       this class did when it decided that on its own and is the safe way
+       to be wrong. `editing' widens that fallback for a page with a code
+       editor in it. */
+    constructor ({ press, release, playable, shifted, focus = null,
+                   editing = '', lowest = 48 })
     {
         this.press = press;
         this.release = release;
         this.playable = playable;
         this.shifted = shifted;
+        this.focus = focus;
         this.editing = ['textarea', 'select', 'input',
                         ...(editing ? [editing] : [])].join(', ');
         this.lowest = lowest;
         this.down = new Map();      /* key code -> the note it pressed */
     }
 
-    /* Typing in a text box is editing, not playing -- and a modifier is
-       somebody reaching for a shortcut, never a note. */
+    /* Typing is editing, not playing -- and a modifier is somebody
+       reaching for a shortcut, never a note. */
     typing (e)
     {
-        return !this.playable() || e.ctrlKey || e.metaKey || e.altKey ||
-               (e.target instanceof Element &&
-                e.target.closest(this.editing) !== null);
+        if (!this.playable() || e.ctrlKey || e.metaKey || e.altKey)
+            return true;
+
+        if (!(e.target instanceof Element))
+            return false;
+
+        return this.focus !== null
+            ? this.focus.claims(e.target)
+            : e.target.closest(this.editing) !== null;
     }
 
     /* An octave up or down, clamped to what a MIDI note can be. */

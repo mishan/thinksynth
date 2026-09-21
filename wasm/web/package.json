@@ -11,6 +11,7 @@
     "relay": "node relay.mjs",
     "browsertest": "node browsertest.mjs",
     "pagetest": "node pagetest.mjs",
+    "keycheck": "node keycheck.mjs",
     "jamtest": "node jamtest.mjs",
     "bench": "node bench.mjs"
   },

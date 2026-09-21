@@ -575,6 +575,16 @@ jobs:
         working-directory: wasm/web
         run: node panecheck.mjs ../../build-web
 
+      # Who has the computer keyboard: the letters are the instrument, and
+      # every control on the page is something that would rather have them.
+      # A list chosen from used to keep them until something else was
+      # clicked, which is a keyboard that stops working for no reason a
+      # person can see. No module and no build directory -- keyboard.js and
+      # keyfocus.js on a page of controls, clicked and tabbed at.
+      - name: Who has the keyboard
+        working-directory: wasm/web
+        run: node keycheck.mjs
+
   # Two peers agreeing on one piece: the mirror, the protocol, the relay,
   # and two real browsers in one room.
   wasm-jam:

@@ -396,10 +396,14 @@ try
           `and a number past its end is held to it: ${past.shown} of ` +
           `${knobMax}`);
 
-    /* A computer key holds an on-screen key and lets it go. The slider
-       just dragged still has the focus, and a focused input is somewhere
-       a key means typing. */
-    await page.evaluate(() => document.activeElement?.blur());
+    /* A computer key holds an on-screen key and lets it go.
+     *
+       The Escape is how the page hands the keyboard back from a box that
+       is being typed into, and it is all this needs now. It used to
+       reach in and blur whatever had the focus, because a slider dragged
+       or a list chosen from kept the letters for itself; neither does
+       any more (keyfocus.js). */
+    await page.keyboard.press('Escape');
     await page.keyboard.down('z');
     await new Promise((r) => setTimeout(r, 200));
 
@@ -434,6 +438,34 @@ try
     await page.keyboard.up('z');
     check(typed === 0,
           'and a key typed into the source is editing, not a note');
+
+    /* And a list touched with the pointer does not take them.
+     *
+       Choosing a piece or a patch left the focus on the <select>, and
+       from then on every letter went to the list -- a keyboard that had
+       to be won back by finding somewhere harmless to click. The Escape
+       is for the browser's own popup, which the click opens and which
+       owns the keyboard while it is up; the list keeps the focus after
+       it, which is the state that used to be silent. What the rule is,
+       and what happens to a list that is tabbed to rather than clicked,
+       is keycheck.mjs's. */
+    await page.keyboard.press('Escape');
+    await page.click('#piece');
+    await page.keyboard.press('Escape');
+
+    await page.keyboard.down('z');
+    await new Promise((r) => setTimeout(r, 200));
+
+    const afterList = await page.evaluate(() => ({
+        held: document.querySelectorAll('#keys .held').length,
+        focused: document.activeElement?.id ?? '',
+    }));
+
+    await page.keyboard.up('z');
+
+    check(afterList.held === 1,
+          'and a key after the piece list is a note, with the list still ' +
+          `focused (${afterList.focused || 'nothing'})`);
 
     /* ---- the composer view ---- */
 

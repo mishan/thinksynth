@@ -49,6 +49,7 @@ import { createNodeView } from './nodeview.js';
 import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
+import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import * as patch from './patch.js';
@@ -149,6 +150,7 @@ const ROOM_LAYOUT = {
 let panes = null;
 let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
+let keyfocus = null;            /* and who has it, the page or the keys  */
 let maker = null;
 const dedupe = new Dedupe();
 
@@ -928,10 +930,15 @@ function init ()
 
     roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'), { onPress: press, onRelease: release });
+    /* Who has the keyboard (keyfocus.js). The room page's code editor
+       is a div full of text boxes rather than a <textarea>, so it is
+       named here; everything else it works out for itself. */
+    keyfocus = createKeyFocus({ editing: '.cm-editor',
+                                indicator: $('keysstate'),
+                                onRelease: releaseAll });
     keys = new TypingKeys({
-        press, release, shifted,
+        press, release, shifted, focus: keyfocus,
         playable: () => synth !== null,
-        editing: '.cm-editor',      /* the room page has a code editor */
     });
     keyboard.setLowest(keys.lowest);
     keyboard.fit();

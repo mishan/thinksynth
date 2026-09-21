@@ -125,9 +125,11 @@ export function createPanes ({ root, catalog, layouts, mode,
                                store = 'panes', editing = '',
                                onShow = () => {}, on = false })
 {
-    /* Where a key means editing rather than a command -- the same
-       selector TypingKeys is given, and for the same reason: a chord
-       typed into a text box is text. */
+    /* Where a key means editing rather than a command: a chord typed
+       into a text box is text. Wider than keyfocus.js's idea of a text
+       box on purpose -- a list and a slider answer to the arrow keys
+       themselves, and Alt with an arrow is close enough to those to
+       leave alone. */
     const editable = ['textarea', 'input', 'select', '[contenteditable]',
                       ...(editing ? [editing] : [])].join(', ');
 
