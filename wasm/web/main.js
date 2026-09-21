@@ -65,6 +65,7 @@ import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
+import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
@@ -72,6 +73,65 @@ import { Roll } from './roll.js';
 const $ = (id) => document.getElementById(id);
 
 const VELOCITY = 100;
+
+/* The panels this page tiles, in the order the document has them.
+ *
+ * A list of ids and nothing else: what each one is called, how narrow it
+ * may be made and which element it is are the markup's answers
+ * (`data-pane' in index.html), so this does not describe the page twice.
+ * The room page keeps a list of its own, and panecheck.mjs holds the two
+ * against each other where they overlap.
+ */
+const PANES = ['roll', 'composerview', 'knobs', 'channelbox', 'paramview',
+               'nodeview', 'keyboard', 'patchsource', 'piecesource',
+               'detail'];
+
+/* Which of them belong to which mode. Everything not named here is in
+   both -- the keys, the parameters, the graph, the numbers. */
+const PIECE_PANES = ['roll', 'composerview', 'knobs', 'channelbox',
+                     'piecesource'];
+const PATCH_PANES = ['patchsource'];
+
+/* Where they go, the first time somebody opens this page in a window
+ * with room to tile.
+ *
+ * Data, and this page's: panes.js knows how to divide a window and
+ * nothing about what a keyboard is. A layout names the panes it has room
+ * for and the rest wait in the drawer, which is why there is one of these
+ * per mode rather than one with everything in it -- a patch has no piano
+ * roll to show and a piece has no .dsp of its own.
+ *
+ * The fractions are shares of a split and the minimums are the markup's,
+ * so a default that cannot be laid out at the threshold this turns on at
+ * is a default that is wrong: the two columns of each of these come to
+ * about 730 pixels of minimum, and the threshold is 60em.
+ */
+const PATCH_LAYOUT = {
+    dir: 'row', size: [0.58, 0.42], kids: [
+        { dir: 'col', size: [0.64, 0.36], kids: [
+            { tabs: ['nodeview'] },
+            { tabs: ['keyboard'] }] },
+        { dir: 'col', size: [0.44, 0.38, 0.18], kids: [
+            { tabs: ['paramview'] },
+            { tabs: ['patchsource'] },
+            { tabs: ['detail'] }] }],
+};
+
+const PIECE_LAYOUT = {
+    dir: 'row', size: [0.6, 0.4], kids: [
+        { dir: 'col', size: [0.62, 0.38], kids: [
+            { tabs: ['composerview'] },
+            { tabs: ['roll'] }] },
+        { dir: 'col', size: [0.26, 0.24, 0.26, 0.24], kids: [
+            { tabs: ['knobs'] },
+            { tabs: ['channelbox'] },
+            { tabs: ['piecesource'] },
+            { tabs: ['keyboard'] }] }],
+};
+
+/* The layout. Made at the end of init(), because what it adopts has to be
+   in the document and the folds the page opens by hand have to be set. */
+let panes = null;
 
 /* Where patch mode puts its one .dsp. thinkweb.cpp's tw_piece_load says
    why a piece takes this channel first, and why the two are modes. */
@@ -721,7 +781,11 @@ async function showParams ()
  */
 async function pollParams ()
 {
-    if (synth === null || params === null || $('paramview').open === false)
+    /* Only while the panel is in front of somebody: folded away, in a
+       background tab, or in the mode that is not up, its rows are a
+       message each way per quarter second for nobody. panes.js answers
+       all three the same way. */
+    if (synth === null || params === null || !panes.visible('paramview'))
         return;
 
     /* Which panel this poll is about, held across the await.
@@ -873,7 +937,7 @@ async function start ()
        one while composer is still null -- so made afterwards, the first
        Start went by with the message dropped and the "Paint ..." buttons
        never appeared. */
-    showComposer(mode() === 'piece');
+    showComposer(panes.visible('composerview') && mode() === 'piece');
 
     if (mode() === 'patch')
         await loadPatch();
@@ -1030,10 +1094,17 @@ function showNodes ()
 
     nodes.offer(nodeFiles.names());
     nodes.onChannel(nodeChannel());
+    nodes.show(panes.visible('nodeview'));
 }
 
 function showComposer (on)
 {
+    /* Made when it is first wanted and never for a pane nobody has
+       looked at: onShow says `no' for every pane at load, and a view
+       built to be told that would have started a worker for nothing. */
+    if (composer === null && (!on || synth === null))
+        return;
+
     /* On a solo page there are no peers and no lead to wait out, so a
        gesture is stamped for the next window, as this page's knobs are.
        It still goes the long way round -- out as a command, back in at
@@ -1096,6 +1167,24 @@ window.solo = {
        time to wait on and longer still to guess at. */
     pollChanParams: () => pollParams(),
 
+    /* The panes this page has, so a harness reads the catalog rather
+       than writing the list down a second time, and the layout they are
+       in, which is what a drag has to be checked against. */
+    panes: () => PANES,
+    layout: () => panes.layout(),
+
+    /* And the four verbs a pane has: raise one, put one away, rename
+       one. What a top-level window would become if the desktop's shell
+       were ever compiled for this page. */
+    pane: (what, ...args) => panes[what](...args),
+
+    /* Which of the two canvases is asking for frames. A pane in a
+       background tab, folded away or in the mode that is not up costs
+       nothing, and this is the only way to see from outside that it
+       really costs nothing. */
+    drawing: () => ({ composer: composer?.visible() ?? false,
+                      nodes: nodes?.visible() ?? false }),
+
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
     node: () => (nodes === null ? null : {
@@ -1110,15 +1199,26 @@ async function pickMode ()
 {
     const piecing = mode() === 'piece';
 
+    /* The chrome each mode has: what to play, and the transport. What
+       the piece section used to wrap are panes of their own now, and a
+       pane the mode does not have is unavailable rather than hidden --
+       it leaves the layout without being forgotten by it, so coming back
+       to a mode puts its panes where they were. */
     $('patchmode').hidden = piecing;
-    $('patchsource').hidden = piecing;
     $('piecemode').hidden = !piecing;
-    $('piecesource').hidden = !piecing;
+
+    for (const id of PIECE_PANES)
+        panes.available(id, piecing);
+
+    for (const id of PATCH_PANES)
+        panes.available(id, !piecing);
+
+    panes.mode(piecing ? 'piece' : 'patch');
 
     if (synth === null)
         return;
 
-    showComposer(piecing);
+    showComposer(panes.visible('composerview') && piecing);
     showNodes();
 
     /* Emptied rather than left showing the other mode's channel: what
@@ -1258,12 +1358,6 @@ async function init ()
 
     $('paramchan').addEventListener('change', showParams);
 
-    /* Four times a second, which is about the desktop's 50 ms draw timer
-       and far below an animation frame: the poll is a message each way,
-       and a panel following a knob does not need sixty of them a second.
-       Only while the panel is open -- see pollParams. */
-    setInterval(pollParams, 250);
-
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
@@ -1281,6 +1375,41 @@ async function init ()
        the fold is the reader's from here on. */
     if (matchMedia('(min-width: 60em)').matches)
         $('patchsource').open = $('piecesource').open = true;
+
+    /* And the layout, over what is in the document now.
+     *
+     * onShow is the whole of what tiling asks of this page: a pane in a
+     * background tab, folded away, or belonging to the mode that is not
+     * up is a pane whose work can stop, and these are the three places
+     * this page has work to stop. They are the same calls the folds and
+     * the mode switch made before, asked for in one place. */
+    panes = createPanes({
+        root: $('panes'), catalog: PANES, store: 'panes:solo',
+        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT },
+        mode: mode(), on: true,
+        onShow: (id, on) =>
+        {
+            if (id === 'composerview')
+                showComposer(on && mode() === 'piece');
+            else if (id === 'nodeview')
+                nodes?.show(on);
+            else if (id === 'paramview' && on)
+                pollParams();
+        },
+    });
+
+    /* Four times a second, which is about the desktop's 50 ms draw timer
+       and far below an animation frame: the poll is a message each way,
+       and a panel following a knob does not need sixty of them a second.
+       Only while the panel is in front of somebody, which is what the
+       layout above answers -- so it is started after there is one. */
+    setInterval(pollParams, 250);
+
+    /* The two popovers, out of the panes and over them. Each is placed
+       beside the box on a canvas that asked for it, in page coordinates,
+       and a pane is a box that scrolls -- so a popover left inside one
+       would be clipped by it the moment it reached the edge. */
+    panes.overlay().append($('composerparams'), $('nodemenu'));
 
     requestAnimationFrame(frame);
 }

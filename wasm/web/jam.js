@@ -46,6 +46,7 @@ import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
+import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { numberIn, showPanel } from './panel.js';
@@ -110,6 +111,42 @@ const diff = new TapeDiff();
    into the shared file. Made on Start, because it is another instance of a
    600 KB module and a room nobody is playing in does not need one. */
 let nodes = null;
+
+/* The panels this page tiles, in the order the document has them.
+ *
+ * A list of ids and nothing else: what each one is called, how narrow it
+ * may be made and which element it is are the markup's answers
+ * (`data-pane' in jam.html). Most of them are the solo page's panes under
+ * the same names, which is the point -- the two documents say the same
+ * things and catalogcheck.mjs holds them to it.
+ */
+const PANES = ['roll', 'knobs', 'composerview', 'keyboard', 'documentbox',
+               'nodeview', 'detail'];
+
+/* Where they go, the first time somebody opens a room in a window with
+ * room to tile. Data, and this page's: panes.js knows how to divide a
+ * window and nothing about what a room has in it.
+ *
+ * One layout rather than one per mode, because a room has one mode. The
+ * three things a person here is doing at once -- watching the piece,
+ * reading it and working on an instrument -- are the three panes that
+ * are not in the drawer.
+ */
+const ROOM_LAYOUT = {
+    dir: 'row', size: [0.52, 0.48], kids: [
+        { dir: 'col', size: [0.44, 0.28, 0.28], kids: [
+            { tabs: ['composerview'] },
+            { tabs: ['roll'] },
+            { tabs: ['knobs'] }] },
+        { dir: 'col', size: [0.42, 0.34, 0.24], kids: [
+            { tabs: ['nodeview'] },
+            { tabs: ['documentbox'] },
+            { tabs: ['keyboard'] }] }],
+};
+
+/* The layout. Made at the end of init(), because what it adopts has to
+   be in the document. */
+let panes = null;
 let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
 let maker = null;
@@ -669,8 +706,14 @@ function showNodeChannel ()
         (i) => i.dsp === $('nodefile').value)?.channel ?? -1);
 }
 
-function showComposer ()
+function showComposer (on)
 {
+    /* Made when it is first wanted and never for a pane nobody has
+       looked at: onShow says `no' for every pane at load, and a view
+       built to be told that would have started a worker for nothing. */
+    if (composer === null && (!on || synth === null))
+        return;
+
     /* A gesture is a command like a knob: stamped with the knob lead,
        broadcast, and applied at the time it names on every peer, this one
        included. So a Life board somebody paints on is the same board
@@ -681,7 +724,7 @@ function showComposer ()
                                            g.y, g.w, g.h, g.button)),
     });
 
-    composer.show(true);
+    composer.show(on);
 }
 
 function exportTape ()
@@ -831,7 +874,7 @@ async function start ()
     setInterval(() => { sampleAudioClock(); showNumbers(); enable(); },
                 1000);
 
-    showComposer();
+    showComposer(panes.visible('composerview'));
 
     try
     {
@@ -861,6 +904,7 @@ async function start ()
             unprobe: (slot) => synth.unprobe(slot),
         });
         nodes.offer(fileNames(doc));
+        nodes.show(panes.visible('nodeview'));
         files(doc).observe(() => nodes.offer(fileNames(doc)));
 
         showNodeChannel();
@@ -921,6 +965,32 @@ function init ()
     window.addEventListener('keyup', (e) => keys.keyUp(e));
     window.addEventListener('blur', releaseAll);
 
+    /* And the layout, over what is in the document now.
+     *
+     * onShow is the whole of what tiling asks of this page: a pane in a
+     * background tab, folded away or zoomed off the screen is a pane
+     * whose work can stop, and the two canvases here are what that is
+     * worth stopping. The editor is where a key means editing rather
+     * than a command, as it is for the keys. */
+    panes = createPanes({
+        root: $('panes'), catalog: PANES, store: 'panes:jam',
+        layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
+        editing: '.cm-editor',
+        onShow: (id, on) =>
+        {
+            if (id === 'composerview')
+                showComposer(on);
+            else if (id === 'nodeview')
+                nodes?.show(on);
+        },
+    });
+
+    /* The two popovers, out of the panes and over them: each is placed
+       in page coordinates beside a box on a canvas, and a pane is a box
+       that scrolls -- so one left inside a pane would be clipped by it
+       the moment it reached the edge. */
+    panes.overlay().append($('composerparams'), $('nodemenu'));
+
     requestAnimationFrame(function frame ()
     {
         roll.draw();
@@ -939,6 +1009,11 @@ function init ()
         tempo: (bpm) => send(maker.tempo(bpm)),
         seat: (seat) => room.claim(seat),
         tape: () => tapeText,
+
+        /* The panes this page has and the layout they are in, for
+           panecheck: the catalog written down once. */
+        panes: () => PANES,
+        layout: () => panes.layout(),
         sent: () => sent,
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,

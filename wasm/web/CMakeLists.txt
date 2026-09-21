@@ -327,9 +327,10 @@ target_link_options(thinkweb PRIVATE
 # The page and its scripts, copied beside the module so the build directory
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
-set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js panel.js
-                patch.js host.js roll.js worklet.js engine.js mirror.js
-                canvasview.js composerview.js nodeview.js tapediff.js)
+set(SITE_SOURCES index.html jam.html style.css panes.css main.js keyboard.js
+                panel.js patch.js host.js roll.js worklet.js engine.js
+                mirror.js canvasview.js composerview.js nodeview.js panes.js
+                tapediff.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -508,8 +509,8 @@ else()
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
                   roll.js host.js keyboard.js panel.js patch.js ../tape.mjs
-                  canvasview.js composerview.js nodeview.js tapediff.js
-                  bundle.mjs package-lock.json)
+                  canvasview.js composerview.js nodeview.js panes.js
+                  tapediff.js bundle.mjs package-lock.json)
   set(JAM_DEPENDS "")
 
   foreach(f IN LISTS JAM_SOURCES)

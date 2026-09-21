@@ -1,0 +1,386 @@
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * panes.css -- the tiled layout, and nothing else.
+ *
+ * Its own file beside style.css, because none of it applies until
+ * panes.js has put `tiled' on the body: everything here is under that
+ * class or inside the layout's own elements, so a page with the tiler off
+ * is styled by style.css alone. That is the same claim panes.js makes
+ * about the markup, made about the stylesheet.
+ *
+ * The tree is nested flex boxes. A split is a box with a direction, its
+ * children carry a fraction as `flex-grow' and a minimum as `min-width',
+ * and the browser does the arithmetic -- there is no measuring here.
+ */
+
+/* Empty until there is a layout, and nothing in the document should know
+   it is there. */
+#panes:empty { display: none; }
+
+/*
+ * The page, tiled: the chrome across the top at whatever height it wants,
+ * and the layout taking the rest of the window.
+ *
+ * `100dvh' rather than `100vh' because a mobile browser's toolbars come
+ * and go, and a layout that is a toolbar taller than the window has its
+ * bottom row under one. Nothing tiles on a phone, but a narrow laptop
+ * window crossing the threshold is the same arithmetic.
+ */
+body.tiled
+{
+    max-width: none;
+    margin: 0;
+    padding: 0.6em 0.8em;
+    height: 100dvh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
+body.tiled #status { margin: 0.2em 0; }
+body.tiled .row { margin: 0.4em 0; }
+
+/* The room page keeps everything but the join row in a section of its
+   own, so the column goes through it. */
+body.tiled #roompanel
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The drawer above, the layout under it. */
+body.tiled #panes
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+body.tiled #panes > .panebox,
+body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
+
+/* ---- the tree ----
+ *
+ * A split is a flex box with a direction; its children carry their
+ * fraction as `flex-grow' over a basis of nothing, so what each is worth
+ * is its share of what there is and the browser works out the rest. The
+ * minimum is on the child rather than on the pane inside it, because the
+ * child is what a divider has to refuse to shrink.
+ */
+
+.panebox, .paneleaf
+{
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+}
+
+.panebox[data-dir="row"] { flex-direction: row; }
+.panebox[data-dir="col"] { flex-direction: column; }
+
+/* A leaf is its strip of tabs and the pane under them. */
+.paneleaf { flex-direction: column; }
+
+/* The divider. Six pixels of it, which is SPLIT in panes.js -- what
+   refuses a drag and what is drawn have to be the same number -- with a
+   hit area that does not have to be aimed at and a line down the middle
+   that does not move. */
+.panesplit
+{
+    flex: 0 0 6px;
+    position: relative;
+    background: transparent;
+    border: 0;
+    padding: 0;
+}
+
+.panebox[data-dir="row"] > .panesplit { cursor: col-resize; }
+.panebox[data-dir="col"] > .panesplit { cursor: row-resize; }
+
+.panesplit::after
+{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--line);
+    border-radius: 1px;
+}
+
+.panebox[data-dir="row"] > .panesplit::after { inset: 0 2px; }
+.panebox[data-dir="col"] > .panesplit::after { inset: 2px 0; }
+
+.panesplit:hover::after, .panesplit:focus-visible::after
+{
+    background: var(--held);
+}
+
+.panesplit:focus-visible { outline: none; }
+
+/* ---- a pane ---- */
+
+.pane
+{
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+/* What was a block in a document is a column in a pane: the box that
+   wants the room takes it, and the rows around it keep their height.
+   Which box that is is said below rather than guessed at. */
+.panebody > details,
+.panebody > section
+{
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+}
+
+/* A <details> keeps what it discloses in a box of its own, and that box
+   is the flex item -- so the column has to go through it, or the text
+   area inside is laid out against nothing and comes out three rows tall.
+   An engine without ::details-content slots the children straight into
+   the rule above and does not need this one; the two together are every
+   engine, which is why both are here. */
+.panebody > details::details-content
+{
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* The boxes that are meant to take the room there is. The canvas view's
+   maximum goes with them: 60vh is a share of the window, and in a pane
+   the share that matters is the pane's. */
+body.tiled .panebody .canvasview
+{
+    flex: 1 1 8rem;
+    min-height: 6rem;
+    max-height: none;
+}
+
+body.tiled .panebody textarea
+{
+    flex: 1 1 8rem;
+    height: auto;
+    min-height: 4em;
+}
+
+body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
+
+body.tiled .panebody #editor { flex: 1 1 8rem; min-height: 0; }
+body.tiled .panebody #editor .cm-editor { height: 100%; }
+
+/* And the ones that are not: a row of controls is as tall as its
+   controls, and the keys say how tall they are themselves. */
+body.tiled .panebody > .row,
+body.tiled .panebody .row,
+body.tiled .panebody .hint,
+body.tiled .panebody #keys { flex: 0 0 auto; }
+
+/* A pane whose element the page has hidden -- the mode it belongs to is
+   not up -- is not a gap in the layout. Said in CSS rather than in
+   panes.js so that `hidden' on the element is the whole of the answer,
+   whoever set it. */
+.pane:has(> .panebody > [hidden]) { display: none; }
+
+/* ---- the tabs ----
+ *
+ * One tab is a pane's header; several are a choice, and the same strip
+ * either way. Which is what makes a <details> able to hand its
+ * disclosure over to it: the pane always has a header to be one.
+ */
+.panetabs
+{
+    flex: 0 0 auto;
+    display: flex;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+}
+
+.panetab
+{
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0.25em 0.7em;
+    font: inherit;
+    font-size: 0.85em;
+    color: var(--dim);
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    touch-action: none;         /* a tab drags; it does not scroll */
+}
+
+.panetab[aria-selected="true"]
+{
+    color: var(--fg);
+    background: var(--bg);
+    border-bottom-color: var(--held);
+}
+
+.panetab.dragging { opacity: 0.5; }
+
+/* ---- the drawer ----
+ *
+ * The panes no leaf has room for. A closed pane is put away and not lost,
+ * so this is a list of them and not a list of things to be made again.
+ */
+.panedrawer
+{
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.3em;
+    flex-wrap: wrap;
+    margin-bottom: 0.4em;
+}
+
+.paneclosed
+{
+    padding: 0.15em 0.6em;
+    font: inherit;
+    font-size: 0.85em;
+    color: var(--dim);
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: 3px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.paneclosed:hover, .panetab:hover { color: var(--fg); }
+
+/* Where a dragged tab would land, over the pane it would land in. */
+.panedrop
+{
+    position: absolute;
+    z-index: 3;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--held) 20%, transparent);
+    border: 2px solid var(--held);
+    border-radius: 4px;
+}
+
+.panebody
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 0.6em 0.6em;
+    display: flex;
+    flex-direction: column;
+}
+
+/*
+ * A panel wraps into as many column pairs as there is room for, and in a
+ * pane the room there is is the pane's rather than the window's.
+ *
+ * style.css asks the window, because in a document those are the same
+ * question. Tiled they are not, and a panel laid out three pairs wide in
+ * a 300-pixel pane is the answer to the wrong one -- names over their own
+ * sliders and a row that runs off the edge. So the same wrapping again,
+ * asked of the box the rows are actually in. It is the desktop's FlowBox
+ * either way (src/gui/PanelView.cpp): how many fit, rather than how many
+ * were guessed at.
+ */
+body.tiled .panebody { container-type: inline-size; }
+
+body.tiled .panelrows
+{
+    grid-template-columns: max-content minmax(12rem, 1fr);
+}
+
+@container (min-width: 44em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+@container (min-width: 70em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+/* And a pane narrow enough that a name column would leave the slider too
+   short to aim at: the name over the thing it names, as a phone gets. */
+@container (max-width: 26em)
+{
+    body.tiled .panelrows { grid-template-columns: 1fr; }
+
+    body.tiled .panelrow
+    {
+        grid-column: span 1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto auto;
+        gap: 0.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    body.tiled .panelrow label { text-align: left; }
+    body.tiled .panelrow > * { grid-column: 1; }
+}
+
+/*
+ * Over every pane: where a popover goes, now that the pane it belongs
+ * beside is a box that scrolls and would clip it.
+ *
+ * Absolute at the document's origin and of no size, so an absolutely
+ * positioned child of it resolves against the same containing block the
+ * body gave it -- which is what lets composerview.js and nodeview.js
+ * place these in page coordinates exactly as they did.
+ */
+.paneoverlay
+{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}

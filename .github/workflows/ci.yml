@@ -530,6 +530,15 @@ jobs:
         working-directory: wasm/web
         run: npm ci
 
+      # The two pages' panes, which are written down twice on purpose: the
+      # markup says what a pane is and each page's script says which of
+      # them it has and where they go. Neither can be derived from the
+      # other, so what nothing catches by itself is the two drifting
+      # apart. No browser and no build -- it reads the pages as text.
+      - name: The panes each page declares, against the panes it lists
+        working-directory: wasm/web
+        run: node catalogcheck.mjs
+
       # browsertest.mjs plays a phrase through the worklet in Chromium and
       # in Firefox and holds each against the module run directly, to the
       # bit, then runs the same piece comparison through the worklet at a
@@ -555,6 +564,16 @@ jobs:
       - name: The page's keys, knobs, parameters and composer view
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
+
+      # And the page tiled: every pane adopted into a layout and every one
+      # of them put back where it was when the window narrows, which is
+      # the claim that lets the harness above go on running against the
+      # document it was written for. Then the frame loop, which is what a
+      # tiler is worth on a page with two wasm canvases in it: a pane
+      # nobody is looking at asks the mirror for nothing.
+      - name: The page, tiled
+        working-directory: wasm/web
+        run: node panecheck.mjs ../../build-web
 
   # Two peers agreeing on one piece: the mirror, the protocol, the relay,
   # and two real browsers in one room.

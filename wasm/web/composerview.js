@@ -36,6 +36,7 @@
  */
 
 import { createCanvasView } from './canvasview.js';
+import { placePopover } from './panes.js';
 
 export function createComposerView ({ root = document, toMirror,
                                       onGesture })
@@ -213,12 +214,14 @@ export function createComposerView ({ root = document, toMirror,
         }
 
         /* Beside the box, in the page's own coordinates: the canvas said
-           where in its own pixels and the element says where it is. */
+           where in its own pixels and the element says where it is. Held
+           inside the window by placePopover, since a pane can be
+           narrower than this panel is. */
         const at = $('composer').getBoundingClientRect();
 
-        panel.style.left = `${at.left + window.scrollX + m.at.x + m.at.w + 6}px`;
-        panel.style.top = `${at.top + window.scrollY + m.at.y}px`;
-        panel.hidden = false;
+        placePopover(panel,
+                     at.left + window.scrollX + m.at.x + m.at.w + 6,
+                     at.top + window.scrollY + m.at.y);
     };
 
     /* A popover closes when something else is pressed: the next gesture
@@ -251,6 +254,10 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf,
+             /* Whether the frame loop is running, which is the whole
+                point of asking a pane whether anybody is looking. */
+             visible: () => view.visible(),
+
              /* What the popover is showing, for a harness to read. */
              params: () => [...$('composerparams').querySelectorAll(
                  '.paramrow')].map((r) => r.textContent) };
