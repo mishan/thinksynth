@@ -422,6 +422,17 @@ think_harness(dsplive   NODEMODEL)
 think_harness(dspnew    NODEMODEL)
 think_harness(dspwrite  NODEMODEL)
 
+# Sound matching, checked against targets the synth is known to reach. Not a
+# gate: what it prints is for reading. plugins/visual for the shared FFT.
+# Scores candidates in forked children, so like dspstress it is not built
+# where there is no fork().
+if(NOT WIN32)
+  think_harness(dspmatch NODEMODEL)
+  target_include_directories(dspmatch PRIVATE
+      "${PROJECT_SOURCE_DIR}/libthink"
+      "${PROJECT_SOURCE_DIR}/plugins/visual")
+endif()
+
 # One edit, printed: the reference the browser's node editor is compared
 # against (wasm/web/nodecheck.mjs). Not a gate of its own -- it makes no
 # claims -- which is why it is not in the ctest list below.
