@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -34,6 +34,13 @@ function(think_harness name)
   # ask about.
   if(H_PANEL)
     list(APPEND sources $<TARGET_OBJECTS:think_panel>)
+  endif()
+
+  # What a .patch says (src/PatchFile.h). No synth and no filesystem, so
+  # patchcheck can hold the format still on every platform without a corpus
+  # directory to stand in.
+  if(H_PATCH)
+    list(APPEND sources $<TARGET_OBJECTS:think_patch>)
   endif()
 
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
@@ -93,7 +100,8 @@ endfunction()
 
 # gthPatchfile.cpp lives in the binary rather than in libthink, so dspcheck
 # pulls it in directly to cover the .patch path. It needs sigc++ but not
-# gtkmm.
+# gtkmm. Every harness that names it also asks for PATCH: what a .patch says
+# is src/PatchFile.cpp's now, and the shell is what is left over.
 # Data-file lookup: the answers have to stay true after the working directory
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
@@ -105,7 +113,7 @@ think_harness(includecheck)
 # The first-run configuration. Needs gthPrefs and gthPatchfile, which live in
 # the binary rather than in libthink, and glibmm for the config directory --
 # but not gtkmm: none of this draws anything.
-think_harness(configcheck
+think_harness(configcheck PATCH
               EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp")
 target_link_libraries(configcheck PRIVATE PkgConfig::GLIBMM PkgConfig::SIGC)
@@ -117,7 +125,7 @@ target_link_libraries(configcheck PRIVATE PkgConfig::GLIBMM PkgConfig::SIGC)
 # to reach it is what broke the macOS build.
 think_harness(themecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp")
 
-think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
+think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(dspab)
@@ -207,7 +215,7 @@ target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 # channel has two chanarg maps and one lookup reaches both, so the panel over
 # the second differs from the panel over the first by a prefix -- and the way
 # that fails is a slider that moves and changes nothing.
-think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS PANEL
+think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS PANEL PATCH
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
@@ -230,7 +238,7 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # and the window brings one up the way the Patch Selector does. Linking it is
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
-think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS
+think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS PATCH
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
@@ -251,6 +259,13 @@ think_harness(argtype   NODEMODEL)
 # machine with a display and were re-implemented, badly, for the browser.
 # Needs the plugins and nothing else: it writes its own .dsp files.
 think_harness(panelcheck PANEL)
+
+# The .patch format (src/PatchFile.h): every shipped patch parses and says
+# nothing the reader has to complain about, parse -> compose -> parse is
+# stable, and a fixture per awkward line asserts the documented answer. Needs
+# no plugins and no channel -- a document is a string, which is the whole
+# point of having one.
+think_harness(patchcheck PATCH)
 
 # The composer framework: the .gen loader's validation (each bad file is
 # built on the fly and must fail with the right complaint), the shared pitch
@@ -523,6 +538,11 @@ set_tests_properties(gencheck PROPERTIES
 # ones the shipped corpus is careful not to have.
 add_test(NAME panelcheck
          COMMAND panelcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
+# The corpus, because "no shipped file changed meaning" is the claim this
+# extraction rests on; the fixtures run either way.
+add_test(NAME patchcheck
+         COMMAND patchcheck "${PROJECT_SOURCE_DIR}/patches")
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)

@@ -487,6 +487,50 @@ tolerance for names no graph declares belongs to the instrument's side, where
 the corpus has a history of them; an invented effect parameter would land in
 the instrument's map, where nothing would ever read it.
 
+### One reader
+
+`src/PatchFile.h` is the format — a string in, a `thPatchDoc` out, and the
+document back to a string — and nothing else reads or writes it. That is worth
+saying because for a while two things did: `gthPatchManager::parse` over
+`fgets` and a second parser in `wasm/web/patch.js`, written from this document
+separately. They had drifted in both directions. The page dropped every
+`effect` line on the floor, because it tried the value as a number; it sent
+`side` to the engine as a chanarg called `side`; and it kept every value of a
+`name 1,2,3` line where the desktop kept the first and dropped the rest.
+
+That last one is the only place the page was right, and its reading is the one
+that stands: an arg holds as many values as it was given, on both sides of the
+file. No shipped `.patch` has a multi-value line, so nothing in the corpus
+changed meaning — which `scripts/dspcheck --patch` is what proves.
+
+### What a bad line does
+
+It is complained about, and the rest of the file is read. The only thing that
+fails a patch is the one thing that makes it not a patch: no `dsp` line.
+
+| | |
+|---|---|
+| `info foo` — a property named, no value | complaint; no property is invented |
+| `cutoff` — a word with no value after it | complaint |
+| `cutoff abc`, `wave 1,,3` | complaint; the arg keeps what the `.dsp` declared |
+| a line starting with `#`, or blank | skipped, in silence |
+| CRLF endings | the CR is not part of the value |
+| `side 99`, `side` naming its own channel | read as written, then clamped to no side when it is put on a channel |
+| `fx.` name nothing declares | reported and dropped when it is put on a channel |
+
+A value that is not a number used to become a silent zero, because `strtof`
+takes what it can and shrugs at the rest — a parameter set to a number nobody
+typed, indistinguishable from one somebody meant. An `info` line with no value
+used to fail the whole file, sharing an exit with a `.dsp` that would not
+load, so a typo in a comment field cost the instrument.
+
+Whether `99` is a channel and whether anything declares `cutoff` are questions
+that need a synth, so they are answered when the document is put on a channel
+and not when it is read. What the reader does is the format, and it
+round-trips: parse, compose, parse again, and the second document equals the
+first. `scripts/patchcheck` holds every shipped file and a fixture per row
+above to that.
+
 ## 3. Writing a `.dsp`
 
 ### Splice, do not re-emit
