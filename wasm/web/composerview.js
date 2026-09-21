@@ -26,7 +26,7 @@
  * whatever the page does with a command.
  *
  * Both pages have it, and it is one file for the reason keyboard.js and
- * knobs.js are one file each: two copies of a thing two pages have to
+ * panel.js are one file each: two copies of a thing two pages have to
  * agree on is how they stop agreeing.
  *
  * What differs between them is only the last step. The solo page sends a

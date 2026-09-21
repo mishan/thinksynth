@@ -48,7 +48,7 @@ import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
-import { setKnob, showKnobs } from './knobs.js';
+import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
@@ -272,7 +272,7 @@ async function applyOne (from, cmd)
     /* And what the page shows follows. */
     /* Ours moved its own slider as it was dragged. */
     if (cmd.type === 'knob' && from !== room.peer)
-        setKnob($('knobs'), cmd.knob, cmd.value);
+        setKnobValue(String(cmd.knob), cmd.value);
     else if (cmd.type === 'transport')
     {
         if (cmd.op === 'start')
@@ -393,7 +393,7 @@ async function loadFromDoc (seed = -1)
         $('about').textContent = piece.description;
     }
 
-    drawKnobs();
+    await drawKnobs();
     showSeats();
     showNodeChannel();
     enable();
@@ -538,11 +538,38 @@ function showSeats ()
 }
 
 /* A knob moved here is a command like everything else, heard knobLead
-   later on this page and on every other. */
-function drawKnobs ()
+ * later on this page and on every other.
+ *
+ * The same renderer the solo page uses, over the same description
+ * (src/KnobPanel.cpp): a knob row's id is the number the command names it
+ * by. `setKnobValue' is what showPanel hands back, and is how a peer's move
+ * reaches the slider without going out again as an edit of our own. */
+let setKnobValue = () => {};
+
+async function drawKnobs ()
 {
-    showKnobs($('knobs'), piece?.knobs ?? [],
-              (knob, value) => send(maker.knob(knob, value)));
+    const answer = piece === null
+        ? { shape: 0 } : await synth.panel(1 /* thPanel::KNOB */, 0, 0);
+
+    setKnobValue = () => {};
+
+    if (answer.shape === 0)
+    {
+        $('knobs').replaceChildren();
+        return;
+    }
+
+    /* Held before it is sent, and not after: this one goes out to the room
+       as a stamped command and every peer applies it to the same knob. See
+       the same handler in main.js. */
+    setKnobValue = showPanel($('knobs'), JSON.parse(answer.json),
+                             (row, text) =>
+                             {
+                                 const value = numberIn(text);
+
+                                 if (value !== null)
+                                     send(maker.knob(Number(row), value));
+                             });
 }
 
 function showNumbers ()

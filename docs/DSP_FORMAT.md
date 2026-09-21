@@ -460,7 +460,8 @@ fx.delay 16537.500000
 fx.mix 0.500000
 ```
 
-`src/gui/ArgTable.cpp` renders these as sliders.
+`src/ArgPanel.cpp` describes these as panel rows and `src/gui/PanelView.cpp`
+renders them as sliders.
 
 `effect` names the channel effect — the graph that runs on the sum of this
 patch's voices, above — and is optional; a patch without one is every patch

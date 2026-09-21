@@ -89,6 +89,9 @@
 #include "ComposerCanvas.h"
 #include "thcGenEdit.h"
 
+#include "ArgPanel.h"
+#include "KnobPanel.h"
+
 #include "twevent.h"
 
 /* The synth always mixes to two; so does this. */
@@ -1578,49 +1581,242 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_dirty (void)
     return canvas_ != NULL && canvas_->takeDirty() ? 1 : 0;
 }
 
-/* ---- the knobs the piece declared ---- */
+/* ---- the knobs the piece declared ----
+ *
+ * One accessor, where there were eight. What a knob is -- its label, its
+ * range, the resolution worth showing it at -- is a panel now
+ * (src/KnobPanel.cpp), read through tw_panel_open(KNOB) like any other; all
+ * that is left here is the number a command names one by, which is a panel
+ * row's id and is wanted the other way round when a peer's command arrives.
+ */
 
-EMSCRIPTEN_KEEPALIVE int tw_knob_count (void)
+EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
 {
-    return (int)knobs_.size();
+    if (name == NULL)
+        return -1;
+
+    for (size_t i = 0; i < knobs_.size(); i++)
+        if (knobs_[i]->name() == name)
+            return (int)i;
+
+    return -1;
 }
 
-EMSCRIPTEN_KEEPALIVE const char *tw_knob_name (int k)
+/* ---- parameter panels ----
+ *
+ * One family for every panel the page draws, over the description in
+ * src/PanelModel.h. What it replaces is four descriptions of a panel written
+ * three times each -- as widgets, as a flat C ABI of ten accessors, and as
+ * DOM -- and what it buys immediately is the channel-arg panel, which this
+ * page has never had at all: a patch's parameters could be set by a .patch
+ * file and by the node editor, and not by a person.
+ *
+ * A panel is opened by naming what it is about, not by an index handed out
+ * here. `kind' is thPanel::Kind; `a' and `b' are the channel, or the chain
+ * and the stage, or the box. That is what lets an edit be a command: an
+ * intent carries the same three numbers and the row's id, so the peer that
+ * applies it needs no panel open and no agreement about row numbering.
+ *
+ * The open panel is kept because the page reads it twice -- once as JSON
+ * when it appears, and then value by value while it is up. Rows are tens,
+ * not the thousands of ops a drawing is, so the JSON is written fresh each
+ * time it is asked for rather than cached.
+ */
+
+static ArgPanel argPanel_;
+static KnobPanel knobPanel_;
+static thPanel openPanel_;
+static std::string panelJson_;
+static std::string panelWhy_;
+
+/* What the open panel is about, held here rather than read back off
+   openPanel_: a rebuild that finds nothing leaves an empty panel behind, and
+   an empty panel has forgotten which of a channel's two arg maps it was
+   over. -1 for none open. */
+static int panelKind_ = -1;
+static int panelA_ = -1;
+static int panelB_ = 0;
+
+/* Configures the provider and builds. False for a panel with no rows, which
+   is a channel with nothing on it. */
+static bool buildPanel (int kind, int a, int b)
 {
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->name().c_str() : "";
+    openPanel_ = thPanel();
+
+    switch (kind)
+    {
+        case thPanel::CHANARG:
+            argPanel_ = ArgPanel();
+            argPanel_.setChannel(a);
+
+            /* b as a flag rather than a second subject: a channel's two
+               chanarg maps are the instrument's and the effect's, and which
+               of them a panel is over is the prefix its lookups carry. */
+            argPanel_.setPrefix(b != 0 ? TH_EFFECT_PREFIX : "");
+
+            return argPanel_.build(openPanel_);
+
+        case thPanel::KNOB:
+            /* No subject: a piece has one set of knobs. knobs_ is the list
+               a command numbers them by, rebuilt at every load, and a row's
+               id is its place in it. */
+            knobPanel_.setKnobs(knobs_);
+
+            return knobPanel_.build(openPanel_);
+    }
+
+    return false;
 }
 
-EMSCRIPTEN_KEEPALIVE const char *tw_knob_label (int k)
+/* Opens a panel and returns its shape, or 0 when there is none.
+ *
+ * A shape rather than a handle: the page has one panel up at a time and
+ * names the next one the same way it named this one, so there is nothing for
+ * a handle to disambiguate -- and what the page does want back is the number
+ * it polls to find out whether its widgets are still the right ones. */
+EMSCRIPTEN_KEEPALIVE unsigned tw_panel_open (int kind, int a, int b)
 {
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->label().c_str() : "";
+    panelWhy_.clear();
+
+    if (!buildPanel(kind, a, b))
+    {
+        panelKind_ = -1;
+
+        return 0;
+    }
+
+    panelKind_ = kind;
+    panelA_ = a;
+    panelB_ = b;
+
+    return openPanel_.shape;
 }
 
-/* 0 for one the piece marked hidden, which a page draws no slider for. */
-EMSCRIPTEN_KEEPALIVE int tw_knob_shown (int k)
+/* The whole panel. Valid until the next call to any of these. */
+EMSCRIPTEN_KEEPALIVE const char *tw_panel_json (void)
 {
-    return k >= 0 && k < (int)knobs_.size() &&
-           knobs_[k]->widgetType() != thArg::HIDE;
+    panelJson_ = thPanelToJson(openPanel_);
+
+    return panelJson_.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE double tw_knob_min (int k)
+/* Rebuilds from live state and returns the shape.
+ *
+ * The rebuild is the point: a panel follows the arg, and the values it holds
+ * after this are the ones tw_panel_value reads. What the page compares is
+ * the number, which changes only when rows appear, vanish or change
+ * editability -- so a MIDI controller moving a control costs a poll and not
+ * a torn-down panel. */
+EMSCRIPTEN_KEEPALIVE unsigned tw_panel_shape (void)
 {
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->min() : 0;
+    if (panelKind_ < 0)
+        return 0;
+
+    if (!buildPanel(panelKind_, panelA_, panelB_))
+        return 0;
+
+    return openPanel_.shape;
 }
 
-EMSCRIPTEN_KEEPALIVE double tw_knob_max (int k)
+/* One row's value, in the units its row is drawn in. The cheap poll: no
+   string crosses, and nothing is serialized. */
+EMSCRIPTEN_KEEPALIVE double tw_panel_value (int row)
 {
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->max() : 0;
+    if (panelKind_ < 0 || row < 0 || row >= (int)openPanel_.rows.size())
+        return 0;
+
+    double value = openPanel_.rows[row].value;
+
+    switch (openPanel_.kind)
+    {
+        case thPanel::CHANARG:
+            argPanel_.valueFor(openPanel_.rows[row].id, value);
+            break;
+        case thPanel::KNOB:
+            knobPanel_.valueFor(openPanel_.rows[row].id, value);
+            break;
+        default:
+            break;
+    }
+
+    return value;
 }
 
-EMSCRIPTEN_KEEPALIVE double tw_knob_value (int k)
+/* An edit, named in full so that it can have arrived from anywhere.
+ *
+ * This is the far end of a command: the page posts the intent, every peer
+ * receives it, and each of them calls this -- including the peer that typed
+ * it, which has no privileged path to the synth (docs/JAM.md). So it takes
+ * the panel's subject rather than reading the open one; the instance that
+ * applies an edit need never have drawn the panel it came from.
+ *
+ * Returns 1 if the arg moved, 0 otherwise -- which covers both a refusal
+ * and an intent that matched what was already there. tw_panel_why is empty
+ * for the second, since catching up is not an error. */
+EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
+                                        const char *row,
+                                        const char *valueText)
 {
-    return k >= 0 && k < (int)knobs_.size() ? (*knobs_[k])[0] : 0;
+    panelWhy_.clear();
+
+    if (row == NULL || valueText == NULL)
+        return 0;
+
+    switch (kind)
+    {
+        case thPanel::CHANARG:
+        {
+            /* A provider of its own: the panel this names may not be the
+               one that is open, and applying an edit must not disturb what
+               the page is looking at. */
+            ArgPanel target;
+
+            target.setChannel(a);
+            target.setPrefix(b != 0 ? TH_EFFECT_PREFIX : "");
+
+            thPanelEdit edit;
+
+            const thPanelResult r = target.propose(row, valueText, edit);
+
+            if (!r.ok)
+            {
+                panelWhy_ = r.why;
+
+                return 0;
+            }
+
+            if (!r.changed)
+                return 0;
+
+            return target.deliver(edit) ? 1 : 0;
+        }
+    }
+
+    /* A knob is not set here, and the refusal says so rather than
+     * pretending there is nothing to set.
+     *
+     * Its delivery is tw_knob, which carries a transport time: a knob is
+     * heard, so a move has to land at the same time on every peer or the
+     * peers stop composing the same piece. Applying one immediately here
+     * would be a second door to the same write, opening at a different
+     * moment -- which is exactly the divergence the stamp exists to stop.
+     * The panel describes a knob; the command moves it. */
+    if (kind == thPanel::KNOB)
+    {
+        panelWhy_ = "a knob is moved by a stamped command, not by an edit";
+
+        return 0;
+    }
+
+    panelWhy_ = "no such panel";
+
+    return 0;
 }
 
-/* `@x.step = 1', or 0 for a knob the piece left continuous. */
-EMSCRIPTEN_KEEPALIVE double tw_knob_step (int k)
+/* Why the last edit was refused, or "" -- including when it was allowed. */
+EMSCRIPTEN_KEEPALIVE const char *tw_panel_why (void)
 {
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->step() : 0;
+    return panelWhy_.c_str();
 }
 
 /* ---- stamped commands ---- */
@@ -1699,8 +1895,12 @@ EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
     schedule(c);
 }
 
-/* Knob `k' of the loaded piece -- tw_knob_count's numbering -- to `value',
-   at transport time `at'. An index outside the list is ignored. */
+/* Knob `k' of the loaded piece to `value', at transport time `at'.
+ *
+ * `k' is the number a KNOB panel's row carries as its id, which is the
+ * knob's place in the list this module built at the load; tw_knob_index
+ * reads it the other way round, for a command arriving by name. An index
+ * outside the list is ignored. */
 EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
 {
     Scheduled c = {};

@@ -55,7 +55,7 @@
  * octave and a bit from C, Q to P the octave above, with the black keys on
  * the row above each. - and = move both down and up an octave, and move
  * the on-screen keyboard with them. That layout, and the sliders a piece's
- * knobs are drawn as, are keyboard.js's and knobs.js's: the room page
+ * knobs are drawn as, are keyboard.js's and panel.js's: the room page
  * wants them identical, and two copies of a thing two pages have to agree
  * on is how they stop agreeing.
  */
@@ -65,7 +65,7 @@ import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
-import { showKnobs } from './knobs.js';
+import { numberIn, showPanel } from './panel.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
 
@@ -271,6 +271,8 @@ async function loadPatch ()
 
     if (!ok)
         $('detail').open = true;
+
+    await showParams();
 }
 
 async function pickPatch ()
@@ -336,10 +338,24 @@ async function loadPiece ()
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
 
-    drawKnobs();
-    showChannels();
-    showNodes();
-    roll.draw();
+    /* The redraw, as one thing a harness can wait for.
+     *
+     * Two of these now ask the worklet for a panel and wait for the answer,
+     * and that round trip is not a load: quietly() does not know about it and
+     * `quiet' is stable while it is still in flight. A harness that pressed
+     * on before it landed found the knob row replaced under it between a
+     * focus and a keypress -- which is the thing settled() exists to stop,
+     * so settled() waits for this too. */
+    drawn = (async () =>
+    {
+        await drawKnobs();
+        showChannels();
+        showNodes();
+        await showParams();
+        roll.draw();
+    })();
+
+    await drawn;
 }
 
 async function pickPiece ()
@@ -358,6 +374,10 @@ async function pickPiece ()
  * have the first one's resume land in the middle of its own graph build
  * -- so each waits for the one before. */
 let quiet = Promise.resolve();
+
+/* The tail of a load: the panels it redraws, which are asked of the worklet
+   and arrive after the load itself is done with. See loadPiece. */
+let drawn = Promise.resolve();
 
 function quietly (what)
 {
@@ -382,12 +402,40 @@ function quietly (what)
 }
 
 /* One row per knob the piece declared, each bound straight to the command
-   that moves it. The command carries a frame like every other, so the page
-   is the nearest peer and not a privileged one (docs/JAM.md). */
-function drawKnobs ()
+ * that moves it. The command carries a frame like every other, so the page
+ * is the nearest peer and not a privileged one (docs/JAM.md).
+ *
+ * The same renderer the channel's parameters use, over the same kind of
+ * description (src/KnobPanel.cpp). A knob row's id is the number the
+ * command names it by, which is why the edit is a Number() of it and
+ * nothing here has to hold a second list.
+ */
+async function drawKnobs ()
 {
-    showKnobs($('knobs'), piece?.knobs ?? [],
-              (knob, value) => synth.knob(knob, value));
+    if (synth === null)
+        return;
+
+    const answer = piece === null
+        ? { shape: 0 } : await synth.panel(1 /* thPanel::KNOB */, 0, 0);
+
+    if (answer.shape === 0)
+    {
+        $('knobs').replaceChildren();
+        return;
+    }
+
+    /* tw_knob takes a number and checks nothing: a knob is delivered by a
+       stamped command rather than by tw_panel_edit, so KnobPanel::propose is
+       on no path between this and the write. panel.js holds what it emits
+       inside the row's travel; this is the last look before it becomes a
+       command every peer applies. */
+    showPanel($('knobs'), JSON.parse(answer.json), (row, text) =>
+    {
+        const value = numberIn(text);
+
+        if (value !== null)
+            synth.knob(Number(row), value);
+    });
 }
 
 /* ---- the channels row ---- */
@@ -569,6 +617,9 @@ async function aimByHand (channel, name)
            drawn from what is. */
         showChannels();
     }
+
+    /* What is on the channel decides what the panel has rows for. */
+    await showParams();
 }
 
 function frame ()
@@ -577,6 +628,131 @@ function frame ()
         roll.draw();
 
     requestAnimationFrame(frame);
+}
+
+/* ---- the instrument's parameters ---- */
+
+/* The panel that is up: which channel it is over, what the module said it
+   was, and the function showPanel handed back for putting a value into one
+   of its rows. */
+let params = null;
+
+/* Which channels have a panel worth offering.
+ *
+ * Patch mode has the one it plays. Piece mode has every channel the piece
+ * touches, which is the row of them showChannels draws -- a person who has
+ * just aimed a .patch at channel 4 is the person who wants its cutoff. */
+function paramChannels ()
+{
+    return mode() === 'patch' ? [PATCH_CHANNEL] : touched();
+}
+
+/* The channel selector, kept to what is there, keeping its choice if that
+   channel is still among them. Numbered the way the rest of the page
+   numbers channels: the file's 1-16, not the engine's 0-15. */
+function fillParamChannels ()
+{
+    const want = Number($('paramchan').value);
+    const all = paramChannels();
+
+    $('paramchan').replaceChildren(
+        ...all.map((c) => new Option(String(c + 1), String(c))));
+
+    $('paramchan').value = String(all.includes(want) ? want : (all[0] ?? 0));
+}
+
+function paramChannel ()
+{
+    return Number($('paramchan').value);
+}
+
+/* The panel, from the module, drawn.
+ *
+ * Everything about what a row is comes over in the JSON; nothing here
+ * decides any of it. An edit leaves as a command and is applied by every
+ * instance including this page's, so the number in the box moves because
+ * the module set the arg and not because the box was typed in -- which is
+ * the same path a peer's edit takes, and the reason there is only one. */
+async function showParams ()
+{
+    if (synth === null)
+        return;
+
+    fillParamChannels();
+
+    const channel = paramChannel();
+    const answer = await synth.panel(0 /* thPanel::CHANARG */, channel);
+
+    params = null;
+
+    if (answer.shape === 0)
+    {
+        $('params').replaceChildren();
+        $('paramwhat').textContent =
+            'Nothing on this channel yet; load an instrument.';
+
+        return;
+    }
+
+    const panel = JSON.parse(answer.json);
+
+    $('paramwhat').textContent =
+        `${panel.rows.length} parameters on channel ${channel + 1}`;
+
+    const setValue = showPanel(
+        $('params'), panel,
+        (row, text) => synth.panelEdit(0, channel, 0, row, text));
+
+    params = { channel, panel, setValue };
+}
+
+/* The panel following the arg.
+ *
+ * A control moves behind the page all the time -- a piece's knob wired to
+ * a chanarg, a peer's edit, this page's own edit coming back round -- and a
+ * panel that did not follow would show what was true when it opened. The
+ * poll is the values alone: rows are described once and their numbers are
+ * read as often as it takes, which is what a panel's shape is for.
+ *
+ * A shape that has changed means the rows themselves did -- something was
+ * loaded onto the channel -- and the answer to that is to ask for the
+ * description again rather than to push values into widgets for a panel
+ * that has gone.
+ */
+async function pollParams ()
+{
+    if (synth === null || params === null || $('paramview').open === false)
+        return;
+
+    /* Which panel this poll is about, held across the await.
+     *
+     * showParams() replaces `params' wholesale, and a channel switched while
+     * a poll was in flight brings back the values of the channel that was
+     * there before -- as many of them as that panel had rows. The shape is
+     * not the check for that: two channels carrying the same patch have the
+     * same shape, which is what a shape is for, so the answer would be
+     * applied to the wrong channel's controls and a short one would blank the
+     * rows past its end. The object's identity is the check. */
+    const asked = params;
+
+    const answer = await synth.panelValues(asked.panel.rows.length);
+
+    if (params !== asked)
+        return;
+
+    if (answer.shape !== asked.panel.shape)
+    {
+        await showParams();
+        return;
+    }
+
+    /* Values only. A row that holds words -- a note set, an output described
+       rather than measured -- is told nothing by a number, and panel.js is
+       where that is known; passing the description's own text back in every
+       quarter second is how a readout came to be frozen at what it said when
+       the panel opened. */
+    asked.panel.rows.forEach((row, i) =>
+        asked.setValue(row.id, answer.values[i]));
 }
 
 /* ---- starting, and switching ---- */
@@ -891,19 +1067,34 @@ window.solo = {
 
        The loop is for a load queued while an earlier one was being
        waited on: quiet is reassigned by every quietly(), so it is stable
-       only once nothing has been added across an await and a frame. */
+       only once nothing has been added across an await and a frame. And
+       `drawn' beside it, because the panels a load redraws are asked of the
+       worklet and land after the load that quiet tracks is finished. */
     settled: async () =>
     {
-        for (let was = null; was !== quiet; )
+        for (let was = null, drew = null; was !== quiet || drew !== drawn; )
         {
             was = quiet;
+            drew = drawn;
 
             await quiet;
+            await drawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
         }
 
         return true;
     },
+
+    /* The instrument's parameters: what the module said they are, so a
+       harness can check a row against the description it was drawn from
+       rather than against a number written twice. `params' above is the
+       composer's popover, which is a different panel over a different
+       thing. */
+    chanParams: () => (params === null ? null : params.panel),
+
+    /* And a poll on demand, since the timer's quarter second is a long
+       time to wait on and longer still to guess at. */
+    pollChanParams: () => pollParams(),
 
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
@@ -929,6 +1120,12 @@ async function pickMode ()
 
     showComposer(piecing);
     showNodes();
+
+    /* Emptied rather than left showing the other mode's channel: what
+       loadPatch and loadPiece do below is fill it again from what they
+       put on the channels. */
+    params = null;
+    $('params').replaceChildren();
 
     releaseAll();
 
@@ -1053,7 +1250,19 @@ async function init ()
     /* The key channel is one of the channels the row shows, so moving the
        keys moves which line is there. Nothing is loaded by it: where the
        keys go and what a channel sounds like are two questions. */
-    $('keychan').addEventListener('change', showChannels);
+    $('keychan').addEventListener('change', () =>
+    {
+        showChannels();
+        showParams();
+    });
+
+    $('paramchan').addEventListener('change', showParams);
+
+    /* Four times a second, which is about the desktop's 50 ms draw timer
+       and far below an animation frame: the poll is a message each way,
+       and a panel following a knob does not need sixty of them a second.
+       Only while the panel is open -- see pollParams. */
+    setInterval(pollParams, 250);
 
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));

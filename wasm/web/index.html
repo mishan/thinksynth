@@ -94,6 +94,24 @@
   <div id="channels"></div>
 </section>
 
+<!-- The instrument's parameters: the panel the desktop has had for twenty
+     years and this page has never had at all. A patch's controls could be
+     set by a .patch file and by the node editor, and not by a person.
+
+     What a row is -- its label, what it is worth in the unit it was
+     written in, how many decimals are worth showing, whether it is a
+     slider or a list of named values, which group it belongs to -- is the
+     module's answer and not this page's (src/PanelModel.h). The desktop
+     draws the same answer with gtkmm; panel.js draws it here. -->
+<details id="paramview" open>
+  <summary>The instrument's parameters</summary>
+  <div class="row">
+    <label>Channel <select id="paramchan"></select></label>
+    <span id="paramwhat" class="hint"></span>
+  </div>
+  <div id="params"></div>
+</details>
+
 <!-- The instrument as a graph: the desktop's node editor, with its
      canvas, its layout and its writer compiled to wasm and run in this
      page's own instance of the module. In patch mode it edits the .dsp in

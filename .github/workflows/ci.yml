@@ -283,12 +283,19 @@ jobs:
           node-version: 24
 
       # genwav is the tape every piece gate is compared against; dspedit is
-      # the edit every node-editor gate is compared against. Both are what
-      # the browser build has to agree with.
+      # the edit every node-editor gate is compared against; panelcheck is
+      # the parameter panel every row of the module's is compared against.
+      # All three are what the browser build has to agree with.
+      #
+      # Named here as well as in the upload below, and that is the whole of
+      # the coupling: upload-artifact skips a path that is not there with a
+      # warning nobody reads, so a binary left out of this line arrives as a
+      # missing file in every gate job at once -- which is what
+      # wasm-trees's chmod is loud about.
       - name: Native build
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build --target genwav dspedit plugins
+          cmake --build build --target genwav dspedit panelcheck plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
@@ -365,6 +372,7 @@ jobs:
           path: |
             build/scripts/genwav
             build/scripts/dspedit
+            build/scripts/panelcheck
             build/libthink/libthink.so.8
             build/plugins/*/*.so
             build-wasm/thinksynth.mjs
@@ -492,6 +500,17 @@ jobs:
       - name: The node editor's model, against the desktop's
         run: node wasm/web/nodecheck.mjs build-web build
 
+      # A parameter panel is described once (src/PanelModel.h) and rendered
+      # twice, and the point of describing it once is that the two
+      # renderings are of the same thing. Nothing enforces that by itself:
+      # both builds compile the same sources, and a rule that quietly
+      # depended on the width of a long, on a compiler's idea of a double or
+      # on which order a map iterated in would diverge without either side
+      # noticing. So the same fixture is loaded natively and in the module
+      # and the two descriptions are compared byte for byte.
+      - name: The parameter panel, against the desktop's
+        run: node wasm/web/panelcheck.mjs build-web build
+
   # The page and the worklet, in the two engines the page has to work in.
   wasm-browsers:
     name: wasm (emscripten) in browsers
@@ -525,14 +544,15 @@ jobs:
           node browsertest.mjs ../../build-web ../../build-wasm
 
       # The solo page itself, which nothing above opens: the octave, the
-      # sliders a piece's knobs are drawn as, and a computer key held and
-      # let go. Both pages share keyboard.js and knobs.js, so this is
-      # where a change to either shows up first. Then the composer view,
+      # sliders a piece's knobs are drawn as, the channel's parameter panel
+      # and a computer key held and let go. Both pages share keyboard.js and
+      # knobs.js, so this is where a change to either shows up first. Then
+      # the composer view,
       # which has a whole second engine behind it: the picture arrives
       # from the mirror worker and is replayed, a stage is enlarged, and
       # a drag on it leaves as a command and comes back as a board that
       # has changed.
-      - name: The page's keys, knobs and composer view
+      - name: The page's keys, knobs, parameters and composer view
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
 

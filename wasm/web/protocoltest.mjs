@@ -507,14 +507,21 @@ async function session (createThinkWeb, piece, dsps, network, seed)
     for (const p of peers)
         p.others = peers.filter((q) => q !== p);
 
-    /* The first shown knob, from the module as the page reads it. */
+    /* The first shown knob, from the module as the page reads it: the
+       piece's KNOB panel, which is where what a knob is now lives
+       (src/KnobPanel.cpp). A hidden knob has no row, so the first row is
+       the first knob anyone can move. */
     const { M } = peers[0];
     let knob = null;
 
-    for (let i = 0; i < M._tw_knob_count() && knob === null; i++)
-        if (M._tw_knob_shown(i))
-            knob = { knob: i, name: M.UTF8ToString(M._tw_knob_name(i)),
-                     min: M._tw_knob_min(i), max: M._tw_knob_max(i) };
+    if (M._tw_panel_open(1 /* thPanel::KNOB */, 0, 0) !== 0)
+    {
+        const [row] = JSON.parse(M.UTF8ToString(M._tw_panel_json())).rows;
+
+        if (row !== undefined)
+            knob = { knob: Number(row.id), name: row.knob,
+                     min: row.lo, max: row.hi };
+    }
 
     peers[0].startRendering();
     peers[1].startRendering();

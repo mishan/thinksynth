@@ -20,8 +20,8 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `chanarg', `piece', `transport', `begin',
- * `at', `knob', `input', `midion', `midioff', `on', `off' or `alloff' message,
- * turned into the tw_ call that applies it. It used to live in worklet.js, and
+ * `at', `knob', `paneledit', `input', `midion', `midioff', `on', `off' or
+ * `alloff' message, turned into the tw_ call that applies it. It used to live in worklet.js, and
  * moved here when there were two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
@@ -129,6 +129,32 @@ export function apply (M, m, host = NOWHERE)
 
         case 'knob':
             M._tw_knob(m.at, m.knob, m.value);
+            return true;
+
+        case 'paneledit':
+            /* A parameter panel's row, set to what somebody typed or
+             * dragged it to.
+             *
+             * Here with the rest of them because it is a command like the
+             * rest: host.js posts it to every instance, and each applies
+             * it for itself. The page that made it is the nearest peer and
+             * not a privileged one, so its own panel moves because this
+             * ran and not because a widget was dragged (docs/JAM.md).
+             *
+             * Stamped with nothing. A knob move is heard, so it lands at a
+             * transport time and has to land at the same one everywhere; a
+             * chanarg is what an instrument is, and setting it a window
+             * early or late is the same instrument. `chanarg' above, which
+             * is the other way into the same args, carries no stamp for
+             * the same reason.
+             *
+             * The refusal is dropped here and read by whoever asked, if
+             * anybody did: what the module says about a row it will not
+             * set is for the page that typed it, and the other instances
+             * have nobody to tell. */
+            M.ccall('tw_panel_edit', 'number',
+                    ['number', 'number', 'number', 'string', 'string'],
+                    [m.kind, m.a, m.b, m.row, m.text]);
             return true;
 
         case 'input':

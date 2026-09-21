@@ -32,10 +32,10 @@
  * the way its author spelled it.
  *
  * There used to be three copies of this arithmetic: the grammar action
- * that folded, ArgTable that unfolded for display, and NodeEdit that did
- * both to round-trip a file. Three copies of a conversion is a slow leak
- * -- they agreed, but nothing made them agree -- and the sample rate is
- * what finally forced the issue.
+ * that folded, the parameter panel that unfolded for display, and NodeEdit
+ * that did both to round-trip a file. Three copies of a conversion is a
+ * slow leak -- they agreed, but nothing made them agree -- and the sample
+ * rate is what finally forced the issue.
  *
  * `ms' takes a rate, because milliseconds are only samples once you know
  * how many samples a second is. The grammar used to fold with the

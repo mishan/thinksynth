@@ -283,6 +283,17 @@ On `jam-m6`. Where it stands:
   graph.
 - The node editor on the solo page as well, over the patch in its text
   box rather than over a document -- one file source, two pages.
+- A channel's parameters, described once by the module and drawn by the
+  page (`src/PanelModel.h`, `wasm/web/panel.js`): the panel the desktop has
+  had for twenty years and this page never had. An edit of a row is a
+  command like a knob move -- the page that typed it applies it by
+  receiving it back, the same as every other peer. The description is held
+  against the desktop's, byte for byte, by `wasm/web/panelcheck.mjs`.
+- And the knobs a piece declares, off the same description
+  (`src/KnobPanel.cpp`) and drawn by the same renderer on both pages. A
+  knob is where the two deliveries differ and can be seen to: the panel
+  describes it and a stamped `knob` command moves it, so it lands at the
+  same transport time on every peer.
 - Not yet: the by-hand pass in two browsers (M6's gate 8.4).
 
 ## 1. The three kinds of state

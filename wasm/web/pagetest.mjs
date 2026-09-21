@@ -27,14 +27,21 @@
  * synth the way host.js does and compares samples, piececheck.mjs never
  * opens a browser at all. Nothing ran main.js. So the two things the solo
  * page and the room page share -- the computer keyboard as a musical one,
- * and the knobs a piece declared as sliders (keyboard.js, knobs.js) --
+ * and the knobs a piece declared as sliders (keyboard.js, panel.js) --
  * were only ever exercised by hand, on the page a change to either is
  * most likely to break.
  *
- * Small on purpose: the octave, the sliders, a key down and up, and a key
- * typed into a text box, which must play nothing. Then the two canvases
- * this page has: the composer view, and the instrument's graph. What sounds is
- * browsertest.mjs's business and jamtest.mjs's; this is about the page.
+ * The parameter panel is here for the half of it that needs a browser: that
+ * the module's description of a channel's controls became elements, and
+ * that moving one reaches the arg. What the description says, and that it
+ * is the same description the desktop draws, is scripts/panelcheck's and
+ * wasm/web/panelcheck.mjs's.
+ *
+ * Small on purpose: the octave, the sliders, the channel's parameter panel,
+ * a key down and up, and a key typed into a text box, which must play
+ * nothing. Then the two canvases this page has: the composer view, and the
+ * instrument's graph. What sounds is browsertest.mjs's business and
+ * jamtest.mjs's; this is about the page.
  *
  * And then the composer view, which is the one thing here with a whole
  * second engine behind it: the piece's picture is drawn by the mirror --
@@ -131,6 +138,134 @@ try
         null, { timeout: 60000 });
     check(true, 'the synth started');
 
+    /* ---- the instrument's parameters ---- */
+
+    /* The panel this page has never had. Patch mode, because that is the
+       simplest thing it can be over: one .dsp on one channel, loaded by
+       Start.
+
+       What is checked here is the half that needs a browser -- that the
+       module's description became elements, and that moving one of them
+       reaches the arg. That the description itself is right, and is the
+       same description the desktop draws, is panelcheck's and
+       panelcheck.mjs's. */
+    await page.waitForSelector('#params .panelrow', { timeout: 60000 });
+
+    const chanPanel = await page.evaluate(() => window.solo.chanParams());
+    const drawn = await page.evaluate(() => ({
+        rows: document.querySelectorAll('#params .panelrow').length,
+        groups: document.querySelectorAll('#params .panelgroup').length,
+        sliders: document.querySelectorAll(
+            '#params input[type="range"]').length,
+    }));
+
+    check(chanPanel !== null && drawn.rows === chanPanel.rows.length,
+          `the channel's parameters drew: ${drawn.rows} rows of ` +
+          `${chanPanel?.rows?.length}`);
+
+    check(drawn.groups === chanPanel.groups.length,
+          `and a foldable block per group: ${drawn.groups} of ` +
+          `${chanPanel.groups.length} (${chanPanel.groups.join(', ')})`);
+
+    /* Every row of the .dsp this page loads is a slider; a selector would
+       be a <select> and is counted out here so the claim stays exact. */
+    const ranges = chanPanel.rows.filter((r) => r.kind === 0).length;
+
+    check(drawn.sliders === ranges,
+          `and a slider for each of the ${ranges} that is one`);
+
+    /* A nudge, with the keyboard, because that is a real input event from
+       the browser rather than a synthesised one.
+     *
+       Then the poll, which pushes what the module holds back into the
+       widgets. That is the assertion: if the edit had not reached the arg
+       the slider would snap back to where it was, since the page draws
+       what the module says and never what it typed. */
+    await page.evaluate(() =>
+        document.querySelectorAll('#params input[type="range"]')[0].focus());
+
+    const wasParam = await page.evaluate(() =>
+        document.querySelectorAll('#params input[type="range"]')[0].value);
+
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+
+    const nudged = await page.evaluate(() =>
+        document.querySelectorAll('#params input[type="range"]')[0].value);
+
+    await page.evaluate(() => window.solo.pollChanParams());
+
+    const polled = await page.evaluate(() =>
+    {
+        const range = document.querySelectorAll(
+            '#params input[type="range"]')[0];
+
+        return { value: range.value,
+                 shown: range.nextElementSibling.value };
+    });
+
+    check(nudged !== wasParam && polled.value === nudged,
+          `moving one reaches the arg and survives the poll: ` +
+          `${wasParam} -> ${nudged}, and the module says ${polled.value}`);
+
+    check(Number(polled.shown) === Number(nudged),
+          `and the number box beside it agrees: ${polled.shown}`);
+
+    /* And the poll does not type over the person.
+     *
+       The module's value arrives four times a second whether or not anyone
+       asked, and it used to be written into every box on the panel. A number
+       takes longer than a quarter second to type, so the digits were being
+       replaced by the value that was still there -- an edit that could not be
+       made at all rather than one that failed. Half a number is left in the
+       box here, deliberately unconfirmed. */
+    await page.evaluate(() =>
+        document.querySelector('#params .value').focus());
+
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('0.12');
+
+    await page.evaluate(() => window.solo.pollChanParams());
+    await page.evaluate(() => window.solo.pollChanParams());
+
+    const typing = await page.evaluate(() =>
+        document.querySelector('#params .value').value);
+
+    check(typing === '0.12',
+          `a half-typed number survives the poll: "${typing}"`);
+
+    /* While it is being typed into, the box is the only thing on the panel
+       that is not showing the module: the slider beside it is the same row
+       and keeps following. */
+    const apart = await page.evaluate(() =>
+    {
+        const box = document.querySelector('#params .value');
+
+        return { shown: box.value, range: box.previousElementSibling.value };
+    });
+
+    check(Number(apart.shown) !== Number(apart.range),
+          `and only that box holds back: box ${apart.shown}, slider ` +
+          `${apart.range}`);
+
+    /* And it is let go of the moment it stops being typed into. Leaving the
+       box is what confirms the number, so this is the edit landing and the
+       box going back to showing what the module has -- which is the same
+       thing, and is why the two agree again. */
+    await page.evaluate(() => document.querySelector('#params .value').blur());
+    await page.evaluate(() => window.solo.pollChanParams());
+
+    const together = await page.evaluate(() =>
+    {
+        const box = document.querySelector('#params .value');
+
+        return { shown: box.value, range: box.previousElementSibling.value };
+    });
+
+    check(Number(together.shown) === Number(together.range),
+          `and the box follows the arg again once it is left alone: box ` +
+          `${together.shown}, slider ${together.range}`);
+
     await page.selectOption('#mode', 'piece');
     await page.selectOption('#piece', PIECE);
 
@@ -151,21 +286,31 @@ try
 
        So the page is asked instead. It knows what it has queued; nothing
        out here can know it by counting. */
-    await page.waitForSelector('#knobs input', { timeout: 60000 });
+    await page.waitForSelector('#knobs input[type="range"]',
+                               { timeout: 60000 });
     await page.click('#loadpiece');
     await page.evaluate(() => window.solo.settled());
 
+    /* Drawn by panel.js off the module's own description of them
+       (src/KnobPanel.cpp), so a row carries the number a command names it
+       by as its id and the value spelled at the resolution its range asks
+       for -- not at whatever three significant figures came to. */
     const knobs = await page.evaluate(() =>
-        [...document.querySelectorAll('#knobs input')].map((i) =>
-            ({ id: i.id, knob: i.dataset.knob,
-               shown: i.previousElementSibling.textContent })));
+        [...document.querySelectorAll('#knobs .panelrow')].map((line) =>
+        {
+            const range = line.querySelector('input[type="range"]');
+
+            return { label: line.querySelector('label').textContent,
+                     value: range.value,
+                     shown: range.nextElementSibling.value };
+        }));
 
     check(knobs.length > 0 &&
-          knobs.every((k) => k.shown !== '' && k.knob !== undefined),
-          `${PIECE}'s knobs drew, each with its index and its value: ` +
-          knobs.map((k) => `${k.id}=${k.shown}`).join(', '));
+          knobs.every((k) => k.shown !== '' && k.label !== ''),
+          `${PIECE}'s knobs drew, each with its label and its value: ` +
+          knobs.map((k) => `${k.label}=${k.shown}`).join(', '));
 
-    /* Moving a slider moves the number beside it -- the span a remote
+    /* Moving a slider moves the number beside it -- the box a remote
        peer's move writes to on the room page as well.
      *
        With the keyboard, because that is a real input event from the
@@ -173,28 +318,76 @@ try
        is a weaker claim about a range input and a poor one to debug.
        Both numbers go in the message, since a slider that did not move
        and a number that did not follow it are different bugs. */
-    await page.focus(`#${knobs[0].id}`);
+    const firstKnob = '#knobs .panelrow input[type="range"]';
 
-    const was = await page.inputValue(`#${knobs[0].id}`);
+    await page.focus(firstKnob);
+
+    const was = await page.inputValue(firstKnob);
 
     await page.keyboard.press('ArrowRight');
 
-    let now = await page.inputValue(`#${knobs[0].id}`);
+    let now = await page.inputValue(firstKnob);
 
     /* At the top of its range there is nowhere rightwards to go. */
     if (now === was)
     {
         await page.keyboard.press('ArrowLeft');
-        now = await page.inputValue(`#${knobs[0].id}`);
+        now = await page.inputValue(firstKnob);
     }
 
     const shown = await page.evaluate(
-        (id) => document.getElementById(id).previousElementSibling.textContent,
-        knobs[0].id);
+        (sel) => document.querySelector(sel).nextElementSibling.value,
+        firstKnob);
 
-    check(now !== was && shown === Number(now).toPrecision(3),
+    check(now !== was && Number(shown) === Number(now),
           `a nudge moves the slider and the number beside it: ` +
           `${was} -> ${now}, showing ${shown}`);
+
+    /* An emptied box is not a knob set to zero.
+     *
+       A knob is delivered by a stamped command and not by tw_panel_edit, so
+       nothing between the box and the write reads what is in it: Number('')
+       is 0, and 0 is outside the range of plenty of a piece's knobs. Nor is
+       a number typed past the end of the range applied unheld while the
+       slider beside it clamps. */
+    const knobBox = '#knobs .panelrow .value';
+
+    await page.fill(knobBox, '');
+    await page.evaluate((sel) => document.querySelector(sel).blur(), knobBox);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const emptied = await page.evaluate((sel) =>
+    {
+        const box = document.querySelector(sel);
+
+        return { shown: box.value,
+                 range: box.previousElementSibling.value };
+    }, knobBox);
+
+    check(Number(emptied.range) === Number(now) &&
+          Number(emptied.shown) === Number(now),
+          `emptying a knob's box moves nothing: still ${emptied.shown}`);
+
+    /* And past the end of its travel it goes to the end and not past it. */
+    const knobMax = await page.evaluate((sel) =>
+        document.querySelector(sel).previousElementSibling.max, knobBox);
+
+    await page.fill(knobBox, String(Number(knobMax) * 10 + 1));
+    await page.evaluate((sel) => document.querySelector(sel).blur(), knobBox);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const past = await page.evaluate((sel) =>
+    {
+        const box = document.querySelector(sel);
+
+        return { shown: box.value,
+                 range: box.previousElementSibling.value };
+    }, knobBox);
+
+    check(Number(past.shown) === Number(knobMax) &&
+          Number(past.range) === Number(knobMax),
+          `and a number past its end is held to it: ${past.shown} of ` +
+          `${knobMax}`);
 
     /* A computer key holds an on-screen key and lets it go. The slider
        just dragged still has the focus, and a focused input is somewhere
@@ -504,7 +697,8 @@ site.closeAllConnections();
 site.close();
 
 process.stdout.write(`\n${failures === 0
-                          ? 'the solo page\'s keys, knobs, composer view ' +
-                            'and instrument graph still work\n'
+                          ? 'the solo page\'s keys, knobs, parameters, ' +
+                            'composer view and instrument graph still ' +
+                            'work\n'
                           : `${failures} failed\n`}`);
 process.exitCode = failures;

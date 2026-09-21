@@ -61,7 +61,8 @@
 #include "think.h"
 #include "NodeGraph.h"
 #include "gui/NodeEditor.h"
-#include "gui/ArgTable.h"
+#include "gui/ArgPanelView.h"
+#include "gui/PanelView.h"
 
 /* Picked up automatically by LeakSanitizer, the same way visualcheck and
  * dspstress supply theirs -- so this stays a real gate under CI's
@@ -242,6 +243,125 @@ void collectScales (Gtk::Widget *w, std::vector<Gtk::Scale *> &out)
         collectScales(c, out);
 }
 
+/* Every widget of one type under `w', depth first. */
+template <typename T>
+void collectWidgets (Gtk::Widget *w, std::vector<T *> &out)
+{
+    if (w == NULL)
+        return;
+
+    T *found = dynamic_cast<T *>(w);
+
+    if (found != NULL)
+        out.push_back(found);
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        collectWidgets<T>(c, out);
+}
+
+/* PanelView over a thPanel built by hand, rather than by a provider.
+ *
+ * Everything else here draws a panel some provider filled in, and a provider
+ * uses thPanelBuilder, which keeps a panel's rows and its groupOrder in step
+ * and only ever makes the two kinds of row ArgPanel has. setPanel is public
+ * and takes neither of those for granted, so the cases a provider cannot
+ * currently produce are checked at that boundary instead of left until some
+ * later provider produces one. */
+void checkPanelViewRows (void)
+{
+    thPanel panel;
+
+    thPanelRow loose;
+
+    loose.kind = thPanelRow::SLIDER;
+    loose.id = "a";
+    loose.label = "A";
+    loose.lo = 0;
+    loose.hi = 1;
+    loose.step = 0.0001;
+    loose.decimals = 4;
+    loose.value = 0.25;
+
+    thPanelRow grouped = loose;
+
+    grouped.id = "b";
+    grouped.label = "B";
+    grouped.group = "Nowhere";
+
+    thPanelRow words;
+
+    words.kind = thPanelRow::TEXT;
+    words.id = "c";
+    words.label = "C";
+    words.text = "c4 e4 g4";
+
+    panel.rows.push_back(loose);
+    panel.rows.push_back(grouped);
+    panel.rows.push_back(words);
+
+    /* `Nowhere' deliberately left out of groupOrder: a row is drawn for what
+       it carries, not for what some other list remembers about it. Drawing
+       only the groups named there loses the row silently -- indexOf still
+       finds it and setValue still writes to it, and it is on no screen. */
+    Gtk::Window *win = new Gtk::Window();
+    PanelView *view = Gtk::manage(new PanelView);
+
+    view->setPanel(panel);
+
+    win->set_child(*view);
+    win->set_default_size(500, 300);
+    win->set_visible(true);
+
+    pump(0.3);
+
+    std::vector<Gtk::Scale *> scales;
+    std::vector<Gtk::Entry *> entries;
+
+    collectWidgets<Gtk::Scale>(view, scales);
+    collectWidgets<Gtk::Entry>(view, entries);
+
+    ok(scales.size() == 2,
+       "a row whose group is not in groupOrder is drawn anyway (%zu sliders)",
+       scales.size());
+
+    /* One Entry and not three: a GTK4 SpinButton is not one, so the only
+       plain box on this panel is the text row's. */
+    ok(entries.size() == 1, "and the text row got a box (%zu)",
+       entries.size());
+
+    int edits = 0;
+
+    view->signal_edited().connect(
+        [&](const string &, const string &) { edits++; });
+
+    view->setValue("b", 0.75);
+
+    pump(0.2);
+
+    ok(fabs(scales[1]->get_value() - 0.75) < 1e-4,
+       "a value pushed into that row reaches its slider (%f)",
+       scales[1]->get_value());
+
+    /* A string row is set with the string. Spelling a double into it is what
+       setValue would have had to do, and a note set is not a number. */
+    view->setText("c", "d4 f4 a4");
+
+    pump(0.2);
+
+    Gtk::Entry *box = entries.empty() ? NULL : entries[0];
+
+    ok(box != NULL && box->get_text() == "d4 f4 a4",
+       "and a text row takes the words it is given (%s)",
+       box ? box->get_text().c_str() : "(no box)");
+
+    ok(edits == 0,
+       "and none of that came back round as an edit (%d)", edits);
+
+    win->set_visible(false);
+    delete win;
+}
+
 /* The parameter panel over a channel *effect's* chanargs.
  *
  * A channel has two chanarg maps, and one lookup reaches both: thSynth::
@@ -251,7 +371,10 @@ void collectScales (Gtk::Widget *w, std::vector<Gtk::Scale *> &out)
  * moves and changes nothing, because the name it looked up was the
  * instrument's and there is nothing there.
  *
- * One arg in the table, so the one scale under it is unambiguous.
+ * What the panel says is scripts/panelcheck's business, and it says it with
+ * no toolkit anywhere. What is left here is the half that needs a display:
+ * that a thPanel becomes real widgets, and that dragging one of them reaches
+ * the arg its row stands for.
  */
 void checkEffectPanel (thSynth &synth, const string &pluginPath)
 {
@@ -277,12 +400,12 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
     const float before = (*mix)[0];
 
     Gtk::Window *win = new Gtk::Window();
-    ArgTable *table = Gtk::manage(new ArgTable);
+    ArgPanelView *table = Gtk::manage(new ArgPanelView);
 
-    table->insertArg(mix);
     table->setChannel(0);
     table->setPrefix(TH_EFFECT_PREFIX);
-    table->reflow();
+
+    ok(table->rebuild(), "the effect's parameters make a panel");
 
     win->set_child(*table);
     win->set_default_size(500, 200);
@@ -294,15 +417,20 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
 
     collectScales(table, scales);
 
-    ok(scales.size() == 1,
-       "the panel drew one slider for the one parameter (%zu)",
-       scales.size());
+    /* One slider per row, in the panel's own order -- which is what lets the
+       one belonging to `mix' be found without reaching into the widgets by
+       name. */
+    const int at = table->panel().indexOf("mix");
 
-    if (scales.size() == 1)
+    ok(scales.size() == table->panel().rows.size(),
+       "the panel drew a slider for each of its rows (%zu of %zu)",
+       scales.size(), table->panel().rows.size());
+
+    if (at >= 0 && scales.size() == table->panel().rows.size())
     {
         const double want = (before < 0.5) ? 0.8 : 0.2;
 
-        scales[0]->set_value(want);
+        scales[at]->set_value(want);
 
         pump(0.2);
 
@@ -311,6 +439,20 @@ void checkEffectPanel (thSynth &synth, const string &pluginPath)
            "not there (%f -> %f, wanted %f)", (double)before,
            (double)(*mix)[0], want);
     }
+    else
+        ok(false, "the panel has a row for `mix' (%d)", at);
+
+    /* The other direction: the arg moves behind the panel -- a MIDI
+       controller, another window -- and the slider follows without that
+       coming back round as an edit. */
+    mix->setValue(0.35);
+
+    pump(0.2);
+
+    if (at >= 0 && (size_t)at < scales.size())
+        ok(fabs(scales[at]->get_value() - 0.35) < 1e-4,
+           "and the slider follows the arg when something else moves it "
+           "(%f)", scales[at]->get_value());
 
     win->set_visible(false);
     delete win;
@@ -649,6 +791,7 @@ int run (const string &pluginPath, const char *file)
     delete window;
 
     checkEffectPanel(synth, pluginPath);
+    checkPanelViewRows();
 
     return failures;
 }

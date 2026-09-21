@@ -177,6 +177,49 @@ class ThinkProcessor extends AudioWorkletProcessor
             }))
             return;
 
+        /* A parameter panel, read off whatever is on the channel now.
+         *
+         * A question and not a command, so it is answered rather than
+         * applied, and only this instance is asked: what the page draws is
+         * what the thing that sounds holds. An edit of one goes the other
+         * way, through engine.js, because that is a command.
+         *
+         * Two answers, and the difference between them is the whole reason
+         * a panel carries a shape. `panel' is the description -- the rows,
+         * what each is worth, which group it is in -- read once when the
+         * panel appears. `panelvalues' is the numbers, polled while it is
+         * up, and it carries the shape so that the page knows when the
+         * description it drew from has stopped being true.
+         */
+        if (m.type === 'panel')
+        {
+            const shape = this.M._tw_panel_open(m.kind, m.a, m.b) >>> 0;
+
+            this.port.postMessage({
+                type: 'panel', id: m.id, shape,
+                json: shape === 0
+                    ? '' : this.M.UTF8ToString(this.M._tw_panel_json()),
+            });
+
+            return;
+        }
+
+        if (m.type === 'panelvalues')
+        {
+            /* The shape first: it rebuilds from live state, which is what
+               makes the values below the current ones. */
+            const shape = this.M._tw_panel_shape() >>> 0;
+            const values = [];
+
+            for (let row = 0; row < m.rows; row++)
+                values.push(this.M._tw_panel_value(row));
+
+            this.port.postMessage({ type: 'panelvalues', id: m.id, shape,
+                                    values });
+
+            return;
+        }
+
         /* A tap, armed on this thread -- which is the GUI thread and the
            audio thread at once here, so the call that resolves the node
            and the call that drains the ring are on the same one. */
@@ -217,31 +260,31 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
     }
 
-    /* What the page needs to draw a piece: its name, and the knobs it
-       declared, with the range and label each was given. Read once, at the
-       load -- a knob's value moves, but nothing else about it does. */
+    /* What the page needs to draw a piece: its name, and the number and
+       name of each knob it declared.
+     *
+       Two fields, where there were seven. What a knob *is* -- its label,
+       its range, the resolution worth showing it at -- is a panel now
+       (src/KnobPanel.cpp), asked for like any other and drawn by panel.js;
+       what is left here is the pairing a command needs, which is the one
+       thing a panel row is not enough for on its own. A page holding a
+       peer's `knob 3' has to find row "3"; a preset naming `@warmth' has to
+       find the number. */
     piece (ok)
     {
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
                      knobs: [], instruments: [], listens: [], sinks: [] };
 
-        /* `knob' is the index a command names it by; the list is every
-           knob the piece declared, hidden ones included, so the index is
-           the module's own. */
+        /* Off the panel, so there is one answer to "which knobs are shown"
+           rather than two that have to agree. Hidden knobs keep their
+           numbers and get no row. */
         const knobs = [];
 
-        for (let i = 0; i < this.M._tw_knob_count(); i++)
-            if (this.M._tw_knob_shown(i))
-                knobs.push({
-                    knob:  i,
-                    name:  this.M.UTF8ToString(this.M._tw_knob_name(i)),
-                    label: this.M.UTF8ToString(this.M._tw_knob_label(i)),
-                    min:   this.M._tw_knob_min(i),
-                    max:   this.M._tw_knob_max(i),
-                    step:  this.M._tw_knob_step(i),
-                    value: this.M._tw_knob_value(i),
-                });
+        if (this.M._tw_panel_open(1 /* thPanel::KNOB */, 0, 0) !== 0)
+            for (const row of JSON.parse(
+                     this.M.UTF8ToString(this.M._tw_panel_json())).rows)
+                knobs.push({ knob: Number(row.id), name: row.knob });
 
         /* The instruments by name with the channel each was given, which
            is what a seat is; and the channels the piece takes `input
