@@ -250,35 +250,40 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         const int velocity = (int)get(P_VEL);
         const double hold = get(P_HOLD);
         const bool onFill = st->filling();
+        const int poolLen = onFill ? st->fillLen : st->poolLen;
 
-        for (int i = 0; i < remaining; i++)
-        {
-            if (!t->running || (onFill ? st->fillLen : st->poolLen) == 0 ||
-                !onsetAt(st->pos + i, steps, fills, rotate))
-                continue;
+        /* Both conditions hold for the whole cycle, so they are asked
+           once rather than once a step: the pool cannot be reparsed
+           between two steps that leave together, and the transport
+           cannot stop inside a wake it is driving. */
+        if (t->running && poolLen > 0)
+            for (int i = 0; i < remaining; i++)
+            {
+                if (!onsetAt(st->pos + i, steps, fills, rotate))
+                    continue;
 
-            const int note = onFill ? st->fill[st->fillNum % st->fillLen]
-                                    : st->pool[st->onsetNum % st->poolLen];
+                const int note = onFill ? st->fill[st->fillNum % poolLen]
+                                        : st->pool[st->onsetNum % poolLen];
 
-            st->onsetNum++;
+                st->onsetNum++;
 
-            if (onFill)
-                st->fillNum++;
+                if (onFill)
+                    st->fillNum++;
 
-            if (note < 0)
-                continue;
+                if (note < 0)
+                    continue;
 
-            thcEvent ev = {};
+                thcEvent ev = {};
 
-            ev.type = THC_EV_NOTE;
-            ev.at = t->now + i * period;
-            ev.channel = 0;
-            ev.u.note.note = note;
-            ev.u.note.velocity = velocity;
-            ev.u.note.duration = hold;
+                ev.type = THC_EV_NOTE;
+                ev.at = t->now + i * period;
+                ev.channel = 0;
+                ev.u.note.note = note;
+                ev.u.note.velocity = velocity;
+                ev.u.note.duration = hold;
 
-            out->emit(out->ctx, &ev);
-        }
+                out->emit(out->ctx, &ev);
+            }
 
         st->pos = 0;
         st->cycle++;
@@ -338,6 +343,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
     int steps = (int)get(P_STEPS);
     int fills = (int)get(P_FILLS);
     int rotate = (int)get(P_ROTATE);
+    const bool ahead = (int)get(P_AHEAD) != 0;
 
     if (steps < 1)
         steps = 1;
@@ -384,8 +390,14 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         }
 
         /* The step about to fire wears the halo: pos has already been
-           advanced past the step that just sounded. */
-        if (i == st->pos)
+           advanced past the step that just sounded.
+
+           A cycle emitted ahead is on no step at all -- the whole ring
+           left at its start and pos sits at zero until the next one --
+           so the ring wears no halo rather than one that says the music
+           is at the top of the pattern for as long as the pattern
+           lasts. */
+        if (!ahead && i == st->pos)
         {
             cairo_set_source_rgba(cr, 1, 1, 1, 0.8);
             cairo_arc(cr, x, y, dot + 2.5, 0, 2 * M_PI);

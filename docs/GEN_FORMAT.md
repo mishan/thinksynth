@@ -83,9 +83,13 @@ an old file guessing. Not this time.
 `ahead = 1` to emit a whole cycle at its start, with each note still dated
 for its own step. This gives a following `xform::run` time to place pickup
 notes before a target. A knob or channel arg driving the ring is sampled
-once per cycle in this mode, rather than once per step. The loader warns
-when a transformer that needs future events follows a generator that does
-not supply them; the piece still loads.
+once per cycle in this mode, rather than once per step. `ahead` itself has
+to be a number: bound to a knob it is a value that can come and go, which
+is not something a placement downstream can be written against, and the
+loader reads it as off. The ring drops its current-step halo here, a cycle
+that left at its start being on no step. The loader warns when a
+transformer that needs future events follows a generator that does not
+supply them; the piece still loads.
 
 ## 3. Piece knobs are chanargs
 

@@ -783,8 +783,20 @@ ComposerWindow::parseWork (void)
             pieceLabel_ += buf;
         }
 
+        /* Without the location, which names the working file -- a
+           temporary copy of the piece that nobody has seen and that the
+           label has no room for anyway. stderr above has the whole
+           line, and that is where a line number is worth having. */
         if (!warnings.empty())
-            pieceLabel_ += " — " + warnings[0];
+        {
+            const std::string mark = ": warning: ";
+            const size_t at = warnings[0].find(mark);
+
+            pieceLabel_ += " — " +
+                (at == std::string::npos ? warnings[0]
+                                         : warnings[0].substr(at +
+                                                              mark.size()));
+        }
     }
 
     releaseInstruments();

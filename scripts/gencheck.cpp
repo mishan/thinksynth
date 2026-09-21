@@ -8930,7 +8930,8 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
         return;
     }
 
-    auto warningsFor = [&](const std::string &source)
+    auto warningsFor = [&](const std::string &source,
+                           const std::string &prelude = "")
     {
         std::vector<std::string> warnings;
         const std::string path = thUtil::tempFile("gencheck-ahead-warning-");
@@ -8944,7 +8945,8 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
         {
             std::ofstream out(path.c_str(), std::ios::trunc);
 
-            out << "chain c { stage src " << source << ";\n"
+            out << prelude
+                << "chain c { stage src " << source << ";\n"
                    "  stage pick xform::run { steps = 2; time = 0.5 s;"
                    " prob = 1; };\n"
                    "  sink { channel = 1; }; };\n";
@@ -8984,6 +8986,26 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
             !ahead.empty() || !phrase.empty())
             fail("run: warn for a stepwise source, not a source that "
                  "emits ahead");
+
+        if (plain[0].find("set ahead = 1") == std::string::npos)
+            fail("run: the warning for a source with an ahead param "
+                 "should say to set it");
+    }
+
+    /* A knob on `ahead' is not a lookahead: the warning still goes out,
+       and telling this file to set a param it already sets would read
+       as a bug in the loader rather than as the answer. */
+    {
+        const std::vector<std::string> bound = warningsFor(
+            "gen::euclid { steps = 4; fills = 1; notes = \"C4\";"
+            " period = 1 s; hold = 0.1 s; ahead = @look; }",
+            "@look = 1;\n");
+
+        if (bound.size() != 1 ||
+            bound[0].find("bound") == std::string::npos ||
+            bound[0].find("set ahead = 1") != std::string::npos)
+            fail("run: a knob-bound ahead should warn, and should not be "
+                 "told to set ahead = 1");
     }
 
     {

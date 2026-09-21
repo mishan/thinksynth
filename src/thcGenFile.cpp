@@ -2018,19 +2018,37 @@ thcGenLoader::parseChain (thcScheduler *sched)
                     (source->plugin->flags() & THC_EMITS_AHEAD) != 0;
                 const int ahead = source->plugin->paramIndex("ahead");
 
+                /* A bound `ahead' is not an ahead. The value is whatever
+                   the knob or the node says at the moment the generator
+                   reads it, and the placement below needs the whole
+                   cycle every cycle -- a lookahead that comes and goes
+                   is one the piece cannot be written against. */
+                const bool bound = ahead >= 0 &&
+                    (source->params.knobBinding(ahead) != NULL ||
+                     source->params.nodeBinding(ahead) != NULL);
+
                 if (emitsAhead && ahead >= 0)
-                    emitsAhead = source->params.get(ahead) >= 0.5 &&
-                                 source->params.knobBinding(ahead) == NULL &&
-                                 source->params.nodeBinding(ahead) == NULL;
+                    emitsAhead = !bound &&
+                                 source->params.get(ahead) >= 0.5;
 
                 if (!emitsAhead)
+                {
+                    std::string how;
+
+                    if (bound)
+                        how = "; its 'ahead' is bound to a value that can "
+                              "change, which does not count as one";
+                    else if (ahead >= 0)
+                        how = "; set ahead = 1";
+
                     warning(consumer->line,
                             "chain '" + nameTok.text + "': stage '" +
                             consumer->name + "' (" +
                             consumer->plugin->name() + ") needs future "
                             "events, but stage '" + source->name + "' (" +
                             source->plugin->name() + ") does not emit ahead" +
-                            (ahead >= 0 ? "; set ahead = 1" : ""));
+                            how);
+                }
             }
         }
 
