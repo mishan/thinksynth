@@ -284,8 +284,10 @@ jobs:
 
       # genwav is the tape every piece gate is compared against; dspedit is
       # the edit every node-editor gate is compared against; panelcheck is
-      # the parameter panel every row of the module's is compared against.
-      # All three are what the browser build has to agree with.
+      # the parameter panel every row of the module's is compared against;
+      # patchcheck is the .patch every document the module writes is
+      # compared against. All four are what the browser build has to agree
+      # with.
       #
       # Named here as well as in the upload below, and that is the whole of
       # the coupling: upload-artifact skips a path that is not there with a
@@ -295,7 +297,8 @@ jobs:
       - name: Native build
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build --target genwav dspedit panelcheck plugins
+          cmake --build build \
+                --target genwav dspedit panelcheck patchcheck plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
@@ -373,6 +376,7 @@ jobs:
             build/scripts/genwav
             build/scripts/dspedit
             build/scripts/panelcheck
+            build/scripts/patchcheck
             build/libthink/libthink.so.8
             build/plugins/*/*.so
             build-wasm/thinksynth.mjs
