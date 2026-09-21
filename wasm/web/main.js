@@ -1353,12 +1353,6 @@ async function init ()
 
     $('paramchan').addEventListener('change', showParams);
 
-    /* Four times a second, which is about the desktop's 50 ms draw timer
-       and far below an animation frame: the poll is a message each way,
-       and a panel following a knob does not need sixty of them a second.
-       Only while the panel is open -- see pollParams. */
-    setInterval(pollParams, 250);
-
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
@@ -1398,6 +1392,13 @@ async function init ()
                 pollParams();
         },
     });
+
+    /* Four times a second, which is about the desktop's 50 ms draw timer
+       and far below an animation frame: the poll is a message each way,
+       and a panel following a knob does not need sixty of them a second.
+       Only while the panel is in front of somebody, which is what the
+       layout above answers -- so it is started after there is one. */
+    setInterval(pollParams, 250);
 
     /* The two popovers, out of the panes and over them. Each is placed
        beside the box on a canvas that asked for it, in page coordinates,
