@@ -89,10 +89,48 @@ function asked (fallback)
     return p === null ? fallback : p === '1';
 }
 
-export function createPanes ({ root, catalog, layouts, mode,
-                               store = 'panes', onShow = () => {},
-                               on = false })
+/*
+ * A popover at a page coordinate, held inside the window.
+ *
+ * What asks for one of these is a canvas, and what it says is where in
+ * its own pixels -- so the page adds where the canvas is and gets a page
+ * coordinate, which is what these are positioned in and has not changed
+ * with tiling. What has changed is what is around them: a pane can be
+ * narrower than the popover's own maximum width and is a box that
+ * scrolls, so one placed beside a handle near the right of a pane went
+ * off the window rather than merely off the box. It is a bug that was
+ * there before and that a 60em document rarely showed.
+ *
+ * Shown first and measured after, because a popover's size is what is in
+ * it and what is in it was just written.
+ */
+export function placePopover (box, x, y)
 {
+    const pad = 8;
+
+    box.hidden = false;
+
+    const left = Math.max(scrollX + pad,
+                          Math.min(x, scrollX + innerWidth -
+                                      box.offsetWidth - pad));
+    const top = Math.max(scrollY + pad,
+                         Math.min(y, scrollY + innerHeight -
+                                     box.offsetHeight - pad));
+
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+}
+
+export function createPanes ({ root, catalog, layouts, mode,
+                               store = 'panes', editing = '',
+                               onShow = () => {}, on = false })
+{
+    /* Where a key means editing rather than a command -- the same
+       selector TypingKeys is given, and for the same reason: a chord
+       typed into a text box is text. */
+    const editable = ['textarea', 'input', 'select', '[contenteditable]',
+                      ...(editing ? [editing] : [])].join(', ');
+
     /* id -> the element, where it came from, and what it is worth. In
        the catalog's order, which is the document's. */
     const panes = new Map();
@@ -112,14 +150,20 @@ export function createPanes ({ root, catalog, layouts, mode,
     let where = mode;
 
     /* What each render found: which panes are in front of somebody, which
-       are in the tree at all, and which node each rendered leaf is. */
+       were put into the document at all, and which node each rendered
+       leaf is. */
     let onScreen = new Set();
-    let placed = new Set();
+    let attached = new Set();
     let seen = new Map();
 
     /* The leaf the next pane out of the drawer goes into, and the one
        the keyboard is in. */
     let focus = null;
+
+    /* The leaf filling the layout, if one is. Zoom is what makes tiling
+       bearable on a laptop and it costs nothing: the rest are not drawn,
+       and onShow fires for everything that just left the screen. */
+    let zoom = null;
 
     for (const id of catalog)
     {
@@ -680,7 +724,7 @@ export function createPanes ({ root, catalog, layouts, mode,
             if (front)
                 onScreen.add(id);
 
-            placed.add(id);
+            attached.add(id);
             strip.append(tab);
             box.append(host);
         });
@@ -890,7 +934,7 @@ export function createPanes ({ root, catalog, layouts, mode,
     {
         const box = el('panedrawer');
         const out = [...panes.keys()].filter(
-            (id) => playable(id) && !placed.has(id));
+            (id) => playable(id) && !inLayout.has(id));
 
         box.hidden = out.length === 0;
 
@@ -915,15 +959,43 @@ export function createPanes ({ root, catalog, layouts, mode,
         return box;
     };
 
+    /* Which panes the tree holds, whether or not this render drew them:
+       what the drawer lists is what no leaf has, and a zoomed pane has
+       not closed the rest. */
+    let inLayout = new Set();
+
+    const holding = (node, into = new Set()) =>
+    {
+        if (isLeaf(node))
+            node.tabs.filter(playable).forEach((id) => into.add(id));
+        else
+            node.kids.forEach((k) => holding(k, into));
+
+        return into;
+    };
+
+    /* Whether a node is still part of the tree: a split that collapsed
+       took its children's addresses with it. */
+    const holds = (target, node = tree) =>
+        node === target ||
+        (!isLeaf(node) && node.kids.some((k) => holds(target, k)));
+
     const render = () =>
     {
+        const was = document.activeElement;
+        const from = was instanceof Element
+            ? was.closest('.pane')?.id.replace(/^pane-/, '') ?? null : null;
+        const tab = was instanceof Element &&
+                    was.classList.contains('panetab') ? was.id : null;
+
         if (!tiled)
         {
             for (const p of panes.values())
                 restore(p);
 
             onScreen = new Set();
-            placed = new Set();
+            attached = new Set();
+            inLayout = new Set();
             seen = new Map();
             hint = null;
             root.replaceChildren();
@@ -941,24 +1013,29 @@ export function createPanes ({ root, catalog, layouts, mode,
         for (const p of panes.values())
             adopt(p);
 
+        if (zoom !== null && (!holds(zoom) || !alive(zoom)))
+            zoom = null;
+
         onScreen = new Set();
-        placed = new Set();
+        attached = new Set();
         seen = new Map();
         hint = null;
+        inLayout = holding(tree);
 
-        const made = alive(tree) ? nodeOf(tree) : el('paneleaf');
+        const shown = zoom ?? tree;
+        const made = alive(shown) ? nodeOf(shown) : el('paneleaf');
 
-        /* The ones the layout has no room for, kept out of sight but in
-           the document. Out of the document they would be out of
+        /* The ones this render did not draw, kept out of sight but in the
+           document. Out of the document they would be out of
            getElementById too, and every module on this page was handed
-           its element by name -- a pane in the drawer is put away, not
-           taken apart. */
+           its element by name -- a pane put away is not a pane taken
+           apart. */
         const kept = el('panekeep');
 
         kept.hidden = true;
 
         for (const p of panes.values())
-            if (!placed.has(p.id))
+            if (!attached.has(p.id))
                 kept.append(p.host);
 
         /* A leaf that went away takes the focus with it: a split that
@@ -968,7 +1045,207 @@ export function createPanes ({ root, catalog, layouts, mode,
 
         root.replaceChildren(drawerOf(), made, kept);
         settle();
+        refocus(was, from, tab);
     };
+
+    /* Focus, after the layout has moved under it.
+     *
+     * Never stolen and never dropped: what somebody was in is still what
+     * they are in, unless the pane holding it has just gone off the
+     * screen -- and then it is that pane's own tab rather than the top of
+     * the page, which is where the browser would have put it.
+     */
+    const refocus = (was, from, tab) =>
+    {
+        if (!(was instanceof HTMLElement) || was === document.body)
+            return;
+
+        if (was.isConnected && was.checkVisibility())
+        {
+            if (document.activeElement !== was)
+                was.focus();
+
+            return;
+        }
+
+        const back = (tab !== null && root.querySelector(`#${tab}`)) ??
+                     (from !== null &&
+                      root.querySelector(`#panetab-${from}`));
+
+        if (back)
+            back.focus();
+    };
+
+    /* ---- driving it from the keys ----
+     *
+     * With a constraint this page has and most do not: the letters are
+     * the instrument. TypingKeys binds Z-/ and Q-P to notes and - and =
+     * to the octave, so every command here is a chord with Alt in it,
+     * never a bare letter -- and every one of them is inert while the
+     * focus is in a text box or an editor, which is the same rule
+     * keyboard.js applies to a note.
+     *
+     * By `code' rather than by `key', for keyboard.js's reason: a command
+     * is a place on the keyboard, and Alt over a letter is a different
+     * letter on half the layouts there are.
+     */
+    const WAY = {
+        ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+        ArrowUp: [0, -1], ArrowDown: [0, 1],
+    };
+
+    /* The leaf a command is about: the one the focus is in, or the one
+       last pressed in, or the first there is. */
+    const current = () =>
+    {
+        const at = document.activeElement;
+        const box = at instanceof Element ? at.closest('.paneleaf') : null;
+
+        return seen.get(box) ?? (focus !== null && boxOf(focus) !== undefined
+                                     ? focus : firstLeaf());
+    };
+
+    /* The leaf that way: of the ones whose middle lies in the direction
+       the arrow points, the nearest. */
+    const toward = (leaf, [dx, dy]) =>
+    {
+        const here = boxOf(leaf)?.getBoundingClientRect();
+
+        if (here === undefined)
+            return null;
+
+        const cx = here.left + here.width / 2;
+        const cy = here.top + here.height / 2;
+        let best = null;
+        let near = Infinity;
+
+        for (const [box, node] of seen)
+        {
+            if (node === leaf)
+                continue;
+
+            const r = box.getBoundingClientRect();
+            const x = r.left + r.width / 2 - cx;
+            const y = r.top + r.height / 2 - cy;
+
+            if (dx !== 0 && (Math.sign(x) !== dx || Math.abs(x) < Math.abs(y)))
+                continue;
+
+            if (dy !== 0 && (Math.sign(y) !== dy || Math.abs(y) < Math.abs(x)))
+                continue;
+
+            if (Math.hypot(x, y) < near)
+            {
+                near = Math.hypot(x, y);
+                best = node;
+            }
+        }
+
+        return best;
+    };
+
+    const raiseTab = (leaf) =>
+        boxOf(leaf)?.querySelector('.panetab[aria-selected="true"]')?.focus();
+
+    const done = (leaf) =>
+    {
+        focus = leaf;
+        save();
+        render();
+        raiseTab(leaf);
+    };
+
+    const command = (e) =>
+    {
+        if (!tiled || !e.altKey || e.ctrlKey || e.metaKey)
+            return;
+
+        if (e.target instanceof Element &&
+            e.target.closest(editable) !== null)
+            return;
+
+        const leaf = current();
+        const ids = liveTabs(leaf);
+        const id = ids[leaf.active];
+        const way = WAY[e.code];
+
+        if (way !== undefined && !e.shiftKey)
+        {
+            const to = toward(leaf, way);
+
+            if (to !== null)
+            {
+                focus = to;
+                raiseTab(to);
+            }
+        }
+        else if (way !== undefined)
+        {
+            /* This pane, that way: into the leaf the arrow points at, or
+               -- where there is none -- off the edge of this one into a
+               half of its own. */
+            const to = toward(leaf, way);
+            const dir = way[0] !== 0 ? 'row' : 'col';
+
+            if (to !== null)
+                into(id, to);
+            else
+                beside(id, leaf, dir, way[0] + way[1] > 0);
+
+            done(leafWith(id) ?? leaf);
+        }
+        else if (e.code === 'Backslash' || e.code === 'Minus')
+        {
+            /* Split: the pane in front moves into a half of its own. A
+               leaf with nothing else in it has nothing to split off, so
+               it opens the first pane in the drawer there instead. */
+            const dir = e.code === 'Backslash' ? 'row' : 'col';
+            const other = [...panes.keys()].find(
+                (n) => playable(n) && !inLayout.has(n));
+
+            if (ids.length > 1)
+                beside(id, leaf, dir, true);
+            else if (other !== undefined)
+                beside(other, leaf, dir, true);
+            else
+                return;
+
+            done(leaf);
+        }
+        else if (e.code === 'Enter' || e.code === 'NumpadEnter')
+        {
+            zoom = zoom === null ? leaf : null;
+            render();
+            raiseTab(zoom ?? leaf);
+        }
+        else if (e.code === 'KeyW')
+        {
+            drawer(id);
+            done(current());
+        }
+        else if (e.code === 'Digit0')
+        {
+            try
+            {
+                localStorage.removeItem(key());
+            }
+            catch
+            {
+                /* Nothing to forget, which is the same as forgetting. */
+            }
+
+            zoom = null;
+            tree = null;
+            focus = null;
+            render();
+        }
+        else
+            return;
+
+        e.preventDefault();
+    };
+
+    window.addEventListener('keydown', command);
 
     const apply = () =>
     {

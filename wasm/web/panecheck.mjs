@@ -378,6 +378,219 @@ try
                       .parentElement.dataset.dir === 'row'),
           'and one dropped on a leaf\'s edge splits it that way');
 
+    /* ---- driving it from the keys ---- */
+
+    /* Every one of them is a chord with Alt in it, because on this page
+       the bare letters are notes: keyboard.js binds Z-/ and Q-P, and a
+       tiler that took W for itself would have taken a note. */
+    const leafOf = (id) => page.evaluate((which) =>
+    {
+        const leaf = document.getElementById(`pane-${which}`)
+                             .closest('.paneleaf');
+
+        return [...document.querySelectorAll('.paneleaf')].indexOf(leaf);
+    }, id);
+
+    await page.click('#panetab-roll');
+
+    const roll = await leafOf('roll');
+
+    await page.keyboard.press('Alt+ArrowUp');
+
+    const moved = await page.evaluate(() =>
+        document.activeElement.id);
+
+    check(moved !== 'panetab-roll' && moved.startsWith('panetab-'),
+          `Alt and an arrow moves the focus to the pane that way: ${moved}`);
+
+    /* And the pane itself, that way: into the leaf the arrow points at. */
+    await page.click('#panetab-roll');
+    await page.keyboard.press('Alt+Shift+ArrowUp');
+
+    check(await leafOf('roll') !== roll,
+          'Alt Shift and an arrow moves the pane rather than the focus');
+
+    /* Zoom, which is what makes tiling bearable on a laptop: one leaf
+       fills the layout and onShow fires for everything that left. */
+    await page.click('#panetab-composerview');
+    await page.waitForFunction(() => window.solo.drawing().composer,
+                               null, { timeout: 30000 });
+    await page.keyboard.press('Alt+Enter');
+    await page.waitForTimeout(200);
+
+    const alone = await page.evaluate(() =>
+        [...document.querySelectorAll('#panes .paneleaf')].length);
+
+    check(alone === 1 &&
+          await page.evaluate(() =>
+              document.getElementById('pane-composerview').checkVisibility()),
+          'Alt Enter fills the layout with one pane and draws no others');
+
+    await page.keyboard.press('Alt+Enter');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              document.querySelectorAll('#panes .paneleaf').length) > 1,
+          'and again puts the rest back');
+
+    /* Closed to the drawer, and the whole thing back to the default. */
+    await page.click('#panetab-roll');
+    await page.keyboard.press('Alt+KeyW');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              [...document.querySelectorAll('.paneclosed')]
+                  .some((b) => b.textContent === 'Piano roll')),
+          'Alt W closes a pane to the drawer');
+
+    await page.keyboard.press('Alt+Digit0');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-roll').checkVisibility()),
+          'and Alt 0 is the layout this page opens on');
+
+    /* A chord typed into a text box is text. The source box is a pane of
+       its own here, and W in it must be a W. */
+    await page.click('#gen');
+    await page.keyboard.press('Alt+KeyW');
+    await page.waitForTimeout(200);
+
+    check(await page.evaluate(() =>
+              document.getElementById('pane-piecesource').checkVisibility()),
+          'and none of them fires while the focus is in a text box');
+
+    /* ---- the popovers ---- */
+
+    /* Beside the box that asked for it and inside the window, which is
+       the part that is new: a popover is placed in page coordinates
+       beside a canvas, and a pane can be narrower than the popover's own
+       maximum width. Off the right edge of a 60em document was rare; off
+       the right edge of a 400-pixel pane is every time.
+     *
+     * And out of the pane it belongs beside, into the layout's overlay:
+     * a pane is a box that scrolls, and a popover inside one is clipped
+     * by it. */
+    await page.selectOption('#piece', 'colony.gen');
+    await page.waitForSelector('#composerstages button', { timeout: 60000 });
+    await page.click('#panetab-composerview').catch(() => {});
+    await page.waitForFunction(() => window.solo.drawing().composer,
+                               null, { timeout: 30000 });
+
+    check(await page.evaluate(() =>
+              document.getElementById('composerparams').parentElement
+                      .className === 'paneoverlay'),
+          'a popover lives over the layout, not in the pane it points at');
+
+    const canvas = await page.$eval('#composer', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+    const handle = await page.evaluate(() => window.solo.handleOf(0, 0));
+
+    if (handle.x < 0)
+        check(false, 'the first stage has no params handle');
+    else
+    {
+        await page.mouse.click(canvas.x + handle.x, canvas.y + handle.y);
+        await page.waitForFunction(
+            () => !document.getElementById('composerparams').hidden,
+            null, { timeout: 15000 });
+
+        const where = await page.evaluate(() =>
+        {
+            const r = document.getElementById('composerparams')
+                              .getBoundingClientRect();
+
+            return { left: r.left, right: r.right, top: r.top,
+                     bottom: r.bottom, w: innerWidth, h: innerHeight };
+        });
+
+        check(where.left >= 0 && where.top >= 0 &&
+              where.right <= where.w && where.bottom <= where.h,
+              'and is inside the window, edge to edge: ' +
+              `${Math.round(where.left)}-${Math.round(where.right)} ` +
+              `of ${where.w}`);
+
+        await page.mouse.click(canvas.x + 4, canvas.y + 4);
+    }
+
+    /* And the clamp with something to clamp: the node canvas is wider
+       than any pane and scrolls, so a port can be put against the right
+       edge of the window and right-clicked there. Beside the pointer
+       would put the menu off the window; it does not go off the window. */
+    await page.selectOption('#mode', 'patch');
+    await page.waitForFunction(() => window.solo.node()?.boxes > 0,
+                               null, { timeout: 60000 });
+    await page.click('#pane-nodeview .panebody');
+    await page.keyboard.press('Alt+Enter');
+    await page.waitForTimeout(300);
+
+    const port = await page.evaluate(() =>
+    {
+        const scroller = document.getElementById('nodescroll');
+        const canvas = document.getElementById('nodecanvas');
+        const node = window.solo.node();
+
+        for (let i = 0; i < node.boxes; i++)
+        {
+            const box = node.box(i);
+            const out = box.ports.find((p) => !p.isInput);
+
+            if (out === undefined)
+                continue;
+
+            /* Scrolled so that this port sits a few pixels in from the
+               right of the view, which here is the right of the window. */
+            const want = out.x - (scroller.clientWidth - 10);
+
+            if (want <= 0 ||
+                want > scroller.scrollWidth - scroller.clientWidth)
+                continue;
+
+            scroller.scrollLeft = want;
+
+            const r = canvas.getBoundingClientRect();
+
+            return { name: box.name, port: out.name,
+                     x: r.x + out.x, y: r.y + out.y, w: innerWidth };
+        }
+
+        return null;
+    });
+
+    if (port === null)
+        check(false, 'no port in the patch can be put against the edge');
+    else
+    {
+        await page.mouse.click(port.x, port.y, { button: 'right' });
+        await page.waitForFunction(
+            () => !document.getElementById('nodemenu').hidden,
+            null, { timeout: 15000 }).catch(() => {});
+
+        const menu = await page.evaluate(() =>
+        {
+            const m = document.getElementById('nodemenu');
+            const r = m.getBoundingClientRect();
+
+            return { up: !m.hidden, left: r.left, right: r.right,
+                     w: innerWidth };
+        });
+
+        check(menu.up && menu.right <= menu.w && menu.left < port.x,
+              `a menu asked for at ${Math.round(port.x)} of ${port.w} -- ` +
+              `${port.name}.${port.port}, against the right of the window ` +
+              `-- is held inside it: ` +
+              `${Math.round(menu.left)}-${Math.round(menu.right)}`);
+
+        await page.keyboard.press('Escape');
+        await page.mouse.click(port.x - 200, port.y);
+    }
+
+    await page.keyboard.press('Alt+Enter');
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

@@ -1399,6 +1399,12 @@ async function init ()
         },
     });
 
+    /* The two popovers, out of the panes and over them. Each is placed
+       beside the box on a canvas that asked for it, in page coordinates,
+       and a pane is a box that scrolls -- so a popover left inside one
+       would be clipped by it the moment it reached the edge. */
+    panes.overlay().append($('composerparams'), $('nodemenu'));
+
     requestAnimationFrame(frame);
 }
 

@@ -46,6 +46,7 @@
  */
 
 import { createCanvasView } from './canvasview.js';
+import { placePopover } from './panes.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
@@ -455,12 +456,12 @@ export async function createNodeView ({ files, root = document,
 
         /* Beside the pointer, in the page's own coordinates: the canvas
            said where in its own pixels, and the element says where it
-           is. */
+           is. Held inside the window by placePopover, since a pane can
+           be narrower than this menu is. */
         const at = $('nodecanvas').getBoundingClientRect();
 
-        menu.style.left = `${at.left + window.scrollX + x}px`;
-        menu.style.top = `${at.top + window.scrollY + y}px`;
-        menu.hidden = false;
+        placePopover(menu, at.left + window.scrollX + x,
+                     at.top + window.scrollY + y);
     }
 
     function stopProbe (which)
