@@ -251,6 +251,10 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf,
+             /* Whether the frame loop is running, which is the whole
+                point of asking a pane whether anybody is looking. */
+             visible: () => view.visible(),
+
              /* What the popover is showing, for a harness to read. */
              params: () => [...$('composerparams').querySelectorAll(
                  '.paramrow')].map((r) => r.textContent) };

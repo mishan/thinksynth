@@ -704,7 +704,28 @@ export async function createNodeView ({ files, root = document,
         paint();
     }
 
-    const show = (name) =>
+    /* Whether the page wants this view at all, which is not the same
+     * question as whether its box is open -- composerview.js has the
+     * same pair and says why.
+     *
+     * With the page tiled the box is always open, because the pane's
+     * header is its disclosure, and what says whether anybody is looking
+     * at it is the layout: a background tab, a collapsed leaf, the mode
+     * that is not up. Read as a yes, that is a graph's worth of drawing
+     * per animation frame for nobody.
+     */
+    let wanted = true;
+
+    const refit = () => view.show(wanted && $('nodeview').open);
+
+    const show = (on) =>
+    {
+        wanted = on;
+        refit();
+    };
+
+    /* Which .dsp this is over. */
+    const showFile = (name) =>
     {
         if (name !== null && name !== file)
         {
@@ -718,20 +739,20 @@ export async function createNodeView ({ files, root = document,
             rebuild();
         }
 
-        view.show($('nodeview').open);
+        refit();
     };
 
     showPalette();
 
     $('nodeadd').addEventListener('click', addNode);
     $('nodefile').addEventListener('change',
-                                   () => show($('nodefile').value));
+                                   () => showFile($('nodefile').value));
     $('nodefit').addEventListener('click', () =>
     {
         M._tw_node_canvas_zoom_to_fit();
         paint();
     });
-    $('nodeview').addEventListener('toggle', () => show(null));
+    $('nodeview').addEventListener('toggle', refit);
 
     /* A menu closes when something else is pressed, which on a canvas is
        most of the time: the next gesture is the answer to it. */
@@ -769,7 +790,7 @@ export async function createNodeView ({ files, root = document,
             return;
 
         select.value = names.includes(was) ? was : select.options[0].value;
-        show(select.value);
+        showFile(select.value);
     };
 
     /* Where a box is, in the shell pixels a pointer arrives in: the zoom
@@ -812,7 +833,11 @@ export async function createNodeView ({ files, root = document,
                  y: M._tw_graph_box_y(i) * zoom };
     };
 
-    return { offer, show, rebuild, boxAt, feed,
+    return { offer, show, showFile, rebuild, boxAt, feed,
+             /* Whether the frame loop is running: a pane nobody is
+                looking at is a graph's worth of drawing for nobody, and
+                this is how a harness holds that claim to it. */
+             visible: () => view.visible(),
              /* Which channel this instrument is on, for arming a tap. */
              onChannel: (c) => { channel = c; },
              boxes: () => M._tw_graph_box_count(),

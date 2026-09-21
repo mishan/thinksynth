@@ -1,0 +1,135 @@
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * panes.css -- the tiled layout, and nothing else.
+ *
+ * Its own file beside style.css, because none of it applies until
+ * panes.js has put `tiled' on the body: everything here is under that
+ * class or inside the layout's own elements, so a page with the tiler off
+ * is styled by style.css alone. That is the same claim panes.js makes
+ * about the markup, made about the stylesheet.
+ *
+ * The tree is nested flex boxes. A split is a box with a direction, its
+ * children carry a fraction as `flex-grow' and a minimum as `min-width',
+ * and the browser does the arithmetic -- there is no measuring here.
+ */
+
+/* Empty until there is a layout, and nothing in the document should know
+   it is there. */
+#panes:empty { display: none; }
+
+/*
+ * The page, tiled: the chrome across the top at whatever height it wants,
+ * and the layout taking the rest of the window.
+ *
+ * `100dvh' rather than `100vh' because a mobile browser's toolbars come
+ * and go, and a layout that is a toolbar taller than the window has its
+ * bottom row under one. Nothing tiles on a phone, but a narrow laptop
+ * window crossing the threshold is the same arithmetic.
+ */
+body.tiled
+{
+    max-width: none;
+    margin: 0;
+    padding: 0.6em 0.8em;
+    height: 100dvh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
+body.tiled #status { margin: 0.2em 0; }
+body.tiled .row { margin: 0.4em 0; }
+
+/* One column, in the document's order: what lands first is the adoption
+   and the contract, not the tiling. It scrolls, because a column of ten
+   panes sharing a window's height is ten slivers. */
+body.tiled #panes
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    overflow: auto;
+}
+
+.panes > .pane { flex: 0 0 auto; }
+
+/* ---- a pane ---- */
+
+.pane
+{
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+/* A pane whose element the page has hidden -- the mode it belongs to is
+   not up -- is not a gap in the layout. Said in CSS rather than in
+   panes.js so that `hidden' on the element is the whole of the answer,
+   whoever set it. */
+.pane:has(> .panebody > [hidden]) { display: none; }
+
+.panehead
+{
+    flex: 0 0 auto;
+    padding: 0.25em 0.6em;
+    font-size: 0.85em;
+    color: var(--dim);
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.panebody
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 0.6em 0.6em;
+}
+
+/*
+ * Over every pane: where a popover goes, now that the pane it belongs
+ * beside is a box that scrolls and would clip it.
+ *
+ * Absolute at the document's origin and of no size, so an absolutely
+ * positioned child of it resolves against the same containing block the
+ * body gave it -- which is what lets composerview.js and nodeview.js
+ * place these in page coordinates exactly as they did.
+ */
+.paneoverlay
+{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+}

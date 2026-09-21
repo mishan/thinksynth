@@ -556,6 +556,16 @@ jobs:
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
 
+      # And the page tiled: every pane adopted into a layout and every one
+      # of them put back where it was when the window narrows, which is
+      # the claim that lets the harness above go on running against the
+      # document it was written for. Then the frame loop, which is what a
+      # tiler is worth on a page with two wasm canvases in it: a pane
+      # nobody is looking at asks the mirror for nothing.
+      - name: The page, tiled
+        working-directory: wasm/web
+        run: node panecheck.mjs ../../build-web
+
   # Two peers agreeing on one piece: the mirror, the protocol, the relay,
   # and two real browsers in one room.
   wasm-jam:

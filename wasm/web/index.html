@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>thinksynth</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="panes.css">
 </head>
 <body>
 <h1>thinksynth</h1>
@@ -29,7 +30,12 @@
 </section>
 
 <!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
-     keyboard still plays, into whatever chains asked for `input midi'. -->
+     keyboard still plays, into whatever chains asked for `input midi'.
+
+     What is left in this section is the chrome -- the piece to play and
+     the transport, which every layout keeps. What it used to wrap are
+     panes now, below, each hidden by its own `hidden' in the other mode
+     rather than by this section going away. -->
 <section id="piecemode" hidden>
   <div class="row">
     <label>Piece <select id="piece"></select></label>
@@ -41,52 +47,61 @@
   </div>
 
   <p id="about"></p>
+</section>
 
-  <canvas id="roll" width="1200" height="360"></canvas>
+<!-- Where the tiler puts the panes below, when there is a tiler. Empty
+     and invisible otherwise, and the page is the document it has always
+     been: panes.js adopts what is marked `data-pane' and puts every one
+     of them back where it was when the layout goes away. -->
+<div id="panes" class="panes"></div>
 
-  <!-- The piece's picture: one row per chain, its stages with each
-       composer's own drawing inside its box, the sinks in their channel's
-       colour. It is the desktop's composer canvas, compiled to wasm and
-       drawn by a second scheduler in a worker that is fed the same
-       messages the worklet is fed. Double- click a stage whose picture is
-       a control -- a Life board, a CA's present row -- to enlarge it,
-       then paint on it; Escape puts it back. What a gesture reaches is
-       not the picture in front of you but a command, applied at its time
-       in the piece here and on every peer, which is why what you painted
-       appears a moment later. -->
-  <details id="composerview" open>
-    <summary>The piece</summary>
-    <div id="composerscroll" class="canvasview">
-      <canvas id="composer" tabindex="0"></canvas>
-    </div>
+<canvas id="roll" width="1200" height="360" hidden
+        data-pane data-pane-title="Piano roll" data-pane-min="320"></canvas>
 
-    <!-- Which stages can be painted on, and what is being painted on
-         now. The canvas enlarges a stage on a double-click and puts it
-         back on Escape; these are the same two things for a finger, and
-         they are what says a picture is a control at all. -->
-    <div class="row" id="composerstages"></div>
-    <p id="composerstatus" class="hint"></p>
-  </details>
+<!-- The piece's picture: one row per chain, its stages with each
+     composer's own drawing inside its box, the sinks in their channel's
+     colour. It is the desktop's composer canvas, compiled to wasm and
+     drawn by a second scheduler in a worker that is fed the same
+     messages the worklet is fed. Double- click a stage whose picture is
+     a control -- a Life board, a CA's present row -- to enlarge it,
+     then paint on it; Escape puts it back. What a gesture reaches is
+     not the picture in front of you but a command, applied at its time
+     in the piece here and on every peer, which is why what you painted
+     appears a moment later. -->
+<details id="composerview" open hidden
+         data-pane data-pane-min="360">
+  <summary>The piece</summary>
+  <div id="composerscroll" class="canvasview">
+    <canvas id="composer" tabindex="0"></canvas>
+  </div>
 
-  <!-- What a stage's params handle asks for: what that stage is playing,
-       beside the box that is playing it. Read-only -- the canvas
-       reports and the document writes. -->
-  <div id="composerparams" class="popover" hidden></div>
+  <!-- Which stages can be painted on, and what is being painted on
+       now. The canvas enlarges a stage on a double-click and puts it
+       back on Escape; these are the same two things for a finger, and
+       they are what says a picture is a control at all. -->
+  <div class="row" id="composerstages"></div>
+  <p id="composerstatus" class="hint"></p>
+</details>
 
-  <div id="knobs"></div>
+<div id="knobs" hidden
+     data-pane data-pane-title="The piece's knobs" data-pane-min="240"></div>
 
-  <!-- What each channel this piece touches sounds like: its own
-       instruments, the channels its sinks name and left to the reader, the
-       channels it takes `input midi' on, and wherever the keys are aimed.
-       A channel the piece named and put nothing on is filled from the
-       defaults the desktop's first run uses, so the piece sounds the same
-       here in any order of clicks; one the piece aimed itself says so and
-       has nothing to choose.
+<!-- What each channel this piece touches sounds like: its own
+     instruments, the channels its sinks name and left to the reader, the
+     channels it takes `input midi' on, and wherever the keys are aimed.
+     A channel the piece named and put nothing on is filled from the
+     defaults the desktop's first run uses, so the piece sounds the same
+     here in any order of clicks; one the piece aimed itself says so and
+     has nothing to choose.
 
-       Channel numbers here are the file's, 1-16, since that is what a
-       person reading the piece's comment will be looking for; the engine
-       counts them one lower and nothing outside it needs to know. The
-       keys' selector counts the same way, for the same reason. -->
+     Channel numbers here are the file's, 1-16, since that is what a
+     person reading the piece's comment will be looking for; the engine
+     counts them one lower and nothing outside it needs to know. The
+     keys' selector counts the same way, for the same reason. It is in
+     this box rather than beside the keys because where the keys are
+     aimed is a line in this list. -->
+<section id="channelbox" hidden
+         data-pane data-pane-title="Channels" data-pane-min="260">
   <div class="row">
     <label>Keys into channel <select id="keychan"></select></label>
   </div>
@@ -103,7 +118,8 @@
      slider or a list of named values, which group it belongs to -- is the
      module's answer and not this page's (src/PanelModel.h). The desktop
      draws the same answer with gtkmm; panel.js draws it here. -->
-<details id="paramview" open>
+<details id="paramview" open
+         data-pane data-pane-min="280">
   <summary>The instrument's parameters</summary>
   <div class="row">
     <label>Channel <select id="paramchan"></select></label>
@@ -119,7 +135,8 @@
      mode it edits one of the piece's instruments, which the next Load
      plays. Right-click a node's output to watch it with a meter or a
      scope. -->
-<details id="nodeview">
+<details id="nodeview"
+         data-pane data-pane-title="The graph" data-pane-min="400">
   <summary>The instrument, as a graph</summary>
   <div class="row">
     <label>File <select id="nodefile"></select></label>
@@ -134,11 +151,10 @@
   <div id="nodeparams" class="params"></div>
 </details>
 
-<div id="nodemenu" class="popover" hidden></div>
-
 <!-- The instrument, in both modes. Drawn to fit whatever width there is;
      main.js says how many octaves that comes to. -->
-<section id="keyboard">
+<section id="keyboard"
+         data-pane data-pane-title="Keys" data-pane-min="280">
   <div class="row">
     <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
     <span id="range"></span>
@@ -153,23 +169,33 @@
   </p>
 </section>
 
-<details id="patchsource">
+<details id="patchsource"
+         data-pane data-pane-min="320">
   <summary>Patch source (.dsp)</summary>
   <textarea id="dsp" spellcheck="false" autocomplete="off"
             autocapitalize="off" autocorrect="off"></textarea>
 </details>
 
-<details id="piecesource" hidden>
+<details id="piecesource" hidden
+         data-pane data-pane-min="320">
   <summary>Piece source (.gen)</summary>
   <textarea id="gen" spellcheck="false" autocomplete="off"
             autocapitalize="off" autocorrect="off"></textarea>
 </details>
 
-<details id="detail">
+<details id="detail"
+         data-pane data-pane-min="240">
   <summary>What the browser reports</summary>
   <pre id="latency"></pre>
   <pre id="log"></pre>
 </details>
+
+<!-- What a stage's params handle asks for, and what a right-click on a
+     port offers: placed in page coordinates beside whatever asked for
+     them, so where they sit in the document says nothing -- except that
+     being after every pane is what keeps them over one. -->
+<div id="composerparams" class="popover" hidden></div>
+<div id="nodemenu" class="popover" hidden></div>
 
 <script type="module" src="main.js"></script>
 </body>
