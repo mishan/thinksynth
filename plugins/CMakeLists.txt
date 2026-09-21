@@ -16,9 +16,12 @@
 #     that was removed from the parser years ago.
 #   - misc/wlan is in the directory but has never been built: it needs libiw.
 #
-# Eleven of the 92 shipped DSPs reference those plugins and are expected to
-# fail to parse. A glob would silently start building them and change what
-# the corpus does.
+# Two DSPs reference those plugins and are expected to fail to parse --
+# dsp/old/wav.dsp and dsp/old/wlantest.dsp. There were eleven until the
+# dsp/effects/ drawer went; the nine graphs in it read input/wav and
+# input/alsa because they predated an effect being able to hear a channel,
+# and dsp/fx/ is where that work lives now. A glob would silently start
+# building these and change what the corpus does.
 
 include(ThinkPlugin)
 

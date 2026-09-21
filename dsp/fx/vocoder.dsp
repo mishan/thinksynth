@@ -6,9 +6,10 @@
 # consonants -- and the CARRIER, which supplies the actual sound and has
 # to be something with a continuous spectrum: a supersaw, `strings', a
 # held chord. Neither is any use without the other, and until `side'
-# there was nowhere to put the second one. The three vocoder graphs
-# under dsp/effects/ are dead for exactly this reason -- they read
-# `input::wav' and `input::alsa', because there was no channel to name.
+# there was nowhere to put the second one. Three vocoder graphs written
+# before it read `input::wav' and a fourth `input::alsa', because there
+# was no channel to name; all four are gone and this is what replaced
+# them.
 #
 # This effect goes on the MODULATOR's channel, and the piece names the
 # carrier:
