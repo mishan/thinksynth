@@ -46,14 +46,19 @@ audio out. Which arg goes to which half is
 display preference: before it was worked out, 1000 of the 1347 ports on the
 audio-out box were phantoms.
 
-**Three files have genuine feedback**: `noargs/dfb`, `noargs/smoothie` and
-`old/randompw`. Real audio feedback loops, entirely legitimate. Layered layout
-handles them the usual way — pick a feedback arc set, reverse those edges for
-layering, draw them as back-edges. Two more used to be counted here —
-`effects/reverb01` and `effects/whistlesynth01` — and both are gone: the first
-had a cycle the effect format now refuses outright, and the second's was a
-`fm = osc1->out` that `osc::fmop` has an arg for. `fx/resynth.dsp` is what
-replaced it.
+**One file has genuine feedback**: `scripts/guard/feedback.dsp`. Layered
+layout handles a cycle the usual way — pick a feedback arc set, reverse those
+edges for layering, draw them as back-edges — and this is the only graph left
+to run that on, which is why it is kept.
+
+There were five. `effects/reverb01` had a cycle the effect format now refuses
+outright and `effects/whistlesynth01` wrote `fm = osc1->out`, which
+`osc::fmop` has an arg for; `fx/resynth.dsp` replaced the second.
+`noargs/smoothie` and `old/randompw` became `dsp/waveguide.dsp` and
+`dsp/sandh.dsp`, both rebuilt so that the loop sits inside a plugin instead of
+around the graph. `noargs/dfb` could not be — an oscillator FM'd by a delay
+line fed from itself is the cycle — so it moved to `scripts/guard/` as the
+specimen rather than being deleted.
 
 **`ARG_STATE` args never appear.** 69 args are internal plugin state and no
 shipped `.dsp` references one. Wiring a delay line's internal buffer invites
@@ -372,10 +377,16 @@ dsp/ts1.dsp       11 layers  cuts: 4 6 7 7 6 7 5 4 3 3
 dsp/old/bd9.dsp   17 layers  cuts: 44 42 38 35 33 29 25 23 18 16 12 11 9 7 5 3
 ```
 
-`bd9.dsp` is the widest graph in the corpus and therefore the one that most needs
-wrapping — and splitting it in half costs 23 long return wires. These patches are
-not chains; they are broad fans, dozens of parallel paths from the input to the
-mixer. Wrapping trades a scrollbar for a tangle.
+`bd9.dsp` was the widest graph in the corpus and therefore the one that most
+needed wrapping — and splitting it in half costs 23 long return wires. These
+patches are not chains; they are broad fans, dozens of parallel paths from the
+input to the mixer. Wrapping trades a scrollbar for a tangle.
+
+The profile above is kept as the measurement that settled it. `bd9.dsp` was one
+of the 2003-04 drawers and has gone; the widest graph now is
+`dsp/fx/vocoder.dsp` at 80 boxes and 160 wires, which is a broader fan still —
+sixteen parallel bands — so the argument is if anything stronger than when it
+was made.
 
 The code stays, defaulted off, and `dspgraph -w 1500` runs every layout invariant
 against it so it is not untested code pretending otherwise. If a patch ever turns

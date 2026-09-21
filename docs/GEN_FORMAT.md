@@ -779,8 +779,9 @@ stage, a new chain) contains:
   `4 beats` and reads back `4.000000 s` at tempo 60 has been lied to, even
   though the piece sounds identical.
 - Write every param the plugin registers, including ones still at their
-  defaults. A `.gen` should survive a plugin's defaults changing — this is
-  the lesson of `noargs/`.
+  defaults. A `.gen` should survive a plugin's defaults changing — which is
+  the lesson of the `noargs/` drawer, whose files leaned on defaults and
+  drifted out of tune with the plugins underneath them over twenty years.
 - Knob bindings round-trip as `@name`, never as the knob's current value.
 - A preset reference round-trips as the preset's bare name. There is no
   literal form to fall back on, so a writer that could not name it would have

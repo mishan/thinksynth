@@ -488,30 +488,18 @@ endif()
 # looks a wav up under samples/ on the same path a .dsp is looked up on,
 # and on an installed copy that path is this directory.
 #
-# The EXCLUDEs are the drawers, and what they leave behind is what the
-# web build has always copied: dsp/*.dsp and dsp/fx/. They are 68 of the
-# 140 .dsp in the tree and none of them is an instrument anybody should
-# be offered --
+# There is nothing to exclude any more. This rule used to skip three
+# drawers -- effects/, old/ and noargs/, 77 files of 2003-04 sketchbook
+# that shipped to every user because FILES_MATCHING recurses. They are
+# gone: two of them became effect graphs in fx/, five became instruments
+# at the top of this directory, and two that are not instruments at all
+# moved to scripts/guard/ beside the harnesses that cite them. What is
+# left is what an installed copy should offer, which is why the rule is
+# one line again.
 #
-#   - two cannot load at all. They name input::wav or misc::wlan, which
-#     compile and are deliberately not built (see
-#     plugins/CMakeLists.txt). An installed chooser listed them anyway.
-#   - three basenames are ambiguous across the tree -- bd10.dsp,
-#     rpiano1.dsp and supersaw.dsp each name two different graphs, one in
-#     a drawer and one at the top -- and thUtil::findDataFile resolves a
-#     bare name against a list of directories. Installing both halves of
-#     a collision is how it becomes a bug report.
-#   - the rest are a 2003-04 sketchbook. Seventeen never tell the engine
-#     the note ended, so a voice sounds until `poly' steals it.
-#
-# They stay in the tree, and the corpus gates still sweep them:
-# cmake/RunHarness.cmake globs recursively, so dspcheck and dsplevel
-# cover a drawer exactly as they did. What changes is only what an
-# installed copy offers.
+# The check below is what keeps it that way.
 install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
-        FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav"
-        PATTERN "noargs"  EXCLUDE
-        PATTERN "old"     EXCLUDE)
+        FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav")
 
 # And then check the install did what it was told.
 #
@@ -523,12 +511,11 @@ install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
 #      a piece writes `effect "fx/echo.dsp"' with the subdirectory in
 #      the name. A DSP installed any deeper is one nothing can open.
 #
-#   no two share a basename.  dsp/bd10.dsp and dsp/old/bd10.dsp are
-#      different graphs, and so are the two rpiano1 and the two
-#      supersaw. While all three drawers installed, which one a bare
-#      name reached was down to the order findDataFile happens to
-#      search. A collision inside what ships is the same bug with
-#      nowhere left to hide.
+#   no two share a basename.  There were three collisions while the
+#      drawers installed -- bd10.dsp, rpiano1.dsp and supersaw.dsp each
+#      named two different graphs -- and which one a bare name reached
+#      was down to the order findDataFile happens to search. None is
+#      left, and this is what keeps it that way.
 #
 # A new drawer trips the first of these and an ordinary name clash the
 # second, so neither check has a list in it that can go stale.

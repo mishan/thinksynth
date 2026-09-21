@@ -111,7 +111,7 @@ peak, advancing a scroll — the display flickers. Put that in `feed()`.
 
 **4. Handle what the corpus actually produces.** Silence, DC, a single sample,
 denormals, ±inf, NaN, and values around 1e5 — four shipped DSPs have diverging
-filters, and `mixer.out` on `dsp/noargs/bd1.dsp` reaches −inf within seven
+filters, and `mixer.out` on `scripts/guard/divergent.dsp` reaches −inf within seven
 windows. The NaN case is the one that bites: every comparison against a NaN is
 false, so peak tracking written the obvious way silently ignores it and the
 display reads a confident zero for a signal that has blown up. All four shipped
@@ -246,15 +246,19 @@ measures.
 **Why does the canvas just redraw?** Because it was measured before it was
 designed. GTK4's `queue_draw()` invalidates the whole widget, so animating a
 128×64 panel repaints the entire graph. The widest graph in the corpus —
-`dsp/old/bd9.dsp`, 2920 px — repaints in **0.80 ms**, under 3% of a 30fps
-budget, zoomed to fit so the whole thing rasterises. Sixteen spectrogram
-panels on `ts1.dsp` — twice the number of probes the engine allows — bring it
-to **1.15 ms**. Both are mean frames; the worst single frame in the panelled
-run is around 2.4 ms, but that number moves by ±0.2 ms between runs and is not
-one to quote. `scripts/canvasbench` is that measurement, and it can be re-run:
+`dsp/fx/vocoder.dsp`, 80 boxes over 2605×3356 px — repaints in **3.26 ms**,
+about a tenth of a 30fps budget, zoomed to fit so the whole thing rasterises.
+Sixteen spectrogram panels on `ts1.dsp` — twice the number of probes the
+engine allows — come to **2.78 ms**. Both are mean frames.
+`scripts/canvasbench` is that measurement, and it can be re-run:
 
-    xvfb-run -a ./scripts/canvasbench -p ./plugins/ -f dsp/old/bd9.dsp
+    xvfb-run -a ./scripts/canvasbench -p ./plugins/ -f dsp/fx/vocoder.dsp
     xvfb-run -a ./scripts/canvasbench -p ./plugins/ -f -P -V spectrogram dsp/ts1.dsp
+
+The first of those used to name `dsp/old/bd9.dsp`, 2920 px and 0.80 ms. That
+file was one of the 2003-04 drawers and has gone; the vocoder is both wider
+and denser -- sixteen parallel bands, 160 wires -- so the figure is four times
+what it was and still leaves nine tenths of the frame.
 
 **Why cairo, rather than a pixel buffer or a fixed data model?** Both avoid the
 dependency, and both mean a module cannot produce a look the canvas did not

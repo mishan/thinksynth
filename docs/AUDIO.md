@@ -63,7 +63,8 @@ then scales almost exactly linearly with voice count (0.78 × N), meaning voices
 sum coherently, which they would since every envelope peaks together on the
 attack — so the overshoot is an attack transient, not a sustained level problem.
 And four DSPs do not have a gain problem at all; their filters diverge
-(`old/test.dsp` reaches 1.75e5, `old/bd10.dsp` 2e4).
+(`old/test.dsp` reaches 1.75e5, `old/bd10.dsp` 2e4 — both from the drawers
+this corpus still had, and both since removed).
 
 `thSoftLimit()` in `think.h` is a memoryless waveshaper on the master output:
 
@@ -185,7 +186,11 @@ channels at once, with the good channel keeping its peak.
 
 Measured against the same corpus with the filters as they were: **205 of the
 3840 cases went non-finite, across 24 of the 82 graphs the gate covers** — the
-corpus less the eleven that reference a plugin the build does not make. Six of
+corpus less the eleven that reference a plugin the build does not make. (That
+corpus included the `effects/`, `old/` and `noargs/` drawers, which have since
+been removed; the graphs named below and in the paragraph after it are from
+them. The numbers are what they were when the fix was made, and are left
+alone for that reason.) Six of
 them (`noargs/bd1`, `noargs/bd2`, `noargs/hat1`, `old/acid00`, `old/analog02`,
 `old/bd9`) did it at their shipped settings, which is to say they had never made
 a sound. Now none do.

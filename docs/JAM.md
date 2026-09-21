@@ -72,13 +72,14 @@ On the `jam-m1` branch, which starts where `wasm-parity` ends:
   window it falls in. A note then sounds from the *next* window -- the
   engine's onset, the desktop's too -- so a key costs one to two windows on
   top of the output latency: 5–11 ms at 256 and 48 kHz.
-- `scripts/dspab -B 256` over the corpus: 78 of the 81 DSPs that load
-  render the same at 256 as at 1024. The three that do not --
-  `noargs/dfb`, `noargs/smoothie`, `old/randompw` -- are exactly the three
-  loadable DSPs whose graph has a cycle. The engine breaks a cycle by
-  letting one node read the previous window, so the loop's delay *is* the
-  window: 23 ms at 1024, 5.3 ms at 256. Understood, and no plugin read the
-  window length as a constant.
+- `scripts/dspab -B 256` over the corpus: every shipped DSP renders the
+  same at 256 as at 1024. Three did not, and all three had a cycle in the
+  graph -- the engine breaks one by letting a node read the previous
+  window, so the loop's delay *is* the window: 23 ms at 1024, 5.3 ms at
+  256. Two of them were rebuilt with the loop inside a plugin
+  (`dsp/waveguide.dsp`, `dsp/sandh.dsp`) and the third kept as
+  `scripts/guard/feedback.dsp`, which is where the claim is checked now.
+  Understood, and no plugin read the window length as a constant.
 - `wasm/web/check.mjs` plays every shipped patch through the module from
   Node. `wasm/web/browsertest.mjs` renders a phrase through the worklet in
   headless Chromium and Firefox and matches the module run directly,
