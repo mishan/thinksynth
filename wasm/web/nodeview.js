@@ -47,7 +47,7 @@
 
 import { createCanvasView } from './canvasview.js';
 import { placePopover } from './popover.js';
-import { CHOICE, showPanel } from './panel.js';
+import { CHOICE, numberIn, showPanel } from './panel.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
@@ -648,11 +648,19 @@ export async function createNodeView ({ files, root = document,
         showPanel(box, panel, (name, text) =>
         {
             const row = panel.rows.find((r) => r.id === name);
+
+            /* Not Number(text): Number('') is 0 and Number(' ') is 0, so an
+               emptied box spliced `arg = 0' into the .dsp and broadcast it
+               to the room. A splice is the one delivery with no propose()
+               behind it -- tw_panel_edit refuses a NODE_VALUE row, because
+               what the intent becomes is a rewrite of the file rather than a
+               write to an arg -- so this is the only place the text is
+               looked at at all. */
             const value = row?.kind === CHOICE
                 ? row.choices.find((c) => c.name === text)?.value
-                : Number(text);
+                : numberIn(text);
 
-            if (value === undefined || Number.isNaN(value))
+            if (value === undefined || value === null || Number.isNaN(value))
                 return;
 
             edit('tw_edit_set_value',

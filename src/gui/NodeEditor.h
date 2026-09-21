@@ -459,6 +459,14 @@ private:
     Gtk::Paned split_{Gtk::Orientation::HORIZONTAL};  /* canvas  | parameters */
     Gtk::ScrolledWindow scroller_;
     NodeCanvasWidget canvas_;
+
+    /* The parameter panel scrolls, and the pane holds the scroller rather
+       than the panel: a node with fifteen parameters in a one-column pane is
+       taller than a short window, and what is past the bottom is otherwise
+       unreachable. NodeParams carried its own; PanelView is a plain box and
+       draws what it is given, so the scrolling belongs to whoever puts it on
+       a screen. */
+    Gtk::ScrolledWindow paramScroll_;
     NodeParamsView params_;
     NodePalette palette_;
     Gtk::Label status_;

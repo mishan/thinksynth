@@ -514,6 +514,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_graph_box_name (int b)
     return box != NULL ? box->name.c_str() : "";
 }
 
+/* What kind of box it is, which is what nodeview.js and the harnesses still
+   switch on: 0 a node, 1 a control, 2 the io node's source half, 3 its sink
+   half, 4 a probe panel. */
 EMSCRIPTEN_KEEPALIVE int tw_graph_box_kind (int b)
 {
     const NodeGraph::Box *box = boxAt(b);

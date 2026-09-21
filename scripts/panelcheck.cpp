@@ -760,6 +760,22 @@ static void checkNodes (const string &pluginPath, const string &file)
     check(!r.ok, "an edit naming an arg the node has not got is refused",
           r.why);
 
+    /* An emptied value box. What a node's intent becomes is a splice into
+       the .dsp, so a blank taken for a good 0 is `mul = 0' written into the
+       file -- and on the room page, broadcast to everyone who has it
+       open. */
+    r = panel.propose("mul", "", edit);
+
+    check(!r.ok, "an empty box is not a node value of zero", r.why);
+
+    r = panel.propose("mul", "   ", edit);
+
+    check(!r.ok, "and neither is one holding blanks", r.why);
+
+    r = panel.propose("mul", "2.5k", edit);
+
+    check(!r.ok, "nor a number with something after it", r.why);
+
     /* Which boxes have anything to set, asked once. The page's node view
        and the harnesses that click on one both want this, and three
        answers to it is two too many. */

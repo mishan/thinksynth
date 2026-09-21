@@ -327,15 +327,10 @@ thPanelResult NodePanel::propose (const string &row, const string &valueText,
     }
     else
     {
-        const char *s = valueText.c_str();
-        char *end = NULL;
-
-        want = strtod(s, &end);
-
-        while (*end == ' ' || *end == '\t')
-            end++;
-
-        if (end == s || *end != '\0' || !std::isfinite(want))
+        /* The model's, not a copy: this one asked whether a digit had been
+           read only after skipping the trailing blanks, which takes "   "
+           for a good 0 and splices it into the .dsp. */
+        if (!thPanelNumberIn(valueText, want))
             return thPanelResult::refuse(valueText + " is not a number");
     }
 
