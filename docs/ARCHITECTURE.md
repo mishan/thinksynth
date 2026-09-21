@@ -15,8 +15,12 @@ see [DSP_FORMAT.md](DSP_FORMAT.md); for the output stage and gain staging see
 | App / IO | `src/` | `main.cpp`, RtAudio + RtMidi, patch file and prefs IO, the node-editor model. |
 | GUI | `src/gui/` | gtkmm-4: main window, keyboard, arg sliders, patch selector, MIDI map, node canvas. |
 
-Data lives in `dsp/*.dsp` (92 files, including the `old/` and `noargs/` legacy
-directories) and `patches/**/*.patch` (101 presets).
+Data lives in `dsp/` (147 `.dsp`) and `patches/**/*.patch` (101 presets). An
+install ships 70 of the DSPs — `dsp/*.dsp` and the effect graphs in `dsp/fx/`
+— plus the 22 wavs under `dsp/samples/`. The other 77 are the `effects/`,
+`old/` and `noargs/` drawers: a 2003-04 sketchbook that stays in the tree for
+the corpus gates, which sweep it recursively, and is not offered to anybody
+who installs. The top-level CMakeLists.txt says why at the install rule.
 
 `plugins/visual/` is a different kind of plugin — see
 [VISUALIZERS.md](VISUALIZERS.md). It links cairo and not libthink, and has no

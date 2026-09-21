@@ -363,10 +363,11 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
     DEPENDS "${CAIRO2D}/replay.js")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
 
-# The shipped DSPs -- dsp/*.dsp, not the noargs/ and old/ drawers -- and the
-# list the page's menu is filled from. Patch mode plays one of these
-# directly; a piece's instruments and a .patch's `dsp' line are both looked
-# up among them.
+# The shipped DSPs -- dsp/*.dsp, not the effects/, noargs/ or old/ drawers,
+# which the desktop install now leaves out as well -- and the list the
+# page's menu is filled from. Patch mode plays one of these directly; a
+# piece's instruments and a .patch's `dsp' line are both looked up among
+# them.
 file(GLOB SHIPPED_DSP "${THINK_TOP}/dsp/*.dsp")
 list(SORT SHIPPED_DSP)
 
@@ -471,7 +472,9 @@ file(GLOB_RECURSE SHIPPED_PATCH RELATIVE "${THINK_TOP}/patches"
 # in the page's menus as a bare "test" above the drawers is the same kind of
 # noise dsp/'s noargs/ and old/ drawers would be. The drawer is the content
 # here, so the top level is what gets dropped rather than what gets kept.
-# The desktop still installs the whole tree; nothing here changes that.
+# Patches and DSPs are opposite that way: the desktop install now drops the
+# same three DSP drawers this glob never copied (see the top-level
+# CMakeLists.txt), and still ships every patch.
 list(FILTER SHIPPED_PATCH EXCLUDE REGEX "^[^/]+$")
 list(SORT SHIPPED_PATCH)
 
