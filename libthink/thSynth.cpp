@@ -1891,6 +1891,9 @@ void thSynth::process (void)
                 continue;
             }
 
+            /* The first mixchannels of the channel's output, which is
+               interleaved notechannels wide -- wider than the mix when the
+               instrument has more outputs than the synth. */
             int bufferoffset = 0;
             int inneroffset, chanoffset;
 
@@ -1902,7 +1905,7 @@ void thSynth::process (void)
                 {
                     output_[inneroffset] += chanoutput[chanoffset];
                     inneroffset++;
-                    chanoffset += mixchannels;
+                    chanoffset += notechannels;
                 }
 
                 bufferoffset += windowlen_;
