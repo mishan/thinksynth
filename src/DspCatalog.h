@@ -163,8 +163,9 @@ public:
     static bool matches (const Entry &e, bool effects, const string &needle);
 
     /* What Uncategorized is called, in one place, since the menus, the
-       harness and the fallback all have to agree on the spelling. */
-    static const char *const UNCATEGORIZED;
+       harnesses and both catalogs' fallbacks have to agree on the spelling.
+       GenCatalog says it too, and says it by reading this. */
+    static constexpr const char *UNCATEGORIZED = "Uncategorized";
 
     /* The header of one .dsp, read. Public because the node editor and the
        harnesses want the same reading of a buffer they already hold, without

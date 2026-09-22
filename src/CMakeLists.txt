@@ -116,6 +116,17 @@ target_include_directories(think_dspcatalog PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(think_dspcatalog PUBLIC think)
 
+# And the same for what a .gen says (src/GenCatalog.h). Not a member of the
+# one above, because it reads its headers through thcGenEdit -- the .gen
+# reader, which is the composer host's -- where the DSP side runs the lexer
+# itself. So this one links think_composerhost's dependencies and that one
+# links nothing beyond libthink, which is what keeps the cheap half cheap.
+add_library(think_gencatalog OBJECT GenCatalog.cpp)
+target_include_directories(think_gencatalog PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_gencatalog PUBLIC think PkgConfig::GLIBMM)
+
 add_library(think_canvas OBJECT CanvasContent.cpp)
 target_include_directories(think_canvas PUBLIC
     "${PROJECT_SOURCE_DIR}"
@@ -154,7 +165,7 @@ set(THINKSYNTH_SOURCES
     gui/ArgPanelView.cpp
     gui/ColumnUtil.cpp
     gui/Dialogs.cpp
-    gui/DspBrowser.cpp
+    gui/ItemBrowser.cpp
     gui/Keyboard.cpp
     gui/KeyboardWindow.cpp
     gui/MainSynthWindow.cpp
@@ -249,6 +260,7 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_panel>
     $<TARGET_OBJECTS:think_patch>
     $<TARGET_OBJECTS:think_dspcatalog>
+    $<TARGET_OBJECTS:think_gencatalog>
     $<TARGET_OBJECTS:think_canvas>
     $<TARGET_OBJECTS:think_nodecanvas>
     $<TARGET_OBJECTS:think_composercanvas>)

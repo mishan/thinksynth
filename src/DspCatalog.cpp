@@ -36,8 +36,6 @@
 
 namespace fs = std::filesystem;
 
-const char *const DspCatalog::UNCATEGORIZED = "Uncategorized";
-
 DspCatalog::DspCatalog (void)
 {
 }

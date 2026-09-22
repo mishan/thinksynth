@@ -27,6 +27,7 @@
 #include <errno.h>
 
 #include <filesystem>
+#include <memory>
 #include <system_error>
 #include <signal.h>
 
@@ -46,7 +47,8 @@
 #include "MidiMap.h"
 #include "ArgPanelView.h"
 #include "NodeEditor.h"
-#include "DspBrowser.h"
+#include "../DspCatalog.h"
+#include "ItemBrowser.h"
 #include "Dialogs.h"
 #include "SaveButton.h"
 
@@ -935,18 +937,7 @@ void MainSynthWindow::reloadPages (int chan)
  * which is the distinction being made where the choice is made. */
 void MainSynthWindow::onEffectBrowse (int chan)
 {
-    gthPatchManager::PatchFile *patch =
-        gthPatchManager::instance()->getPatch(chan);
-
-    DspBrowser *browser =
-        new DspBrowser(*this, DspBrowser::EFFECTS, dspDir_,
-                       patch ? patch->doc.effect : string());
-
-    browser->signal_chosen().connect(
-        sigc::bind(sigc::mem_fun(*this,
-                                 &MainSynthWindow::onEffectChosen), chan));
-
-    browser->present();
+    openDspBrowser(true, chan);
 }
 
 void MainSynthWindow::onEffectChosen (string picked, int chan)
@@ -1617,25 +1608,110 @@ void MainSynthWindow::onDspEntryActivate (void)
  * no descriptions -- and the titles and descriptions have been written into
  * every one of those files for years. See src/gui/DspBrowser.h.
  */
+/* The rows a graph chooser shows, given what is in its filter box.
+ *
+ * The rule is DspCatalog's -- an effect is not offered in the instrument
+ * dialog or the other way round, and the filter reads the title, the
+ * description and the filename -- so that what a chooser offers can be held
+ * still by a harness with no display (scripts/dspcatalog). This turns that
+ * answer into rows. */
+static vector<BrowserGroup> dspRows (DspCatalog *catalog, bool effects,
+                                     const std::string &needle)
+{
+    vector<BrowserGroup> out;
+
+    for (size_t g = 0; g < catalog->groups().size(); g++)
+    {
+        const string &group = catalog->groups()[g];
+        const vector<DspCatalog::Entry> &list = catalog->inGroup(group);
+
+        BrowserGroup rows;
+
+        rows.name = group;
+
+        for (size_t i = 0; i < list.size(); i++)
+        {
+            if (!DspCatalog::matches(list[i], effects, needle))
+                continue;
+
+            BrowserItem item;
+
+            item.file = list[i].file;
+            item.name = list[i].name;
+            item.desc = list[i].desc;
+
+            /* The filename, because that is what a .patch's `dsp' line will
+               say and what a piece names in its `dsp' clause -- the one thing
+               the row does not show and the one worth knowing about a file
+               you are about to put in a document. */
+            item.note = "<tt>" + Glib::Markup::escape_text(list[i].file) +
+                        "</tt>";
+
+            if (!list[i].author.empty())
+                item.note += "  <small>" +
+                             Glib::Markup::escape_text(list[i].author) +
+                             "</small>";
+
+            rows.items.push_back(item);
+        }
+
+        if (!rows.items.empty())
+            out.push_back(rows);
+    }
+
+    return out;
+}
+
+/* The instrument chooser and the effect chooser, which are one browser over
+ * the two halves of one corpus.
+ *
+ * The catalog outlives the dialog by being owned by it -- a Glib::RefPtr
+ * would be the toolkit's way and this is a plain object, so it is held in a
+ * shared_ptr the provider slot captures and released with the slot. */
+void MainSynthWindow::openDspBrowser (bool effects, int chan)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    std::shared_ptr<DspCatalog> catalog = std::make_shared<DspCatalog>();
+
+    catalog->scan(dspDir_);
+
+    const string current = patch == NULL ? string()
+                         : effects ? patch->doc.effect : patch->doc.dsp;
+
+    ItemBrowser *browser = new ItemBrowser(
+        *this,
+        effects ? "thinksynth - Channel Effect" : "thinksynth - Instrument",
+        [catalog, effects](const std::string &needle)
+        {
+            return dspRows(catalog.get(), effects, needle);
+        },
+        dspDir_, current);
+
+    browser->setEmptyNote("<i>No graphs in</i>\n<tt>" +
+                          Glib::Markup::escape_text(dspDir_) + "</tt>\n"
+                          "<small>Set THINK_DSP_PATH, or use Other "
+                          "File...</small>");
+
+    if (effects)
+        browser->signal_chosen().connect(
+            sigc::bind(sigc::mem_fun(*this,
+                                     &MainSynthWindow::onEffectChosen), chan));
+    else
+        browser->signal_chosen().connect(
+            sigc::bind(sigc::mem_fun(*this,
+                                     &MainSynthWindow::onBrowseChosen), chan));
+
+    browser->present();
+}
+
 void MainSynthWindow::onBrowseButton (void)
 {
-    const int pagenum = notebook_.get_current_page();
-
-    gthPatchManager::PatchFile *patch =
-        gthPatchManager::instance()->getPatch(pagenum);
-
-    DspBrowser *browser =
-        new DspBrowser(*this, DspBrowser::INSTRUMENTS, dspDir_,
-                       patch ? patch->doc.dsp : string());
-
     /* The page is captured now rather than read in the handler: the browser
        is not modal to the notebook, and the tab that was current when Browse
        was clicked is the one this is loading onto. */
-    browser->signal_chosen().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onBrowseChosen),
-                   pagenum));
-
-    browser->present();
+    openDspBrowser(false, notebook_.get_current_page());
 }
 
 void MainSynthWindow::queueSavePatch (string file, int chan)

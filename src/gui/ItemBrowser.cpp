@@ -25,20 +25,20 @@
 #include "think.h"
 
 #include "Dialogs.h"
-#include "DspBrowser.h"
+#include "ItemBrowser.h"
 
-DspBrowser::DspBrowser (Gtk::Window &parent, Kind kind, const string &dir,
-                        const string &current)
-    : Gtk::Dialog(kind == EFFECTS ? "thinksynth - Channel Effect"
-                                  : "thinksynth - Instrument",
-                  parent, true),
-      kind_(kind), dir_(dir), current_(current), openBtn_(NULL)
+ItemBrowser::ItemBrowser (Gtk::Window &parent, const Glib::ustring &title,
+                          const Provider &provider, const std::string &otherDir,
+                          const std::string &current)
+    : Gtk::Dialog(title, parent, true),
+      provider_(provider), otherDir_(otherDir), current_(current),
+      openBtn_(NULL)
 {
     set_default_size(460, 520);
 
     filter_.set_placeholder_text("Filter");
     filter_.signal_changed().connect(
-        sigc::mem_fun(*this, &DspBrowser::onFilterChanged));
+        sigc::mem_fun(*this, &ItemBrowser::onFilterChanged));
 
     store_ = Gio::ListStore<BrowserRow>::create();
 
@@ -118,7 +118,7 @@ DspBrowser::DspBrowser (Gtk::Window &parent, Kind kind, const string &dir,
 
     /* Double-click, or Enter, opens -- because that is what a chooser does. */
     list_.signal_activate().connect(
-        sigc::mem_fun(*this, &DspBrowser::onRowActivated));
+        sigc::mem_fun(*this, &ItemBrowser::onRowActivated));
 
     scroller_.set_policy(Gtk::PolicyType::AUTOMATIC,
                          Gtk::PolicyType::AUTOMATIC);
@@ -142,72 +142,60 @@ DspBrowser::DspBrowser (Gtk::Window &parent, Kind kind, const string &dir,
     body->append(scroller_);
     body->append(detail_);
 
-    /* The escape hatch. A .dsp of one's own does not live under dsp/ and has
-       no name the catalog knows, so the old chooser stays reachable -- it is
-       no longer the only way to choose a graph, which is the change. */
-    add_button("_Other File...", Gtk::ResponseType::ACCEPT);
+    /* The escape hatch. A file of one's own does not live in the shipped tree
+       and has no name the catalog knows, so the old chooser stays reachable
+       -- it is no longer the only way to choose, which is the change. */
+    if (!otherDir_.empty())
+        add_button("_Other File...", Gtk::ResponseType::ACCEPT);
+
     add_button("_Cancel", Gtk::ResponseType::CANCEL);
     openBtn_ = add_button("_Open", Gtk::ResponseType::OK);
 
     openBtn_->set_sensitive(false);
 
-    signal_response().connect(sigc::mem_fun(*this, &DspBrowser::onResponse));
-
-    catalog_.scan(dir_);
+    signal_response().connect(sigc::mem_fun(*this, &ItemBrowser::onResponse));
 
     rebuild();
-
-    if (catalog_.count() == 0)
-        detail_.set_markup("<i>No graphs in</i>\n<tt>" +
-                           Glib::Markup::escape_text(dir_) + "</tt>\n"
-                           "<small>Set THINK_DSP_PATH, or use Other "
-                           "File...</small>");
 }
 
-void DspBrowser::rebuild (void)
+void ItemBrowser::setEmptyNote (const Glib::ustring &markup)
 {
-    const string needle = filter_.get_text();
+    if (store_->get_n_items() == 0 && filter_.get_text().empty())
+        detail_.set_markup(markup);
+}
+
+void ItemBrowser::rebuild (void)
+{
+    const std::vector<BrowserGroup> groups = provider_(filter_.get_text());
 
     store_->remove_all();
 
-    /* The group holding what is already on the channel, so it can be opened
-       below; empty while filtering, when the selection is not the point. */
+    /* The group holding what is in use, so it can be opened below. */
     Glib::ustring openGroup;
 
-    for (size_t g = 0; g < catalog_.groups().size(); g++)
+    for (size_t g = 0; g < groups.size(); g++)
     {
-        const string &group = catalog_.groups()[g];
-        const vector<DspCatalog::Entry> &list = catalog_.inGroup(group);
+        if (groups[g].items.empty())
+            continue;
 
-        Glib::RefPtr<BrowserRow> groupRow;
+        Glib::RefPtr<BrowserRow> groupRow =
+            BrowserRow::create(groups[g].name, "", "", "");
 
-        for (size_t e = 0; e < list.size(); e++)
+        for (size_t i = 0; i < groups[g].items.size(); i++)
         {
-            /* Which rows a chooser has is DspCatalog::matches, and not a
-               rule of this widget's: an effect is not offered in the
-               instrument dialog or the other way round, and the filter reads
-               the title, the description and the filename. Deciding it there
-               is what lets scripts/dspcatalog hold it still without a
-               display. */
-            if (!DspCatalog::matches(list[e], kind_ == EFFECTS, needle))
-                continue;
+            const BrowserItem &item = groups[g].items[i];
 
-            if (!groupRow)
-                groupRow = BrowserRow::create(group, "", "");
+            groupRow->addChild(BrowserRow::create(item.name, item.desc,
+                                                  item.file, item.note));
 
-            groupRow->addChild(BrowserRow::create(list[e].name,
-                                                  list[e].desc,
-                                                  list[e].file));
-
-            if (!current_.empty() && list[e].file == current_)
-                openGroup = group;
+            if (!current_.empty() && item.file == current_)
+                openGroup = groups[g].name;
         }
 
         /* Appended once it has its children, the way NodePalette fills a
            category row before the model sees it: a group handed over empty is
            a group Gtk::TreeListModel is told has nothing to expand. */
-        if (groupRow)
-            store_->append(groupRow);
+        store_->append(groupRow);
     }
 
     /* A fresh model each time, so expanded state starts from nothing rather
@@ -238,59 +226,58 @@ void DspBrowser::rebuild (void)
     selection_->set_selected(GTK_INVALID_LIST_POSITION);
 
     selection_->property_selected().signal_changed().connect(
-        sigc::mem_fun(*this, &DspBrowser::onSelectionChanged));
+        sigc::mem_fun(*this, &ItemBrowser::onSelectionChanged));
 
     list_.set_model(selection_);
 
-    /* What is on the channel now, selected: a dialog that opens on the
-       current graph is a dialog that answers "what is this?" as well as
-       "what else is there?". Expanding its group is what makes the row
-       exist -- a collapsed group's children are not rows in the flattened
-       model at all.
+    /* What is in use now, selected: a dialog that opens on the current file
+     * is a dialog that answers "what is this?" as well as "what else is
+     * there?". Expanding its group is what makes the row exist -- a collapsed
+     * group's children are not rows in the flattened model at all.
      *
      * No scroll to it: Gtk::ListView::scroll_to arrived in 4.12 and this
      * builds against 4.6. The row is selected, so Open acts on it either
      * way. */
-    if (!openGroup.empty())
+    if (openGroup.empty())
+        return;
+
+    for (guint i = 0; i < treeModel_->get_n_items(); i++)
     {
-        for (guint i = 0; i < treeModel_->get_n_items(); i++)
-        {
-            Glib::RefPtr<Gtk::TreeListRow> treeRow = treeModel_->get_row(i);
-            Glib::RefPtr<BrowserRow> row =
-                treeRow ? std::dynamic_pointer_cast<BrowserRow>(
-                              treeRow->get_item())
-                        : Glib::RefPtr<BrowserRow>();
+        Glib::RefPtr<Gtk::TreeListRow> treeRow = treeModel_->get_row(i);
+        Glib::RefPtr<BrowserRow> row =
+            treeRow ? std::dynamic_pointer_cast<BrowserRow>(
+                          treeRow->get_item())
+                    : Glib::RefPtr<BrowserRow>();
 
-            if (row && row->isGroup() && row->label() == openGroup)
-            {
-                treeRow->set_expanded(true);
-                break;
-            }
+        if (row && row->isGroup() && row->label() == openGroup)
+        {
+            treeRow->set_expanded(true);
+            break;
         }
+    }
 
-        for (guint i = 0; i < treeModel_->get_n_items(); i++)
+    for (guint i = 0; i < treeModel_->get_n_items(); i++)
+    {
+        Glib::RefPtr<Gtk::TreeListRow> treeRow = treeModel_->get_row(i);
+        Glib::RefPtr<BrowserRow> row =
+            treeRow ? std::dynamic_pointer_cast<BrowserRow>(
+                          treeRow->get_item())
+                    : Glib::RefPtr<BrowserRow>();
+
+        if (row && row->file() == current_)
         {
-            Glib::RefPtr<Gtk::TreeListRow> treeRow = treeModel_->get_row(i);
-            Glib::RefPtr<BrowserRow> row =
-                treeRow ? std::dynamic_pointer_cast<BrowserRow>(
-                              treeRow->get_item())
-                        : Glib::RefPtr<BrowserRow>();
-
-            if (row && row->file() == current_)
-            {
-                selection_->set_selected(i);
-                break;
-            }
+            selection_->set_selected(i);
+            break;
         }
     }
 }
 
-void DspBrowser::onFilterChanged (void)
+void ItemBrowser::onFilterChanged (void)
 {
     rebuild();
 }
 
-string DspBrowser::selectedFile (void)
+std::string ItemBrowser::selectedFile (void)
 {
     if (!selection_)
         return "";
@@ -308,35 +295,25 @@ string DspBrowser::selectedFile (void)
     return row ? row->file() : "";
 }
 
-void DspBrowser::onSelectionChanged (void)
+void ItemBrowser::onSelectionChanged (void)
 {
-    const string file = selectedFile();
+    Glib::RefPtr<Gtk::TreeListRow> treeRow =
+        selection_
+        ? std::dynamic_pointer_cast<Gtk::TreeListRow>(
+              selection_->get_selected_item())
+        : Glib::RefPtr<Gtk::TreeListRow>();
+
+    Glib::RefPtr<BrowserRow> row =
+        treeRow ? std::dynamic_pointer_cast<BrowserRow>(treeRow->get_item())
+                : Glib::RefPtr<BrowserRow>();
 
     if (openBtn_)
-        openBtn_->set_sensitive(!file.empty());
+        openBtn_->set_sensitive(row && !row->isGroup());
 
-    const DspCatalog::Entry *e = file.empty() ? NULL : catalog_.find(file);
-
-    if (e == NULL)
-    {
-        detail_.set_text("");
-        return;
-    }
-
-    /* The filename, because that is what a .patch's `dsp' line will say and
-       what a piece names in its `dsp' clause -- the one thing the row does
-       not show and the one thing worth knowing about a file you are about to
-       put in a document. */
-    string text = "<tt>" + Glib::Markup::escape_text(e->file) + "</tt>";
-
-    if (!e->author.empty())
-        text += "  <small>" + Glib::Markup::escape_text(e->author) +
-                "</small>";
-
-    detail_.set_markup(text);
+    detail_.set_markup(row ? row->note() : std::string());
 }
 
-void DspBrowser::onRowActivated (guint position)
+void ItemBrowser::onRowActivated (guint position)
 {
     if (!treeModel_)
         return;
@@ -363,7 +340,7 @@ void DspBrowser::onRowActivated (guint position)
     choose(row->file());
 }
 
-void DspBrowser::choose (const string &file)
+void ItemBrowser::choose (const std::string &file)
 {
     if (file.empty())
         return;
@@ -373,7 +350,7 @@ void DspBrowser::choose (const string &file)
     closeDialog(this);
 }
 
-void DspBrowser::onResponse (int response)
+void ItemBrowser::onResponse (int response)
 {
     if (response == Gtk::ResponseType::OK)
     {
@@ -390,35 +367,36 @@ void DspBrowser::onResponse (int response)
     closeDialog(this);
 }
 
-void DspBrowser::onOtherFile (void)
+void ItemBrowser::onOtherFile (void)
 {
     Gtk::FileChooserDialog *chooser =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Load DSP",
+        new Gtk::FileChooserDialog(*this, get_title(),
                                    Gtk::FileChooser::Action::OPEN);
 
     chooser->set_modal(true);
     chooser->add_button("_Cancel", Gtk::ResponseType::CANCEL);
     chooser->add_button("_Open", Gtk::ResponseType::OK);
 
-    if (!dir_.empty())
-        chooser->set_current_folder(Gio::File::create_for_path(dir_));
+    if (!otherDir_.empty())
+        chooser->set_current_folder(Gio::File::create_for_path(otherDir_));
 
     chooser->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &DspBrowser::onOtherFileResponse),
+        sigc::bind(sigc::mem_fun(*this, &ItemBrowser::onOtherFileResponse),
                    chooser));
 
     chooser->present();
 }
 
-void DspBrowser::onOtherFileResponse (int response,
-                                      Gtk::FileChooserDialog *chooser)
+void ItemBrowser::onOtherFileResponse (int response,
+                                       Gtk::FileChooserDialog *chooser)
 {
-    const string picked = response == Gtk::ResponseType::OK
-                          ? chosenPath(*chooser) : string();
+    const std::string picked = response == Gtk::ResponseType::OK
+                               ? chosenPath(*chooser) : std::string();
 
     closeDialog(chooser);
 
-    /* A path and not a name: a graph outside the tree has no short name, and
-       resolveDsp hands an absolute path straight back. */
+    /* A path and not a name: a file outside the tree has no short name, and
+       both callers take a path here -- resolveDsp hands an absolute one
+       straight back, and a piece is opened by path anyway. */
     choose(picked);
 }

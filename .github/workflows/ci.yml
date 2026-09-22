@@ -523,6 +523,13 @@ jobs:
       - name: The DSP catalog, against the desktop's
         run: node wasm/web/dspcatalogcheck.mjs build-web build
 
+      # The same for the pieces: every shipped .gen's title, description and
+      # section, read through thcGenEdit by the module and by the native
+      # harness, and diffed. The sections are in the files now, so the page's
+      # menu and the Composer's Open are one list rather than two.
+      - name: The piece catalog, against the Composer's
+        run: node wasm/web/gencatalogcheck.mjs build-web build
+
       # And the .patch format, for the same reason and with more history
       # behind it: the page used to carry its own parser, and the two
       # readings had drifted -- an `effect' line was dropped on the floor

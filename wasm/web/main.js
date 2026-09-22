@@ -1143,6 +1143,39 @@ async function start ()
         fillCatalog($('patch'), chosen);
     }
 
+    /* And the pieces, the same way round: the module is handed each one's
+       text and reads the header, because a second reading here in
+       JavaScript is the thing the .patch format taught. Nothing plays from
+       these -- a piece is played by handing loadPiece its text -- so a
+       failure costs the sections and nothing else. */
+    try
+    {
+        const texts = await Promise.all(
+            genNames.map((name) => fetch(`gen/${name}`).then((r) =>
+            {
+                if (!r.ok)
+                    throw new Error(`gen/${name}: ${r.status}`);
+
+                return r.text();
+            })));
+
+        genNames.forEach((name, i) => synth.piecefile(name, texts[i]));
+
+        genGroups = (await synth.gens()).catalog?.groups ?? [];
+    }
+    catch (e)
+    {
+        log(`piece catalog: ${e.message}`);
+    }
+
+    if (genGroups.length > 0)
+    {
+        const chosen = $('piece').value;
+
+        $('piece').replaceChildren();
+        fillPieces($('piece'), chosen);
+    }
+
     /* And the default patches, before anything needs one. The aiming runs
        inside quietly(), with the context suspended, and patchText fetches
        on first use -- so without this the first piece load holds the audio
@@ -1488,6 +1521,12 @@ let dspTexts = {};
    .patch format's two parsers were, so there is not one. */
 let dspGroups = [];
 
+/* The shipped pieces, and the same for them: the sections gen/README.md
+   groups the corpus into, which are in the files (a `category' statement) and
+   are what the Composer's Open groups by too. */
+let genNames = [];
+let genGroups = [];
+
 /* The ones among them that play a note.
  *
  * The index carries the effect graphs as well, as `fx/<name>', because the
@@ -1554,6 +1593,34 @@ function fill (select, names, preferred)
  * channel as an instrument leaves an ungated graph running for as long as it
  * is loaded. Which graphs those are is the module's answer now rather than a
  * guess at the `fx/' prefix. */
+/* A piece menu out of the catalog: an optgroup per section, the title each
+ * piece declares, its description as the tooltip. The value stays the
+ * filename, because that is what the page fetches and what index.json
+ * lists. */
+function fillPieces (select, preferred)
+{
+    for (const group of genGroups)
+    {
+        if (group.entries.length === 0)
+            continue;
+
+        const optgroup = document.createElement('optgroup');
+
+        optgroup.label = group.name;
+
+        for (const e of group.entries)
+        {
+            const option = new Option(e.name, e.file, e.file === preferred,
+                                      e.file === preferred);
+
+            option.title = e.desc;
+            optgroup.append(option);
+        }
+
+        select.append(optgroup);
+    }
+}
+
 function fillCatalog (select, preferred)
 {
     for (const group of dspGroups)
@@ -1589,6 +1656,7 @@ async function init ()
     ]);
 
     dspNames = dsps;
+    genNames = gens;
     patchNames = patchList;
     fill($('patch'), playableDsps(), 'ts1.dsp');
     fill($('piece'), gens, 'ebb.gen');

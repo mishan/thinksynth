@@ -825,6 +825,13 @@ already curated; what it was not was anywhere a program could see, and it had
 drifted — three pieces were in no section at all by the time the field was
 added.
 
+Both menus are drawn from `src/GenCatalog.h`, which reads a piece's header
+through `thcGenEdit::describe` — the `.gen` reader the Composer splices edits
+with — rather than running the shared lexer over the same bytes a second time.
+`wasm/web/gencatalogcheck.mjs` diffs the module's list against
+`scripts/gencheck --json` byte for byte, so the page's menu and the Composer's
+Open are one list.
+
 **Free text in the format, a list the shipped corpus is gated against.**
 `scripts/gencheck` fails a shipped piece that declares no category or one
 outside the eight. A piece of your own may say whatever it likes and lands in

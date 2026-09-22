@@ -88,6 +88,10 @@ protected:
     Gtk::Widget *makeEffectFrame (int chan);
 
     void onEffectBrowse (int chan);
+
+    /* Both graph choosers: the same browser over the two halves of the
+       corpus, since the only difference between them is which half. */
+    void openDspBrowser (bool effects, int chan);
     void onEffectChosen (string picked, int chan);
     void onEffectRemove (int chan);
 

@@ -64,6 +64,7 @@
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
 #include "thcNodeHost.h"
+#include "GenCatalog.h"
 
 static int failures = 0;
 
@@ -9090,18 +9091,40 @@ main (int argc, char *argv[])
 
     std::string pluginDir;
     std::string genFile;
+    bool json = false;
 
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
             pluginDir = argv[++i];
+        else if (strcmp(argv[i], "--json") == 0)
+            json = true;
         else
             genFile = argv[i];
     }
 
+    /* The piece list a menu is drawn from, printed, checking nothing.
+     *
+     * The other half of a parity gate: the browser's module scans its own
+     * copy of the same directory through the same class and prints the same
+     * bytes, and wasm/web/gencatalogcheck.mjs diffs the two. The argument is
+     * a directory here rather than a file, and no plugins are needed --
+     * reading a header does not run a piece. */
+    if (json)
+    {
+        GenCatalog catalog;
+
+        catalog.scan(genFile);
+
+        printf("%s\n", genCatalogToJson(catalog).c_str());
+
+        return 0;
+    }
+
     if (pluginDir.empty() || genFile.empty())
     {
-        fprintf(stderr, "usage: gencheck -p <plugindir> <file.gen>\n");
+        fprintf(stderr, "usage: gencheck -p <plugindir> <file.gen>\n"
+                "       gencheck --json <gendir>\n");
         return 2;
     }
 

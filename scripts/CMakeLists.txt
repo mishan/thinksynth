@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH;DSPCATALOG" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH;DSPCATALOG;GENCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -48,6 +48,12 @@ function(think_harness name)
   # every platform -- and, where a corpus is at hand, against the parser.
   if(H_DSPCATALOG)
     list(APPEND sources $<TARGET_OBJECTS:think_dspcatalog>)
+  endif()
+
+  # And what a .gen says (src/GenCatalog.h), read through thcGenEdit, so a
+  # harness that wants the piece list asks for this and the composer host.
+  if(H_GENCATALOG)
+    list(APPEND sources $<TARGET_OBJECTS:think_gencatalog>)
   endif()
 
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
@@ -246,8 +252,10 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
 think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS PATCH
+              GENCATALOG
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
@@ -285,7 +293,7 @@ think_harness(dspcatalog DSPCATALOG)
 # parser, and the replay-determinism contract -- same file, same seed, same
 # delivered event stream, byte for byte. Headless: the scheduler is driven
 # through its virtual clock, no Glib loop and no audio.
-think_harness(gencheck COMPOSERHOST)
+think_harness(gencheck COMPOSERHOST GENCATALOG)
 
 # A piece, rendered: the same virtual clock gencheck drives, with the synth
 # rendering a window after every step and the windows written out as a WAV,

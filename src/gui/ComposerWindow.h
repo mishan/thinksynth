@@ -130,7 +130,8 @@ protected:
     void onNew (void);
     void onOpen (void);
     void onOpenConfirmed (void);
-    void onOpenResponse (int response, Gtk::FileChooserDialog *dialog);
+    /* The browser's answer: a path, since opening a piece copies a file. */
+    void onOpenChosen (std::string path);
 
     /* Open and New both throw the work copy away; when it holds unsaved
        edits, the person gets asked first. `done' runs on yes, or

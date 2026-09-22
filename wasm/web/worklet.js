@@ -273,6 +273,29 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        if (m.type === 'piecefile')
+        {
+            this.M.ccall('tw_gen_file', 'number', ['string', 'string'],
+                         [m.name, m.text]);
+
+            return;
+        }
+
+        /* The catalog the page's piece menu is drawn from: every .gen
+           handed over above, by the category each declares. Read through
+           thcGenEdit, which is what the Composer edits a piece with, so
+           the menu here and the Composer's Open are the same list. */
+        if (m.type === 'gens')
+        {
+            this.port.postMessage({
+                type: 'gens', id: m.id,
+                catalog: JSON.parse(this.M.ccall('tw_gens_json', 'string',
+                                                 [], [])),
+            });
+
+            return;
+        }
+
         /* The catalog the page's instrument menus are drawn from: every
            .dsp this module has been handed, by group, with the title and
            the description its author wrote. The module scans its own copy

@@ -91,6 +91,7 @@
 
 #include "ArgPanel.h"
 #include "DspCatalog.h"
+#include "GenCatalog.h"
 #include "JsonOut.h"
 #include "PatchApply.h"
 #include "PatchFile.h"
@@ -112,6 +113,10 @@
    a source tree. */
 #define TW_PATCH_FILE "/patch.dsp"
 #define TW_PIECE_FILE "/piece.gen"
+
+/* Where the shipped pieces are kept, for the menu's sake alone: the piece
+   being played is written to TW_PIECE_FILE above and loaded from there. */
+#define TW_GEN_DIR    "/gen"
 #define TW_DSP_DIR    "/dsp"
 
 namespace {
@@ -909,6 +914,44 @@ EMSCRIPTEN_KEEPALIVE const char *tw_dsps_json (void)
     dspsJson_ = dspCatalogToJson(catalog);
 
     return dspsJson_.c_str();
+}
+
+/* One of the shipped .gen files, as text, so that the menu can say what it
+ * is. Nothing plays from here -- a piece is loaded by handing its text to
+ * tw_piece_load, which writes TW_PIECE_FILE -- and nothing needs to: what
+ * this is for is the same thing tw_instrument turned out to be for, a
+ * directory to walk.
+ *
+ * The page could have kept the headers to itself and parsed them in
+ * JavaScript. It did that for .patch once and the two readings drifted. */
+EMSCRIPTEN_KEEPALIVE int tw_gen_file (const char *name, const char *text)
+{
+    const std::string path = std::string(TW_GEN_DIR) + "/" + name;
+
+    mkdir(TW_GEN_DIR, 0777);
+
+    return writeFile(path.c_str(), text) ? 1 : 0;
+}
+
+/* What the page's piece menu is drawn from: every .gen handed over above, by
+ * category, with the title and the description its author wrote.
+ *
+ * Read through thcGenEdit, which is the .gen reader the Composer edits
+ * pieces with -- so the browser's menu and the Composer's Open are the same
+ * list (src/GenCatalog.h). The dump is genCatalogToJson's, diffed against
+ * scripts/gencheck --json byte for byte
+ * (wasm/web/gencatalogcheck.mjs). Valid until the next call. */
+static std::string gensJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gens_json (void)
+{
+    GenCatalog catalog;
+
+    catalog.scan(TW_GEN_DIR);
+
+    gensJson_ = genCatalogToJson(catalog);
+
+    return gensJson_.c_str();
 }
 
 /* And the same for a wav, which is the one shipped file that is not text.
