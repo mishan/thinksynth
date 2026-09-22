@@ -95,7 +95,19 @@ const LIVE_SECONDS = 2;
  * through the same bands of the carrier; a sine would light one band and the
  * leg would be asserting that a sixteenth of the machine works. Harmonics plus
  * noise puts something in all of them.
+ *
+ * AND QUIET, WHICH MATTERS MORE, because getting this wrong is what shipped a
+ * vocoder nobody could hear. The first version of this file wrote a signal at
+ * 0.65 peak -- about what a synth channel puts out, and eight times what a
+ * laptop microphone with its automatic gain control switched off gives on
+ * ordinary speech. The leg passed; the thing did not work. A gate whose input
+ * is louder than the real input is a gate that tests a case nobody is in.
+ *
+ * MIC_PEAK is therefore deliberately at the quiet end of plausible, so that a
+ * gain staging which only works for a shouter fails here.
  */
+const MIC_PEAK = 0.08;
+
 function writeMicWav ()
 {
     const rate = 48000;
@@ -118,6 +130,9 @@ function writeMicWav ()
 
     let state = 1;
 
+    const raw = new Float32Array(frames);
+    let top = 0;
+
     for (let i = 0; i < frames; i++)
     {
         const t = i / rate;
@@ -125,10 +140,25 @@ function writeMicWav ()
         state = (state * 1103515245 + 12345) & 0x7fffffff;
 
         const noise = (state / 0x7fffffff) * 2 - 1;
-        const v = 0.25 * Math.sin(2 * Math.PI * 220 * t) +
-                  0.15 * Math.sin(2 * Math.PI * 660 * t) +
-                  0.10 * Math.sin(2 * Math.PI * 1870 * t) +
-                  0.15 * noise;
+
+        /* Syllables, two wandering formants and breath: enough shape that the
+           bands move against each other rather than all together, which is
+           what tells a vocoder from a gain. */
+        const env = 0.5 + 0.5 * Math.sin(2 * Math.PI * 3 * t);
+        const f1 = 500 + 300 * Math.sin(2 * Math.PI * 1.3 * t);
+        const f2 = 1400 + 700 * Math.sin(2 * Math.PI * 0.9 * t);
+
+        raw[i] = env * (0.50 * Math.sin(2 * Math.PI * 120 * t) +
+                        0.35 * Math.sin(2 * Math.PI * f1 * t) +
+                        0.25 * Math.sin(2 * Math.PI * f2 * t) +
+                        0.12 * noise);
+
+        top = Math.max(top, Math.abs(raw[i]));
+    }
+
+    for (let i = 0; i < frames; i++)
+    {
+        const v = raw[i] * (MIC_PEAK / top);
 
         bytes.writeInt16LE(Math.max(-32768,
                                     Math.min(32767, Math.round(v * 32767))),
@@ -556,20 +586,46 @@ async function runBrowser (label, type)
             loud = { peak: 0, why: '' };
         }
 
-        if (quiet.peak === 0 || loud.peak <= quiet.peak)
+        /* How much louder it has to get, and why the number is loose.
+         *
+         * The gain staging is pinned in miccheck.mjs, offline and exactly: the
+         * same piece and the same 0.08-peak capture there gives 2.0x, against a
+         * 1.3x threshold, and that is the regression guard for the vocoder that
+         * shipped unhearable. This leg cannot be that. It runs in real time
+         * against a device nobody here controls, reads the output through an
+         * analyser that sees 2048 frames every 50 ms rather than all of them,
+         * and starts measuring while the chord is still filling in -- so it
+         * comes out at 1.38x to 1.44x over repeats where the offline number is
+         * 2.0x. Holding a coarse measurement to a tight bound is how a gate
+         * starts flaking.
+         *
+         * So 1.15x here: comfortably above the 1.05x the bug produced, and
+         * comfortably below what three runs of this measured. What this leg is
+         * for is the path -- getUserMedia to a graph -- and the number is the
+         * loosest one that still fails the bug.
+         *
+         * Firefox gets 1.0x. Its fake device is a tone at a level it chooses,
+         * and a single sine lights one of sixteen bands; there is nothing to
+         * hold it to but connectedness. */
+        const want = label === 'chromium' ? 1.15 : 1.0;
+        const ratio = quiet.peak > 0 ? loud.peak / quiet.peak : 0;
+
+        if (quiet.peak === 0 || ratio <= want)
         {
             ok = false;
             process.stdout.write(
                 `FAIL  ${label} ${SHIPPED}: ` +
                 (quiet.peak === 0
                     ? `it was silent without a microphone -- ${quiet.why}`
-                    : `the microphone changed nothing: ${quiet.peak} then ` +
-                      `${loud.peak}`) + '\n');
+                    : `the microphone moved it by ${ratio.toFixed(2)}x, ` +
+                      `wanted over ${want}x: ${quiet.peak.toFixed(3)} then ` +
+                      `${loud.peak.toFixed(3)}`) + '\n');
         }
         else
             process.stdout.write(
                 `ok    ${label} ${SHIPPED}: ${quiet.peak.toFixed(3)} on its ` +
-                `own, ${loud.peak.toFixed(3)} with the microphone\n`);
+                `own, ${loud.peak.toFixed(3)} with a ${MIC_PEAK} microphone ` +
+                `(${ratio.toFixed(2)}x)\n`);
     }
 
     for (const e of errors)

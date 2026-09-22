@@ -675,6 +675,14 @@ details { margin: 0.8em 0; }
     font-family: monospace;
 }
 
+/* The capture meter beside the Live in button. Monospace because it is ten
+   characters of bar and a number, and a proportional font makes the bar
+   change width as it fills. */
+.level {
+    font-family: monospace;
+    white-space: pre;
+}
+
 /*
  * ---- what this page puts in a pane ----
  *

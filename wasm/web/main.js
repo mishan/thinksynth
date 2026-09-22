@@ -174,6 +174,8 @@ const PATCH_CHANNEL = 0;
 let ctx = null;
 let synth = null;
 let mic = null;                  /* what openMic returned, or null */
+let micPeak = 0;                 /* the loudest capture frame the worklet saw */
+let micDropped = 0;
 let keyboard = null;
 let keys = null;                 /* the computer keyboard as a musical one */
 let keyfocus = null;             /* and who has it, the page or the keys  */
@@ -396,6 +398,30 @@ function captureLatency ()
     return windows * synth.windowlen / ctx.sampleRate;
 }
 
+/* The level, as a bar and a number, for the one job it has: a microphone with
+ * no automatic gain control arrives at whatever the room gives it, so the
+ * vocoder's Mic gain has to be set by hand and this is what to set it by. Talk
+ * and watch it move.
+ *
+ * dBFS rather than the raw float, because the useful range is the quiet end --
+ * 0.03 and 0.15 are both "speech" and are 14 dB apart, and as decimals they
+ * look like the same small number. */
+function showMicLevel ()
+{
+    if (mic === null)
+        return;
+
+    /* A floor rather than -Infinity on silence, and it is the floor the bar is
+       drawn against too. */
+    const db = micPeak > 0.0001 ? 20 * Math.log10(micPeak) : -80;
+    const filled = Math.max(0, Math.min(10, Math.round((db + 60) / 6)));
+
+    $('miclevel').textContent =
+        `${'#'.repeat(filled)}${'.'.repeat(10 - filled)} ` +
+        `${db <= -80 ? '--' : db.toFixed(0)} dB` +
+        (micDropped > 0 ? `  ${micDropped} dropped` : '');
+}
+
 async function toggleMic ()
 {
     if (synth === null)
@@ -405,8 +431,10 @@ async function toggleMic ()
     {
         mic.close();
         mic = null;
+        micPeak = 0;
         $('mic').textContent = 'Live in';
         $('micstatus').textContent = '';
+        $('miclevel').textContent = '';
         showLatency();
         return;
     }
@@ -1312,6 +1340,9 @@ async function start ()
                                          onLog: log,
                                          onTape: (m) =>
                                          {
+                                             micPeak = m.capture ?? 0;
+                                             micDropped = m.captureDropped ?? 0;
+
                                              diff.take('worklet', m);
                                              roll.tape(m);
 
@@ -1530,6 +1561,10 @@ async function start ()
 
     showLatency();
     setInterval(showLatency, 500);
+
+    /* Faster than the rest of the chrome, because this one is being watched
+       while somebody talks into it rather than read once. */
+    setInterval(showMicLevel, 100);
 }
 
 /* ---- the composer view ---- */

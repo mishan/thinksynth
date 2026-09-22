@@ -9,6 +9,12 @@
 # TO PLAY IT IN A BROWSER: press Start, choose this piece, press Play, then
 # press Live in and allow the microphone. Talk.
 #
+# If the chord does not start speaking, turn Mic gain up. A microphone with no
+# automatic gain control -- which is what this needs, and what the page asks
+# for -- is ten to twenty times quieter than the synth channel a vocoder is
+# usually driven by, and no default covers every microphone. The level beside
+# the Live in button is what to aim by: get it moving and the bands open.
+#
 # Pick a window of 128 before Start if the page offers it. A live graph
 # hears a window late, and a second window where the browser's 128-frame
 # quantum is smaller than the synth's window -- so 128 costs 2.7 ms and 256
@@ -48,6 +54,17 @@ description "A string machine holding a chord, wearing whatever the microphone h
 tempo 68;
 seed 9;
 meter 4;
+
+# How loud the person is, before the bands see them. The one knob that has to
+# be reachable: a microphone with no automatic gain control arrives at whatever
+# it arrives at, and that is a property of the room and the hardware rather
+# than of this piece. The page shows the capture's level beside the Live in
+# button; turn this up until the vocoder is as loud as the chord.
+@gain = 12;
+@gain.widget = 1;
+@gain.min = 1;
+@gain.max = 64;
+@gain.label = "Mic gain";
 
 # How much of the chord gets through the bands. The vocoder's output is a
 # sum of sixteen band-passes and starts quiet, so this is its level rather
@@ -112,6 +129,7 @@ instrument pads {
     slowdepth = 6 ms;
 
     effect "fx/vocoder-mic.dsp" {
+        drive     = @gain;
         level     = @talk;
         res       = @bands;
         dry       = @chord;

@@ -123,6 +123,58 @@ export function makeCapture (frames)
     return out;
 }
 
+/* And a speech-shaped one, at the level a microphone actually delivers.
+ *
+ * THIS IS THE GATE THAT WAS MISSING. The vocoder shipped once with no gain on
+ * its live input and could not be heard: a laptop microphone with its automatic
+ * gain control switched off -- which wasm/web/mic.js switches off on purpose --
+ * sits around 0.03 to 0.15 peak on ordinary speech, where the synth channel
+ * fx/vocoder.dsp is usually driven by is around 0.5. The vocoded output is
+ * linear in that, so a voice came out twenty to thirty dB under where the bands
+ * were tuned to open. Every check passed, because every check fed it a signal
+ * as loud as a synth.
+ *
+ * MIC_PEAK is deliberately at the quiet end of plausible, and the assertion
+ * below is about how much the piece moved rather than whether it moved.
+ *
+ * Syllables and two wandering formants rather than the flat LCG above: a
+ * vocoder's whole business is bands moving against each other, and a signal
+ * with a fixed spectrum cannot tell that working from a gain.
+ */
+export const MIC_PEAK = 0.08;
+
+export function makeSpeech (frames, peak = MIC_PEAK)
+{
+    const out = new Float32Array(frames);
+
+    let state = 7n;
+    let top = 0;
+
+    for (let i = 0; i < frames; i++)
+    {
+        const t = i / RATE;
+
+        state = (state * 1103515245n + 12345n) & 0xffffffffn;
+
+        const noise = Number((state >> 16n) & 0xffffn) / 65535 * 2 - 1;
+        const env = 0.5 + 0.5 * Math.sin(2 * Math.PI * 3 * t);
+        const f1 = 500 + 300 * Math.sin(2 * Math.PI * 1.3 * t);
+        const f2 = 1400 + 700 * Math.sin(2 * Math.PI * 0.9 * t);
+
+        out[i] = env * (0.50 * Math.sin(2 * Math.PI * 120 * t) +
+                        0.35 * Math.sin(2 * Math.PI * f1 * t) +
+                        0.25 * Math.sin(2 * Math.PI * f2 * t) +
+                        0.12 * noise);
+
+        top = Math.max(top, Math.abs(out[i]));
+    }
+
+    for (let i = 0; i < frames; i++)
+        out[i] *= peak / top;
+
+    return out;
+}
+
 /* ---- the graphs ---------------------------------------------------------- */
 
 /* Read off disk rather than written here: the point of the two piece checks is
@@ -179,7 +231,16 @@ export const DSPS = {
     'miccheck-carrier.dsp': CARRIER,
     'miccheck-live.dsp': PASSTHROUGH,
     'fx/vocoder-mic.dsp': vocoderMic,
+    'strings.dsp': fs.readFileSync(path.join(build, 'dsp', 'strings.dsp'),
+                                   'utf8'),
+    'fx/limiter.dsp': fs.readFileSync(path.join(build, 'dsp', 'fx',
+                                                'limiter.dsp'), 'utf8'),
 };
+
+/* And the shipped piece, which is where the gain staging above actually has to
+   work. Off disk for vocoderMic's reason. */
+export const voiceGen =
+    fs.readFileSync(path.join(build, 'gen', 'voice.gen'), 'utf8');
 
 /* One held note on one instrument, and a master effect on the mix. Short,
    seeded, and with no generator in it: what is being measured is the effect,
@@ -302,6 +363,43 @@ async function main ()
                      'the capture accumulator drops nothing and starves for '
                      + 'nothing at a quantum of 128 in a window of 256',
                      `dropped ${got.dropped}, starved ${got.starved}`);
+        }
+    }
+
+    /* ---- the shipped piece is audibly driven by a real microphone ---------- */
+
+    /* The check the first version of this file did not have, and the reason the
+     * vocoder shipped unhearable: everything else here proves the capture
+     * *arrives*, and nothing proved it arrived loud enough to do anything.
+     *
+     * gen/voice.gen at a 0.08-peak capture, against the same piece with none.
+     * It carries `dry', so it makes a sound either way -- which makes this an
+     * assertion about how much the vocoder added, and only the vocoder can have
+     * added it. 1.3x is about 2.3 dB; the version that shipped managed 1.02x.
+     */
+    {
+        const frames = RATE * 8;
+        const speech = makeSpeech(frames);
+
+        const quiet = await renderPiece({ gen: voiceGen, capture: null,
+                                          frames });
+        const loud = await renderPiece({ gen: voiceGen, capture: speech,
+                                         frames });
+
+        if (!quiet.ok || !loud.ok)
+            fail('gen/voice.gen loads',
+                 (quiet.ok ? loud.errors : quiet.errors).join('; '));
+        else
+        {
+            const off = peak(quiet.out);
+            const on = peak(loud.out);
+            const ratio = off > 0 ? on / off : 0;
+
+            okOrFail(off > 0 && ratio > 1.3,
+                     'gen/voice.gen is audibly driven by a capture at the '
+                     + `level a microphone actually gives (${MIC_PEAK} peak)`,
+                     `${off.toFixed(3)} on its own, ${on.toFixed(3)} with it `
+                     + `-- ${ratio.toFixed(2)}x, wanted over 1.3x`);
         }
     }
 

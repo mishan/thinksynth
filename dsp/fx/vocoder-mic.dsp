@@ -76,6 +76,40 @@ description "Sixteen bands of this channel driven by what the machine is hearing
     @sibilance.max = 2;
     @sibilance.label = "Sibilance";
 
+    # What the modulator is multiplied by before anything looks at it.
+    #
+    # fx/vocoder.dsp needs no such knob because its modulator is a channel, and
+    # a channel has an `amp': gen/boombox.gen sets its voice channel to 90
+    # against a default of 30 and says in its own head that the number is a
+    # drive rather than a volume, because nothing on that channel reaches the
+    # mix except through the bands. A live input has no `amp'. It arrives at
+    # whatever the device hands over, and that is not a level anybody chose.
+    #
+    # And it is far quieter than a channel. A laptop microphone with its
+    # automatic gain control switched off -- which wasm/web/mic.js switches off,
+    # for reasons that are good and cost exactly this -- sits around 0.03 to
+    # 0.15 peak on ordinary speech, where boombox's modulator is around 0.5.
+    # The vocoded output is linear in that, so at a gain of 1 a voice is twenty
+    # to thirty dB under where the bands were tuned to open: measurably present,
+    # audibly absent.
+    #
+    # BEFORE THE SPLIT, not after, which is why it is here rather than folded
+    # into `level'. `level' scales the sum of the bands and leaves the
+    # sibilance path alone, so raising it would open the vowels and leave the
+    # consonants where they were. This scales the one modulator both of them
+    # read, so the machine keeps its own balance and the knob means "how loud
+    # is the person".
+    #
+    # 12 by default, which puts a 0.05-peak voice where a channel modulator
+    # would be. It is a knob and not a constant because microphones differ by
+    # more than any default can cover, and a piece should offer it -- see the
+    # level the page shows beside the Live in button, which is what it is for.
+    @drive = 12;
+    @drive.widget = 1;
+    @drive.min = 1;
+    @drive.max = 64;
+    @drive.label = "Mic gain";
+
     @level = 4;
     @level.widget = 1;
     @level.min = 0;
@@ -127,10 +161,13 @@ node car math::mul {
 };
 
 # The modulator is already mono, so there is nothing to sum and nothing to
-# halve. Straight off the io node.
+# halve -- but it does have to be brought up to the level the bands were tuned
+# for, which is what `drive' is and why the head spends a paragraph on it.
+# Everything downstream reads this node, the sibilance path included, so this
+# is the one place the person's loudness enters the graph.
 node mod math::mul {
     in0 = ionode->live0;
-    in1 = 1;
+    in1 = @drive;
 };
 
 # The analysis bank, the followers, and the synthesis bank: one band of the

@@ -99,6 +99,18 @@ class ThinkProcessor extends AudioWorkletProcessor
            how many frames fit. Both stay 0 until the module is up. */
         this.micPtr = 0;
         this.micCap = 0;
+
+        /* And how loud it was, since the last batch went to the page.
+         *
+         * A meter, and it earns its place: the browser's automatic gain
+         * control is switched off on purpose (mic.js), so what arrives is
+         * whatever the room and the hardware give -- ten to twenty times
+         * quieter than the synth channel a vocoder is usually driven by, and
+         * different on every machine. The graph's answer is a gain knob, and a
+         * gain knob with nothing to aim by is a guess. Computed here, where
+         * the samples already are, rather than through a wasm call the page
+         * has no thread to make. */
+        this.micPeak = 0;
         this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
 
@@ -575,6 +587,17 @@ class ThinkProcessor extends AudioWorkletProcessor
             }
         }
 
+        /* Off the heap rather than off `channels', so the meter reads what the
+           graph is about to read and not what arrived: a page showing a level
+           the engine disagrees with is worse than no page. */
+        for (let i = 0; i < n; i++)
+        {
+            const v = heap[at + i] < 0 ? -heap[at + i] : heap[at + i];
+
+            if (v > this.micPeak)
+                this.micPeak = v;
+        }
+
         this.M._tw_capture(n);
     }
 
@@ -629,12 +652,20 @@ class ThinkProcessor extends AudioWorkletProcessor
             frame: this.M._tw_frame(),
             origin: this.M._tw_origin(),
             late: this.M._tw_late(),
+
+            /* The loudest capture frame since the last batch, and what the
+               accumulator had to throw away. A peak held over a batch rather
+               than an instantaneous reading, because what somebody setting a
+               gain wants to see is how loud they got. */
+            capture: this.micPeak,
+            captureDropped: this.M._tw_capture_dropped(),
             events: this.events,
             probes: [...this.taps].map(([slot, samples]) => ({ slot,
                                                                samples })),
         }, [...this.taps.values()].map((s) => s.buffer));
         this.events = [];
         this.taps.clear();
+        this.micPeak = 0;
     }
 }
 
