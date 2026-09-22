@@ -28,7 +28,8 @@ name: ci
 # upload artefacts, and upload-artifact does not go through GITHUB_TOKEN.
 # Declared at the workflow level so a job added later starts read-only and
 # has to ask, rather than inheriting whatever the repository default is.
-# release.yml needs contents: write and says so on its own.
+# release.yml needs contents: write and says so on its own, and so does
+# `pages' for what it needs.
 permissions:
   contents: read
 
@@ -363,6 +364,14 @@ jobs:
           source ~/emsdk/emsdk_env.sh
           cmake --build build-web --target dist
           node wasm/web/distcheck.mjs
+
+      # The site distcheck just passed, for `pages' below. Only from master:
+      # a pull request's build is not what the demo should be.
+      - name: The packaged site, for GitHub Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build-web/dist
 
       # What the gates need and nothing else. The three build trees together
       # are more than a gigabyte, almost all of it object files and CMake's
@@ -809,6 +818,32 @@ jobs:
         run: |
           npx playwright install --with-deps chromium firefox
           node jamtest.mjs ../../build-web ../../build-wasm ../../build
+
+  # The demo: master's browser build, at https://mishan.github.io/thinksynth/.
+  # It deploys what wasm-build packaged rather than building again, and only
+  # once every gate that runs the module has passed on it -- the native
+  # jobs say nothing about the site, so a macOS failure does not hold it
+  # back. The repository's Pages source must be set to GitHub Actions.
+  #
+  # config.json there has no relay, so the room page opens but cannot join
+  # anyone; the solo page is the whole demo.
+  pages:
+    name: the site, to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    needs: [wasm-build, wasm-compare, wasm-pieces, wasm-browsers, wasm-jam]
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
 
   macos:
     name: macos (clang, arm64)

@@ -192,6 +192,9 @@ static file server are the whole of what it takes to hear it.
 [docs/JAM.md](docs/JAM.md) is where this is going: several people playing one piece,
 each browser rendering it locally.
 
+Try it at <https://mishan.github.io/thinksynth/> — master's build, which CI
+publishes once the wasm gates pass on it.
+
 Emscripten builds it, at a pinned version — the comparison against the
 native build is only as repeatable as the compiler on the wasm side:
 
