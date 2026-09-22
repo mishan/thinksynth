@@ -1167,6 +1167,69 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_description (void)
     return loader_->pieceDescription().c_str();
 }
 
+/* What the transport is running at, in beats per minute. The piece's own
+   `tempo' after a load, and whatever a tempo command has since made it. */
+EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
+{
+    return sched_->tempo();
+}
+
+/* Whether the tempo means anything to this piece.
+ *
+ * It scales beat-valued durations and nothing else, so a piece written
+ * entirely in seconds is one the control cannot reach -- which is most of
+ * the corpus, and the reason the desktop offers the spinner only where it
+ * does something and says so where it does not (ComposerWindow.cpp). The
+ * page asks the same question of the same scheduler. */
+EMSCRIPTEN_KEEPALIVE int tw_uses_beats (void)
+{
+    return sched_->usesBeats() ? 1 : 0;
+}
+
+/* The `tempo' statement in the piece's text, set to `bpm', and the text
+ * back -- "" if the edit was refused.
+ *
+ * The running scheduler is not touched here: a tempo that is heard is a
+ * stamped command (tw_at), applied at its time on every peer, and this is
+ * the other half of what the desktop's spinner does -- a piece whose tempo
+ * you changed should come back at that tempo. Two halves rather than one
+ * because the page keeps the document in a box somebody may have typed
+ * into, so what to do with the new text is the page's to decide.
+ *
+ * Through thcGenEdit, which is the .gen writer the Composer edits with:
+ * the statement goes where that writer's rules put it, in a file that
+ * never had one as readily as in one that did, and there is no second
+ * speller of this format in JavaScript. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_set_tempo (double bpm)
+{
+    static std::string text;
+
+    std::string why;
+
+    text.clear();
+
+    if (thcGenEdit::setTempo(TW_PIECE_FILE, bpm, why) != thcGenEdit::OK)
+    {
+        fprintf(stderr, "tempo: %s\n", why.c_str());
+        return "";
+    }
+
+    FILE *f = fopen(TW_PIECE_FILE, "rb");
+
+    if (f == NULL)
+        return "";
+
+    char buf[4096];
+    size_t n;
+
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        text.append(buf, n);
+
+    fclose(f);
+
+    return text.c_str();
+}
+
 /* Whether the file pins its seed, and the seed the piece is composing
    from either way -- the file's, the one handed to the load, or the one
    drawn. What a peer has to send with Play for the others to load with. */

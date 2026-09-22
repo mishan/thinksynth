@@ -161,6 +161,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'panelvalues':
             case 'patchstate':
             case 'patchcompose':
+            case 'settempo':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -326,6 +327,16 @@ export async function createSynth (ctx, { windowlen = 256,
            at that time; -1 is the next window. */
         transportAt: (op, at = -1, value = 0) =>
             post({ type: 'at', op, at, value }),
+
+        /* The piece's text with its `tempo' set to `bpm', or "" if the
+           edit was refused. Resolves to `{ text }'.
+         *
+           The other half of a tempo change: transportAt('tempo', ...)
+           moves what is playing, this moves what a reload would come back
+           at. Two calls because the page keeps the document in a box
+           somebody may have typed into, and only the page knows whether
+           what is in it is still what was loaded. */
+        pieceSetTempo: (bpm) => ask({ type: 'settempo', bpm }),
 
         /* `knob' is the index loadPiece reported the knob under; `at' a
            transport time, or -1 for the next window. */

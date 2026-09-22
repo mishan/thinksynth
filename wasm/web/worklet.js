@@ -269,6 +269,27 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The piece's text with its `tempo' statement set.
+         *
+         * Asked of this instance because this is where the document is --
+         * tw_piece_load wrote it, and thcGenEdit reads and writes the file
+         * it wrote. The scheduler is not touched: what is heard came from
+         * the stamped tempo command, and this is the other half, which is
+         * the text a reload would come back at.
+         *
+         * "" when the edit was refused, which the page reads as "leave the
+         * box alone". */
+        if (m.type === 'settempo')
+        {
+            this.port.postMessage({
+                type: 'settempo', id: m.id,
+                text: this.M.ccall('tw_piece_set_tempo', 'string',
+                                   ['number'], [m.bpm]),
+            });
+
+            return;
+        }
+
         /* The bytes a Save would write for a channel, and the note that
          * they were kept.
          *
@@ -418,6 +439,7 @@ class ThinkProcessor extends AudioWorkletProcessor
     {
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
+                     tempo: 0, beats: false,
                      knobs: [], instruments: [], listens: [], sinks: [] };
 
         /* Off the panel, so there is one answer to "which knobs are shown"
@@ -465,6 +487,14 @@ class ThinkProcessor extends AudioWorkletProcessor
             description: this.M.UTF8ToString(this.M._tw_piece_description()),
             seeded: this.M._tw_piece_seeded() !== 0,
             seed: this.M._tw_seed(),
+
+            /* What it is running at, and whether that reaches it: the
+               tempo scales beat-valued durations and nothing else, so a
+               piece written in seconds is one the control cannot move.
+               The page offers it where it means something, which is the
+               rule ComposerWindow follows with the same question. */
+            tempo: this.M._tw_tempo(),
+            beats: this.M._tw_uses_beats() !== 0,
             knobs,
             instruments,
             listens,

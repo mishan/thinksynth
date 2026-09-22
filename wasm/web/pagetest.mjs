@@ -299,6 +299,107 @@ try
     check(await page.evaluate(() => window.solo.drawing().seq),
           'and the tracks draw again on the way back');
 
+    /* ---- the tempo ---- */
+
+    /* A sequencer with no tempo is a sequencer that plays at one speed,
+     * and the page had none at all -- the number was in the text it wrote
+     * and nowhere a person could reach.
+     *
+     * What is checked is what is *played*, off the note tape, because a
+     * control that moved a number in a box and nothing else would pass
+     * every check that asks the box. The sequence's first track is four on
+     * the floor over `period = 0.25 beats', so the gap between its onsets
+     * is one beat: 60/112 at the tempo the page writes, and twice that at
+     * half of it.
+     */
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '112' &&
+                    !document.getElementById('tempo').disabled),
+          'the sequence offers its tempo, at what the piece says: 112');
+
+    /* The median gap between onsets, which is a beat. Median rather than
+       the first gap: four tracks sink to four channels and the tape holds
+       all of them, so what is wanted is the spacing that repeats. */
+    const beat = async () =>
+    {
+        await page.waitForFunction(() => window.solo.notes().length >= 6,
+                                   null, { timeout: 30000 });
+
+        const at = await page.evaluate(
+            () => window.solo.notes().map((n) => n.at).sort((a, b) => a - b));
+        const gaps = at.slice(1)
+                       .map((v, i) => v - at[i])
+                       .filter((g) => g > 1e-6)
+                       .sort((a, b) => a - b);
+
+        return gaps[Math.floor(gaps.length / 2)];
+    };
+
+    await page.click('#play');
+
+    const fast = await beat();
+
+    check(Math.abs(fast - 60 / 112) < 0.02,
+          `and a beat is that long: ${fast.toFixed(3)}s, 60/112 is ` +
+          `${(60 / 112).toFixed(3)}`);
+
+    await page.click('#stop');
+    await page.click('#rewind');
+    await page.fill('#tempo', '56');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+    await page.click('#play');
+
+    const slow = await beat();
+
+    check(Math.abs(slow - 60 / 56) < 0.04,
+          `half the tempo is twice the beat: ${slow.toFixed(3)}s, 60/56 ` +
+          `is ${(60 / 56).toFixed(3)}`);
+
+    await page.click('#stop');
+
+    /* And it is written down. A tempo that moved what was playing and
+       left the document saying something else would come back at the
+       document's the moment anything reloaded -- a mode switch is
+       enough. */
+    check(/tempo\s+56\s*;/.test(await page.inputValue('#gen')),
+          'and the piece\'s own text says so');
+
+    await page.selectOption('#mode', 'patch');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').disabled),
+          'a patch has no tempo, and the control says so');
+
+    await page.selectOption('#mode', 'seq');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '56'),
+          'and coming back to the sequence comes back at 56');
+
+    /* A piece written entirely in seconds is one the tempo cannot reach,
+       which is most of the corpus. Offered where it means something and
+       dimmed where it does not, the way the desktop's spinner has always
+       been (ComposerWindow.cpp). */
+    await page.selectOption('#mode', 'piece');
+    await page.selectOption('#piece', 'ebb.gen');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(() =>
+          {
+              const box = document.getElementById('tempo');
+
+              return box.disabled &&
+                     /seconds/.test(
+                         document.getElementById('tempolabel').title);
+          }),
+          'a piece written in seconds dims it, and says why');
+
+    await page.selectOption('#mode', 'seq');
+    await page.evaluate(() => window.solo.settled());
+
     /* ---- the instrument's parameters ---- */
 
     /* The panel this page has never had. Patch mode, because that is the

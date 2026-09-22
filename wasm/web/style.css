@@ -283,6 +283,16 @@ details { margin: 0.8em 0; }
 
 #clock { font: 13px ui-monospace, monospace; }
 
+/* Four digits and the spinner, which is all a bpm ever needs: left to
+   itself a number input takes the width of a text one and pushes the
+   clock off the end of a narrow strip. */
+#tempo { width: 5em; }
+
+/* A control that cannot reach this piece still says what it would be.
+   Dimmed rather than gone, because a tempo box that appears and
+   disappears as pieces load is a strip that jumps. */
+#tempolabel:has(#tempo:disabled) { color: var(--dim); }
+
 /* ---- the keyboard ---- */
 
 /* The keys take whatever width there is and are drawn to fit it: the

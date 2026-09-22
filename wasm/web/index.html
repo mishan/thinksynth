@@ -66,6 +66,16 @@
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <button id="rewind" disabled>Rewind</button>
+
+    <!-- Beats per minute, over the range the desktop's spinner offers.
+         Offered only where it means something: the tempo scales
+         beat-valued durations and nothing else, so on a piece written
+         entirely in seconds it is a control that does nothing, and the
+         title says which of the two this piece is. -->
+    <label id="tempolabel">Tempo
+      <input id="tempo" type="number" min="20" max="300" step="1"
+             value="120" disabled></label>
+
     <span id="clock">0:00.0</span>
   </span>
 

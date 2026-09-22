@@ -532,6 +532,82 @@ async function pickPatch ()
     await loadPatch();
 }
 
+/* ---- the tempo ---- */
+
+/* The text the box held when the piece playing now was loaded.
+ *
+ * A tempo change is two things -- what is heard, and what a reload comes
+ * back at -- and the second writes the `tempo' statement into the
+ * document. The document is a box somebody may have been typing in, so
+ * the write happens only while the box still holds what was loaded.
+ * Anything else and the tempo is live and the text is theirs, which is
+ * the pair of answers that loses nobody's work. */
+let loadedText = '';
+
+/* The control, put where the piece that is playing leaves it.
+ *
+ * Offered only where it means something. The tempo scales beat-valued
+ * durations and nothing else, so on a piece written entirely in seconds it
+ * is a control that does nothing -- which is most of the corpus, and which
+ * the desktop's spinner has said for as long as it has been dimmed
+ * (ComposerWindow.cpp). The sequence this page writes is in beats
+ * throughout, which is what makes it the one mode where this is the
+ * control somebody reaches for first.
+ */
+function showTempo ()
+{
+    const box = $('tempo');
+    const live = piece !== null && composing() && piece.beats;
+
+    box.disabled = !live;
+    $('tempolabel').title = live
+        ? 'Beats per minute. This piece writes durations in beats, so ' +
+          'everything moves together.'
+        : piece === null
+            ? 'Load a piece to set its tempo.'
+            : 'This piece writes every duration in seconds, which the ' +
+              'tempo does not scale. Write a duration as `4 beats\' to ' +
+              'put a stage on the clock.';
+
+    /* Not while it is being typed in: a box that rewrote itself under the
+       caret would make 90 unreachable on the way to 900. */
+    if (piece !== null && document.activeElement !== box)
+        box.value = String(Math.round(piece.tempo));
+}
+
+/* Somebody moved it.
+ *
+ * Both halves, in the order they matter: what is playing first, because
+ * that is what was asked for and it is a stamped command that lands at its
+ * time on every peer; then the text, which is what a reload -- a mode
+ * switch, a Load, a piece chosen and gone back on -- would come back at.
+ */
+async function setTempo ()
+{
+    const box = $('tempo');
+    const bpm = Number(box.value);
+
+    if (synth === null || piece === null || !piece.beats ||
+        !Number.isFinite(bpm) || bpm < Number(box.min) ||
+        bpm > Number(box.max))
+        return;
+
+    synth.transportAt('tempo', -1, bpm);
+    piece.tempo = bpm;
+
+    /* The statement, written by the .gen writer the Composer edits with
+       rather than by a regular expression here: one speller of this
+       format, and it puts the line where that writer's rules put it in a
+       piece that never had one. */
+    const { text } = await synth.pieceSetTempo(bpm);
+
+    if (text === '' || $('gen').value !== loadedText)
+        return;
+
+    $('gen').value = text;
+    loadedText = text;
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -548,6 +624,11 @@ async function loadPiece ()
         return;
 
     let aiming = { placed: new Map(), failed: [] };
+
+    /* What the box held when this load took it. A tempo change writes the
+       statement back into the text, and it may only do that to a document
+       nobody has since typed into -- see showTempo. */
+    loadedText = $('gen').value;
 
     const it = await quietly(async () =>
     {
@@ -586,6 +667,8 @@ async function loadPiece ()
 
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
+
+    showTempo();
 
     /* The redraw, as one thing a harness can wait for.
      *
@@ -1874,6 +1957,11 @@ window.solo = {
        is and how tall the grid behind it said to be. */
     tracks: () => seq?.tracks() ?? [],
 
+    /* The notes the roll is holding, in transport seconds. What a harness
+       about the tempo has to read: a control that moved a number in a box
+       and nothing else would pass every check that asks the box. */
+    notes: () => roll?.notes.map((e) => ({ at: e.at, note: e.note })) ?? [],
+
     /* Every load asked for so far, finished -- including the redraw each
        one ends with.
      *
@@ -1993,6 +2081,7 @@ async function pickMode ()
         piece = null;
         placed = new Map();
         showChannels();
+        showTempo();               /* nothing composing has a tempo */
         await loadPatch();
     }
 }
@@ -2237,6 +2326,12 @@ async function init ()
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
+
+    /* `change' and not `input': a number box fires input on every
+       keystroke, so typing 120 over 90 would send 1, then 12, then 120 --
+       two tempo commands nobody asked for, the first of them below the
+       range. */
+    $('tempo').addEventListener('change', setTempo);
 
     $('down').addEventListener('click', () => keys.shift(-1));
     $('up').addEventListener('click', () => keys.shift(1));
