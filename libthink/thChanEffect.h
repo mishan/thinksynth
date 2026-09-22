@@ -56,6 +56,16 @@
  * load. side<N> is read and never written back: what an effect returns is
  * its own channel's audio.
  *
+ * It may also hear the machine. An effect whose io node declares
+ * live0..live<N-1> is given what the host is capturing -- a microphone, a line
+ * in -- there every window: the modulator a vocoder needs when the thing being
+ * vocoded is a person rather than another channel. Unlike a side it names
+ * nothing, because there is only one thing the machine is hearing, so a graph
+ * asks for it by declaring it and no `.gen' clause is involved. Where no host
+ * is feeding one it is silence, which is what a vocoder with nothing to vocode
+ * should sound like -- and is what keeps every offline path reproducible. See
+ * LIVEPREFIX in think.h and thSynth::feedCapture.
+ *
  * Where no side was named, side<N> is *this* channel. A graph that reads it
  * therefore always has a signal there -- a compressor keyed from side0 is an
  * ordinary compressor until a piece names a kick for it -- which is the rule
@@ -171,6 +181,11 @@ private:
        a second channel -- so an echo pays nothing for this and a vocoder
        pays two buffers. */
     int sideindex_[TH_MAX_CHANNELS];
+
+    /* And live<N>, on the same terms and for the same reason: -1 where the
+       file declared none, which is every effect that is not listening to the
+       machine. */
+    int liveindex_[TH_MAX_CHANNELS];
 
     int sideChan_;
 

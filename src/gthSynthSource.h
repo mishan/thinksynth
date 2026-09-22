@@ -61,6 +61,64 @@ class thSynth;
  * callback which crosses a window boundary does a whole window's work; the
  * alternative is a second thread touching the graph, and thSynth's command
  * queue is single-consumer by construction.
+ *
+ * ---- and the same problem backwards, for a live input ----
+ *
+ * A host capturing audio hands over a device period and the synth wants a
+ * window, so feedInput() is the mirror of the buffer above: periods are
+ * accumulated until a window's worth is there, and that window is handed to
+ * thSynth::feedCapture just before the process() that renders with it. Same
+ * thread on both ends again, so again no ring in the lock-free sense -- a
+ * plain circular buffer with a count.
+ *
+ * TWO CONSEQUENCES WORTH KNOWING, because they are what a live input costs
+ * and neither is a bug.
+ *
+ * A LIVE GRAPH HEARS ONE WINDOW LATE, AND SOMETIMES TWO. Two things add up,
+ * and they are worth telling apart because only the second one is a choice.
+ *
+ * One is produce() being a window ahead: it hands out the window the synth has
+ * already rendered and *then* renders the next, which is what prepare() primes
+ * it for -- otherwise the first callback has nothing but silence to give. The
+ * capture fed to that render is heard one window later. Reordering it to
+ * render-then-copy would remove that window and would change output timing for
+ * every host, so it is not something to fix here.
+ *
+ * The other is the accumulation. A window cannot be served until a window has
+ * arrived, and produce() asks at the top of the window it is rendering -- so
+ * where the device period is *smaller* than the window, the first ask comes
+ * with only a period in hand, the window is rendered with silence, and the
+ * capture lands in the window after it. That costs a second window, and it
+ * costs it steadily rather than only at the start.
+ *
+ *     device period == window      one window
+ *     device period <  window      two
+ *
+ * Which makes the arithmetic:
+ *
+ *     window   rate       period == window   period < window
+ *     1024     44.1 kHz   23.2 ms            46.4 ms
+ *      256     48 kHz      5.3 ms            10.7 ms
+ *      128     48 kHz      2.7 ms             5.3 ms
+ *
+ * and makes a window equal to the device period worth having twice over. In a
+ * browser the period is the worklet's quantum of 128, which is exactly why a
+ * page that wants a live input asks for a window of 128 rather than the 256 it
+ * otherwise runs at: 2.7 ms against 10.7.
+ *
+ * AND THE ALIGNMENT DEPENDS ON THE BLOCK SIZE, which is the one place a live
+ * input breaks the property dspblock exists to check. The *samples* a graph
+ * sees are the samples the device captured, in order, whatever the period --
+ * but which window boundary the accumulation completes on is a function of the
+ * period, so two runs at two block sizes put the same capture against
+ * different windows of the same piece, and the output is not bit-identical.
+ * scripts/dspblock therefore checks a live graph differently: the capture the
+ * graph reconstructs is held to be identical, and the render is not. See
+ * scripts/dspcapture.cpp.
+ *
+ * Nothing is fed to the synth until something has fed this, so every offline
+ * path -- genwav, gencheck, dspcheck -- leaves thSynth's capture buffer at the
+ * zeros it was allocated with and renders reproducibly.
  */
 class gthSynthSource : public gthAudioSource {
 public:
@@ -69,11 +127,37 @@ public:
     void prepare (unsigned maxFrames, unsigned channels);
     void render (float *out, unsigned frames, unsigned channels);
 
+    /* Audio thread. `in' is `frames' frames of `channels' interleaved capture,
+       as the device handed it over, or NULL for a host with nothing to give.
+       Summed to mono -- thSynth::feedCapture says why the capture is mono --
+       and accumulated into a window. Called from the same callback as
+       render(), before it. */
+    void feedInput (const float *in, unsigned frames, unsigned channels);
+
     /* Frames produced but not yet handed to a callback. Test hook. */
     unsigned pending (void) const { return fill_ - pos_; }
 
+    /* Capture frames dropped because a whole period did not fit, and windows
+       rendered with no capture ready *after the stream got going*. Both should
+       stay at zero on a host whose periods and windows are what it says they
+       are; a run that finds either moving has found the accumulator too small
+       or the host feeding at the wrong rate.
+
+       Neither is counted before the first feedInput, so a host that captures
+       nothing reports nothing -- and a starve is not counted until a window
+       has actually been served, because the one or two windows it takes for a
+       period that does not divide the window to accumulate the first one are
+       the stream starting rather than a gap in it. A counter with known-benign
+       nonzero values is a counter nobody reads. */
+    unsigned long inputDropped (void) const { return indropped_; }
+    unsigned long inputStarved (void) const { return instarved_; }
+
+    /* Capture frames waiting for a window to complete. Test hook. */
+    unsigned inputPending (void) const { return incount_; }
+
 private:
     void produce (unsigned channels);
+    void feedCapture (void);
 
     thSynth *synth_;
 
@@ -84,6 +168,23 @@ private:
     unsigned channels_;   /* what window_ is currently interleaved for */
     unsigned fill_;       /* frames held */
     unsigned pos_;        /* frames already handed out */
+
+    /* The capture accumulator. Circular, mono, and sized in prepare() to a
+       window plus a device period, which is what makes a period larger than a
+       window fit -- the case `maxFrames' is in the interface for. */
+    std::vector<float> incoming_;
+    unsigned intail_;     /* the next frame to hand the synth */
+    unsigned incount_;    /* frames waiting */
+
+    /* One window, contiguous, because feedCapture takes a pointer and a
+       length and the accumulator's window may wrap. */
+    std::vector<float> inwindow_;
+
+    bool infed_;          /* feedInput has been called at all       */
+    bool inserved_;       /* a window has been handed over; see above */
+
+    unsigned long indropped_;
+    unsigned long instarved_;
 };
 
 #endif /* GTH_SYNTHSOURCE_H */

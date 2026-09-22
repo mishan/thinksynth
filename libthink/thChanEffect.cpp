@@ -37,6 +37,7 @@ thChanEffect::thChanEffect (thSynthTree *tree, int channels, int windowlen,
         inindex_[i] = -1;
         outindex_[i] = -1;
         sideindex_[i] = -1;
+        liveindex_[i] = -1;
     }
 
     if (tree_ == NULL || tree_->IONode() == NULL || windowlen <= 0)
@@ -241,6 +242,27 @@ void thChanEffect::indexIOArgs (int windowlen)
         arg->allocate(windowlen);
         sideindex_[i] = arg->index();
     }
+
+    /* And live<N>, on exactly the terms above: invented for nobody, so an
+       echo pays nothing, and a file that declares one and is fed nothing
+       reads zeros. */
+    for (int i = 0; i < channels_ && i < TH_MAX_CHANNELS; i++)
+    {
+        string name = LIVEPREFIX;
+
+        name += (char)(i + '0');
+
+        if (io->getArg(name) == NULL)
+            continue;
+
+        thArg *arg = io->setArg(name, 0);
+
+        if (arg == NULL)
+            continue;
+
+        arg->allocate(windowlen);
+        liveindex_[i] = arg->index();
+    }
 }
 
 /* Audio thread. */
@@ -338,6 +360,49 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
 
         for (int j = 0; j < windowlen; j++)
             dst[j] = side[j * sidechannels + from];
+    }
+
+    /* And what the machine is hearing, where the graph asked for it.
+     *
+     * One buffer for every live<N>, because the capture is mono and a graph
+     * that declares two is handed the one signal twice -- the rule side<N>
+     * follows for a mono side, and the one thing that makes a vocoder wired
+     * for stereo work with a microphone plugged into it.
+     *
+     * A synth whose window disagrees with the one being run is read only as
+     * far as it goes and zero-filled past it. The two cannot disagree for an
+     * effect the synth built, since it was built with the synth's window; they
+     * can for one a harness made by hand, and a read off the end of the
+     * capture buffer is not the way to find that out. */
+    thSynth *synth = tree_->synth();
+    const float *live = synth ? synth->capture() : NULL;
+    const int have = synth ? synth->getWindowlen() : 0;
+    const int take = (have < windowlen) ? have : windowlen;
+
+    for (int c = 0; c < channels_ && c < TH_MAX_CHANNELS; c++)
+    {
+        if (liveindex_[c] < 0)
+            continue;
+
+        thArg *arg = tree_->resolveIOArg(liveindex_[c]);
+
+        if (arg == NULL || arg->values() == NULL ||
+            (int)arg->len() != windowlen)
+            continue;
+
+        float *dst = arg->values();
+
+        if (live == NULL || take <= 0)
+        {
+            memset(dst, 0, (size_t)windowlen * sizeof(float));
+            continue;
+        }
+
+        memcpy(dst, live, (size_t)take * sizeof(float));
+
+        if (take < windowlen)
+            memset(dst + take, 0,
+                   (size_t)(windowlen - take) * sizeof(float));
     }
 
     /* Every node, not setActiveNodes(): an effect is entitled to be nothing

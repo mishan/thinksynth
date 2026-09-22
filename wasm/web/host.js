@@ -84,8 +84,15 @@ export async function createSynth (ctx, { windowlen = 256,
         ctx.audioWorklet.addModule(new URL('worklet.js', import.meta.url)),
     ]);
 
+    /* One input, for a live signal to arrive on: a microphone, a line in,
+       anything a MediaStream carries. Declared whether or not anything is ever
+       connected to it, because a worklet's input count is fixed at
+       construction and asking for the mic is a click that happens later. An
+       input nothing is connected to costs the worklet an empty array per
+       quantum and the graph nothing -- see mic.js, which is what connects one,
+       and the worklet's feedInput, which is what reads it. */
     const node = new AudioWorkletNode(ctx, 'thinksynth', {
-        numberOfInputs: 0,
+        numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [2],
     });

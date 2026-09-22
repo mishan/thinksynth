@@ -27,6 +27,21 @@
     <option value="piece">a piece</option>
   </select></label>
 
+  <!-- The live input: what the machine is hearing, into whatever graph asked
+       for it. The window is fixed once the synth exists, so it is chosen
+       before Start -- 128 is the one to pick for a live input, because the
+       worklet's quantum is 128 and a window that matches it quarters what a
+       live graph hears late. See wasm/web/mic.js. -->
+  <span id="livein" class="group">
+    <label>Window <select id="window">
+      <option value="256">256</option>
+      <option value="128">128 (for live in)</option>
+    </select></label>
+    <button id="mic" disabled>Live in</button>
+    <span id="miclevel" class="hint level"></span>
+    <span id="micstatus" class="hint"></span>
+  </span>
+
   <!-- Patch mode: one .dsp, played from the keyboard. -->
   <span id="patchmode" class="group">
     <label>Patch <select id="patch"></select></label>

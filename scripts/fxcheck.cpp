@@ -215,6 +215,28 @@ static string sideEffect (const string &nodes, const string &out0,
         "io ionode;\n";
 }
 
+/* And the same again for live<N>: an effect that listens to whatever the host
+ * is capturing. Declared the way in<N> and side<N> are, written by the engine
+ * only where it was asked for, and -- unlike a side -- naming nothing, because
+ * there is only one thing the machine is hearing.
+ */
+static string liveEffect (const string &nodes, const string &out0,
+                          const string &out1, bool bothSides)
+{
+    return
+        string("name \"fxcheck-live\";\n\n") +
+        "node ionode {\n"
+        "    channels = 2;\n"
+        "    in0 = 0;\n"
+        "    in1 = 0;\n"
+        "    live0 = 0;\n" +
+        (bothSides ? "    live1 = 0;\n" : "") +
+        "    out0 = " + out0 + ";\n"
+        "    out1 = " + out1 + ";\n"
+        "};\n\n" + nodes +
+        "io ionode;\n";
+}
+
 /* ---- measuring ---------------------------------------------------------- */
 
 static double peak (const vector<float> &v)
@@ -284,8 +306,20 @@ struct Session
     thSynth synth;
     vector<float> left;
 
+    /* One window of capture, fed before every process() -- which is where a
+       host feeds it, and the only place a graph can see it. Empty means a host
+       that captures nothing, and the synth's own buffer stays at the zeros it
+       was allocated with. */
+    vector<float> capture;
+
     Session (const string &pluginPath)
         : synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES) {}
+
+    /* A window of `value' at every sample. */
+    void captureConstant (float value)
+    {
+        capture.assign((size_t)synth.getWindowlen(), value);
+    }
 
     /* `windows' windows of channel 0's left side, appended. */
     void run (int windows)
@@ -294,6 +328,9 @@ struct Session
 
         for (int w = 0; w < windows; w++)
         {
+            if (!capture.empty())
+                synth.feedCapture(&capture[0], (unsigned)capture.size());
+
             synth.process();
 
             const float *out = synth.getOutput();
@@ -778,6 +815,225 @@ int main (int argc, char **argv)
                          (refusedRing ? "" : "the ring closed; ") +
                          (refusedRange ? "" : "channel 99 was taken"));
             }
+        }
+    }
+
+    /* ---- and the machine ----------------------------------------------- */
+
+    /* live0 carries what the host fed, and nothing when it fed nothing.
+     *
+     * An effect that is nothing but `out0 = live0' on a channel with an
+     * instrument and no note on it: whatever comes out is the capture, since
+     * there is no other signal in the graph. Three passes rather than one
+     * absolute number, because what reaches getOutput() has been through the
+     * channel amplitude, the master gain and the limiter, and none of those is
+     * what is being tested: nothing fed is silence, a constant fed is a
+     * constant out, and twice the constant is twice the output. That is read,
+     * linear, and absent when absent, which is the whole claim.
+     *
+     * Constants rather than a tone, deliberately. A window of one value tells
+     * a buffer being carried from an off-by-one buffer being carried: if the
+     * engine handed the graph the wrong window it would still be the same
+     * number, so the *third* pass is the one that means anything, and a
+     * constant makes the second pass's "every sample identical" free.
+     */
+    {
+        const string fx = liveEffect("", "ionode->live0", "ionode->live0",
+                                     false);
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            double quiet = -1, once = 0, twice = 0;
+            bool flat = false;
+
+            for (int pass = 0; pass < 3; pass++)
+            {
+                Session s(pluginPath);
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadEffect(fxFile, 0, -1) == NULL)
+                {
+                    fail("an effect with a live input loads", "");
+                    break;
+                }
+
+                if (pass == 1) s.captureConstant(0.25f);
+                if (pass == 2) s.captureConstant(0.5f);
+
+                s.run(2);
+
+                const vector<float> got = s.take();
+                const double top = peak(got);
+
+                if (pass == 0)
+                    quiet = top;
+                else if (pass == 1)
+                {
+                    once = top;
+
+                    /* A constant in is a constant out, which is also the
+                       check that no part of the window came from anywhere
+                       else. */
+                    flat = !got.empty();
+
+                    for (size_t i = 1; i < got.size() && flat; i++)
+                        if (fabs(got[i] - got[0]) > 1e-6)
+                            flat = false;
+                }
+                else
+                    twice = top;
+            }
+
+            okOrFail(quiet >= 0 && quiet < 1e-9 && once > 0 && flat &&
+                     fabs(twice - once * 2) < once * 0.001,
+                     "live0 carries what the host captured, and silence where "
+                     "it captured nothing",
+                     "fed nothing " + num(quiet) + ", fed 0.25 " + num(once) +
+                     (flat ? "" : " (not flat across the window)") +
+                     ", fed 0.5 " + num(twice));
+        }
+    }
+
+    /* live0 and live1 are the same signal.
+     *
+     * The capture is mono, so a graph wired for two channels is handed the one
+     * signal twice -- the rule side<N> already follows for a mono side, and
+     * what makes a stereo vocoder work with one microphone in it. Measured by
+     * subtracting one from the other, which is silence if and only if they are
+     * the same samples.
+     */
+    {
+        const string fx = liveEffect(
+            "node diff math::sub {\n"
+            "    in0 = ionode->live0;\n"
+            "    in1 = ionode->live1;\n"
+            "};\n\n", "diff->out", "diff->out", true);
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadEffect(fxFile, 0, -1) == NULL)
+                fail("an effect with two live inputs loads", "");
+            else
+            {
+                s.captureConstant(0.4f);
+                s.run(2);
+
+                const vector<float> got = s.take();
+
+                okOrFail(!got.empty() && allFinite(got) && peak(got) < 1e-9,
+                         "live1 is the same signal as live0, since the "
+                         "capture is mono",
+                         "their difference peaks at " + num(peak(got)));
+            }
+        }
+    }
+
+    /* A graph that declares no live0 renders the same whether or not a host is
+     * capturing -- bit for bit, not nearly.
+     *
+     * This is the property the rest of the tree rests on. Every shipped graph
+     * declares no live0, so a machine with a microphone open has to render
+     * every one of them exactly as a machine without one does, and `nothing is
+     * written where nothing was asked for' is what makes that true rather than
+     * `nothing is read'.
+     */
+    {
+        const string fx = effect("", "", "ionode->in0", "ionode->in1");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            vector<float> dry, wet;
+
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Session s(pluginPath);
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadEffect(fxFile, 0, -1) == NULL)
+                {
+                    fail("a pass-through effect loads", "");
+                    break;
+                }
+
+                if (pass == 1)
+                    s.captureConstant(0.5f);
+
+                s.synth.addNote(0, 60, 100);
+                s.run(4);
+
+                if (pass == 0) dry = s.take();
+                else wet = s.take();
+            }
+
+            bool same = dry.size() == wet.size() && !dry.empty();
+            size_t at = 0;
+
+            for (size_t i = 0; i < dry.size() && same; i++)
+                if (memcmp(&dry[i], &wet[i], sizeof(float)) != 0)
+                {
+                    same = false;
+                    at = i;
+                }
+
+            /* Silence passes the comparison and fails the assertion, so it
+             * needs a detail of its own: reporting it as a difference sends
+             * whoever reads the line looking for one that is not there. */
+            okOrFail(same && peak(dry) > 0,
+                     "a graph that asks for no live input renders bit for bit "
+                     "the same while a host is capturing",
+                     dry.size() != wet.size()
+                         ? "the two renders are different lengths"
+                         : dry.empty()
+                             ? "neither render produced a frame"
+                             : same
+                                 ? "it rendered silence"
+                                 : "they differ at frame " + num((double)at));
+        }
+    }
+
+    /* And the master effect hears it too, which is the shortest way to use one:
+     * a piece's own `effect' clause, no instrument and no side, with the mix as
+     * the carrier and the machine as the modulator. That is what
+     * dsp/fx/vocoder-mic.dsp is.
+     */
+    {
+        const string fx = liveEffect(
+            "node sum math::add {\n"
+            "    in0 = ionode->in0;\n"
+            "    in1 = ionode->live0;\n"
+            "};\n\n", "sum->out", "sum->out", false);
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            double dry = 0, wet = 0;
+
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Session s(pluginPath);
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadMasterEffect(fxFile) == NULL)
+                {
+                    fail("a master effect with a live input loads", "");
+                    break;
+                }
+
+                if (pass == 1)
+                    s.captureConstant(0.3f);
+
+                s.run(2);
+
+                if (pass == 0) dry = peak(s.take());
+                else wet = peak(s.take());
+            }
+
+            okOrFail(dry < 1e-9 && wet > 0,
+                     "a master effect hears the machine, so a piece reaches a "
+                     "live input with one clause and no instrument",
+                     "no capture " + num(dry) + ", capture " + num(wet));
         }
     }
 

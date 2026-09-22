@@ -188,6 +188,12 @@ endif()
 # is deliberately free of both gtkmm and RtAudio so this can link it directly.
 think_harness(dspblock EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
 
+# And the same path backwards: a live input accumulated from device periods
+# into windows. Its own harness rather than three more block sizes in dspblock,
+# because the property is not the same property -- see the head of
+# dspcapture.cpp.
+think_harness(dspcapture EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
+
 # The MIDI thread handoff, without a MIDI device. gthMidiQueue needs glibmm
 # for Glib::Dispatcher but not gtkmm, so this stays headless.
 think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
@@ -500,6 +506,10 @@ add_test(NAME dspblock
                  "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/anasync.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/mfm01.dsp")
+
+# Writes its own graphs, so it needs the plugins and nothing else.
+add_test(NAME dspcapture
+         COMMAND dspcapture -p "${PROJECT_BINARY_DIR}/plugins/")
 
 # Cheap and entirely self-contained, so it runs the full sweep rather than a
 # representative sample.

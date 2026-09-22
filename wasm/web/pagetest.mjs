@@ -142,12 +142,29 @@ try
     await page.click('#down');
     check(await page.textContent('#range') === range, 'and an octave back');
 
+    /* The live-input controls before anything has started: the window is a
+       choice until the synth takes one, and the microphone cannot be asked for
+       until there is a node to connect it to. */
+    check(await page.isDisabled('#mic') &&
+          !(await page.isDisabled('#window')),
+          'the microphone waits for a synth and the window is still a choice');
+
     /* Start, then a piece, and the knobs it declared. */
     await page.click('#start');
     await page.waitForFunction(
         () => !document.getElementById('loadpiece').disabled,
         null, { timeout: 60000 });
     check(true, 'the synth started');
+
+    /* And after it: the window is spent, and the microphone is offerable --
+       on 127.0.0.1, which is a secure context, so micAvailable() is true and
+       the button is live. Clicking it is mictest.mjs's, which has a browser
+       launched with a fake device to answer with; here the claim is only that
+       the page put the two controls in the right state. */
+    check(await page.isDisabled('#window') &&
+          !(await page.isDisabled('#mic')),
+          'the window is fixed once the synth has one, and the microphone is '
+          + 'offered');
 
     /* ---- the sequencer, in the document ---- */
 

@@ -126,6 +126,29 @@ using namespace std;
  * the piece's business. */
 #define SIDEPREFIX "side"
 
+/* And the live input, where a host is feeding one.
+ *
+ * live0..live<N-1> on an effect's io node carry what the machine is hearing
+ * this window -- a microphone, a line in, whatever the host opened -- written
+ * by the engine the way in<N> and side<N> are, and never read back.
+ *
+ * It is a *third* family rather than a second kind of side because the two
+ * answer different questions. A side names a channel, which is a thing the
+ * piece decides and the file cannot; live names nothing, because there is
+ * only ever one thing the machine is hearing. So a graph asks for it by
+ * declaring it (`live0 = 0;') and no `.gen' clause is involved at all --
+ * which is what lets a vocoder driven by a voice be one line on a piece.
+ *
+ * The capture is mono (thSynth::feedCapture says why), so a graph that
+ * declares live0 and live1 is handed the one signal twice, which is the rule
+ * side<N> already follows for a mono side.
+ *
+ * Silence where no host is feeding one, and silence is also what it should
+ * sound like: a vocoder with nothing to vocode. Every offline path -- genwav,
+ * gencheck, dspcheck -- feeds nothing and therefore reads zeros, which is
+ * what keeps a graph with a live input in it reproducible. */
+#define LIVEPREFIX "live"
+
 /* How a channel effect's chanargs are named from outside.
  *
  * `fx.delay' is the effect's `@delay'; a bare `delay' is the instrument's.

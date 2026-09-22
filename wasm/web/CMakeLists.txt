@@ -343,8 +343,8 @@ target_link_options(thinkweb PRIVATE
 #
 set(SITE_SOURCES index.html jam.html style.css panes.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js roll.js worklet.js
-                engine.js mirror.js canvasview.js composerview.js seqview.js
-                nodeview.js panes.js popover.js tapediff.js)
+                engine.js mic.js mirror.js canvasview.js composerview.js
+                seqview.js nodeview.js panes.js popover.js tapediff.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -525,7 +525,8 @@ else()
   # what it pins: a dependency bumped without it here would rebuild
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
-                  roll.js host.js keyboard.js panel.js patch.js ../tape.mjs
+                  roll.js host.js keyboard.js panel.js patch.js mic.js
+                  ../tape.mjs
                   canvasview.js composerview.js nodeview.js panes.js
                   popover.js tapediff.js bundle.mjs package-lock.json)
   set(JAM_DEPENDS "")

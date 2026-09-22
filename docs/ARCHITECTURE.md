@@ -375,6 +375,39 @@ running at double speed with every other half-window thrown away. Only
 `nframes == windowlen` was ever correct, which happened to be true of JACK's
 default period on Linux and of nothing else.
 
+### And the same path backwards, for a live input
+
+A host that captures audio hands over a device period; the graph reads a whole
+window. So `gthSynthSource::feedInput` is the mirror of the buffer above:
+periods are accumulated, and a completed window is handed to
+`thSynth::feedCapture` immediately before the `process()` that renders with it.
+An effect graph reads it as `live0`…`live<N-1>` on its io node
+([DSP_FORMAT.md](DSP_FORMAT.md)); nothing else in the engine touches it.
+
+Both ends are the same thread again — a duplex callback is handed the period it
+captured and the period it must fill in one call — so again no lock-free ring,
+just a circular buffer with a count.
+
+Two consequences, neither a bug:
+
+**A live graph hears one window late, or two.** One because `produce()` hands
+out the window it has and renders the next; a second where the device period is
+*smaller* than the window, because then the first ask for a window of capture
+comes with only a period in hand and that window is rendered with silence. In a
+browser the period is the worklet's quantum of 128, which is the whole reason
+the page offers a window of 128 beside its usual 256.
+
+**And the alignment depends on the block size**, which is the one place a live
+input breaks the property `scripts/dspblock` exists to check. The *samples* a
+graph sees are the samples the device captured, in order, whatever the period —
+but which window boundary the accumulation completes on is a function of the
+period, so the render is not bit-identical across block sizes.
+`scripts/dspcapture` checks the half that holds and says why.
+
+Nothing is fed to the synth until something has fed the source, so every
+offline path — `genwav`, `gencheck`, `dspcheck` — leaves the capture buffer at
+the zeros it was allocated with and renders reproducibly.
+
 ### MIDI crosses a thread boundary
 
 RtMidi delivers on its own thread, and Windows has no file-descriptor story to

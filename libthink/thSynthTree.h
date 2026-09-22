@@ -246,8 +246,18 @@ public:
 
     void buildSynthTree (void);
     void listNodes(void);
-protected:
+
+    /* The synth this tree belongs to. Carried by the copy constructor, so a
+     * voice's copy of a channel's prototype names the same one.
+     *
+     * Public since a channel effect asks it for the live input (thChanEffect,
+     * LIVEPREFIX in think.h). It was protected for no reason anybody wrote
+     * down and nothing outside the class had ever wanted it; a plain inline
+     * accessor moving between sections changes no layout and no symbol that
+     * anything links, so this is not the soname question that
+     * plugins/osc/sampleslot.h declined to open. */
     thSynth *synth (void) const { return synth_; }
+
 private:
     void processHelper (unsigned int windowlen, thNode *node);
     void setActiveNodesHelper (thNode *node);

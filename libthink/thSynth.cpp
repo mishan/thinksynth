@@ -63,6 +63,11 @@ thSynth::thSynth (int windowlen, int samples)
        thChans and thWindowlen */
     output_ = new float[thOutputSamples(channels_, windowlen_)];
 
+    /* Zeroed, and that is the whole of the default: a host that never feeds
+       one renders a graph with a live input in it as silence. See
+       feedCapture. */
+    capture_ = new float[windowlen_]();
+
     /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
        thread can iterate it without racing a resize. */
     midiChannelCnt_ = TH_MIDI_CHANNELS;
@@ -112,6 +117,11 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
        thChans and thWindowlen */
     output_ = new float[thOutputSamples(channels_, windowlen_)];
 
+    /* Zeroed, and that is the whole of the default: a host that never feeds
+       one renders a graph with a live input in it as silence. See
+       feedCapture. */
+    capture_ = new float[windowlen_]();
+
     /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
        thread can iterate it without racing a resize. */
     midiChannelCnt_ = TH_MIDI_CHANNELS;
@@ -147,6 +157,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 thSynth::~thSynth (void)
 {
     delete [] output_;
+    delete [] capture_;
 
     /* The audio thread is expected to be stopped by now, so both queues can be
        emptied here without racing anything.
@@ -1980,6 +1991,35 @@ float *thSynth::getChanBuffer (int chan)
     return &output_[chan * windowlen_];
 }
 
+/* Audio thread, from the host, before the process() that will render with it.
+ *
+ * A whole window or nothing: a window part filled with capture and part with
+ * whatever the last one left is a discontinuity a graph cannot tell from
+ * signal, which is thSampleRing's argument against a partial write and it
+ * holds here too. So a short feed is zero-filled to the end and a long one is
+ * truncated -- the host's accumulator (gthSynthSource) is what turns a device
+ * period into a window, and this is what happens when nobody did. */
+void thSynth::feedCapture (const float *mono, unsigned frames)
+{
+    if (capture_ == NULL || windowlen_ <= 0)
+        return;
+
+    const unsigned len = (unsigned)windowlen_;
+
+    if (mono == NULL || frames == 0)
+    {
+        memset(capture_, 0, (size_t)len * sizeof(float));
+        return;
+    }
+
+    const unsigned take = (frames < len) ? frames : len;
+
+    memcpy(capture_, mono, (size_t)take * sizeof(float));
+
+    if (take < len)
+        memset(capture_ + take, 0, (size_t)(len - take) * sizeof(float));
+}
+
 void thSynth::setWindowlen (int windowlen)
 {
     /* XXX: fixme */
@@ -1988,5 +2028,7 @@ void thSynth::setWindowlen (int windowlen)
     windowlen_ = clampWindowlen(windowlen);
     delete [] output_;
     output_ = new float[thOutputSamples(channels_, windowlen_)];
+    delete [] capture_;
+    capture_ = new float[windowlen_]();
 #endif
 }

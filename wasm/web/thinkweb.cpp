@@ -208,6 +208,9 @@ struct Scheduled
 thSynth              *synth_;
 gthSynthSource       *source_;
 std::vector<float>    block_;
+
+/* Where the page writes the quantum's capture, mono. See tw_input. */
+std::vector<float>    incoming_;
 std::vector<Command>  pending_;     /* in order: see push() */
 double                rendered_;    /* frames handed out so far */
 double                rate_;
@@ -805,6 +808,7 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
 
     source_->prepare((unsigned)maxFrames, TW_CHANNELS);
     block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
+    incoming_.assign(maxFrames > 0 ? (size_t)maxFrames : 1, 0.0f);
     pending_.reserve(TW_PENDING);
     scheduled_.reserve(TW_PENDING);
 
@@ -2547,6 +2551,68 @@ EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
  * this is the first host to lean on (docs/JAM.md). The scheduler's own commands
  * are applied inside the step, at the time each was stamped for; step() above
  * says why. */
+/* ---- the live input ----------------------------------------------------
+ *
+ * What the machine is hearing, for the quantum about to be rendered. A graph
+ * reaches it through live0..live<N-1> on a channel effect's io node
+ * (think.h, LIVEPREFIX); dsp/fx/vocoder-mic.dsp is the one that does.
+ *
+ * A buffer the page writes into rather than an array it passes, for tw_render's
+ * reason in reverse: a quantum of capture crosses this boundary 375 times a
+ * second, and marshalling an array each time would allocate 375 times a second
+ * in a worklet. The page asks once for the pointer and the capacity and writes
+ * into the heap after that.
+ *
+ * Mono, because thSynth's capture is (thSynth::feedCapture says why), and the
+ * sum of the track's channels is the page's to do -- it has the planar buffers
+ * already and the engine would have to be handed an interleave it does not
+ * otherwise want.
+ *
+ * `tw_capture' and not `tw_input': tw_input next door is a gesture on a
+ * composer's picture, and the engine calls this side the capture anyway
+ * (thSynth::feedCapture).
+ *
+ * Called before tw_render, from the same process() call, which is where a
+ * duplex callback has it. A quantum the page does not call this for is a
+ * quantum of silence: the accumulator hears the gap and says so rather than
+ * handing the graph the last window again (gthSynthSource).
+ */
+EMSCRIPTEN_KEEPALIVE float *tw_capture_buffer (void)
+{
+    return incoming_.empty() ? NULL : incoming_.data();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_capture_capacity (void)
+{
+    return (int)incoming_.size();
+}
+
+/* `frames' of it, now in the buffer. */
+EMSCRIPTEN_KEEPALIVE void tw_capture (int frames)
+{
+    if (source_ == NULL || incoming_.empty() || frames <= 0)
+        return;
+
+    if (frames > (int)incoming_.size())
+        frames = (int)incoming_.size();
+
+    source_->feedInput(incoming_.data(), (unsigned)frames, 1);
+}
+
+/* Capture frames the accumulator had to throw away, and windows it had none
+   ready for once the stream was running. Both stay at zero on a page whose
+   quanta and window are what they say they are; the page shows them for the
+   same reason it shows the late-command count. */
+EMSCRIPTEN_KEEPALIVE double tw_capture_dropped (void)
+{
+    return source_ ? (double)source_->inputDropped() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_capture_starved (void)
+{
+    return source_ ? (double)source_->inputStarved() : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
 {
     const int len = synth_->getWindowlen();

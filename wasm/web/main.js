@@ -64,6 +64,7 @@
 import { createComposerView } from './composerview.js';
 import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
+import { micAvailable, openMic } from './mic.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
@@ -172,6 +173,9 @@ const PATCH_CHANNEL = 0;
 
 let ctx = null;
 let synth = null;
+let mic = null;                  /* what openMic returned, or null */
+let micPeak = 0;                 /* the loudest capture frame the worklet saw */
+let micDropped = 0;
 let keyboard = null;
 let keys = null;                 /* the computer keyboard as a musical one */
 let keyfocus = null;             /* and who has it, the page or the keys  */
@@ -361,6 +365,109 @@ function shifted (lowest)
     showLatency();
 }
 
+/* ---- the live input ---- */
+
+/* The window the synth is made with, read once at Start because thSynth takes
+ * it at construction and setWindowlen is a no-op.
+ *
+ * It is on the page rather than a constant because of what a live input costs.
+ * The worklet's quantum is 128 and a window of 256 means the capture for a
+ * window is only complete after the window that wanted it has already been
+ * rendered -- so a live graph hears two windows late at 256 and one at 128,
+ * 10.7 ms against 2.7. gthSynthSource's header has the arithmetic.
+ */
+function chosenWindow ()
+{
+    const n = Number($('window').value);
+
+    return Number.isFinite(n) && n > 0 ? n : 256;
+}
+
+/* What a live graph hears late at the window in use, which is the number the
+   window select exists for. */
+function captureLatency ()
+{
+    if (ctx === null || synth === null)
+        return 0;
+
+    /* One window from the source running a window ahead, and a second where
+       the quantum is smaller than the window, because then the accumulation
+       is never ready in time. */
+    const windows = synth.windowlen > 128 ? 2 : 1;
+
+    return windows * synth.windowlen / ctx.sampleRate;
+}
+
+/* The level, as a bar and a number, for the one job it has: a microphone with
+ * no automatic gain control arrives at whatever the room gives it, so the
+ * vocoder's Mic gain has to be set by hand and this is what to set it by. Talk
+ * and watch it move.
+ *
+ * dBFS rather than the raw float, because the useful range is the quiet end --
+ * 0.03 and 0.15 are both "speech" and are 14 dB apart, and as decimals they
+ * look like the same small number. */
+function showMicLevel ()
+{
+    if (mic === null)
+        return;
+
+    /* A floor rather than -Infinity on silence, and it is the floor the bar is
+       drawn against too. */
+    const db = micPeak > 0.0001 ? 20 * Math.log10(micPeak) : -80;
+    const filled = Math.max(0, Math.min(10, Math.round((db + 60) / 6)));
+
+    $('miclevel').textContent =
+        `${'#'.repeat(filled)}${'.'.repeat(10 - filled)} ` +
+        `${db <= -80 ? '--' : db.toFixed(0)} dB` +
+        (micDropped > 0 ? `  ${micDropped} dropped` : '');
+}
+
+async function toggleMic ()
+{
+    if (synth === null)
+        return;
+
+    if (mic !== null)
+    {
+        mic.close();
+        mic = null;
+        micPeak = 0;
+        $('mic').textContent = 'Live in';
+        $('micstatus').textContent = '';
+        $('miclevel').textContent = '';
+        showLatency();
+        return;
+    }
+
+    $('mic').disabled = true;
+    $('micstatus').textContent = 'asking...';
+
+    try
+    {
+        mic = await openMic(ctx, synth.node);
+    }
+    catch (e)
+    {
+        $('micstatus').textContent = e.message;
+        $('mic').disabled = false;
+        return;
+    }
+
+    $('mic').textContent = 'Live in: on';
+    $('mic').disabled = false;
+
+    /* The device, what it costs, and anything the browser would not switch
+       off -- which is worth saying out loud, because a vocoder through an
+       automatic gain control sounds broken rather than absent. */
+    const warnings = mic.warnings();
+
+    $('micstatus').textContent =
+        `${mic.label}, ${ms(captureLatency())} late` +
+        (warnings.length > 0 ? `; ${warnings.join('; ')}` : '');
+
+    showLatency();
+}
+
 /* ---- what the browser admits to ---- */
 
 function showLatency ()
@@ -377,6 +484,8 @@ function showLatency ()
         `synth window     ${synth.windowlen} frames, ` +
         `${ms(synth.windowlen / rate)}\n` +
         `worklet quantum  128 frames, ${ms(128 / rate)}\n` +
+        `live in          ${mic === null ? 'off'
+                                        : `${ms(captureLatency())} late`}\n` +
         `octave           Z = ${noteName(keys.lowest)}\n` +
         `tape v mirror    ${diff.summary()}`;
 }
@@ -1227,9 +1336,13 @@ async function start ()
     try
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
-        synth = await createSynth(ctx, { windowlen: 256, onLog: log,
+        synth = await createSynth(ctx, { windowlen: chosenWindow(),
+                                         onLog: log,
                                          onTape: (m) =>
                                          {
+                                             micPeak = m.capture ?? 0;
+                                             micDropped = m.captureDropped ?? 0;
+
                                              diff.take('worklet', m);
                                              roll.tape(m);
 
@@ -1258,6 +1371,16 @@ async function start ()
         $('start').disabled = false;
         return;
     }
+
+    /* Here rather than at the end of start(), because these two are about the
+       synth and everything below is about what to play on it. The window is the
+       synth's now, so the choice is spent; the microphone is a click away, and
+       asking for one needs a gesture besides. */
+    $('window').disabled = true;
+    $('mic').disabled = !micAvailable();
+
+    if (!micAvailable())
+        $('micstatus').textContent = 'needs https, or localhost';
 
     /* The instruments a piece may name, before any piece asks for one: a
        worklet has no file system of its own and cannot fetch. All at once,
@@ -1438,6 +1561,10 @@ async function start ()
 
     showLatency();
     setInterval(showLatency, 500);
+
+    /* Faster than the rest of the chrome, because this one is being watched
+       while somebody talks into it rather than read once. */
+    setInterval(showMicLevel, 100);
 }
 
 /* ---- the composer view ---- */
@@ -1994,6 +2121,7 @@ async function init ()
     showRange($('range'), keyboard);
 
     $('start').addEventListener('click', start);
+    $('mic').addEventListener('click', toggleMic);
     $('mode').addEventListener('change', pickMode);
 
     $('load').addEventListener('click', loadPatch);
