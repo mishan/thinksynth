@@ -783,7 +783,8 @@ between a category and a schema.
 statement rather than a `# @category` comment because the other two structured
 comments — a layout and a probe — are the editor's business and the engine has
 no use for them, where this is a fact about the file. `thSynthTree::category()`
-has it, a `.patch` can inherit its graph's, and there is one place it lives.
+has it, nothing derives it from anywhere else — a `.patch` does not inherit
+its graph's, for the reason given above — and there is one place it lives.
 
 **The word is reserved.** `.dsp` keywords are hard: the lexer returns `CAT` for
 `category` wherever it appears, so no graph may use it as a node or an arg

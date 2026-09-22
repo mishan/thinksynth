@@ -1687,7 +1687,7 @@ void MainSynthWindow::openDspBrowser (bool effects, int chan)
         {
             return dspRows(catalog.get(), effects, needle);
         },
-        dspDir_, current);
+        prevDir_.empty() ? dspDir_ : prevDir_, current);
 
     browser->setEmptyNote("<i>No graphs in</i>\n<tt>" +
                           Glib::Markup::escape_text(dspDir_) + "</tt>\n"
@@ -1739,9 +1739,9 @@ void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
         return;
     }
 
-    /* Only a path moves the chooser's folder. A name out of the catalog says
-       nothing about a directory -- it came out of the shipped tree, which is
-       where the chooser already opens. */
+    /* Only a path moves the chooser's folder. A name out of the catalog is
+       not one: it is resolved against the shipped tree rather than read from
+       a directory the user picked, so there is nothing there to remember. */
     if (std::filesystem::path(picked).is_absolute())
     {
         prevDir_ = thUtil::dirname(picked.c_str());

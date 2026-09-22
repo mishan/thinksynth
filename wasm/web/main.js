@@ -1581,18 +1581,6 @@ function fill (select, names, preferred)
                               name === preferred));
 }
 
-/* An instrument menu out of the catalog: an optgroup per group, a row per
- * graph with the title it declares and its description as the tooltip.
- *
- * The value stays the filename, because that is what everything downstream
- * asks for -- dspTexts is keyed on it, a .patch's `dsp' line says it, and a
- * piece's instrument names it. What changes is only what a person reads.
- *
- * The effect graphs are skipped for the reason playableDsps() skips them: an
- * effect has no envelope and nothing to trigger it, so putting one on a
- * channel as an instrument leaves an ungated graph running for as long as it
- * is loaded. Which graphs those are is the module's answer now rather than a
- * guess at the `fx/' prefix. */
 /* A piece menu out of the catalog: an optgroup per section, the title each
  * piece declares, its description as the tooltip. The value stays the
  * filename, because that is what the page fetches and what index.json
@@ -1621,6 +1609,18 @@ function fillPieces (select, preferred)
     }
 }
 
+/* An instrument menu out of the catalog: an optgroup per group, a row per
+ * graph with the title it declares and its description as the tooltip.
+ *
+ * The value stays the filename, because that is what everything downstream
+ * asks for -- dspTexts is keyed on it, a .patch's `dsp' line says it, and a
+ * piece's instrument names it. What changes is only what a person reads.
+ *
+ * The effect graphs are skipped for the reason playableDsps() skips them: an
+ * effect has no envelope and nothing to trigger it, so putting one on a
+ * channel as an instrument leaves an ungated graph running for as long as it
+ * is loaded. Which graphs those are is the module's answer now rather than a
+ * guess at the `fx/' prefix. */
 function fillCatalog (select, preferred)
 {
     for (const group of dspGroups)

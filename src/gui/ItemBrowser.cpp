@@ -31,7 +31,7 @@ ItemBrowser::ItemBrowser (Gtk::Window &parent, const Glib::ustring &title,
                           const Provider &provider, const std::string &otherDir,
                           const std::string &current)
     : Gtk::Dialog(title, parent, true),
-      provider_(provider), otherDir_(otherDir), current_(current),
+      provider_(provider), otherDir_(otherDir), selected_(current),
       openBtn_(NULL)
 {
     set_default_size(460, 520);
@@ -188,7 +188,7 @@ void ItemBrowser::rebuild (void)
             groupRow->addChild(BrowserRow::create(item.name, item.desc,
                                                   item.file, item.note));
 
-            if (!current_.empty() && item.file == current_)
+            if (!selected_.empty() && item.file == selected_)
                 openGroup = groups[g].name;
         }
 
@@ -230,10 +230,20 @@ void ItemBrowser::rebuild (void)
 
     list_.set_model(selection_);
 
-    /* What is in use now, selected: a dialog that opens on the current file
+    /* Nothing is selected yet, so say so. Emptying `store_' above does
+       reach the outgoing selection and clear the two of them on the way
+       past, but that is the teardown of a model being replaced doing it,
+       and a filter that leaves `selected_' out returns from here without
+       ever selecting anything. Resetting them outright is one line and
+       does not rest on the order two models are dismantled in. */
+    onSelectionChanged();
+
+    /* The remembered row, selected: a dialog that opens on the current file
      * is a dialog that answers "what is this?" as well as "what else is
-     * there?". Expanding its group is what makes the row exist -- a collapsed
-     * group's children are not rows in the flattened model at all.
+     * there?", and a filter that still contains that row should leave the
+     * cursor on it. Expanding its group is what makes the row exist -- a
+     * collapsed group's children are not rows in the flattened model at
+     * all.
      *
      * No scroll to it: Gtk::ListView::scroll_to arrived in 4.12 and this
      * builds against 4.6. The row is selected, so Open acts on it either
@@ -264,7 +274,7 @@ void ItemBrowser::rebuild (void)
                           treeRow->get_item())
                     : Glib::RefPtr<BrowserRow>();
 
-        if (row && row->file() == current_)
+        if (row && row->file() == selected_)
         {
             selection_->set_selected(i);
             break;
@@ -311,6 +321,12 @@ void ItemBrowser::onSelectionChanged (void)
         openBtn_->set_sensitive(row && !row->isGroup());
 
     detail_.set_markup(row ? row->note() : std::string());
+
+    /* Only a leaf is remembered, and an empty selection does not forget: a
+       rebuild passes through "nothing selected" on its way to selecting
+       again, and clearing here would make it lose the row every time. */
+    if (row && !row->isGroup())
+        selected_ = row->file();
 }
 
 void ItemBrowser::onRowActivated (guint position)

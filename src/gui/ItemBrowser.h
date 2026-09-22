@@ -148,10 +148,17 @@ protected:
 
     void choose (const std::string &file);
 
-private:
+    /* protected rather than private for editorcheck's reason: which
+       widgets this keeps is its own business, and a harness that presses
+       them is a subclass rather than a wider header. */
     Provider provider_;
     std::string otherDir_;
-    std::string current_;
+    /* The row a rebuild puts the cursor back on: the file already in use to
+       begin with, and after that whatever the user last looked at. Typing
+       into the filter builds a new model on every keystroke, and going back
+       to the file in use there would drag the cursor off the row being read,
+       once per character. */
+    std::string selected_;
 
     Gtk::Entry filter_;
     Gtk::ScrolledWindow scroller_;

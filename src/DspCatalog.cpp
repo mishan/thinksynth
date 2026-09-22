@@ -263,26 +263,32 @@ int DspCatalog::scan (const string &path)
 
     vector<string> files;
 
+    /* One entry that cannot be stat'ed is not the rest of the tree's
+       problem, so each call gets its own error_code and none of them is left
+       set for the next iteration to trip over. A shared one would end the
+       walk early and hand back a catalog that is quietly short -- which the
+       .dsp files themselves could never tell you about, and which would put
+       the native side out of step with the web's. */
     for (const auto &top : fs::directory_iterator(root, ec))
     {
         if (ec)
             break;
 
-        if (top.is_directory(ec))
+        std::error_code entryEc;
+
+        if (top.is_directory(entryEc))
         {
             const string dir = top.path().filename().string();
+            std::error_code dirEc;
 
-            for (const auto &f : fs::directory_iterator(top.path(), ec))
+            for (const auto &f : fs::directory_iterator(top.path(), dirEc))
             {
-                if (ec)
+                if (dirEc)
                     break;
 
                 if (f.path().extension() == ".dsp")
                     files.push_back(dir + "/" + f.path().filename().string());
             }
-
-            /* Not fatal, and not the next directory's problem. */
-            ec.clear();
 
             continue;
         }
