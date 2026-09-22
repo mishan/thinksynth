@@ -66,6 +66,26 @@
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <button id="rewind" disabled>Rewind</button>
+
+    <!-- Beats per minute, over the range the desktop's spinner offers.
+         Offered only where it means something: the tempo scales
+         beat-valued durations and nothing else, so on a piece written
+         entirely in seconds it is a control that does nothing, and the
+         title says so and points at the one beside it. -->
+    <label id="tempolabel">Tempo
+      <input id="tempo" type="number" min="20" max="300" step="1"
+             value="120" disabled></label>
+
+    <!-- And how fast the clock runs, which every piece has: it turns the
+         transport itself rather than scaling beats, so a piece written
+         entirely in seconds moves with it. The readout is beside the
+         slider because a slider with no number on it is a control you
+         cannot come back to. -->
+    <label id="speedlabel">Speed
+      <input id="speed" type="range" min="0.25" max="4" step="0.05"
+             value="1" disabled>
+      <span id="speedis">1.00&times;</span></label>
+
     <span id="clock">0:00.0</span>
   </span>
 

@@ -299,6 +299,264 @@ try
     check(await page.evaluate(() => window.solo.drawing().seq),
           'and the tracks draw again on the way back');
 
+    /* ---- the tempo ---- */
+
+    /* A sequencer with no tempo is a sequencer that plays at one speed,
+     * and the page had none at all -- the number was in the text it wrote
+     * and nowhere a person could reach.
+     *
+     * What is checked is what is *played*, off the note tape, because a
+     * control that moved a number in a box and nothing else would pass
+     * every check that asks the box. The sequence's first track is four on
+     * the floor over `period = 0.25 beats', so the gap between its onsets
+     * is one beat: 60/112 at the tempo the page writes, and twice that at
+     * half of it.
+     */
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '112' &&
+                    !document.getElementById('tempo').disabled),
+          'the sequence offers its tempo, at what the piece says: 112');
+
+    /* The median gap between onsets, which is a beat. Median rather than
+       the first gap: four tracks sink to four channels and the tape holds
+       all of them, so what is wanted is the spacing that repeats. */
+    const beat = async () =>
+    {
+        await page.waitForFunction(() => window.solo.notes().length >= 6,
+                                   null, { timeout: 30000 });
+
+        const at = await page.evaluate(
+            () => window.solo.notes().map((n) => n.at).sort((a, b) => a - b));
+        const gaps = at.slice(1)
+                       .map((v, i) => v - at[i])
+                       .filter((g) => g > 1e-6)
+                       .sort((a, b) => a - b);
+
+        return gaps[Math.floor(gaps.length / 2)];
+    };
+
+    await page.click('#play');
+
+    const fast = await beat();
+
+    check(Math.abs(fast - 60 / 112) < 0.02,
+          `and a beat is that long: ${fast.toFixed(3)}s, 60/112 is ` +
+          `${(60 / 112).toFixed(3)}`);
+
+    await page.click('#stop');
+    await page.click('#rewind');
+    await page.fill('#tempo', '56');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+    await page.click('#play');
+
+    const slow = await beat();
+
+    check(Math.abs(slow - 60 / 56) < 0.04,
+          `half the tempo is twice the beat: ${slow.toFixed(3)}s, 60/56 ` +
+          `is ${(60 / 56).toFixed(3)}`);
+
+    await page.click('#stop');
+
+    /* And it is written down. A tempo that moved what was playing and
+       left the document saying something else would come back at the
+       document's the moment anything reloaded -- a mode switch is
+       enough. */
+    check(/tempo\s+56\s*;/.test(await page.inputValue('#gen')),
+          'and the piece\'s own text says so');
+
+    await page.selectOption('#mode', 'patch');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').disabled),
+          'a patch has no tempo, and the control says so');
+
+    await page.selectOption('#mode', 'seq');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '56'),
+          'and coming back to the sequence comes back at 56');
+
+    /* A number past either end of the range, which a number input will
+       hold quite happily. Taken to the end rather than ignored: a box
+       left reading 500 over a piece still going at 56 is a control saying
+       something that is not so, and nothing on the strip says which of
+       the two is playing. */
+    await page.fill('#tempo', '500');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '300'),
+          'a tempo past the top of the range is taken to the top');
+
+    check(/tempo\s+300\s*;/.test(await page.inputValue('#gen')),
+          'and that is what the text says too');
+
+    /* And a box somebody emptied is not an instruction. */
+    await page.fill('#tempo', '');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '300'),
+          'an empty box goes back to what is playing');
+
+    await page.fill('#tempo', '56');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+
+    /* A piece written entirely in seconds is one the tempo cannot reach,
+       which is most of the corpus. Offered where it means something and
+       dimmed where it does not, the way the desktop's spinner has always
+       been (ComposerWindow.cpp). */
+    await page.selectOption('#mode', 'piece');
+    await page.selectOption('#piece', 'ebb.gen');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(() =>
+          {
+              const box = document.getElementById('tempo');
+
+              return box.disabled &&
+                     /seconds/.test(
+                         document.getElementById('tempolabel').title);
+          }),
+          'a piece written in seconds dims it, and says why');
+
+    /* ---- and the speed, which every piece has ---- */
+
+    /* The control that reaches the piece the tempo cannot. A tempo scales
+     * beat-valued durations and leaves `period = 0.25 s' where it is, so
+     * dimming the box and saying so is only half an answer: the other
+     * half is a control that turns the transport itself.
+     *
+     * Measured against the wall clock, because that is what it means. The
+     * clock reads transport seconds, so at 2x twice as many of them pass
+     * in a second of real time -- and the piece under it is ebb.gen,
+     * whose every duration is in seconds and which the tempo above could
+     * not move at all.
+     */
+    check(await page.evaluate(
+              () => !document.getElementById('speed').disabled),
+          'and the speed beside it is live where the tempo is not');
+
+    /* Transport seconds per real second. The clock reads to a tenth, so
+       the window is long enough that a tenth is not the answer. */
+    const advance = async (x) =>
+    {
+        const clock = () => page.evaluate(() =>
+        {
+            const [m, sec] =
+                document.getElementById('clock').textContent.split(':');
+
+            return Number(m) * 60 + Number(sec);
+        });
+
+        await page.fill('#speed', String(x));
+        await page.dispatchEvent('#speed', 'input');
+        await page.waitForTimeout(250);
+
+        const a = await clock();
+
+        await page.waitForTimeout(1500);
+
+        return (await clock() - a) / 1.5;
+    };
+
+    await page.click('#play');
+
+    const atOne = await advance(1);
+    const atTwo = await advance(2);
+    const atHalf = await advance(0.5);
+
+    check(Math.abs(atTwo / atOne - 2) < 0.3,
+          `twice the speed is twice the clock: ${atTwo.toFixed(2)} ` +
+          `against ${atOne.toFixed(2)} transport seconds a second`);
+
+    check(Math.abs(atHalf / atOne - 0.5) < 0.2,
+          `and half is half: ${atHalf.toFixed(2)} against ` +
+          `${atOne.toFixed(2)}`);
+
+    /* And turning it does not move the playhead.
+     *
+     * The clock is pinned to the output as a line -- a transport time at
+     * a frame, and a slope -- and a speed change turns that line through
+     * where it has got to. Setting the slope without moving the pin
+     * would rescale the whole run back to its origin, and the piece would
+     * skip or repeat a stretch of itself on every nudge. Ten seconds in
+     * at 1x, a change to 3x would land the playhead at 30. */
+    await advance(1);
+
+    const wasAt = await page.evaluate(
+        () => document.getElementById('clock').textContent);
+
+    await page.fill('#speed', '3');
+    await page.dispatchEvent('#speed', 'input');
+    await page.waitForTimeout(120);
+
+    const nowAt = await page.evaluate(
+        () => document.getElementById('clock').textContent);
+
+    const secs = (t) =>
+    {
+        const [m, sec] = t.split(':');
+
+        return Number(m) * 60 + Number(sec);
+    };
+
+    check(secs(nowAt) - secs(wasAt) < 1,
+          `and turning it does not move the playhead: ${wasAt} to ` +
+          `${nowAt}`);
+
+    const reading = await page.evaluate(
+        () => document.getElementById('speedis').textContent);
+
+    check(reading === '3.00\u00d7',
+          `the reading says where the slider is: ${reading}`);
+
+    /* And the clock the page would stamp a command with is still the
+     * clock the module is running.
+     *
+     * Transport zero, the speed and the frame the output has reached are
+     * one line, and clock.js walks it from the other end (TransportClock)
+     * to turn a transport time into a frame. Turning the speed pins that
+     * line where the clock has got to, so transport zero stops being the
+     * frame the run was started at -- and a tape message that carried the
+     * pin instead of the zero, or the zero without the speed, would leave
+     * every stamp off by whatever the slider was moved to. Checked at 3x,
+     * where a factor of three is not a rounding error. */
+    const line = await page.evaluate(() => window.solo.transport());
+
+    check(Math.abs((line.frame - line.origin) * line.speed / line.rate -
+                   line.now) < 0.05,
+          `and the tape's clock is one line: (${Math.round(line.frame)} - ` +
+          `${Math.round(line.origin)}) * ${line.speed} / ${line.rate} is ` +
+          `${((line.frame - line.origin) * line.speed /
+              line.rate).toFixed(2)}, now is ${line.now.toFixed(2)}`);
+
+    await page.click('#stop');
+
+    /* It belongs to the listener rather than to the piece: no statement
+       writes it, nothing reads it back out of a file, and choosing
+       another piece leaves it where it was put. */
+    await page.fill('#speed', '1.5');
+    await page.dispatchEvent('#speed', 'input');
+    await page.selectOption('#piece', 'colony.gen');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('speed').value === '1.5'),
+          'and it survives a piece being chosen: it is not the piece\'s');
+
+    await page.fill('#speed', '1');
+    await page.dispatchEvent('#speed', 'input');
+
+    await page.selectOption('#mode', 'seq');
+    await page.evaluate(() => window.solo.settled());
+
     /* ---- the instrument's parameters ---- */
 
     /* The panel this page has never had. Patch mode, because that is the

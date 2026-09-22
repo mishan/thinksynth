@@ -189,6 +189,11 @@ const sounding = new Map();
 let piece = null;
 let roll = null;
 
+/* The last tape message, kept for its clock: where transport zero is, how
+   fast the clock is turned and where the output has got to. The roll
+   takes the notes out of it; this is for window.solo, at the bottom. */
+let lastTape = null;
+
 /* The composer view: the piece's own picture, drawn by the mirror -- a
    second scheduler in a worker, fed the messages the worklet is fed, with
    real composer instances in it. The page's half of it is an element and
@@ -532,6 +537,168 @@ async function pickPatch ()
     await loadPatch();
 }
 
+/* ---- the tempo ---- */
+
+/* The text the box held when the piece playing now was loaded.
+ *
+ * A tempo change is two things -- what is heard, and what a reload comes
+ * back at -- and the second writes the `tempo' statement into the
+ * document. The document is a box somebody may have been typing in, so
+ * the write happens only while the box still holds what was loaded.
+ * Anything else and the tempo is live and the text is theirs, which is
+ * the pair of answers that loses nobody's work. */
+let loadedText = '';
+
+/* The control, put where the piece that is playing leaves it.
+ *
+ * Offered only where it means something. The tempo scales beat-valued
+ * durations and nothing else, so on a piece written entirely in seconds it
+ * is a control that does nothing -- which is most of the corpus, and which
+ * the desktop's spinner has said for as long as it has been dimmed
+ * (ComposerWindow.cpp). The sequence this page writes is in beats
+ * throughout, which is what makes it the one mode where this is the
+ * control somebody reaches for first.
+ */
+function showTempo ()
+{
+    const box = $('tempo');
+    const live = piece !== null && composing() && piece.beats;
+
+    box.disabled = !live;
+    $('tempolabel').title = live
+        ? 'Beats per minute. This piece writes durations in beats, so ' +
+          'everything moves together.'
+        : piece === null
+            ? 'Load a piece to set its tempo.'
+            : 'This piece writes every duration in seconds, which the ' +
+              'tempo does not scale. Speed, beside this, turns the clock ' +
+              'itself and moves it; or write a duration as `4 beats\' to ' +
+              'put a stage on the tempo.';
+
+    /* Not while it is being typed in: a box that rewrote itself under the
+       caret would make 90 unreachable on the way to 900. */
+    if (piece !== null && document.activeElement !== box)
+        box.value = String(Math.round(piece.tempo));
+
+    showSpeed();
+}
+
+/* And the clock's own speed, which every piece has.
+ *
+ * The tempo above is the musical control and it cannot reach a piece that
+ * writes `period = 0.25 s' -- which is most of the corpus. This one turns
+ * the transport itself, so everything moves whatever it is written in.
+ * Offered wherever there is a piece to play rather than only where the
+ * tempo means something, which is the whole point of having it.
+ *
+ * It is not a property of the piece and there is no statement for it: a
+ * tempo is something a piece *is*, a speed is something a listener is
+ * doing. So nothing is written back, and it stays across a load the way
+ * the channels somebody aimed do. */
+function showSpeed ()
+{
+    const box = $('speed');
+    const live = piece !== null && composing();
+
+    box.disabled = !live;
+    $('speedlabel').title = live
+        ? 'How fast the clock runs, as a multiple of real time. Every ' +
+          'duration moves with it, in seconds or in beats.'
+        : 'Load a piece to change how fast it plays.';
+
+    if (piece !== null && document.activeElement !== box)
+        box.value = String(piece.speed);
+
+    saySpeed();
+}
+
+/* The reading beside the slider. Two decimals, because the step is 0.05
+   and a slider you cannot read a number off is one you cannot put back. */
+function saySpeed ()
+{
+    $('speedis').textContent = `${Number($('speed').value).toFixed(2)}\u00d7`;
+}
+
+/* Somebody dragged it.
+ *
+ * On `input' rather than `change', unlike the tempo box: a slider's whole
+ * point is that it is heard while it moves, and a drag reports every
+ * position. Each one is a stamped command, which is the same traffic a
+ * knob drag already makes.
+ */
+function setSpeed ()
+{
+    const box = $('speed');
+    const value = Number(box.value);
+
+    saySpeed();
+
+    if (synth === null || piece === null || !Number.isFinite(value) ||
+        value <= 0)
+        return;
+
+    synth.speed(value);
+    piece.speed = value;
+}
+
+/* Somebody moved it.
+ *
+ * Both halves, in the order they matter: what is playing first, because
+ * that is what was asked for and it is a stamped command that lands at its
+ * time on every peer; then the text, which is what a reload -- a mode
+ * switch, a Load, a piece chosen and gone back on -- would come back at.
+ */
+async function setTempo ()
+{
+    const box = $('tempo');
+
+    if (synth === null || piece === null || !piece.beats)
+        return;
+
+    /* An empty box is not an instruction, and it reads as zero rather
+       than as nothing: a number input hands back "" both for a box
+       somebody cleared and for one they typed letters into, and Number("")
+       is 0, which would clamp to 20 and set a tempo nobody asked for. */
+    const typed = box.value.trim() === '' ? NaN : Number(box.value);
+
+    if (!Number.isFinite(typed))
+    {
+        box.value = String(Math.round(piece.tempo));
+        return;
+    }
+
+    /* Into the range rather than ignored, which is what the desktop's
+       spinner does with the same number. A box left holding 500 while the
+       piece goes on at 112 is a control saying something that is not so,
+       and nothing else on the strip would have said which of the two was
+       true. Whole beats, because that is the step the box offers. */
+    const bpm = Math.round(Math.min(Number(box.max),
+                                    Math.max(Number(box.min), typed)));
+
+    box.value = String(bpm);
+
+    synth.transportAt('tempo', -1, bpm);
+    piece.tempo = bpm;
+
+    /* The statement, written by the .gen writer the Composer edits with
+       rather than by a regular expression here: one speller of this
+       format, and it puts the line where that writer's rules put it in a
+       piece that never had one. */
+    const was = $('gen').value;
+    const { text } = await synth.pieceSetTempo(bpm);
+
+    /* The document this edit was made against, and not `loadedText'
+       alone: a load begun while the answer was in flight has already
+       moved loadedText on to the piece it is loading, and the text coming
+       back is the piece before it. Both, so the one thing that can be
+       written here is the document that was asked about. */
+    if (text === '' || $('gen').value !== was || was !== loadedText)
+        return;
+
+    $('gen').value = text;
+    loadedText = text;
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -548,6 +715,11 @@ async function loadPiece ()
         return;
 
     let aiming = { placed: new Map(), failed: [] };
+
+    /* What the box held when this load took it. A tempo change writes the
+       statement back into the text, and it may only do that to a document
+       nobody has since typed into -- see showTempo. */
+    loadedText = $('gen').value;
 
     const it = await quietly(async () =>
     {
@@ -586,6 +758,8 @@ async function loadPiece ()
 
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
+
+    showTempo();
 
     /* The redraw, as one thing a harness can wait for.
      *
@@ -1342,6 +1516,7 @@ async function start ()
                                          {
                                              micPeak = m.capture ?? 0;
                                              micDropped = m.captureDropped ?? 0;
+                                             lastTape = m;
 
                                              diff.take('worklet', m);
                                              roll.tape(m);
@@ -1874,6 +2049,24 @@ window.solo = {
        is and how tall the grid behind it said to be. */
     tracks: () => seq?.tracks() ?? [],
 
+    /* The notes the roll is holding, in transport seconds. What a harness
+       about the tempo has to read: a control that moved a number in a box
+       and nothing else would pass every check that asks the box. */
+    notes: () => roll?.notes.map((e) => ({ at: e.at, note: e.note })) ?? [],
+
+    /* The four numbers the last tape message carried about the clock, and
+       the rate to read them against.
+     *
+       Where transport zero is, how fast the clock is turned and where the
+       output has got to are one line, and clock.js walks it from the
+       other end to stamp a command (TransportClock). A harness that only
+       watched the readout would not see the line come apart -- the
+       readout is `now', which the module hands over ready-made. */
+    transport: () => lastTape === null ? null
+        : { now: lastTape.now, frame: lastTape.frame,
+            origin: lastTape.origin, speed: lastTape.speed,
+            rate: ctx?.sampleRate ?? 0 },
+
     /* Every load asked for so far, finished -- including the redraw each
        one ends with.
      *
@@ -1993,6 +2186,7 @@ async function pickMode ()
         piece = null;
         placed = new Map();
         showChannels();
+        showTempo();               /* nor a speed: see showSpeed */
         await loadPatch();
     }
 }
@@ -2237,6 +2431,13 @@ async function init ()
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
+
+    /* `change' and not `input': a number box fires input on every
+       keystroke, so typing 120 over 90 would send 1, then 12, then 120 --
+       two tempo commands nobody asked for, the first of them below the
+       range. */
+    $('tempo').addEventListener('change', setTempo);
+    $('speed').addEventListener('input', setSpeed);
 
     $('down').addEventListener('click', () => keys.shift(-1));
     $('up').addEventListener('click', () => keys.shift(1));

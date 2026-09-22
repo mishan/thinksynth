@@ -155,6 +155,13 @@ export function apply (M, m, host = NOWHERE)
             M._tw_knob(m.at, m.knob, m.value);
             return true;
 
+        case 'speed':
+            /* How fast the clock runs, as a multiple of real time. Not a
+               tempo: it turns the transport itself, so a piece whose every
+               duration is written in seconds moves with it. */
+            M._tw_speed(m.at, m.value);
+            return true;
+
         case 'paneledit':
             /* A parameter panel's row, set to what somebody typed or
              * dragged it to.

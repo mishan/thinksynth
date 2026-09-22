@@ -269,6 +269,29 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The piece's text with its `tempo' statement set.
+         *
+         * Made here because this is where the document is -- tw_piece_load
+         * wrote it, and thcGenEdit reads and writes the file it wrote --
+         * and made in the mirror too, which holds its own copy and is the
+         * one the canvas describes (mirror.js). The scheduler is not
+         * touched: what is heard came from the stamped tempo command, and
+         * this is the other half, which is the text a reload would come
+         * back at.
+         *
+         * "" when the edit was refused, which the page reads as "leave the
+         * box alone". */
+        if (m.type === 'settempo')
+        {
+            this.port.postMessage({
+                type: 'settempo', id: m.id,
+                text: this.M.ccall('tw_piece_set_tempo', 'string',
+                                   ['number'], [m.bpm]),
+            });
+
+            return;
+        }
+
         /* The bytes a Save would write for a channel, and the note that
          * they were kept.
          *
@@ -418,6 +441,7 @@ class ThinkProcessor extends AudioWorkletProcessor
     {
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
+                     tempo: 0, beats: false,
                      knobs: [], instruments: [], listens: [], sinks: [] };
 
         /* Off the panel, so there is one answer to "which knobs are shown"
@@ -465,6 +489,19 @@ class ThinkProcessor extends AudioWorkletProcessor
             description: this.M.UTF8ToString(this.M._tw_piece_description()),
             seeded: this.M._tw_piece_seeded() !== 0,
             seed: this.M._tw_seed(),
+
+            /* What it is running at, and whether that reaches it: the
+               tempo scales beat-valued durations and nothing else, so a
+               piece written in seconds is one the control cannot move.
+               The page offers it where it means something, which is the
+               rule ComposerWindow follows with the same question. */
+            tempo: this.M._tw_tempo(),
+            beats: this.M._tw_uses_beats() !== 0,
+
+            /* And how fast the clock is running, which a load does not
+               reset: it is what the listener asked for rather than
+               anything this piece says. */
+            speed: this.M._tw_speed_now(),
             knobs,
             instruments,
             listens,
@@ -640,10 +677,14 @@ class ThinkProcessor extends AudioWorkletProcessor
     postTape ()
     {
         this.quanta = 0;
-        /* `frame' is where this synth's output has got to and `origin'
-           where its transport zero is, so the page can turn a transport
-           time into a frame and back; `late' is how many commands have
-           been applied after their time (thinkweb.cpp). */
+        /* `frame' is where this synth's output has got to, `origin' where
+           its transport zero is and `speed' how many transport seconds a
+           second of output carries, so the page can turn a transport time
+           into a frame and back; `late' is how many commands have been
+           applied after their time (thinkweb.cpp). The speed is here
+           because the two numbers are the whole of that line: a clock
+           that read the origin and assumed the speed would be wrong by
+           the factor the slider was moved to. */
         this.port.postMessage({
             type: 'tape',
             now: this.M._tw_now(),
@@ -651,6 +692,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             running: this.M._tw_running() !== 0,
             frame: this.M._tw_frame(),
             origin: this.M._tw_origin(),
+            speed: this.M._tw_speed_now(),
             late: this.M._tw_late(),
 
             /* The loudest capture frame since the last batch, and what the

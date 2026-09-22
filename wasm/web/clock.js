@@ -201,29 +201,39 @@ export class AudioClock
 }
 
 /* The transport, as the page knows it: from the worklet's tape messages,
- * which carry where transport zero is as a frame, and the audio clock,
- * which says where the output has got to.
+ * which carry where transport zero is as a frame and how fast the clock
+ * is running, and the audio clock, which says where the output has got
+ * to.
  *
- * Transport time is (frame - origin) / rate exactly, on the worklet and
- * here, so between two messages the page's reading is not an estimate: it
- * is the same subtraction the worklet does, on the same clock. */
+ * Transport time is (frame - origin) * speed / rate exactly, on the
+ * worklet and here, so between two messages the page's reading is not an
+ * estimate: it is the same arithmetic the worklet does, on the same
+ * clock.
+ *
+ * The speed is a multiple of real time and a solo page's slider moves it
+ * (thinkweb.cpp, tw_speed). It is 1 in a room -- nothing shares it yet --
+ * but it is read here rather than assumed, because the two numbers are
+ * the whole of the line and a clock that knew one of them would be wrong
+ * by a factor with nothing to say so. */
 export class TransportClock
 {
     constructor (sampleRate)
     {
         this.rate = sampleRate;
         this.origin = -1;
+        this.speed = 1;
         this.running = false;
         this.reported = 0;      /* the worklet's `now' in its last message */
         this.reportedAt = NaN;  /* the wall clock when that message came */
     }
 
     /* A tape message, and the wall clock as it arrived. */
-    report ({ now, origin, running }, wallMs = NaN)
+    report ({ now, origin, running, speed = 1 }, wallMs = NaN)
     {
         this.reported = now;
         this.reportedAt = wallMs;
         this.origin = origin;
+        this.speed = speed > 0 ? speed : 1;
         this.running = running;
     }
 
@@ -235,27 +245,32 @@ export class TransportClock
      * stale -- some fifty milliseconds in headless Firefox -- and a stamp
      * made from a stale reading is earlier than it means to be, which
      * eats the lead a knob is sent with. The last tape message plus the
-     * wall clock since is stale only by the message's own trip. The
-     * transport never runs slower than the wall clock, so the larger of
-     * the two is the less stale. */
+     * wall clock since is stale only by the message's own trip. Both
+     * advance at the speed the clock is turned to, so the larger of the
+     * two is still the less stale. */
     now (contextTime, wallMs = NaN)
     {
         if (!this.running || this.origin < 0)
             return this.reported;
 
-        const fromContext = contextTime - this.origin / this.rate;
+        const fromContext =
+            (contextTime - this.origin / this.rate) * this.speed;
 
         if (Number.isNaN(wallMs) || Number.isNaN(this.reportedAt))
             return fromContext;
 
-        return Math.max(fromContext,
-                        this.reported + (wallMs - this.reportedAt) / 1000);
+        return Math.max(
+            fromContext,
+            this.reported +
+                (wallMs - this.reportedAt) / 1000 * this.speed);
     }
 
-    /* A transport time as a frame of this peer's output. */
+    /* A transport time as a frame of this peer's output. A transport
+       second is rate/speed frames, which is the whole difference between
+       this and the multiplication it used to be. */
     frameOf (at)
     {
-        return this.origin + at * this.rate;
+        return this.origin + at * this.rate / this.speed;
     }
 }
 

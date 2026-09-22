@@ -143,8 +143,8 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB, TW_INPUT and TW_STAGEPARAM have entry points of
-   their own and never arrive as an op from there. */
+   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM and TW_SPEED have entry
+   points of their own and never arrive as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -154,6 +154,7 @@ enum TransportOp
     TW_KNOB,
     TW_INPUT,
     TW_STAGEPARAM,
+    TW_SPEED,
 };
 
 struct Command
@@ -226,14 +227,45 @@ double                rate_;
 std::vector<Scheduled> scheduled_;
 int                    late_;
 
-/* Where transport zero is, as a frame of this synth's output, or -1 while
-   the transport has never been started. Transport time at the end of a
-   window is (frame - originFrame_) / rate_ exactly, and the step is taken
-   to that rather than by adding a window's length each time, so the clock
-   does not drift from the frames by a rounding error per window. A begin
-   sets it to the frame it was asked for; a resume sets it so that the
-   transport continues from where it stopped. */
+/* Where the transport clock is pinned to the output, or -1 on originFrame_
+ * while the transport has never been started: transport time originAt_ is
+ * frame originFrame_, and a second of transport takes rate_/speed_ frames
+ * from there.
+ *
+ *     at(frame) = originAt_ + (frame - originFrame_) * speed_ / rate_
+ *
+ * Taken as a mapping rather than by adding a window's length each time, so
+ * the clock does not drift from the frames by a rounding error per window.
+ * A begin pins transport zero to the frame it was asked for; a resume pins
+ * where it stopped to the frame it resumes at; a speed change pins where
+ * the clock has got to and turns the line from there.
+ *
+ * SPEED IS THE HOST'S, not the scheduler's. It is not a tempo: a tempo
+ * scales beat-valued durations and leaves `0.25 s' alone, which is what
+ * makes it the musical control and what makes it useless on the pieces
+ * that write every duration in seconds. This turns the clock itself, so a
+ * piece is played faster or slower whatever its durations are written in,
+ * and the two compose -- a beat-valued stage moves with both. The
+ * scheduler is not told: it is handed a transport time and steps to it,
+ * and where that time came from is the host's business. The desktop's own
+ * timer would scale its dt instead; it has no such control today.
+ */
 double originFrame_ = -1;
+double originAt_ = 0;
+double speed_ = 1;
+
+/* The two directions of that line. frameOf is exact against atOf, which is
+   what lets a speed change pin itself at a stamped time and land on the
+   same frame in every instance that was handed the same command. */
+double atOf (double frame)
+{
+    return originAt_ + (frame - originFrame_) * speed_ / rate_;
+}
+
+double frameOf (double at)
+{
+    return originFrame_ + (at - originAt_) * rate_ / speed_;
+}
 
 /* A begin waiting for its frame: at the window that frame falls in the
    transport is rewound and started, with a partial first step so that
@@ -347,7 +379,8 @@ void applyDue (double start, int len)
                            goes on from where it is, from the start of
                            this window. */
                         sched_->start();
-                        originFrame_ = start - sched_->now() * rate_;
+                        originAt_ = sched_->now();
+                        originFrame_ = start;
                         break;
 
                     case TW_STOP:
@@ -387,6 +420,10 @@ void beginDue (double start, int len)
        that at the load (tw_piece_load). */
     sched_->reset();
     epoch_++;
+
+    /* From the top, so transport zero is what the frame below is pinned
+       to whatever the clock was doing before. */
+    originAt_ = 0;
 
     /* A begin whose frame has already gone by -- it arrived late, or was
        stamped for a frame this synth had already rendered -- starts now,
@@ -431,6 +468,35 @@ void applyScheduled (const Scheduled &c)
         case TW_TEMPO:
             sched_->setTempo(c.value);
             break;
+
+        case TW_SPEED:
+        {
+            /* The clock turns from here, and "here" is the time this
+             * command was stamped for -- not wherever the render happens
+             * to have got to. applyScheduled runs inside step(), which
+             * has already stepped the transport to c.at, so the pin is
+             * exact: the frame that time falls on is computed from the
+             * line as it stands, and then the line is given its new
+             * slope through that same point.
+             *
+             * Doing it in that order is the whole of it. Setting speed_
+             * first would rescale the whole history back to originFrame_
+             * and the clock would jump -- a piece would skip or repeat a
+             * stretch of itself every time somebody nudged the control. */
+            if (c.value <= 0)
+                break;
+
+            if (originFrame_ >= 0)
+            {
+                const double at = c.at < 0 ? sched_->now() : c.at;
+
+                originFrame_ = frameOf(at);
+                originAt_ = at;
+            }
+
+            speed_ = c.value;
+            break;
+        }
 
         case TW_KNOB:
             /* setValue is the whole knob path: every param bound to it
@@ -558,7 +624,7 @@ void step (double start, int len)
         return;
     }
 
-    const double target = (start + len - originFrame_) / rate_;
+    const double target = atOf(start + len);
 
     while (!scheduled_.empty() && scheduled_[0].at <= target)
     {
@@ -1089,9 +1155,28 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
 {
     delivery_.disconnect();
     pending_.clear();
+
+    /* A speed change still in the queue is not a command about this
+       piece: it is what the listener asked the clock to do, and the clock
+       is not what is being reloaded. Kept rather than dropped with the
+       rest, or a slider moved less than a window before a load would be
+       thrown away and then written back over the control by the piece
+       reply, which reads speed_. Only the value -- the pin below is going
+       to be -1 either way. */
+    for (size_t i = 0; i < scheduled_.size(); i++)
+        if (scheduled_[i].op == TW_SPEED && scheduled_[i].value > 0)
+            speed_ = scheduled_[i].value;
+
     scheduled_.clear();
     armed_ = false;
+
+    /* The clock is unpinned until the next Play pins it. speed_ is left
+       alone: it is what the listener asked for, not what the last piece
+       was, and a load that quietly put it back to 1 would be a control
+       that forgot itself every time somebody chose a piece. */
     originFrame_ = -1;
+    originAt_ = 0;
+
     tape_.clear();
     knobs_.clear();
     sinks_.clear();
@@ -1165,6 +1250,77 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_name (void)
 EMSCRIPTEN_KEEPALIVE const char *tw_piece_description (void)
 {
     return loader_->pieceDescription().c_str();
+}
+
+/* What the transport is running at, in beats per minute. The piece's own
+   `tempo' after a load, and whatever a tempo command has since made it. */
+EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
+{
+    return sched_->tempo();
+}
+
+/* Whether the tempo means anything to this piece.
+ *
+ * It scales beat-valued durations and nothing else, so a piece written
+ * entirely in seconds is one the control cannot reach -- which is most of
+ * the corpus, and the reason the desktop offers the spinner only where it
+ * does something and says so where it does not (ComposerWindow.cpp). The
+ * page asks the same question of the same scheduler. */
+EMSCRIPTEN_KEEPALIVE int tw_uses_beats (void)
+{
+    return sched_->usesBeats() ? 1 : 0;
+}
+
+/* The `tempo' statement in the piece's text, set to `bpm', and the text
+ * back -- "" if the edit was refused.
+ *
+ * The running scheduler is not touched here: a tempo that is heard is a
+ * stamped command (tw_at), applied at its time on every peer, and this is
+ * the other half of what the desktop's spinner does -- a piece whose tempo
+ * you changed should come back at that tempo. Two halves rather than one
+ * because the page keeps the document in a box somebody may have typed
+ * into, so what to do with the new text is the page's to decide.
+ *
+ * Through thcGenEdit, which is the .gen writer the Composer edits with:
+ * the statement goes where that writer's rules put it, in a file that
+ * never had one as readily as in one that did, and there is no second
+ * speller of this format in JavaScript. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_set_tempo (double bpm)
+{
+    static std::string text;
+
+    std::string why;
+
+    text.clear();
+
+    if (thcGenEdit::setTempo(TW_PIECE_FILE, bpm, why) != thcGenEdit::OK)
+    {
+        fprintf(stderr, "tempo: %s\n", why.c_str());
+        return "";
+    }
+
+    FILE *f = fopen(TW_PIECE_FILE, "rb");
+
+    /* The edit is already on disk, so "" here is not the refusal it is
+       above: the page will leave its box alone and the two will disagree
+       until the next load. Said out loud, because nothing else can tell
+       the two apart. */
+    if (f == NULL)
+    {
+        fprintf(stderr, "tempo: set, but %s could not be read back\n",
+                TW_PIECE_FILE);
+        return "";
+    }
+
+    char buf[4096];
+    size_t n;
+
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        text.append(buf, n);
+
+    fclose(f);
+
+    return text.c_str();
 }
 
 /* Whether the file pins its seed, and the seed the piece is composing
@@ -2392,6 +2548,39 @@ EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
     schedule(c);
 }
 
+/* How fast the clock runs, as a multiple of real time, at a transport
+ * time.
+ *
+ * The control a piece written in seconds has, where the tempo is the one
+ * it has not: a tempo scales beat-valued durations and nothing else, so
+ * `period = 0.25 s' does not move for it however far it is nudged. This
+ * turns the transport itself, so everything moves -- and the two compose,
+ * which is what a beat-valued stage under both of them wants.
+ *
+ * Not written into the document, and there is no statement for it. A
+ * tempo is something a piece is; a speed is something a listener is
+ * doing, like the level a patch is auditioned at, and it stays across a
+ * load for the same reason the channels somebody aimed do.
+ *
+ * Stamped, because it is heard: two peers that turned the clock either
+ * side of a tick would be playing two different pieces from there on. */
+EMSCRIPTEN_KEEPALIVE void tw_speed (double at, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_SPEED;
+    c.value = value;
+
+    schedule(c);
+}
+
+/* What the clock is running at now. */
+EMSCRIPTEN_KEEPALIVE double tw_speed_now (void)
+{
+    return speed_;
+}
+
 /* A gesture on a stage's picture, at a transport time.
  *
  * One more stamped command, made and sent the way a knob is: applied at
@@ -2586,10 +2775,18 @@ EMSCRIPTEN_KEEPALIVE int tw_late (void)
     return late_;
 }
 
-/* The frame transport zero falls on, or -1 before any start. */
+/* The frame transport zero falls on, or -1 before any start.
+ *
+ * Which is not originFrame_ any more: the clock is pinned at wherever it
+ * had got to when it was last started or turned, so originFrame_ is the
+ * frame originAt_ falls on and only the two together say where zero is.
+ * Answered by running the line back to zero, so the number means what it
+ * has always meant to the page -- but only alongside tw_speed_now, since
+ * a transport second is rate_/speed_ frames and clock.js does the same
+ * subtraction from the other end. */
 EMSCRIPTEN_KEEPALIVE double tw_origin (void)
 {
-    return originFrame_;
+    return originFrame_ < 0 ? -1 : frameOf(0);
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)

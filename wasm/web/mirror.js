@@ -496,6 +496,20 @@ function receive (m)
                    params });
             break;
         }
+
+        /* The piece's `tempo' statement, set -- the same edit the worklet
+           is being asked for on the same message, made to this instance's
+           copy of the document.
+         *
+           Both instances hold one: tw_piece_load writes it and thcGenEdit
+           reads and writes what it wrote. The canvas describes this one
+           (tw_canvas_show), so an edit that reached the worklet alone
+           would leave the two reading different files. The text goes back
+           to the page from the worklet, which is the instance somebody is
+           waiting on, so nothing is posted from here. */
+        case 'settempo':
+            M.ccall('tw_piece_set_tempo', 'string', ['number'], [m.bpm]);
+            break;
     }
 }
 

@@ -572,6 +572,24 @@ so a message is meaningful on a peer whose clock differs by whatever the
 estimate missed. The unit is transport seconds, the scheduler's own clock,
 with beats derived from it.
 
+**Speed is not in that list, and a room would have to put it there.** The
+solo page has a speed control as well as a tempo — the tempo scales
+beat-valued durations and reaches nothing in a piece written in seconds,
+and the speed turns the transport clock itself, so everything moves. It is
+a stamped command inside one page, applied on both of that page's
+instances at the time it names, and it carries no further: two peers set
+to different speeds would be playing the same piece at two rates and
+agreeing on every `at` while they did it. Sharing it is a `transport`
+op alongside `tempo` and the same `at` discipline; nothing else about it
+is new, and the room page does not offer the control until it is there.
+
+The page's own clock is already ready for it. A tape message carries where
+transport zero falls as a frame *and* the speed, because the two together
+are the line `TransportClock` walks to turn a transport time into a frame
+(`clock.js`) — a clock that read the origin and assumed 1x would stamp
+every command off by whatever the speed was. In a room it is 1, and read
+rather than assumed.
+
 ## 5. Seats and editing
 
 **A seat is a MIDI channel.** Sixteen exist. Joining claims one; the piece's
