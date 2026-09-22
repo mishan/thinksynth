@@ -85,10 +85,10 @@
  * way.
  *
  * A graph edit is judged as a choice is, and costs what a choice costs, so
- * it is raced in heats: every candidate gets three generations, which is
- * enough to tell a filter on the note number from a filter on the signal,
- * the top third get five more, and the few that come through get a trial
- * of the full length beside the graph as it stands. An edit has to win by a margin, not by a
+ * it is raced in two heats: every candidate gets a few generations, which
+ * is enough to tell a filter on the note number from a filter on the
+ * signal, and the few that come through get a trial of the full length
+ * beside the graph as it stands. An edit has to win by a margin, not by a
  * hair. A bigger graph always fits a little better, and a node that buys a
  * hundredth of a dB is a node someone has to read.
  *
@@ -146,6 +146,7 @@ static const int TAIL_WINDOWS = 22;
 
 /* Which term probe prints: a sum cannot say which of its parts misbehaved. */
 static string probeTerm = "total";
+static bool verbose = false;
 
 static const double RANGED_STEP = 0.05;     /* of the declared range */
 static const double OCTAVE_STEP = 0.25;     /* octaves               */
@@ -234,15 +235,25 @@ struct Wire {
 /* A constant, or a control, an arg reads: somewhere a modulator can go. */
 struct Slot {
     string node, arg;
+    string plugin;      /* the plugin's path, to find siblings by */
     string control;     /* empty for a constant */
     double value;
     bool octaves;       /* how a depth is sized: by the value, or by the range */
     double lo, hi;
 };
 
+/* An oscillator and where it gets its pitch: what a second voice would
+   read too. */
+struct Voice {
+    string node;
+    string freqNode, freqPort;  /* `freq = node->port' */
+    string freqControl;         /* or `freq = @control' */
+};
+
 struct Shape {
     vector<Wire> wires;
     vector<Slot> slots;
+    vector<Voice> voices;
     vector<string> names;
 };
 
@@ -433,6 +444,33 @@ static bool render (const string &source, vector<float> &mono,
 
             seen[box.name] = true;
 
+            if (box.plugin.compare(0, 5, "osc::") == 0)
+                for (size_t a = 0; a < box.params.size(); a++)
+                {
+                    const NodeGraph::Param &param = box.params[a];
+                    const size_t arrow = param.source.find("->");
+
+                    if (param.name != "freq" || param.isExpr)
+                        continue;
+
+                    Voice v;
+
+                    v.node = box.name;
+
+                    if (param.kind == NodeGraph::Param::POINTER && arrow != string::npos)
+                    {
+                        v.freqNode = param.source.substr(0, arrow);
+                        v.freqPort = param.source.substr(arrow + 2);
+                    }
+                    else if (param.kind == NodeGraph::Param::CHANARG &&
+                             param.source.size() > 1)
+                        v.freqControl = param.source.substr(1);
+                    else
+                        continue;
+
+                    shape->voices.push_back(v);
+                }
+
             for (size_t a = 0; a < box.params.size(); a++)
             {
                 const NodeGraph::Param &param = box.params[a];
@@ -515,6 +553,7 @@ static bool render (const string &source, vector<float> &mono,
 
                 sl.node = n->first;
                 sl.arg = a->first;
+                sl.plugin = plugin->path();
                 sl.lo = plugin->getArgMin(idx);
                 sl.hi = plugin->getArgMax(idx);
 
@@ -1439,9 +1478,28 @@ static double searchAll (const Extractor &ex, const Features &target,
             if (genes[g].choices.size() < 2)
                 continue;
 
+            /* The same arg of the same kind on other nodes, with the
+               same list: seven oscillators' waveforms. Raced once as
+               one gene as well as each on its own, since one saw of
+               seven turning square is inaudible and all seven is a
+               different instrument. Run from the first of the group. */
+            vector<size_t> group;
+
+            for (size_t h = 0; h < genes.size(); h++)
+                if (!genes[h].node.empty() && !genes[g].node.empty() &&
+                    genes[h].arg == genes[g].arg && genes[h].choices == genes[g].choices)
+                    group.push_back(h);
+
+            const bool leads = group.size() > 1 && group[0] == g;
+
+            for (int together = 0; together < (leads ? 2 : 1); together++)
+            {
             const vector<double> from = bestAt;
 
-            printf("\n%s:", geneName(genes[g]).c_str());
+            if (together)
+                printf("\nall %d %s:", (int)group.size(), genes[g].arg.c_str());
+            else
+                printf("\n%s:", geneName(genes[g]).c_str());
 
             for (size_t c = 0; c < genes[g].choices.size(); c++)
             {
@@ -1449,6 +1507,10 @@ static double searchAll (const Extractor &ex, const Features &target,
                 string trialSource;
 
                 trial[g] = (double)c;
+
+                if (together)
+                    for (size_t h = 0; h < group.size(); h++)
+                        trial[group[h]] = (double)c;
 
                 const double d = search(ex, target, base, genes, trial,
                                         round ? 1.0 : 2.0, rng, TRIAL, NULL,
@@ -1468,6 +1530,7 @@ static double searchAll (const Extractor &ex, const Features &target,
             }
 
             printf("\n");
+            }
         }
 
         if (!changed)
@@ -1815,14 +1878,54 @@ static bool splice (string &source, const Shape &shape, const Wire &wire,
            NodeEdit::Text::connect(source, wire.node, wire.arg, name, sp.out, why) == NodeEdit::OK;
 }
 
+/* A second oscillator, at the pitch `voice' reads, summed into `wire':
+   `kind' 0 is a square an octave down, 1 a saw in unison. Its waveform
+   and its ratio are choice genes from then on, so what it starts as is
+   only where the race begins. */
+static bool addVoice (string &source, Shape &shape, const Wire &wire,
+                      const Voice &voice, int kind, string &what)
+{
+    string why;
+    vector<pair<string, double> > init;
+    const string osc = NodeCatalog::suggestName("voice", shape.names);
+
+    shape.names.push_back(osc);
+
+    const string sum = NodeCatalog::suggestName("sum", shape.names);
+
+    shape.names.push_back(sum);
+
+    init.push_back(std::make_pair(string("waveform"), kind ? 1.0 : 2.0));
+    init.push_back(std::make_pair(string("mul"), kind ? 1.0 : 0.5));
+    init.push_back(std::make_pair(string("amp"), 0.5));
+
+    if (NodeEdit::Text::addNode(source, osc, "osc::simple", init, why) != NodeEdit::OK)
+        return false;
+
+    if (voice.freqControl.empty()
+        ? NodeEdit::Text::connect(source, osc, "freq", voice.freqNode, voice.freqPort, why) != NodeEdit::OK
+        : NodeEdit::Text::connectControl(source, osc, "freq", voice.freqControl, why) != NodeEdit::OK)
+        return false;
+
+    init.clear();
+
+    return NodeEdit::Text::addNode(source, sum, "math::add", init, why) == NodeEdit::OK &&
+           NodeEdit::Text::connect(source, sum, "in0", wire.srcNode, wire.srcPort, why) == NodeEdit::OK &&
+           NodeEdit::Text::connect(source, sum, "in1", osc, "out", why) == NodeEdit::OK &&
+           NodeEdit::Text::connect(source, wire.node, wire.arg, sum, "out", why) == NodeEdit::OK &&
+           (what = string(kind ? "unison saw" : "sub square") + " like " + voice.node +
+                   " into " + wire.node + "." + wire.arg, true);
+}
+
 /* An envelope or an LFO on `slot': three nodes, and the arg reads the
    last of them. `kind' 0 is env::ad, 1 is a sine osc::simple. The depth
    starts at the value itself for a quantity in octaves and at a quarter
    of the range otherwise, and is a constant the search then tunes, as
    are the base and the modulator's own args. */
-static bool modulate (string &source, Shape &shape, const Slot &slot,
+static bool modulate (string &source, Shape &shape, const vector<Slot> &slots,
                       int kind, string &what)
 {
+    const Slot &slot = slots[0];
     string why;
     vector<pair<string, double> > init;
     const string mod = NodeCatalog::suggestName(kind ? "lfo" : "env", shape.names);
@@ -1878,13 +1981,62 @@ static bool modulate (string &source, Shape &shape, const Slot &slot,
         NodeEdit::Text::connectControl(source, add, "in1", slot.control, why) != NodeEdit::OK)
         return false;
 
-    if (NodeEdit::Text::connect(source, slot.node, slot.arg, add, "out", why) != NodeEdit::OK)
-        return false;
+    /* Every slot in the group reads the one sum: seven pulse widths,
+       one LFO. They have the same base by construction. */
+    for (size_t i = 0; i < slots.size(); i++)
+        if (NodeEdit::Text::connect(source, slots[i].node, slots[i].arg, add, "out", why) != NodeEdit::OK)
+            return false;
 
-    what = string(kind ? "lfo" : "env") + " on " + slot.node + "." + slot.arg +
+    char count[32] = "";
+
+    if (slots.size() > 1)
+        snprintf(count, sizeof count, "all %d ", (int)slots.size());
+
+    what = string(kind ? "lfo" : "env") + " on " + count +
+           (slots.size() > 1 ? slot.arg : slot.node + "." + slot.arg) +
            (slot.control.empty() ? "" : " = @" + slot.control);
 
     return true;
+}
+
+/* A group of slots that one modulator can serve: the same arg at the
+   same value on every node of one plugin. Given `one', its group. */
+static vector<Slot> siblings (const Shape &shape, const Slot &one)
+{
+    vector<Slot> group;
+
+    for (size_t i = 0; i < shape.slots.size(); i++)
+        if (shape.slots[i].plugin == one.plugin && shape.slots[i].arg == one.arg &&
+            shape.slots[i].control == one.control &&
+            shape.slots[i].value == one.value)
+            group.push_back(shape.slots[i]);
+
+    return group;
+}
+
+/* The selector genes of `nodes' that share an arg name: seven
+   oscillators' waveforms. Empty if the nodes have none in common. */
+static vector<const Gene *> selectorsOf (const vector<Gene> &genes,
+                                         const vector<Slot> &slots)
+{
+    vector<const Gene *> out;
+
+    for (size_t g = 0; g < genes.size(); g++)
+        if (genes[g].node == slots[0].node && !genes[g].choices.empty())
+        {
+            for (size_t i = 0; i < slots.size(); i++)
+                for (size_t h = 0; h < genes.size(); h++)
+                    if (genes[h].node == slots[i].node && genes[h].arg == genes[g].arg &&
+                        genes[h].choices == genes[g].choices)
+                        out.push_back(&genes[h]);
+
+            if (out.size() == slots.size())
+                return out;
+
+            out.clear();
+        }
+
+    return out;
 }
 
 struct Candidate {
@@ -1959,11 +2111,14 @@ static int grow (const Extractor &ex, const Features &target,
     if (!candidate(start, "as it stands", best))
         return 2;
 
+    /* Not tuned first. Tuning the graph as it stands before the race
+       was tried and is what loses: thirty generations fit the filter to
+       what the missing saturator did, and the saturator, once spliced,
+       gains too little in a heat to be kept. The graph as it stands
+       races with the same tuning as every edit, and the round's winner
+       is tuned only once it has won. */
     best.score = score(ex, target, best.source);
     printf("start %.3f\n", best.score);
-
-    tune(ex, target, best, rng, FINAL);
-    printf("tuned %.3f\n", best.score);
 
     for (int round = 1; round <= rounds && best.score > CLOSE; round++)
     {
@@ -1992,38 +2147,112 @@ static int grow (const Extractor &ex, const Features &target,
                     heat.push_back(c);
             }
 
+        /* Each slot alone, and each group of siblings as one -- a group
+           of one is the slot alone -- with and without the nodes'
+           selector at each of its other values: a modulation on a pulse
+           width is nothing on a saw. */
         for (size_t sl = 0; sl < shape.slots.size(); sl++)
-            for (int kind = 0; kind < 2; kind++)
+        {
+            const vector<Slot> group = siblings(shape, shape.slots[sl]);
+
+            if (group[0].node != shape.slots[sl].node)
+                continue;   /* the group runs from its first member */
+
+            vector<vector<Slot> > forms;
+
+            forms.push_back(vector<Slot>(1, shape.slots[sl]));
+
+            if (group.size() > 1)
+                forms.push_back(group);
+
+            for (size_t f = 0; f < forms.size(); f++)
             {
-                string source = best.source, what;
-                Shape scratch = shape;
-                Candidate c;
+                const vector<const Gene *> sel = selectorsOf(best.genes, forms[f]);
+                const size_t values = sel.empty() ? 0 : sel[0]->choices.size();
 
-                if (modulate(source, scratch, shape.slots[sl], kind, what) &&
-                    candidate(source, what, c))
-                    heat.push_back(c);
+                for (int kind = 0; kind < 2; kind++)
+                    for (size_t v = 0; v <= values; v++)
+                    {
+                        string source = best.source, what;
+                        Shape scratch = shape;
+                        Candidate c;
+                        bool ok = true;
+
+                        /* v == values is the selector as it stands. */
+                        if (v < values && sel[0]->choices[v] == sel[0]->value)
+                            continue;
+
+                        for (size_t i = 0; v < values && i < sel.size(); i++)
+                            ok &= write(source, *sel[i], sel[i]->choices[v]);
+
+                        if (!ok || !modulate(source, scratch, forms[f], kind, what))
+                            continue;
+
+                        if (v < values)
+                        {
+                            char with[64];
+
+                            snprintf(with, sizeof with, " with %s = %g",
+                                     sel[0]->arg.c_str(), sel[0]->choices[v]);
+                            what += with;
+                        }
+
+                        if (candidate(source, what, c))
+                            heat.push_back(c);
+                    }
             }
+        }
 
-        printf("\nround %d: %d wires, %d splices, %d slots, %d candidates\n", round,
-               (int)shape.wires.size(), (int)pool.size(), (int)shape.slots.size(),
-               (int)heat.size());
+        /* One pitch source is one voice: seven detuned saws reading the
+           same vibrato are one place to add a voice, not seven. */
+        vector<Voice> pitches;
 
-        /* Three generations tell most candidates apart: a filter that
-           kills the sound or a modulator on the wrong arg is a dB or
-           more behind by then. The top third gets the rest of the heat. */
+        for (size_t v = 0; v < shape.voices.size(); v++)
+        {
+            bool have = false;
+
+            for (size_t k = 0; k < pitches.size(); k++)
+                have |= pitches[k].freqNode == shape.voices[v].freqNode &&
+                        pitches[k].freqPort == shape.voices[v].freqPort &&
+                        pitches[k].freqControl == shape.voices[v].freqControl;
+
+            if (!have)
+                pitches.push_back(shape.voices[v]);
+        }
+
+        for (size_t w = 0; w < shape.wires.size(); w++)
+            for (size_t v = 0; v < pitches.size(); v++)
+                for (int kind = 0; kind < 2; kind++)
+                {
+                    string source = best.source, what;
+                    Shape scratch = shape;
+                    Candidate c;
+
+                    if (addVoice(source, scratch, shape.wires[w], pitches[v], kind, what) &&
+                        candidate(source, what, c))
+                        heat.push_back(c);
+                }
+
+        printf("\nround %d: %d wires, %d splices, %d slots, %d voices, %d candidates\n",
+               round, (int)shape.wires.size(), (int)pool.size(),
+               (int)shape.slots.size(), (int)pitches.size(), (int)heat.size());
+
+        /* Every candidate gets the whole heat. Culling after three
+           generations was tried and dropped the right answer: a
+           saturator is a dB behind a stray LFO until it is tuned, and
+           the saving was not measurable. */
         for (size_t i = 0; i < heat.size(); i++)
         {
             heat[i].score = score(ex, target, heat[i].source);
-            tune(ex, target, heat[i], rng, 3);
+
+            const double before = heat[i].score;
+
+            tune(ex, target, heat[i], rng, HEAT);
+
+            if (verbose)
+                printf("  heat %6.3f -> %6.3f  %s\n", before, heat[i].score,
+                       heat[i].what.c_str());
         }
-
-        std::stable_sort(heat.begin(), heat.end());
-
-        if (heat.size() > (size_t)FINALISTS * 2)
-            heat.resize(std::max((size_t)FINALISTS * 2, heat.size() / 3));
-
-        for (size_t i = 0; i < heat.size(); i++)
-            tune(ex, target, heat[i], rng, HEAT - 3);
 
         std::stable_sort(heat.begin(), heat.end());
 
@@ -2148,6 +2377,7 @@ int main (int argc, char **argv)
         else if (!strcmp(argv[i], "-o") && i + 1 < argc) prefix = argv[++i];
         else if (!strcmp(argv[i], "-w") && i + 1 < argc) HOLD_WINDOWS = std::max(1, atoi(argv[++i]));
         else if (!strcmp(argv[i], "-t") && i + 1 < argc) probeTerm = argv[++i];
+        else if (!strcmp(argv[i], "-v")) verbose = true;
         else break;
     }
 
