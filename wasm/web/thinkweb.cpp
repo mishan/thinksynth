@@ -1216,8 +1216,16 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_set_tempo (double bpm)
 
     FILE *f = fopen(TW_PIECE_FILE, "rb");
 
+    /* The edit is already on disk, so "" here is not the refusal it is
+       above: the page will leave its box alone and the two will disagree
+       until the next load. Said out loud, because nothing else can tell
+       the two apart. */
     if (f == NULL)
+    {
+        fprintf(stderr, "tempo: set, but %s could not be read back\n",
+                TW_PIECE_FILE);
         return "";
+    }
 
     char buf[4096];
     size_t n;

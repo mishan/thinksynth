@@ -379,6 +379,35 @@ try
               () => document.getElementById('tempo').value === '56'),
           'and coming back to the sequence comes back at 56');
 
+    /* A number past either end of the range, which a number input will
+       hold quite happily. Taken to the end rather than ignored: a box
+       left reading 500 over a piece still going at 56 is a control saying
+       something that is not so, and nothing on the strip says which of
+       the two is playing. */
+    await page.fill('#tempo', '500');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '300'),
+          'a tempo past the top of the range is taken to the top');
+
+    check(/tempo\s+300\s*;/.test(await page.inputValue('#gen')),
+          'and that is what the text says too');
+
+    /* And a box somebody emptied is not an instruction. */
+    await page.fill('#tempo', '');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('tempo').value === '300'),
+          'an empty box goes back to what is playing');
+
+    await page.fill('#tempo', '56');
+    await page.dispatchEvent('#tempo', 'change');
+    await page.evaluate(() => window.solo.settled());
+
     /* A piece written entirely in seconds is one the tempo cannot reach,
        which is most of the corpus. Offered where it means something and
        dimmed where it does not, the way the desktop's spinner has always

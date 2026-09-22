@@ -271,11 +271,13 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         /* The piece's text with its `tempo' statement set.
          *
-         * Asked of this instance because this is where the document is --
-         * tw_piece_load wrote it, and thcGenEdit reads and writes the file
-         * it wrote. The scheduler is not touched: what is heard came from
-         * the stamped tempo command, and this is the other half, which is
-         * the text a reload would come back at.
+         * Made here because this is where the document is -- tw_piece_load
+         * wrote it, and thcGenEdit reads and writes the file it wrote --
+         * and made in the mirror too, which holds its own copy and is the
+         * one the canvas describes (mirror.js). The scheduler is not
+         * touched: what is heard came from the stamped tempo command, and
+         * this is the other half, which is the text a reload would come
+         * back at.
          *
          * "" when the edit was refused, which the page reads as "leave the
          * box alone". */

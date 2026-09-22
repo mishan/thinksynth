@@ -585,12 +585,31 @@ function showTempo ()
 async function setTempo ()
 {
     const box = $('tempo');
-    const bpm = Number(box.value);
 
-    if (synth === null || piece === null || !piece.beats ||
-        !Number.isFinite(bpm) || bpm < Number(box.min) ||
-        bpm > Number(box.max))
+    if (synth === null || piece === null || !piece.beats)
         return;
+
+    /* An empty box is not an instruction, and it reads as zero rather
+       than as nothing: a number input hands back "" both for a box
+       somebody cleared and for one they typed letters into, and Number("")
+       is 0, which would clamp to 20 and set a tempo nobody asked for. */
+    const typed = box.value.trim() === '' ? NaN : Number(box.value);
+
+    if (!Number.isFinite(typed))
+    {
+        box.value = String(Math.round(piece.tempo));
+        return;
+    }
+
+    /* Into the range rather than ignored, which is what the desktop's
+       spinner does with the same number. A box left holding 500 while the
+       piece goes on at 112 is a control saying something that is not so,
+       and nothing else on the strip would have said which of the two was
+       true. Whole beats, because that is the step the box offers. */
+    const bpm = Math.round(Math.min(Number(box.max),
+                                    Math.max(Number(box.min), typed)));
+
+    box.value = String(bpm);
 
     synth.transportAt('tempo', -1, bpm);
     piece.tempo = bpm;
@@ -599,9 +618,15 @@ async function setTempo ()
        rather than by a regular expression here: one speller of this
        format, and it puts the line where that writer's rules put it in a
        piece that never had one. */
+    const was = $('gen').value;
     const { text } = await synth.pieceSetTempo(bpm);
 
-    if (text === '' || $('gen').value !== loadedText)
+    /* The document this edit was made against, and not `loadedText'
+       alone: a load begun while the answer was in flight has already
+       moved loadedText on to the piece it is loading, and the text coming
+       back is the piece before it. Both, so the one thing that can be
+       written here is the document that was asked about. */
+    if (text === '' || $('gen').value !== was || was !== loadedText)
         return;
 
     $('gen').value = text;
