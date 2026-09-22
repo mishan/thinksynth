@@ -420,6 +420,51 @@ carries no knob for "is there a side". A side naming a channel with nothing
 loaded on it *is* silence, because that is what an empty channel is putting
 out; the two are different questions with different answers.
 
+**And it may hear the machine.** An io node that declares
+`live0`…`live<N-1>` is given what the host is capturing — a microphone, a line
+in, whatever device was opened — there, every window:
+
+```
+node ionode {
+    channels = 2;
+
+    in0   = 0;          # this channel's voices, or the mix on a master effect
+    live0 = 0;          # and what the machine is hearing
+
+    out0 = band0->out;
+};
+```
+
+That is the modulator a vocoder needs when the thing being vocoded is a person.
+`dsp/fx/vocoder-mic.dsp` is that graph: the same sixteen bands as
+`fx/vocoder.dsp`, with the modulator off `live0` and the carrier off `in0`, so
+a piece wears whoever is in the room by naming one master effect and nothing
+else.
+
+Unlike a side it **names nothing**, because there is only ever one thing the
+machine is hearing — so a graph asks for it by declaring it and no `.gen`
+clause is involved. The capture is **mono**, so a graph that declares `live0`
+and `live1` is handed the one signal twice, which is the rule `side<N>` already
+follows for a mono side.
+
+**Where no host is capturing it is silence**, which is also what a vocoder with
+nothing to vocode should sound like. Every offline path — `genwav`, `gencheck`,
+`dspcheck` — feeds nothing and therefore reads zeros, so a piece carrying a
+live graph renders the same today as it did before one could. And a graph that
+declares no `live0` renders bit for bit the same whether or not a host is
+capturing: nothing is written where nothing was asked for.
+
+**What it costs is one window, or two.** A host captures a device period and
+the engine renders a window, so periods are accumulated into windows
+(`src/gthSynthSource.h`), and the window handed out is always the one rendered
+before — so a live graph hears one window late where the device period equals
+the window, and two where it is smaller. In a browser the period is the
+worklet's quantum of 128, which is why the page offers a window of 128 beside
+its usual 256: 2.7 ms against 10.7.
+
+**A microphone and speakers in one room is an oscillator.** The master limiter
+saturates it rather than preventing it. Headphones.
+
 **Its `@chanargs` are its own**, kept apart from the instrument's so that an
 instrument's `@a` and an effect's cannot collide. From outside they are named
 `fx.<name>`: `fx.delay` is the effect's, a bare `delay` is the instrument's.

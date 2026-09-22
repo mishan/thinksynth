@@ -266,6 +266,21 @@ Writing the graph out inline instead of naming it is the other half of the
 same idea and is not here. By reference alone delivers the self-contained
 file, which is what that step was for.
 
+**An effect may also hear the machine**, and that one needs no clause at all.
+An effect graph whose io node declares `live0` is handed what the host is
+capturing — a microphone, a line in — every window, because there is only one
+thing the machine is hearing and so nothing for a piece to name. So the shortest
+live vocoder is one line:
+
+```
+effect "fx/vocoder-mic.dsp";        # the mix as the carrier, the room as the
+                                    # modulator
+```
+
+DSP_FORMAT.md's "An effect graph" says what `live<N>` is, what it costs and why
+a piece carrying one still renders the same under `genwav`: an offline path
+captures nothing, and nothing is silence.
+
 **And the piece may carry one of its own.**
 
 ```

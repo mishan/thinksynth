@@ -33,7 +33,7 @@ import { drain, loadErrors, tapeLine } from '../tape.mjs';
 export async function renderDirect (createThinkWeb,
                                     { rate = 48000, windowlen = 256,
                                       block = 128, text, events = [],
-                                      samples = {}, frames })
+                                      samples = {}, capture = null, frames })
 {
     const log = [];
     const M = await createThinkWeb({
@@ -67,12 +67,55 @@ export async function renderDirect (createThinkWeb,
     for (let done = 0; done < frames; done += block)
     {
         const n = Math.min(block, frames - done);
+
+        /* Before the render, which is where the worklet has it: a duplex
+           callback is handed the period it captured and the period it must
+           fill in one call. `capture' is what a page's microphone is, in a
+           harness that has none. */
+        if (capture !== null)
+            feedCapture(M, capture, done, n);
+
         const p = M._tw_render(n) >> 2;
 
         out.set(M.HEAPF32.subarray(p, p + n * 2), done * 2);
     }
 
-    return { ok, log, out, windowlen: took };
+    return { ok, log, out, windowlen: took,
+             captureDropped: M._tw_capture_dropped(),
+             captureStarved: M._tw_capture_starved() };
+}
+
+/* One block of capture into the module, mono, exactly as worklet.js feeds a
+ * quantum of microphone: the buffer's address asked for once, the samples
+ * written into the heap, and tw_capture told how many.
+ *
+ * `capture' is a Float32Array of the whole take, indexed by frame, so that a
+ * harness and a browser can be handed the same samples and their renders held
+ * against each other to the bit. Past its end it feeds zeros, which is an open
+ * microphone in a quiet room -- and deliberately not the same thing as not
+ * calling at all, which is a stream that went away. scripts/dspcapture is
+ * where that second case is held to feeding the graph silence rather than the
+ * last window again.
+ */
+export function feedCapture (M, capture, from, frames)
+{
+    const at = M._tw_capture_buffer() >> 2;
+    const cap = M._tw_capture_capacity();
+
+    if (at === 0 || cap === 0)
+        return;
+
+    const n = Math.min(frames, cap);
+
+    if (n === 0)
+        return;
+
+    const heap = M.HEAPF32;
+
+    for (let i = 0; i < n; i++)
+        heap[at + i] = (from + i < capture.length) ? capture[from + i] : 0;
+
+    M._tw_capture(n);
 }
 
 /* A fresh module with a piece loaded into it, the way the page does it:

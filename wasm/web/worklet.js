@@ -93,6 +93,12 @@ class ThinkProcessor extends AudioWorkletProcessor
            of whatever is loaded on a channel; the page displays it. */
         this.probes = new Set();
         this.taps = new Map();
+
+        /* The live input. `micPtr' is where in the heap a quantum of capture
+           goes, asked for once (thinkweb.cpp, tw_capture_buffer); `micCap' is
+           how many frames fit. Both stay 0 until the module is up. */
+        this.micPtr = 0;
+        this.micCap = 0;
         this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
 
@@ -140,6 +146,13 @@ class ThinkProcessor extends AudioWorkletProcessor
         });
 
         const took = M._tw_create(sampleRate, windowlen, 128);
+
+        /* Asked for once, and once is enough: it is an address inside the
+           wasm memory, and growing that appends pages rather than moving
+           what is already there. What does change on a grow is the JS view,
+           `HEAPF32', which process() re-reads every quantum already. */
+        this.micPtr = M._tw_capture_buffer();
+        this.micCap = M._tw_capture_capacity();
 
         this.M = M;
         this.epoch = M._tw_epoch();
@@ -471,6 +484,9 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
 
         const frames = out[0].length;
+
+        this.feedInput(inputs[0], frames);
+
         const p = this.M._tw_render(frames) >> 2;
         const heap = this.M.HEAPF32;
 
@@ -511,6 +527,55 @@ class ThinkProcessor extends AudioWorkletProcessor
             this.postTape();
 
         return true;
+    }
+
+    /* This quantum's capture into the heap, summed to mono, and handed over
+     * before the render -- which is where a duplex callback has it, and what
+     * makes the graph's `live0' this quantum's microphone rather than a
+     * message that arrived at some point.
+     *
+     * A worklet input that nothing is connected to arrives as an **empty
+     * array**, not a buffer of zeros, so "no mic" is a branch and not an
+     * accident. Not calling tw_capture at all is the right thing for it: the
+     * accumulator hears the gap and feeds the graph silence, rather than the
+     * last window over and over (gthSynthSource).
+     *
+     * Summed and then scaled by the channel count, which is what the wav
+     * reader does to a stereo file and for the same reason: two sides
+     * carrying one signal come out at the level they went in.
+     */
+    feedInput (channels, frames)
+    {
+        if (this.micPtr === 0 || !channels || channels.length === 0)
+            return;
+
+        const n = Math.min(frames, this.micCap, channels[0].length);
+
+        if (n === 0)
+            return;
+
+        const heap = this.M.HEAPF32;
+        const at = this.micPtr >> 2;
+        const count = channels.length;
+
+        if (count === 1)
+        {
+            heap.set(channels[0].subarray(0, n), at);
+        }
+        else
+        {
+            for (let i = 0; i < n; i++)
+            {
+                let sum = 0;
+
+                for (let c = 0; c < count; c++)
+                    sum += channels[c][i];
+
+                heap[at + i] = sum / count;
+            }
+        }
+
+        this.M._tw_capture(n);
     }
 
     /* What each armed tap has published since the last quantum, copied
