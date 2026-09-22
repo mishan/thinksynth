@@ -508,6 +508,31 @@ instrument on the mix to collide with), and the same refusal applies to a
 graph that declares no `in0`. A `.gen` asks for one with a top-level `effect`
 statement; see GEN_FORMAT.md §4b.
 
+**On the mix it may hear the send bus.** A master effect whose io node
+declares `send0`…`send<N-1>` is given every channel's output scaled by that
+channel's send (`send = 0.3;` in a `.gen` instrument, `fx.send` from outside)
+and summed, beside `in<N>`, which is still the whole mix at full level:
+
+```
+node ionode {
+    channels = 2;
+
+    in0   = 0;          # the mix
+    in1   = 0;
+    send0 = 0;          # what the channels sent
+    send1 = 0;
+
+    out0 = ionode->in0 * (1 - @mix) + wetl->out;
+    out1 = ionode->in1 * (1 - @mix) + wetr->out;
+};
+```
+
+Putting the send through the room and the mix past it dry is the aux-send
+reverb of a mixing desk, and `fx/space.dsp` is written that way: its network
+is fed `mix` of the input plus the send, so on a channel, where the send is
+silence, it is the channel reverb it always was. Declared like `side<N>` and
+invented for nobody; a channel effect that declares one reads zeros.
+
 ## 2. The `.patch` format
 
 A `.patch` is **not** a graph. It is a reference to a `.dsp` plus flat

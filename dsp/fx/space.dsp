@@ -30,6 +30,17 @@
 # is about to write, so zero reads a whole ring ago; the sample added
 # to the pre-delay is what makes `Pre-delay = 0' mean none.
 #
+# `Mix' scales what goes into the network rather than what comes out of
+# it, and the dry is added back at 1 - mix: the network and the filters
+# are linear, so that is the crossfade it always was, and it leaves room
+# for a second input.
+#
+# That input is the send bus. As a master effect, send0 and send1 carry
+# every channel at its instrument's `send', and they go into the network
+# at full level beside the mix's own share -- so with `Mix' at zero the
+# mix passes dry and each channel is in the room by exactly its send. On
+# a channel the send reads zeros and this is the channel reverb.
+#
 # This is an effect graph -- `in0' on the io node -- and it runs on the
 # channel's summed voices every window, which is what lets the tail
 # outlive the note. See fx/echo.dsp.
@@ -96,12 +107,16 @@ node ionode {
     in0 = 0;
     in1 = 0;
 
-    out0 = mixl->out;
-    out1 = mixr->out;
+    send0 = 0;
+    send1 = 0;
+
+    out0 = ionode->in0 * (1 - @mix) + highl->out_low;
+    out1 = ionode->in1 * (1 - @mix) + highr->out_low;
 };
 
 node pre delay::echo {
-    in = (ionode->in0 + ionode->in1) * 0.5;
+    in = ((ionode->in0 + ionode->in1) * @mix +
+          ionode->send0 + ionode->send1) * 0.5;
     size = 510 ms;
     delay = @predelay + 1;
     feedback = 0;
@@ -140,18 +155,6 @@ node highr filt::svf {
     in = lowr->out_high;
     cutoff = @highcut;
     res = 0;
-};
-
-node mixl mixer::fade {
-    in0 = ionode->in0;
-    in1 = highl->out_low;
-    fade = @mix;
-};
-
-node mixr mixer::fade {
-    in0 = ionode->in1;
-    in1 = highr->out_low;
-    fade = @mix;
 };
 
 io ionode;

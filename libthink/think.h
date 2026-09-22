@@ -162,6 +162,32 @@ using namespace std;
  * what keeps a graph with a live input in it reproducible. */
 #define LIVEPREFIX "live"
 
+/* And the send bus, on the master effect only.
+ *
+ * send0..send<N-1> on the master effect's io node carry the sum of every
+ * channel's output scaled by that channel's send -- `send = 0.3;' in a
+ * `.gen' instrument, `fx.send' from outside -- written by the engine every
+ * window beside in<N>, which still carries the whole mix at full level. What
+ * to do with the two is the graph's: a reverb puts send<N> through the
+ * network and in<N> past it dry, which is one room shared by every channel
+ * at a different depth each.
+ *
+ * Declared like side<N> and live<N> (`send0 = 0;'), and invented for
+ * nobody. A master effect that declares none hears no send, and a piece with
+ * no master effect has nobody to hear one: the send is then silence, and the
+ * channels are still in the mix at full level. */
+#define SENDPREFIX "send"
+
+/* The channel's own send, addressed as TH_EFFECT_PREFIX TH_SEND_ARG.
+ *
+ * It lives on the channel rather than in its effect's map, because a channel
+ * with no effect still sends -- a piano dry on its own channel and half of it
+ * into the room is the usual case. Under the effect's prefix because it is
+ * the effect side of the channel, and so that a bare `send' stays free for
+ * the instrument's own graph. An effect that declares its own `@send' is
+ * shadowed by this one. */
+#define TH_SEND_ARG "send"
+
 /* How a channel effect's chanargs are named from outside.
  *
  * `fx.delay' is the effect's `@delay'; a bare `delay' is the instrument's.

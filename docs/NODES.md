@@ -77,7 +77,7 @@ Echo (echo echo echo)
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `in` | in | Signal in |  | -1 to 1 | full scale |  |
-| `size` | in | How long the ring is; it has to be at least `delay' |  |  | samples |  |
+| `size` | in | How long the ring is, up to sixty seconds; it has to be at least `delay' |  |  | samples |  |
 | `delay` | in | How far back the tap reads, wrapped into the ring |  |  | samples |  |
 | `feedback` | in | How much of the ring is kept; 1 stops taking input |  | 0 to 1 |  |  |
 | `dry` | in | 0 is all echo, 1 is all input |  | 0 to 1 |  |  |

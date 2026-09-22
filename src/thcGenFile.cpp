@@ -1720,6 +1720,20 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             continue;
         }
 
+        /* `send = 0.3;': how much of this channel goes to the master
+           effect's send<N>. The channel's rather than the graph's, so it is
+           written under the effect's prefix the engine files it under --
+           see TH_SEND_ARG -- and a knob or a chain reaches it as `fx.send'. */
+        if (key.text == TH_SEND_ARG)
+        {
+            if (!parseInstrumentValue(sched, inst,
+                                      "instrument " + nameTok.text, key,
+                                      TH_EFFECT_PREFIX))
+                return false;
+
+            continue;
+        }
+
         if (!parseInstrumentValue(sched, inst, "instrument " + nameTok.text,
                                   key, ""))
             return false;

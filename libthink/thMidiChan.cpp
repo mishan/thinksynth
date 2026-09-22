@@ -98,6 +98,14 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
         args_[string("amp")] = a;
     }
 
+    /* The send, described like amp so a panel can draw it. */
+    send_ = new thArg(string(TH_SEND_ARG), 0);
+    send_->setMin(0);
+    send_->setMax(1);
+    send_->setLabel("Send");
+    send_->setWidgetType(thArg::SLIDER);
+    lastSend_ = 0;
+
     if (modnode_) {
         chanarg = modnode_->getArg("channels");
     }
@@ -191,6 +199,9 @@ thMidiChan::~thMidiChan (void)
     clearAll(NULL);
 
     DestroyMap(args_);
+
+    delete send_;
+    send_ = NULL;
 
     /* We own the tree (see the constructor comment). */
     delete modnode_;
