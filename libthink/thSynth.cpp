@@ -63,6 +63,9 @@ thSynth::thSynth (int windowlen, int samples)
        thChans and thWindowlen */
     output_ = new float[thOutputSamples(channels_, windowlen_)];
 
+    /* The send bus, laid out like output_. See SENDPREFIX. */
+    send_ = new float[thOutputSamples(channels_, windowlen_)]();
+
     /* Zeroed, and that is the whole of the default: a host that never feeds
        one renders a graph with a live input in it as silence. See
        feedCapture. */
@@ -117,6 +120,9 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
        thChans and thWindowlen */
     output_ = new float[thOutputSamples(channels_, windowlen_)];
 
+    /* The send bus, laid out like output_. See SENDPREFIX. */
+    send_ = new float[thOutputSamples(channels_, windowlen_)]();
+
     /* Zeroed, and that is the whole of the default: a host that never feeds
        one renders a graph with a live input in it as silence. See
        feedCapture. */
@@ -157,6 +163,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 thSynth::~thSynth (void)
 {
     delete [] output_;
+    delete [] send_;
     delete [] capture_;
 
     /* The audio thread is expected to be stopped by now, so both queues can be
@@ -1081,8 +1088,11 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
         if (arg->name().compare(0, plen, TH_EFFECT_PREFIX) == 0)
         {
+            /* The send is the channel's, effect or none. See TH_SEND_ARG. */
             thChanEffect *fx = guiEffects_[channum];
-            thArg *target = fx ? fx->getArg(arg->name().substr(plen)) : NULL;
+            thArg *target = (arg->name().substr(plen) == TH_SEND_ARG)
+                ? guiChannels_[channum]->sendArg()
+                : fx ? fx->getArg(arg->name().substr(plen)) : NULL;
 
             if (target != NULL && target->type() == thArg::ARG_VALUE &&
                 target->len() == 1 && arg->type() == thArg::ARG_VALUE &&
@@ -1166,6 +1176,11 @@ thArg *thSynth::getChanArg (int channum, const string &argname)
 
     if (argname.compare(0, plen, TH_EFFECT_PREFIX) == 0)
     {
+        /* The send is the channel's, effect or none. See TH_SEND_ARG. */
+        if (argname.substr(plen) == TH_SEND_ARG)
+            return guiChannels_[channum] ? guiChannels_[channum]->sendArg()
+                                         : NULL;
+
         thChanEffect *fx = guiEffects_[channum];
 
         return fx ? fx->getArg(argname.substr(plen)) : NULL;
@@ -1805,6 +1820,8 @@ void thSynth::process (void)
 
     memset(output_, 0,
            thOutputSamples(channels_, windowlen_) * sizeof(float));
+    memset(send_, 0,
+           thOutputSamples(channels_, windowlen_) * sizeof(float));
 
     /* Probes are zeroed before any channel runs and published after all of
        them, rather than around the channel they belong to, so that a probe on
@@ -1907,6 +1924,38 @@ void thSynth::process (void)
 
                 bufferoffset += windowlen_;
             }
+
+            /* And into the send bus, by the channel's send. Ramped from the
+               last window's value to this one's, so a chain riding the send
+               moves it without a step at every window boundary. A channel
+               that sends nothing -- nearly all of them -- pays one read. */
+            thArg *sendarg = chan->sendArg();
+            float to = sendarg ? (*sendarg)[0] : 0;
+
+            if (!thIsFinite(to) || to < 0)
+                to = 0;
+
+            const float from = chan->lastSend();
+
+            chan->setLastSend(to);
+
+            if (from == 0 && to == 0)
+                continue;
+
+            const float step = (to - from) / windowlen_;
+
+            for (int j = 0; j < mixchannels; j++)
+            {
+                float *dst = send_ + (size_t)j * windowlen_;
+                const float *src = chanoutput + j;
+                float g = from;
+
+                for (int k = 0; k < windowlen_; k++)
+                {
+                    g += step;
+                    dst[k] += src[k * notechannels] * g;
+                }
+            }
         }
     }
 
@@ -1924,7 +1973,7 @@ void thSynth::process (void)
      * what the channels mixed, dry, and says so once per load -- the voices
      * are summed by now, so there is no bad one left to drop. */
     if (master_ != NULL &&
-        !master_->processPlanar(output_, channels_, windowlen_) &&
+        !master_->processPlanar(output_, channels_, windowlen_, send_) &&
         !masterSaidSo_)
     {
         fprintf(stderr, "thSynth: the master effect went non-finite; the "
@@ -2029,6 +2078,8 @@ void thSynth::setWindowlen (int windowlen)
     windowlen_ = clampWindowlen(windowlen);
     delete [] output_;
     output_ = new float[thOutputSamples(channels_, windowlen_)];
+    delete [] send_;
+    send_ = new float[thOutputSamples(channels_, windowlen_)]();
     delete [] capture_;
     capture_ = new float[windowlen_]();
 #endif

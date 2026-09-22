@@ -124,6 +124,17 @@ public:
 
     const thArgMap &args (void) const { return args_; }
 
+    /* The fraction of this channel's output, after its effect, that goes to
+       the master effect's send<N> -- see SENDPREFIX. Its own arg rather than
+       one in args_, so a graph declaring @send cannot collide with it; thSynth
+       reaches it as `fx.send'. 0 until a piece says otherwise. */
+    thArg *sendArg (void) const { return send_; }
+
+    /* Audio thread. What the send was at the end of the last window, so
+       thSynth can ramp a moving send across a window rather than step it. */
+    float lastSend (void) const { return lastSend_; }
+    void setLastSend (float send) { lastSend_ = send; }
+
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
 
@@ -246,6 +257,8 @@ private:
     /* The channel's effect, or NULL. Owned here, installed by setEffect. */
     thChanEffect *effect_;
     thArgMap args_;
+    thArg *send_;
+    float lastSend_;
     NoteMap notes_;
     NoteList decaying_;  /* linked list for decaying notes */
     NoteList noteorder_; /* order of the notes for polyphony limits */

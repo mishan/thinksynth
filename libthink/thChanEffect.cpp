@@ -38,6 +38,7 @@ thChanEffect::thChanEffect (thSynthTree *tree, int channels, int windowlen,
         outindex_[i] = -1;
         sideindex_[i] = -1;
         liveindex_[i] = -1;
+        sendindex_[i] = -1;
     }
 
     if (tree_ == NULL || tree_->IONode() == NULL || windowlen <= 0)
@@ -263,26 +264,48 @@ void thChanEffect::indexIOArgs (int windowlen)
         arg->allocate(windowlen);
         liveindex_[i] = arg->index();
     }
+
+    /* And send<N>, on the same terms once more. */
+    for (int i = 0; i < channels_ && i < TH_MAX_CHANNELS; i++)
+    {
+        string name = SENDPREFIX;
+
+        name += (char)(i + '0');
+
+        if (io->getArg(name) == NULL)
+            continue;
+
+        thArg *arg = io->setArg(name, 0);
+
+        if (arg == NULL)
+            continue;
+
+        arg->allocate(windowlen);
+        sendindex_[i] = arg->index();
+    }
 }
 
 /* Audio thread. */
 bool thChanEffect::process (float *buf, int channels, int windowlen,
                             const float *side, int sidechannels)
 {
-    return run(buf, channels, windowlen, channels, 1, side, sidechannels);
+    return run(buf, channels, windowlen, channels, 1, side, sidechannels,
+               NULL);
 }
 
 /* Audio thread. */
-bool thChanEffect::processPlanar (float *buf, int channels, int windowlen)
+bool thChanEffect::processPlanar (float *buf, int channels, int windowlen,
+                                  const float *send)
 {
     /* No side on the mix: there is no second channel to name once every
        channel is already in `buf'. */
-    return run(buf, channels, windowlen, 1, windowlen, NULL, 0);
+    return run(buf, channels, windowlen, 1, windowlen, NULL, 0, send);
 }
 
 /* Audio thread. */
 bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
-                        int hop, const float *side, int sidechannels)
+                        int hop, const float *side, int sidechannels,
+                        const float *send)
 {
     if (tree_ == NULL || buf == NULL || scratch_ == NULL || channels_ <= 0 ||
         channels <= 0 || windowlen <= 0)
@@ -403,6 +426,35 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
         if (take < windowlen)
             memset(dst + take, 0,
                    (size_t)(windowlen - take) * sizeof(float));
+    }
+
+    /* And the send bus, laid out like `buf'. Zeros where there is none --
+       a channel effect, or a synth that handed nothing in -- so a buffer
+       nobody writes is not the last window of a send repeating. A channel
+       the bus does not carry reads its last one, as a mono side does. */
+    for (int c = 0; c < channels_ && c < TH_MAX_CHANNELS; c++)
+    {
+        if (sendindex_[c] < 0)
+            continue;
+
+        thArg *arg = tree_->resolveIOArg(sendindex_[c]);
+
+        if (arg == NULL || arg->values() == NULL ||
+            (int)arg->len() != windowlen)
+            continue;
+
+        float *dst = arg->values();
+
+        if (send == NULL)
+        {
+            memset(dst, 0, (size_t)windowlen * sizeof(float));
+            continue;
+        }
+
+        const int from = (c < channels) ? c : channels - 1;
+
+        for (int j = 0; j < windowlen; j++)
+            dst[j] = send[j * step + from * hop];
     }
 
     /* Every node, not setActiveNodes(): an effect is entitled to be nothing

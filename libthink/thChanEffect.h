@@ -126,8 +126,12 @@ public:
      * Two spellings of one loop rather than an interleave and a copy at
      * the call site. The master effect is this object on the summed mix
      * -- same graph, same chanargs, same guard -- and the only thing it
-     * does not share with a channel's is where the samples sit. */
-    bool processPlanar (float *buf, int channels, int windowlen);
+     * does not share with a channel's is where the samples sit.
+     *
+     * `send' is the send bus, laid out the same way, or NULL: what the graph
+     * hears as send<N> -- see SENDPREFIX. */
+    bool processPlanar (float *buf, int channels, int windowlen,
+                        const float *send = NULL);
 
     /* The effect's own chanargs, kept apart from the instrument's so that an
        instrument's `@a' and an effect's cannot collide. Named `fx.<name>'
@@ -160,7 +164,7 @@ private:
        how far apart two channels start: (channels, 1) is interleaved and
        (1, windowlen) is planar. */
     bool run (float *buf, int channels, int windowlen, int step, int hop,
-              const float *side, int sidechannels);
+              const float *side, int sidechannels, const float *send);
 
     void copyChanArgs (void);
     void assignChanArgPointers (void);
@@ -186,6 +190,10 @@ private:
        file declared none, which is every effect that is not listening to the
        machine. */
     int liveindex_[TH_MAX_CHANNELS];
+
+    /* And send<N>, on the same terms again. Only the master effect is
+       handed a send bus; a channel effect declaring one reads zeros. */
+    int sendindex_[TH_MAX_CHANNELS];
 
     int sideChan_;
 

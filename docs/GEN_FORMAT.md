@@ -322,6 +322,32 @@ A piece that declares none takes off whatever the last one left. Opening a
 piece is opening a piece; a reverb that outlived the file that asked for it
 would be the previous piece still playing.
 
+**An instrument may send to it.**
+
+```
+instrument piano {
+    dsp  "rhodes.dsp";
+    send = 0.3;                 # this much of the channel into the room
+};
+
+effect "fx/space.dsp" { mix = 0; };
+```
+
+`send` is how much of the channel's output — after its own effect — goes onto
+a send bus the master effect hears as `send0`…`send<N-1>`, beside the whole
+mix in `in<N>`. What to do with the two is the graph's: `fx/space.dsp` puts
+the send through its network and, at `mix = 0`, the mix past it dry, so every
+channel is in one room by its own amount and a channel with no `send` is not
+in it at all. A master effect that declares no `send0` hears none, and a piece
+with no master effect has nobody to hear it; the channels are in the mix at
+full level either way.
+
+A keyword rather than a chanarg of the instrument's graph, because it belongs
+to the channel: a channel with no effect still sends. From outside it is
+`fx.send` — what a knob binds and a chain rides with
+`sink { instrument = piano; chanarg = "fx.send"; };` — and it runs 0 to 1. A
+moving send is ramped across each window rather than stepped.
+
 **A value may be a knob.**
 
 ```
@@ -738,6 +764,7 @@ mastereffect: "effect" STRING effectblock? ";"           # at most one,
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
 instrstmt   : "dsp" STRING ";"
             | "effect" STRING effectblock? ";"          # at most one
+            | "send" "=" (NUMBER | CHANARG) ";"         # fx.send, 0..1
             | instrval
 effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs
 effectside  : "side" "=" WORD ";"                      # at most one; an

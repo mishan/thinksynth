@@ -493,6 +493,10 @@ private:
 
     int midiChannelCnt_;
     float *output_;
+
+    /* Every channel's output scaled by its send, summed, laid out like
+       output_ -- what the master effect hears as send<N>. */
+    float *send_;
     int channels_;  /* Number of channels (mono/stereo/etc) */
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */

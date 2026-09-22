@@ -1282,6 +1282,81 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- the send bus -------------------------------------------------- */
+
+    /* A master effect that plays send0 and nothing else hears exactly the
+     * channels that send, each at its amount -- and a channel with no send is
+     * not in it at all, though it is in in0 at full level. The dry peak comes
+     * from the same pair of channels through a master effect that plays in0,
+     * so the ratio says the send is a gain and not merely a gate.
+     */
+    {
+        const string fxSend = effect("", "", "ionode->send0",
+                                     "ionode->send1");
+        const string fxDry = effect("", "", "ionode->in0", "ionode->in1");
+
+        /* The helper writes no send<N>; the graph has to ask for them. */
+        string declared = fxSend;
+        const size_t at = declared.find("    in1 = 0;\n");
+
+        if (at != string::npos)
+            declared.insert(at + strlen("    in1 = 0;\n"),
+                            "    send0 = 0;\n    send1 = 0;\n");
+
+        /* One channel alone, `send' on it, through `file': the peak. */
+        auto heard = [&] (const string &file, int chan, float send) -> double
+        {
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 60) == NULL ||
+                s.synth.loadTree(instFile, 1, 60) == NULL ||
+                s.synth.loadMasterEffect(file) == NULL)
+                return -1;
+
+            s.synth.setChanArg(chan, new thArg(string(TH_EFFECT_PREFIX) +
+                                               TH_SEND_ARG, send));
+
+            /* One window for the command and one for the ramp from 0. */
+            s.run(2);
+            s.take();
+
+            s.synth.addNote(chan, 60, 100);
+            s.run(4);
+
+            return peak(s.take());
+        };
+
+        if (writeFile(instFile, instrument("")) &&
+            writeFile(fxFile, declared))
+        {
+            const double sent = heard(fxFile, 0, 0.5f);
+            const double none = heard(fxFile, 1, 0.0f);
+
+            double dry = -1;
+
+            if (writeFile(fxFile2, fxDry))
+                dry = heard(fxFile2, 0, 0.5f);
+
+            okOrFail(dry > 0.05 && sent > 0 &&
+                     fabs(sent / dry - 0.5) < 0.01,
+                     "a master effect's send0 carries a channel at its send",
+                     "dry " + num(dry) + ", sent " + num(sent));
+
+            okOrFail(none == 0,
+                     "a channel with no send is not on the send bus",
+                     "peak " + num(none));
+
+            /* And fx.send is the channel's: there on a channel with no
+               effect, which is where a send is usually wanted. */
+            Session s(pluginPath);
+
+            okOrFail(s.synth.loadTree(instFile, 0, 60) != NULL &&
+                     s.synth.getChanArg(0, string(TH_EFFECT_PREFIX) +
+                                           TH_SEND_ARG) != NULL,
+                     "fx.send is there on a channel with no effect", "");
+        }
+    }
+
     /* ---- delay::fdn against the hall ----------------------------------- */
 
     /* An impulse through each, wet only, and the normalized echo density of
