@@ -55,8 +55,10 @@
 #include <string.h>
 #include <math.h>
 
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "think.h"
@@ -104,14 +106,25 @@ static string num (double v)
     return buf;
 }
 
+/* Every other harness here spells this the same way, and it has to be spelled
+ * that way: TMPDIR and a /tmp fallback is a Unix habit, and on the MinGW runner
+ * there is no /tmp -- the whole harness got as far as "could not write its
+ * scratch files" and stopped. temp_directory_path() is the portable answer and
+ * was already in the tree four times over.
+ *
+ * A function rather than a static, for argtype's reason: temp_directory_path()
+ * consults the environment, and doing that before main() is a habit worth not
+ * forming. */
 static string scratchPath (const char *leaf)
 {
-    const char *tmp = getenv("TMPDIR");
+    std::error_code ec;
 
-    if (tmp == NULL || *tmp == '\0')
-        tmp = "/tmp";
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
 
-    return string(tmp) + "/" + leaf;
+    if (ec)
+        dir = ".";      /* the build tree; ctest runs us in it */
+
+    return (dir / leaf).string();
 }
 
 static bool writeFile (const string &path, const string &text)
