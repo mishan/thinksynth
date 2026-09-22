@@ -2176,7 +2176,14 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
         if (!chanarg.empty() && chanarg != "*")
         {
             for (size_t i = 0; i < in->values.size(); i++)
-                if (in->values[i].name == chanarg &&
+            {
+                /* `send' is written bare but filed as `fx.send' -- the
+                   loader checks that name, so this has to as well. */
+                std::string key = in->values[i].name;
+                if (key == TH_SEND_ARG)
+                    key = std::string(TH_EFFECT_PREFIX) + key;
+
+                if (key == chanarg &&
                     !in->values[i].valueText.empty() &&
                     in->values[i].valueText[0] == '@')
                 {
@@ -2185,6 +2192,7 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
                           "would fight over it";
                     return thcGenEdit::REFUSED;
                 }
+            }
 
             /* And the effect's, which are kept in a list of their own
                because the `effect' block is stepped over rather than

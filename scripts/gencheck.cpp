@@ -4151,6 +4151,60 @@ checkEffectChanargSink (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* The same for `send': written bare in the instrument block, filed
+       as `fx.send', and so a knob on it is found under the prefix. */
+    {
+        std::string bound = thUtil::tempFile("gencheck-sendknob-");
+
+        if (bound.empty())
+            fail("could not make a scratch file for the send knob check");
+        else
+        {
+            std::string why;
+
+            {
+                std::ofstream out(bound.c_str(), std::ios::trunc);
+
+                out << "@room = 0.3;\n@room.min = 0;\n@room.max = 1;\n"
+                       "instrument lead {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    send = @room;\n"
+                       "};\n"
+                       "chain c {\n"
+                       "    stage s gen::eno_line { };\n"
+                       "    sink { instrument = lead; };\n"
+                       "};\n";
+            }
+
+            if (thcGenEdit::addSink(bound, "c", 1, "lead", "fx.send", why) ==
+                thcGenEdit::OK)
+                fail("addSink wrote a sink that fights a knob on the send");
+
+            if (thcGenEdit::setSink(bound, "c", 0, 1, "lead", "fx.send",
+                                    why) == thcGenEdit::OK)
+                fail("setSink wrote a sink that fights a knob on the send");
+
+            {
+                thcScheduler sched(synth);
+                thcGenLoader loader(plugins);
+
+                drainSynth();
+
+                if (!loader.load(bound, &sched))
+                {
+                    for (size_t i = 0; i < loader.errors().size(); i++)
+                        fprintf(stderr, "gencheck: %s\n",
+                                loader.errors()[i].c_str());
+
+                    fail("the file after refusing send sinks no longer "
+                         "loads");
+                }
+            }
+
+            std::filesystem::remove(bound);
+        }
+    }
+
     clearChannels(synth);
 }
 
