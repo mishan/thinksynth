@@ -191,7 +191,12 @@ export function placePopover (box, x, y)
 export function createPanes ({ root, catalog, layouts, mode,
                                store = 'panes', editing = '',
                                onShow = () => {}, on = false,
-                               media = MEDIA, split = SPLIT, leaf = LEAF,
+                               media = MEDIA, split = SPLIT,
+                               /* `floor' here and `leaf' outside: a leaf
+                                  is what most of this file calls a node,
+                                  and an option that shares the name is
+                                  read as one wherever it is passed. */
+                               leaf: floor = LEAF,
                                edge = EDGE, param = 'panes',
                                storage = KEEP, keys = {} })
 {
@@ -434,7 +439,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         if (isLeaf(node))
             return row ? Math.max(...liveTabs(node).map(
                              (id) => panes.get(id).min))
-                       : leaf;
+                       : floor;
 
         const kids = liveKids(node);
         const mins = kids.map((k) => minAcross(k, row));
@@ -662,7 +667,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         const rect = box.getBoundingClientRect();
         const row = dir === 'row';
         const want = minAcross(leaf, row) +
-                     (row ? panes.get(id).min : leaf) + split;
+                     (row ? panes.get(id).min : floor) + split;
 
         return (row ? rect.width : rect.height) >= want;
     };
@@ -880,7 +885,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         box.addEventListener('pointerdown', () => { focus = leaf; }, true);
 
         box.style.minWidth = `${minAcross(leaf, true)}px`;
-        box.style.minHeight = `${leaf}px`;
+        box.style.minHeight = `${floor}px`;
         box.prepend(strip);
         seen.set(box, leaf);
 
