@@ -444,6 +444,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: wasm-build
 
+    # See wasm-browsers: minutes, not hours.
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
 
@@ -605,8 +608,32 @@ jobs:
     runs-on: ubuntu-latest
     needs: wasm-build
 
+    # Everything here is minutes, so an hour means something is wedged rather
+    # than slow. Without this a hang runs to GitHub's six-hour default, which
+    # is what a live AudioContext with no audio backend did once: the job said
+    # nothing, cost everything, and looked exactly like a slow one.
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
+
+      # A sound card, of sorts. browsertest.mjs is offline throughout and wants
+      # none -- but mictest.mjs cannot be: a MediaStreamAudioSourceNode is the
+      # one node an OfflineAudioContext will not make, so asking for a
+      # microphone means asking for a real-time context. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never resolves
+      # without a backend, and an unresolved promise inside page.evaluate has
+      # no timeout of its own. Same module and same reasoning as the jam job,
+      # which needs one for jamtest's two live peers.
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+
+      - name: An audio sink for the live-context tests
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=mictest
+          pactl set-default-sink mictest
+          pactl info
 
       - uses: actions/setup-node@v4
         with:
@@ -680,6 +707,9 @@ jobs:
     name: wasm (emscripten) two peers
     runs-on: ubuntu-latest
     needs: wasm-build
+
+    # See wasm-browsers: minutes, not hours.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4

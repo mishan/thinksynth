@@ -199,6 +199,39 @@ function launchOptions (label)
     } };
 }
 
+/* How long a page-side run gets before it is called a failure.
+ *
+ * Wrapped at this level rather than inside the page, because what has to be
+ * caught is any hang and not the ones that were thought of. The one that
+ * happened was a live AudioContext on a runner with no audio backend: Firefox's
+ * resume() never resolves there -- jamtest.mjs says so in its own words, and it
+ * is why the jam job starts a pulseaudio null sink. page.evaluate has no
+ * timeout of its own, so an unresolved promise inside it ran for an hour and
+ * would have run for six. A job that hangs says nothing, costs everything and
+ * looks exactly like a slow one.
+ *
+ * Generous, because the legs below wait in real time on purpose: the longest is
+ * two seconds of listening plus a piece load plus ninety .dsp fetches. */
+const STEP_MS = 90000;
+
+function withTimeout (promise, what)
+{
+    let timer;
+
+    return Promise.race([
+        promise.finally(() => clearTimeout(timer)),
+        new Promise((_, no) =>
+        {
+            timer = setTimeout(
+                () => no(new Error(`timed out after ${STEP_MS} ms: ${what}` +
+                                   ' -- a live AudioContext with no audio' +
+                                   ' backend is the usual cause; see the null' +
+                                   ' sink in the CI wasm-browsers job')),
+                STEP_MS);
+        }),
+    ]);
+}
+
 /* ---- the page's two runs ----------------------------------------------- */
 
 /* A capture into the worklet's own input, offline and exact.
@@ -481,8 +514,9 @@ async function runBrowser (label, type)
 
         try
         {
-            got = await captureInBrowser(page, exactGen, capture, FRAMES,
-                                         WINDOW);
+            got = await withTimeout(
+                captureInBrowser(page, exactGen, capture, FRAMES, WINDOW),
+                `${label} live input`);
         }
         catch (e)
         {
@@ -536,8 +570,10 @@ async function runBrowser (label, type)
 
         try
         {
-            got = await micInBrowser(page, piece('fx/vocoder-mic.dsp'),
-                                     LIVE_SECONDS, WINDOW);
+            got = await withTimeout(
+                micInBrowser(page, piece('fx/vocoder-mic.dsp'), LIVE_SECONDS,
+                             WINDOW),
+                `${label} microphone`);
         }
         catch (e)
         {
@@ -575,10 +611,12 @@ async function runBrowser (label, type)
 
         try
         {
-            quiet = await pieceInBrowser(page, SHIPPED, false, LIVE_SECONDS,
-                                         WINDOW);
-            loud = await pieceInBrowser(page, SHIPPED, true, LIVE_SECONDS,
-                                        WINDOW);
+            quiet = await withTimeout(
+                pieceInBrowser(page, SHIPPED, false, LIVE_SECONDS, WINDOW),
+                `${label} ${SHIPPED} without a microphone`);
+            loud = await withTimeout(
+                pieceInBrowser(page, SHIPPED, true, LIVE_SECONDS, WINDOW),
+                `${label} ${SHIPPED} with one`);
         }
         catch (e)
         {
