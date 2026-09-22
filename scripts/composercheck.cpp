@@ -69,6 +69,7 @@
 #include "gthSignal.h"
 #include "gui/ComposerCanvasWidget.h"
 #include "gui/ComposerWindow.h"
+#include "gui/ItemBrowser.h"
 #include "gui/PianoRoll.h"
 
 /* The five application-wide signals gthSignal.h declares, defined here
@@ -105,6 +106,21 @@ public:
     using ComposerWindow::tabs_;
     using ComposerWindow::roll_;
     using ComposerWindow::sched_;
+};
+
+/* Same arrangement, for the browser dialog: what it keeps is its own
+ * business, and a test is a subclass rather than a wider header. */
+class TestBrowser : public ItemBrowser {
+public:
+    TestBrowser (Gtk::Window &parent, const Provider &provider,
+                 const std::string &current)
+        : ItemBrowser(parent, "browsercheck", provider, "", current) { }
+
+    using ItemBrowser::filter_;
+    using ItemBrowser::openBtn_;
+    using ItemBrowser::treeModel_;
+    using ItemBrowser::selection_;
+    using ItemBrowser::selectedFile;
 };
 
 static int checks = 0;
@@ -913,6 +929,137 @@ closeWithIdlesPending (const std::string &pluginPath)
     ok("a window closed with idles queued takes them with it");
 }
 
+/* The browser's filter box, which rebuilds the list under the cursor.
+ *
+ * Two things went wrong there and neither is visible without pressing
+ * keys. A rebuild that cannot find the row to put the cursor back on
+ * used to return with the Open button still sensitive and the detail
+ * line still describing a row from the model it had just thrown away --
+ * so Open was pressable over nothing, and pressing it did nothing at
+ * all, silently. And a rebuild that could find a row went back to the
+ * file already loaded rather than to the row the user was reading, so
+ * every keystroke dragged the cursor away from what was being typed
+ * towards.
+ *
+ * The provider is a stub because what is under test is the widget, not
+ * a corpus: DspCatalog::matches and GenCatalog::matches are the real
+ * rules and they are checked where they live, with no display near
+ * them. */
+static std::vector<BrowserGroup>
+stubRows (const std::string &needle)
+{
+    BrowserGroup keys;
+    BrowserGroup drums;
+
+    keys.name = "Keys";
+    drums.name = "Drums";
+
+    const BrowserItem all[] = {
+        { "rhodes.dsp", "Rhodes",  "an electric piano", "rhodes.dsp"  },
+        { "wurli.dsp",  "Wurli",   "the other one",     "wurli.dsp"   },
+        { "kick.dsp",   "Kick",    "a kick drum",       "kick.dsp"    },
+    };
+
+    for (size_t i = 0; i < 3; i++)
+    {
+        if (!needle.empty() &&
+            all[i].name.find(needle) == std::string::npos)
+            continue;
+
+        if (i < 2)
+            keys.items.push_back(all[i]);
+        else
+            drums.items.push_back(all[i]);
+    }
+
+    std::vector<BrowserGroup> groups;
+
+    groups.push_back(keys);
+    groups.push_back(drums);
+
+    return groups;
+}
+
+/* Select a leaf by name, however the tree happens to be flattened just
+   now. Returns false when no such row is showing. */
+static bool
+selectRow (TestBrowser *b, const std::string &file)
+{
+    for (guint i = 0; i < b->treeModel_->get_n_items(); i++)
+    {
+        Glib::RefPtr<Gtk::TreeListRow> treeRow = b->treeModel_->get_row(i);
+        Glib::RefPtr<BrowserRow> row =
+            treeRow ? std::dynamic_pointer_cast<BrowserRow>(treeRow->get_item())
+                    : Glib::RefPtr<BrowserRow>();
+
+        if (row && row->file() == file)
+        {
+            b->selection_->set_selected(i);
+            pump(1);
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void
+browserFilter (void)
+{
+    Gtk::Window parent;
+    TestBrowser *b = new TestBrowser(parent, sigc::ptr_fun(&stubRows),
+                                     "wurli.dsp");
+
+    pump(1);
+
+    if (b->selectedFile() == "wurli.dsp" && b->openBtn_->get_sensitive())
+        ok("the browser opens on the file in use");
+    else
+        fail("the browser opens on the file in use");
+
+    /* A filter the remembered row is not in. Nothing can be selected,
+       so nothing may be openable. */
+    b->filter_.set_text("Kick");
+    pump(1);
+
+    if (b->selectedFile().empty() && !b->openBtn_->get_sensitive())
+        ok("a filter that drops the selection drops the Open button");
+    else
+        fail("a filter that drops the selection drops the Open button");
+
+    b->filter_.set_text("");
+    pump(1);
+
+    if (b->selectedFile() == "wurli.dsp")
+        ok("clearing the filter finds the remembered row again");
+    else
+        fail("clearing the filter finds the remembered row again");
+
+    /* Read a different row, then narrow the filter around it. The
+       cursor belongs to the reader now, not to whatever is loaded. */
+    b->filter_.set_text("o");
+    pump(1);
+
+    if (!selectRow(b, "rhodes.dsp"))
+        fail("Rhodes is in a filter it matches");
+    else
+    {
+        ok("Rhodes is in a filter it matches");
+
+        b->filter_.set_text("od");
+        pump(1);
+
+        if (b->selectedFile() == "rhodes.dsp")
+            ok("typing does not drag the cursor back to the file in use");
+        else
+            fail("typing does not drag the cursor back to the file in use");
+    }
+
+    delete b;
+    pump(2);
+}
+
 /* A piece the loader refuses, drawn anyway.
  *
  * parseWork deliberately keeps the window up after a failed load: the
@@ -1038,6 +1185,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 closeWithIdlesPending(pluginPath);
+
+            if (rc == 0)
+                browserFilter();
         });
 
     app->run();

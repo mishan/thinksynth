@@ -25,6 +25,7 @@
 name "Conga 808";
 author "Misha Nasledov";
 description "The 808 tom circuit tuned up and cut short: the congas.";
+category "Drums";
 
     @drop = 0.08;
     @drop.widget = 1;

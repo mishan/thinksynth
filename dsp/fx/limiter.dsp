@@ -34,6 +34,7 @@
 name "Limiter";
 author "Misha Nasledov";
 description "A master limiter: a peak follower into a gain, on the sum of every channel.";
+category "Effects";
 
     @drive = 1;
     @drive.widget = 1;

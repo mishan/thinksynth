@@ -21,6 +21,7 @@
 name "Hall";
 author "Misha Nasledov";
 description "A comb-filter reverb for a channel, with a damped tail.";
+category "Effects";
 
     @decay = 0.82;
     @decay.widget = 1;

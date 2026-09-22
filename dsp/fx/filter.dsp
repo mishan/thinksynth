@@ -22,6 +22,7 @@
 name "Filter";
 author "Misha Nasledov";
 description "A state-variable filter across a channel, swept from the composer side.";
+category "Effects";
 
     @cutoff = 1200;
     @cutoff.widget = 1;

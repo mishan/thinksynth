@@ -28,6 +28,7 @@
 name "FM Bass";
 author "Misha Nasledov";
 description "A 1:1 operator pair with a fast index decay: the DX bass, monophonic and sliding.";
+category "Bass";
 
     @index = 6;
     @index.widget = 1;

@@ -27,6 +27,7 @@
 #include <errno.h>
 
 #include <filesystem>
+#include <memory>
 #include <system_error>
 #include <signal.h>
 
@@ -46,6 +47,8 @@
 #include "MidiMap.h"
 #include "ArgPanelView.h"
 #include "NodeEditor.h"
+#include "../DspCatalog.h"
+#include "ItemBrowser.h"
 #include "Dialogs.h"
 #include "SaveButton.h"
 
@@ -93,7 +96,12 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     /* Likewise the DSP browser: DSP_PATH is the *build* machine's install
        prefix, so on a relocatable package it names a directory the user has
        never had. findDataDir finds the one that is actually there. */
-    prevDir_ = thUtil::findDataDir("dsp", "THINK_DSP_PATH", DSP_PATH);
+    dspDir_ = thUtil::findDataDir("dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    /* Where a file chooser opens, which the preferences may move; the
+       catalog's root, above, is the shipped tree and does not move with it.
+       They start out the same. */
+    prevDir_ = dspDir_;
 
     /* "win.keyboard" and the rest resolve against this. */
     actions_ = Gio::SimpleActionGroup::create();
@@ -920,36 +928,20 @@ void MainSynthWindow::reloadPages (int chan)
         notebook_.set_current_page(chan);
 }
 
+/* The effect chooser, which is the instrument browser with the other half of
+ * the corpus in it.
+ *
+ * This used to open the same file chooser at the same directory, so nothing
+ * stopped an instrument being picked and the only thing that said so was the
+ * dialog below, afterwards. The browser offers effect graphs and no others,
+ * which is the distinction being made where the choice is made. */
 void MainSynthWindow::onEffectBrowse (int chan)
 {
-    Gtk::FileChooserDialog *fileSel =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Load Channel Effect",
-                                   Gtk::FileChooser::Action::OPEN);
-
-    fileSel->set_modal(true);
-    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
-    fileSel->add_button("_Open", Gtk::ResponseType::OK);
-
-    if (prevDir_ != "")
-        fileSel->set_current_folder(Gio::File::create_for_path(prevDir_));
-
-    fileSel->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this,
-                                 &MainSynthWindow::onEffectBrowseResponse),
-                   fileSel, chan));
-
-    fileSel->present();
+    openDspBrowser(true, chan);
 }
 
-void MainSynthWindow::onEffectBrowseResponse (int response,
-                                              Gtk::FileChooserDialog *fileSel,
-                                              int chan)
+void MainSynthWindow::onEffectChosen (string picked, int chan)
 {
-    const string picked = response == Gtk::ResponseType::OK
-                          ? chosenPath(*fileSel) : string();
-
-    closeDialog(fileSel);
-
     if (picked.empty())
         return;
 
@@ -1609,27 +1601,117 @@ void MainSynthWindow::onDspEntryActivate (void)
     notebook_.set_current_page(pagenum);
 }
 
+/* The instrument chooser: a browser over the catalog rather than a file
+ * chooser over a directory.
+ *
+ * What the user picked from before was sixty-one filenames with no filter and
+ * no descriptions -- and the titles and descriptions have been written into
+ * every one of those files for years. See src/gui/DspBrowser.h.
+ */
+/* The rows a graph chooser shows, given what is in its filter box.
+ *
+ * The rule is DspCatalog's -- an effect is not offered in the instrument
+ * dialog or the other way round, and the filter reads the title, the
+ * description and the filename -- so that what a chooser offers can be held
+ * still by a harness with no display (scripts/dspcatalog). This turns that
+ * answer into rows. */
+static vector<BrowserGroup> dspRows (DspCatalog *catalog, bool effects,
+                                     const std::string &needle)
+{
+    vector<BrowserGroup> out;
+
+    for (size_t g = 0; g < catalog->groups().size(); g++)
+    {
+        const string &group = catalog->groups()[g];
+        const vector<DspCatalog::Entry> &list = catalog->inGroup(group);
+
+        BrowserGroup rows;
+
+        rows.name = group;
+
+        for (size_t i = 0; i < list.size(); i++)
+        {
+            if (!DspCatalog::matches(list[i], effects, needle))
+                continue;
+
+            BrowserItem item;
+
+            item.file = list[i].file;
+            item.name = list[i].name;
+            item.desc = list[i].desc;
+
+            /* The filename, because that is what a .patch's `dsp' line will
+               say and what a piece names in its `dsp' clause -- the one thing
+               the row does not show and the one worth knowing about a file
+               you are about to put in a document. */
+            item.note = "<tt>" + Glib::Markup::escape_text(list[i].file) +
+                        "</tt>";
+
+            if (!list[i].author.empty())
+                item.note += "  <small>" +
+                             Glib::Markup::escape_text(list[i].author) +
+                             "</small>";
+
+            rows.items.push_back(item);
+        }
+
+        if (!rows.items.empty())
+            out.push_back(rows);
+    }
+
+    return out;
+}
+
+/* The instrument chooser and the effect chooser, which are one browser over
+ * the two halves of one corpus.
+ *
+ * The catalog outlives the dialog by being owned by it -- a Glib::RefPtr
+ * would be the toolkit's way and this is a plain object, so it is held in a
+ * shared_ptr the provider slot captures and released with the slot. */
+void MainSynthWindow::openDspBrowser (bool effects, int chan)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    std::shared_ptr<DspCatalog> catalog = std::make_shared<DspCatalog>();
+
+    catalog->scan(dspDir_);
+
+    const string current = patch == NULL ? string()
+                         : effects ? patch->doc.effect : patch->doc.dsp;
+
+    ItemBrowser *browser = new ItemBrowser(
+        *this,
+        effects ? "thinksynth - Channel Effect" : "thinksynth - Instrument",
+        [catalog, effects](const std::string &needle)
+        {
+            return dspRows(catalog.get(), effects, needle);
+        },
+        prevDir_.empty() ? dspDir_ : prevDir_, current);
+
+    browser->setEmptyNote("<i>No graphs in</i>\n<tt>" +
+                          Glib::Markup::escape_text(dspDir_) + "</tt>\n"
+                          "<small>Set THINK_DSP_PATH, or use Other "
+                          "File...</small>");
+
+    if (effects)
+        browser->signal_chosen().connect(
+            sigc::bind(sigc::mem_fun(*this,
+                                     &MainSynthWindow::onEffectChosen), chan));
+    else
+        browser->signal_chosen().connect(
+            sigc::bind(sigc::mem_fun(*this,
+                                     &MainSynthWindow::onBrowseChosen), chan));
+
+    browser->present();
+}
+
 void MainSynthWindow::onBrowseButton (void)
 {
-    Gtk::FileChooserDialog *fileSel =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Load DSP",
-                                   Gtk::FileChooser::Action::OPEN);
-
-    fileSel->set_modal(true);
-    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
-    fileSel->add_button("_Open", Gtk::ResponseType::OK);
-
-    if (prevDir_ != "")
-        fileSel->set_current_folder(Gio::File::create_for_path(prevDir_));
-
-    /* The page is captured now rather than read in the handler: the chooser
+    /* The page is captured now rather than read in the handler: the browser
        is not modal to the notebook, and the tab that was current when Browse
        was clicked is the one this is loading onto. */
-    fileSel->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onBrowseResponse),
-                   fileSel, notebook_.get_current_page()));
-
-    fileSel->present();
+    openDspBrowser(false, notebook_.get_current_page());
 }
 
 void MainSynthWindow::queueSavePatch (string file, int chan)
@@ -1639,15 +1721,12 @@ void MainSynthWindow::queueSavePatch (string file, int chan)
             sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
 }
 
-void MainSynthWindow::onBrowseResponse (int response,
-                                        Gtk::FileChooserDialog *fileSel,
-                                        int pagenum)
+/* `picked' is the name the file is named by -- `ts1.dsp' -- or, from the
+ * browser's Other File..., an absolute path. newPatch resolves either and
+ * keeps the name as given, so a patch saved afterwards carries the short one.
+ */
+void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
 {
-    const string picked = response == Gtk::ResponseType::OK
-                          ? chosenPath(*fileSel) : string();
-
-    closeDialog(fileSel);
-
     if (picked.empty())
         return;
 
@@ -1660,10 +1739,14 @@ void MainSynthWindow::onBrowseResponse (int response,
         return;
     }
 
-    prevDir_ = thUtil::dirname(picked.c_str());
-    prevDir_ += "/";
-
+    /* Only a path moves the chooser's folder. A name out of the catalog is
+       not one: it is resolved against the shipped tree rather than read from
+       a directory the user picked, so there is nothing there to remember. */
+    if (std::filesystem::path(picked).is_absolute())
     {
+        prevDir_ = thUtil::dirname(picked.c_str());
+        prevDir_ += "/";
+
         string **vals = new string *[2];
 
         vals[0] = new string(prevDir_);

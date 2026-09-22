@@ -19,6 +19,7 @@
 name "Supersaw";
 author "Misha Nasledov";
 description "Seven detuned saws, odd ones left and even ones right, through a filter with an envelope.";
+category "Leads and stabs";
 
     @detune = 12;
     @detune.widget = 1;

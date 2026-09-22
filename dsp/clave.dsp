@@ -22,6 +22,7 @@
 name "Clave";
 author "Misha Nasledov";
 description "A click into a 2.5 kHz resonator, no noise: the 808 clave.";
+category "Drums";
 
     @tone = 2500;
     @tone.widget = 1;

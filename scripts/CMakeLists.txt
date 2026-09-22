@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH;DSPCATALOG;GENCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -41,6 +41,19 @@ function(think_harness name)
   # directory to stand in.
   if(H_PATCH)
     list(APPEND sources $<TARGET_OBJECTS:think_patch>)
+  endif()
+
+  # What a .dsp says before anything loads it (src/DspCatalog.h). No graph
+  # and no plugins, which is what lets dspcatalog check a chooser's list on
+  # every platform -- and, where a corpus is at hand, against the parser.
+  if(H_DSPCATALOG)
+    list(APPEND sources $<TARGET_OBJECTS:think_dspcatalog>)
+  endif()
+
+  # And what a .gen says (src/GenCatalog.h), read through thcGenEdit, so a
+  # harness that wants the piece list asks for this and the composer host.
+  if(H_GENCATALOG)
+    list(APPEND sources $<TARGET_OBJECTS:think_gencatalog>)
   endif()
 
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
@@ -239,8 +252,10 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
 think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS PATCH
+              GENCATALOG
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
@@ -267,12 +282,18 @@ think_harness(panelcheck PANEL)
 # point of having one.
 think_harness(patchcheck PATCH)
 
+# What a chooser would show: every shipped .dsp's title, description and kind,
+# read out of the header rather than out of a built graph -- and each one put
+# beside what the parser says about the same file, since a format read twice
+# is a format free to drift. Fixtures for the headers the corpus cannot have.
+think_harness(dspcatalog DSPCATALOG)
+
 # The composer framework: the .gen loader's validation (each bad file is
 # built on the fly and must fail with the right complaint), the shared pitch
 # parser, and the replay-determinism contract -- same file, same seed, same
 # delivered event stream, byte for byte. Headless: the scheduler is driven
 # through its virtual clock, no Glib loop and no audio.
-think_harness(gencheck COMPOSERHOST)
+think_harness(gencheck COMPOSERHOST GENCATALOG)
 
 # A piece, rendered: the same virtual clock gencheck drives, with the synth
 # rendering a window after every step and the windows written out as a WAV,
@@ -354,7 +375,7 @@ add_test(NAME dspcheck.dsp
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
-                 -DEXTRA_ARGS=-q
+                 "-DEXTRA_ARGS=-q --shipped"
                  -P "${_runner}")
 
 # The fixtures beside this harness, which are not in dsp/ and so are in no
@@ -561,6 +582,13 @@ add_test(NAME patchcheck
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
+
+# The corpus, because "a row says what loading the file would have said" is a
+# claim about the shipped graphs; the fixtures run either way. The plugins are
+# for the half that loads.
+add_test(NAME dspcatalog
+         COMMAND dspcatalog -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp")
 
 # Needs the plugins, because what it compares is two runs of the real ones.
 add_test(NAME hostcheck

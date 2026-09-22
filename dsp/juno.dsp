@@ -31,6 +31,7 @@
 name "Juno";
 author "Misha Nasledov";
 description "A pulse with a moving width, a sub square, and a chorus in the voice: the Juno pad.";
+category "Strings and pads";
 
     @pw = 0.5;
     @pw.widget = 1;

@@ -1360,7 +1360,7 @@ bool NodeEdit::validName (const string &name)
     /* Not a keyword either. `node', `io' and the info words would produce a
        file that parses as something the author did not write. */
     static const char *reserved[] = {
-        "node", "io", "name", "author", "description", "desc",
+        "node", "io", "name", "author", "description", "desc", "category",
         "th_max", "th_min", "th_range", "th_midimax", "th_sample", "ms", NULL
     };
 

@@ -28,6 +28,7 @@
 name "Wah";
 author "Misha Nasledov";
 description "A resonant band-pass swept by the signal's own envelope or by a pedal.";
+category "Effects";
 
     @low = 420;
     @low.widget = 1;

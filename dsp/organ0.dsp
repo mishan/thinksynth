@@ -5,6 +5,7 @@
 name "Organ 0";
 author "Leif Ames";
 description "Simple additive organ";
+category "Keys";
 
 
     @vmin = 0.3;

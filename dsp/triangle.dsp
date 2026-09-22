@@ -25,6 +25,7 @@
 name "Triangle";
 author "Misha Nasledov";
 description "Three unrelated partials with a long decay: the triangle.";
+category "Drums";
 
     @freq = 2350;
     @freq.widget = 1;

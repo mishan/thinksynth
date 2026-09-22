@@ -1,6 +1,7 @@
 name "Sync Fun";
 author "Leif Ames";
 description "A little bit of fun with hard-sync";
+category "Synths";
 
     @a = 0.7 ms;
     @a.widget = 1;

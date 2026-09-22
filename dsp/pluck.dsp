@@ -9,6 +9,7 @@
 name "Pluck";
 author "Misha Nasledov";
 description "A saw and a square through a fast filter envelope: the trance pluck.";
+category "Leads and stabs";
 
     @mix = 0.4;
     @mix.widget = 1;

@@ -27,6 +27,7 @@
 name "Kit Tom";
 author "Misha Nasledov";
 description "A head that falls a fourth over a shell that rings, tuned by the note: the toms.";
+category "Drums";
 
     @tune = 0;
     @tune.widget = 1;

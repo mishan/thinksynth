@@ -30,6 +30,7 @@
 name "Ladder";
 author "Misha Nasledov";
 description "Two detuned saws and a sub octave through a ladder filter with its own envelope.";
+category "Leads and stabs";
 
     @detune = 1.3;
     @detune.widget = 1;

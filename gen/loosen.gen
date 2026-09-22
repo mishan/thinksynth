@@ -30,6 +30,7 @@
 name "Loosen";
 author "Misha Nasledov";
 description "One Euclidean phrase, straight, humanized, and quantized.";
+category "Start here";
 
 seed 8815;
 

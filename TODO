@@ -177,6 +177,24 @@ Node editor
   rename of every reference, and it wants deciding on rather than bolting to a
   dialog about ranges.
 
+- Nothing edits a .dsp's header. `name', `author', `description' and now
+  `category' can only be written by hand or by NodeEdit::createFile, which
+  writes the first two once and never again -- so the editor can rewire a
+  graph it cannot retitle, and a graph saved under a new name goes on
+  announcing the old one in every chooser. The Composer has this for a piece
+  already and is the model: thcGenEdit::setInfo is generic over the key and
+  splices the statement in, erases it when the box is emptied, and inserts it
+  after the existing header lines when it is not there; ComposerWindow's Edit
+  -> Piece tab is four entry boxes over it. What is wanted here is the same
+  pair -- a NodeEdit::setInfo over the .dsp index, and somewhere in the node
+  editor to type into.
+
+  The category makes it worth doing rather than merely tidy. It is the one
+  header field a chooser sorts on, so a graph somebody writes in the editor
+  lands under Uncategorized with no way to move it that does not involve a
+  text editor.  (src/NodeEdit.h, src/thcGenEdit.cpp setInfo,
+  docs/DSP_FORMAT.md "category")
+
 
 The browser page
 ----------------

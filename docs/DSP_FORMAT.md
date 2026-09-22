@@ -19,6 +19,7 @@ Anything that edits a `.dsp` needs the rules in section 3.
 ```
 name "TS-1";
 author "Leif Ames";
+category "Synths";          # optional; where a chooser files it
 
 @cutoff = 4;              # a channel arg = user-facing knob
 @cutoff.widget = 1;       # .min .max .label .widget .units .group
@@ -364,7 +365,8 @@ never finishes a note. `thSynth::loadEffect` refuses a graph with no `in0`,
 `thSynth::loadTree` will happily load an effect and it will sit there
 silently, and the note-playing harnesses (`dsplevel`, `dspsweep`, `dspprobe`)
 skip a graph that declares `in0` and say so. `scripts/fxcheck` is where effect
-graphs are covered.
+graphs are covered, and § *Choosing a file* is how the distinction reaches the
+chooser, which used to discover it only after the file was picked.
 
 **What it writes replaces what it was fed.** The dry signal is the graph's to
 mix:
@@ -539,6 +541,32 @@ That the writing is one thing too is what makes a `.patch` saved in a browser
 a file the application opens: the bytes come from `thPatchCompose` on both
 sides, and all 101 shipped patches compose back to themselves byte for byte.
 
+### A patch's category is its drawer
+
+`patches/{bass,leads,pads,organs,brass,winds,drums/...}`. That directory is
+part of the name — `leads/SuperRes.patch` is what `thinkrc` stores, what
+`gthPrefs`'s first-run defaults spell and what the page's `patches/index.json`
+lists — so it is load-bearing, and it is already the grouping every patch menu
+draws.
+
+There was also an `info category` line, edited through a box in the Patch
+Selector, read by nothing. Twenty-six of the 101 shipped patches carried one
+and **four of those contradicted their own drawer** (`patches/bass/FatRes.patch`
+said `Leads`, and three more like it). That is the same failure `gen/README.md`
+had, in the other direction: a categorization kept somewhere the thing it
+describes cannot see it drifts.
+
+So it is retired. The shipped patches no longer carry the line,
+`scripts/patchcheck` fails one that does, and the box has gone from the Patch
+Selector. The *reader* still accepts the property, because it refuses no
+property and a `.patch` from elsewhere must keep round-tripping exactly.
+
+**A patch does not inherit its graph's category either.** A `.dsp`'s category
+describes graphs — *Synths*, *Drums*, *Plucked* — and a patch's drawer
+describes what the sound is for; `bass/FatRes.patch` is a bass played on a
+graph filed under *Synths*, and both statements are true. Two taxonomies over
+two things, which is why neither is derived from the other.
+
 ## 3. Writing a `.dsp`
 
 ### Splice, do not re-emit
@@ -674,6 +702,12 @@ Both are invisible to everything that is not the editor. See
 
 ## 5. Known-bad files
 
+**Every shipped DSP declares a name, a description and a category.**
+`mfm01.dsp` was the exception on the first two -- it called itself `test` and
+said nothing else, while three patches and a shipped piece played it -- and
+now has a header like the rest. `scripts/dspcheck --shipped` is the gate; see
+§ *Choosing a file*.
+
 **Every shipped DSP loads.** Eleven did not, until recently: nine in
 `dsp/effects/` that read `input/wav` or `input/alsa` because they predated an
 effect being able to hear a channel, and two in `dsp/old/` on `input/wav` and
@@ -701,3 +735,94 @@ filtered by name, on `Rythmic` — which also caught `ThickRythmic.patch` and
 `ThickRythmic-2.patch`, two healthy patches on `ts2.dsp`, and dropped them from
 the gate for as long as it stood. That is the argument for matching on content
 in one line.
+
+## 6. Choosing a file
+
+Every shipped `.dsp` declares a `name` and (with one exception) a
+`description`, and until recently no chooser read either: the desktop's Browse
+opened a file chooser over `dsp/` and the page's menu listed filenames, so the
+one moment a person has to pick a graph was the one moment nothing told them
+what the graphs were. `rpiano0.dsp` and `rpiano1.dsp` differ by one character
+and by which filter they run, which is a thing the description says and the
+filename cannot.
+
+Three pairs went further and shared a *title*: `bd10.dsp`/`bdshaped.dsp`,
+`rpiano0.dsp`/`rpiano1.dsp` and `ts1.dsp`/`ts2.dsp`. A chooser draws that as
+the same row twice, and `thSynth::loadTree` keys `treelist_` on the name and
+deletes what was registered before, so the second to load evicted the first.
+They are distinct now, and `scripts/dspcatalog` fails a corpus in which two
+graphs share a title.
+
+`src/DspCatalog.h` is what makes reading them cheap. **The header, not the
+graph**: parsing a `.dsp` builds a `thSynthTree` and `dlopen`s every plugin it
+names, which is not a thing to do seventy-seven times to draw a list. The
+catalog runs the shared lexer (`libthink/thLexer.h`) over the file and picks up
+the info statements, plus which node the `io` statement names and whether that
+node declares `in0` — `thSynthTree::takesInput`, answered over the text.
+
+That last part is what lets **the effect split be enforced where the choice is
+made**. An effect graph and an instrument are the same format and are not
+interchangeable (§ *An effect graph*); the effect chooser offers the graphs
+that declare `in0` and the instrument chooser offers the ones that do not,
+rather than both offering everything and a dialog afterwards saying it was the
+wrong kind.
+
+An entry is named the way a file names it — `ts1.dsp`, `fx/echo.dsp` — because
+that is what `thUtil::findDataFile` resolves, what a `.patch`'s `dsp` line
+says and what a `.gen`'s `dsp` clause says. Choosing from the catalog therefore
+puts the short name in the document rather than this machine's absolute path.
+
+Entries are grouped by their `category` statement; a file that declares none
+falls back to the directory it was found in (`fx/` is Effects) and then to
+Uncategorized. A category is optional, and that fallback is the difference
+between a category and a schema.
+
+### `category`
+
+`category "Drums";` beside `name`, `author` and `description`. It is a
+statement rather than a `# @category` comment because the other two structured
+comments — a layout and a probe — are the editor's business and the engine has
+no use for them, where this is a fact about the file. `thSynthTree::category()`
+has it, nothing derives it from anywhere else — a `.patch` does not inherit
+its graph's, for the reason given above — and there is one place it lives.
+
+**The word is reserved.** `.dsp` keywords are hard: the lexer returns `CAT` for
+`category` wherever it appears, so no graph may use it as a node or an arg
+name. Nothing in the corpus did when this was added and the reservation is
+permanent after — the same price the format already paid three times, for
+`name`, `description` and `author`. (`.gen`'s keywords are contextual and its
+`category` reserves nothing; GEN_FORMAT.md § 7a says why the two differ.)
+
+**Free text in the format, a list the shipped corpus is gated against.**
+`scripts/dspcheck --shipped` fails a graph in this tree that declares no
+category or one outside the nine: *Bass*, *Drums*, *Effects*, *Experiments*,
+*Keys*, *Leads and stabs*, *Plucked*, *Strings and pads*, *Synths*. The flag is
+what separates "the corpus" from "a `.dsp`" — the fixtures in `scripts/guard`
+are swept without it, and a graph of your own may say whatever it likes and
+lands in its own group.
+
+The arguable placements are arguable in one direction each. `waveguide.dsp` and
+`guitar.dsp` are plucked strings and get *Plucked* rather than being filed as
+leads; `fircomb.dsp`, `spectral.dsp` and `sandh.dsp` were promoted out of the
+old drawers because they are interesting rather than because they are useful,
+and *Experiments* says so where *Synths* would not.
+
+Nothing writes the statement yet but a text editor. The node editor cannot
+write `name`, `author` or `description` either — there is no header-editing
+surface in it at all — so this is one field short of a feature rather than a
+field left out of one.
+
+`scripts/dspcatalog` holds the two readings together: every shipped file is
+scanned *and* parsed, and the title, the description and the kind have to
+agree. What a chooser offers — the kind split, the filter — is
+`DspCatalog::matches` rather than a rule inside a widget, so it is checked
+there too, with no display anywhere near it.
+
+**The page reads the same headers.** A worklet cannot fetch, so the page hands
+every shipped graph to the module before the first piece loads
+(`tw_instrument`) — which means that by the time a menu is drawn there *is* a
+directory to walk, in MEMFS, and `tw_dsps_json` walks it with this class.
+`wasm/web/dspcatalogcheck.mjs` diffs that dump against
+`scripts/dspcatalog --json` byte for byte. That is the gate the `.patch`
+format did not have while it was being read two different ways, and it is why
+`patch.js` no longer parses anything.

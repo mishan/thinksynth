@@ -541,7 +541,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
         const std::string &kw = t[i].text;
 
-        if ((kw == "name" || kw == "author" || kw == "description") &&
+        if ((kw == "name" || kw == "author" || kw == "description" ||
+             kw == "category") &&
             t[i + 1].kind == Tok::STRING && isPunct(t[i + 2], ';'))
         {
             MetaIdx m;
@@ -1078,7 +1079,7 @@ thcGenEdit::validName (const std::string &name)
        quietly refused a name the loader accepts, which is the worse of
        the two mistakes. */
     static const char *reserved[] = {
-        "name", "author", "description", "tempo", "seed", "scale",
+        "name", "author", "description", "category", "tempo", "seed", "scale",
         "preset", "instrument", "meter", "section", "effect",
         "chain", "input", "stage", "sink", "midi",
         "s", "ms", "beats", "b", "bars", NULL
@@ -1335,6 +1336,8 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         doc.author = ix.infos["author"].str;
     if (ix.infos.count("description"))
         doc.description = ix.infos["description"].str;
+    if (ix.infos.count("category"))
+        doc.category = ix.infos["category"].str;
 
     for (size_t i = 0; i < ix.knobs.size(); i++)
     {
@@ -1448,7 +1451,8 @@ R
 thcGenEdit::setInfo (const std::string &filename, const std::string &key,
                      const std::string &text_, std::string &why)
 {
-    if (key != "name" && key != "author" && key != "description")
+    if (key != "name" && key != "author" && key != "description" &&
+        key != "category")
     {
         why = "no such info string";
         return REFUSED;

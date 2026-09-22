@@ -34,6 +34,7 @@
 name "FM Bell";
 author "Misha Nasledov";
 description "An inharmonic operator pair, index decaying under a longer amplitude: the DX bell.";
+category "Keys";
 
     @ratio = 3.5;
     @ratio.widget = 1;

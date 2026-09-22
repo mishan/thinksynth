@@ -25,6 +25,7 @@
 name "Tambourine";
 author "Misha Nasledov";
 description "Two sets of inharmonic jingles at different decays, with a slap on the front.";
+category "Drums";
 
     @freq = 1700;
     @freq.widget = 1;

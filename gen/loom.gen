@@ -26,6 +26,7 @@
 name "Loom";
 author "Misha Nasledov";
 description "A markov student of an L-system, over rule 110.";
+category "Algorithms";
 
 seed 613;
 

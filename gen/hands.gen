@@ -37,6 +37,7 @@
 name "Hands";
 author "Misha Nasledov";
 description "Live playing, broken into figures and corrected on the way through.";
+category "Playing it yourself";
 
 seed 3301;
 

@@ -30,6 +30,7 @@
 name "Ride 909";
 author "Misha Nasledov";
 description "Eight inharmonic partials with a ping and a falling band: the ride cymbal.";
+category "Drums";
 
     @freq = 520;
     @freq.widget = 1;

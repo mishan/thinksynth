@@ -1,6 +1,7 @@
 name "BD-10";
 author "Leif Ames";
 description "Multiwave Kick Bass";
+category "Drums";
 
     @d = 20 ms;
     @d.widget = 1;

@@ -88,8 +88,11 @@ protected:
     Gtk::Widget *makeEffectFrame (int chan);
 
     void onEffectBrowse (int chan);
-    void onEffectBrowseResponse (int response, Gtk::FileChooserDialog *,
-                                 int chan);
+
+    /* Both graph choosers: the same browser over the two halves of the
+       corpus, since the only difference between them is which half. */
+    void openDspBrowser (bool effects, int chan);
+    void onEffectChosen (string picked, int chan);
     void onEffectRemove (int chan);
 
     /* Everything a change of effect has to do to the window: the page is
@@ -108,8 +111,9 @@ protected:
        run() lives here. Each owns the dialog it is handed. */
     void onSavePatchAsResponse (int response, Gtk::FileChooserDialog *fileSel,
                                 int chan);
-    void onBrowseResponse (int response, Gtk::FileChooserDialog *fileSel,
-                           int pagenum);
+    /* The browser's answer. Not a chooser response: DspBrowser hands back the
+       name a file names itself by, and answers once. */
+    void onBrowseChosen (string picked, int pagenum);
 
     /* The write itself, run once the click that asked for it has returned.
        Saving emits signal_patches_changed, which tears down and rebuilds every
@@ -237,6 +241,10 @@ protected:
     bool tearingDown_;
 private:
     gthAudio *audio_;
+
+    /* The shipped tree, which is what the browser catalogs, and wherever a
+       file chooser last was, which is not the same thing. */
+    string dspDir_;
     string prevDir_;
 
     /* Last size seen on screen, for the preferences. Tracked as it changes

@@ -54,6 +54,7 @@
 name "Village";
 author "Misha Nasledov";
 description "A town theme: chords that walk and cadence, a tune with a counterpoint under it, and a shuffle.";
+category "Game music";
 
 tempo 100;
 seed 1990;

@@ -64,6 +64,7 @@
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
 #include "thcNodeHost.h"
+#include "GenCatalog.h"
 
 static int failures = 0;
 
@@ -8862,6 +8863,44 @@ playedByHand (thcScheduler &sched)
     return true;
 }
 
+/* Where a shipped piece may be filed.
+ *
+ * gen/README.md groups the corpus by hand into these eight sections, and
+ * that grouping is a real one -- somebody sat down and decided which piece
+ * teaches what. What it was not is anywhere a program could see, so it
+ * drifted: three pieces had come to be in no section at all, which is
+ * exactly the failure this list turns into a gate.
+ *
+ * The *format* takes free text -- a piece of one's own may say whatever it
+ * likes, and one that says nothing is Uncategorized rather than refused.
+ * This is the discipline the shipped corpus is held to, and nothing else.
+ * The same bargain scripts/dspcheck makes for a .dsp's category. */
+static const char *const kCategories[] = {
+    "Start here", "Playing it yourself", "Algorithms", "Timbre as material",
+    "Pieces", "Game music", "The floor", "The eighties", NULL
+};
+
+static bool
+knownCategory (const std::string &category)
+{
+    for (int i = 0; kCategories[i] != NULL; i++)
+        if (category == kCategories[i])
+            return true;
+
+    return false;
+}
+
+static std::string
+categoryList (void)
+{
+    std::string out;
+
+    for (int i = 0; kCategories[i] != NULL; i++)
+        out += std::string(i ? ", " : "") + "'" + kCategories[i] + "'";
+
+    return out;
+}
+
 static void
 checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &genFile)
@@ -8897,6 +8936,16 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
             fail(leaf + " loaded with no chains at all");
             continue;
         }
+
+        /* And where it is filed. A shipped piece says, and says one of the
+           eight; the README's sections are what a menu groups by now, so a
+           piece in none of them is a piece nobody finds. */
+        if (loader.pieceCategory().empty())
+            fail(leaf + " declares no category (one of " + categoryList() +
+                 ")");
+        else if (!knownCategory(loader.pieceCategory()))
+            fail(leaf + " is filed under '" + loader.pieceCategory() +
+                 "', which is not one of " + categoryList());
 
         if (playedByHand(sched))
             continue;
@@ -9042,18 +9091,40 @@ main (int argc, char *argv[])
 
     std::string pluginDir;
     std::string genFile;
+    bool json = false;
 
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
             pluginDir = argv[++i];
+        else if (strcmp(argv[i], "--json") == 0)
+            json = true;
         else
             genFile = argv[i];
     }
 
+    /* The piece list a menu is drawn from, printed, checking nothing.
+     *
+     * The other half of a parity gate: the browser's module scans its own
+     * copy of the same directory through the same class and prints the same
+     * bytes, and wasm/web/gencatalogcheck.mjs diffs the two. The argument is
+     * a directory here rather than a file, and no plugins are needed --
+     * reading a header does not run a piece. */
+    if (json)
+    {
+        GenCatalog catalog;
+
+        catalog.scan(genFile);
+
+        printf("%s\n", genCatalogToJson(catalog).c_str());
+
+        return 0;
+    }
+
     if (pluginDir.empty() || genFile.empty())
     {
-        fprintf(stderr, "usage: gencheck -p <plugindir> <file.gen>\n");
+        fprintf(stderr, "usage: gencheck -p <plugindir> <file.gen>\n"
+                "       gencheck --json <gendir>\n");
         return 2;
     }
 

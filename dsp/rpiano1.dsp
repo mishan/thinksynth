@@ -2,9 +2,10 @@
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
 
-name "Resonant Piano";
+name "Resonant Piano 1";
 author "Leif Ames";
-description "Band-limited waveforms and some filtering";
+description "Two soft squares whose band opens with the envelope, into a filter with a drive on its feedback.";
+category "Keys";
 
 
     @sfreqlo = 1600;

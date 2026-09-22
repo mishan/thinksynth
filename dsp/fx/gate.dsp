@@ -42,6 +42,7 @@
 name "Gated Reverb";
 author "Misha Nasledov";
 description "A comb reverb gated from the dry signal: the eighties snare.";
+category "Effects";
 
     @decay = 0.8;
     @decay.widget = 1;

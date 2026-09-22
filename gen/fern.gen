@@ -17,6 +17,7 @@
 name "Fern";
 author "Misha Nasledov";
 description "One L-system at three magnifications.";
+category "Algorithms";
 
 @sway = 0.02;
 @sway.widget = 1;

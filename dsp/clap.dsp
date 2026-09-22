@@ -14,6 +14,7 @@
 name "Clap";
 author "Misha Nasledov";
 description "Pink noise through a band-pass, stuttered on the front, with a tail.";
+category "Drums";
 
     @color = 1;
     @color.widget = 1;

@@ -25,6 +25,7 @@
 name "Tom 808";
 author "Misha Nasledov";
 description "A falling sine with a beater click, tuned by the note: the 808 toms.";
+category "Drums";
 
     # A ratio on top of the note, so the drop is the same interval
     # wherever the tom is tuned. 0.25 is about a major third.

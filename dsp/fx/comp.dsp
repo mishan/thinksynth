@@ -41,6 +41,7 @@
 name "Compressor";
 author "Misha Nasledov";
 description "A compressor on a channel's sum, keyed from its own signal or from the channel named as its side.";
+category "Effects";
 
     @threshold = -18;
     @threshold.widget = 1;

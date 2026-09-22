@@ -5,6 +5,7 @@
 name "Brass Box";
 author "Leif Ames";
 description "Made for brass";
+category "Leads and stabs";
 
 
     @buzz = 80ms;

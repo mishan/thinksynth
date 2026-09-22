@@ -64,6 +64,7 @@
 name "Linn";
 author "Misha Nasledov";
 description "Six sampled drums on one channel, chosen by the note number.";
+category "Drums";
 
     # A ratio, so 2 is twice the speed and an octave up, the way a
     # sampler's pitch control has always worked.

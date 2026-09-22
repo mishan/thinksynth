@@ -44,6 +44,7 @@
 name "Orchestra Hit";
 author "Misha Nasledov";
 description "A sampled orchestra chord, transposed and stabbed: the Fairlight hit.";
+category "Leads and stabs";
 
     @cutoff = 700;
     @cutoff.widget = 1;

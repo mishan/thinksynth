@@ -55,6 +55,7 @@
 name "Outrun";
 author "Misha Nasledov";
 description "Synthwave: a brass pad with vibrato, a supersaw arpeggio through a flanger, a gated snare and syndrum fills.";
+category "The eighties";
 
 tempo 104;
 seed 1986;

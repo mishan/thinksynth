@@ -23,6 +23,7 @@
 name "Hat";
 author "Misha Nasledov";
 description "Noise through a high-pass, open or closed by velocity.";
+category "Drums";
 
     @color = 0;
     @color.widget = 1;

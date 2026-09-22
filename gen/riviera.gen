@@ -48,6 +48,7 @@
 name "Riviera";
 author "Misha Nasledov";
 description "Italo disco: an octave bass with an accent circuit, a string machine, a clav on the offbeats, and an orchestra hit every eighth bar.";
+category "The eighties";
 
 tempo 122;
 seed 1984;

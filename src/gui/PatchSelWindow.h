@@ -124,8 +124,6 @@ protected:
     Gtk::Grid patchInfoTable;
     Gtk::Label patchRevisedLbl;
     Gtk::Entry patchRevised;
-    Gtk::Label patchCategoryLbl;
-    Gtk::Entry patchCategory;
     Gtk::Label patchAuthorLbl;
     Gtk::Entry patchAuthor;
     Gtk::Label patchTitleLbl;

@@ -58,6 +58,7 @@
 name "Anthem";
 author "Misha Nasledov";
 description "Trance: a gated supersaw pad, pumping plucks into a delay, a looping riser, and a breakdown with the bass an octave down.";
+category "The floor";
 
 tempo 132;
 seed 1999;

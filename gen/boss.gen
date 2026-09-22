@@ -59,6 +59,7 @@
 name "Boss";
 author "Misha Nasledov";
 description "A riff that never moves, phrygian stabs, a bred solo, and a gear of seven.";
+category "Game music";
 
 tempo 160;
 seed 1989;

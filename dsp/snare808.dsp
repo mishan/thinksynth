@@ -28,6 +28,7 @@
 name "Snare 808";
 author "Misha Nasledov";
 description "Two beating sines under a high-passed hiss, mixed by Snappy: the 808 snare.";
+category "Drums";
 
     @tune = 180;
     @tune.widget = 1;

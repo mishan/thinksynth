@@ -31,6 +31,7 @@
 name "Plate";
 author "Misha Nasledov";
 description "A dense, bright reverb with a pre-delay: the plate on a seventies snare.";
+category "Effects";
 
     @predelay = 24 ms;
     @predelay.widget = 1;

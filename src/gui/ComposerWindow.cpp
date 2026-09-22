@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <sstream>
 
@@ -33,6 +34,8 @@
 #include "thcGenEdit.h"
 #include "PianoRoll.h"
 #include "Dialogs.h"
+#include "GenCatalog.h"
+#include "ItemBrowser.h"
 #include "gthPatchfile.h"
 #include "gthSignal.h"
 #include "ComposerWindow.h"
@@ -1095,59 +1098,98 @@ ComposerWindow::onOpen (void)
     confirmDiscard(sigc::mem_fun(*this, &ComposerWindow::onOpenConfirmed));
 }
 
+/* The rows the piece browser shows, given what is in its filter box. The
+ * rule is GenCatalog's, so what the list offers can be held still without a
+ * display; this turns the answer into rows. */
+static std::vector<BrowserGroup> genRows (GenCatalog *catalog,
+                                          const std::string &needle)
+{
+    std::vector<BrowserGroup> out;
+
+    for (size_t g = 0; g < catalog->groups().size(); g++)
+    {
+        const std::string &group = catalog->groups()[g];
+        const std::vector<GenCatalog::Entry> &list =
+            catalog->inGroup(group);
+
+        BrowserGroup rows;
+
+        rows.name = group;
+
+        for (size_t i = 0; i < list.size(); i++)
+        {
+            if (!GenCatalog::matches(list[i], needle))
+                continue;
+
+            BrowserItem item;
+
+            /* The path, because opening a piece copies a file: there is no
+               search path to resolve a name against, the way there is for a
+               .dsp a patch names. */
+            item.file = list[i].path;
+            item.name = list[i].name;
+            item.desc = list[i].desc;
+            item.note = "<tt>" + Glib::Markup::escape_text(list[i].file) +
+                        "</tt>";
+
+            if (!list[i].author.empty())
+                item.note += "  <small>" +
+                             Glib::Markup::escape_text(list[i].author) +
+                             "</small>";
+
+            rows.items.push_back(item);
+        }
+
+        if (!rows.items.empty())
+            out.push_back(rows);
+    }
+
+    return out;
+}
+
+/* Open: the pieces by what they are, in the sections gen/README.md groups
+ * them into -- which are in the files now, so this list and that index say
+ * the same thing because they are the same fact.
+ *
+ * What this replaces is a file chooser over gen/: thirty-one filenames, no
+ * filter and no descriptions, while every one of those files declares a title
+ * and a paragraph saying what it teaches. Other File... is still there for a
+ * piece that lives somewhere else. */
 void
 ComposerWindow::onOpenConfirmed (void)
 {
-    Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(
-        *this, "Open piece", Gtk::FileChooser::Action::OPEN);
-
-    dialog->add_button("_Cancel", Gtk::ResponseType::CANCEL);
-    dialog->add_button("_Open", Gtk::ResponseType::OK);
-    dialog->set_modal(true);
-
-    Glib::RefPtr<Gtk::FileFilter> filter = Gtk::FileFilter::create();
-
-    filter->set_name("Pieces (*.gen)");
-    filter->add_pattern("*.gen");
-    dialog->add_filter(filter);
-
-    Glib::RefPtr<Gtk::FileFilter> all = Gtk::FileFilter::create();
-
-    all->set_name("All files");
-    all->add_pattern("*");
-    dialog->add_filter(all);
-
-    /* Start where the pieces live: beside the one that is open, or in
-       the gen/ data directory the default piece came from. */
-    std::string folder = !genPath_.empty()
+    /* Where the pieces live: beside the one that is open, or in the gen/
+       data directory the default piece came from. */
+    const std::string folder = !genPath_.empty()
         ? std::filesystem::path(genPath_).parent_path().string()
         : thUtil::findDataDir("gen", "THINK_GEN_PATH", "");
 
-    if (!folder.empty())
-    {
-        std::error_code ec;
+    std::shared_ptr<GenCatalog> catalog = std::make_shared<GenCatalog>();
 
-        (void)ec;
-        dialog->set_current_folder(Gio::File::create_for_path(folder));
-    }
+    catalog->scan(folder);
 
-    dialog->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &ComposerWindow::onOpenResponse),
-                   dialog));
+    ItemBrowser *browser = new ItemBrowser(
+        *this, "Open piece",
+        [catalog](const std::string &needle)
+        {
+            return genRows(catalog.get(), needle);
+        },
+        folder, genPath_);
 
-    dialog->set_visible(true);
+    browser->setEmptyNote("<i>No pieces in</i>\n<tt>" +
+                          Glib::Markup::escape_text(folder) + "</tt>\n"
+                          "<small>Set THINK_GEN_PATH, or use Other "
+                          "File...</small>");
+
+    browser->signal_chosen().connect(
+        sigc::mem_fun(*this, &ComposerWindow::onOpenChosen));
+
+    browser->present();
 }
 
 void
-ComposerWindow::onOpenResponse (int response, Gtk::FileChooserDialog *dialog)
+ComposerWindow::onOpenChosen (std::string path)
 {
-    std::string path;
-
-    if (response == (int)Gtk::ResponseType::OK)
-        path = chosenPath(*dialog);
-
-    closeDialog(dialog);
-
     if (path.empty())
         return;
 
@@ -2228,11 +2270,11 @@ ComposerWindow::buildPieceSection (void)
     grid->set_row_spacing(4);
     grid->set_margin(4);
 
-    const char *keys[3] = { "name", "author", "description" };
-    const std::string *vals[3] = { &doc_.name, &doc_.author,
-                                   &doc_.description };
+    const char *keys[4] = { "name", "author", "description", "category" };
+    const std::string *vals[4] = { &doc_.name, &doc_.author,
+                                   &doc_.description, &doc_.category };
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
     {
         std::string key = keys[i];
         Gtk::Label *lbl = manage(new Gtk::Label(key));
@@ -2310,8 +2352,8 @@ ComposerWindow::buildPieceSection (void)
                 structuralReload();
         });
 
-    grid->attach(*pin, 0, 3);
-    grid->attach(*seedSpin, 1, 3);
+    grid->attach(*pin, 0, 4);
+    grid->attach(*seedSpin, 1, 4);
 
     exp->set_child(*grid);
     exp->set_expanded(false);

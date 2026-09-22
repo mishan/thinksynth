@@ -273,6 +273,45 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        if (m.type === 'piecefile')
+        {
+            this.M.ccall('tw_gen_file', 'number', ['string', 'string'],
+                         [m.name, m.text]);
+
+            return;
+        }
+
+        /* The catalog the page's piece menu is drawn from: every .gen
+           handed over above, by the category each declares. Read through
+           thcGenEdit, which is what the Composer edits a piece with, so
+           the menu here and the Composer's Open are the same list. */
+        if (m.type === 'gens')
+        {
+            this.port.postMessage({
+                type: 'gens', id: m.id,
+                catalog: JSON.parse(this.M.ccall('tw_gens_json', 'string',
+                                                 [], [])),
+            });
+
+            return;
+        }
+
+        /* The catalog the page's instrument menus are drawn from: every
+           .dsp this module has been handed, by group, with the title and
+           the description its author wrote. The module scans its own copy
+           of them -- they are files here, under /dsp -- so this is the
+           reading the desktop does, not a second one in JavaScript. */
+        if (m.type === 'dsps')
+        {
+            this.port.postMessage({
+                type: 'dsps', id: m.id,
+                catalog: JSON.parse(this.M.ccall('tw_dsps_json', 'string',
+                                                 [], [])),
+            });
+
+            return;
+        }
+
         /* The first-run configuration: what belongs on a channel nothing
            has aimed, and how many distinct answers there are. The rule is
            the module's (src/PatchSet.h); the page fetches what it names. */

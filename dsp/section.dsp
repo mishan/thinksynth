@@ -37,6 +37,7 @@
 name "Section";
 author "Misha Nasledov";
 description "Bowed strings: a filter that opens with the bow, vibrato that arrives late, and a chorus per voice.";
+category "Strings and pads";
 
     @detune = 9;
     @detune.widget = 1;

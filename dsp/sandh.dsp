@@ -48,6 +48,7 @@
 name "S&H";
 author "Misha Nasledov";
 description "A pulse width redrawn by a sample-and-hold on every clock tick.";
+category "Experiments";
 
     @rate = 1;
     @rate.widget = 1;

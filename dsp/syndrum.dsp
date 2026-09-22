@@ -30,6 +30,7 @@
 name "Syndrum";
 author "Misha Nasledov";
 description "A sine falling an octave over a fifth of a second, with hiss: the Simmons tom.";
+category "Drums";
 
     @drop = 1;
     @drop.widget = 1;

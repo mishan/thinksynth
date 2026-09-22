@@ -51,6 +51,7 @@
 name "Breath";
 author "Misha Nasledov";
 description "An LFO breathing a chain's density, and an envelope over four minutes.";
+category "Algorithms";
 
 seed 3141;
 

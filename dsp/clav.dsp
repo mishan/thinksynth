@@ -32,6 +32,7 @@
 name "Clav";
 author "Misha Nasledov";
 description "A narrow pulse through a resonant band-pass: the Clavinet.";
+category "Keys";
 
     @pw = 0.1;
     @pw.widget = 1;

@@ -31,6 +31,7 @@
 name "Tape";
 author "Misha Nasledov";
 description "A delay with wow, saturation and a lowpass on its repeats: the tape echo.";
+category "Effects";
 
     @delay = 340 ms;
     @delay.widget = 1;

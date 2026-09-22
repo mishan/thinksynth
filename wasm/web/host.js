@@ -156,6 +156,8 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'patchcompose':
             case 'patchdefault':
             case 'patchdefaults':
+            case 'dsps':
+            case 'gens':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -213,6 +215,25 @@ export async function createSynth (ctx, { windowlen = 256,
         /* A .dsp under the name a piece's `instrument { dsp = ... }' will
            ask for. A worklet cannot fetch, so the page hands these over. */
         instrument: (name, text) => post({ type: 'instrument', name, text }),
+
+        /* One of the shipped pieces, under the name the menu lists it by.
+           Nothing plays from these -- a piece is played by handing its text
+           to loadPiece -- they are here so that the module can read their
+           headers, which is the same reason it is handed the graphs. */
+        piecefile: (name, text) => post({ type: 'piecefile', name, text }),
+
+        /* And what those pieces say about themselves: the title, the
+           description and the category each declares, grouped the way the
+           Composer's Open groups them (src/GenCatalog.h). */
+        gens: () => ask({ type: 'gens' }),
+
+        /* What those graphs say about themselves -- the title, the
+           description and whether each is an effect -- grouped the way a menu
+           wants them. Asked of the worklet because that is where the files
+           are: it has been handed every one of them, and the module reads
+           their headers with the class the desktop's chooser uses
+           (src/DspCatalog.h). Ask it after the instruments are over. */
+        dsps: () => ask({ type: 'dsps' }),
 
         /* And a wav under the name an osc::sample node's `file' will ask
            for, which is `samples/kick909.wav' -- the index.json entry,

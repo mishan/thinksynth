@@ -49,6 +49,7 @@
 name "Rotary";
 author "Misha Nasledov";
 description "A two-rotor rotating speaker with a spin-up: the Leslie.";
+category "Effects";
 
     @speed = 0;
     @speed.widget = 1;

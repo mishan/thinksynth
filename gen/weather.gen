@@ -77,6 +77,7 @@
 name "Weather";
 author "Misha Nasledov";
 description "Four random walks, one small pad, and no notes worth mentioning.";
+category "Timbre as material";
 
 seed 5090;
 

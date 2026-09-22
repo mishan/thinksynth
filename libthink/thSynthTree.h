@@ -128,6 +128,16 @@ public:
     const string &desc(void) const { return desc_; }
     void setDesc(const string &desc) { desc_ = desc; }
 
+    /* Where a chooser files this graph -- `category "Drums";' -- or empty.
+     *
+     * Free text: a .dsp of somebody's own may say whatever it likes and
+     * lands in its own group, and one that says nothing is filed by its
+     * directory and then under Uncategorized. The shipped corpus is held to
+     * a documented list by scripts/dspcheck, which is a rule about this tree
+     * and not about the format. Nothing in the engine reads it. */
+    const string &category(void) const { return category_; }
+    void setCategory(const string &category) { category_ = category; }
+
     int nodeCount (void) const { return nodecount_; }
 
     const thArgMap &chanArgs (void) const { return chanargs_; }
@@ -282,7 +292,7 @@ private:
     /* What desugarExprs() left behind, for the editor. Not copied either. */
     std::vector<thExprBox> exprBoxes_;
 
-    string name_, desc_;
+    string name_, desc_, category_;
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 
                             id for the node index */
     thNode **nodeindex_; /* index of all the nodes */

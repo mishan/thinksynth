@@ -54,6 +54,7 @@
 name "Invention";
 author "Misha Nasledov";
 description "A two-part invention on a Moog, the ornaments written as rules, an alto that argues.";
+category "Pieces";
 
 tempo 92;
 seed 1968;

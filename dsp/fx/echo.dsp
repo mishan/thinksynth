@@ -23,6 +23,7 @@
 name "Echo";
 author "Misha Nasledov";
 description "A stereo delay for a channel, with a damped tail.";
+category "Effects";
 
     @delay = 375 ms;
     @delay.widget = 1;

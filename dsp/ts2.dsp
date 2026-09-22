@@ -1,10 +1,11 @@
-# TS-1
+# TS-2
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
 
-name "TS-1";
+name "TS-2";
 author "Leif Ames";
-description "Cool Synth";
+description "A soft square frequency-modulating a second oscillator of any waveform, into a swept resonant lowpass.";
+category "Synths";
 
 
     @blim = 0.5;

@@ -37,6 +37,7 @@
 name "Bass";
 author "Misha Nasledov";
 description "A monophonic bass: overlapping notes slide, separated ones retrigger.";
+category "Bass";
 
     @glide = 60 ms;
     @glide.widget = 1;

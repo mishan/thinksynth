@@ -34,6 +34,7 @@
 name "Kit Snare";
 author "Misha Nasledov";
 description "Two shell partials, a head and two bands of wire, with velocity in the rattle: the acoustic snare.";
+category "Drums";
 
     @tune = 185;
     @tune.widget = 1;
