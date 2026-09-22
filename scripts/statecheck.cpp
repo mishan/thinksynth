@@ -4600,10 +4600,572 @@ static void checkSample (const string &pluginPath)
         }
     }
 
+    /* ---- `xfade' takes the seam out of a loop ---- */
+
+    /* The ramp looped over its last 200 frames jumps from 0.999 back to
+       0.8 every time round, which is the click a loop cut from a
+       recording makes. With a hundred frames of crossfade the largest
+       step from one sample to the next has to be under a tenth of that
+       jump. Not down to the ramp's own slope: the two ends of a ramp are
+       correlated, and an equal-power fade of correlated signals bulges by
+       up to a factor of root two in the middle, which on a jump of a
+       fifth is a step of about 0.015 a frame -- and
+       at `xfade = 0' the jump has to still be there, to the bit, so the
+       knob at zero is the loop it always was. */
+    {
+        vector<NodeSpec> plain = sampleGraph("ramp.wav", 440, 440, 200, 0);
+        vector<NodeSpec> faded = plain;
+        vector<NodeSpec> zero = plain;
+        vector<float> a, b, z;
+        string why;
+
+        faded[0].values.push_back(Value{ "xfade", 100 });
+        zero[0].values.push_back(Value{ "xfade", 0 });
+
+        if (!render1(pluginPath, plain, "smp", "out", 256, 3000, a, why) ||
+            !render1(pluginPath, faded, "smp", "out", 256, 3000, b, why) ||
+            !render1(pluginPath, zero, "smp", "out", 256, 3000, z, why))
+            fail("osc::sample renders", why);
+        else
+        {
+            double da = 0, db = 0;
+
+            for (size_t i = 1; i < a.size(); i++)
+            {
+                da = fmax(da, fabs((double)a[i] - a[i - 1]) / TH_MAX);
+                db = fmax(db, fabs((double)b[i] - b[i - 1]) / TH_MAX);
+            }
+
+            okOrFail(da > 0.15 && db < da / 10 && a == z,
+                     "osc::sample: `xfade' crossfades the loop's seam, and "
+                     "at 0 leaves the jump exactly where it was",
+                     "largest step " + num(da) + " without, " + num(db) +
+                     " with");
+        }
+    }
+
     windowsAgree(pluginPath, sampleGraph("ramp.wav", 331, 440, 200, 17),
                  "smp", "out",
                  "osc::sample: the same playback at one sample a window and "
                  "at five hundred");
+
+    std::filesystem::remove_all(dir, ec);
+}
+
+/* ---- misc::drift -------------------------------------------------------- */
+
+static vector<NodeSpec> driftGraph (float rate, float depth, float center,
+                                    float seed)
+{
+    vector<NodeSpec> spec;
+    NodeSpec d;
+
+    d.name = "drift";
+    d.spelling = "misc/drift";
+
+    Value r = { "rate", rate };
+    Value dp = { "depth", depth };
+    Value c = { "center", center };
+    Value s = { "seed", seed };
+
+    d.values.push_back(r);
+    d.values.push_back(dp);
+    d.values.push_back(c);
+    d.values.push_back(s);
+
+    spec.push_back(d);
+
+    return spec;
+}
+
+static void checkDrift (const string &pluginPath)
+{
+    const float rate = 4, depth = 0.3f, center = 0.5f;
+    vector<float> a, b, c;
+    string why;
+
+    if (!render1(pluginPath, driftGraph(rate, depth, center, 7), "drift",
+                 "out", 256, 10 * TH_DEFAULT_SAMPLES, a, why) ||
+        !render1(pluginPath, driftGraph(rate, depth, center, 7), "drift",
+                 "out", 256, 10 * TH_DEFAULT_SAMPLES, b, why) ||
+        !render1(pluginPath, driftGraph(rate, depth, center, 8), "drift",
+                 "out", 256, 10 * TH_DEFAULT_SAMPLES, c, why))
+    {
+        fail("misc::drift renders", why);
+        return;
+    }
+
+    /* ---- inside center +- depth, and using it ---- */
+    {
+        double lo = 1e9, hi = -1e9;
+
+        for (size_t i = 0; i < a.size(); i++)
+        {
+            lo = fmin(lo, a[i]);
+            hi = fmax(hi, a[i]);
+        }
+
+        okOrFail(lo >= center - depth - 1e-6 && hi <= center + depth + 1e-6 &&
+                 hi - lo > depth,
+                 "misc::drift: stays within `depth' of `center' and wanders "
+                 "across most of it",
+                 "ran " + num(lo) + " to " + num(hi));
+    }
+
+    /* ---- smooth: no step, and no corner ---- */
+
+    /* A half cosine from one target to the next moves at most
+       pi * rate * depth / rate-of-samples a sample (the targets are at
+       most 2 * depth apart), and its slope changes by at most
+       pi^2 * rate^2 * depth / rate-of-samples^2 a sample -- at the joins
+       as well as between them, which is what `continuous derivative'
+       comes to on a tape. A latch-and-lag drift fails the second by
+       orders of magnitude at every join.
+
+       Forty hertz of full-scale drift about zero, and not the slow one
+       above: at four hertz the change of slope is 2e-8 a sample, a third
+       of one float step at 0.5, and what the check would read is the
+       rounding. */
+    {
+        const double fast = 40, sr = TH_DEFAULT_SAMPLES;
+        const double slope = M_PI * fast / sr;
+        const double bend = M_PI * M_PI * fast * fast / (sr * sr);
+        vector<float> f;
+        double d1 = 0, d2 = 0;
+
+        if (!render1(pluginPath, driftGraph((float)fast, 1, 0, 7), "drift",
+                     "out", 256, 2 * TH_DEFAULT_SAMPLES, f, why))
+        {
+            fail("misc::drift renders", why);
+            return;
+        }
+
+        for (size_t i = 2; i < f.size(); i++)
+        {
+            d1 = fmax(d1, fabs((double)f[i] - f[i - 1]));
+            d2 = fmax(d2, fabs((double)f[i] - 2.0 * f[i - 1] + f[i - 2]));
+        }
+
+        okOrFail(d1 <= slope * 1.01 + 2.4e-7 && d2 <= bend * 1.1 + 4.8e-7,
+                 "misc::drift: moves by a half cosine, with no step and no "
+                 "corner, joins included",
+                 "largest step " + num(d1) + " against " + num(slope) +
+                 ", largest change of slope " + num(d2) + " against " +
+                 num(bend));
+    }
+
+    okOrFail(a == b && a != c,
+             "misc::drift: the same seed wanders the same way, and another "
+             "seed does not", "");
+
+    {
+        vector<float> held;
+
+        if (!render1(pluginPath, driftGraph(0, depth, center, 7), "drift",
+                     "out", 256, TH_DEFAULT_SAMPLES, held, why))
+            fail("misc::drift renders", why);
+        else
+        {
+            bool still = true;
+
+            for (size_t i = 1; i < held.size() && still; i++)
+                if (held[i] != held[0])
+                    still = false;
+
+            okOrFail(still, "misc::drift: at `rate = 0' it holds", "");
+        }
+    }
+
+    windowsAgree(pluginPath, driftGraph(40, depth, center, 7), "drift", "out",
+                 "misc::drift: the same path at one sample a window and at "
+                 "five hundred");
+}
+
+/* ---- osc::grain --------------------------------------------------------- */
+
+struct GrainArgs
+{
+    float position, spread, size, density, pitch, jitter, seed;
+};
+
+static vector<NodeSpec> grainGraph (const char *file, const GrainArgs &g)
+{
+    vector<NodeSpec> spec;
+    NodeSpec n;
+
+    n.name = "grain";
+    n.spelling = "osc/grain";
+
+    Text f = { "file", file };
+
+    n.texts.push_back(f);
+    n.values.push_back(Value{ "position", g.position });
+    n.values.push_back(Value{ "spread", g.spread });
+    n.values.push_back(Value{ "size", g.size });
+    n.values.push_back(Value{ "density", g.density });
+    n.values.push_back(Value{ "pitch", g.pitch });
+    n.values.push_back(Value{ "jitter", g.jitter });
+    n.values.push_back(Value{ "seed", g.seed });
+
+    spec.push_back(n);
+
+    return spec;
+}
+
+/* The power within `half' hertz of `hz', from bins a hertz apart over a
+   second from `from'. */
+static double powerNear (const vector<float> &v, size_t from, double hz,
+                         double half)
+{
+    double sum = 0;
+
+    for (double f = hz - half; f <= hz + half; f += 1)
+    {
+        const double a = bin(v, from, TH_DEFAULT_SAMPLES, f);
+
+        sum += a * a;
+    }
+
+    return sum;
+}
+
+static void checkGrain (const string &pluginPath)
+{
+    const string dir = thUtil::tempFile("statecheck-grains-");
+    std::error_code ec;
+
+    if (dir.empty())
+    {
+        fail("osc::grain: could not make a scratch directory", "");
+        return;
+    }
+
+    std::filesystem::remove(dir);
+    std::filesystem::create_directories(dir + "/samples", ec);
+
+    /* Two seconds of a 220 Hz sine at half scale: a source whose every
+       grain is the same pitch, so what comes out says what the grains did
+       to it and nothing else. */
+    vector<float> sine(2 * TH_DEFAULT_SAMPLES);
+
+    for (size_t i = 0; i < sine.size(); i++)
+        sine[i] = 0.5f * (float)sin(2 * M_PI * 220 * (double)i /
+                                    TH_DEFAULT_SAMPLES);
+
+    if (ec || !writeWav(dir + "/samples/sine220.wav", sine,
+                        TH_DEFAULT_SAMPLES))
+    {
+        fail("osc::grain: could not write the scratch wav", ec.message());
+        std::filesystem::remove_all(dir, ec);
+        return;
+    }
+
+#ifdef _WIN32
+    _putenv_s("THINK_DSP_PATH", dir.c_str());
+#else
+    setenv("THINK_DSP_PATH", dir.c_str(), 1);
+#endif
+
+    const float ms = TH_DEFAULT_SAMPLES / 1000.0f;
+
+    /* ---- dense enough and there is no grain to hear ---- */
+
+    /* A thousand grains a second, four milliseconds each, all from one
+       place: the RMS of every twentieth of a second, over a second, has
+       to be within five percent of the mean -- which is a cloud with no
+       gaps in it and no pulse at the launch rate either. */
+    {
+        vector<float> got;
+        string why;
+        const GrainArgs g = { 0.5f, 0, 4 * ms, 1000, 1, 0, 1 };
+
+        if (!render1(pluginPath, grainGraph("sine220.wav", g), "grain", "out",
+                     256, TH_DEFAULT_SAMPLES + TH_DEFAULT_SAMPLES / 10, got,
+                     why))
+            fail("osc::grain renders", why);
+        else
+        {
+            const size_t block = TH_DEFAULT_SAMPLES / 20;
+            vector<double> level;
+            double mean = 0, worst = 0;
+
+            for (size_t at = TH_DEFAULT_SAMPLES / 10;
+                 at + block <= got.size(); at += block)
+            {
+                level.push_back(rms(vector<float>(got.begin() + at,
+                                                  got.begin() + at + block),
+                                    0));
+                mean += level.back();
+            }
+
+            mean /= level.size();
+
+            for (size_t k = 0; k < level.size(); k++)
+                worst = fmax(worst, fabs(level[k] / mean - 1));
+
+            okOrFail(mean > 0.05 && worst < 0.05,
+                     "osc::grain: a thousand four-millisecond grains a second "
+                     "are a steady sound",
+                     "mean RMS " + num(mean) + ", worst block " +
+                     num(worst * 100) + "% off it");
+        }
+    }
+
+    /* ---- pitch is pitch ---- */
+
+    /* Grains from all over the file at twice its speed: the power within
+       ten hertz of 440 has to be ten times what is left within ten of
+       220, and three times what lands a semitone above 440. */
+    {
+        vector<float> got;
+        string why;
+        const GrainArgs g = { 0.5f, 0.3f, 50 * ms, 100, 2, 0, 1 };
+
+        if (!render1(pluginPath, grainGraph("sine220.wav", g), "grain", "out",
+                     256, 2 * TH_DEFAULT_SAMPLES, got, why))
+            fail("osc::grain renders", why);
+        else
+        {
+            const size_t from = TH_DEFAULT_SAMPLES / 2;
+            const double up = powerNear(got, from, 440, 10);
+            const double left = powerNear(got, from, 220, 10);
+            const double off = powerNear(got, from, 466, 10);
+
+            okOrFail(up > 10 * left && up > 3 * off,
+                     "osc::grain: `pitch = 2' plays a 220 Hz file at 440",
+                     "near 440 " + num(up) + ", near 220 " + num(left) +
+                     ", near 466 " + num(off));
+        }
+    }
+
+    /* ---- and a keyboard plays it ---- */
+    {
+        vector<NodeSpec> spec =
+            grainGraph("sine220.wav", GrainArgs{ 0.5f, 0.3f, 50 * ms, 100,
+                                                 1, 0, 1 });
+        vector<float> got;
+        string why;
+
+        spec[0].values.push_back(Value{ "freq", 330 });
+        spec[0].values.push_back(Value{ "root", 220 });
+
+        if (!render1(pluginPath, spec, "grain", "out", 256,
+                     2 * TH_DEFAULT_SAMPLES, got, why))
+            fail("osc::grain renders", why);
+        else
+        {
+            const size_t from = TH_DEFAULT_SAMPLES / 2;
+            const double fifth = powerNear(got, from, 330, 10);
+            const double left = powerNear(got, from, 220, 10);
+
+            okOrFail(fifth > 10 * left,
+                     "osc::grain: `freq = 330, root = 220' plays the file a "
+                     "fifth up",
+                     "near 330 " + num(fifth) + ", near 220 " + num(left));
+        }
+    }
+
+    /* ---- the same cloud twice ---- */
+    {
+        const GrainArgs g = { 0.3f, 0.5f, 30 * ms, 300, 1, 3, 5 };
+        GrainArgs other = g;
+        vector<float> a, b, c;
+        string why;
+
+        other.seed = 6;
+
+        if (!render1(pluginPath, grainGraph("sine220.wav", g), "grain",
+                     "out", 256, TH_DEFAULT_SAMPLES, a, why) ||
+            !render1(pluginPath, grainGraph("sine220.wav", g), "grain",
+                     "out", 256, TH_DEFAULT_SAMPLES, b, why) ||
+            !render1(pluginPath, grainGraph("sine220.wav", other), "grain",
+                     "out", 256, TH_DEFAULT_SAMPLES, c, why))
+            fail("osc::grain renders", why);
+        else
+            okOrFail(a == b && a != c,
+                     "osc::grain: two fresh voices with one seed are the same "
+                     "cloud, bit for bit, and another seed is another", "");
+    }
+
+    /* ---- a position swept smoothly does not click ---- */
+
+    /* The same cloud with `position' held and with it swept most of the
+       way through the file and back by a sine at half a hertz. The source
+       is one steady sine, so a grain that jumped -- which a node that
+       re-read `position' inside a sounding grain would do -- is a step,
+       and a step is a second difference the size of the step, where a
+       220 Hz sine's is a thousandth of its amplitude. Relative to each
+       render's own peak, since moving the reads moves how the grains'
+       phases line up and so the level, which is not a click. */
+    {
+        vector<NodeSpec> held = grainGraph("sine220.wav",
+            GrainArgs{ 0.5f, 0, 40 * ms, 200, 1, 0, 1 });
+        vector<NodeSpec> swept = held;
+        NodeSpec lfo, place;
+        vector<float> a, b;
+        string why;
+
+        lfo.name = "lfo";
+        lfo.spelling = "osc/simple";
+        lfo.values.push_back(Value{ "freq", 0.5f });
+        lfo.values.push_back(Value{ "amp", 0.4f });
+        lfo.values.push_back(Value{ "waveform", 0 });
+
+        place.name = "place";
+        place.spelling = "math/add";
+        place.values.push_back(Value{ "in1", 0.5f });
+        place.wires.push_back(Wire{ "in0", "lfo", "out" });
+
+        swept[0].values.erase(swept[0].values.begin());
+        swept[0].wires.push_back(Wire{ "position", "place", "out" });
+        swept.insert(swept.begin(), place);
+        swept.insert(swept.begin(), lfo);
+
+        if (!render1(pluginPath, held, "grain", "out", 256,
+                     2 * TH_DEFAULT_SAMPLES, a, why) ||
+            !render1(pluginPath, swept, "grain", "out", 256,
+                     2 * TH_DEFAULT_SAMPLES, b, why))
+            fail("osc::grain renders", why);
+        else
+        {
+            double da = 0, db = 0;
+
+            for (size_t i = TH_DEFAULT_SAMPLES / 10; i < a.size(); i++)
+            {
+                da = fmax(da, fabs((double)a[i] - 2.0 * a[i - 1] + a[i - 2]));
+                db = fmax(db, fabs((double)b[i] - 2.0 * b[i - 1] + b[i - 2]));
+            }
+
+            da /= peak(a, TH_DEFAULT_SAMPLES / 10);
+            db /= peak(b, TH_DEFAULT_SAMPLES / 10);
+
+            okOrFail(db < da * 1.5 && db < 0.01,
+                     "osc::grain: a position swept through the file does not "
+                     "click",
+                     "largest second difference over the peak " + num(db) +
+                     " swept, " + num(da) + " held");
+        }
+    }
+
+    /* ---- the live ring ---- */
+
+    /* `source = 1' on a 440 Hz sine it is fed: the grains read what the
+       ring has recorded, at `pitch' times its speed, so the output is at
+       440 and at `pitch = 2' at 880. With `freeze' held from the start the
+       ring never records and the cloud is silent. */
+    {
+        auto live = [&](float pitch, float freeze, vector<float> &got,
+                        string &why) {
+            vector<NodeSpec> spec;
+            NodeSpec src, g;
+
+            src.name = "src";
+            src.spelling = "osc/simple";
+            src.values.push_back(Value{ "freq", 440 });
+            src.values.push_back(Value{ "amp", 0.5f });
+            src.values.push_back(Value{ "waveform", 0 });
+
+            g.name = "grain";
+            g.spelling = "osc/grain";
+            g.values.push_back(Value{ "source", 1 });
+            g.values.push_back(Value{ "position", 0.05f });
+            g.values.push_back(Value{ "spread", 0.02f });
+            g.values.push_back(Value{ "size", 50 * ms });
+            g.values.push_back(Value{ "density", 100 });
+            g.values.push_back(Value{ "pitch", pitch });
+            g.values.push_back(Value{ "freeze", freeze });
+            g.wires.push_back(Wire{ "in", "src", "out" });
+
+            spec.push_back(src);
+            spec.push_back(g);
+
+            return render1(pluginPath, spec, "grain", "out", 256,
+                           2 * TH_DEFAULT_SAMPLES, got, why);
+        };
+
+        vector<float> one, two, frozen;
+        string why;
+
+        if (!live(1, 0, one, why) || !live(2, 0, two, why) ||
+            !live(1, 1, frozen, why))
+            fail("osc::grain renders", why);
+        else
+        {
+            const size_t from = TH_DEFAULT_SAMPLES;
+            const double at440 = powerNear(one, from, 440, 10);
+            const double at880 = powerNear(two, from, 880, 10);
+            const double left = powerNear(two, from, 440, 10);
+
+            okOrFail(at440 > 0.01 && at880 > 10 * left &&
+                     peak(frozen, 0) == 0,
+                     "osc::grain: a live ring plays what it heard, shifted by "
+                     "`pitch', and a ring frozen from the start is silent",
+                     "440 at pitch 1: " + num(at440) + "; at pitch 2, 880: " +
+                     num(at880) + " and 440: " + num(left) +
+                     "; frozen peak " + num(peak(frozen, 0)));
+        }
+    }
+
+    /* ---- finite at every corner ---- */
+    {
+        static const float sizes[] = { -1, 0, 1, 44100, 1e9f };
+        static const float densities[] = { -5, 0, 2000, 1e9f };
+        static const float pitches[] = { -1, 0, 0.01f, 100 };
+        static const float places[] = { -2, 0, 1, 7 };
+        bool finite = true;
+        string detail;
+
+        for (float sz : sizes)
+            for (float dn : densities)
+                for (float pt : pitches)
+                    for (float pl : places)
+                    {
+                        vector<float> got;
+                        string why;
+                        const GrainArgs g = { pl, pl, sz, dn, pt, 100, 1 };
+
+                        if (!render1(pluginPath,
+                                     grainGraph("sine220.wav", g), "grain",
+                                     "out", 256, 4410, got, why))
+                        {
+                            fail("osc::grain renders", why);
+                            std::filesystem::remove_all(dir, ec);
+                            return;
+                        }
+
+                        if (finite && !(allFinite(got) && peak(got, 0) < 4))
+                        {
+                            finite = false;
+                            detail = "size " + num(sz) + ", density " +
+                                     num(dn) + ", pitch " + num(pt) +
+                                     ", position " + num(pl) + ": peak " +
+                                     num(peak(got, 0));
+                        }
+                    }
+
+        okOrFail(finite, "osc::grain: finite and bounded at every corner",
+                 detail);
+    }
+
+    {
+        vector<float> got;
+        string why;
+        const GrainArgs g = { 0.5f, 0.1f, 10 * ms, 100, 1, 0, 1 };
+
+        if (!render1(pluginPath, grainGraph("nosuchthing.wav", g), "grain",
+                     "out", 256, 4410, got, why))
+            fail("osc::grain renders", why);
+        else
+            okOrFail(allFinite(got) && peak(got, 0) == 0,
+                     "osc::grain: a file that is not there is silence", "");
+    }
+
+    windowsAgree(pluginPath,
+                 grainGraph("sine220.wav",
+                            GrainArgs{ 0.2f, 0.3f, 7 * ms, 700, 1.3f, 2, 4 }),
+                 "grain", "out",
+                 "osc::grain: the same cloud at one sample a window and at "
+                 "five hundred");
 
     std::filesystem::remove_all(dir, ec);
 }
@@ -5047,6 +5609,8 @@ int main (int argc, char **argv)
     checkFmop(pluginPath);
     checkSimple(pluginPath);
     checkSample(pluginPath);
+    checkGrain(pluginPath);
+    checkDrift(pluginPath);
     checkCompressor(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
