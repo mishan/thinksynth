@@ -1535,7 +1535,7 @@ EMSCRIPTEN_KEEPALIVE const char *tw_stage_name (int chain, int stage)
     return s != NULL && s->plugin != NULL ? s->plugin->name().c_str() : "";
 }
 
-/* Whether this stage has a picture at all. Eight composers draw and the
+/* Whether this stage has a picture at all. Nine composers draw and the
    rest do not, and the canvas shows an empty box for the rest. */
 EMSCRIPTEN_KEEPALIVE int tw_stage_draws (int chain, int stage)
 {

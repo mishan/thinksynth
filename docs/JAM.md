@@ -106,7 +106,7 @@ starts where that ends:
   scope, so a namespace apiece is not enough as it was for the DSP
   plugins: the build renames each export before compiling the plugin
   inside its namespace, and the table looks it up under the new name.
-- `composer_draw` is the one export that does not come. Eight composers
+- `composer_draw` is the one export that does not come. Nine composers
   draw with cairo, there is no cairo in a worklet and nothing to draw on,
   so they are compiled with `THC_NO_DRAW` and both the function and its
   `<cairo.h>` are left out. `thcPlugin::hasDraw` already answers for an
@@ -509,7 +509,7 @@ into the scheduler reduce to a few commands (start, stop, reset, tempo,
 mute, bind, inject), a status snapshot (now, running, what is pending) and
 the delivered-event stream; chains, instruments and sinks it reads from the
 document. All of that crosses a port without complaint. What does not is
-`composer_draw`: eight composers paint their state with cairo, on the tick
+`composer_draw`: nine composers paint their state with cairo, on the tick
 thread, straight from instance memory. There is no cairo in a wasm main
 thread either, so draw ports as-is *nowhere* in the browser, whichever
 thread the scheduler is on.

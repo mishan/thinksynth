@@ -101,7 +101,7 @@ add_library(sigc OBJECT ${SIGC_SOURCES})
 target_compile_definitions(sigc PRIVATE SIGC_BUILD)
 target_link_libraries(sigc PUBLIC PkgConfig::SIGC)
 
-# Eight composers draw their state for the Composer window, and include
+# Nine composers draw their state for the Composer window, and include
 # cairo.h to do it. The header is the host's -- declarations, nothing
 # compiled -- and the calls are left for the loader to bind, which it does
 # lazily, on the first call. composer_draw is never called here.

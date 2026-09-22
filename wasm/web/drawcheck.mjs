@@ -23,7 +23,7 @@
  *
  *   node wasm/web/drawcheck.mjs [BUILD_DIR]
  *
- * The first half of the drawing gate. Eight composers draw their state -- a
+ * The first half of the drawing gate. Nine composers draw their state -- a
  * Life board, a CA's grid, a Euclid ring -- and until now the browser build
  * left those draws out: there was no canvas in a worklet and no cairo to
  * link. cairo-canvas2d is the cairo they link now, and it records rather than
@@ -339,7 +339,7 @@ for (const piece of all)
                              `${pictures.join(', ')}\n`);
 }
 
-/* Eight composers export a draw. One that never produced a list anywhere in
+/* Nine composers export a draw. One that never produced a list anywhere in
    the corpus is either a draw that does nothing or a piece list that never
    reaches it, and both are worth a sentence. */
 for (const [name, drew] of everDrew)
