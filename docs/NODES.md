@@ -85,6 +85,26 @@ Echo (echo echo echo)
 | `bufpos` | state |  |  |  |  |  |
 | `out` | out | The tap and the input, mixed by dry |  |  | full scale |  |
 
+### delay::fdn
+
+Feedback delay network (eight lines, a reverb)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `size` | in | How big the space is: every line's length, scaled together | 1 | 0.25 to 3 |  |  |
+| `decay` | in | How long the tail takes to fall sixty decibels | 2 | 0.1 to 100 | seconds |  |
+| `damping` | in | Where each line's low-pass sits, the tail above it dying faster; 0 is none |  | 0 to 20000 | Hz |  |
+| `mod` | in | How far each line's read position swings; what keeps a long tail from ringing |  | 0 to 32 | samples |  |
+| `rate` | in | How fast the read positions swing |  | 0 to 5 | Hz |  |
+| `diffuse` | in | The input allpasses' gain: how far an attack is smeared before the lines hear it |  | 0 to 0.9 |  |  |
+| `shimmer` | in | How much of the tail goes back in shifted by `interval'; 0 is a plain reverb |  | 0 to 0.9 |  |  |
+| `interval` | in | The ratio the shimmer shifts by each time round: 2 is an octave up | 2 | 0.25 to 4 |  |  |
+| `out` | out | The tail, one side |  |  | full scale |  |
+| `out2` | out | The same tail, uncorrelated with `out' |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### delay::fir
 
 Applies an impulse response
@@ -97,6 +117,20 @@ Applies an impulse response
 | `buffer` | state |  |  |  |  |  |
 | `bufpos` | state |  |  |  |  |  |
 | `out` | out | The convolved signal, mixed with the dry |  |  | full scale |  |
+
+### delay::pitchshift
+
+Pitch shifter (two crossfaded read heads)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `ratio` | in | How much faster the heads read than the line is written: 2 is an octave up, 0.5 one down |  | 0.25 to 4 |  |  |
+| `window` | in | How far the heads travel before they wrap; the output is half of it late |  | 882 to 8820 | samples |  |
+| `mix` | in | 0 is the dry signal, 1 is the shifted one alone |  | 0 to 1 |  |  |
+| `out` | out | The signal, shifted |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
 
 ## dist
 

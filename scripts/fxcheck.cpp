@@ -269,6 +269,42 @@ static bool allFinite (const vector<float> &v)
     return true;
 }
 
+/* Abel and Huang's normalized echo density, averaged from `from' to `to'.
+ *
+ * In each window of ten milliseconds, the fraction of samples further from
+ * zero than the window's own standard deviation, over the fraction a
+ * Gaussian has there, erfc(1/sqrt(2)). Noise is 1 wherever it is measured
+ * and at whatever level; a run of distinct echoes with silence between is
+ * near 0, because a few large samples set a deviation most samples fall
+ * short of. It is a count that a low-pass cannot fool, which is the point:
+ * a smeared echo is still one echo. */
+static double echoDensity (const vector<float> &v, size_t from, size_t to)
+{
+    const size_t win = TH_DEFAULT_SAMPLES / 100;
+    double sum = 0;
+    int windows = 0;
+
+    for (size_t at = from; at + win <= to && at + win <= v.size();
+         at += win)
+    {
+        double e = 0, over = 0;
+
+        for (size_t k = at; k < at + win; k++)
+            e += (double)v[k] * v[k];
+
+        const double sd = sqrt(e / win);
+
+        for (size_t k = at; k < at + win; k++)
+            if (fabs(v[k]) > sd)
+                over++;
+
+        sum += over / win / erfc(1 / sqrt(2.0));
+        windows++;
+    }
+
+    return windows ? sum / windows : 0;
+}
+
 /* Does this graph ask for a second channel? A file that declares side0 is
    one whose point is the side -- and the shipped-graph loop below has to
    give it one, since a vocoder with no carrier is a vocoder doing nothing.
@@ -1244,6 +1280,311 @@ int main (int argc, char **argv)
                          "peak " + num(peak(heard)));
             }
         }
+    }
+
+    /* ---- delay::fdn against the hall ----------------------------------- */
+
+    /* An impulse through each, wet only, and the normalized echo density of
+     * what comes out from a tenth of a second to half of one -- see
+     * echoDensity. fx/hall.dsp's combs make a handful of echoes a round and
+     * its allpasses spread each into a short run, which leaves its tail
+     * about half as dense as noise however long it rings: the combs are
+     * periodic, and a periodic thing is not noise. The network mixes every
+     * line into every other on every pass, and is noise.
+     *
+     * Not a count of the samples that are not silent, which is what this
+     * was first going to be. The hall's damping is a low-pass inside the
+     * loop, which smears every echo it passes across a few dozen samples,
+     * so by that count the two came out at 2542 and 2683 of the first
+     * 4410: a low-pass makes a sparse response look full without making it
+     * any less countable to the ear.
+     *
+     * The impulse is one sample at full scale: env::ad with no attack and a
+     * one-sample decay, which fires once at the top of the voice.
+     */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/hall.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        const string click =
+            "name \"fxcheck-click\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = env->out;\n"
+            "    out1 = env->out;\n"
+            "};\n\n"
+            "node env env::ad {\n"
+            "    a = 0;\n"
+            "    d = 1;\n"
+            "    p = th_max;\n"
+            "};\n\n"
+            "io ionode;\n";
+        const string fx = effect(
+            "", "node net delay::fdn {\n"
+                "    in = ionode->in0;\n"
+                "    decay = 2;\n"
+                "    damping = 6000;\n"
+                "    mod = 8;\n"
+                "    rate = 0.5;\n"
+                "    diffuse = 0.7;\n"
+                "};\n\n", "net->out", "net->out2");
+        vector<float> heard[2];
+
+        if (!writeFile(instFile, click) || !writeFile(fxFile, fx))
+            break;
+
+        for (int which = 0; which < 2; which++)
+        {
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadEffect(which ? fxFile : shipped[i], 0) == NULL)
+            {
+                fail("the click and " +
+                     string(which ? "delay::fdn" : shipped[i]) + " load", "");
+                break;
+            }
+
+            if (which == 0)
+                s.synth.setChanArg(0, new thArg("fx.mix", 1.0f));
+
+            s.synth.addNote(0, 60, 100);
+            s.run(TH_DEFAULT_SAMPLES / 2 / s.synth.getWindowlen() + 1);
+            s.synth.delNote(0, 60);
+
+            heard[which] = s.take();
+        }
+
+        if (heard[0].empty() || heard[1].empty())
+            break;
+
+        const double hall = echoDensity(heard[0], TH_DEFAULT_SAMPLES / 10,
+                                        TH_DEFAULT_SAMPLES / 2);
+        const double net = echoDensity(heard[1], TH_DEFAULT_SAMPLES / 10,
+                                       TH_DEFAULT_SAMPLES / 2);
+
+        okOrFail(net > 0.9 && hall < 0.7,
+                 "delay::fdn: a tail as dense as noise, where " + shipped[i] +
+                 "'s is not",
+                 "echo density " + num(net) + " against " + num(hall));
+    }
+
+    /* ---- fx/space.dsp: a longer tail, not a louder one ----------------- */
+
+    /* Held noise through the reverb, wet only and with its filters open,
+     * against the same noise dry: the RMS over the last second of a note
+     * held a decay and a half, which is the tail at its steady state, with
+     * the damping off so that every frequency is held as long. A
+     * network's wet is 1 / (1 - g^2) times the input's power -- six
+     * decibels at two seconds and twenty at thirty -- and the graph's trim
+     * is meant to take exactly that back, so both decays have to come out
+     * within three decibels of the dry.
+     */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/space.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        const string hiss =
+            "name \"fxcheck-hiss\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = vca->out;\n"
+            "    out1 = vca->out;\n"
+            "    play = env->play;\n"
+            "};\n\n"
+            "node noise osc::noise {\n"
+            "    amp = 0.25;\n"
+            "};\n\n"
+            "node env env::adsr {\n"
+            "    a = 1 ms;\n"
+            "    d = 1 ms;\n"
+            "    s = th_max;\n"
+            "    r = 1 ms;\n"
+            "    trigger = ionode->trigger;\n"
+            "};\n\n"
+            "node vca mixer::mul {\n"
+            "    in0 = noise->out;\n"
+            "    in1 = env->out;\n"
+            "};\n\n"
+            "io ionode;\n";
+        static const float decays[] = { 2, 30 };
+        bool level = true;
+        string detail;
+
+        if (!writeFile(instFile, hiss))
+            break;
+
+        for (size_t d = 0; d < sizeof(decays) / sizeof(decays[0]); d++)
+        {
+            double got[2];
+
+            for (int wet = 0; wet < 2; wet++)
+            {
+                Session s(pluginPath);
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadEffect(shipped[i], 0) == NULL)
+                {
+                    fail("the hiss and " + shipped[i] + " load", "");
+                    break;
+                }
+
+                s.synth.setChanArg(0, new thArg("fx.mix", wet ? 1.0f : 0.0f));
+                s.synth.setChanArg(0, new thArg("fx.decay", decays[d]));
+                s.synth.setChanArg(0, new thArg("fx.lowcut", 20.0f));
+                s.synth.setChanArg(0, new thArg("fx.highcut", 18000.0f));
+                /* Off, and not merely high: the damping is a low-pass
+                   every pass goes through again, so even at 18 kHz it
+                   takes a decibel a pass off 10 kHz, and most of white
+                   noise's power is up there. */
+                s.synth.setChanArg(0, new thArg("fx.damping", 0.0f));
+
+                s.synth.addNote(0, 60, 100);
+                s.run((int)((decays[d] * 1.5f + 1) * TH_DEFAULT_SAMPLES /
+                            s.synth.getWindowlen()));
+
+                vector<float> heard = s.take();
+                double sum = 0;
+
+                for (size_t k = heard.size() - TH_DEFAULT_SAMPLES;
+                     k < heard.size(); k++)
+                    sum += (double)heard[k] * heard[k];
+
+                got[wet] = sqrt(sum / TH_DEFAULT_SAMPLES);
+            }
+
+            const double apart = 20 * log10(got[1] / got[0]);
+
+            if (!(fabs(apart) < 3))
+            {
+                level = false;
+                detail = "a decay of " + num(decays[d]) + " s came out " +
+                         num(apart) + " dB from the dry";
+            }
+        }
+
+        okOrFail(level, shipped[i] + ": the wet is the dry's level at two "
+                        "seconds of decay and at thirty", detail);
+    }
+
+    /* ---- fx/detune.dsp: one side sharp and the other flat -------------- */
+
+    /* A held 440 Hz sine, wet only, detuned thirty cents: the pitch of each
+     * side, read from its upward zero crossings over the last second and a
+     * half of two seconds, has to be thirty cents above 440 on the left and
+     * thirty below it on the right, to within two. Each side's sign is an
+     * expression -- `exp2(-@detune / 1200)' on the right -- and this is
+     * what says the grammar read it as meant.
+     */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/detune.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        const string tone =
+            "name \"fxcheck-tone\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = vca->out;\n"
+            "    out1 = vca->out;\n"
+            "    play = env->play;\n"
+            "};\n\n"
+            "node osc osc::simple {\n"
+            "    freq = 440;\n"
+            "    waveform = 0;\n"
+            "    amp = 0.5;\n"
+            "};\n\n"
+            "node env env::adsr {\n"
+            "    a = 1 ms;\n"
+            "    d = 1 ms;\n"
+            "    s = th_max;\n"
+            "    r = 1 ms;\n"
+            "    trigger = ionode->trigger;\n"
+            "};\n\n"
+            "node vca mixer::mul {\n"
+            "    in0 = osc->out;\n"
+            "    in1 = env->out;\n"
+            "};\n\n"
+            "io ionode;\n";
+        Session s(pluginPath);
+        vector<float> side[2];
+
+        if (!writeFile(instFile, tone))
+            break;
+
+        if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+            s.synth.loadEffect(shipped[i], 0) == NULL)
+        {
+            fail("the tone and " + shipped[i] + " load", "");
+            break;
+        }
+
+        s.synth.setChanArg(0, new thArg("fx.mix", 1.0f));
+        s.synth.setChanArg(0, new thArg("fx.detune", 30.0f));
+        s.synth.addNote(0, 60, 100);
+
+        for (int w = 0; w < 2 * TH_DEFAULT_SAMPLES / s.synth.getWindowlen();
+             w++)
+        {
+            int channels = 0;
+
+            s.synth.process();
+
+            const float *mixed = s.synth.getChannelOutput(0, &channels);
+
+            for (int k = 0; mixed && channels == 2 &&
+                            k < s.synth.getWindowlen(); k++)
+            {
+                side[0].push_back(mixed[2 * k]);
+                side[1].push_back(mixed[2 * k + 1]);
+            }
+        }
+
+        double cents[2] = { 0, 0 };
+
+        for (int c = 0; c < 2; c++)
+        {
+            double first = -1, last = -1;
+            int crossings = 0;
+
+            for (size_t k = TH_DEFAULT_SAMPLES / 2; k < side[c].size(); k++)
+                if (side[c][k - 1] < 0 && side[c][k] >= 0)
+                {
+                    const double at = (double)(k - 1) + side[c][k - 1] /
+                                      (side[c][k - 1] - side[c][k]);
+
+                    if (first < 0)
+                        first = at;
+                    else
+                        crossings++;
+
+                    last = at;
+                }
+
+            const double hz = crossings > 0
+                ? crossings * TH_DEFAULT_SAMPLES / (last - first) : 0;
+
+            cents[c] = hz > 0 ? 1200 * log2(hz / 440) : 0;
+        }
+
+        okOrFail(fabs(cents[0] - 30) < 2 && fabs(cents[1] + 30) < 2,
+                 shipped[i] + ": the left side thirty cents sharp and the "
+                 "right thirty flat",
+                 num(cents[0]) + " cents and " + num(cents[1]));
     }
 
     /* ---- the shipped effect graphs ------------------------------------- */

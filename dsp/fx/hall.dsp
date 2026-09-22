@@ -14,6 +14,12 @@
 # makes it a tail rather than a chord -- see the head of
 # plugins/delay/allpass.cpp for why a bank of combs alone can only ring.
 #
+# A comb is a resonance, so a long decay here is the combs' pitches
+# standing out of the tail, which is why `Decay' stops at 0.96. For a
+# tail of more than a few seconds use fx/space.dsp, a feedback delay
+# network that stays smooth to a minute; this one stays for the pieces
+# written around its sound.
+#
 # This is an effect graph -- `in0' on the io node -- and it runs on the
 # channel's summed voices every window, which is what lets the tail
 # outlive the note. See fx/echo.dsp.
