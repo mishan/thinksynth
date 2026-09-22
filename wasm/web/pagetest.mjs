@@ -218,9 +218,24 @@ try
     check(await settle(0, 1) === 1,
           'a track aimed at Kick 909, which ignores the note, is one row');
 
-    /* And the strip is the height one row asks for rather than six. */
-    const strips = await page.$$eval('#tracks .trackgrid',
+    /* And the strip is the height one row asks for rather than six.
+     *
+       Waited for rather than read straight off: the row count comes back
+       in a message and the canvas is resized in the draw loop after it,
+       so the element is a frame behind the number above. */
+    const heights = () => page.$$eval('#tracks .trackgrid',
         (all) => all.map((c) => Math.round(c.getBoundingClientRect().height)));
+
+    await page.waitForFunction(() =>
+    {
+        const all = [...document.querySelectorAll('#tracks .trackgrid')];
+
+        return all.length > 1 &&
+               all[0].getBoundingClientRect().height <
+               all[1].getBoundingClientRect().height;
+    }, null, { timeout: 30000 }).catch(() => {});
+
+    const strips = await heights();
 
     check(strips[0] < strips[1],
           `and its strip is shorter than a pitched one: ${strips[0]} ` +

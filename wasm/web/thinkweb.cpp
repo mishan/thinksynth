@@ -2361,17 +2361,6 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
     schedule(c);
 }
 
-/* A gesture on a stage's picture, at a transport time.
- *
- * One more stamped command, made and sent the way a knob is: applied at
- * `at' in the step on every peer, the sender included, so a Life board
- * that was clicked on one screen is the same board everywhere from that
- * moment. The clicker hears their own click a knob lead late, as they
- * hear their own knob.
- *
- * `at' below zero is "now", as for a knob on a stopped transport, which
- * is what a solo page sends.
- */
 /* One numeric param of one stage, at a transport time.
  *
  * The write half of tw_stage_param_value, and a stamped command like a
@@ -2399,6 +2388,17 @@ EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
     schedule(c);
 }
 
+/* A gesture on a stage's picture, at a transport time.
+ *
+ * One more stamped command, made and sent the way a knob is: applied at
+ * `at' in the step on every peer, the sender included, so a Life board
+ * that was clicked on one screen is the same board everywhere from that
+ * moment. The clicker hears their own click a knob lead late, as they
+ * hear their own knob.
+ *
+ * `at' below zero is "now", as for a knob on a stopped transport, which
+ * is what a solo page sends.
+ */
 EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
                                     int kind, double x, double y, double w,
                                     double h, int button)

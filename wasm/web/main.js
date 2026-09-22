@@ -1658,10 +1658,18 @@ function readsNote (file)
  * the text is not what it is playing from, and a param that is heard lands
  * at a transport time on every peer the way a knob does.
  */
+/* What each track was last asked for, and the height it was asked
+   against. Kept between calls; see fitTracks. */
+let asked = new Map();
+
 function fitTracks ()
 {
     if (mode() !== 'seq' || synth === null || seq === null)
         return;
+
+    /* Rebuilt rather than edited, so a track the piece no longer has
+       leaves with it. */
+    const outstanding = new Map();
 
     for (const track of seq.tracks())
     {
@@ -1671,10 +1679,31 @@ function fitTracks ()
         const dsp = placed.get(track.channel)?.dsp;
         const want = dsp !== undefined && !readsNote(dsp) ? 1 : SEQ_ROWS;
 
-        if (track.rows !== want)
-            synth.stageParam({ chain: track.chain, stage: track.stage,
-                               param: track.rowsParam, value: want });
+        if (track.rows === want)
+            continue;
+
+        /* Asked once per height, not once per measurement. A measurement
+           arrives per track and every one of them comes through here, so
+           an unguarded ask goes out once per track before the first
+           answer gets back -- four commands where one was wanted, on the
+           queue a room relays. Both numbers are remembered, so a reload
+           that puts the grid back to its file's height asks again, and so
+           does a peer that moved it. A command that never takes is asked
+           for once. */
+        const last = asked.get(`${track.chain}:${track.stage}`);
+
+        outstanding.set(`${track.chain}:${track.stage}`,
+                        { want, rows: track.rows });
+
+        if (last !== undefined && last.want === want &&
+            last.rows === track.rows)
+            continue;
+
+        synth.stageParam({ chain: track.chain, stage: track.stage,
+                           param: track.rowsParam, value: want });
     }
+
+    asked = outstanding;
 }
 
 function showSeq (on)
