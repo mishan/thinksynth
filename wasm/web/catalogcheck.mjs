@@ -315,6 +315,18 @@ for (const [id, p] of solo.panes)
     check(bare.length === 0,
           `and reads only its own custom properties${
               bare.length > 0 ? `: ${bare.join(' ')}` : ''}`);
+
+    /* And what the module is, which is one function. Anything else
+       exported from here is something that ended up in the tiler because
+       that is where its bug was found -- which is how `placePopover'
+       came to live in a file about dividing up a window. */
+    const js = fs.readFileSync(path.join(here, 'panes.js'), 'utf8');
+    const exports = (js.match(/^export\s+(?:function\s+)?(\w+)/gm) ?? [])
+        .map((m) => m.split(/\s+/).pop());
+
+    check(exports.length === 1 && exports[0] === 'createPanes',
+          `panes.js exports createPanes and nothing else: ${
+              exports.join(' ') || 'nothing'}`);
 }
 
 process.stdout.write(`\n${failures === 0

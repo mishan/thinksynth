@@ -36,7 +36,7 @@
  */
 
 import { createCanvasView } from './canvasview.js';
-import { placePopover } from './panes.js';
+import { placePopover } from './popover.js';
 
 export function createComposerView ({ root = document, toMirror,
                                       onGesture })

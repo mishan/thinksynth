@@ -46,7 +46,7 @@
  */
 
 import { createCanvasView } from './canvasview.js';
-import { placePopover } from './panes.js';
+import { placePopover } from './popover.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
