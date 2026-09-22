@@ -332,6 +332,8 @@ struct thcInstrument
 struct thcStage
 {
     thcPlugin     *plugin;
+    std::string    name;        /* name in a .gen chain, if any          */
+    int            line;        /* source line for diagnostics            */
     void          *state;       /* from composer_create                  */
     thcParamStore  params;
     bool           sleeping;    /* tick returned THC_NEVER               */
@@ -353,7 +355,7 @@ struct thcStage
     unsigned       stalled;
 
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
-        : plugin(p), state(NULL), params(p, seed), sleeping(false),
+        : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),
           ticks(wantTick), awaitingStart(wantTick), stalled(0) {}
 };
 

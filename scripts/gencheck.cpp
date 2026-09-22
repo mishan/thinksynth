@@ -8930,6 +8930,162 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
         return;
     }
 
+    auto warningsFor = [&](const std::string &source,
+                           const std::string &prelude = "")
+    {
+        std::vector<std::string> warnings;
+        const std::string path = thUtil::tempFile("gencheck-ahead-warning-");
+
+        if (path.empty())
+        {
+            fail("could not write the lookahead warning piece");
+            return warnings;
+        }
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << prelude
+                << "chain c { stage src " << source << ";\n"
+                   "  stage pick xform::run { steps = 2; time = 0.5 s;"
+                   " prob = 1; };\n"
+                   "  sink { channel = 1; }; };\n";
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+            fail("the lookahead warning piece did not load");
+        else
+            warnings = loader.warnings();
+
+        std::filesystem::remove(path);
+        return warnings;
+    };
+
+    {
+        const std::vector<std::string> plain = warningsFor(
+            "gen::euclid { steps = 4; fills = 1; notes = \"C4\";"
+            " period = 1 s; hold = 0.1 s; }");
+        const std::vector<std::string> ahead = warningsFor(
+            "gen::euclid { steps = 4; fills = 1; notes = \"C4\";"
+            " period = 1 s; hold = 0.1 s; ahead = 1; }");
+        const std::vector<std::string> phrase = warningsFor(
+            "gen::lsystem { axiom = \"rF\"; depth = 0;"
+            " notes = \"C4\"; step = 1 s; hold = 0.1 s; }");
+
+        if (plain.size() != 1 ||
+            plain[0].find("src") == std::string::npos ||
+            plain[0].find("euclid") == std::string::npos ||
+            plain[0].find("pick") == std::string::npos ||
+            plain[0].find("run") == std::string::npos ||
+            !ahead.empty() || !phrase.empty())
+            fail("run: warn for a stepwise source, not a source that "
+                 "emits ahead");
+
+        if (plain[0].find("set ahead = 1") == std::string::npos)
+            fail("run: the warning for a source with an ahead param "
+                 "should say to set it");
+    }
+
+    /* A knob on `ahead' is not a lookahead: the warning still goes out,
+       and telling this file to set a param it already sets would read
+       as a bug in the loader rather than as the answer. */
+    {
+        const std::vector<std::string> bound = warningsFor(
+            "gen::euclid { steps = 4; fills = 1; notes = \"C4\";"
+            " period = 1 s; hold = 0.1 s; ahead = @look; }",
+            "@look = 1;\n");
+
+        if (bound.size() != 1 ||
+            bound[0].find("bound") == std::string::npos ||
+            bound[0].find("set ahead = 1") != std::string::npos)
+            fail("run: a knob-bound ahead should warn, and should not be "
+                 "told to set ahead = 1");
+    }
+
+    {
+        const std::string body =
+            "chain c { stage src gen::euclid { steps = 4; fills = 3;"
+            " rotate = 1; notes = \"C4 D4 E4\"; fill = \"F4 G4\";"
+            " every = 2; period = 0.25 s; hold = 0.1 s; vel = 90;"
+            " ahead = %s; }; sink { channel = 1; }; };\n";
+        std::string plain = body, ahead = body;
+
+        plain.replace(plain.find("%s"), 2, "0");
+        ahead.replace(ahead.find("%s"), 2, "1");
+
+        const std::string plainTape =
+            renderBody(plugins, synth, "stepwise ring", plain, 3.1);
+        const std::string aheadTape =
+            renderBody(plugins, synth, "ahead ring", ahead, 3.1);
+
+        if (plainTape.empty() || plainTape != aheadTape)
+            fail("euclid: ahead and stepwise cycles differ in their notes");
+    }
+
+    auto firstPickupArrival = [&](int ahead)
+    {
+        const std::string path = thUtil::tempFile("gencheck-ahead-delivery-");
+
+        if (path.empty())
+        {
+            fail("could not write the pickup delivery piece");
+            return -1.0;
+        }
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "scale cmaj \"C4 D4 E4 F4 G4 A4 B4\";\n"
+                   "chain c { stage src gen::euclid { steps = 4;"
+                   " fills = 1; rotate = 2; notes = \"C4\";"
+                   " period = 1 s; hold = 0.5 s; ahead = " << ahead
+                << "; };\n"
+                   "stage pick xform::run { scale = cmaj; steps = 2;"
+                   " time = 1 s; prob = 1; };\n"
+                   "sink { channel = 1; }; };\n";
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        double arrival = -1;
+
+        if (!loader.load(path, &sched))
+            fail("the pickup delivery piece did not load");
+        else
+        {
+            sigc::connection conn = sched.sigDelivered.connect(
+                [&](const thcEvent &ev)
+                {
+                    if (ev.type == THC_EV_NOTE && ev.at < 2 && arrival < 0)
+                        arrival = sched.now();
+                });
+
+            render(sched, 3.1, 0.02);
+            conn.disconnect();
+        }
+
+        std::filesystem::remove(path);
+        return arrival;
+    };
+
+    {
+        const double ahead = firstPickupArrival(1);
+        const double plain = firstPickupArrival(0);
+
+        if (fabs(ahead - 1.0) > 0.03 || fabs(plain - 2.0) > 0.03)
+            fail("run: a cycle emitted ahead must deliver its pickup "
+                 "before the target, not at the target's wake");
+    }
+
     /* The grammar emits its whole phrase at transport zero. Its two
        rests place C4 at 2 s, early enough for the transformer to send
        a one-second pickup into the scheduler before the target sounds. */

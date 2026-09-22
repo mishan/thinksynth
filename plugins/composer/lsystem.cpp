@@ -101,7 +101,7 @@ composer_init (thcComposerInfo *info)
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_GENERATOR);
+    info->set_flags(info->host, THC_GENERATOR | THC_EMITS_AHEAD);
     info->set_desc(info->host,
         "An L-system: rewrite an axiom, walk the result as melody.");
 

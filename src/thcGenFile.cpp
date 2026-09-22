@@ -44,6 +44,15 @@ thcGenLoader::error (int line, const std::string &msg)
     errors_.push_back(s.str());
 }
 
+void
+thcGenLoader::warning (int line, const std::string &msg)
+{
+    std::ostringstream s;
+
+    s << path_ << ":" << line << ": warning: " << msg;
+    warnings_.push_back(s.str());
+}
+
 /* ---- pitch names ------------------------------------------------------ */
 
 /* "F3 Ab3 C4" or "F3,Ab3,C4" -> {53, 56, 60}. The one place in the tree
@@ -474,6 +483,7 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
 {
     path_ = path;
     errors_.clear();
+    warnings_.clear();
     tokens_.clear();
     scales_.clear();
     presets_.clear();
@@ -1983,11 +1993,68 @@ thcGenLoader::parseChain (thcScheduler *sched)
         ok = false;
     }
 
+    /* A pickup cannot be delivered before its target when the source
+       only discovers that target at its onset. Keep the chain playable,
+       but name the placement that needs future notes and each source
+       before it that cannot provide them. */
+    thcChain *c = sched->chain(chain);
+
+    if (ok && c != NULL)
+        for (size_t i = 0; i < c->stages.size(); i++)
+        {
+            const thcStage *consumer = c->stages[i].get();
+
+            if (!(consumer->plugin->flags() & THC_NEEDS_AHEAD))
+                continue;
+
+            for (size_t j = 0; j < i; j++)
+            {
+                const thcStage *source = c->stages[j].get();
+
+                if (!source->ticks)
+                    continue;
+
+                bool emitsAhead =
+                    (source->plugin->flags() & THC_EMITS_AHEAD) != 0;
+                const int ahead = source->plugin->paramIndex("ahead");
+
+                /* A bound `ahead' is not an ahead. The value is whatever
+                   the knob or the node says at the moment the generator
+                   reads it, and the placement below needs the whole
+                   cycle every cycle -- a lookahead that comes and goes
+                   is one the piece cannot be written against. */
+                const bool bound = ahead >= 0 &&
+                    (source->params.knobBinding(ahead) != NULL ||
+                     source->params.nodeBinding(ahead) != NULL);
+
+                if (emitsAhead && ahead >= 0)
+                    emitsAhead = !bound &&
+                                 source->params.get(ahead) >= 0.5;
+
+                if (!emitsAhead)
+                {
+                    std::string how;
+
+                    if (bound)
+                        how = "; its 'ahead' is bound to a value that can "
+                              "change, which does not count as one";
+                    else if (ahead >= 0)
+                        how = "; set ahead = 1";
+
+                    warning(consumer->line,
+                            "chain '" + nameTok.text + "': stage '" +
+                            consumer->name + "' (" +
+                            consumer->plugin->name() + ") needs future "
+                            "events, but stage '" + source->name + "' (" +
+                            source->plugin->name() + ") does not emit ahead" +
+                            how);
+                }
+            }
+        }
+
     /* The chain's nodes, now that every name in it is known -- a wire
        may point forwards, exactly as one in a .dsp may, so nothing can
        be resolved until the body has been read to its end. */
-    thcChain *c = sched->chain(chain);
-
     if (ok && c != NULL && c->nodes)
     {
         std::string why;
@@ -2715,6 +2782,9 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
               "' refused to create an instance");
         return false;
     }
+
+    stage->name = stageName.text;
+    stage->line = stageName.line;
 
     bool ok = true;
 

@@ -169,11 +169,21 @@ thcPlugin::moduleLoad (void)
     /* And no roles this interface version has never heard of: a module
        relying on a flag bit the host does not implement should find
        out here, not by whatever the unknown bit silently fails to do. */
-    if ((flags_ & ~(THC_GENERATOR | THC_TRANSFORMER)) != 0)
+    if ((flags_ & ~(THC_GENERATOR | THC_TRANSFORMER |
+                    THC_EMITS_AHEAD | THC_NEEDS_AHEAD)) != 0)
     {
         fprintf(stderr, "thcPlugin: %s declared flags 0x%x, which this "
                 "interface version does not define\n", path_.c_str(),
                 flags_);
+        return -1;
+    }
+
+    if (((flags_ & THC_EMITS_AHEAD) && !isGenerator()) ||
+        ((flags_ & THC_NEEDS_AHEAD) && !isTransformer()))
+    {
+        fprintf(stderr, "thcPlugin: %s declares lookahead without its "
+                "corresponding generator or transformer role\n",
+                path_.c_str());
         return -1;
     }
 

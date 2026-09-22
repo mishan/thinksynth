@@ -762,6 +762,11 @@ ComposerWindow::parseWork (void)
     }
     else
     {
+        const std::vector<std::string> &warnings = loader.warnings();
+
+        for (size_t i = 0; i < warnings.size(); i++)
+            fprintf(stderr, "%s\n", warnings[i].c_str());
+
         std::string name = loader.pieceName();
 
         if (name.empty())
@@ -776,6 +781,21 @@ ComposerWindow::parseWork (void)
 
             snprintf(buf, sizeof(buf), " — seed %u", loader.seed());
             pieceLabel_ += buf;
+        }
+
+        /* Without the location, which names the working file -- a
+           temporary copy of the piece that nobody has seen and that the
+           label has no room for anyway. stderr above has the whole
+           line, and that is where a line number is worth having. */
+        if (!warnings.empty())
+        {
+            const std::string mark = ": warning: ";
+            const size_t at = warnings[0].find(mark);
+
+            pieceLabel_ += " — " +
+                (at == std::string::npos ? warnings[0]
+                                         : warnings[0].substr(at +
+                                                              mark.size()));
         }
     }
 

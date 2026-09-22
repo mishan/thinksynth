@@ -61,7 +61,7 @@ composer_init (thcComposerInfo *info)
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_TRANSFORMER);
+    info->set_flags(info->host, THC_TRANSFORMER | THC_NEEDS_AHEAD);
     info->set_desc(info->host,
         "Lead into a written note with an ascending or descending scale run.");
 

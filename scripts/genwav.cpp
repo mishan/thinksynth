@@ -355,6 +355,9 @@ int main (int argc, char **argv)
         return 1;
     }
 
+    for (size_t k = 0; k < loader.warnings().size(); k++)
+        fprintf(stderr, "%s\n", loader.warnings()[k].c_str());
+
     FILE *tape = NULL;
 
     if (tapeFile == "-")

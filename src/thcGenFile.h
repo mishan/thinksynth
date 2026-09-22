@@ -101,6 +101,8 @@ public:
     bool load (const std::string &path, thcScheduler *sched);
 
     const std::vector<std::string> &errors (void) const { return errors_; }
+    const std::vector<std::string> &warnings (void) const
+    { return warnings_; }
 
     /* Piece info, valid after a successful load. */
     const std::string &pieceName (void) const { return name_; }
@@ -276,6 +278,7 @@ private:
     void bindNodes (thcScheduler *sched);
 
     void error (int line, const std::string &msg);
+    void warning (int line, const std::string &msg);
 
     const std::map<std::string, thcPlugin *> &plugins_;
 
@@ -291,6 +294,7 @@ private:
     int exprDepth_;
 
     std::vector<std::string> errors_;
+    std::vector<std::string> warnings_;
 
     std::map<std::string, std::vector<int> > scales_;
 
