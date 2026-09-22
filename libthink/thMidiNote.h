@@ -23,13 +23,15 @@
 
 class THINK_API thMidiNote {
 public:
-    thMidiNote (thSynthTree *tree, float note, float velocity);
+    thMidiNote (thSynthTree *tree, float note, float velocity, float level = 1);
     thMidiNote (thSynthTree *tree);
     ~thMidiNote ();
     
     thSynthTree *synthTree (void) { return &synthTree_; }
     int id (void) const { return noteid_; }
     float note (void) const { return note_; }
+    float level (void) const { return level_; }
+    void setLevel (float level) { level_ = level; }
 
     /* Audio thread. Point this voice at another pitch without rebuilding it:
      * writes the io node's `note', which misc::midi2freq reads every window,
@@ -86,6 +88,7 @@ private:
        what the channel keys notes_ by; this is what a retune has to preserve
        when a composer asks for something between two keys. */
     float note_;
+    float level_;
 
     /* The steal ramp: how long it is, and how much of it is left. Both zero
        on a voice nothing has stolen, which is what fading() reads. */

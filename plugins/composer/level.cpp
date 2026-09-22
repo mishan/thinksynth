@@ -14,23 +14,18 @@
 
 /* level -- a chain, turned down.
  *
- * Every note that passes has its velocity multiplied by `gain'. That
- * is all, and it is here because a piece had no way to say "this
- * chain, quieter" short of editing every generator's `vel' -- and an
- * instrument's `amp' is the whole channel, which two chains may share.
+ * Every note that passes has its `level' multiplied by `gain'. The
+ * level is the voice's gain at the mix and nothing else: velocity goes
+ * to the graph untouched, so a hat under a level of 0.5 is half as
+ * loud and exactly as open, and a bass under it keeps its accents.
+ * That is what this stage is for -- an instrument's `amp' is the whole
+ * channel, which two chains may share, and velocity is not loudness on
+ * half the instruments in the tree.
  *
- * Velocity is not only loudness. A patch may read it as brightness,
- * as how open a hat is, as how hard a string was struck; hat0 fades
- * its decay on velocity squared, so a level under a ring of hats closes
- * them as well as quiets them. That is usually what was wanted, and
- * when it is not, `amp' on the instrument is the level that touches
- * nothing else.
- *
- * Bound to a knob, it is a fader on the canvas.
+ * Bound to a knob, it is a fader on the canvas. A gain of 0 is a mute.
  */
 
 #include <cstddef>
-#include <cmath>
 
 #include "thcomposer.h"
 
@@ -42,7 +37,7 @@ extern "C" THINK_PLUGIN_API int
 composer_init (thcComposerInfo *info)
 {
     static const thcParamDef defs[P_COUNT] = {
-        { "gain", "velocity multiplier", THC_PARAM_FLOAT,
+        { "gain", "note level multiplier", THC_PARAM_FLOAT,
           0, 2, 1, NULL, NULL },
     };
 
@@ -50,7 +45,7 @@ composer_init (thcComposerInfo *info)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
     info->set_flags(info->host, THC_TRANSFORMER);
-    info->set_desc(info->host, "Scale the velocity of every note.");
+    info->set_desc(info->host, "Scale the level of every note.");
 
     return 0;
 }
@@ -87,10 +82,15 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         return;
     }
 
-    thcEvent copy = *ev;
-    const int v = (int)floor(ev->u.note.velocity *
-                             p->get(p->ctx, paramIndex[P_GAIN]) + 0.5);
+    const double gain = p->get(p->ctx, paramIndex[P_GAIN]);
 
-    copy.u.note.velocity = v < 1 ? 1 : v > 127 ? 127 : v;
+    /* A gain of zero is a mute: the note is dropped rather than sent on
+       at level zero, which the scheduler reads as "unset" and would lift
+       back to one. The note carries its own duration, so nothing hangs. */
+    if (!(gain > 0))
+        return;
+
+    thcEvent copy = *ev;
+    copy.u.note.level *= (float)gain;
     out->emit(out->ctx, &copy);
 }

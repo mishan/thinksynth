@@ -64,7 +64,7 @@ public:
      * addNote returned a thMidiNote* that no caller used, and handing back a
      * pointer to an object the audio thread now owns would be a trap, so it
      * returns success instead. */
-    bool addNote(int channum, float note, float velocity);
+    bool addNote(int channum, float note, float velocity, float level = 1);
     int delNote (int channum, float note);
     void clearAll (void);
 

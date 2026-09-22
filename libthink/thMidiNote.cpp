@@ -24,7 +24,8 @@
 
 #include "think.h"
 
-thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity)
+thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
+                        float level)
     : synthTree_(*tree)
 {
     synthTree_.buildSynthTree();
@@ -35,6 +36,7 @@ thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity)
     ionode->setArg("trigger", 1);
 
     note_ = note;
+    level_ = level;
     noteid_ = (int)note;
     fadelen_ = faderemaining_ = 0;
 }
@@ -50,6 +52,7 @@ thMidiNote::thMidiNote (thSynthTree *tree)
     ionode->setArg("trigger", 0);
 
     note_ = 0;
+    level_ = 1;
     noteid_ = 0;
     fadelen_ = faderemaining_ = 0;
 }
@@ -128,4 +131,3 @@ void thMidiNote::setArg (const string &name, const float *value, int len)
     thNode *ionode = synthTree_.IONode();
     ionode->setArg(name, value, len);
 }
-

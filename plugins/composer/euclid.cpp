@@ -312,6 +312,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             thcEvent ev = {};
 
             ev.type = THC_EV_NOTE;
+            ev.u.note.level = 1;
             ev.at = t->now;
             ev.channel = 0;                /* the sink routes            */
             ev.u.note.note = note;

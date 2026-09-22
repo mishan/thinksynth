@@ -62,7 +62,7 @@ public:
        Deliberately separate from installing it: this is far too expensive to
        do in an audio callback, so the GUI thread builds and thSynth hands the
        finished object over through the command queue. */
-    thMidiNote *buildNote (float note, float velocity);
+    thMidiNote *buildNote (float note, float velocity, float level = 1);
 
     /* ---- audio thread ---- */
 
@@ -236,7 +236,7 @@ private:
     /* Audio thread. The stack of pitches whose keys are down, last-note
        priority. A pitch already on it is moved to the top rather than
        repeated, so the stack cannot exceed one entry per distinct pitch. */
-    void monoPush (float note);
+    void monoPush (float note, float level);
     bool monoPop (float note);
 
     bool dirty_;
@@ -302,6 +302,7 @@ private:
        and a stack that somehow fills drops its oldest entry rather than
        growing. */
     float monoStack_[TH_MONO_STACK];
+    float monoLevels_[TH_MONO_STACK];
     int monoCount_;
     thArg *argSustain_; /* for the sustain pedal */
 

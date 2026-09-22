@@ -1400,6 +1400,7 @@ ComposerWindow::injectOn (int chan, float note, float veloc)
     thcEvent ev = {};
 
     ev.type = THC_EV_NOTE;
+    ev.u.note.level = 1;
     ev.at = sched_->now();
     ev.channel = chan;
     ev.u.note.note = (int)note;

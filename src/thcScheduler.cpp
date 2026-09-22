@@ -1929,8 +1929,29 @@ thcScheduler::rearmStage (size_t chain, size_t stage)
  * start: the algorithm keeps evolving silently, which is what you want
  * when un-muting mid-piece. */
 void
-thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
+thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 {
+    /* A note's level is a field every emitter has to fill, and not every
+     * emitter does: a plugin built against the header before the field
+     * existed, a `thcEvent ev = {}' in a generator nobody revisited, a
+     * key pressed on a page. All of those mean "as emitted", and a zero
+     * that reached a voice would be a note composed and not heard, which
+     * is the failure the browser gate caught. So zero is read as one at
+     * the one door every event comes through. Nothing legitimate emits a
+     * zero: a section at 0 drops the note above, and xform::level at
+     * gain 0 drops it too, for exactly this reason. */
+    thcEvent lifted;
+    const thcEvent *at = &in;
+
+    if (in.type == THC_EV_NOTE && !(in.u.note.level > 0))
+    {
+        lifted = in;
+        lifted.u.note.level = 1;
+        at = &lifted;
+    }
+
+    const thcEvent &ev = *at;
+
     if (fromStage >= c.stages.size())
     {
         if (c.muted)
@@ -1964,16 +1985,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
 
             if (ev.type == THC_EV_NOTE)
             {
-                /* Quieter, or louder, but never absent: a section that
-                   scales a chain still plays it. */
-                double v = ev.u.note.velocity * level + 0.5;
-
-                if (v < 1)
-                    v = 1;
-                else if (v > 127)
-                    v = 127;
-
-                scaled.u.note.velocity = (int)v;
+                scaled.u.note.level *= (float)level;
                 gated = &scaled;
             }
         }
@@ -2124,7 +2136,7 @@ thcScheduler::deliver (const thcEvent &ev)
         case THC_EV_NOTE:
         {
             synth_->addNote(ev.channel, ev.u.note.note,
-                            ev.u.note.velocity);
+                            ev.u.note.velocity, ev.u.note.level);
 
             /* A composed note carries its whole life in the duration;
                the off lands exactly there, keyed off the event's own

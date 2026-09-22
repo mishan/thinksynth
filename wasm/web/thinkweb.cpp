@@ -367,6 +367,7 @@ void applyDue (double start, int len)
                 ev.u.note.note = (int)c.note;
                 ev.u.note.velocity = (int)c.velocity;
                 ev.u.note.duration = 0;
+                ev.u.note.level = 1;
 
                 sched_->injectMidiEvent(ev);
                 break;
