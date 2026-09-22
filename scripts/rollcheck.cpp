@@ -95,6 +95,13 @@ static const int    RATE   = 48000;
 static const double SECONDS = 8.0;
 static const int    FRAMES  = 30;
 
+/* And how long the piece is played for the prune check at the end, which
+   wants a transport well past four times the shortest span the roll can
+   be set to -- 20s of scrub window, so 40s of playing leaves half the
+   run behind the cutoff. Not part of the comparison, so it costs the
+   diff nothing. */
+static const double LONG_SECONDS = 40.0;
+
 /* The size the comparison draws at. Not square, because the roll is a
    band: a shape it will never be asked for is a shape whose arithmetic
    nobody would notice being wrong. */
@@ -525,6 +532,47 @@ main (int argc, char *argv[])
           roll.viewNow() == 0,
           "a rewind drops the history: " + std::to_string(list.ops.size()) +
           " words -> " + std::to_string(after.ops.size()));
+
+    /* ---- and a bar with no end yet does not freeze the history ----
+     *
+     * A note delivered with duration <= 0 is live input's "held until
+     * further notice", and its bar has no end until a NOTEOFF gives it
+     * one. The roll used to keep those in the same queue as the ended
+     * ones, where prune() walks from the front and must not drop a bar
+     * that is still sounding -- so one of them at the front stopped the
+     * walk, and every note behind it stayed for as long as the key was
+     * down. A flushed key (thcScheduler::stop) meant forever.
+     *
+     * Asked of the canvas and not of the drawing, which is the one
+     * thing here that cannot be read out of an op list: a bar older
+     * than the window is off screen and skipped whether it was pruned
+     * or not, so the leak and the fix draw the same picture.
+     *
+     * The note goes in through sigDelivered rather than through a key,
+     * because what is being tested is the roll's own bookkeeping and
+     * belfry has no `input midi' chain to press a key on. */
+    roll.SetTimeSpan(5, 2.5);
+
+    thcEvent down;
+
+    down.type            = THC_EV_NOTE;
+    down.at              = sched.now();
+    down.channel         = 0;
+    down.u.note.note     = 60;
+    down.u.note.velocity = 100;
+    down.u.note.duration = 0;          /* held: no end, ever            */
+
+    sched.sigDelivered.emit(down);
+
+    play(sched, synth, LONG_SECONDS);
+
+    const double cutoff = sched.now() - 4 * roll.spanPast();
+
+    check(roll.oldestKept() >= cutoff,
+          "a bar still sounding does not freeze the history: at " +
+          std::to_string((int)sched.now()) + "s the oldest kept ends at " +
+          std::to_string((int)roll.oldestKept()) + "s, cutoff " +
+          std::to_string((int)cutoff) + "s");
 
     printf("\n%s\n", failures == 0
            ? "the roll draws what it has played and what it is about to"

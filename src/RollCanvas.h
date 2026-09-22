@@ -135,6 +135,15 @@ public:
     double spanPast (void) const { return spanPast_; }
     double spanFuture (void) const { return spanFuture_; }
 
+    /* Where the oldest bar still kept ends, or the transport's time when
+       none is -- prune()'s whole promise, which is that this stays
+       inside the scrub window. A harness question because the leak it
+       guards against is invisible in the drawing: a bar older than the
+       window is off screen and skipped either way, so a history that
+       never shrinks looks exactly like one that does until it is
+       asked. */
+    double oldestKept (void) const;
+
 protected:
     /* The shell's own size: the roll's drawing is always exactly the
        view. See the header comment for why that is the whole of what
@@ -179,6 +188,16 @@ private:
     void   prune (void);
 
     double timeToX (double t, int width) const;
+
+    /* Where a bar ends, in transport seconds. A held note -- live input,
+       no NOTEOFF yet -- is still sounding, so its bar grows to the
+       now-line until the release names its end.
+
+       One answer, because the draw and the range fit have to agree: a
+       note the fit does not see is a note with no lane reserved for it,
+       drawn unclipped over the chanarg strip or the edit lane. */
+    double noteEnd (const Note &n) const;
+
     void   fitPitchRange (void);
 
     /* How wide the shell is, in its own pixels, for a scrub that has to
@@ -187,9 +206,22 @@ private:
     double shellWidth (void) const;
 
     thcScheduler        *sched_;
-    std::deque<Note>     notes_;      /* delivered; pruned off the left  */
+    std::deque<Note>     notes_;      /* ended; pruned off the left      */
     std::deque<ArgTick>  argTicks_;   /* delivered chanarg events        */
     std::deque<Edit>     edits_;      /* delivered structure edits       */
+
+    /* Bars whose end is not known yet: a note delivered with duration
+     * <= 0, live input's spelling of "held until further notice". They
+     * move to notes_ when the NOTEOFF arrives and gives them an end.
+     *
+     * Kept apart rather than sat in notes_ with a duration of zero
+     * because prune() walks notes_ from the front and a bar that is
+     * still sounding is a bar it must not drop -- one of those at the
+     * front stops the walk, and every ended note behind it then stays
+     * for as long as the key is down. This container is bounded by what
+     * is sounding instead, which is a handful of notes and not a
+     * history. */
+    std::vector<Note>    held_;
 
     /* This frame's copy of the scheduled future, taken once per draw
        and read by both the range fit and the draw. */

@@ -81,20 +81,35 @@ RollCanvas::onDelivered (const thcEvent &ev)
        latency and render a replayed stream differently from its
        authored self. */
     if (ev.type == THC_EV_NOTE)
-        notes_.push_back({ ev.at, ev.u.note.duration,
-                           ev.channel, ev.u.note.note,
-                           ev.u.note.velocity });
+    {
+        const Note n = { ev.at, ev.u.note.duration, ev.channel,
+                         ev.u.note.note, ev.u.note.velocity };
+
+        /* A duration <= 0 is live input's "held until further notice",
+           and a bar with no end yet is not history: it belongs in
+           held_ until a NOTEOFF says where it stops. */
+        if (n.duration > 0)
+            notes_.push_back(n);
+        else
+            held_.push_back(n);
+    }
     else if (ev.type == THC_EV_NOTEOFF)
     {
-        /* The release live input promised: find the held bar (duration
-           <= 0, the "who knows" spelling) and give it its real end. */
-        for (size_t i = notes_.size(); i-- > 0; )
-            if (notes_[i].channel == ev.channel &&
-                notes_[i].note == ev.u.note.note &&
-                notes_[i].duration <= 0)
+        /* The release live input promised: give the held bar its real
+           end and move it across into history, where prune() can reach
+           it. The scheduler sends one of these for every held note --
+           on the release, and on the flush a stop or a chain swap does
+           (thcScheduler::flushHeld) -- so nothing is left open here
+           that is no longer sounding. */
+        for (size_t i = held_.size(); i-- > 0; )
+            if (held_[i].channel == ev.channel &&
+                held_[i].note == ev.u.note.note)
             {
-                notes_[i].duration =
-                    std::max(ev.at - notes_[i].start, 0.05);
+                Note n = held_[i];
+
+                n.duration = std::max(ev.at - n.start, 0.05);
+                notes_.push_back(n);
+                held_.erase(held_.begin() + i);
                 break;
             }
     }
@@ -160,6 +175,7 @@ void
 RollCanvas::clear (void)
 {
     notes_.clear();
+    held_.clear();
     argTicks_.clear();
     edits_.clear();
     pendingView_.clear();
@@ -201,25 +217,46 @@ RollCanvas::step (void)
                       return a.type < b.type;
 
                   /* Same type, so the union's note arm is the one both
-                     of them have. Anything else in a tie draws the same
-                     mark in the same place. */
-                  return a.type == THC_EV_NOTE
-                      && a.u.note.note < b.u.note.note;
+                     of them have -- and all of it, because all of it is
+                     drawn. Two ghosts at one instant on one channel at
+                     one pitch still draw different bars if their lengths
+                     differ, and a tie-break that stopped at the pitch
+                     would leave std::sort (which is not stable) free to
+                     order them by whichever library built it. That is
+                     the exact split this sort exists to close, and the
+                     one rollcheck.mjs would report as the two builds
+                     disagreeing. Velocity is the alpha, so it counts
+                     too; anything past it draws the same mark in the
+                     same place. */
+                  if (a.type != THC_EV_NOTE)
+                      return false;
+
+                  if (a.u.note.note != b.u.note.note)
+                      return a.u.note.note < b.u.note.note;
+
+                  if (a.u.note.duration != b.u.note.duration)
+                      return a.u.note.duration < b.u.note.duration;
+
+                  return a.u.note.velocity < b.u.note.velocity;
               });
 
     fitPitchRange();
 }
 
 /* History older than the widest span anyone could scrub to (plus slack)
- * goes away. deque + pop_front, ordered by delivery, done. Scrub range
- * is capped at 4x the visible span so "look back" has an honest limit
- * instead of an unbounded buffer pretending to be one. */
+ * goes away. deque + pop_front, done. Scrub range is capped at 4x the
+ * visible span so "look back" has an honest limit instead of an
+ * unbounded buffer pretending to be one.
+ *
+ * Every bar in notes_ has an end -- one that is still sounding waits in
+ * held_ (RollCanvas.h) -- so nothing here can be un-prunable, and the
+ * walk cannot be stopped at the front by a note that never ends. */
 void
 RollCanvas::prune (void)
 {
     double keep = sched_->now() - 4 * spanPast_;
 
-    while (!notes_.empty() && notes_.front().duration > 0 &&
+    while (!notes_.empty() &&
            notes_.front().start + notes_.front().duration < keep)
         notes_.pop_front();
 
@@ -240,7 +277,14 @@ RollCanvas::fitPitchRange (void)
     double left = viewNow_ - spanPast_, right = viewNow_ + spanFuture_;
 
     for (const Note &n : notes_)
-        if (n.start + n.duration >= left && n.start <= right)
+        if (noteEnd(n) >= left && n.start <= right)
+        {
+            lo = std::min(lo, n.note);
+            hi = std::max(hi, n.note);
+        }
+
+    for (const Note &n : held_)
+        if (noteEnd(n) >= left && n.start <= right)
         {
             lo = std::min(lo, n.note);
             hi = std::max(hi, n.note);
@@ -262,6 +306,23 @@ RollCanvas::fitPitchRange (void)
 
     loShown_ += (loFit_ - loShown_) * EASE;
     hiShown_ += (hiFit_ - hiShown_) * EASE;
+}
+
+/* For a harness; RollCanvas.h says why the drawing cannot answer it. */
+double
+RollCanvas::oldestKept (void) const
+{
+    return notes_.empty() ? sched_->now()
+                          : notes_.front().start + notes_.front().duration;
+}
+
+/* Both callers' one answer for where a bar stops; RollCanvas.h says why
+   it has to be one. */
+double
+RollCanvas::noteEnd (const Note &n) const
+{
+    return n.duration > 0 ? n.start + n.duration
+                          : std::max(viewNow_, n.start + 0.05);
 }
 
 double
@@ -364,25 +425,27 @@ RollCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
 
     /* Delivered notes: filled, alpha from velocity. The tail a patch's
        release adds after note-off is unknowable here -- the scheduler
-       sees durations, not envelopes -- so bars end honestly at the off. */
-    for (const Note &n : notes_)
-    {
-        /* A held note (live input, no NOTEOFF yet) is still sounding:
-           its bar grows to the now-line until the release names its
-           end. */
-        double dur = n.duration > 0 ? n.duration
-                                    : std::max(viewNow_ - n.start, 0.05);
+       sees durations, not envelopes -- so bars end honestly at the off.
+       The ended ones and then the ones still sounding, whose bars grow
+       to the now-line (noteEnd). */
+    auto bar = [&](const Note &n) {
         double x0 = timeToX(n.start, width);
-        double x1 = timeToX(n.start + dur, width);
+        double x1 = timeToX(noteEnd(n), width);
 
         if (x1 < 0 || x0 > width)
-            continue;
+            return;
 
         channelColor(cr, n.channel, 0.35 + 0.65 * (n.velocity / 127.0));
         cr->rectangle(x0, noteY(n.note + 1) + 1,
                       std::max(x1 - x0, 2.0), laneH - 2);
         cr->fill();
-    }
+    };
+
+    for (const Note &n : notes_)
+        bar(n);
+
+    for (const Note &n : held_)
+        bar(n);
 
     /* Scheduled future: outline only. peekPending is what falls out of
        the chains and has not been delivered yet -- the piece's actual
