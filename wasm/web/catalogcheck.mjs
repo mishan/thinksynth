@@ -315,6 +315,26 @@ for (const [id, p] of solo.panes)
     check(bare.length === 0,
           `and reads only its own custom properties${
               bare.length > 0 ? `: ${bare.join(' ')}` : ''}`);
+
+    /* And what the module is, which is one function. Anything else
+       exported from here is something that ended up in the tiler because
+       that is where its bug was found -- which is how `placePopover'
+       came to live in a file about dividing up a window.
+
+       Both spellings: a declaration carries its own `export', and a name
+       already declared leaves by the braces at the foot of the file --
+       which is the form the next thing to drift back would take. */
+    const carried = (js.match(/^export\s+(?:function\s+)?(\w+)/gm) ?? [])
+        .map((m) => m.split(/\s+/).pop());
+    const braced = [...js.matchAll(/^export\s*\{([^}]*)\}/gm)]
+        .flatMap((m) => m[1].split(','))
+        .map((n) => n.trim().split(/\s+as\s+/).pop())
+        .filter((n) => n !== '');
+    const exports = [...carried, ...braced];
+
+    check(exports.length === 1 && exports[0] === 'createPanes',
+          `panes.js exports createPanes and nothing else: ${
+              exports.join(' ') || 'nothing'}`);
 }
 
 process.stdout.write(`\n${failures === 0

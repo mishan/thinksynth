@@ -23,19 +23,30 @@
  *   cd wasm/web && npm ci && npx playwright install chromium
  *   node panecheck.mjs [BUILD_DIR]
  *
- * The claim panes.js makes is that it moves things and changes nothing:
- * every pane is an element already in the page, every id survives, and
- * putting the layout away leaves the document it started from. That is a
- * claim about two states and the trip between them, so this harness
- * takes the page across the threshold and back and holds the far side
- * against a photograph of the near one.
+ * THESE TWO PAGES tiled, and nothing about tiling in general.
+ * tilercheck.mjs is the other half: what a divider's arithmetic is, what
+ * a chord does, what a drawer is for and that a split fills the box it
+ * is in are claims about panes.js, are made over a fixture page, and
+ * need nothing here compiled. When one of those fails the tiler broke;
+ * when one of these fails, this application did.
  *
- * And the claim that is worth more than the layout: a pane nobody is
- * looking at does no work. canvasview.js stops asking for frames when it
- * is not visible, composerview.js gates on its box being open, and until
- * there was a tiler nothing anywhere proved either. `window.solo.drawing'
- * is what the page says about it, and it says it about the two canvases
- * that cost the most.
+ * So what is left here is what only these documents can say.
+ *
+ * That the layout moves things and changes nothing: every pane is an
+ * element already in the page, every id survives, and putting the layout
+ * away leaves the document it started from. The fixture makes that claim
+ * too, but it is a claim about a document and these are the documents
+ * that matter -- pagetest.mjs and jamtest.mjs are written against them
+ * untiled, and it is this that keeps them honest.
+ *
+ * That a pane nobody is looking at does no work, said about the two
+ * canvases that cost the most: canvasview.js stops asking for frames
+ * when it is not visible and composerview.js gates on its box being
+ * open, each a wasm instance drawing a picture a frame.
+ *
+ * And the rest of what this page does with a layout: the chrome that
+ * became one strip, the popovers beside a node graph, the box the status
+ * line means by "see below", and the room page's own catalog.
  *
  * What it does not do is open a synth for longer than it has to.
  * pagetest.mjs is the harness for what the page plays; this one is about
@@ -104,23 +115,6 @@ const photograph = () => page.evaluate(() =>
     }));
 
 let page = null;
-
-/* A press, a move and a release over a target -- the layout's own
-   gestures, which are pointer events and not the browser's drag: what is
-   being moved is a box in a layout, and where it would land is drawn by
-   the page rather than by a drag image. */
-const drag = async (from, to, at = { x: 0.5, y: 0.5 }) =>
-{
-    const a = await page.locator(from).boundingBox();
-    const b = await page.locator(to).boundingBox();
-
-    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(b.x + b.width * at.x, b.y + b.height * at.y,
-                          { steps: 10 });
-    await page.mouse.up();
-    await page.waitForTimeout(100);
-};
 
 try
 {
@@ -240,71 +234,15 @@ try
               () => document.getElementById('panes').children.length === 0),
           'and the tiler has nothing left in it');
 
-    /* ---- the dividers ---- */
+    /* ---- the mode is availability, not the layout ---- */
 
+    /* Back over the threshold, and from here on this harness is about
+       this page rather than about the tiler: what a divider's arithmetic
+       is, what a chord does and what a drawer is for are tilercheck.mjs's
+       over a fixture, and none of them needed a synth to say. */
     await page.setViewportSize(WIDE);
     await page.waitForFunction(
         () => document.body.classList.contains('tiled'));
-
-    /* A drag moves one fraction and leaves the rest of the tree alone,
-       and what it moves is what the pointer moved: the arithmetic is in
-       pixels for exactly that reason. */
-    const bar = page.locator('#panes > .panebox > .panesplit').first();
-    const was = await page.evaluate(() =>
-    {
-        const kids = [...document.querySelectorAll(
-            '#panes > .panebox > :not(.panesplit)')];
-
-        return kids.map((k) => Math.round(k.getBoundingClientRect().width));
-    });
-
-    const grip = await bar.boundingBox();
-
-    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(grip.x + grip.width / 2 - 120,
-                          grip.y + grip.height / 2, { steps: 8 });
-    await page.mouse.up();
-
-    const now = await page.evaluate(() =>
-        [...document.querySelectorAll('#panes > .panebox > :not(.panesplit)')]
-            .map((k) => Math.round(k.getBoundingClientRect().width)));
-
-    check(Math.abs((was[0] - now[0]) - 120) <= 2 &&
-          Math.abs((now[1] - was[1]) - 120) <= 2,
-          `a divider dragged 120 pixels moved 120 pixels: ` +
-          `${was.join('/')} -> ${now.join('/')}`);
-
-    /* And it will not take a pane below what the markup said it needs.
-       The left column holds the graph, which asks for 400. */
-    await page.mouse.move(grip.x + grip.width / 2 - 120,
-                          grip.y + grip.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(grip.x - 1200, grip.y + grip.height / 2,
-                          { steps: 12 });
-    await page.mouse.up();
-
-    const floor = await page.evaluate(() =>
-        Math.round(document.querySelector('#panes > .panebox > *')
-                           .getBoundingClientRect().width));
-
-    check(floor >= 400 && floor < 460,
-          `and stops at the minimum the graph asked for: ${floor} of 400`);
-
-    /* ---- and it is remembered ---- */
-
-    const kept = await page.evaluate(() => window.solo.layout());
-
-    await page.reload();
-    await page.waitForFunction(
-        () => document.body.classList.contains('tiled') &&
-              document.getElementById('range').textContent !== '');
-
-    check(JSON.stringify(await page.evaluate(() => window.solo.layout())) ===
-              JSON.stringify(kept),
-          'a reload opens on the layout somebody left');
-
-    /* ---- the mode is availability, not the layout ---- */
 
     const inMode = () => page.evaluate(() =>
         window.solo.panes().filter(
@@ -407,192 +345,6 @@ try
 
     check(swapped.composer && !swapped.nodes,
           'and raising the other one turns the first one off');
-
-    /* ---- a tab dragged to the drawer, and back out of it ---- */
-
-    await drag('#panetab-nodeview', '.panedrawer');
-    await page.waitForFunction(() => !window.solo.drawing().nodes,
-                               null, { timeout: 15000 });
-
-    check(await page.evaluate(() =>
-              [...document.querySelectorAll('.paneclosed')]
-                  .some((b) => b.textContent === 'Patch graph')),
-          'a tab dragged onto the drawer closes to it, drawing nothing');
-
-    /* ---- and one dragged onto an edge, which is a split ---- */
-
-    const splits = () => page.evaluate(() =>
-    {
-        const count = (n) => n.tabs !== undefined
-            ? 0 : 1 + n.kids.reduce((a, k) => a + count(k), 0);
-
-        return count(window.solo.layout());
-    });
-
-    const had = await splits();
-
-    await drag('.panedrawer button:text-is("Patch graph")', '#pane-roll',
-               { x: 0.92, y: 0.5 });
-
-    check(await splits() === had + 1 &&
-          await page.evaluate(() =>
-              document.getElementById('pane-nodeview').closest('.paneleaf')
-                      .parentElement.dataset.dir === 'row'),
-          'and one dropped on a leaf\'s edge splits it that way');
-
-    /* ---- driving it from the keys ---- */
-
-    /* Every one of them is a chord with Alt in it, because on this page
-       the bare letters are notes: keyboard.js binds Z-/ and Q-P, and a
-       tiler that took W for itself would have taken a note. */
-    const leafOf = (id) => page.evaluate((which) =>
-    {
-        const leaf = document.getElementById(`pane-${which}`)
-                             .closest('.paneleaf');
-
-        return [...document.querySelectorAll('.paneleaf')].indexOf(leaf);
-    }, id);
-
-    await page.click('#panetab-roll');
-
-    const roll = await leafOf('roll');
-
-    await page.keyboard.press('Alt+ArrowUp');
-
-    const moved = await page.evaluate(() =>
-        document.activeElement.id);
-
-    check(moved !== 'panetab-roll' && moved.startsWith('panetab-'),
-          `Alt and an arrow moves the focus to the pane that way: ${moved}`);
-
-    /* And the pane itself, that way: into the leaf the arrow points at. */
-    await page.click('#panetab-roll');
-    await page.keyboard.press('Alt+Shift+ArrowUp');
-
-    check(await leafOf('roll') !== roll,
-          'Alt Shift and an arrow moves the pane rather than the focus');
-
-    /* Zoom, which is what makes tiling bearable on a laptop: one leaf
-       fills the layout and onShow fires for everything that left. */
-    await page.click('#panetab-composerview');
-    await page.waitForFunction(() => window.solo.drawing().composer,
-                               null, { timeout: 30000 });
-    await page.keyboard.press('Alt+Enter');
-    await page.waitForTimeout(200);
-
-    const alone = await page.evaluate(() =>
-        [...document.querySelectorAll('#panes .paneleaf')].length);
-
-    check(alone === 1 &&
-          await page.evaluate(() =>
-              document.getElementById('pane-composerview').checkVisibility()),
-          'Alt Enter fills the layout with one pane and draws no others');
-
-    await page.keyboard.press('Alt+Enter');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              document.querySelectorAll('#panes .paneleaf').length) > 1,
-          'and again puts the rest back');
-
-    /* Closed to the drawer, and the whole thing back to the default. */
-    await page.click('#panetab-roll');
-    await page.keyboard.press('Alt+KeyW');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              [...document.querySelectorAll('.paneclosed')]
-                  .some((b) => b.textContent === 'Piano roll')),
-          'Alt W closes a pane to the drawer');
-
-    await page.keyboard.press('Alt+Digit0');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              document.getElementById('pane-roll').checkVisibility()),
-          'and Alt 0 is the layout this page opens on');
-
-    /* ---- closed from its own tab, and brought back ---- */
-
-    /* What a split's children leave over, which is what a gap in one is.
-       A column is the whole of its panes and the dividers between them,
-       so anything else is room nobody can reach. */
-    const spare = (id) => page.evaluate((which) =>
-    {
-        const col = document.getElementById(`pane-${which}`)
-                            .closest('.paneleaf').parentElement;
-        const kids = [...col.children].reduce(
-            (a, k) => a + k.getBoundingClientRect().height, 0);
-
-        return Math.round(col.getBoundingClientRect().height - kids);
-    }, id);
-
-    check(await spare('channelbox') <= 1,
-          'a column of four panes fills the column it is in');
-
-    /* The chord is there for somebody who knows it; the cross is there
-       for everybody else. Both put the pane in the drawer, which is the
-       one place a pane goes when it leaves the layout -- there is no way
-       from here to lose one, because there is nothing here that makes
-       one. */
-    await page.click('#paneshut-knobs');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              document.getElementById('panetab-knobs') === null &&
-              document.getElementById('panereopen-knobs') !== null &&
-              document.getElementById('knobs').isConnected),
-          'the cross on a tab closes its pane to the drawer, element ' +
-          'and all');
-
-    check(await page.evaluate(
-              () => document.activeElement.id === 'panereopen-knobs'),
-          'and leaves the focus on the button that brings it back');
-
-    /* The fractions left in a split sum to less than one when one of
-       them leaves, and a `flex-grow' under one is the CSS rule nobody
-       means: the children take that much of the box and the remainder is
-       a gap with no pane in it and no divider to drag. It used to be a
-       fifth of a column, dead and unreclaimable. */
-    const left = await spare('channelbox');
-
-    check(left <= 1,
-          `and the three left fill the column the fourth left: ${left}px ` +
-          'over');
-
-    await page.click('#panereopen-knobs');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              document.getElementById('pane-knobs').checkVisibility() &&
-              document.activeElement.id === 'panetab-knobs'),
-          'and the drawer button puts it back, in front and focused');
-
-    /* And puts it back where it was, rather than wherever the pointer
-       last happened to be: the leaf it left is remembered, and the leaf
-       last touched is the fallback for when that one closed with it.
-       Touched here on purpose, so the two answers differ. */
-    await drag('#panetab-knobs', '#pane-keyboard .panebody');
-    await page.click('#paneshut-knobs');
-    await page.waitForTimeout(200);
-    await page.click('#pane-roll .panebody');
-    await page.click('#panereopen-knobs');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              document.getElementById('pane-knobs').closest('.paneleaf') ===
-              document.getElementById('pane-keyboard').closest('.paneleaf')),
-          'and the leaf it was closed from, not the one last pressed in');
-
-    /* A chord typed into a text box is text. The source box is a pane of
-       its own here, and W in it must be a W. */
-    await page.click('#gen');
-    await page.keyboard.press('Alt+KeyW');
-    await page.waitForTimeout(200);
-
-    check(await page.evaluate(() =>
-              document.getElementById('pane-piecesource').checkVisibility()),
-          'and none of them fires while the focus is in a text box');
 
     /* ---- the popovers ---- */
 
@@ -724,33 +476,6 @@ try
     }
 
     await page.keyboard.press('Alt+Enter');
-
-    /* ---- a pane, asked for by name ---- */
-
-    /* Which is the whole of what a pane is to anything outside this
-       page: raise it, rename it, put it away. A window's four verbs, and
-       the reason the layout can become one later without the tiler being
-       told what a window is. */
-    await page.evaluate(() => window.solo.pane('close', 'detail'));
-    await page.waitForTimeout(150);
-
-    check(await page.evaluate(() =>
-              !document.getElementById('pane-detail').checkVisibility()),
-          'a pane closed by name is put away');
-
-    await page.evaluate(() => window.solo.pane('present', 'detail'));
-    await page.waitForTimeout(150);
-
-    check(await page.evaluate(() =>
-              document.getElementById('pane-detail').checkVisibility()),
-          'and presented by name is in front again');
-
-    await page.evaluate(() =>
-        window.solo.pane('setTitle', 'detail', 'What it is doing'));
-    await page.waitForTimeout(150);
-
-    check(await page.textContent('#panetab-detail') === 'What it is doing',
-          'and its tab says what it was told to say');
 
     /* ---- and closing one beside it ---- */
 

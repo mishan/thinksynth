@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>panes.js -- a page to test it on</title>
+<link rel="stylesheet" href="panes.css">
+<link rel="stylesheet" href="tilerfixture.css">
+</head>
+<body>
+
+<!--
+  A page that exists to be tiled, and nothing else.
+
+  tilercheck.mjs drives this. It is here rather than in the harness
+  because what the tiler promises is about a document -- that it adopts
+  one, puts it back, and keeps every id on the way -- and a claim about a
+  document needs one with enough in it to be worth making: a <details>
+  that folds, a <section> that does not, a canvas whose work is
+  observable, a box that scrolls sideways, a text box a chord must not
+  reach, and a popover that would be clipped by the pane it belongs
+  beside.
+
+  It needs no build. Nothing here imports anything but panes.js, which is
+  why the gate over it runs before -- and without -- everything the rest
+  of this directory needs compiled.
+-->
+
+<div class="chrome">
+  <h1>panes.js</h1>
+  <label>Mode <select id="mode">
+    <option value="one">one</option>
+    <option value="two">two</option>
+  </select></label>
+  <span id="say">ready</span>
+</div>
+
+<div id="root"></div>
+
+<!-- A box that folds, with a text box in it: the fold is handed to the
+     pane's own header, and a chord typed in here is text. -->
+<details id="fx-doc" open data-pane data-pane-title="Doc" data-pane-min="280">
+  <summary>A box that folds</summary>
+  <textarea id="fx-text" spellcheck="false">type here</textarea>
+</details>
+
+<!-- Two canvases that draw only while somebody is looking, which is the
+     whole of what onShow is for. Stacked as tabs, one of them stops. -->
+<section id="fx-paint" data-pane data-pane-title="Paint" data-pane-min="240">
+  <canvas id="fx-paint-c" width="320" height="200"></canvas>
+</section>
+
+<section id="fx-plot" data-pane data-pane-title="Plot" data-pane-min="240">
+  <canvas id="fx-plot-c" width="320" height="200"></canvas>
+</section>
+
+<!-- Wider than any pane, so it scrolls sideways: what a popover placed
+     against its right edge has to be held inside. -->
+<section id="fx-wide" data-pane data-pane-title="Wide" data-pane-min="200">
+  <div id="fx-scroll" class="scroller">
+    <div class="far"><button id="fx-pop">popover</button></div>
+  </div>
+</section>
+
+<section id="fx-list" data-pane data-pane-title="List" data-pane-min="180">
+  <ul id="fx-items"><li>one</li><li>two</li><li>three</li></ul>
+</section>
+
+<details id="fx-notes" data-pane data-pane-title="Notes" data-pane-min="180">
+  <summary>Folded to start with</summary>
+  <p>Which the pane's header takes over.</p>
+</details>
+
+<!-- One per mode, so `available' and `mode' have something to switch. -->
+<section id="fx-only-one" data-pane data-pane-title="Only one"
+         data-pane-min="180">
+  <p>Mode one has this.</p>
+</section>
+
+<section id="fx-only-two" data-pane data-pane-title="Only two"
+         data-pane-min="180" data-pane-off>
+  <p>Mode two has this.</p>
+</section>
+
+<div id="fx-menu" class="popover" hidden>A popover.</div>
+
+<script type="module" src="tilerfixture.js"></script>
+</body>
+</html>

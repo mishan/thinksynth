@@ -68,73 +68,120 @@
  *
  * Two canvases stacked as tabs is where the tiling pays for itself: the
  * one behind stops drawing.
+ *
+ * WHAT IS POLICY AND NOT MECHANISM is an argument, with this page's
+ * answer as the default: the screen worth tiling on (`media'), a
+ * divider's thickness and a leaf's floor (`split', `leaf'), how much of
+ * a leaf's edge is an edge (`edge'), the query parameter that turns it
+ * on (`param'), where a layout is kept (`storage'), and the chords
+ * (`keys'). None of them is a rule -- they are what this page would have
+ * hardcoded, written where somebody else can disagree.
  */
 
 /* The screen a tiled layout is worth having on. Both halves matter, and
    style.css already argues for the second: a finger is not a mouse, and a
    divider you cannot grab is worse than no divider. */
-const TILED = '(min-width: 60em) and (pointer: fine)';
+const MEDIA = '(min-width: 60em) and (pointer: fine)';
 
-/* A divider's thickness and a leaf's own floor, both in CSS pixels and
-   both also in panes.css: the arithmetic that refuses a drag has to agree
-   with what the browser draws, and two numbers that have to agree are
-   written where each is used. */
+/* A divider's thickness and a leaf's own floor, in CSS pixels. The first
+   of these is also drawn, and the drawing reads it from the root as
+   `--pane-split' rather than being told it twice -- the arithmetic that
+   refuses a drag and the line the browser paints have to be the same
+   number, and a comment asking two numbers to agree is not a mechanism. */
 const SPLIT = 6;
 const LEAF = 64;
+
+/* How much of a leaf's edge is an edge: the outer fifth, which is enough
+   to aim at with a pointer and leaves the middle -- the common answer,
+   "put it in this one" -- most of the box. */
+const EDGE = 0.2;
+
+/* The attribute that means a pane's mode is not up.
+ *
+ * Its own and not `hidden'. Reading `hidden' is right for a page that
+ * uses the attribute for this and nothing else, and wrong the moment a
+ * page uses it for ordinary showing and hiding: a pane something else
+ * hid would leave the layout without anything having said so, and the
+ * layout would not put it back. panes.css draws the consequence, so the
+ * attribute hides the element in the document as well.
+ */
+const OFF = 'data-pane-off';
+
+const off = (el) => el.hasAttribute(OFF);
+
+/*
+ * What a command is, which is the one piece of this a page is most
+ * likely to want different.
+ *
+ * Every command is a chord with Alt in it, and that is not this page's
+ * peculiarity: anywhere the bare letters are already something -- notes
+ * here, a chat composer elsewhere -- a tiler that took W for itself
+ * would have taken them. It stays the default for that reason and is an
+ * argument for when it is wrong.
+ *
+ * By `code' rather than by `key': a command is a place on the keyboard,
+ * and Alt over a letter is a different letter on half the layouts there
+ * are. The arrows are not in here because they are directions rather
+ * than letters, and a layout where Up is not up is not a layout.
+ */
+const KEYS = {
+    chord: (e) => e.altKey && !e.ctrlKey && !e.metaKey,
+    splitRow: ['Backslash'],
+    splitCol: ['Minus'],
+    zoom: ['Enter', 'NumpadEnter'],
+    close: ['KeyW'],
+    reset: ['Digit0'],
+};
+
+/* Where a layout is kept between visits. localStorage by default and an
+   object with the same three methods when a page has somewhere better --
+   a profile on a server is the first thing anybody with accounts wants.
+   Read lazily: a browser that refuses storage altogether throws on the
+   property, and every call here is inside a try. */
+const KEEP = {
+    getItem: (k) => localStorage.getItem(k),
+    setItem: (k, v) => localStorage.setItem(k, v),
+    removeItem: (k) => localStorage.removeItem(k),
+};
 
 /* What the page is asking for, before the screen gets a say: `?panes=1'
    turns the tiler on, `?panes=0' refuses it, neither leaves the page's own
    default. The screen decides separately, so a narrow window with
    ?panes=1 is still the document -- which is the fallback working rather
    than the query string being ignored. */
-function asked (fallback)
+function asked (param, fallback)
 {
-    const p = new URLSearchParams(location.search).get('panes');
+    const p = new URLSearchParams(location.search).get(param);
 
     return p === null ? fallback : p === '1';
 }
 
-/*
- * A popover at a page coordinate, held inside the window.
- *
- * What asks for one of these is a canvas, and what it says is where in
- * its own pixels -- so the page adds where the canvas is and gets a page
- * coordinate, which is what these are positioned in and has not changed
- * with tiling. What has changed is what is around them: a pane can be
- * narrower than the popover's own maximum width and is a box that
- * scrolls, so one placed beside a handle near the right of a pane went
- * off the window rather than merely off the box. It is a bug that was
- * there before and that a 60em document rarely showed.
- *
- * Shown first and measured after, because a popover's size is what is in
- * it and what is in it was just written.
- */
-export function placePopover (box, x, y)
-{
-    const pad = 8;
-
-    box.hidden = false;
-
-    const left = Math.max(scrollX + pad,
-                          Math.min(x, scrollX + innerWidth -
-                                      box.offsetWidth - pad));
-    const top = Math.max(scrollY + pad,
-                         Math.min(y, scrollY + innerHeight -
-                                     box.offsetHeight - pad));
-
-    box.style.left = `${left}px`;
-    box.style.top = `${top}px`;
-}
-
 export function createPanes ({ root, catalog, layouts, mode,
                                store = 'panes', editing = '',
-                               onShow = () => {}, on = false })
+                               onShow = () => {}, on = false,
+                               media = MEDIA, split = SPLIT,
+                               /* `least' here and `leaf' outside: a leaf
+                                  is what most of this file calls a node,
+                                  and an option that shares the name is
+                                  read as one wherever it is passed. */
+                               leaf: least = LEAF,
+                               edge = EDGE, param = 'panes',
+                               storage = KEEP, keys = {} })
 {
+    /* The commands, with a page's own over the defaults rather than
+       instead of them: overriding the one chord that clashes should not
+       cost you the other five. */
+    const keymap = { ...KEYS, ...keys };
+
     /* The class every rule in panes.css keys on, put here rather than
        asked of the page: what the layout is drawn into is whatever
        element this was handed, and a stylesheet naming the id one page
        happened to choose was a stylesheet naming its one consumer. */
     root.classList.add('panesroot');
+
+    /* And the one number the drawing and the arithmetic share, written
+       where the drawing can read it. */
+    root.style.setProperty('--pane-split', `${split}px`);
 
     /* Where a key means editing rather than a command: a chord typed
        into a text box is text. Wider than keyfocus.js's idea of a text
@@ -160,8 +207,8 @@ export function createPanes ({ root, catalog, layouts, mode,
        did. */
     const home = new Map();
 
-    const media = matchMedia(TILED);
-    const wanted = asked(on);
+    const screen = matchMedia(media);
+    const wanted = asked(param, on);
 
     let tiled = false;
     let above = null;           /* the overlay, once anything wants one */
@@ -227,11 +274,11 @@ export function createPanes ({ root, catalog, layouts, mode,
     /* Whether a pane's work is worth doing.
      *
      * Three ways for the answer to be no and one thing done about all
-     * three: the mode it belongs to is not up (`hidden', which is what
-     * available() sets), it is folded away, or -- once there is a layout
-     * to be out of -- it is not in it. */
+     * three: the mode it belongs to is not up (the attribute available()
+     * sets), it is folded away, or -- once there is a layout to be out
+     * of -- it is not in it. */
     const visible = (p) =>
-        !p.el.hidden &&
+        !off(p.el) &&
         (tiled ? onScreen.has(p.id) : p.summary === null || p.el.open);
 
     /* Whether a pane is in play at all: this page has it and the mode it
@@ -240,7 +287,7 @@ export function createPanes ({ root, catalog, layouts, mode,
     {
         const p = panes.get(id);
 
-        return p !== undefined && !p.el.hidden;
+        return p !== undefined && !off(p.el);
     };
 
     /* What each pane's work is told, and only where the answer changed.
@@ -360,13 +407,13 @@ export function createPanes ({ root, catalog, layouts, mode,
         if (isLeaf(node))
             return row ? Math.max(...liveTabs(node).map(
                              (id) => panes.get(id).min))
-                       : LEAF;
+                       : least;
 
         const kids = liveKids(node);
         const mins = kids.map((k) => minAcross(k, row));
 
         return (node.dir === 'row') === row
-            ? mins.reduce((a, b) => a + b, 0) + (kids.length - 1) * SPLIT
+            ? mins.reduce((a, b) => a + b, 0) + (kids.length - 1) * split
             : Math.max(...mins);
     };
 
@@ -425,7 +472,7 @@ export function createPanes ({ root, catalog, layouts, mode,
     {
         try
         {
-            localStorage.setItem(key(), JSON.stringify(tree));
+            storage.setItem(key(), JSON.stringify(tree));
         }
         catch
         {
@@ -443,7 +490,7 @@ export function createPanes ({ root, catalog, layouts, mode,
 
         try
         {
-            saved = JSON.parse(localStorage.getItem(key()));
+            saved = JSON.parse(storage.getItem(key()));
         }
         catch
         {
@@ -566,14 +613,14 @@ export function createPanes ({ root, catalog, layouts, mode,
         drawer(id);
 
         const made = { tabs: [id], active: 0 };
-        const split = { dir, size: [0.5, 0.5],
-                        kids: after ? [leaf, made] : [made, leaf] };
+        const pair = { dir, size: [0.5, 0.5],
+                       kids: after ? [leaf, made] : [made, leaf] };
         const up = parentOf(leaf);
 
         if (up === null)
-            tree = split;
+            tree = pair;
         else
-            up.kids[up.kids.indexOf(leaf)] = split;
+            up.kids[up.kids.indexOf(leaf)] = pair;
     };
 
     /* Whether a leaf has room to be split in a direction: both halves
@@ -588,7 +635,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         const rect = box.getBoundingClientRect();
         const row = dir === 'row';
         const want = minAcross(leaf, row) +
-                     (row ? panes.get(id).min : LEAF) + SPLIT;
+                     (row ? panes.get(id).min : least) + split;
 
         return (row ? rect.width : rect.height) >= want;
     };
@@ -596,14 +643,7 @@ export function createPanes ({ root, catalog, layouts, mode,
     /* ---- dragging a tab ---- */
 
     /* Where a tab would land if it were let go here: a leaf to be moved
-       into, an edge of one to be split off, or the drawer.
-     *
-     * An edge is the outer fifth of the leaf, which is enough to aim at
-     * with a pointer and small enough that the middle -- the common
-       answer, "put it in this one" -- is most of the box.
-     */
-    const EDGE = 0.2;
-
+       into, an edge of one to be split off, or the drawer. */
     const under = (x, y, id) =>
     {
         const at = document.elementFromPoint(x, y);
@@ -623,15 +663,18 @@ export function createPanes ({ root, catalog, layouts, mode,
         const r = box.getBoundingClientRect();
         const fx = (x - r.left) / r.width;
         const fy = (y - r.top) / r.height;
-        const edge =
-            fx < EDGE ? ['row', false] : fx > 1 - EDGE ? ['row', true]
-          : fy < EDGE ? ['col', false] : fy > 1 - EDGE ? ['col', true]
+        /* The outer `edge' of the box on each side, which is enough to
+           aim at with a pointer and leaves the middle -- the common
+           answer, "put it in this one" -- most of the box. */
+        const side =
+            fx < edge ? ['row', false] : fx > 1 - edge ? ['row', true]
+          : fy < edge ? ['col', false] : fy > 1 - edge ? ['col', true]
           : null;
 
-        if (edge === null || !splittable(leaf, id, edge[0]))
+        if (side === null || !splittable(leaf, id, side[0]))
             return { drop: 'into', leaf, box };
 
-        return { drop: 'beside', leaf, box, dir: edge[0], after: edge[1] };
+        return { drop: 'beside', leaf, box, dir: side[0], after: side[1] };
     };
 
     /* What the drop would do, drawn over the pane it would do it to. */
@@ -810,7 +853,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         box.addEventListener('pointerdown', () => { focus = leaf; }, true);
 
         box.style.minWidth = `${minAcross(leaf, true)}px`;
-        box.style.minHeight = `${LEAF}px`;
+        box.style.minHeight = `${least}px`;
         box.prepend(strip);
         seen.set(box, leaf);
 
@@ -1292,7 +1335,7 @@ export function createPanes ({ root, catalog, layouts, mode,
 
     const command = (e) =>
     {
-        if (!tiled || !e.altKey || e.ctrlKey || e.metaKey)
+        if (!tiled || !keymap.chord(e))
             return;
 
         if (e.target instanceof Element &&
@@ -1334,12 +1377,13 @@ export function createPanes ({ root, catalog, layouts, mode,
 
             done(leafWith(id) ?? leaf);
         }
-        else if (e.code === 'Backslash' || e.code === 'Minus')
+        else if (keymap.splitRow.includes(e.code) ||
+                 keymap.splitCol.includes(e.code))
         {
             /* Split: the pane in front moves into a half of its own. A
                leaf with nothing else in it has nothing to split off, so
                it opens the first pane in the drawer there instead. */
-            const dir = e.code === 'Backslash' ? 'row' : 'col';
+            const dir = keymap.splitRow.includes(e.code) ? 'row' : 'col';
             const other = closed()[0];
 
             if (ids.length > 1)
@@ -1351,22 +1395,22 @@ export function createPanes ({ root, catalog, layouts, mode,
 
             done(leaf);
         }
-        else if (e.code === 'Enter' || e.code === 'NumpadEnter')
+        else if (keymap.zoom.includes(e.code))
         {
             zoom = zoom === null ? leaf : null;
             render();
             raiseTab(zoom ?? leaf);
         }
-        else if (e.code === 'KeyW')
+        else if (keymap.close.includes(e.code))
         {
             drawer(id);
             done(current());
         }
-        else if (e.code === 'Digit0')
+        else if (keymap.reset.includes(e.code))
         {
             try
             {
-                localStorage.removeItem(key());
+                storage.removeItem(key());
             }
             catch
             {
@@ -1388,7 +1432,7 @@ export function createPanes ({ root, catalog, layouts, mode,
 
     const apply = () =>
     {
-        const want = wanted && media.matches;
+        const want = wanted && screen.matches;
 
         if (want === tiled)
             return;
@@ -1398,25 +1442,33 @@ export function createPanes ({ root, catalog, layouts, mode,
         render();
     };
 
-    media.addEventListener('change', apply);
+    screen.addEventListener('change', apply);
 
-    tiled = wanted && media.matches;
+    tiled = wanted && screen.matches;
     document.body.classList.toggle('tiled', tiled);
     render();
 
     return {
         /* Whether the mode this pane belongs to is up. Availability is
-           not visibility: an unavailable pane leaves the layout without
-           being forgotten by it, so switching to a piece and back puts
-           the patch's source box where it was. */
-        available: (id, on) =>
+         * not visibility: an unavailable pane leaves the layout without
+         * being forgotten by it, so switching to a piece and back puts
+         * the patch's source box where it was.
+         *
+         * Through `data-pane-off' rather than `hidden'. The attribute is
+         * this module's, which is the point: a page that uses `hidden'
+         * for ordinary showing and hiding -- and most do -- would
+         * otherwise take panes out of the layout by accident and never
+         * get them back. panes.css hides the element either way, so a
+         * page that starts a pane off says so in the markup with the
+         * same attribute. */
+        available: (id, ok) =>
         {
             const p = panes.get(id);
 
-            if (p === undefined || p.el.hidden === !on)
+            if (p === undefined || off(p.el) === !ok)
                 return;
 
-            p.el.hidden = !on;
+            p.el.toggleAttribute(OFF, !ok);
 
             if (tiled)
                 render();
