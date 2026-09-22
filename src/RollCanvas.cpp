@@ -56,7 +56,8 @@ channelColor (const Cairo::RefPtr<Cairo::Context> &cr, int chan,
 RollCanvas::RollCanvas (thcScheduler *sched)
     : sched_(sched), spanPast_(60), spanFuture_(30), viewNow_(0),
       following_(true), dragging_(false), dragX0_(0), dragT0_(0),
-      loShown_(48), hiShown_(72), loFit_(48), hiFit_(72)
+      loShown_(48), hiShown_(72), loFit_(48), hiFit_(72),
+      lastW_(0), lastH_(0)
 {
     deliveredConn_ = sched_->sigDelivered.connect(
         sigc::mem_fun(*this, &RollCanvas::onDelivered));
@@ -171,6 +172,33 @@ RollCanvas::step (void)
        asking twice a frame was paying for the copy twice. */
     pendingView_ = sched_->peekPending();
 
+    /* And put in time order, which peekPending's is not: what it hands
+       back mirrors a heap, and how a heap lays itself out is the standard
+       library's to choose -- libstdc++ and libc++ choose differently,
+       which is the same split the scheduler's own LaterPending exists to
+       close. The order of two ghosts that overlap is nothing anybody can
+       see, and being a function of which library this was built with is
+       the difference between "one class draws one picture" and a claim
+       nothing can check. rollcheck is what checks it. */
+    std::sort(pendingView_.begin(), pendingView_.end(),
+              [](const thcEvent &a, const thcEvent &b)
+              {
+                  if (a.at != b.at)
+                      return a.at < b.at;
+
+                  if (a.channel != b.channel)
+                      return a.channel < b.channel;
+
+                  if (a.type != b.type)
+                      return a.type < b.type;
+
+                  /* Same type, so the union's note arm is the one both
+                     of them have. Anything else in a tie draws the same
+                     mark in the same place. */
+                  return a.type == THC_EV_NOTE
+                      && a.u.note.note < b.u.note.note;
+              });
+
     prune();
     fitPitchRange();
 }
@@ -252,9 +280,12 @@ RollCanvas::contentExtent (double &w, double &h) const
         return;
     }
 
-    /* Nothing laid out yet. Zero means "nothing to show", and the base
-       then leaves the size and the zoom alone. */
-    w = h = 0;
+    /* No shell to ask, which is what a canvas built by a harness looks
+       like: the last picture drawn is the view there. Zero before even
+       that means "nothing to show", and the base then leaves the size
+       and the zoom alone. */
+    w = lastW_;
+    h = lastH_;
 }
 
 double
@@ -272,6 +303,9 @@ RollCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                   int height)
 {
     step();
+
+    lastW_ = width;
+    lastH_ = height;
 
     /* The roll is what is left between the two reserved bands, and the
        pitch mapping is offset past the top one. Reserving a lane by

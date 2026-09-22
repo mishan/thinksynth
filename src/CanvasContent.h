@@ -25,15 +25,15 @@
  * The content of a canvas: what it draws and what it does when clicked,
  * with no widget around it.
  *
- * NodeCanvas and ComposerCanvas used to be gtkmm widgets. Everything
- * that made them what they are -- the drawing, the hit-testing, the
- * selection, the drags, the enlarged view -- was already written over
- * cairomm and plain doubles; what tied them to the toolkit was a
- * handful of calls the other way: ask for a redraw, say the drawing
- * changed size, ask how much of it can be seen, take the keyboard
- * focus. This class is those calls, as virtuals a *shell* implements,
- * and the zoom, which was the one piece of view state the toolkit base
- * (GraphCanvas) used to hold.
+ * NodeCanvas, ComposerCanvas and RollCanvas used to be gtkmm widgets.
+ * Everything that made them what they are -- the drawing, the
+ * hit-testing, the selection, the drags, the enlarged view -- was
+ * already written over cairomm and plain doubles; what tied them to the
+ * toolkit was a handful of calls the other way: ask for a redraw, say
+ * the drawing changed size, ask how much of it can be seen, take the
+ * keyboard focus. This class is those calls, as virtuals a *shell*
+ * implements, and the zoom, which was the one piece of view state the
+ * toolkit base (GraphCanvas) used to hold.
  *
  * Two shells exist. On the desktop it is a Gtk::DrawingArea in a
  * scrolled window (src/gui/GraphCanvas.h), which creates the gesture
@@ -43,6 +43,12 @@
  * and one behaviour, two shells: a box is drawn and a click is
  * decided by the one piece of code that exists to do it, on every
  * platform, and the shell is thin enough to be written twice.
+ *
+ * One of the three does not want a scroller: the roll's drawing is
+ * always exactly its view, so it answers contentExtent with the shell's
+ * own size and its desktop shell is a drawing area with no scrolled
+ * window around it (src/RollCanvas.h says what that buys and what it
+ * costs). The base fits it anyway, which is the point of the base.
  *
  * The guard on that promise is the build: the content classes compile
  * with no toolkit on the include path (src/CMakeLists.txt,

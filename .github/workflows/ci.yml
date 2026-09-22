@@ -282,14 +282,30 @@ jobs:
         with:
           node-version: 24
 
+      # Before the native build, not after it, which is not where it used to
+      # be. rollcheck -- the desktop half of the piano roll gate -- links
+      # cairo-canvas2d instead of cairo, so that what comes out of a draw is
+      # the list of ops the browser produces rather than pixels nothing can
+      # compare; that package comes from npm, and scripts/CMakeLists.txt
+      # skips the harness with a message where it is not there. Configured
+      # without it, this tree would build everything else and quietly not
+      # have the one binary a gate below needs.
+      #
+      # It is also what the browser build refuses to configure without, and
+      # what drawcheck.mjs's replayer is, so it was always going to be run
+      # in this job.
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
       # genwav is the tape every piece gate is compared against; dspedit is
       # the edit every node-editor gate is compared against; panelcheck is
       # the parameter panel every row of the module's is compared against;
       # patchcheck is the .patch every document the module writes is
       # compared against; dspcatalog and gencheck are the two lists a
       # chooser is drawn from, which the module reads out of its own copy of
-      # the same files. All six are what the browser build has to agree
-      # with.
+      # the same files; rollcheck is the piano roll's own drawing, op for
+      # op. All seven are what the browser build has to agree with.
       #
       # Named here as well as in the upload below, and that is the whole of
       # the coupling: upload-artifact skips a path that is not there with a
@@ -301,7 +317,7 @@ jobs:
           cmake -S . -B build -G Ninja
           cmake --build build \
                 --target genwav dspedit panelcheck patchcheck \
-                         dspcatalog gencheck plugins
+                         dspcatalog gencheck rollcheck plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
@@ -321,14 +337,6 @@ jobs:
           source ~/emsdk/emsdk_env.sh
           emcmake cmake -S wasm -B build-wasm -G Ninja
           cmake --build build-wasm
-
-      # Both the room page's bundle and the composers' cairo come from npm,
-      # so this comes before the browser build -- which does not merely want
-      # node_modules but refuses to configure without it (wasm/web/
-      # CMakeLists.txt takes cairo-canvas2d out of there by path).
-      - name: npm ci
-        working-directory: wasm/web
-        run: npm ci
 
       # The browser build: every plugin and every composer linked in rather
       # than loaded, with the composer scheduler, for an AudioWorklet --
@@ -382,6 +390,7 @@ jobs:
             build/scripts/patchcheck
             build/scripts/dspcatalog
             build/scripts/gencheck
+            build/scripts/rollcheck
             build/libthink/libthink.so.8
             build/plugins/*/*.so
             build-wasm/thinksynth.mjs
@@ -521,6 +530,20 @@ jobs:
       # editor.
       - name: The node editor's model, against the desktop's
         run: node wasm/web/nodecheck.mjs build-web build
+
+      # The piano roll: half of what it draws is the scheduler's pending
+      # queue -- what the piece has already decided and not yet played --
+      # which is why the page's old roll, drawn from a tape, could not show
+      # it at all. The native harness asserts that the future half is in the
+      # list; then the same seeded piece is played to the same instant in
+      # both builds, drawn the same number of times at the same size, and
+      # the two lists of ops are compared word for word. One class compiled
+      # twice, one picture.
+      - name: The piano roll, and the browser's against the desktop's
+        run: |
+          THINK_DSP_PATH=dsp build/scripts/rollcheck -p build/plugins/ \
+              gen/belfry.gen
+          node wasm/web/rollcheck.mjs build-web build
 
       # A parameter panel is described once (src/PanelModel.h) and rendered
       # twice, and the point of describing it once is that the two

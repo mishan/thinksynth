@@ -205,6 +205,12 @@ private:
     double loShown_, hiShown_;        /* fractional lanes, eased         */
     int    loFit_, hiFit_;            /* target range from the notes     */
 
+    /* The size of the last picture drawn, which is what a gesture is
+       against. It is also the answer to contentExtent when there is no
+       shell to ask -- a canvas built by a harness has none, and a drag
+       on one would otherwise divide by a width nobody had said. */
+    int    lastW_, lastH_;
+
     sigc::connection deliveredConn_;
     sigc::connection resetConn_;
 };
