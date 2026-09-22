@@ -742,8 +742,9 @@ Every shipped `.dsp` declares a `name` and (with one exception) a
 `description`, and until recently no chooser read either: the desktop's Browse
 opened a file chooser over `dsp/` and the page's menu listed filenames, so the
 one moment a person has to pick a graph was the one moment nothing told them
-what the graphs were. `bd10.dsp` sits beside `bdshaped.dsp` and both declare
-`name "BD-10"`.
+what the graphs were. `rpiano0.dsp` sits beside `rpiano1.dsp` and both declare
+`name "Resonant Piano"`, so a chooser that showed either the filename or the
+title alone had two rows and one answer.
 
 `src/DspCatalog.h` is what makes reading them cheap. **The header, not the
 graph**: parsing a `.dsp` builds a `thSynthTree` and `dlopen`s every plugin it

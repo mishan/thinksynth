@@ -48,9 +48,10 @@ namespace {
             if (a.name != b.name)
                 return a.name < b.name;
 
-            /* Two graphs may share a title -- bd10.dsp and bdshaped.dsp both
-               say "BD-10" -- and a sort that called them equal would leave
-               them in whatever order the filesystem handed them over. */
+            /* Two graphs may share a title -- rpiano0.dsp and rpiano1.dsp
+               both say "Resonant Piano" -- and a sort that called them equal
+               would leave them in whatever order the filesystem handed them
+               over. */
             return a.file < b.file;
         }
     };

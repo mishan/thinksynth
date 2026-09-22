@@ -1,6 +1,19 @@
-name "BD-10";
+# BD-10 Shaped -- one sine through a saturator, where bd10.dsp stacks six.
+#
+# The same kick as `bd10.dsp' -- the same two envelopes, the same pitch
+# sweep from `Low Pitch' to `High Pitch' -- with the oscillator swapped.
+# There it is an `osc::multiwave' of six partials; here it is one
+# `osc::simple' into `dist::saturate', so the harmonics come from the
+# `Gain' knob folding a sine rather than from a stack.
+#
+# `BD-10 Shaped' and not `BD-10', because bd10.dsp is BD-10. Two graphs
+# with one name are one row said twice in every chooser, and thSynth's
+# tree list is keyed on the name -- so whichever loads second evicts the
+# first from it.
+
+name "BD-10 Shaped";
 author "Leif Ames";
-description "Simple Kick Drum";
+description "One sine folded by a saturator, with a swept pitch: the shaped kick.";
 category "Drums";
 
     @d = 50 ms;
