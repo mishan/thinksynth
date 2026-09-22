@@ -19,99 +19,50 @@
 #ifndef PIANOROLL_H
 #define PIANOROLL_H
 
-#include <deque>
 #include <gtkmm.h>
 
-#include "thcScheduler.h"
+#include "../RollCanvas.h"
 
-/* The tier-one composer visualizer: every chain's output on one scrolling
- * timeline, past on the left of the now-line, *scheduled future* ghosted on
- * the right. The future half is the point -- with generative music you want
- * to see what the algorithms have already decided before you hear it.
+/*
+ * RollCanvas as a widget: the desktop shell, and nothing but.
  *
- * Everything here runs on the GUI thread: the scheduler delivers on it, GTK
- * draws on it. Unlike Keyboard, which takes events across the MIDI
- * Dispatcher hop and needs its snapshot-under-lock dance, this widget's
- * producer and consumer are the same thread. No mutex, on purpose.
+ * What the roll draws, what it keeps, and what a drag or a wheel on it
+ * means are RollCanvas's and are the same code the browser runs
+ * (src/RollCanvas.h). This is the four answers a shell owes it, the
+ * controllers that feed its gestures, and the frame clock.
+ *
+ * Not a GraphCanvas, which is the shell the other two canvases use, for
+ * the two reasons that base exists: it hunts for the Gtk::ScrolledWindow
+ * around the canvas and it answers a resize with set_size_request. The
+ * roll has no scroller on purpose -- its x axis is time and its own
+ * business, and a scroller around it would be a second, silent answer to
+ * where "now" is -- and it lives in a Gtk::Paned that has to be able to
+ * shrink it, which a size request pinned to its current height would
+ * stop. So: a drawing area, and the shell written out.
  */
-class PianoRoll : public Gtk::DrawingArea
+class PianoRoll : public RollCanvas, public Gtk::DrawingArea
 {
 public:
     explicit PianoRoll (thcScheduler *sched);
     ~PianoRoll (void);
 
-    /* seconds of history and of lookahead on screen */
-    void SetTimeSpan (double past, double future);
-
 protected:
+    void requestRedraw (void) override { queue_draw(); }
+
+    /* Deliberately nothing. The drawing is the view (RollCanvas.h), so
+       the only size this could ask for is the size it already has -- and
+       asking for it would pin the Paned's handle where it happened to be
+       the first time the roll was drawn. */
+    void resizeShell (int w, int h) override { (void)w; (void)h; }
+
+    bool shellViewport (double &x, double &y,
+                        double &w, double &h) const override;
+
+private:
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
     bool onTick (const Glib::RefPtr<Gdk::FrameClock> &clock);
-    void onDelivered (const thcEvent &ev);
-    void onTransportReset (void);
-
-    /* horizontal drag scrubs back through history and drops out of
-     * follow mode; double-click (or scrubbing back to the live edge)
-     * resumes following. Scroll wheel zooms time about the now-line. */
-    void onDragBegin  (double x, double y);
-    void onDragUpdate (double dx, double dy);
-    bool onScroll     (double dx, double dy);
-    void onDoubleClick (int nPress, double x, double y);
-
-private:
-    struct Note
-    {
-        double start, duration;
-        int    channel, note, velocity;
-    };
-    struct ArgTick
-    {
-        double at;
-        int    channel;
-        float  value;
-    };
-
-    /* A structure edit: the piece rebuilding its own instrument.
-     *
-     * Drawn because everything schedulable is drawn -- a rule structure
-     * edits inherited rather than invented, and it is what makes an
-     * edit debuggable: you watch one arrive instead of wondering why
-     * the sound changed. Kept as text because that is what it is; a
-     * swap has no value to plot. */
-    struct Edit
-    {
-        double      at;
-        int         channel;
-        std::string label;
-    };
-
-    double timeToX (double t, int width) const;
-    void   fitPitchRange (void);
-    void   prune (void);
-
-    thcScheduler        *sched_;
-    std::deque<Note>     notes_;      /* delivered; pruned off the left  */
-    std::deque<ArgTick>  argTicks_;   /* delivered chanarg events        */
-    std::deque<Edit>     edits_;      /* delivered structure edits       */
-
-    /* This frame's copy of the scheduled future, taken once per tick
-       and read by both the range fit and the draw. */
-    std::vector<thcEvent> pendingView_;
-
-    double spanPast_, spanFuture_;    /* seconds each side of now        */
-    double viewNow_;                  /* time at the now-line            */
-    bool   following_;                /* viewNow_ tracks the transport   */
-    double dragT0_;                   /* view time when the drag began   */
-
-    /* Pitch range auto-fits what is on screen, but by easing toward the
-     * fitted range rather than jumping to it -- a new lowest note slides
-     * the view open instead of snapping every lane's height. */
-    double loShown_, hiShown_;        /* fractional lanes, eased         */
-    int    loFit_, hiFit_;            /* target range from the notes     */
-
-    sigc::connection deliveredConn_;
-    sigc::connection resetConn_;
-    guint            tickId_;
+    bool onScroll (double dx, double dy);
 };
 
 #endif /* PIANOROLL_H */

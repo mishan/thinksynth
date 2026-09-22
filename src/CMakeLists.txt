@@ -64,14 +64,15 @@ target_include_directories(think_composerhost PUBLIC
 
 target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
 
-# The two canvases' content -- what they draw and what a click on them
+# The three canvases' content -- what they draw and what a click on them
 # means -- with no toolkit in it, so the same classes compile to wasm and run
 # in the browser under a different shell (the header of CanvasContent.h
-# says how). Three object libraries rather than one:
-# the node canvas needs the graph model and the composer canvas needs the
-# composer host, and a harness that wants one should not have to link the
-# other's dependencies to get it. None of them links gtkmm, and that is the
-# guard on the claim: the first Gtk:: in any of these files fails to build.
+# says how). Four object libraries rather than one:
+# the node canvas needs the graph model, and the composer canvas and the
+# piano roll need the composer host, and a harness that wants one should not
+# have to link the others' dependencies to get it. None of them links gtkmm,
+# and that is the guard on the claim: the first Gtk:: in any of these files
+# fails to build.
 # What a parameter panel is -- the rows, the units, the resolution, the
 # groups -- and the providers that build one from live state. Toolkit-free for
 # the reason the canvases are: src/PanelModel.h says it at length. The guard
@@ -147,6 +148,17 @@ target_include_directories(think_composercanvas PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(think_composercanvas PUBLIC think PkgConfig::CAIROMM
                                                   PkgConfig::GLIBMM)
+
+# And the piano roll, whose whole input is a scheduler -- so glibmm for the
+# same header, and still no gtkmm. Its own object library rather than a
+# member of think_composercanvas: the two share a channel colour and
+# nothing else, and a harness that wants one should not link the other.
+add_library(think_rollcanvas OBJECT RollCanvas.cpp)
+target_include_directories(think_rollcanvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_rollcanvas PUBLIC think PkgConfig::CAIROMM
+                                              PkgConfig::GLIBMM)
 
 set(THINKSYNTH_SOURCES
     main.cpp
@@ -263,7 +275,8 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_gencatalog>
     $<TARGET_OBJECTS:think_canvas>
     $<TARGET_OBJECTS:think_nodecanvas>
-    $<TARGET_OBJECTS:think_composercanvas>)
+    $<TARGET_OBJECTS:think_composercanvas>
+    $<TARGET_OBJECTS:think_rollcanvas>)
 
 # The GUI subsystem on Windows, so launching this does not also open a
 # terminal. Without it the linker defaults to the console subsystem and

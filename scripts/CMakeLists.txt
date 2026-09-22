@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH;DSPCATALOG;GENCATALOG" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;ROLLCANVAS;PANEL;PATCH;DSPCATALOG;GENCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -59,7 +59,7 @@ function(think_harness name)
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
   # asked for. The widget shell around it is gtkmm and comes in through
   # EXTRA, since a harness that wants a widget links GTKMM itself.
-  if(H_NODECANVAS OR H_COMPOSERCANVAS)
+  if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
     list(APPEND sources $<TARGET_OBJECTS:think_canvas>)
   endif()
 
@@ -69,6 +69,10 @@ function(think_harness name)
 
   if(H_COMPOSERCANVAS)
     list(APPEND sources $<TARGET_OBJECTS:think_composercanvas>)
+  endif()
+
+  if(H_ROLLCANVAS)
+    list(APPEND sources $<TARGET_OBJECTS:think_rollcanvas>)
   endif()
 
   add_executable(${name} ${sources})
@@ -93,7 +97,7 @@ function(think_harness name)
     target_link_libraries(${name} PRIVATE PkgConfig::GLIBMM)
   endif()
 
-  if(H_NODECANVAS OR H_COMPOSERCANVAS)
+  if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
     target_link_libraries(${name} PRIVATE PkgConfig::CAIROMM)
   endif()
 
@@ -257,8 +261,8 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # and the window brings one up the way the Patch Selector does. Linking it is
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
-think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS PATCH
-              GENCATALOG
+think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
+              PATCH GENCATALOG
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
