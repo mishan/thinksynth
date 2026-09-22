@@ -536,6 +536,64 @@ int main (int argc, char **argv)
                  ", halved " + num(halved));
     }
 
+    /* ---- a channel wider than the mix ---------------------------------- */
+
+    /* An instrument with three outputs on a two-channel synth: the mix takes
+     * its first two and drops the third. Its output is interleaved three
+     * wide, so a mix that stepped through it two at a time would read the
+     * third channel into both sides. The same instrument at two channels is
+     * the reference, and the two renders are the same sample for sample.
+     */
+    {
+        const string two = instrument("");
+        string three = two;
+
+        three.replace(three.find("channels = 2;"), 13, "channels = 3;");
+        three.replace(three.find("    play ="), 0, "    out2 = 0;\n");
+
+        vector<float> heard[2];
+
+        for (int pass = 0; pass < 2; pass++)
+        {
+            if (!writeFile(instFile, pass == 0 ? two : three))
+                break;
+
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL)
+            {
+                fail("the instrument loads", pass == 0 ? "two" : "three");
+                break;
+            }
+
+            s.synth.addNote(0, 60, 100);
+
+            const int len = s.synth.getWindowlen();
+
+            for (int w = 0; w < 4; w++)
+            {
+                s.synth.process();
+
+                const float *out = s.synth.getOutput();
+
+                heard[pass].insert(heard[pass].end(), out, out + 2 * len);
+            }
+        }
+
+        double apart = 0;
+
+        for (size_t j = 0; j < heard[0].size() && j < heard[1].size(); j++)
+            if (fabs(heard[0][j] - heard[1][j]) > apart)
+                apart = fabs(heard[0][j] - heard[1][j]);
+
+        okOrFail(peak(heard[0]) > 0 && heard[0].size() == heard[1].size() &&
+                 apart < 1e-6,
+                 "a three-channel instrument on a two-channel mix is heard "
+                 "as its first two",
+                 "the renders differ by " + num(apart) + " against a peak "
+                 "of " + num(peak(heard[0])));
+    }
+
     /* ---- the chanargs are the effect's, under `fx.' -------------------- */
 
     /* Both graphs declare `@a'. The instrument's is a number its envelope
