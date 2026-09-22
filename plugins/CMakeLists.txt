@@ -9,7 +9,8 @@
 #   - fft/ holds one .c file that is not a plugin: no module_init, no
 #     module_callback, just fir_filter/iir_filter/gaussian/fft lifted from
 #     Embree & Kimble's C Language Algorithms for DSP. Nothing in the tree
-#     references it. docs/VISUALIZERS.md says why the visualizers did not
+#     builds it; osc::pad carries its own copy of the fft, with the two
+#     faults below taken out. docs/VISUALIZERS.md says why the visualizers did not
 #     reuse its FFT: it keeps its twiddle table in a function-static keyed on
 #     the last size asked for, and it calls exit(1) when a calloc fails --
 #     which is a library killing the host process, the exact pattern
@@ -38,7 +39,8 @@ think_add_plugin_category(env      adsr adsfr ad dynmap follower followavg map)
 
 think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole
-                                   res2pole res2pole2 resgrav moog svf)
+                                   res2pole res2pole2 resgrav moog svf
+                                   vowel)
 
 think_add_plugin_category(impulse  sine parabola square blackman)
 
@@ -54,7 +56,7 @@ think_add_plugin_category(misc     latch noisegate midi2freq midi2range
 think_add_plugin_category(mixer    add fade mul)
 
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
-                                   fmop sample grain
+                                   fmop sample grain pad
                                    bandosc shapeo multiwave multisined window
                                    noise)
 
