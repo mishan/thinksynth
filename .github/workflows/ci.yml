@@ -544,6 +544,51 @@ jobs:
       - name: The .patch format, against the desktop's
         run: node wasm/web/patchcheck.mjs build-web build
 
+  # The tiler, which needs nothing built.
+  #
+  # panes.js is a module about dividing up a window and knows nothing
+  # about this project: it is held to that by a fixture page beside it
+  # rather than by the two real ones, which means this job compiles
+  # nothing, waits for nothing, and is the first thing in the run to say
+  # whether the layout still works. wasm-browsers keeps what only the
+  # real pages can say -- two wasm canvases whose frame loops the layout
+  # turns off, popovers beside a node graph, the room's own catalog.
+  tiler:
+    name: the tiler, on a page of its own
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # The two pages' panes, which are written down twice on purpose: the
+      # markup says what a pane is and each page's script says which of
+      # them it has and where they go. Neither can be derived from the
+      # other, so what nothing catches by itself is the two drifting
+      # apart. It also holds panes.css and panes.js to naming nothing of
+      # either page's. No browser and no build -- it reads them as text.
+      - name: The panes each page declares, against the panes it lists
+        working-directory: wasm/web
+        run: node catalogcheck.mjs
+
+      # And the tiler itself, in a browser, over tilerfixture.html: the
+      # document adopted and put back with every id intact, the dividers'
+      # arithmetic, the chords, the drawer, a split that fills the box it
+      # is in, and -- the claim worth the most -- a canvas behind a tab
+      # that asks for no frames at all.
+      - name: The tiler, on a fixture
+        working-directory: wasm/web
+        run: |
+          npx playwright install --with-deps chromium
+          node tilercheck.mjs
+
   # The page and the worklet, in the two engines the page has to work in.
   wasm-browsers:
     name: wasm (emscripten) in browsers
@@ -562,15 +607,6 @@ jobs:
       - name: npm ci
         working-directory: wasm/web
         run: npm ci
-
-      # The two pages' panes, which are written down twice on purpose: the
-      # markup says what a pane is and each page's script says which of
-      # them it has and where they go. Neither can be derived from the
-      # other, so what nothing catches by itself is the two drifting
-      # apart. No browser and no build -- it reads the pages as text.
-      - name: The panes each page declares, against the panes it lists
-        working-directory: wasm/web
-        run: node catalogcheck.mjs
 
       # browsertest.mjs plays a phrase through the worklet in Chromium and
       # in Firefox and holds each against the module run directly, to the
