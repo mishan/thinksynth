@@ -851,6 +851,17 @@ Scales a stream by another, as a gain
 | `in1` | in | Gain as a fraction of full scale; a bipolar signal here ring modulates in0 |  | -1 to 1 | full scale |  |
 | `out` | out | in0 scaled by in1 |  | -1 to 1 | full scale |  |
 
+### mixer::pan
+
+Pan (constant power)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  |  | full scale |  |
+| `pan` | in | -1 left, 0 the middle, 1 right |  | -1 to 1 |  |  |
+| `out0` | out | The left side |  |  | full scale |  |
+| `out1` | out | The right side |  |  | full scale |  |
+
 ## osc
 
 ### osc::bandosc

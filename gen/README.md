@@ -160,6 +160,11 @@ that one thing: `pan`, `tone` and `attack` move the note's `aux0`, `aux1` and
 cutoff either way, so `tone = 0.5` on a line through it is a line whose notes
 are each a little brighter or darker than the last.
 
+`xform::cloud` goes the other way: one note becomes `count` copies spread over
+`time`, each a pitch from `scale` within `pitch` semitones, each quieter than
+the last by its `level`, each placed somewhere else in `aux0` -- a held chord
+arriving in pieces, the note-level counterpart of `osc::grain`.
+
 | piece | the idea |
 | --- | --- |
 | [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel, answered every fourth bar by the ring's `fill` pool; `xform::accent` weighting the bass, which its filter hears as brightness; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes, over `fx/limiter.dsp` on the mix -- a top-level `effect` statement, which is the one place a limiter can be. |

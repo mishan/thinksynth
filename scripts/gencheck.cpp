@@ -9353,6 +9353,115 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* xform::cloud: one note into `count' copies across time, pitch and the
+ * stereo field. What is checked is each of those three, the taper, that
+ * the note itself goes on or does not as `pass' says, and that the same
+ * piece clouds the same way twice. */
+static void
+checkCloud (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth)
+{
+    if (plugins.find("cloud") == plugins.end())
+    {
+        fail("module 'cloud' is missing; build the plugins first");
+        return;
+    }
+
+    /* One C4 every four seconds, half a second long. */
+    auto clouded = [&](const char *what, const std::string &params)
+    {
+        return playBody(plugins, synth, what,
+            "seed 5;\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1; rotate = 0;\n"
+            "    notes = \"C4\"; period = 4 s; hold = 0.5 s; vel = 90; };\n"
+            "  stage k xform::cloud { " + params + " };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 3.9);
+    };
+
+    {
+        const std::string params =
+            "count = 5; time = 2 s; pitch = 12; scale = \"C4 E4 G4\";"
+            " taper = 0.5; spread = 0.6;";
+        std::vector<Heard> h = clouded("cloud", params);
+        std::vector<Heard> again = clouded("cloud again", params);
+        bool slots = h.size() == 6, pitches = slots, levels = slots;
+        bool field = slots, moved = false;
+
+        for (size_t i = 1; i < h.size() && slots; i++)
+        {
+            const Heard &c = h[i];
+            const int k = (int)i - 1;
+
+            /* The k-th copy in the k-th fifth of two seconds. */
+            if (!(c.at >= k * 0.4 - 1e-6 && c.at <= (k + 1) * 0.4 + 1e-6))
+                slots = false;
+
+            if (!(c.note >= 48 && c.note <= 72) ||
+                (c.note % 12 != 0 && c.note % 12 != 4 && c.note % 12 != 7))
+                pitches = false;
+
+            if (!near(c.level, 1 - 0.5 * k / 4.0) || c.vel != 90)
+                levels = false;
+
+            if (!(fabs(c.aux[0]) <= 0.6 + 1e-6))
+                field = false;
+
+            if (i > 1 && !near(c.aux[0], h[1].aux[0]))
+                moved = true;
+        }
+
+        if (h.empty() || h[0].note != 60 || !near(h[0].at, 0) ||
+            !near(h[0].level, 1) || h[0].aux[0] != 0)
+            fail("cloud: with pass = 1 the note itself should go on as it "
+                 "came");
+
+        if (!slots)
+            fail("cloud: five copies should land one in each fifth of two "
+                 "seconds; heard " + std::to_string(h.size()) + " notes");
+
+        if (!pitches)
+            fail("cloud: a copy should land on C, E or G within an octave "
+                 "of C4");
+
+        if (!levels)
+            fail("cloud: the copies' levels should taper from 1 to 0.5 at "
+                 "the note's velocity");
+
+        if (!field || !moved)
+            fail("cloud: the copies should be placed differently, within "
+                 "0.6 either way in aux0");
+
+        bool same = h.size() == again.size();
+
+        for (size_t i = 0; same && i < h.size(); i++)
+            if (h[i].note != again[i].note || !near(h[i].at, again[i].at) ||
+                h[i].aux[0] != again[i].aux[0])
+                same = false;
+
+        if (!same)
+            fail("cloud: the same piece should cloud the same way twice");
+    }
+
+    /* With no scale the copies are the note in other octaves, and with
+       `pass = 0' the note itself is not among them. */
+    {
+        std::vector<Heard> h = clouded("cloud octaves",
+            "count = 8; time = 1 s; pitch = 12; pass = 0;");
+        bool octaves = h.size() == 8;
+
+        for (size_t i = 0; i < h.size(); i++)
+            if (h[i].note != 48 && h[i].note != 60 && h[i].note != 72)
+                octaves = false;
+
+        if (!octaves)
+            fail("cloud: with no scale and pass = 0, eight copies of C4 "
+                 "should be C3, C4 or C5 and nothing else; heard " +
+                 std::to_string(h.size()));
+    }
+}
+
 /* ---- variation (PIECES_PLAN.md 2) --------------------------------------
  *
  * The three stages that stop a written line repeating itself exactly:
@@ -10249,6 +10358,7 @@ main (int argc, char *argv[])
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);
+    checkCloud(plugins, &synth);
     checkMasterEffect(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
     checkSilent(plugins, &synth, &silent, genFile);
