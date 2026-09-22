@@ -1779,6 +1779,124 @@ int main (int argc, char **argv)
                  num(late[1]) + " frozen");
     }
 
+    /* ---- a stop is silence: thSynth::silence ------------------------- */
+
+    /* A note with a five-second release, through an echo that feeds back
+     * nine-tenths a pass on the channel, and the same echo again on the
+     * mix. Released with an ordinary note-off, both ring on long after --
+     * that is the control, and the complaint: a transport stop used to be
+     * exactly this. Silenced, the voice, the channel's tail and the master's
+     * tail are all gone within the fade and a window, to the bit, and stay
+     * gone; and the fade itself is no steeper than the sound it fades, so
+     * nothing clicks.
+     */
+    {
+        const string held =
+            "name \"fxcheck-held\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = vca->out;\n"
+            "    out1 = vca->out;\n"
+            "    play = env->play;\n"
+            "};\n\n"
+            "node osc osc::simple {\n"
+            "    freq = 220;\n"
+            "    waveform = 0;\n"
+            "    amp = 0.5;\n"
+            "};\n\n"
+            "node env env::adsr {\n"
+            "    a = 1 ms;\n"
+            "    d = 1 ms;\n"
+            "    s = th_max;\n"
+            "    r = 5000 ms;\n"
+            "    trigger = ionode->trigger;\n"
+            "};\n\n"
+            "node vca mixer::mul {\n"
+            "    in0 = osc->out;\n"
+            "    in1 = env->out;\n"
+            "};\n\n"
+            "io ionode;\n";
+        const string tail = effect("",
+            "node ring delay::echo {\n"
+            "    in = ionode->in0;\n"
+            "    size = 20000;\n"
+            "    delay = 13000;\n"
+            "    feedback = 0.9;\n"
+            "    dry = 0;\n"
+            "};\n\n"
+            "node both math::add {\n"
+            "    in0 = ionode->in0;\n"
+            "    in1 = ring->out;\n"
+            "};\n\n", "both->out", "both->out");
+
+        if (writeFile(instFile, held) && writeFile(fxFile, tail))
+        {
+            double late[2] = { 0, 0 }, steep[2] = { 0, 0 };
+            bool loaded = true;
+
+            for (int silenced = 0; silenced < 2 && loaded; silenced++)
+            {
+                Session s(pluginPath);
+                const int second = TH_DEFAULT_SAMPLES / s.synth.getWindowlen();
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadEffect(fxFile, 0) == NULL ||
+                    s.synth.loadMasterEffect(fxFile) == NULL)
+                {
+                    fail("the held note and its echoes load", "");
+                    loaded = false;
+                    break;
+                }
+
+                s.synth.addNote(0, 57, 100);
+                s.run(second);
+
+                const size_t before = s.left.size();
+
+                if (silenced)
+                    s.synth.silence();
+                else
+                    s.synth.delNote(0, 57);
+
+                s.run(2 * second);
+
+                vector<float> heard = s.take();
+
+                late[silenced] = peak(vector<float>(
+                    heard.begin() + before + TH_DEFAULT_SAMPLES / 10,
+                    heard.end()));
+
+                /* The largest step across the stop and the fade after it,
+                   against the largest in the second of steady tone before:
+                   a cut would be a step the size of the signal. */
+                double steady = 0, across = 0;
+
+                for (size_t k = before - TH_DEFAULT_SAMPLES / 2; k < before;
+                     k++)
+                    steady = fmax(steady, fabs(heard[k] - heard[k - 1]));
+
+                for (size_t k = before; k < before + TH_DEFAULT_SAMPLES / 10;
+                     k++)
+                    across = fmax(across, fabs(heard[k] - heard[k - 1]));
+
+                steep[silenced] = steady > 0 ? across / steady : 0;
+            }
+
+            if (loaded)
+            {
+                okOrFail(late[0] > 0.01,
+                         "a note-off leaves the release and both echoes "
+                         "ringing a tenth of a second on",
+                         "peak " + num(late[0]));
+                okOrFail(late[1] == 0 && steep[1] < 1.5,
+                         "thSynth::silence takes the voice, the channel's "
+                         "tail and the master's to nothing, without a click",
+                         "peak after " + num(late[1]) + ", steepest step " +
+                         num(steep[1]) + " times the tone's");
+            }
+        }
+    }
+
     /* ---- the shipped effect graphs ------------------------------------- */
 
     /* They are not in the corpus gates: those play notes, and an effect has

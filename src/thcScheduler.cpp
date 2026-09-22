@@ -2300,6 +2300,15 @@ thcScheduler::stop (void)
     flushHeld();
 }
 
+void
+thcScheduler::halt (void)
+{
+    stop();
+
+    if (synth_)
+        synth_->silence();
+}
+
 /* reset() is what makes --seed style replays a first-class feature:
  * same chains, same master seed, same piece, every time. */
 void

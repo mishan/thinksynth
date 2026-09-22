@@ -39,6 +39,7 @@ struct thSynthCommand {
         NOTE_ON,        /* install `note' on `chan'                        */
         NOTE_OFF,       /* release `noteId' on `chan'                      */
         ALL_NOTES_OFF,  /* every channel                                   */
+        SILENCE,        /* every voice and every effect, faded to nothing  */
         SET_CHANNEL,    /* install `channel' (may be NULL) on `chan'       */
         SET_CHAN_ARG,   /* install `arg' on `chan', replacing by name      */
         SET_EFFECT,     /* install `effect' (may be NULL) on `chan'        */

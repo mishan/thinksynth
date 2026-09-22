@@ -69,6 +69,13 @@ public:
     int delNote (int channum, float note);
     void clearAll (void);
 
+    /* Everything down to nothing in TH_STOP_FADE_MS: every voice on every
+     * channel, releases included, and every effect's tail, the master
+     * effect's too. What a transport's Stop means, where clearAll is a cut
+     * and a note-off lets everything ring for as long as it was going to.
+     * See thMidiChan::silence and thChanEffect::fadeOut. */
+    void silence (void);
+
     /* ---- audio thread ---- */
     void process(void);
 

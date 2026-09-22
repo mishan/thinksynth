@@ -159,6 +159,20 @@ public:
      * to change it, the way it is built with its graph. */
     int sideChan (void) const { return sideChan_; }
 
+    /* Audio thread. Bring the output down to nothing over `samples', and
+     * then forget everything the graph remembers.
+     *
+     * An effect never ends -- that is what it is for -- so a transport stop
+     * that only released the voices left every reverb and every echo ringing
+     * out whatever it had been fed, for as long as its tail is. This ramps
+     * what the graph writes back to zero and then zeroes every state arg in
+     * it: the delay lines, the filter histories, the phases, the seeds. Zero
+     * is exactly what a freshly built graph starts from (thArg::allocate), so
+     * the effect is then the one that was loaded, with no tail left to come
+     * back when the transport does. Zeroing is a memset of buffers that
+     * already exist; nothing here allocates. */
+    void fadeOut (int samples);
+
 private:
     /* `step' is how far apart two samples of one channel are and `hop'
        how far apart two channels start: (channels, 1) is interleaved and
@@ -169,6 +183,10 @@ private:
     void copyChanArgs (void);
     void assignChanArgPointers (void);
     void indexIOArgs (int windowlen);
+
+    /* Every state arg of every node, zeroed. See fadeOut. */
+    void clearState (void);
+
 
     thSynthTree *tree_;
     thArgMap args_;
@@ -201,6 +219,11 @@ private:
 
     /* One window of de-interleaved samples, allocated once. */
     float *scratch_;
+
+    /* The fadeOut ramp: its length, and how much of it is left. Both zero on
+       an effect that is not fading. Last, so that every member an inline
+       accessor above reads keeps the offset it had. */
+    int fadelen_, faderemaining_;
 };
 
 #endif /* TH_CHANEFFECT_H */

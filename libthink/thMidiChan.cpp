@@ -724,6 +724,37 @@ void thMidiChan::clearAll (RetireQueue *retire)
     monoCount_ = 0;
 }
 
+/* Audio thread. See the header. */
+void thMidiChan::silence (int samples)
+{
+    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
+    {
+        i->second->beginFade(samples);
+        fading_.push_back(i->second);
+    }
+
+    notes_.clear();
+
+    for (NoteList::iterator j = decaying_.begin(); j != decaying_.end(); ++j)
+    {
+        (*j)->beginFade(samples);
+        fading_.push_back(*j);
+    }
+
+    decaying_.clear();
+
+    /* Those already fading keep the ramp they have, which is shorter:
+       beginFade does not restart one. */
+
+    noteorder_.clear();
+    notecount_ = 0;
+    notecount_decay_ = 0;
+    monoCount_ = 0;
+
+    if (effect_)
+        effect_->fadeOut(samples);
+}
+
 thMidiNote *thMidiChan::getNote (int note)
 {
     NoteMap::iterator i = notes_.find(note);

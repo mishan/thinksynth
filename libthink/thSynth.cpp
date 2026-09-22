@@ -451,6 +451,23 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
             }
             break;
 
+        case thSynthCommand::SILENCE:
+        {
+            const int samples =
+                (int)((sampleRate_ * TH_STOP_FADE_MS) / 1000);
+
+            for (int i = 0; i < midiChannelCnt_; i++)
+            {
+                if (midiChannels_[i])
+                    midiChannels_[i]->silence(samples);
+            }
+
+            if (master_)
+                master_->fadeOut(samples);
+
+            break;
+        }
+
         case thSynthCommand::SET_CHANNEL:
             midiChannels_[cmd.chan] = cmd.channel;
 
@@ -1787,6 +1804,22 @@ void thSynth::clearAll (void)
 
     postCommand(cmd);
 
+}
+
+void thSynth::silence (void)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    if (silent_)
+        return;
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SILENCE;
+    cmd.chan = 0;
+
+    postCommand(cmd);
 }
 
 void thSynth::setSilent (bool silent)
