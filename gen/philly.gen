@@ -1,0 +1,492 @@
+# philly.gen -- a string section that runs into every chorus, horns
+# that fall off their stabs, and a Leslie that spins up for the hook.
+#
+# The Philadelphia sound, at a hundred and twelve: MFSB, the Salsoul
+# Orchestra, an arranger's disco rather than a producer's. Four chords
+# in C major -- Cmaj7, Am7, Dm7, G7, two bars each -- under a kit
+# played with brushes, congas and a tambourine, a fingered bass, a
+# Rhodes, a Hammond through a rotating speaker, a string section, and
+# a horn section that says one thing every two bars and lets the last
+# note fall.
+#
+# THE STRINGS RUN. The section is voiced from the same four-chord ring
+# every other chain reads, and xform::run puts a scale run into the
+# chords -- seven degrees over a beat, which is the octave run a
+# string section plays into a chorus. The ring is emitted a cycle
+# ahead (`ahead = 1'), which is what lets the run land *before* the
+# chord: pickups are placed by subtracting from the target's time, and
+# a chord that is emitted as it starts has no time to subtract from.
+# In the verses one chord in four gets a run; in the chorus every one
+# does -- two chains on the one instrument, the arrangement playing one
+# or the other -- so the strings are heard getting busier, not louder.
+#
+# THE HORNS FALL. brass.dsp has `fall', in cents, and it is gated by
+# the release: the note is in tune while it is held and drops only as
+# it lets go, which is a player's lip and not a pitch envelope. The
+# stabs are a sixteen-step ring with rests in the pool, one figure per
+# two bars, spelled into triads by the harmonizer with a taper so the
+# top voice leads. They play in the chorus only.
+#
+# THE ORGAN SPINS UP. organ0.dsp is on a channel with fx/rotary.dsp,
+# and the rotor's `speed' is a chanarg, so a gen::steps row the length
+# of the arrangement drives it: slow through the verses, fast for each
+# chorus, with the spin-up and the spin-down that the rotary's own
+# slew provides. The row is one value a bar, sixty-four of them,
+# beside the section list that gates the chains.
+#
+# THE KIT IS PLAYED WITH BRUSHES: the kick and the snare at velocities
+# that leave the wires soft and the beater quiet, the snare through a
+# plate. Congas answer on the `and's; the tambourine keeps the
+# sixteenths. Closed hat on the beats and open on the `and's, choked.
+#
+# A level in a section scales velocity, and on the kit velocity is the
+# pedal and on the brass it is the filter, so those chains are muted
+# or left alone; the numbers under one sit on the strings and the
+# Rhodes.
+#
+# The runs and the tambourine's chance roll dice; the seed is pinned
+# for them. Self-contained: open it and press Play.
+
+name "Philly";
+author "Misha Nasledov";
+description "The Philadelphia sound: a string section that runs into its chords, horns that fall off their stabs, a Hammond through a Leslie that spins up for the chorus, and a kit with brushes.";
+category "Disco";
+
+tempo 112;
+seed 1974;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro   8 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
+                         congas = 0;  tamb = 0;  bass = 0;  horns = 0;
+                         organ = 0;  section = 0.8;  section_runs = 0; };
+section verse  16 bars { horns = 0;  section = 0.8;  section_runs = 0; };
+section chorus 16 bars { section = 0;  rhodes = 0.9; };
+section break   8 bars { kick = 0;  snare = 0;  hats_open = 0;  horns = 0;
+                         section = 0;  section_runs = 0;  rhodes = 0; };
+section chorus2 16 bars { section = 0;  rhodes = 0.9; };
+section end;
+
+# How many of the section's chords get a run: the chance per chord.
+@runs = 0.25;
+@runs.widget = 1;
+@runs.min = 0;
+@runs.max = 1;
+@runs.label = "Runs";
+
+# How far the horns drop as they let go, in cents.
+@fall = 180;
+@fall.widget = 1;
+@fall.min = 0;
+@fall.max = 600;
+@fall.label = "Horn Fall";
+@fall.units = "cents";
+
+scale cmaj "C3 D3 E3 F3 G3 A3 B3";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 1.25;
+    ceiling = 0.85;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kit_kick.dsp";
+    amp  = 32;
+
+    tune = 58;
+    sweep = 30 ms;
+    decay = 220 ms;
+    shell = 85;
+    body = 0.55;
+    beater = 0.3;
+    click = 2200;
+    drive = 1.4;
+};
+
+# Brushes, and a plate.
+instrument snare {
+    dsp  "kit_snare.dsp";
+    amp  = 30;
+
+    tune = 190;
+    ratio = 1.5;
+    sd = 150 ms;
+    head = 1.8;
+    hd = 60 ms;
+    snare = 1800;
+    wires = 0.8;
+    wd = 190 ms;
+    ghost = 0.7;
+
+    effect "fx/plate.dsp" {
+        predelay = 24 ms;
+        decay = 0.83;
+        size = 1;
+        damping = 6200;
+        diffuse = 190;
+        mix = 0.3;
+    };
+};
+
+instrument hat {
+    dsp  "kit_hat.dsp";
+    amp  = 16;
+
+    freq = 760;
+    pmul = 1.41;
+    spread = 290;
+    tone = 8200;
+    air = 0.55;
+    sizzle = 1.4;
+    clen = 55 ms;
+    olen = 360 ms;
+    pedal = 12 ms;
+};
+
+instrument congas {
+    dsp  "conga808.dsp";
+    amp  = 18;
+
+    drop = 0.08;
+    sweep = 14 ms;
+    decay = 95 ms;
+    click = 0.15;
+    drive = 1.4;
+};
+
+instrument tamb {
+    dsp  "tambourine.dsp";
+    amp  = 7;
+
+    freq = 1700;
+    pmul = 1.31;
+    spread = 480;
+    offset = 1.19;
+    decay = 120 ms;
+    shake = 2.4;
+    slap = 0.5;
+    tone = 4200;
+};
+
+instrument bass {
+    dsp  "ebass.dsp";
+    amp  = 44;
+
+    glide = 40 ms;
+    pluck = 5 ms;
+    finger = 80;
+    decay = 2.5;
+    mute = 0.9;
+    tone = 0.5;
+    bright = 0.25;
+    cutoff = 2000;
+    drive = 1.6;
+    a = 1 ms;
+    r = 100 ms;
+};
+
+instrument rhodes {
+    dsp  "rhodes.dsp";
+    amp  = 13;
+
+    bark = 2.2;
+    bd = 180 ms;
+    bar = 0.35;
+    bard = 320 ms;
+    decay = 2400 ms;
+    spread = 1;
+    rate = 4.8;
+    depth = 0.5;
+    a = 3 ms;
+    r = 400 ms;
+};
+
+# The Hammond, and the Leslie its channel plays through. `speed' is
+# driven from the composer side.
+instrument organ {
+    dsp  "organ0.dsp";
+    amp  = 22;
+
+    vmin = 0.3;
+    vmax = 0.6;
+    waveform = 0;
+    a = 4 ms;
+    d = 3 ms;
+    s = 0.5;
+    r = 60 ms;
+    mul1 = 2;
+    mul2 = 3;
+    mul3 = 4;
+
+    effect "fx/rotary.dsp" {
+        speed = 0;
+        hornslow = 0.8;
+        hornfast = 6.6;
+        drumslow = 0.65;
+        drumfast = 5.1;
+        hornrise = 900 ms;
+        drumrise = 2200 ms;
+        xover = 800;
+        trem = 0.4;
+        doppler = 1.6 ms;
+        mix = 0.8;
+    };
+};
+
+instrument section {
+    dsp  "section.dsp";
+    amp  = 30;
+
+    detune = 9;
+    cutoff = 400;
+    depth = 2600;
+    res = 0.15;
+    vrate = 5.4;
+    vdepth = 22;
+    vdelay = 400 ms;
+    vrise = 500 ms;
+    swoop = 0;
+    width = 0.6;
+    a = 220 ms;
+    d = 400 ms;
+    s = 0.85;
+    r = 800 ms;
+
+    effect "fx/hall.dsp" {
+        decay = 0.82;
+        size = 1.4;
+        damping = 3400;
+        mix = 0.28;
+    };
+};
+
+# The horns: the fall is the piece's knob.
+instrument horns {
+    dsp  "brass.dsp";
+    amp  = 16;
+
+    buzz = 60 ms;
+    buzzf = 28;
+    fall = @fall;
+    bend = -1;
+    bendl = 18 ms;
+    pw1 = 0.2;
+    pw2 = 0.1;
+    res = 2;
+    cutoff = 4;
+    famt = 2;
+    oscmul = 2;
+    oscfade = 0.25;
+    vibrato = 14;
+    vibrate = 5;
+    vibdelay = 350 ms;
+    a = 12 ms;
+    d = 80 ms;
+    s = 0.6;
+    r = 120 ms;
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 88;
+    };
+    sink { instrument = kick; };
+};
+
+# Two and four, with a ghost on the `and' of three now and then.
+chain snare {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = ". . D2 . . D2 . D2";
+        period = 0.5 beats;  hold = 0.3 beats;  vel = 72;
+    };
+    stage a xform::accent {
+        pattern = "..x...x.";  grid = 0.5 beats;
+        strong = 1;  weak = 0.45;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    stage c xform::chance { prob = 0.8; };
+    sink { instrument = snare; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 0;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 46;
+    };
+    sink { instrument = hat; };
+};
+
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 108;
+    };
+    sink { instrument = hat; };
+};
+
+# Congas on the `and's, two drums, the high one answering.
+chain congas {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = ". . G3 . . . C4 . . . G3 . C4 . C4 .";
+        period = 0.25 beats;  hold = 0.15 beats;  vel = 96;
+    };
+    sink { instrument = congas; };
+};
+
+chain tamb {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A5";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 54;
+    };
+    stage a xform::accent {
+        pattern = "..x.";  grid = 0.25 beats;
+        strong = 1.35;  weak = 0.8;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    stage c xform::chance { prob = 0.94; };
+    sink { instrument = tamb; };
+};
+
+# ---- the chords -------------------------------------------------------
+
+# Cmaj7, Am7, Dm7, G7: four roots, two bars each, a cycle emitted at
+# its start. Every chain below carries the ring.
+
+# The bass: root, fifth, the octave, a walk into the next chord.
+chain bass {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  ahead = 1;
+        notes = "C3 A2 D3 G2";
+        period = 8 beats;  hold = 7.9 beats;  vel = 92;
+    };
+    stage b xform::bassline {
+        scale = cmaj;
+        pattern = "r_..f_..r_..o.f.r_..f_..r.t.f.o.";
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 92;
+        octave = -1;  pass = 0;
+    };
+    sink { instrument = bass; };
+};
+
+# The Rhodes: sevenths, voice-led, on the `and' of two and on four.
+chain rhodes {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  ahead = 1;
+        notes = "C3 A2 D3 G2";
+        period = 8 beats;  hold = 7.9 beats;  vel = 68;
+    };
+    stage b xform::bassline {
+        scale = cmaj;
+        pattern = "...r..r....r..r.";
+        step = 0.5 beats;  hold = 0.9 beats;  vel = 68;
+        octave = 1;  pass = 0;
+    };
+    stage h xform::harmonize {
+        scale = cmaj;
+        voices = 4;  step = 2;
+        spread = 0.012 s;  taper = 0.9;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = rhodes; };
+};
+
+# The organ: the chord held, an octave up, under the Leslie.
+chain organ {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  ahead = 1;
+        notes = "C3 A2 D3 G2";
+        period = 8 beats;  hold = 7.8 beats;  vel = 60;
+    };
+    stage h xform::harmonize {
+        scale = cmaj;
+        voices = 3;  step = 2;
+        spread = 0 s;  taper = 1;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = organ; };
+};
+
+# The rotor: one value a bar for the whole arrangement, 0 slow, 1 fast.
+chain rotor {
+    stage src gen::steps {
+        values = "0 _ _ _ _ _ _ _  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  0 _ _ _ _ _ _ _  1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _";
+        period = 4 beats;  min = 0;  max = 1;
+    };
+    sink { instrument = organ; chanarg = "fx.speed"; };
+};
+
+# The section: sevenths, voice-led, and a run into one chord in four.
+chain section {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  ahead = 1;
+        notes = "C4 A3 D4 G3";
+        period = 8 beats;  hold = 7.6 beats;  vel = 66;
+    };
+    stage r xform::run {
+        scale = cmaj;  steps = 7;  time = 1 beats;  prob = @runs;  vel = 56;
+    };
+    stage h xform::harmonize {
+        scale = cmaj;
+        voices = 4;  step = 2;
+        spread = 0.03 s;  taper = 0.85;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = section; };
+};
+
+# The same section with a run into every chord: the chorus's strings.
+# The arrangement plays one chain or the other, never both.
+chain section_runs {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  ahead = 1;
+        notes = "C4 A3 D4 G3";
+        period = 8 beats;  hold = 7.6 beats;  vel = 70;
+    };
+    stage r xform::run {
+        scale = cmaj;  steps = 7;  time = 1 beats;  prob = 1;  vel = 60;
+    };
+    stage h xform::harmonize {
+        scale = cmaj;
+        voices = 4;  step = 2;
+        spread = 0.03 s;  taper = 0.85;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = section; };
+};
+
+# The horns: one figure every two bars, in triads, the top voice
+# leading, and the fall on every release.
+chain horns {
+    stage src gen::euclid {
+        steps = 32;  fills = 32;  rotate = 0;
+        notes = ". . . . . . . . . . . . E4 . G4 .  . . . . A4 . . . . . . . . . . .   . . . . . . . . . . . . E4 . E4 .  . . . . D4 . . . . . . . . . . .   . . . . . . . . . . . . F4 . F4 .  . . . . E4 . . . . . . . . . . .   . . . . . . . . . . . . D4 . F4 .  . . . . G4 . . . . . . . . . . .";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 100;
+    };
+    stage h xform::harmonize {
+        scale = cmaj;
+        voices = 3;  step = 2;
+        spread = 0.008 s;  taper = 0.8;
+        root = 1;  below = 1;
+        lead = 0;  span = 12;
+    };
+    sink { instrument = horns; };
+};

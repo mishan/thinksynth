@@ -1,0 +1,464 @@
+# mirrorball.gen -- two chords, a guitar that mutes more than it plays,
+# and a bass that walks the octave.
+#
+# The Chic sound, at a hundred and sixteen. Am7 to D7 for sixty-four
+# bars -- A Dorian, which is the mode the vamp lives in -- under a
+# rhythm guitar scratching sixteenths, a fingered bass on the octave,
+# a drummer with the hat open on the `and', a string section that
+# slides up into every eighth bar, and a Rhodes comping sevenths on two
+# and four through a phaser. The claps arrive in the breakdown, where
+# everything else leaves.
+#
+# THE GUITAR IS A STRING, and the part is the mute. guitar.dsp is a
+# noise burst into a damped delay line -- a plucked string, in the
+# Karplus-Strong sense -- and `mute' is how long the string is allowed
+# to ring, which is the palm on the bridge. The part is sixteenths with
+# the downbeats mostly left out, and it is written in two stages: a
+# bassline pattern turns each chord's root into the rhythm, and a
+# harmonizer spells a triad on every hit with `spread' a few
+# milliseconds so the three strings are struck one after another. That
+# is a strum. The accent stage leans on the `and' of two and four,
+# which is where a guitarist's wrist comes down.
+#
+# THE BASS IS A STRING TOO, and slides where notes touch: ebass.dsp is
+# monophonic with a short glide, so the pattern's `o' after an `r'
+# with no rest between is a hammer-on and not a second pluck. The
+# pattern is two bars long because the chord is, and the octave lands
+# on the `and' of four, which is the whole of the genre's bass in one
+# step.
+#
+# THE CHORDS COME FROM ONE RING, EMITTED AHEAD. gen::euclid with
+# `ahead = 1' puts out a whole cycle at its start, every note dated in
+# the future, which is what lets xform::run place a pickup before the
+# chord it leads to. Five chains carry the ring: the guitar, the bass,
+# the Rhodes, the section, and the swoop. The section's run climbs
+# five scale degrees into half its chords.
+#
+# THE HAT IS A PAIR OF CYMBALS AND A FOOT. Closed on the beats, open
+# on the `and's, on one channel with `choke = 1', so each open hat is
+# ended by the closed one after it. A tambourine carries the
+# sixteenths.
+#
+# THE SWOOP is the section's octave slide, on a channel of its own
+# because the slide is per note. Its chain starts on beat twenty-nine
+# and fires every thirty-two, so it lands on the downbeat of every
+# eighth bar.
+#
+# A level in a section scales velocity, and on this kit velocity is
+# the pedal, so the hats are muted or left alone and the numbers under
+# one sit on the strings and the Rhodes.
+#
+# The tambourine's chance, the section's runs and the snare's ratchet
+# roll dice; the seed is pinned for them. Self-contained: open it and
+# press Play.
+
+name "Mirrorball";
+author "Misha Nasledov";
+description "Chic: a palm-muted guitar in sixteenths, a fingered bass on the octave, a choked hat, and a string section sliding into every eighth bar over a two-chord vamp.";
+category "Disco";
+
+tempo 116;
+seed 1978;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro  8 bars { kick = 0;  snare = 0;  hats_open = 0;  tamb = 0;
+                        clap = 0;  bass = 0;  rhodes = 0;  section = 0;
+                        swoop = 0; };
+section groove 16 bars { clap = 0;  section = 0.7; };
+section break   8 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
+                         tamb = 0;  rhodes = 0;  section = 0;  swoop = 0; };
+section full   24 bars { clap = 0;  rhodes = 1.1; };
+section out     8 bars { snare = 0;  clap = 0;  hats_open = 0;  rhodes = 0;
+                         swoop = 0;  section = 0.8; };
+section end;
+
+# How hard the guitarist's palm sits on the strings.
+@palm = 0.35;
+@palm.widget = 1;
+@palm.min = 0.1;
+@palm.max = 1;
+@palm.label = "Palm Mute";
+
+# How far the phaser swings on the Rhodes.
+@swirl = 1.4;
+@swirl.widget = 1;
+@swirl.min = 0;
+@swirl.max = 3;
+@swirl.label = "Swirl";
+
+scale ador "A2 B2 C3 D3 E3 F#3 G3";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 1.3;
+    ceiling = 0.85;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kit_kick.dsp";
+    amp  = 24;
+
+    tune = 55;
+    sweep = 30 ms;
+    decay = 260 ms;
+    shell = 80;
+    body = 0.5;
+    beater = 0.45;
+    click = 2600;
+    drive = 1.6;
+};
+
+# The snare, and the plate its channel sits in.
+instrument snare {
+    dsp  "kit_snare.dsp";
+    amp  = 22;
+
+    tune = 185;
+    ratio = 1.5;
+    sd = 140 ms;
+    head = 2.1;
+    hd = 60 ms;
+    snare = 1900;
+    wires = 0.7;
+    wd = 170 ms;
+    ghost = 0.6;
+
+    effect "fx/plate.dsp" {
+        predelay = 24 ms;
+        decay = 0.8;
+        size = 1;
+        damping = 6200;
+        diffuse = 190;
+        mix = 0.22;
+    };
+};
+
+instrument hat {
+    dsp  "kit_hat.dsp";
+    amp  = 16;
+
+    freq = 760;
+    pmul = 1.41;
+    spread = 290;
+    tone = 8200;
+    air = 0.55;
+    sizzle = 1.6;
+    clen = 55 ms;
+    olen = 380 ms;
+    pedal = 12 ms;
+};
+
+instrument tamb {
+    dsp  "tambourine.dsp";
+    amp  = 8;
+
+    freq = 1700;
+    pmul = 1.31;
+    spread = 480;
+    offset = 1.19;
+    decay = 120 ms;
+    shake = 2.4;
+    slap = 0.5;
+    tone = 4200;
+};
+
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 26;
+
+    color = 1;
+    tone = 1300;
+    res = 0.6;
+    flutter = 90;
+    front = 30 ms;
+    tail = 170 ms;
+    body = 0.6;
+};
+
+# The guitar: a string with the palm on it.
+instrument guitar {
+    dsp  "guitar.dsp";
+    amp  = 30;
+
+    pluck = 2 ms;
+    pick = 900;
+    decay = 1.2;
+    mute = @palm;
+    tone = 0.62;
+    bright = 0.3;
+    cutoff = 3600;
+    drive = 1.4;
+    a = 1 ms;
+    r = 100 ms;
+};
+
+# The bass: one voice, a short glide, a finger on the string.
+instrument bass {
+    dsp  "ebass.dsp";
+    amp  = 40;
+
+    glide = 40 ms;
+    pluck = 5 ms;
+    finger = 80;
+    decay = 2.5;
+    mute = 0.8;
+    tone = 0.55;
+    bright = 0.3;
+    cutoff = 2200;
+    drive = 1.8;
+    a = 1 ms;
+    r = 100 ms;
+};
+
+# The Rhodes, and the phaser on its channel.
+instrument rhodes {
+    dsp  "rhodes.dsp";
+    amp  = 14;
+
+    bark = 2.6;
+    bd = 180 ms;
+    bar = 0.35;
+    bard = 320 ms;
+    decay = 2200 ms;
+    spread = 1;
+    rate = 5.2;
+    depth = 0.5;
+    a = 3 ms;
+    r = 320 ms;
+
+    effect "fx/phaser.dsp" {
+        centre = 600;
+        sweep = @swirl;
+        rate = 0.3;
+        mix = 0.5;
+    };
+};
+
+instrument section {
+    dsp  "section.dsp";
+    amp  = 22;
+
+    detune = 9;
+    cutoff = 380;
+    depth = 2600;
+    res = 0.15;
+    vrate = 5.4;
+    vdepth = 22;
+    vdelay = 400 ms;
+    vrise = 500 ms;
+    swoop = 0;
+    width = 0.6;
+    a = 240 ms;
+    d = 400 ms;
+    s = 0.85;
+    r = 700 ms;
+
+    effect "fx/hall.dsp" {
+        decay = 0.8;
+        size = 1.3;
+        damping = 3400;
+        mix = 0.25;
+    };
+};
+
+# The same graph with the slide on.
+instrument swoop {
+    dsp  "section.dsp";
+    amp  = 30;
+
+    detune = 12;
+    cutoff = 500;
+    depth = 3000;
+    res = 0.15;
+    vrate = 5.4;
+    vdepth = 18;
+    vdelay = 1500 ms;
+    vrise = 400 ms;
+    swoop = 12;
+    swoopt = 1400 ms;
+    width = 0.7;
+    a = 300 ms;
+    d = 400 ms;
+    s = 0.9;
+    r = 900 ms;
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 110;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 102;
+    };
+    stage r xform::ratchet { count = 3;  prob = 0.06;  decay = 0.8; };
+    sink { instrument = snare; };
+};
+
+# Closed on the beats.
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 0;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 50;
+    };
+    sink { instrument = hat; };
+};
+
+# Open on the `and's.
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 114;
+    };
+    sink { instrument = hat; };
+};
+
+# Sixteenths on the tambourine, the offbeat eighths leaned on.
+chain tamb {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A5";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 58;
+    };
+    stage a xform::accent {
+        pattern = "..x.";  grid = 0.25 beats;
+        strong = 1.35;  weak = 0.8;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    stage c xform::chance { prob = 0.94; };
+    sink { instrument = tamb; };
+};
+
+# Two and four, in the break.
+chain clap {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 104;
+    };
+    sink { instrument = clap; };
+};
+
+# ---- the vamp ---------------------------------------------------------
+
+# The two chords, two bars each, one cycle emitted at its start.
+
+# The guitar: the root becomes the rhythm, the rhythm becomes strums.
+chain guitar {
+    stage src gen::euclid {
+        steps = 2;  fills = 2;  rotate = 0;  ahead = 1;
+        notes = "A3 D4";
+        period = 8 beats;  hold = 7.9 beats;  vel = 90;
+    };
+    stage b xform::bassline {
+        scale = ador;
+        pattern = ".rr.r.rr.r.r.rr..rr.r.rr.r.rr.r.";
+        step = 0.25 beats;  hold = 0.12 beats;  vel = 88;
+        octave = 0;  pass = 0;
+    };
+    stage h xform::harmonize {
+        scale = ador;
+        voices = 3;  step = 2;
+        spread = 0.012 s;  taper = 0.9;
+        root = 1;  below = 0;
+        lead = 0;  span = 12;
+    };
+    stage a xform::accent {
+        pattern = "......x.......x.";  grid = 0.25 beats;
+        strong = 1.25;  weak = 0.85;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    sink { instrument = guitar; };
+};
+
+# The bass: two bars under each chord, the octave on the `and' of four.
+chain bass {
+    stage src gen::euclid {
+        steps = 2;  fills = 2;  rotate = 0;  ahead = 1;
+        notes = "A3 D4";
+        period = 8 beats;  hold = 7.9 beats;  vel = 96;
+    };
+    stage b xform::bassline {
+        scale = ador;
+        pattern = "r.r.ro.r.r.rr.o_r.r.ro.r.f.tro._";
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 96;
+        octave = -2;  pass = 0;
+    };
+    stage a xform::accent {
+        pattern = "x...";  grid = 0.25 beats;
+        strong = 1.15;  weak = 0.9;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    sink { instrument = bass; };
+};
+
+# The Rhodes: sevenths on two and four.
+chain rhodes {
+    stage src gen::euclid {
+        steps = 2;  fills = 2;  rotate = 0;  ahead = 1;
+        notes = "A3 D4";
+        period = 8 beats;  hold = 7.9 beats;  vel = 70;
+    };
+    stage b xform::bassline {
+        scale = ador;
+        pattern = ".r.r.r.r";
+        step = 1 beats;  hold = 0.6 beats;  vel = 70;
+        octave = 0;  pass = 0;
+    };
+    stage h xform::harmonize {
+        scale = ador;
+        voices = 4;  step = 2;
+        spread = 0.01 s;  taper = 0.9;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = rhodes; };
+};
+
+# The section: a triad over each chord, a run into half of them.
+chain section {
+    stage src gen::euclid {
+        steps = 2;  fills = 2;  rotate = 0;  ahead = 1;
+        notes = "A3 D4";
+        period = 8 beats;  hold = 7.6 beats;  vel = 68;
+    };
+    stage r xform::run {
+        scale = ador;  steps = 5;  time = 1 beats;  prob = 0.5;  vel = 58;
+    };
+    stage h xform::harmonize {
+        scale = ador;
+        voices = 3;  step = 2;
+        spread = 0.03 s;  taper = 0.85;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = section; };
+};
+
+# The slide into every eighth bar: three beats early, every thirty-two.
+chain swoop {
+    start = 29 beats;
+    stage src gen::euclid {
+        steps = 1;  fills = 1;  rotate = 0;
+        notes = "A4";
+        period = 32 beats;  hold = 8 beats;  vel = 92;
+    };
+    sink { instrument = swoop; };
+};

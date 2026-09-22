@@ -1,0 +1,510 @@
+# sunrise.gen -- a sequence in C, a drummer, and the filter opening
+# over the first twenty-four bars.
+#
+# Moroder, at a hundred and twenty-two. A Moog line that alternates root
+# and octave in sixteenths and does not stop for seventy-two bars, an
+# acoustic kit under it, a Solina and a string section holding the
+# chords together, a pulse arpeggio thrown into a delay, and one filter
+# on the bass that a hand takes from closed to open across the intro and
+# the rise -- which is the whole first minute of the piece, and the
+# reason for its name.
+#
+# THE FILTER IS ON THE CHANNEL AND NOT IN THE INSTRUMENT. bass.dsp has
+# a filter of its own with an envelope behind it, and that one belongs
+# to the note: it snaps open and shuts on every sixteenth, which is the
+# pluck. The sweep belongs to the bar. fx/filter.dsp is a second filter
+# on the channel's sum, driven by nothing but a chanarg, and gen::steps
+# walks that chanarg through a row of seventy-two values, one a bar,
+# shaped to the arrangement below: shut through the intro and the lift,
+# opening across the rise, wide open for the main, shut again and reopening
+# through the break, open for the drop, and closing over the outro. The
+# row is the piece's shape drawn as a curve; the `section' list is the
+# same shape drawn as gates. A walk wobbles the filter's resonance under
+# the row so the hand is not perfectly steady.
+#
+# THE HAT IS A PAIR OF CYMBALS AND A FOOT. kit_hat.dsp carries
+# `choke = 1', so a closed hat ends the open one that is sounding, and
+# the two chains here are written the way the foot plays: closed on the
+# beats, open on the `and's, each open hat cut by the closed one that
+# follows. That is the disco hat. A shaker carries the sixteenths
+# instead, with the beats leaned on, because a sixteenth-note closed
+# hat would choke every open one a sixteenth after it opened.
+#
+# ONE PROGRESSION, FOUR CHAINS, NO MESSAGES. Sixteen bars of chords --
+# C, C, Bb, F, C, C, Dm, G -- are one gen::lsystem axiom over a
+# five-note ladder, and four chains carry the same axiom: the Solina
+# spells triads over it, the section spells them voice-led with a
+# pickup run into half of them, the pulse spells them and arpeggiates,
+# and the bass turns each root into two bars of the octave figure. The
+# whole sixteen-bar phrase is emitted at once, which is what lets
+# xform::run place a pickup *before* a chord: a stage that only heard
+# the chord as it started would have nowhere to put the run.
+#
+# THE SWOOP is section.dsp's per-note slide, an octave over a second
+# and a half, on its own channel because the graph is polyphonic and a
+# slide per note is not a portamento between two. One chain fires it
+# three beats before the main and three beats before the drop: it starts at
+# beat ninety-three and repeats every ninety-six beats.
+#
+# The tape echo is on the clap, a dotted eighth with wow on it; the
+# pulse throws into a cleaner one. A limiter holds the sum.
+#
+# The shaker's chance, the snare's ratchet and the section's runs roll
+# dice; the seed is pinned for them. Self-contained: open it and press Play.
+
+name "Sunrise";
+author "Misha Nasledov";
+description "Moroder: an octave sequence in sixteenths, an acoustic kit with a choked hat, strings and a section on one progression, and a filter sweep shaped to the arrangement.";
+category "Disco";
+
+tempo 122;
+seed 1977;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+#
+# A level here scales velocity, and on this kit velocity is the pedal
+# and on the bass it is the accent: so the hats and the bass are muted
+# or left alone, never scaled, and the numbers under 1 sit on the
+# strings and the pulse, where velocity is only how loud.
+
+section intro  4 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
+                        shaker = 0;  clap = 0;  strings = 0;  section = 0;
+                        swoop = 0;  pulse = 0; };
+section lift   4 bars { kick = 0;  snare = 0;  hats_open = 0;  shaker = 0;
+                        clap = 0;  strings = 0;  section = 0;  swoop = 0;
+                        pulse = 0; };
+section rise  16 bars { snare = 0;  clap = 0;  section = 0;
+                        strings = 0.7;  pulse = 0.8; };
+section main  16 bars { clap = 0; };
+section break  8 bars { kick = 0;  snare = 0;  hats_open = 0;  shaker = 0;
+                        clap = 0;  pulse = 0; };
+section drop  16 bars { section = 1.1; };
+section outro  8 bars { snare = 0;  clap = 0;  hats_open = 0;  section = 0;
+                        swoop = 0;  pulse = 0;  strings = 0.7;  kick = 0.85; };
+section end;
+
+# Where the sweep lands when the row says 1, in hertz.
+@top = 5000;
+@top.widget = 1;
+@top.min = 800;
+@top.max = 9000;
+@top.label = "Sweep Top";
+@top.units = "Hz";
+
+# How much of the pulse comes back from its delay.
+@throw = 0.3;
+@throw.widget = 1;
+@throw.min = 0;
+@throw.max = 0.6;
+@throw.label = "Throw";
+
+# C Mixolydian, for the chords, and the five roots as a ladder.
+scale cmix  "C3 D3 E3 F3 G3 A3 Bb3";
+scale roots "Bb2 C3 D3 F3 G3";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 1.3;
+    ceiling = 0.85;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kit_kick.dsp";
+    amp  = 30;
+
+    tune = 52;
+    sweep = 30 ms;
+    decay = 240 ms;
+    shell = 80;
+    body = 0.5;
+    beater = 0.5;
+    click = 2600;
+    drive = 1.6;
+};
+
+instrument snare {
+    dsp  "kit_snare.dsp";
+    amp  = 22;
+
+    tune = 185;
+    ratio = 1.5;
+    sd = 130 ms;
+    head = 2.1;
+    hd = 60 ms;
+    snare = 1900;
+    wires = 0.7;
+    wd = 160 ms;
+    ghost = 0.6;
+};
+
+# One channel, closed and open by velocity, the open one choked by the
+# closed one after it.
+instrument hat {
+    dsp  "kit_hat.dsp";
+    amp  = 16;
+
+    freq = 760;
+    pmul = 1.41;
+    spread = 290;
+    tone = 8200;
+    air = 0.55;
+    sizzle = 1.6;
+    clen = 55 ms;
+    olen = 420 ms;
+    pedal = 12 ms;
+};
+
+instrument shaker {
+    dsp  "shaker.dsp";
+    amp  = 9;
+
+    tone = 5200;
+    lift = 3200;
+    res = 0.65;
+    a = 6 ms;
+    d = 60 ms;
+    body = 0.25;
+};
+
+# The clap, and the tape its channel prints to: a dotted eighth at this
+# tempo, with wow.
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 30;
+
+    color = 1;
+    tone = 1300;
+    res = 0.6;
+    flutter = 90;
+    front = 30 ms;
+    tail = 160 ms;
+    body = 0.6;
+
+    effect "fx/tape.dsp" {
+        delay = 369 ms;
+        spread = 1.5;
+        feedback = 0.4;
+        wow = 3;
+        rate = 0.6;
+        drive = 2.2;
+        tone = 3000;
+        mix = 0.35;
+    };
+};
+
+# The sequence. No glide: every sixteenth is struck, since hold is
+# shorter than step. Its own filter is the pluck; the sweep is the
+# channel's.
+instrument bass {
+    dsp  "bass.dsp";
+    amp  = 20;
+
+    glide = 0 ms;
+    sub = 0.25;
+    cutoff = 380;
+    depth = 1600;
+    res = 0.6;
+    accent = 0.72;
+    accdepth = 2000;
+    accres = 0.15;
+    drive = 2;
+
+    fa = 1 ms;
+    fd = 120 ms;
+    fs = 0.15;
+    fr = 80 ms;
+
+    a = 1 ms;
+    d = 200 ms;
+    s = 0.5;
+    r = 80 ms;
+
+    # The hand on the knob. `cutoff' is the sweep row's, `res' the walk's.
+    effect "fx/filter.dsp" {
+        cutoff = 140;
+        res = 0.55;
+        mode = 0;
+        mix = 1;
+    };
+};
+
+# The Solina: chorus inside the voice, nothing on the channel.
+instrument strings {
+    dsp  "strings.dsp";
+    amp  = 15;
+
+    detune = 7;
+    cutoff = 3000;
+    res = 0.15;
+    ensemble = 0.6;
+    a = 320 ms;
+    d = 600 ms;
+    s = 0.8;
+    r = 900 ms;
+};
+
+# The section: a bow that takes time, vibrato that arrives late.
+instrument section {
+    dsp  "section.dsp";
+    amp  = 18;
+
+    detune = 9;
+    cutoff = 380;
+    depth = 2600;
+    res = 0.15;
+    vrate = 5.4;
+    vdepth = 22;
+    vdelay = 400 ms;
+    vrise = 500 ms;
+    swoop = 0;
+    width = 0.6;
+    a = 240 ms;
+    d = 400 ms;
+    s = 0.85;
+    r = 700 ms;
+
+    effect "fx/hall.dsp" {
+        decay = 0.8;
+        size = 1.3;
+        damping = 3400;
+        mix = 0.25;
+    };
+};
+
+# The same graph with the slide on: an octave up, over a second and a
+# half, into every note it is handed.
+instrument swoop {
+    dsp  "section.dsp";
+    amp  = 24;
+
+    detune = 12;
+    cutoff = 500;
+    depth = 3000;
+    res = 0.15;
+    vrate = 5.4;
+    vdepth = 18;
+    vdelay = 1500 ms;
+    vrise = 400 ms;
+    swoop = 12;
+    swoopt = 1500 ms;
+    width = 0.7;
+    a = 300 ms;
+    d = 400 ms;
+    s = 0.9;
+    r = 900 ms;
+};
+
+# The pulse, and the delay its channel throws into.
+instrument pulse {
+    dsp  "pluck.dsp";
+    amp  = 12;
+
+    effect "fx/echo.dsp" {
+        delay = 369 ms;
+        spread = 1.5;
+        feedback = 0.35;
+        damping = 3200;
+        mix = @throw;
+    };
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 112;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 104;
+    };
+    stage r xform::ratchet { count = 3;  prob = 0.06;  decay = 0.8; };
+    sink { instrument = snare; };
+};
+
+# Closed on the beats.
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 0;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 52;
+    };
+    sink { instrument = hat; };
+};
+
+# Open on the `and's; the closed hat on the next beat chokes each one.
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 116;
+    };
+    sink { instrument = hat; };
+};
+
+# Sixteenths, the beats leaned on, one in fourteen missing.
+chain shaker {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A4";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 62;
+    };
+    stage a xform::accent {
+        pattern = "x...";  grid = 0.25 beats;
+        strong = 1.3;  weak = 0.8;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    stage c xform::chance { prob = 0.93; };
+    sink { instrument = shaker; };
+};
+
+# Two and four, in the drop only: the tape comes in with it.
+chain clap {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 100;
+    };
+    sink { instrument = clap; };
+};
+
+# ---- the sequence -----------------------------------------------------
+
+# The sixteen bars of roots, a chord every two bars, as a turtle on the
+# five-note ladder: C C Bb F C C D G. Every chord chain below carries
+# this axiom.
+chain bass {
+    stage src gen::lsystem {
+        axiom = "+F F -F +++F --F F +F ++F";
+        rules = "";
+        depth = 0;
+        notes = roots;
+        step = 8 beats;  hold = 7.9 beats;  vel = 100;
+    };
+    # Two bars of root and octave in sixteenths under each root, with a
+    # turn on the last beat. Hold under step: struck, not slid.
+    stage b xform::bassline {
+        scale = cmix;
+        pattern = "rorororororororororororororofoto";
+        step = 0.25 beats;  hold = 0.18 beats;  vel = 100;
+        octave = -1;  pass = 0;
+    };
+    # The beat leaned on, over bass.dsp's accent threshold, so it opens
+    # the filter and not only the volume.
+    stage a xform::accent {
+        pattern = "x...";  grid = 0.25 beats;
+        strong = 1.2;  weak = 0.85;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    sink { instrument = bass; };
+};
+
+# The hand on the filter: seventy-two values, one a bar, in the shape
+# of the arrangement. `_' holds the last.
+chain sweep {
+    stage src gen::steps {
+        values = "0.02 0.03 0.04 0.06 0.08 0.1 0.13 0.16  0.18 0.2 0.22 0.25 0.28 0.31 0.35 0.4 0.45 0.5 0.55 0.6 0.66 0.74 0.85 1  1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  0.3 0.32 0.36 0.42 0.5 0.6 0.75 0.9  1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  0.7 0.5 0.35 0.25 0.18 0.12 0.08 0.05";
+        period = 4 beats;  min = 80;  max = @top;
+    };
+    sink { instrument = bass; chanarg = "fx.cutoff"; };
+};
+
+# And the hand is not steady: the resonance wanders under the row.
+chain wobble {
+    stage src gen::walk {
+        min = 0.35;  max = 0.7;  step = 0.05;  period = 2 beats;
+    };
+    sink { instrument = bass; chanarg = "fx.res"; };
+};
+
+# ---- the chords -------------------------------------------------------
+
+# The Solina: triads over every root, voice-led.
+chain strings {
+    stage src gen::lsystem {
+        axiom = "+F F -F +++F --F F +F ++F";
+        rules = "";
+        depth = 0;
+        notes = roots;
+        step = 8 beats;  hold = 7.8 beats;  vel = 66;
+    };
+    stage h xform::harmonize {
+        scale = cmix;
+        voices = 3;  step = 2;
+        spread = 0.02 s;  taper = 0.9;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = strings; };
+};
+
+# The section: half the chords get a run up the scale into them, a
+# beat long, and the harmonizer spells the run as chords too -- a
+# section sweeping up in parallel, which is what a section does.
+chain section {
+    stage src gen::lsystem {
+        axiom = "+F F -F +++F --F F +F ++F";
+        rules = "";
+        depth = 0;
+        notes = roots;
+        step = 8 beats;  hold = 7.6 beats;  vel = 70;
+    };
+    stage r xform::run {
+        scale = cmix;  steps = 5;  time = 1 beats;  prob = 0.5;  vel = 60;
+    };
+    stage h xform::harmonize {
+        scale = cmix;
+        voices = 3;  step = 2;
+        spread = 0.03 s;  taper = 0.85;
+        root = 1;  below = 0;
+        lead = 1;  span = 7;
+    };
+    sink { instrument = section; };
+};
+
+# The slide into the main and into the drop, three beats before each.
+chain swoop {
+    start = 93 beats;
+    stage src gen::euclid {
+        steps = 1;  fills = 1;
+        notes = "C4";
+        period = 96 beats;  hold = 9 beats;  vel = 96;
+    };
+    sink { instrument = swoop; };
+};
+
+# The pulse: the chords, arpeggiated up over two octaves in eighths.
+chain pulse {
+    stage src gen::lsystem {
+        axiom = "+F F -F +++F --F F +F ++F";
+        rules = "";
+        depth = 0;
+        notes = roots;
+        step = 8 beats;  hold = 7.9 beats;  vel = 72;
+    };
+    stage h xform::harmonize {
+        scale = cmix;
+        voices = 3;  step = 2;
+        spread = 0 s;  taper = 1;
+        root = 1;  below = 0;
+        lead = 0;  span = 12;
+    };
+    stage a gen::arp {
+        pattern = 0;  octaves = 2;
+        period = 0.5 beats;  hold = 0.2 beats;
+        vel = 0;  pass = 0;
+    };
+    sink { instrument = pulse; };
+};
