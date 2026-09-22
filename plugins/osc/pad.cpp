@@ -63,10 +63,11 @@
  * not ask for a new one every window. A sweep changes the next note. At most PAD_TABLES tables are kept per synth; a new one past that
  * replaces the one used longest ago.
  *
- * DETERMINISTIC. The phases come from a fixed seed, drawn by a
- * generator whose sequence is fixed by the standard (std::mt19937) and
- * turned into a phase by hand rather than by a distribution, whose
- * spelling is not. The same params make the same table on every host.
+ * DETERMINISTIC. The phases come from a fixed seed through splitmix64,
+ * written out below, and are turned into radians by hand: the same params
+ * make the same table on every host. Not <random>: the browser build
+ * compiles each plugin inside a namespace of its own, and a standard
+ * header first included from inside one does not survive it.
  *
  * `out2' reads the same table 0.38 of its length away, which is a
  * different stretch of the same noise-like wave: the same pad,
@@ -85,10 +86,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 
 #include <atomic>
 #include <map>
-#include <random>
 #include <vector>
 
 #include "think.h"
@@ -164,6 +165,18 @@ static PadSlot *padSlotFor (const thPlugin *plugin)
 
 /* The FFT. `re' and `im' are 2^m long; forward, in place, natural order
    out. See the head for where it comes from. */
+/* Steele, Lea and Flood's splitmix64: one 64-bit add and a mix, so the
+   phases are the same sequence on every compiler. */
+static uint64_t padDice (uint64_t &x)
+{
+    uint64_t z = (x += 0x9E3779B97F4A7C15ull);
+
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+
+    return z ^ (z >> 31);
+}
+
 static void padFft (std::vector<double> &re, std::vector<double> &im, int m)
 {
     const size_t n = (size_t)1 << m;
@@ -277,11 +290,12 @@ static bool padBuild (const PadKey &key, unsigned rate,
     }
 
     std::vector<double> re(PAD_LEN, 0.0), im(PAD_LEN, 0.0);
-    std::mt19937 dice(20260922u);
+    uint64_t dice = 20260922u;
 
     for (size_t k = 1; k < mag.size(); k++)
     {
-        const double phase = 2 * M_PI * (double)dice() / 4294967296.0;
+        const double phase = 2 * M_PI * (double)(padDice(dice) >> 11) /
+                             9007199254740992.0;
 
         /* The conjugate of what the inverse wants, so that the forward
            transform below is the inverse: conj(FFT(conj(X))) is N times
