@@ -201,6 +201,13 @@ using namespace std;
  * See thMidiNote::beginFade for why this is a ramp and not a release. */
 #define TH_VOICE_FADE_MS 3
 
+/* How long a transport stop takes to bring everything down -- every voice,
+ * its release included, and every effect's tail. Long enough that nothing
+ * clicks, which is what the steal ramp above does not have to be at the end
+ * of one voice among many and a stop does, since it is everything at once;
+ * short enough that a stop is a stop. See thSynth::silence. */
+#define TH_STOP_FADE_MS 25
+
 /* How many keys a mono channel remembers are down.
  *
  * MIDI has 128 pitches and the stack holds each at most once, so this cannot

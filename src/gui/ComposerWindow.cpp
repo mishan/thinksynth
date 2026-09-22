@@ -903,13 +903,16 @@ ComposerWindow::onPlay (void)
 void
 ComposerWindow::onPause (void)
 {
-    sched_->stop();
+    sched_->halt();
     updateTransportButtons();
 }
 
 void
 ComposerWindow::onRewind (void)
 {
+    /* Back to the top, and nothing from where it was left still ringing
+       into the start. */
+    sched_->halt();
     sched_->reset();
     updateTransportButtons();
 }

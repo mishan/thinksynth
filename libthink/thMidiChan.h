@@ -76,6 +76,14 @@ public:
 
     void clearAll (RetireQueue *retire);
 
+    /* Audio thread. Every voice down to nothing over `samples' -- the held
+     * ones, the releasing ones, and the ones already fading -- and the
+     * channel's effect with them (thChanEffect::fadeOut). The ramp is the
+     * steal's, only longer: the voices go into fading_ and are retired when
+     * it runs out. Afterwards the channel holds nothing and every key is up,
+     * as after clearAll, which is the cut this is the faded version of. */
+    void silence (int samples);
+
     /* `side' is the audio the channel's effect listens to besides this one's
        -- another channel's output, interleaved by `sidechannels', or NULL.
        Handed in rather than fetched because the channel knows nothing about

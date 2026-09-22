@@ -31,6 +31,7 @@ thChanEffect::thChanEffect (thSynthTree *tree, int channels, int windowlen,
     channels_ = 0;
     scratch_ = NULL;
     sideChan_ = sideChan;
+    fadelen_ = faderemaining_ = 0;
 
     for (int i = 0; i < TH_MAX_CHANNELS; i++)
     {
@@ -442,5 +443,71 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
             buf[j * step + c * hop] = src[j];
     }
 
+    /* A stop in progress: the ramp over what was just written, and once it
+       has run out the graph's memory wiped, so that what this window has
+       left and every window after is the graph starting from nothing. */
+    if (fadelen_ > 0)
+    {
+        for (int j = 0; j < windowlen; j++)
+        {
+            const int left = faderemaining_ - j;
+            const float gain = left > 0 ? (float)left / (float)fadelen_ : 0;
+
+            for (int c = 0; c < carried; c++)
+                buf[j * step + c * hop] *= gain;
+        }
+
+        faderemaining_ -= windowlen;
+
+        if (faderemaining_ <= 0)
+        {
+            clearState();
+            fadelen_ = faderemaining_ = 0;
+        }
+    }
+
     return true;
+}
+
+/* Audio thread. See the header. */
+void thChanEffect::fadeOut (int samples)
+{
+    /* A second stop while the first is fading must not lengthen it. */
+    if (fadelen_ > 0)
+        return;
+
+    fadelen_ = faderemaining_ = (samples > 0) ? samples : 1;
+}
+
+/* Audio thread. See fadeOut. The plugin says which of a node's args are
+   its memory -- ARG_STATE -- and those are the ones zeroed; inputs and
+   outputs are rewritten every window anyway. An arg a node never
+   allocated is skipped rather than made. */
+void thChanEffect::clearState (void)
+{
+    if (tree_ == NULL)
+        return;
+
+    const thSynthTree::NodeMap &nodes = tree_->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        thNode *node = i->second;
+        thPlugin *plugin = node ? node->plugin() : NULL;
+
+        if (plugin == NULL)
+            continue;
+
+        for (int a = 0; a < plugin->argCount(); a++)
+        {
+            if (plugin->getArgDir(a) != thPlugin::ARG_STATE)
+                continue;
+
+            thArg *arg = node->getArg(a);
+
+            if (arg != NULL && arg->values() != NULL && arg->len() > 0)
+                memset(arg->values(), 0, arg->len() * sizeof(float));
+        }
+    }
 }

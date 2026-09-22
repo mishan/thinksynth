@@ -776,6 +776,16 @@ public:
      * clocked composers survive tempo automation). */
     void   start (void);
     void   stop (void);          /* pause; sounding notes get their offs */
+
+    /* A person's Stop: stop(), and then everything that is still sounding
+     * -- the releases those offs began, and every effect's tail -- brought
+     * down in TH_STOP_FADE_MS (thSynth::silence). stop() alone lets a piece
+     * ring out, which is what the transport stopping itself at `section
+     * end' wants and a renderer relies on; a stop button that left a
+     * minute-long reverb and fifteen-second releases sounding was not a
+     * stop. The tape is the same either way: the offs are delivered as
+     * stop() delivers them. */
+    void   halt (void);
     void   reset (void);         /* rewind to 0 and reseed -- a replay   */
     void   setTempo (double bpm);
     double tempo (void) const { return tempo_; }

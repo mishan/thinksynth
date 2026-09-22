@@ -385,11 +385,15 @@ void applyDue (double start, int len)
                         originFrame_ = start;
                         break;
 
+                    /* The page's Stop: everything down in a few tens of
+                       milliseconds, not the releases and the reverbs let
+                       ring out -- see thcScheduler::halt. */
                     case TW_STOP:
-                        sched_->stop();
+                        sched_->halt();
                         break;
 
                     case TW_REWIND:
+                        sched_->halt();
                         sched_->reset();
                         dropStamped();
                         epoch_++;
@@ -464,7 +468,7 @@ void applyScheduled (const Scheduled &c)
     switch (c.op)
     {
         case TW_STOP:
-            sched_->stop();
+            sched_->halt();
             break;
 
         case TW_TEMPO:
