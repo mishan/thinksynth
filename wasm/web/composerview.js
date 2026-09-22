@@ -114,6 +114,12 @@ export function createComposerView ({ root = document, toMirror,
     /* True if the message was this view's. */
     const fromMirror = (m) =>
     {
+        /* Two canvases are drawn in the mirror now and both send `draw'.
+           The other one tags itself (rollview.js); everything untagged is
+           this one's, which is the composer view's by seniority. */
+        if (m.canvas !== undefined)
+            return false;
+
         switch (m.type)
         {
             case 'handle':

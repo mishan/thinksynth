@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH;DSPCATALOG;GENCATALOG" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;ROLLCANVAS;PANEL;PATCH;DSPCATALOG;GENCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -59,7 +59,7 @@ function(think_harness name)
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
   # asked for. The widget shell around it is gtkmm and comes in through
   # EXTRA, since a harness that wants a widget links GTKMM itself.
-  if(H_NODECANVAS OR H_COMPOSERCANVAS)
+  if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
     list(APPEND sources $<TARGET_OBJECTS:think_canvas>)
   endif()
 
@@ -69,6 +69,10 @@ function(think_harness name)
 
   if(H_COMPOSERCANVAS)
     list(APPEND sources $<TARGET_OBJECTS:think_composercanvas>)
+  endif()
+
+  if(H_ROLLCANVAS)
+    list(APPEND sources $<TARGET_OBJECTS:think_rollcanvas>)
   endif()
 
   add_executable(${name} ${sources})
@@ -93,7 +97,7 @@ function(think_harness name)
     target_link_libraries(${name} PRIVATE PkgConfig::GLIBMM)
   endif()
 
-  if(H_NODECANVAS OR H_COMPOSERCANVAS)
+  if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
     target_link_libraries(${name} PRIVATE PkgConfig::CAIROMM)
   endif()
 
@@ -257,8 +261,8 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # and the window brings one up the way the Patch Selector does. Linking it is
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
-think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS PATCH
-              GENCATALOG
+think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
+              PATCH GENCATALOG
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
@@ -267,6 +271,62 @@ think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS PATCH
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM)
+
+# The piano roll's drawing, with no window around it: that the future half is
+# drawn at all, that a gesture moves the view, and -- through `--dump' and
+# wasm/web/rollcheck.mjs -- that the browser's copy of the same class draws
+# the same list at the same frame.
+#
+# The one binary in this tree that does not link cairo. It links
+# cairo-canvas2d instead, which is the recorder the browser module draws
+# through, so what comes out of a draw here is the list of ops the other side
+# produces rather than pixels nothing can compare. RollCanvas.cpp and
+# CanvasContent.cpp are compiled again for it, with that directory ahead of
+# everything on the include path so <cairo.h> and <cairomm/context.h> resolve
+# to the stand-in; the object libraries next door are the same sources against
+# real cairomm, for the application.
+#
+# cairo-canvas2d comes from npm and lives under wasm/web/node_modules, which
+# the browser build takes it out of by path. So this is built where it is
+# there and skipped where it is not, with a line saying so: a native tree is
+# not required to have run `npm ci' to build the synth, and the gate that
+# needs this binary (.github/workflows/ci.yml, wasm-pieces) runs npm ci before
+# the native build for exactly this reason.
+set(CAIRO2D_DIR "${PROJECT_SOURCE_DIR}/wasm/web/node_modules/cairo-canvas2d")
+
+if(NOT EXISTS "${CAIRO2D_DIR}/cairo2d.cpp")
+  message(STATUS
+    "scripts: no cairo-canvas2d, so no rollcheck. Run `npm ci' in "
+    "wasm/web and configure again; nothing else here needs it.")
+else()
+  think_harness(rollcheck COMPOSERHOST
+                EXTRA "${PROJECT_SOURCE_DIR}/src/CanvasContent.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/RollCanvas.cpp"
+                      "${CAIRO2D_DIR}/cairo2d.cpp")
+
+  # BEFORE, and no PkgConfig::CAIROMM at all: the stand-in's cairo.h and
+  # cairomm/context.h are the ones these three files are to see, and the
+  # surest way to be sure of that is for the real ones not to be on the path.
+  target_include_directories(rollcheck BEFORE PRIVATE "${CAIRO2D_DIR}")
+
+  # gen/belfry.gen because the future half needs a piece that has one: its
+  # composers queue a phrase ahead rather than a note at a time, so there
+  # are scheduled notes on screen to the right of the now-line at any
+  # instant. Plenty of shipped pieces emit note by note and would pass
+  # every other check here while saying nothing about the half this roll
+  # was built for. Seeded, so the browser can be held against it
+  # (wasm/web/rollcheck.mjs).
+  #
+  # THINK_DSP_PATH for gencheck's reason: the piece carries its own
+  # instruments and an instrument that cannot be found is a piece that
+  # does not load.
+  add_test(NAME rollcheck
+           COMMAND rollcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                   "${PROJECT_SOURCE_DIR}/gen/belfry.gen")
+
+  set_tests_properties(rollcheck PROPERTIES
+      ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+endif()
 
 # What a parameter *is*: the plugin's declaration, the pass that carries it to
 # the control driving it, and the graph that draws the result. Builds its own

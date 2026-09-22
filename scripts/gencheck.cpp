@@ -5637,8 +5637,16 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
                 for (int i = 0; i < 20; i++)
                     sched.stepTransport(0.02);
 
-                sched.stop();
+                /* Listening stops before the transport does. A stop
+                   flushes every held note and says so -- an off per key
+                   on sigDelivered, which is how the roll learns a bar
+                   it is drawing has ended (thcScheduler::flushHeld).
+                   Those are real releases and nothing to do with the
+                   re-press this is about, and counting them would turn
+                   "nobody released the chord" into a statement about
+                   teardown. */
                 conn.disconnect();
+                sched.stop();
                 drainSynth();
 
                 if (offs == 0)

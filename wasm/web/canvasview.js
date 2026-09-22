@@ -38,6 +38,11 @@
  * sized in CSS pixels, its backing store is that times the ratio, and the
  * ratio is the first transform the replayer applies.
  *
+ * Three canvases use it now: the composer view, the node editor and the
+ * piano roll. What the roll asks of it that the other two do not is the
+ * bare wheel (`wheelZooms'), because it is the one whose drawing is always
+ * exactly its view and therefore has nothing to scroll.
+ *
  * `fitOnShow' is whether opening the view scales the drawing into it. The
  * composer view does, to its width. The node editor does not: a patch is
  * wide -- ts1 is 1888 pixels of graph -- so any fit into a page-width box
@@ -53,6 +58,7 @@ import { replay } from './replay.js';
    this rate. */
 export function createCanvasView ({ scroller, canvas, send,
                                     fitOnShow = true,
+                                    wheelZooms = false,
                                     onFrame = () => {} })
 {
     const ctx = canvas.getContext('2d');
@@ -140,6 +146,24 @@ export function createCanvasView ({ scroller, canvas, send,
     canvas.addEventListener('pointerup', release);
     canvas.addEventListener('pointercancel', release);
 
+    /* A double-click, as a press that says so.
+     *
+     * Its own listener because a pointer event's `detail' is 0 by
+     * specification -- the click count belongs to mouse events, and
+     * `pointerdown' carries none. So every press above arrives as the
+     * first one, and a content class that answers a double-click (the
+     * roll goes back to live, the composer canvas enlarges a stage)
+     * would never hear of one. The browser is what knows; this is it
+     * saying so, as the press-and-release pair the content already
+     * takes, because `dblclick' lands after the second pointerup and a
+     * press left unreleased is a drag nobody ended. */
+    canvas.addEventListener('dblclick', (e) =>
+    {
+        send({ type: 'press', ...at(e), button: e.button + 1, nPress: 2 });
+        send({ type: 'release', ...at(e), button: e.button + 1 });
+        e.preventDefault();
+    });
+
     canvas.addEventListener('keydown', (e) =>
     {
         if (e.key !== 'Escape')
@@ -150,10 +174,18 @@ export function createCanvasView ({ scroller, canvas, send,
     });
 
     /* Ctrl+wheel zooms, as it does on the desktop; a plain wheel scrolls,
-       which is the scroller's own business and not ours. */
+       which is the scroller's own business and not ours.
+     *
+       Unless there is nothing to scroll. The piano roll's drawing is
+       always exactly its view, so a bare wheel over it would scroll the
+       page out from under the thing being read -- and the desktop's roll
+       has always taken a bare wheel, for the same reason. `wheelZooms'
+       is that one difference, and the message is the same either way:
+       the content is told how much bigger to draw and decides what that
+       means to it. */
     canvas.addEventListener('wheel', (e) =>
     {
-        if (!e.ctrlKey)
+        if (!wheelZooms && !e.ctrlKey)
             return;
 
         send({ type: 'zoomBy', by: e.deltaY < 0 ? 1.1 : 1 / 1.1 });

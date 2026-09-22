@@ -2226,13 +2226,37 @@ thcScheduler::releaseHeld (int channel, int note)
     synth_->delNote(channel, note);
 }
 
+/* A flush ends every held note, and an ending is not only the synth's
+ * business. delNote silences the voice and tells nobody: the off a held
+ * note was promised never reaches sigDelivered, so anything keeping the
+ * note -- the roll's open bar, which grows to the now-line until a
+ * release names its end -- keeps it forever, and the roll's history can
+ * never prune past it. So the promise is kept here, at the transport
+ * time the flush happens, which is the honest end of a note nobody
+ * released.
+ *
+ * Popped before the emission, not after: a handler is entitled to ask
+ * the scheduler what it is holding, and by then the answer is already
+ * "not this one". */
 void
 thcScheduler::flushHeld (void)
 {
     while (!held_.empty())
     {
-        synth_->delNote(held_.back().channel, held_.back().note);
+        const NoteOff h = held_.back();
+        thcEvent off;
+
         held_.pop_back();
+        synth_->delNote(h.channel, h.note);
+
+        off.type            = THC_EV_NOTEOFF;
+        off.at              = transportNow_;
+        off.channel         = h.channel;
+        off.u.note.note     = h.note;
+        off.u.note.velocity = 0;
+        off.u.note.duration = 0;
+
+        sigDelivered.emit(off);
     }
 }
 

@@ -31,8 +31,9 @@
  * The pieces: room.js for the relay's room socket and the relay clock,
  * mesh.js for the data channels between peers, doc.js and editor.js for
  * the document, clock.js for the maps between the clocks, commands.js
- * for what crosses the wire, and host.js and roll.js as the solo page has
- * them. This file is the UI and the joins between them.
+ * for what crosses the wire, and host.js, rollview.js and composerview.js
+ * as the solo page has them. This file is the UI and the joins between
+ * them.
  */
 
 import { WebsocketProvider } from 'y-websocket';
@@ -53,7 +54,7 @@ import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import * as patch from './patch.js';
-import { Roll } from './roll.js';
+import { createRollView, showClock } from './rollview.js';
 import { Room } from './room.js';
 import { TapeDiff } from './tapediff.js';
 import { tapeLine } from '../tape.mjs';
@@ -98,6 +99,9 @@ let ctx = null;
 let synth = null;
 let audioClock = null;
 let transport = null;
+
+/* The piano roll, drawn by the mirror beside the scheduler whose future
+   half it shows (rollview.js). */
 let roll = null;
 
 /* The piece's picture, drawn by the mirror -- a second instance of the
@@ -411,7 +415,6 @@ async function loadFromDoc (seed = -1)
         aiming.failed.forEach(log);
     }
 
-    roll.clear();
     tapeText = '';
     piece = it.errors.length === 0 ? it : null;
 
@@ -668,7 +671,7 @@ function enable ()
 function tape (m)
 {
     diff.take('worklet', m);
-    roll.tape(m);
+    showClock($('clock'), m);
     nodes?.feed(m.probes);
     transport.report(m, performance.now());
     lateCount = m.late;
@@ -691,6 +694,9 @@ function tape (m)
 function fromMirror (m)
 {
     if (composer !== null && composer.fromMirror(m))
+        return;
+
+    if (roll !== null && roll.fromMirror(m))
         return;
 
     if (m.type === 'tape')
@@ -729,6 +735,20 @@ function showComposer (on)
     });
 
     composer.show(on);
+}
+
+/* The piano roll, on the same terms: made when it is first wanted, and
+   drawing only while somebody is looking at it. Nothing about it is a
+   command -- it reports what this peer's mirror composed, which is what
+   the tape comparison is about. */
+function showRoll (on)
+{
+    if (roll === null && (!on || synth === null))
+        return;
+
+    roll ??= createRollView({ toMirror: (m) => synth?.toMirror(m) });
+
+    roll.show(on);
 }
 
 function exportTape ()
@@ -891,6 +911,7 @@ async function start ()
                 1000);
 
     showComposer(panes.visible('composerview'));
+    showRoll(panes.visible('roll'));
 
     try
     {
@@ -942,7 +963,6 @@ function init ()
     $('room').value = params.get('room') ?? 'lobby';
     $('name').value = params.get('name') ?? '';
 
-    roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'), { onPress: press, onRelease: release });
     /* Who has the keyboard (keyfocus.js). The room page's code editor
        is a div full of text boxes rather than a <textarea>, so it is
@@ -1001,6 +1021,8 @@ function init ()
         {
             if (id === 'composerview')
                 showComposer(on);
+            else if (id === 'roll')
+                showRoll(on);
             else if (id === 'nodeview')
                 nodes?.show(on);
         },
@@ -1012,10 +1034,11 @@ function init ()
        the moment it reached the edge. */
     panes.overlay().append($('composerparams'), $('nodemenu'));
 
+    /* The numbers, once an animation frame and only when something
+       moved. The two canvases ask for their own frames (canvasview.js)
+       and stop asking while nobody is looking at them. */
     requestAnimationFrame(function frame ()
     {
-        roll.draw();
-
         if (numbersDirty)
             showNumbers();
 

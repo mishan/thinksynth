@@ -184,12 +184,23 @@ details { margin: 0.8em 0; }
 
 /* ---- the piece ---- */
 
+/* The piano roll: a canvasview (below) whose drawing is always exactly
+ * its view, so the two rules it adds to that one are a fixed height and
+ * no scrolling.
+ *
+ * Fixed and not `min-height' to a content-sized box, which is the trap
+ * .canvasview's own comment describes: the drawing here is sized to the
+ * box, so a box sized to the drawing would be a box fitting into its own
+ * last answer. And `hidden' rather than a scrollbar because there is
+ * nothing to scroll to -- the roll's x axis is time and a scroller
+ * around it would be a second, silent answer to where "now" is. */
 #roll
 {
-    width: 100%;
     height: 180px;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
     background: var(--panel);
-    display: block;
     margin: 0.8em 0;
 }
 

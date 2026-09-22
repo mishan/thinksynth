@@ -48,7 +48,8 @@ runs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           libgtkmm-4.0-dev libsigc++-3.0-dev
-        native="genwav dspedit panelcheck patchcheck dspcatalog gencheck"
+        native="genwav dspedit panelcheck patchcheck dspcatalog gencheck
+                rollcheck"
 
         for b in $native; do
           chmod +x "build/scripts/$b"
