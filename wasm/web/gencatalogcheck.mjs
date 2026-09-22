@@ -36,7 +36,7 @@
  * copy, and compares byte for byte.
  *
  * And the one thing a dump cannot say: that every shipped piece is filed
- * under one of gen/README.md's eight sections. scripts/gencheck fails a piece
+ * under one of gen/README.md's nine sections. scripts/gencheck fails a piece
  * that is not, which is the gate; this asks the page's own copy of the corpus
  * the same question, because what the page serves is a separate tree from
  * what the harness swept.
@@ -61,7 +61,7 @@ const harness = path.join(native, 'scripts', 'gencheck');
    the gate agrees with by construction would not be a second opinion. */
 const SECTIONS = [
     'Start here', 'Playing it yourself', 'Algorithms', 'Timbre as material',
-    'Pieces', 'Game music', 'The floor', 'The eighties',
+    'Pieces', 'Game music', 'The floor', 'The eighties', 'Disco',
 ];
 
 let failures = 0;

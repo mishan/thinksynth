@@ -15,8 +15,8 @@
 # pluck. The sweep belongs to the bar. fx/filter.dsp is a second filter
 # on the channel's sum, driven by nothing but a chanarg, and gen::steps
 # walks that chanarg through a row of seventy-two values, one a bar,
-# shaped to the arrangement below: shut through the intro, opening
-# across the rise, wide open for the main, shut again and reopening
+# shaped to the arrangement below: shut through the intro and the lift,
+# opening across the rise, wide open for the main, shut again and reopening
 # through the break, open for the drop, and closing over the outro. The
 # row is the piece's shape drawn as a curve; the `section' list is the
 # same shape drawn as gates. A walk wobbles the filter's resonance under
@@ -49,31 +49,39 @@
 # The tape echo is on the clap, a dotted eighth with wow on it; the
 # pulse throws into a cleaner one. A limiter holds the sum.
 #
-# The shaker's chance and the section's runs roll dice; the seed is
-# pinned for them. Self-contained: open it and press Play.
+# The shaker's chance, the snare's ratchet and the section's runs roll
+# dice; the seed is pinned for them. Self-contained: open it and press Play.
 
 name "Sunrise";
 author "Misha Nasledov";
 description "Moroder: an octave sequence in sixteenths, an acoustic kit with a choked hat, strings and a section on one progression, and a filter sweep shaped to the arrangement.";
+category "Disco";
 
 tempo 122;
 seed 1977;
 meter 4;
 
 # ---- the arrangement --------------------------------------------------
+#
+# A level here scales velocity, and on this kit velocity is the pedal
+# and on the bass it is the accent: so the hats and the bass are muted
+# or left alone, never scaled, and the numbers under 1 sit on the
+# strings and the pulse, where velocity is only how loud.
 
-section intro  8 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
+section intro  4 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
                         shaker = 0;  clap = 0;  strings = 0;  section = 0;
                         swoop = 0;  pulse = 0; };
+section lift   4 bars { kick = 0;  snare = 0;  hats_open = 0;  shaker = 0;
+                        clap = 0;  strings = 0;  section = 0;  swoop = 0;
+                        pulse = 0; };
 section rise  16 bars { snare = 0;  clap = 0;  section = 0;
                         strings = 0.7;  pulse = 0.8; };
 section main  16 bars { clap = 0; };
-section break  8 bars { kick = 0;  snare = 0;  hats_open = 0;  hats = 0.7;
-                        shaker = 0;  clap = 0;  bass = 0.8;  pulse = 0; };
+section break  8 bars { kick = 0;  snare = 0;  hats_open = 0;  shaker = 0;
+                        clap = 0;  pulse = 0; };
 section drop  16 bars { section = 1.1; };
 section outro  8 bars { snare = 0;  clap = 0;  hats_open = 0;  section = 0;
-                        swoop = 0;  pulse = 0;  strings = 0.7;  kick = 0.85;
-                        bass = 0.85; };
+                        swoop = 0;  pulse = 0;  strings = 0.7;  kick = 0.85; };
 section end;
 
 # Where the sweep lands when the row says 1, in hertz.
@@ -138,7 +146,7 @@ instrument snare {
 # closed one after it.
 instrument hat {
     dsp  "kit_hat.dsp";
-    amp  = 14;
+    amp  = 16;
 
     freq = 760;
     pmul = 1.41;
@@ -322,6 +330,7 @@ chain snare {
         notes = "D2";
         period = 1 beats;  hold = 0.3 beats;  vel = 104;
     };
+    stage r xform::ratchet { count = 3;  prob = 0.06;  decay = 0.8; };
     sink { instrument = snare; };
 };
 
@@ -407,7 +416,7 @@ chain bass {
 chain sweep {
     stage src gen::steps {
         values = "0.02 0.03 0.04 0.06 0.08 0.1 0.13 0.16  0.18 0.2 0.22 0.25 0.28 0.31 0.35 0.4 0.45 0.5 0.55 0.6 0.66 0.74 0.85 1  1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  0.3 0.32 0.36 0.42 0.5 0.6 0.75 0.9  1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  0.7 0.5 0.35 0.25 0.18 0.12 0.08 0.05";
-        period = 4 beats;  min = 140;  max = @top;
+        period = 4 beats;  min = 80;  max = @top;
     };
     sink { instrument = bass; chanarg = "fx.cutoff"; };
 };

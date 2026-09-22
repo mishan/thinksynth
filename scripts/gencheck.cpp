@@ -9807,7 +9807,7 @@ playedByHand (thcScheduler &sched)
 
 /* Where a shipped piece may be filed.
  *
- * gen/README.md groups the corpus by hand into these eight sections, and
+ * gen/README.md groups the corpus by hand into these nine sections, and
  * that grouping is a real one -- somebody sat down and decided which piece
  * teaches what. What it was not is anywhere a program could see, so it
  * drifted: three pieces had come to be in no section at all, which is
@@ -9819,7 +9819,7 @@ playedByHand (thcScheduler &sched)
  * The same bargain scripts/dspcheck makes for a .dsp's category. */
 static const char *const kCategories[] = {
     "Start here", "Playing it yourself", "Algorithms", "Timbre as material",
-    "Pieces", "Game music", "The floor", "The eighties", NULL
+    "Pieces", "Game music", "The floor", "The eighties", "Disco", NULL
 };
 
 static bool
