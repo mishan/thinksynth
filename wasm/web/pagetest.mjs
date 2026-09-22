@@ -149,6 +149,71 @@ try
         null, { timeout: 60000 });
     check(true, 'the synth started');
 
+    /* ---- the sequencer, in the document ---- */
+
+    /* The mode the page opens on, and the pane it opens on, untiled.
+     *
+     * Every other claim about the tracks is panecheck's, and panecheck is
+     * about a layout: it adopts the pane into a leaf and CSS of its own
+     * takes over. So the one thing it cannot see is whether the section
+     * is showing in the document the layout is built from -- and it was
+     * not. The markup said `hidden' where a pane that starts closed says
+     * `data-pane-off', and nothing clears `hidden': panes.js will not
+     * touch it on purpose, because a page that uses the attribute for
+     * ordinary hiding would otherwise lose panes to the layout for good.
+     * Both attributes are `display: none !important', so the Sequencer
+     * was a pane with nothing in it in every window narrower than the
+     * tiler turns on at.
+     */
+    check(await page.evaluate(
+              () => document.getElementById('mode').value === 'seq' &&
+                    document.getElementById('seqview').checkVisibility()),
+          'the page opens on the sequencer, and it is showing');
+
+    await page.evaluate(() => window.solo.settled());
+    await page.waitForFunction(() => window.solo.tracks().length > 0,
+                               null, { timeout: 60000 });
+
+    const seqTracks = await page.evaluate(() => window.solo.tracks());
+
+    check(seqTracks.length === 4,
+          `the sequence is four tracks: ${seqTracks.length}`);
+
+    /* A menu on every one of them, which is what the mode is for: its
+       piece declares no instruments, so every channel is the page's to
+       aim. A shipped piece's tracks have a name there instead. */
+    check(await page.$$eval('#tracks .trackpick', (m) => m.length) === 4,
+          'and each one has a menu for what plays it');
+
+    check(await page.evaluate(() => window.solo.drawing().seq),
+          'and they are asking for frames');
+
+    /* ---- and the box keeps the page's own sequence ---- */
+
+    /* Going to look at a piece and coming back must come back to the
+     * sequence, and "does the box hold a gen::grid" was not the way to
+     * ask: gen/scratch.gen is five of them. Opening it and returning
+     * played a shipped piece as the sequence -- no menus, because
+     * scratch declares its own instruments, and nothing the mode is
+     * about.
+     */
+    await page.selectOption('#mode', 'piece');
+    await page.selectOption('#piece', 'scratch.gen');
+    await page.evaluate(() => window.solo.settled());
+
+    await page.selectOption('#mode', 'seq');
+    await page.evaluate(() => window.solo.settled());
+    await page.waitForFunction(() => window.solo.tracks().length > 0,
+                               null, { timeout: 60000 });
+
+    check(await page.evaluate(() => window.solo.tracks().length) === 4 &&
+          await page.$$eval('#tracks .trackpick', (m) => m.length) === 4,
+          'and scratch.gen, which is grids too, does not become the ' +
+          'sequence');
+
+    check(await page.evaluate(() => window.solo.drawing().seq),
+          'and the tracks draw again on the way back');
+
     /* ---- the instrument's parameters ---- */
 
     /* The panel this page has never had. Patch mode, because that is the

@@ -524,6 +524,18 @@ const SEQ_STEPS = 16;
    write a line in and still leaves four tracks visible at once. */
 const SEQ_ROWS = 6;
 
+/* The first line of what this writes, and what tells the box's contents
+ * apart from any other piece.
+ *
+ * By a mark of its own rather than by what the text contains. "Does this
+ * have a `gen::grid' in it" was the obvious question and the wrong one:
+ * gen/scratch.gen has five, so going to look at it in piece mode and
+ * coming back to the sequencer kept it -- playing a shipped piece as the
+ * sequence, with none of the menus this mode is for. What the guard
+ * means is "is this still the page's own sequence", and only the page
+ * can answer that. */
+const SEQ_MARK = '# A sequence, written by the page.';
+
 function sequenceText ()
 {
     const empty = Array(SEQ_ROWS).fill('.'.repeat(SEQ_STEPS)).join('/');
@@ -555,7 +567,7 @@ function sequenceText ()
     for (let n = 1; n <= SEQ_TRACKS; n++)
         tracks.push(track(n));
 
-    return `# A sequence, written by the page.
+    return `${SEQ_MARK}
 #
 # Four grids on four channels: rows are degrees of the ladder below,
 # columns are steps. Click the cells; the menu on each track says what
@@ -583,7 +595,7 @@ ${tracks.join('\n\n')}
    at a patch and came back expects to find. */
 async function loadSequence ()
 {
-    if (!/gen::grid/.test($('gen').value))
+    if (!$('gen').value.includes(SEQ_MARK))
         $('gen').value = sequenceText();
 
     await loadPiece();
@@ -2037,7 +2049,7 @@ async function init ()
             if (id === 'composerview')
                 showComposer(on && mode() === 'piece');
             else if (id === 'seqview')
-                showSeq(on && mode() === 'piece');
+                showSeq(on && composing());
             else if (id === 'nodeview')
                 nodes?.show(on);
             else if (id === 'paramview' && on)

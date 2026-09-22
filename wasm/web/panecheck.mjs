@@ -369,6 +369,50 @@ try
     check(swapped.composer && !swapped.nodes,
           'and raising the other one turns the first one off');
 
+    /* ---- and the tracks in the mode they are for ---- */
+
+    /* A sequence is a pane of its own in a layout of its own, so the
+     * pane is raised the moment the mode switches and onShow says so.
+     *
+     * Which is where it went wrong. Every other caller asks the page
+     * whether it is composing -- a sequence and a piece are the same
+     * scheduler, and the tracks are for both -- and this one asked
+     * whether the mode was `piece'. It is not, in the mode the tracks
+     * exist for, so showing the pane turned them off and the grids
+     * stopped redrawing under the pointer. Piece mode above cannot see
+     * it: there the two answers agree.
+     */
+    await page.selectOption('#mode', 'seq');
+    await page.waitForFunction(() => window.solo.tracks().length > 0,
+                               null, { timeout: 60000 });
+
+    check(await page.evaluate(() => window.solo.drawing().seq),
+          'and the tracks draw in the mode they are for, not only in ' +
+          'piece mode');
+
+    /* Put away and raised again, which is the call the mode switch does
+       not make: pickMode turns the tracks on itself after the layout has
+       settled, so it papered over the callback being wrong. Closing the
+       pane and presenting it is onShow and nothing else. */
+    await page.evaluate(() => window.solo.pane('close', 'seqview'));
+    await page.waitForFunction(() => !window.solo.drawing().seq,
+                               null, { timeout: 30000 });
+
+    await page.evaluate(() => window.solo.pane('present', 'seqview'));
+
+    check(await page.evaluate(async () =>
+          {
+              await new Promise((go) => requestAnimationFrame(go));
+
+              return window.solo.drawing().seq;
+          }),
+          'and a sequence pane put away and raised again goes back to ' +
+          'drawing');
+
+    await page.selectOption('#mode', 'piece');
+    await page.waitForFunction(() => window.solo.drawing().composer,
+                               null, { timeout: 60000 });
+
     /* ---- the popovers ---- */
 
     /* Beside the box that asked for it and inside the window, which is

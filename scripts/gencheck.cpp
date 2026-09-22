@@ -2766,6 +2766,435 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(tmp);
 }
 
+/* ---- 6b2. the grid, driven a step at a time ---------------------------- */
+
+/* `gen::grid' is the one composer a person edits while it plays, and the
+ * three things that makes true are all invisible to a note tape.
+ *
+ * WHERE A PLAYED NOTE LANDS. With `listen = 1' the grid is a recorder:
+ * an arriving note lights the cell it names, the ladder run backwards
+ * for the row and the playhead run backwards for the column. The column
+ * is the part that can be wrong by one and still look right -- the
+ * pattern is there, it is a pattern, it loops, and every phrase anybody
+ * recorded sat a step to the right of where they played it. So the
+ * receive is driven here directly, at times this test chooses, and both
+ * ways round: a note that arrives before the tick of the step it belongs
+ * to and one that arrives after must land in the same cell.
+ *
+ * WHAT A GESTURE IS. The canvas sends a press, some drags and a release;
+ * the plugin decides what they meant. A click on a note is a cycle and a
+ * drag from one is a length, and telling them apart is the pointer
+ * having left the cell -- not having moved at all, which every pointer
+ * does. And a drag whose press went somewhere else is not this stage's
+ * gesture, which the desktop canvas enforces on its side and the page's
+ * tracks did not.
+ *
+ * WHERE THE LADDER STOPS. A grid taller than its scale climbs in
+ * octaves, and `rows = 32' over a short one climbs off the end of MIDI.
+ *
+ * Driven through the ABI rather than through the scheduler on purpose:
+ * what is being pinned is the order tick and receive happen in, and a
+ * test that let the scheduler choose would be pinning the scheduler.
+ */
+static void
+checkGrid (const std::map<std::string, thcPlugin *> &plugins,
+           thSynth *synth)
+{
+    std::map<std::string, thcPlugin *>::const_iterator it =
+        plugins.find("grid");
+
+    if (it == plugins.end())
+    {
+        fail("the 'grid' module is missing; build the plugins first");
+        return;
+    }
+
+    if (!it->second->hasInput() || !it->second->hasCapture() ||
+        !it->second->hasReceive())
+        fail("gen::grid does not export input, capture and receive");
+
+    /* What a tick emitted. The scheduler's sink does a great deal more
+       than this and none of it is what is under test. */
+    struct Heard {
+        std::vector<int> notes;
+
+        static void emit (void *ctx, const thcEvent *ev)
+        {
+            if (ev->type == THC_EV_NOTE)
+                static_cast<Heard *>(ctx)->notes.push_back(ev->u.note.note);
+        }
+    };
+
+    /* One grid, loaded from text the way a piece would state it, with
+       the stage handed back to be driven by hand. */
+    struct Rig {
+        thcScheduler sched;
+        thcGenLoader loader;
+        std::string  path;
+        thcStage    *stage;
+        int          cellsIdx;
+
+        Rig (thSynth *synth, const std::map<std::string, thcPlugin *> &p)
+            : sched(synth), loader(p), stage(NULL), cellsIdx(-1) {}
+
+        ~Rig ()
+        {
+            if (!path.empty())
+                std::filesystem::remove(path);
+        }
+
+        bool build (const std::string &body)
+        {
+            path = thUtil::tempFile("gencheck-grid-");
+
+            if (path.empty())
+                return false;
+
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "chain c {\n" << body << "    sink { channel = 1; };\n"
+                    << "};\n";
+            }
+
+            if (!loader.load(path, &sched))
+                return false;
+
+            thcChain *c = sched.chain(0);
+
+            if (c == NULL || c->stages.empty())
+                return false;
+
+            stage = c->stages[0].get();
+            cellsIdx = stage->plugin->paramIndex("cells");
+
+            return cellsIdx >= 0;
+        }
+
+        /* The step at `now', played. The return is the sleep, which
+           nothing here needs: the caller says when the next step is. */
+        void tick (double now, Heard *heard)
+        {
+            thcTransport t = { now, 120.0, now * 2, 1 };
+            thcEventSink sink = { heard, Heard::emit };
+
+            stage->plugin->tick(stage->state, &t, &sink);
+        }
+
+        /* A note played into it, at a transport time of its own. */
+        void play (double at, int note, Heard *heard)
+        {
+            thcEvent ev;
+            thcEventSink sink = { heard, Heard::emit };
+
+            memset(&ev, 0, sizeof(ev));
+
+            ev.type = THC_EV_NOTE;
+            ev.at = at;
+            ev.channel = 0;
+            ev.u.note.note = note;
+            ev.u.note.velocity = 90;
+            ev.u.note.duration = 0.2;
+
+            stage->plugin->receive(stage->state, &ev, &sink);
+        }
+
+        std::string cells ()
+        {
+            return stage->plugin->capture(stage->state, cellsIdx);
+        }
+    };
+
+    /* A gesture, in the coordinates composer_draw is given. The grid
+       fills the whole area it is handed -- cells are not square, which
+       is the difference between this and a Life board -- so a cell's
+       middle is arithmetic this test can do without asking the plugin
+       where it put anything. */
+    struct Gesture {
+        thcStage *stage;
+        int       steps, rows;
+        double    w, h;
+
+        void at (int col, int row, thcInputType type, int button = 1) const
+        {
+            thcInputEvent ev;
+
+            ev.type = type;
+            ev.x = (col + 0.5) * (w / steps);
+            ev.y = (row + 0.5) * (h / rows);
+            ev.w = w;
+            ev.h = h;
+            ev.button = button;
+
+            stage->plugin->input(stage->state, &ev);
+        }
+    };
+
+    /* ---- a played note lands in the step it was played in ---- */
+
+    /* Eight steps of a second each on a one-note ladder, so the only
+       thing a capture can say is *which column*. Notes at 0, 2, 4 and 6
+       seconds are steps 0, 2, 4 and 6, and the answer is the same
+       whichever side of the step's tick they arrive on -- a scheduler is
+       entitled to either order and both used to give a different
+       pattern, one of them a step out.
+     *
+     * `pass = 0' because nothing downstream is listening, and
+     * `vel`/`hold' are left at their defaults: what is being read is the
+     * cells param, not a tape. */
+    const char *recorder =
+        "    stage g gen::grid {\n"
+        "        cells = \"........\";\n"
+        "        steps = 8; rows = 1; notes = \"C4\";\n"
+        "        period = 1 s; hold = 0.5 s; listen = 1; pass = 0;\n"
+        "    };\n";
+
+    for (int order = 0; order < 2; order++)
+    {
+        Rig rig(synth, plugins);
+
+        if (!rig.build(recorder))
+        {
+            fail("the grid recorder piece did not load");
+            return;
+        }
+
+        Heard heard;
+
+        for (int step = 0; step < 8; step++)
+        {
+            const double now = step;
+
+            if (order == 0)
+            {
+                rig.tick(now, &heard);
+
+                if (step % 2 == 0)
+                    rig.play(now, 60, &heard);
+            }
+            else
+            {
+                if (step % 2 == 0)
+                    rig.play(now, 60, &heard);
+
+                rig.tick(now, &heard);
+            }
+        }
+
+        const std::string drew = rig.cells();
+        const char *when = order == 0 ? "after the step's tick"
+                                      : "before the step's tick";
+
+        if (drew != "x.x.x.x.")
+            fail(std::string("a phrase played into gen::grid ") + when +
+                 " was recorded in the wrong steps: " + drew +
+                 ", wanted x.x.x.x.");
+    }
+
+    /* And a pitch the ladder cannot spell draws nothing, rather than
+       landing on the nearest row it can find -- the rule gen::life
+       follows and for the same reason. */
+    {
+        Rig rig(synth, plugins);
+
+        if (!rig.build(recorder))
+        {
+            fail("the grid recorder piece did not load for C#4");
+            return;
+        }
+
+        Heard heard;
+
+        rig.tick(0, &heard);
+        rig.play(0, 61, &heard);
+
+        if (rig.cells() != "........")
+            fail("gen::grid drew a cell for a pitch its ladder cannot "
+                 "spell: " + rig.cells());
+    }
+
+    /* ---- a click on a tied note keeps its tail ---- */
+
+    /* A note four steps long, clicked once. The click is a press, a
+     * drag that never leaves the cell it was pressed in, and a release
+     * -- which is what a real pointer sends, because a hand holding a
+     * button still moves a pixel or two.
+     *
+     * That drag is not a length. Treating it as one set the note back to
+     * a single step, so clicking a held note to accent it rubbed out the
+     * tail -- and only when the pointer happened to twitch, which is the
+     * kind of bug that gets reported as "sometimes".
+     */
+    {
+        Rig rig(synth, plugins);
+
+        const char *held =
+            "    stage g gen::grid {\n"
+            "        cells = \"x---....\";\n"
+            "        steps = 8; rows = 1; notes = \"C4\";\n"
+            "        period = 1 s; listen = 0;\n"
+            "    };\n";
+
+        if (!rig.build(held))
+        {
+            fail("the tied-note grid piece did not load");
+            return;
+        }
+
+        Gesture g = { rig.stage, 8, 1, 800.0, 100.0 };
+
+        g.at(0, 0, THC_IN_PRESS);
+        g.at(0, 0, THC_IN_DRAG);
+        g.at(0, 0, THC_IN_RELEASE);
+
+        if (rig.cells() != "X---....")
+            fail("a click on a tied note did not accent it and keep its "
+                 "tail: " + rig.cells());
+
+        /* A drag that does leave is a length, and coming back to the
+           note is a shortening -- which is the edit the twitch above
+           must not be mistaken for. */
+        g.at(0, 0, THC_IN_PRESS);
+        g.at(2, 0, THC_IN_DRAG);
+        g.at(0, 0, THC_IN_DRAG);
+        g.at(0, 0, THC_IN_RELEASE);
+
+        if (rig.cells() != "X.......")
+            fail("a drag out from a note and back did not shorten it: " +
+                 rig.cells());
+    }
+
+    /* ---- a drag no press here began is not an edit ---- */
+
+    /* The composer canvas feeds the plugin only between a press it took
+       and the release that ends it. Nothing made that a property of the
+       plugin, and a second sender arrived -- the page's sequencer sends
+       a gesture per track -- that had a drag begun on one track crossing
+       the next one and painting it. */
+    {
+        Rig rig(synth, plugins);
+
+        const char *empty =
+            "    stage g gen::grid {\n"
+            "        cells = \"........\";\n"
+            "        steps = 8; rows = 1; notes = \"C4\";\n"
+            "        period = 1 s; listen = 0;\n"
+            "    };\n";
+
+        if (!rig.build(empty))
+        {
+            fail("the empty grid piece did not load");
+            return;
+        }
+
+        Gesture g = { rig.stage, 8, 1, 800.0, 100.0 };
+
+        /* A real gesture first, and it has to be a painting one: what a
+           stray drag writes is whatever the last gesture was writing, so
+           a grid that had never been drawn on would have it writing
+           empty over empty and this would pass either way. */
+        g.at(1, 0, THC_IN_PRESS);
+        g.at(2, 0, THC_IN_DRAG);
+        g.at(2, 0, THC_IN_RELEASE);
+
+        if (rig.cells() != ".xx.....")
+            fail("a drag across empty cells did not draw a run: " +
+                 rig.cells());
+
+        g.at(5, 0, THC_IN_DRAG);
+        g.at(6, 0, THC_IN_DRAG);
+        g.at(6, 0, THC_IN_RELEASE);
+
+        if (rig.cells() != ".xx.....")
+            fail("a drag gen::grid saw no press for painted cells: " +
+                 rig.cells());
+
+        /* And the release above left nothing behind: the press after it
+           is an ordinary one. */
+        g.at(4, 0, THC_IN_PRESS);
+        g.at(4, 0, THC_IN_RELEASE);
+
+        if (rig.cells() != ".xx.x...")
+            fail("a press after a stray drag did not put a note down: " +
+                 rig.cells());
+
+        /* A gesture that ended outside the picture ended.
+         *
+         * A drag holds a pointer capture, so its coordinates leave the
+         * canvas as soon as the hand does, and the release often lands
+         * out there too. Measuring the cell first and giving up when
+         * there is not one left the gesture standing -- and the next
+         * stray drag across this stage went on painting, which is the
+         * hole the gate above is supposed to have closed. */
+        thcInputEvent away;
+
+        away.w = 800.0;
+        away.h = 100.0;
+        away.x = 900.0;                  /* past the right-hand edge    */
+        away.y = 50.0;
+        away.button = 1;
+
+        g.at(0, 0, THC_IN_PRESS);
+
+        away.type = THC_IN_DRAG;
+        rig.stage->plugin->input(rig.stage->state, &away);
+
+        away.type = THC_IN_RELEASE;
+        rig.stage->plugin->input(rig.stage->state, &away);
+
+        g.at(7, 0, THC_IN_DRAG);
+
+        if (rig.cells() != "xxx.x...")
+            fail("a drag after a gesture that was released off the "
+                 "picture went on painting: " + rig.cells());
+    }
+
+    /* ---- the ladder stops where MIDI does ---- */
+
+    /* Eight rows over a one-note ladder is eight octaves: rows 0 to 5
+     * are 60 to 120 and rows 6 and 7 are 132 and 144, which are not
+     * notes. A row past the top is silent, the answer gen::ca and
+     * gen::lsystem give; the alternative is what this had, which was an
+     * int cast into a MIDI note number and a synth asked for a pitch
+     * four octaves above the top of a piano.
+     *
+     * Every row hit on the first step, so one tick asks the whole
+     * question.
+     */
+    {
+        Rig rig(synth, plugins);
+
+        const char *tall =
+            "    stage g gen::grid {\n"
+            "        cells = \"x.../x.../x.../x.../x.../x.../x.../x...\";\n"
+            "        steps = 4; rows = 8; notes = \"C4\";\n"
+            "        period = 1 s; listen = 0;\n"
+            "    };\n";
+
+        if (!rig.build(tall))
+        {
+            fail("the tall grid piece did not load");
+            return;
+        }
+
+        Heard heard;
+
+        rig.tick(0, &heard);
+
+        if (heard.notes.size() != 6)
+            fail("a grid eight octaves tall did not play the six rows "
+                 "that are notes: " + std::to_string(heard.notes.size()));
+
+        for (size_t i = 0; i < heard.notes.size(); i++)
+            if (heard.notes[i] < 0 || heard.notes[i] > 127)
+            {
+                fail("gen::grid played a pitch that is not MIDI: " +
+                     std::to_string(heard.notes[i]));
+                break;
+            }
+    }
+}
+
 /* ---- 6c. two things the window asks the scheduler ---------------------- */
 
 /* Does the tempo mean anything to this piece, and can a dead automaton
@@ -9406,6 +9835,7 @@ main (int argc, char *argv[])
     checkEdits(plugins, &synth, genFile);
     checkPresets(plugins, &synth);
     checkInput(plugins, &synth);
+    checkGrid(plugins, &synth);
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
     checkInstrumentEffects(plugins, &synth);

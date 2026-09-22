@@ -428,16 +428,21 @@ function receive (m)
         {
             const words = M._tw_stage_draw(m.chain, m.stage, m.w, m.h);
 
-            if (words < 0)
-                break;          /* no such stage, or it does not draw */
-
-            const list = readList(words);
+            /* Every ask is answered, including "no such stage, or it
+               does not draw" -- with no list, which is a different thing
+               from an empty one and says to leave the picture alone. The
+               asker counts what is out and not back so it does not queue
+               frames on a worker already behind, and a request that got
+               no reply at all stopped that count coming down for good:
+               load a piece with fewer chains while the frames are in
+               flight and the pane froze. */
+            const list = words < 0 ? null : readList(words);
 
             post({ type: 'stagedraw', chain: m.chain, stage: m.stage,
                    w: m.w, h: m.h, dpr: m.dpr ?? 1,
-                   ops: list.ops, strings: list.strings,
-                   surfaces: list.surfaces },
-                 list.buffers);
+                   ops: list?.ops ?? null, strings: list?.strings ?? null,
+                   surfaces: list?.surfaces ?? null },
+                 list?.buffers ?? []);
             break;
         }
 

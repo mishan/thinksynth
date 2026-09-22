@@ -839,6 +839,15 @@ EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
     rendered_ = frame;
 }
 
+/* What each channel was given, and whether it has been edited since.
+ *
+ * The same slots the application keeps (src/PatchSet.h), instantiated rather
+ * than reached through a singleton -- which is what the singleton being the
+ * application's idea, and staying there, is for. The signals go unconnected:
+ * a page polls, and there is nothing on this side of the ABI to hang a
+ * handler on. */
+static thPatchSet patches_(TH_MIDI_CHANNELS);
+
 /* A .dsp, as text, onto a channel in place of whatever was there. Nonzero
    if it parsed; the parser's complaints go to stderr, which the worklet
    forwards to the page.
@@ -850,15 +859,6 @@ EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
  * hand. That is the desktop's Patch Selector, and on the page it is this.
  * Aiming one at a channel a piece's instrument is already on replaces it,
  * here as there. */
-/* What each channel was given, and whether it has been edited since.
- *
- * The same slots the application keeps (src/PatchSet.h), instantiated rather
- * than reached through a singleton -- which is what the singleton being the
- * application's idea, and staying there, is for. The signals go unconnected:
- * a page polls, and there is nothing on this side of the ABI to hang a
- * handler on. */
-static thPatchSet patches_(TH_MIDI_CHANNELS);
-
 EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
 {
     if (!writeFile(TW_PATCH_FILE, text))
@@ -1387,14 +1387,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_why (void)
     return patchWhy_.c_str();
 }
 
-/* What is on `channel', as the document it was given -- its graph, its
- * effect, its info and its overrides. "" for a channel no patch has been put
- * on.
- *
- * The dump is thPatchDocToJson's, which is compiled into the native harness
- * as well and diffed against this byte for byte (wasm/web/patchcheck.mjs):
- * one reading of the format, or the build fails. Valid until the next call.
- */
 /* What a .patch says it is, without putting it anywhere.
  *
  * The same reading every other patch path takes -- thPatchParse, once, in
@@ -1421,6 +1413,14 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_reads (const char *text)
     return reads.c_str();
 }
 
+/* What is on `channel', as the document it was given -- its graph, its
+ * effect, its info and its overrides. "" for a channel no patch has been put
+ * on.
+ *
+ * The dump is thPatchDocToJson's, which is compiled into the native harness
+ * as well and diffed against this byte for byte (wasm/web/patchcheck.mjs):
+ * one reading of the format, or the build fails. Valid until the next call.
+ */
 EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
 {
     const thPatchSet::Slot *slot = patches_.get(channel);

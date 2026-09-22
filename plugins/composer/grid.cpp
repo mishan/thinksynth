@@ -173,9 +173,13 @@ struct State {
     std::string cellsText;       /* what cells was built from           */
     std::string captured;        /* what composer_capture last returned */
 
-    /* Where the playhead is, and when the step it is on began, so an
-       arriving note's time can be turned back into a column. */
+    /* Where the playhead is, and the step the last tick played: which
+       column it was and when it began, so an arriving note's time can
+       be turned back into a column. `pos' is not that column -- it has
+       already moved on to the step about to play -- and measuring from
+       it put every recorded note one step to the right. */
     int    pos;
+    int    posStep;
     double posAt;
 
     /* Set by a click or by a note landing, cleared once the param has
@@ -379,6 +383,9 @@ refresh (State *st)
 
     if (st->pos >= st->steps)
         st->pos = 0;
+
+    if (st->posStep >= st->steps)
+        st->posStep = 0;
 }
 
 extern "C" THINK_PLUGIN_API void *
@@ -389,6 +396,7 @@ composer_create (const thcParams *params)
     st->params = params;
     st->steps = st->rows = 0;
     st->pos = 0;
+    st->posStep = 0;
     st->posAt = 0;
     st->touched = false;
     st->gesture = State::NONE;
@@ -418,13 +426,20 @@ composer_param_changed (void *state, int)
 
 /* The pitch of row y: the ladder, climbing in octaves past its top, the
    same wrapping every ladder in this tree does -- so a grid taller than
-   its scale is a wider range rather than a truncated one. */
+   its scale is a wider range rather than a truncated one.
+ *
+ * Up to 127, where MIDI stops. A tall grid over a short ladder climbs
+ * off the end of it -- `rows = 32' over one note is thirty-two octaves
+ * -- and a row past the top has no pitch rather than a wrapped or a
+ * clipped one. -1 says so, which is the answer `gen::ca' and
+ * `gen::lsystem' give to the same question. */
 static int
 noteOf (const State *st, int y)
 {
     const size_t n = st->ladder.size();
+    const int note = st->ladder[y % n] + 12 * (int)(y / n);
 
-    return st->ladder[y % n] + 12 * (int)(y / n);
+    return note < 0 || note > 127 ? -1 : note;
 }
 
 /* How many steps the note starting at column x in row y is held for: its
@@ -461,7 +476,10 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     const int accent = (int)getp(st, P_ACCENT);
     const double hold = getp(st, P_HOLD);
 
-    /* Where this step started, for receive to measure against. */
+    /* Which step this is and where it started, for receive to measure
+       against. Both, because `pos' advances below: a note arriving after
+       it has belongs to the step that just played. */
+    st->posStep = st->pos;
     st->posAt = t->now;
 
     for (int y = 0; y < st->rows; y++)
@@ -470,6 +488,11 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
         if (cell != CELL_HIT && cell != CELL_ACCENT)
             continue;
+
+        const int note = noteOf(st, y);
+
+        if (note < 0)
+            continue;                      /* past the top of MIDI      */
 
         /* A tie only lengthens the note it follows, so a hit that lands
            on one somebody drew mid-run is still this step's note. */
@@ -485,7 +508,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         ev.type = THC_EV_NOTE;
         ev.at = t->now;
         ev.channel = 0;                    /* the sink routes           */
-        ev.u.note.note = noteOf(st, y);
+        ev.u.note.note = note;
         ev.u.note.velocity = v;
         ev.u.note.duration = hold + (held - 1) * period;
 
@@ -511,6 +534,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 static int
 rowOf (const State *st, int note)
 {
+    if (note < 0)
+        return -1;                       /* and noteOf's own -1 is not  */
+
     for (int y = 0; y < st->rows; y++)
         if (noteOf(st, y) == note)
             return y;
@@ -534,26 +560,34 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         {
             const double period = getp(st, P_PERIOD);
 
-            /* And the column: the playhead run backwards. The step this
-               grid is on began at posAt, so a note at `at' is that many
-               periods along -- rounded to the *nearest* step rather
+            /* And the column: the playhead run backwards. Step posStep
+               began at posAt, so a note at `at' is that many periods
+               along from it -- rounded to the *nearest* step rather
                than the one it fell inside, because somebody playing
                along is trying to hit the beat and landing a little
                either side of it. That is what quantizing means, and it
                is the whole difference between a recorder and a log.
+
+               posStep rather than pos, and the two are never the same:
+               a tick stamps posAt for the step it is playing and then
+               leaves pos on the next one. Measuring the offset from one
+               step and counting it from another is an off-by-one in
+               whichever order a receive and a tick arrive, and it put
+               every recorded phrase a step to the right of what was
+               played.
 
                The range check is about the cast: converting a NaN or a
                value past LONG_MAX to long is undefined, and `at' is a
                double that arrived from a plugin. Anything outside the
                bound lands on the step the playhead is on, which is a
                cell in the right row at a defensible time. */
-            int x = st->pos;
+            int x = st->posStep;
             const double into = ev->at - st->posAt;
 
             if (period > 0 && into > -1e9 && into < 1e9)
             {
-                const long col = st->pos + (long)std::floor(into / period
-                                                            + 0.5);
+                const long col = st->posStep
+                                 + (long)std::floor(into / period + 0.5);
 
                 x = (int)(((col % st->steps) + st->steps) % st->steps);
             }
@@ -641,6 +675,17 @@ setLength (State *st, int x, int y, int steps)
     }
 }
 
+/* Whether a cell is still there. The size is a param, and a param can
+   change between the press that anchored a gesture and the drag or the
+   release that finishes it -- so the anchor is checked rather than
+   trusted, because the alternative is a write past the end of a vector
+   that shrank. */
+static bool
+inGrid (const State *st, int x, int y)
+{
+    return x >= 0 && x < st->steps && y >= 0 && y < st->rows;
+}
+
 /* Nothing becomes a note, a note becomes an accent, an accent becomes
  * nothing again. Three states is one more than a Life board has and it
  * is the one the ear asks for first: a pattern with nothing louder in it
@@ -671,7 +716,42 @@ composer_input (void *state, const thcInputEvent *ev)
 
     refresh(st);
 
-    if (st->steps <= 0 || st->rows <= 0 || ev->w <= 0 || ev->h <= 0)
+    if (st->steps <= 0 || st->rows <= 0)
+        return;
+
+    /* A release ends the gesture wherever it landed, which is why it is
+       answered before the picture is measured at all: a drag holding a
+       pointer capture reports coordinates outside the canvas, and a
+       release out there that returned early would leave the gesture
+       standing for the next drag to continue. */
+    if (ev->type == THC_IN_RELEASE)
+    {
+        /* A press and a release in one cell, with no drag between: the
+           cycle. A gesture that went anywhere has already said what it
+           meant. */
+        if (st->gesture == State::LENGTHEN && !st->moved &&
+            inGrid(st, st->anchorX, st->anchorY))
+            cycle(st, st->anchorX, st->anchorY);
+
+        st->gesture = State::NONE;
+        st->paintX = st->paintY = -1;
+        st->anchorX = st->anchorY = -1;
+        return;
+    }
+
+    /* A drag no press here began.
+     *
+     * The desktop canvas never sends one -- it gates drags on the press
+     * it owns -- but a gesture is a command that goes round the mesh and
+     * arrives at its time, and it has more than one sender now. A stage
+     * edits on gestures it saw the start of; a pointer that was doing
+     * something else when it crossed this picture is not an edit, and
+     * without this it painted with whatever the last gesture's color
+     * happened to be. */
+    if (ev->type != THC_IN_PRESS && st->gesture == State::NONE)
+        return;
+
+    if (ev->w <= 0 || ev->h <= 0)
         return;
 
     double cw, ch;
@@ -732,30 +812,23 @@ composer_input (void *state, const thcInputEvent *ev)
         }
     }
 
-    if (ev->type == THC_IN_RELEASE)
-    {
-        /* A press and a release in one cell, with no drag between: the
-           cycle. A gesture that went anywhere has already said what it
-           meant. */
-        if (st->gesture == State::LENGTHEN && !st->moved)
-            cycle(st, st->anchorX, st->anchorY);
-
-        st->gesture = State::NONE;
-        st->paintX = st->paintY = -1;
-        st->anchorX = st->anchorY = -1;
-        return;
-    }
-
     if (st->gesture == State::LENGTHEN)
     {
         /* Only along its own row: a drag that wanders up or down is
            still about the note it started on, and the alternative is a
            note whose length changes because a hand moved vertically. */
-        if (y != st->anchorY)
+        if (y != st->anchorY || !inGrid(st, st->anchorX, st->anchorY))
             return;
 
-        if (x != st->anchorX)
-            st->moved = true;
+        /* A drag still inside the cell it was pressed in has not said
+           anything yet: the release decides, and setting the length
+           here would rub out the tail of the note somebody is about to
+           find they merely clicked on. Once the drag has left, coming
+           back to the anchor is a shortening and does mean one step. */
+        if (x == st->anchorX && !st->moved)
+            return;
+
+        st->moved = true;
 
         setLength(st, st->anchorX, st->anchorY,
                   x > st->anchorX ? x - st->anchorX + 1 : 1);
