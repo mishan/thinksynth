@@ -71,6 +71,42 @@ public:
     /* ---- audio thread ---- */
     void process(void);
 
+    /* ---- live input ----
+     *
+     * What the machine is hearing, for the window process() is about to
+     * render. A graph reaches it through live<N> on a channel effect's io
+     * node (LIVEPREFIX in think.h); nothing else in the engine reads it.
+     *
+     * MONO, and the sum is the host's to do. A vocoder is mono by
+     * construction and says so at length (dsp/fx/vocoder.dsp); osc::sample
+     * is mono for the same reason; and a graph that wants two signals
+     * instantiates two nodes, which is the rule everywhere else in the tree.
+     * One buffer here rather than a stride is also what makes live<N> and
+     * live<N+1> the same signal without a special case.
+     *
+     * AUDIO THREAD, BOTH SIDES, AND NO RING. feedCapture is called by the
+     * host from the same callback that will drive process(), which is the
+     * arrangement gthSynthSource's header argues for on the output side:
+     * the producer and the consumer are one thread, so there is nothing to
+     * synchronise and a lock-free ring would be a ring with one thread on
+     * both ends of it.
+     *
+     * SILENCE IS THE DEFAULT AND HAS TO BE. The buffer is allocated zeroed
+     * and a host that feeds nothing leaves it that way, so genwav, gencheck,
+     * dspcheck and a mirror all render a graph with a live input in it
+     * identically and reproducibly. A host that *was* feeding and stops --
+     * a mic revoked, a stream closed -- has to feed silence rather than stop
+     * calling, for the reason thChanEffect gives about a side channel going
+     * away: a buffer nobody writes any more is the last window of it
+     * repeating for ever.
+     *
+     * `frames' longer than a window is truncated and shorter is zero-filled
+     * to the end, so what a graph reads is always a whole window. */
+    void feedCapture (const float *mono, unsigned frames);
+
+    /* One window of it, or NULL on a synth with none. Audio thread. */
+    const float *capture (void) const { return capture_; }
+
     /* ---- a synth that never renders ----
      *
      * A mirror -- the composer view's second scheduler in the browser, or
@@ -462,6 +498,9 @@ private:
     long sampleRate_; /* the number of samples per second*/
 
     bool silent_;               /* see setSilent()                     */
+
+    /* One window of mono capture, zeroed at construction. See feedCapture. */
+    float *capture_;
     unsigned long dropped_;     /* see droppedCommands()               */
 
     std::atomic<unsigned long> nonFinite_;  /* see nonFiniteVoices() */
