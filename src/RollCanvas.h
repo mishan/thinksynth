@@ -174,9 +174,12 @@ private:
     /* This frame's view of the scheduler, taken once by draw(). */
     void   step (void);
 
+    /* History older than anyone could scrub to, dropped. Called on every
+       delivery rather than once a frame -- RollCanvas.cpp says why. */
+    void   prune (void);
+
     double timeToX (double t, int width) const;
     void   fitPitchRange (void);
-    void   prune (void);
 
     /* How wide the shell is, in its own pixels, for a scrub that has to
        turn a distance into seconds. Zero before anything is laid out,

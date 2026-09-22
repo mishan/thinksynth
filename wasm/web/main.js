@@ -21,8 +21,9 @@
  *
  * Two things to play. A patch is one .dsp, played from the keyboard. A piece
  * is a .gen: the scheduler in the worklet composes it, the knobs it declared
- * are sliders, and what it delivers comes back as the tape and is drawn on a
- * roll.
+ * are sliders, what it delivers comes back as the tape, and a second
+ * scheduler in the mirror draws the piano roll -- the past it has played and
+ * the future it has already decided, which is the half a tape cannot say.
  *
  * They are modes and not two panels side by side, because a piece takes the
  * channels it asks for and the first of those is channel 0, where the

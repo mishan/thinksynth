@@ -133,7 +133,15 @@ RollCanvas::onDelivered (const thcEvent &ev)
 
         edits_.push_back({ ev.at, ev.channel, label });
     }
-    /* no requestRedraw: the shell repaints every frame anyway */
+    /* Pruned here rather than once a frame, which is where it used to be
+       when this was a widget that only existed while it was on screen.
+       A pane that is folded away stops asking for frames -- that is the
+       point of asking -- and the scheduler goes on delivering into it,
+       so a prune that only ran inside a draw was an unbounded history
+       for as long as nobody was looking. It is a pop_front or none.
+
+       No requestRedraw: the shell repaints every frame anyway. */
+    prune();
 }
 
 /* The transport rewound: history keyed to the old timeline is now a
@@ -199,7 +207,6 @@ RollCanvas::step (void)
                       && a.u.note.note < b.u.note.note;
               });
 
-    prune();
     fitPitchRange();
 }
 
