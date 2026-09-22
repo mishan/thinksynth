@@ -872,74 +872,37 @@ async function showEdited ()
     }
 }
 
-/* The menu for one aimable channel: every shipped .patch under the drawer
-   it lives in, then every shipped .dsp on its own.
+/* The menu for one aimable channel: the graphs, under the drawers the
+ * catalog files them in.
  *
- * A .patch is a .dsp and a preset over its knobs and is what the desktop
- * puts on a channel, so those come first; a bare .dsp is the same thing
- * at whatever values its file declares, which is what patch mode plays,
- * and is offered because a person picking an instrument by ear should not
- * have to find a .patch that happens to wrap the .dsp they wanted.
+ * Graphs and not patches, and that is the whole of the altitude question
+ * this menu used to get wrong. It offered seventy-seven .patch files and
+ * then sixty .dsp files in one list, which is two kinds of thing in a row
+ * with nothing to say which is which: a person scrolling it met
+ * `AcidBass', `FatRip' and `TranceSeq' and then, without warning,
+ * `bass.dsp' -- one of which is what those three are made of.
  *
- * The first entry is what the page has not chosen: for a channel the
- * piece named, the default that was put there, and for one it did not,
- * whatever is already on the channel, which the page has no business
- * naming.
+ * So the two questions are asked at the two altitudes they belong to.
+ * What instrument is this? -- a graph, here. Which of the ones somebody
+ * already made do you want? -- a patch, in the panel over that graph's
+ * own knobs, where the values a patch *is* are what is in front of you.
+ *
+ * What it opens on is the graph that is on the channel now, whether it
+ * got there from a patch, from a piece or from this menu; a channel with
+ * nothing on it says so instead.
  */
 function chooser (channel)
 {
     const sel = document.createElement('select');
-    const mine = aimed.get(channel);
     const here = placed.get(channel);
-    const named = (piece?.sinks ?? []).includes(channel);
 
     sel.setAttribute('aria-label', `Channel ${channel + 1}`);
 
-    if (mine === undefined)
-    {
-        const label = !named ? 'as it is'
-                    : here === undefined ? 'nothing -- the default failed'
-                    : `${here.title} (the default)`;
+    if (here === undefined)
+        sel.add(new Option('nothing yet', '', true, true));
 
-        sel.add(new Option(label, '', true, true));
-    }
-
-    let drawer = null;
-    let group = sel;
-
-    for (const name of patchNames)
-    {
-        const cut = name.lastIndexOf('/');
-        const dir = cut < 0 ? '' : name.slice(0, cut);
-
-        if (dir !== drawer)
-        {
-            drawer = dir;
-            group = sel;
-
-            if (dir !== '')
-            {
-                group = document.createElement('optgroup');
-                group.label = dir;
-                sel.append(group);
-            }
-        }
-
-        group.append(new Option(name.slice(cut + 1).replace(/\.patch$/, ''),
-                                name, false, name === mine));
-    }
-
-    /* And the graphs themselves, under the catalog's groups once the module
-       has read their headers -- titles rather than filenames, which is the
-       same menu the patch chooser above the channels row draws. Before Start
-       there is no module and no catalog, so it is the flat list of names.
-
-       Graphs that play a note, which is not every name in the index: the
-       `fx/' entries are there so the worklet can be handed them, and aiming
-       a channel at one would put an ungated effect graph on it as an
-       instrument. */
     if (dspGroups.length > 0)
-        fillCatalog(sel, mine);
+        fillCatalog(sel, here?.dsp);
     else
     {
         const dsps = document.createElement('optgroup');
@@ -947,17 +910,36 @@ function chooser (channel)
         dsps.label = 'dsp';
 
         for (const name of playableDsps())
-            dsps.append(new Option(name, name, false, name === mine));
+            dsps.append(new Option(name, name, false, name === here?.dsp));
 
         sel.append(dsps);
     }
 
-    if (mine !== undefined)
-        sel.value = mine;
+    if (here !== undefined)
+        sel.value = here.dsp;
 
     sel.addEventListener('change', () => aimByHand(channel, sel.value));
 
     return sel;
+}
+
+/* The patches that are for the graph on this channel: a menu of presets
+ * over what is already there, rather than a second way to choose an
+ * instrument.
+ *
+ * Which is what a .patch has always been -- `dsp ts1.dsp' and a column of
+ * values under it -- and what the page had no way to say. Empty, and not
+ * offered at all, for a graph nobody has saved a patch for, which is most
+ * of the corpus and every graph somebody writes themselves.
+ */
+function presets (channel)
+{
+    const here = placed.get(channel);
+
+    if (here === undefined)
+        return [];
+
+    return patchInfo.filter((p) => p.dsp === here.dsp);
 }
 
 /* Somebody chose. It goes on the channel now, and it stays theirs for the
@@ -971,7 +953,7 @@ async function aimByHand (channel, name)
     try
     {
         const what = await quietly(
-            () => patch.load(synth, channel, name));
+            () => patch.place(synth, channel, name));
 
         /* Remembered once it is actually on the channel. A choice that
            did not load is not a choice to repeat at every load of every
@@ -981,10 +963,15 @@ async function aimByHand (channel, name)
         $('status').textContent =
             `${what.title} on channel ${channel + 1}. Play.`;
 
-        /* And the row, which is drawn from the slot rather than from this:
-           the mark belongs to the patch that is on the channel now, not to
-           whatever was there a moment ago, and Save is offered for anything
-           that loaded -- including a channel whose last choice did not. */
+        /* And every menu that says what is on a channel, since a choice
+           made in one of them is a choice the others are showing too: the
+           channels row and the track headings both draw from `placed',
+           and the panel's presets are the ones for the graph that is
+           there now. The row is then drawn from the slot rather than
+           from any of this -- the mark belongs to the patch on the
+           channel now, and Save is offered for anything that loaded. */
+        showChannels();
+        showPresets();
         await showEdited();
     }
     catch (e)
@@ -1054,6 +1041,66 @@ function paramChannel ()
  * instance including this page's, so the number in the box moves because
  * the module set the arg and not because the box was typed in -- which is
  * the same path a peer's edit takes, and the reason there is only one. */
+/* The preset row: the patches for the graph on the panel's channel, with
+ * the one that is on it selected if a patch is what put it there.
+ *
+ * Drawn from `placed', which is what the page actually put on the
+ * channel, so it follows a piece's own instrument as readily as a choice
+ * of somebody's -- and hidden outright where there is nothing to offer,
+ * because a menu with one entry that says "as it is" is a control that
+ * does nothing.
+ */
+function showPresets ()
+{
+    const row = $('presetrow');
+    const sel = $('parampatch');
+    const channel = paramChannel();
+    const mine = presets(channel);
+
+    sel.replaceChildren();
+    row.hidden = mine.length === 0;
+
+    if (row.hidden)
+        return;
+
+    const here = placed.get(channel);
+    const bare = !here?.patch;
+
+    /* The graph's own values, which is where a channel starts before any
+       patch is over it and what there has to be a way back to. */
+    sel.add(new Option('as the graph says', '', bare, bare));
+
+    for (const p of mine)
+    {
+        /* Called what the file is called, because two patches in this
+           corpus give themselves the same title and a menu with two
+           identical rows in it is a menu with a coin toss in it. The
+           title is what the row says on hover, where a repeat costs
+           nothing. */
+        const option = new Option(
+            p.name.split('/').pop().replace(/\.patch$/, ''),
+            p.name, p.name === here?.patch, p.name === here?.patch);
+
+        option.title = p.title ?? '';
+        sel.add(option);
+    }
+}
+
+/* One chosen. It goes on the channel through the same call every other
+   choice takes, and it is remembered as this channel's for the session
+   the same way -- a patch is a choice of instrument as much as a graph
+   is, and a piece that reloads afterwards must not undo it. */
+async function pickPreset ()
+{
+    const channel = paramChannel();
+    const name = $('parampatch').value;
+
+    /* The first entry is the graph with nothing over it, and choosing it
+       is loading that graph again -- the way back from a patch, which a
+       menu that only went forwards would not have. */
+    await aimByHand(channel, name || placed.get(channel)?.dsp || '');
+}
+
 async function showParams ()
 {
     if (synth === null)
@@ -1093,6 +1140,8 @@ async function showParams ()
         });
 
     params = { channel, panel, setValue };
+
+    showPresets();
 }
 
 /* The panel following the arg.
@@ -1328,6 +1377,11 @@ async function start ()
     $('load').disabled = false;
     $('loadpiece').disabled = false;
 
+    /* What the shipped patches are presets over, on its way. Not awaited:
+       nothing on screen is waiting for it, and the panel that offers them
+       draws itself again when it lands. */
+    readPatches();
+
     /* The view before the load, not after. A load is answered by the
        mirror with a `piece' message, and fromMirror has nowhere to put
        one while composer is still null -- so made afterwards, the first
@@ -1379,6 +1433,16 @@ function fromMirror (m)
 
     if (composer !== null && composer.fromMirror(m))
         return;
+
+    if (m.type === 'patchinfo')
+    {
+        patchInfo = m.items;
+
+        /* The panel was drawn before there was a list; the row that shows
+           it is empty until this lands, so it is drawn again now. */
+        showPresets();
+        return;
+    }
 
     if (m.type === 'tape')
         diff.take('mirror', m);
@@ -1758,8 +1822,42 @@ async function served (name)
 }
 
 /* The shipped .patch files by relative name, `leads/SuperRes.patch' --
-   the names the desktop's thinkrc uses -- for the channels row's menus. */
+   the names the desktop's thinkrc uses. */
 let patchNames = [];
+
+/* And what each of them says it is: the graph it is a preset over, and
+ * the title its author gave it.
+ *
+ * Read by the module, once, from the texts this fetches -- the format has
+ * one reading and it is in C++ (src/PatchFile.h). Until the answer comes
+ * back this is empty, and a panel drawn before then offers no presets,
+ * which is right: it does not know of any yet. */
+let patchInfo = [];
+
+/* Every shipped patch, fetched and read. Started after Start and never
+ * awaited by anything somebody is waiting on: the panel that wants it is
+ * behind at least one click, and a menu that fills in a moment later is
+ * better than a page that opens a moment later.
+ */
+async function readPatches ()
+{
+    const items = [];
+
+    await Promise.all(patchNames.map(async (name) =>
+    {
+        try
+        {
+            items.push({ name, text: await patch.patchText(name) });
+        }
+        catch
+        {
+            /* One that the server will not serve is one menu entry
+               missing rather than a reason for the rest to be. */
+        }
+    }));
+
+    synth?.toMirror({ type: 'patchinfo', items });
+}
 
 function fill (select, names, preferred)
 {
@@ -1894,6 +1992,7 @@ async function init ()
     });
 
     $('paramchan').addEventListener('change', showParams);
+    $('parampatch').addEventListener('change', pickPreset);
 
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));

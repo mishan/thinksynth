@@ -153,6 +153,16 @@
     <label>Channel <select id="paramchan"></select></label>
     <span id="paramwhat" class="hint"></span>
   </div>
+
+  <!-- The patches that are for the graph on this channel. A .patch is a
+       .dsp and a column of values over its knobs, so this is where one
+       belongs: a preset over the controls it sets, and not a second
+       instrument menu beside the one that chose the instrument. Hidden
+       for a graph nobody has saved a patch for. -->
+  <div class="row" id="presetrow" hidden>
+    <label>Patch <select id="parampatch"></select></label>
+  </div>
+
   <div id="params"></div>
 </details>
 

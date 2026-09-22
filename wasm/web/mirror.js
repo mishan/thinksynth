@@ -441,6 +441,36 @@ function receive (m)
             break;
         }
 
+        /* What a set of .patch texts say they are, read the once.
+         *
+         * A menu wants to offer the patches that are for the graph a
+         * channel is holding, which is a question about every shipped
+         * patch and no channel at all. It is asked here rather than of
+         * the worklet because the worklet's thread is the one making
+         * sound, and seventy-seven parses do not belong on it -- and
+         * asked of the module rather than answered in the page, because
+         * the format has one reading and it is in C++. */
+        case 'patchinfo':
+        {
+            const read = [];
+
+            for (const item of m.items ?? [])
+            {
+                const doc = JSON.parse(M.UTF8ToString(
+                    M.ccall('tw_patch_reads', 'number', ['string'],
+                            [item.text])));
+
+                if (doc.dsp === undefined)
+                    continue;
+
+                read.push({ name: item.name, dsp: doc.dsp,
+                            title: doc.info?.title });
+            }
+
+            post({ type: 'patchinfo', items: read });
+            break;
+        }
+
         /* Every param of one stage, by name and value. The page has no
            scheduler to read them from; this instance is where the piece
            is, which is the same reason the params popover is answered

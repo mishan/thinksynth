@@ -64,6 +64,10 @@
    thinkrc calls them too. */
 const PATCH_DIR = 'patches';
 
+/* And where the graphs are, since a channel can be aimed at one of those
+   as readily as at a patch of somebody's over it. */
+const DSP_DIR = 'dsp';
+
 /* The first-run configuration is the module's (src/PatchSet.h), and so is
  * the rule for a channel above the last entry in it. There used to be an
  * array here with a comment saying it was gthPrefs.cpp's table "exactly",
@@ -146,6 +150,63 @@ export async function load (synth, channel, name)
                     name.split('/').pop().replace(/\.patch$/, '') };
 }
 
+/* A name from a menu, onto a channel, whichever kind of name it is.
+ *
+ * Two things can be chosen as an instrument and they are not the same
+ * thing. A .patch is a graph and a set of values -- somebody's Acid Bass,
+ * which is ts1.dsp turned a particular way. A .dsp is the graph itself,
+ * at whatever its own file says, which is where you start when you want
+ * to make one of your own rather than play one of theirs.
+ *
+ * They live in different directories and load by different calls, and the
+ * one thing that must not happen is a caller having to know which it is
+ * holding: the menus offer both at different altitudes now, and every
+ * path that puts a choice on a channel comes through here.
+ *
+ * Resolves to the same shape `load' does, so a row drawn from it reads
+ * the same whichever was chosen. A graph has no patch name and no
+ * generation of its own -- nothing was read onto the channel -- and its
+ * title is its filename, which is what the graph menu calls it too.
+ */
+export async function place (synth, channel, name)
+{
+    if (!name.endsWith('.dsp'))
+        return load(synth, channel, name);
+
+    const text = await graphText(name);
+
+    if (!await synth.load(text, channel))
+        throw new Error(`${name}: it did not parse`);
+
+    return { patch: '', dsp: name, generation: 0,
+             title: name.split('/').pop().replace(/\.dsp$/, '') };
+}
+
+/* And the graphs, fetched and kept the same way the patches are. */
+const graphs = new Map();
+
+export function graphText (name)
+{
+    if (!graphs.has(name))
+        graphs.set(name,
+                   fetch(`${DSP_DIR}/${name}`)
+                       .then((r) =>
+                       {
+                           if (!r.ok)
+                               throw new Error(
+                                   `${name}: ${r.status} ${r.statusText}`);
+
+                           return r.text();
+                       })
+                       .catch((e) =>
+                       {
+                           graphs.delete(name);
+                           throw e;
+                       }));
+
+    return graphs.get(name);
+}
+
 /* The aiming, after a piece has loaded.
  *
  * `channels' is what the worklet said: the channels this piece's sinks
@@ -177,7 +238,7 @@ export async function aim (synth, channels, chosen = new Map())
 
         try
         {
-            placed.set(channel, await load(synth, channel, name));
+            placed.set(channel, await place(synth, channel, name));
         }
         catch (e)
         {

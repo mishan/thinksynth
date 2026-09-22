@@ -635,30 +635,50 @@ try
 
     check(rows > 0, `${AIMED_PIECE} left ${rows} channels for the page to aim`);
 
-    /* The channel the parameters pane is already showing, so that the patch
-       chosen below and the controls moved after it are the same channel
-       without switching either of them under the other. */
-    const chan = await page.$eval('#paramchan', (sel) => Number(sel.value));
-
-    /* The first .patch the menu offers, chosen. The status line says what
-       went on, by the title the file gives itself -- which only something
-       that has read the file knows, and nothing on the page reads one. */
-    const chosen = await page.evaluate((c) =>
+    /* A channel this piece actually aimed, with the parameters pane moved
+     * onto it so that the patch chosen below and the controls moved after
+     * it are the same channel.
+     *
+     * Not simply the pane's own channel: the keys' channel is in the list
+     * whether or not the piece named it, and a channel with nothing on it
+     * has no graph, no patches over that graph, and nothing for the rest
+     * of this to be about. */
+    const chan = await page.evaluate(() =>
     {
         const row = [...document.querySelectorAll('#channels .channel')]
-            .find((r) => r.querySelector(`.edited[data-channel="${c}"]`));
+            .find((r) => r.querySelector('select')?.value !== '');
 
-        return [...(row?.querySelectorAll('select option') ?? [])]
-            .find((o) => o.value.endsWith('.patch'))?.value ?? '';
-    }, chan);
+        return Number(row?.querySelector('.edited')?.dataset.channel ?? -1);
+    });
+
+    check(chan >= 0, `${AIMED_PIECE} left an instrument on a channel`);
+
+    await page.selectOption('#paramchan', String(chan));
+    await page.waitForFunction(
+        (c) => document.getElementById('paramwhat').textContent
+                       .endsWith(`channel ${c + 1}`),
+        chan, { timeout: 60000 });
+
+    /* The first .patch the panel offers over this channel's graph, chosen.
+     *
+     * The panel and not the channels row: a patch is a .dsp and a column
+     * of values over its knobs, so the menus ask the two questions at the
+     * two altitudes -- which graph, in the row that aims the channel, and
+     * which of the patches somebody saved over it, here among the
+     * controls those values set.
+     *
+     * The status line says what went on by the title the file gives
+     * itself, which only something that has read the file knows and
+     * nothing on the page reads one. */
+    const chosen = await page.evaluate(() =>
+        [...document.getElementById('parampatch').options]
+            .find((o) => o.value.endsWith('.patch'))?.value ?? '');
 
     check(chosen !== '', `channel ${chan + 1} offers a .patch to choose`);
 
     if (chosen !== '')
     {
-        await page.selectOption(
-            `#channels .channel:has(.edited[data-channel="${chan}"]) select`,
-            chosen);
+        await page.selectOption('#parampatch', chosen);
         await page.waitForFunction(
             () => /on channel \d+\. Play\.$/.test(
                 document.getElementById('status').textContent),
