@@ -286,7 +286,9 @@ jobs:
       # the edit every node-editor gate is compared against; panelcheck is
       # the parameter panel every row of the module's is compared against;
       # patchcheck is the .patch every document the module writes is
-      # compared against. All four are what the browser build has to agree
+      # compared against; dspcatalog and gencheck are the two lists a
+      # chooser is drawn from, which the module reads out of its own copy of
+      # the same files. All six are what the browser build has to agree
       # with.
       #
       # Named here as well as in the upload below, and that is the whole of
@@ -298,7 +300,8 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja
           cmake --build build \
-                --target genwav dspedit panelcheck patchcheck plugins
+                --target genwav dspedit panelcheck patchcheck \
+                         dspcatalog gencheck plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
@@ -377,6 +380,8 @@ jobs:
             build/scripts/dspedit
             build/scripts/panelcheck
             build/scripts/patchcheck
+            build/scripts/dspcatalog
+            build/scripts/gencheck
             build/libthink/libthink.so.8
             build/plugins/*/*.so
             build-wasm/thinksynth.mjs
