@@ -805,8 +805,9 @@ graphs share a title.
 graph**: parsing a `.dsp` builds a `thSynthTree` and `dlopen`s every plugin it
 names, which is not a thing to do seventy-seven times to draw a list. The
 catalog runs the shared lexer (`libthink/thLexer.h`) over the file and picks up
-the info statements, plus which node the `io` statement names and whether that
-node declares `in0` — `thSynthTree::takesInput`, answered over the text.
+the info statements, plus which node the `io` statement names, whether that
+node declares `in0` — `thSynthTree::takesInput`, answered over the text — and
+whether anything in the graph reads that node's `note`.
 
 That last part is what lets **the effect split be enforced where the choice is
 made**. An effect graph and an instrument are the same format and are not
@@ -814,6 +815,21 @@ interchangeable (§ *An effect graph*); the effect chooser offers the graphs
 that declare `in0` and the instrument chooser offers the ones that do not,
 rather than both offering everything and a dialog afterwards saying it was the
 wrong kind.
+
+The last of those is **whether the graph plays at the pitch it is sent**.
+`note = ionode->note` somewhere in the file and it does; nothing reading it and
+every note it is handed makes the same sound. `kick909.dsp` says so in its own
+header — *the note number is ignored, a kick is a kick* — and that is a fact
+about the graph rather than a taxonomy over it: the shipped **Drums** group
+holds both kinds, and the difference between `kick909.dsp` and `tom808.dsp` is
+that a tom is played at a pitch. `scripts/dspcatalog` gates the corpus on it
+holding both, so a flag that quietly became *is this filed under Drums* fails.
+
+What reads it is the browser's sequencer. A track's grid is as tall as its
+`rows` param, and a ladder over an instrument that ignores the note is six rows
+that make one sound — so a track aimed at a kick is set to a single row, and
+one aimed at a tom keeps its ladder. A chooser could use it too and none does
+yet.
 
 An entry is named the way a file names it — `ts1.dsp`, `fx/echo.dsp` — because
 that is what `thUtil::findDataFile` resolves, what a `.patch`'s `dsp` line

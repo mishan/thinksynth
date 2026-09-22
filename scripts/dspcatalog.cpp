@@ -177,6 +177,70 @@ static void fixtures (void)
         "node ionode { channels = 2; in0 = 0; };\n",
         "Early", "", true);
 
+    /* ---- whether the graph plays at the pitch it is sent ---- */
+
+    /* Something reads the io node's `note'. This is the fact the
+       sequencer's track heights turn on, and it is about the graph rather
+       than about the `category' statement -- which holds both kinds. */
+    {
+        DspCatalog cat;
+
+        cat.take("pitched.dsp",
+                 "name \"Pitched\";\n"
+                 "node osc osc::simple { note = ionode->note; };\n"
+                 "node ionode { channels = 2; out0 = osc->out; };\n"
+                 "io ionode;\n");
+
+        /* A kick: it reads the velocity and the trigger and nothing else,
+           which is what "the note number is ignored" looks like written
+           down (dsp/kick909.dsp). */
+        cat.take("kick.dsp",
+                 "name \"Kick\";\n"
+                 "category \"Drums\";\n"
+                 "node env env::ad { p = ionode->velocity; };\n"
+                 "node ionode { channels = 2; out0 = env->out; };\n"
+                 "io ionode;\n");
+
+        /* A tom: filed under the same category and played at pitch. The
+           two rows above and this one are the whole argument for reading
+           the graph rather than the category. */
+        cat.take("tom.dsp",
+                 "name \"Tom\";\n"
+                 "category \"Drums\";\n"
+                 "node osc osc::simple { note = ionode->note; };\n"
+                 "node ionode { channels = 2; out0 = osc->out; };\n"
+                 "io ionode;\n");
+
+        /* `->note' on a node that is not the io node, which is the trap
+           the effect flag has in `in0 elsewhere': a graph reading one
+           oscillator's note off another is not reading the played one. */
+        cat.take("elsewhere.dsp",
+                 "name \"Elsewhere\";\n"
+                 "node a osc::simple { note = 60; };\n"
+                 "node b osc::simple { note = a->note; };\n"
+                 "node ionode { channels = 2; out0 = b->out; };\n"
+                 "io ionode;\n");
+
+        /* And the io statement ahead of the node that reads it, for the
+           reason the `io first' fixture above exists. */
+        cat.take("iofirst.dsp",
+                 "name \"IO first\";\n"
+                 "io ionode;\n"
+                 "node osc osc::simple { note = ionode->note; };\n"
+                 "node ionode { channels = 2; out0 = osc->out; };\n");
+
+        check(cat.find("pitched.dsp")->readsNote,
+              "a graph that reads the played note says so");
+        check(!cat.find("kick.dsp")->readsNote,
+              "a kick that ignores it says so");
+        check(cat.find("tom.dsp")->readsNote,
+              "a tom under the same category still reads it");
+        check(!cat.find("elsewhere.dsp")->readsNote,
+              "a note read off another node is not the played one");
+        check(cat.find("iofirst.dsp")->readsNote,
+              "the io statement may come first");
+    }
+
     /* No header at all: the row is drawn from the filename, because a
        chooser has to draw something and that is what is left. */
     one("no header", "fx/nameless.dsp",
@@ -318,6 +382,45 @@ static void corpus (const string &dir, thSynth *synth)
         return;
 
     printf("#     %d files, %d groups\n", found, (int)cat.groups().size());
+
+    /* The corpus's own answer to "is this the category by another name".
+     *
+     * It is not, and the shipped Drums group is where that shows: the
+     * kicks and hats ignore the note they are sent and the toms, congas
+     * and timbales do not. A flag that had quietly become "category is
+     * Drums" would pass every fixture above and fail here, which is why
+     * this is asked of the real corpus. */
+    {
+        int deaf = 0, pitched = 0;
+
+        for (size_t i = 0; i < cat.inGroup("Drums").size(); i++)
+            if (cat.inGroup("Drums")[i].readsNote)
+                pitched++;
+            else
+                deaf++;
+
+        check(deaf > 0 && pitched > 0,
+              "the Drums group holds both kinds",
+              "deaf " + std::to_string(deaf) + ", pitched " +
+              std::to_string(pitched));
+
+        /* And every instrument outside it reads the note, which is the
+           other half: nothing that is not a drum is silent about pitch. */
+        int mute = 0;
+
+        for (size_t i = 0; i < cat.entries().size(); i++)
+        {
+            const DspCatalog::Entry &e = cat.entries()[i];
+
+            if (!e.isEffect && !e.readsNote &&
+                DspCatalog::groupOf(e) != "Drums")
+                mute++;
+        }
+
+        check(mute == 0,
+              "every instrument outside Drums plays at the pitch it is sent",
+              std::to_string(mute) + " that do not");
+    }
 
     /* Every file on disk has a row. The catalog walks the tree itself, so a
        second walk here is what says the walk is the right one. */

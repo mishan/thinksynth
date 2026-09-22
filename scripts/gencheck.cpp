@@ -3149,6 +3149,117 @@ checkGrid (const std::map<std::string, thcPlugin *> &plugins,
                  "picture went on painting: " + rig.cells());
     }
 
+    /* ---- a resize keeps what somebody drew ---- */
+
+    /* `rows' is a param, and it moves on its own: the page sets it to 1
+     * when the instrument under a track turns out to ignore the note it
+     * is sent, and back when it does not. That is a reshaping of the
+     * picture and must not be a discarding of it -- reparsing on every
+     * size change meant a grid taken to one row and back came back as
+     * the pattern the *file* shipped, throwing away everything clicked
+     * since.
+     *
+     * What fits is kept, from the bottom-left: row 0 is the lowest note
+     * and a shorter ladder is the bottom of the one that was there.
+     */
+    {
+        Rig rig(synth, plugins);
+
+        const char *four =
+            "    stage g gen::grid {\n"
+            "        cells = \"..../..../..../....\";\n"
+            "        steps = 4; rows = 4; notes = \"C4\";\n"
+            "        period = 1 s; listen = 0;\n"
+            "    };\n";
+
+        if (!rig.build(four))
+        {
+            fail("the resizable grid piece did not load");
+            return;
+        }
+
+        const int rowsIdx = rig.stage->plugin->paramIndex("rows");
+
+        if (rowsIdx < 0)
+        {
+            fail("gen::grid has no 'rows' param to set");
+            return;
+        }
+
+        Gesture g = { rig.stage, 4, 4, 400.0, 400.0 };
+
+        /* A note on the bottom row and one on the top, drawn rather than
+           stated: the file's pattern is empty, so anything that survives
+           below survives because it was kept and not because it was
+           reparsed. Rows are drawn top-down, so screen row 3 is the
+           bottom of the ladder. */
+        g.at(0, 3, THC_IN_PRESS);
+        g.at(0, 3, THC_IN_RELEASE);
+        g.at(2, 0, THC_IN_PRESS);
+        g.at(2, 0, THC_IN_RELEASE);
+
+        if (rig.cells() != "..x./..../..../x...")
+            fail("the two clicks did not land where the test put them: " +
+                 rig.cells());
+
+        /* Down to one row. The bottom of the ladder is what is left. */
+        rig.stage->params.set(rowsIdx, 1);
+        rig.stage->plugin->paramChanged(rig.stage->state, rowsIdx);
+
+        if (rig.cells() != "x...")
+            fail("a grid taken to one row did not keep the bottom row "
+                 "somebody drew: " + rig.cells());
+
+        /* And back up. The row that was kept is still there and the ones
+           that were not are empty -- not the file's pattern, which is
+           what reparsing would have given back. */
+        rig.stage->params.set(rowsIdx, 4);
+        rig.stage->plugin->paramChanged(rig.stage->state, rowsIdx);
+
+        if (rig.cells() != "..../..../..../x...")
+            fail("a grid taken back up did not keep what fitted: " +
+                 rig.cells());
+    }
+
+    /* But a pattern nobody touched is the file's, at whatever size: a
+     * resize is not an edit, and there is nothing to preserve that
+     * reparsing would not give back.
+     *
+     * And the two paths drop different rows, which is not an oversight.
+     * Reading a text shorter than the grid is parseCells' rule -- the
+     * written rows are taken in order and the ones past the end are
+     * dropped, so a four-row pattern read into two rows is its first two
+     * written rows, which are its top two degrees. Keeping a drawn
+     * pattern is a different question: a cell is at a pitch, `rows' has
+     * moved under it, and the cells that still have a row are the ones
+     * whose pitch the shorter ladder still reaches -- the bottom.
+     */
+    {
+        Rig rig(synth, plugins);
+
+        const char *stated =
+            "    stage g gen::grid {\n"
+            "        cells = \"x.x./..../..../.x.x\";\n"
+            "        steps = 4; rows = 4; notes = \"C4\";\n"
+            "        period = 1 s; listen = 0;\n"
+            "    };\n";
+
+        if (!rig.build(stated))
+        {
+            fail("the stated grid piece did not load");
+            return;
+        }
+
+        const int rowsIdx = rig.stage->plugin->paramIndex("rows");
+
+        rig.stage->params.set(rowsIdx, 2);
+        rig.stage->plugin->paramChanged(rig.stage->state, rowsIdx);
+
+        if (rig.cells() != "x.x./....")
+            fail("a resized grid nobody drew on did not come from its "
+                 "own text: " + rig.cells());
+    }
+
     /* ---- the ladder stops where MIDI does ---- */
 
     /* Eight rows over a one-note ladder is eight octaves: rows 0 to 5

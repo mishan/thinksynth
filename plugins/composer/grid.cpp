@@ -374,6 +374,49 @@ refresh (State *st)
         return;
     }
 
+    /* A grid somebody drew on, resized by a param, with nobody having
+     * restated the pattern: what was drawn is kept, as far as it fits.
+     *
+     * Reparsing here would be the one case where a size change throws a
+     * pattern away -- the text is still the text the file shipped, so a
+     * grid taken from six rows to one and back would come back as the
+     * file's pattern rather than the one in front of somebody. `rows'
+     * moves on its own now: the page sets it when the instrument under a
+     * track turns out to ignore the note it is sent, and that is a
+     * reshaping of the picture, not a discarding of it.
+     *
+     * What fits is the bottom-left of it, because row 0 is the lowest
+     * note and step 0 is the first: a shorter grid is the bottom of the
+     * ladder and a taller one has empty rows above, which is where a
+     * ladder grows. Rows that no longer exist are gone rather than
+     * remembered -- the alternative is state with no way into the file
+     * and no way to see it.
+     */
+    if (resized && st->touched && cellsText == st->cellsText &&
+        !st->cells.empty())
+    {
+        std::vector<char> kept((size_t)steps * rows, CELL_OFF);
+
+        const int cols = steps < st->steps ? steps : st->steps;
+        const int keptRows = rows < st->rows ? rows : st->rows;
+
+        for (int y = 0; y < keptRows; y++)
+            for (int x = 0; x < cols; x++)
+                kept[(size_t)y * steps + x] = st->cells[idx(st, x, y)];
+
+        st->cells.swap(kept);
+        st->steps = steps;
+        st->rows = rows;
+
+        if (st->pos >= st->steps)
+            st->pos = 0;
+
+        if (st->posStep >= st->steps)
+            st->posStep = 0;
+
+        return;
+    }
+
     st->steps = steps;
     st->rows = rows;
     st->cellsText = cellsText;

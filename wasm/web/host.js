@@ -376,6 +376,13 @@ export async function createSynth (ctx, { windowlen = 256,
         panelEdit: (kind, a, b, row, text) =>
             post({ type: 'paneledit', kind, a, b, row, text }),
 
+        /* One numeric param of one composer stage, at a transport time or
+           -1 for the next window. The stage is named the way a gesture
+           names one: chain and stage index, the same on every peer holding
+           the same document. */
+        stageParam: ({ at = -1, chain, stage, param, value }) =>
+            post({ type: 'stageparam', at, chain, stage, param, value }),
+
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
            of it is one the module wants. */
