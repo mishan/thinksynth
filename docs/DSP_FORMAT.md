@@ -541,6 +541,32 @@ That the writing is one thing too is what makes a `.patch` saved in a browser
 a file the application opens: the bytes come from `thPatchCompose` on both
 sides, and all 101 shipped patches compose back to themselves byte for byte.
 
+### A patch's category is its drawer
+
+`patches/{bass,leads,pads,organs,brass,winds,drums/...}`. That directory is
+part of the name — `leads/SuperRes.patch` is what `thinkrc` stores, what
+`gthPrefs`'s first-run defaults spell and what the page's `patches/index.json`
+lists — so it is load-bearing, and it is already the grouping every patch menu
+draws.
+
+There was also an `info category` line, edited through a box in the Patch
+Selector, read by nothing. Twenty-six of the 101 shipped patches carried one
+and **four of those contradicted their own drawer** (`patches/bass/FatRes.patch`
+said `Leads`, and three more like it). That is the same failure `gen/README.md`
+had, in the other direction: a categorization kept somewhere the thing it
+describes cannot see it drifts.
+
+So it is retired. The shipped patches no longer carry the line,
+`scripts/patchcheck` fails one that does, and the box has gone from the Patch
+Selector. The *reader* still accepts the property, because it refuses no
+property and a `.patch` from elsewhere must keep round-tripping exactly.
+
+**A patch does not inherit its graph's category either.** A `.dsp`'s category
+describes graphs — *Synths*, *Drums*, *Plucked* — and a patch's drawer
+describes what the sound is for; `bass/FatRes.patch` is a bass played on a
+graph filed under *Synths*, and both statements are true. Two taxonomies over
+two things, which is why neither is derived from the other.
+
 ## 3. Writing a `.dsp`
 
 ### Splice, do not re-emit

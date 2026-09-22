@@ -52,7 +52,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
          Patch information; saying it five more times is most of what made
          the panel look crowded. */
       patchRevisedLbl("Revised"),
-      patchCategoryLbl("Category"),
       patchAuthorLbl("Author"),
       patchTitleLbl("Name"),
       patchCommentsLbl("Comments")
@@ -85,9 +84,8 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     patchInfoTable.set_margin_start(12);
 
     {
-        Gtk::Label *labels[] = { &patchTitleLbl, &patchCategoryLbl,
-                                 &patchAuthorLbl, &patchRevisedLbl,
-                                 &patchCommentsLbl };
+        Gtk::Label *labels[] = { &patchTitleLbl, &patchAuthorLbl,
+                                 &patchRevisedLbl, &patchCommentsLbl };
 
         for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); i++)
             labels[i]->set_xalign(1.0);
@@ -101,16 +99,18 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     patchCommentsWin.set_hexpand(true);
 
     patchTitle.set_hexpand(true);
-    patchCategory.set_hexpand(true);
     patchAuthor.set_hexpand(true);
     patchRevised.set_hexpand(true);
 
-    /* Name and Author on the left, Category and Revised beside them: the two
-       a person searches by first, then the two that describe it. */
+    /* Name and Author on the left, Revised beside them.
+     *
+     * There was a Category box here, and what it wrote was `info category' --
+     * free text duplicating the drawer the file already lives in, read by
+     * nothing and drifted in four of the twenty-six patches that carried one.
+     * A box that is the only way to type a field nobody reads is how that
+     * happens; see docs/DSP_FORMAT.md, "A patch's category is its drawer". */
     patchInfoTable.attach(patchTitleLbl,    0, 0, 1, 1);
     patchInfoTable.attach(patchTitle,       1, 0, 1, 1);
-    patchInfoTable.attach(patchCategoryLbl, 2, 0, 1, 1);
-    patchInfoTable.attach(patchCategory,    3, 0, 1, 1);
     patchInfoTable.attach(patchAuthorLbl,   0, 1, 1, 1);
     patchInfoTable.attach(patchAuthor,      1, 1, 1, 1);
     patchInfoTable.attach(patchRevisedLbl,  2, 1, 1, 1);
@@ -234,8 +234,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     /* Typing in the information form is editing the patch as much as moving a
        slider is; it is what Save writes out. */
     {
-        Gtk::Entry *fields[] = { &patchTitle, &patchCategory, &patchAuthor,
-                                 &patchRevised };
+        Gtk::Entry *fields[] = { &patchTitle, &patchAuthor, &patchRevised };
 
         for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
             fields[i]->signal_changed().connect(
@@ -351,7 +350,6 @@ void PatchSelWindow::UnloadDSP (void)
             /* After deletion, nothing will be highlighted, so disable
              * and clear things */
             patchRevised.set_text("");
-            patchCategory.set_text("");
             patchAuthor.set_text("");
             patchTitle.set_text("");
             patchComments.get_buffer()->set_text("");
@@ -387,7 +385,6 @@ bool PatchSelWindow::LoadPatch (void)
 
                 /* load up metadata */
                 patchRevised.set_text(patch->doc.info["revised"]);
-                patchCategory.set_text(patch->doc.info["category"]);
                 patchAuthor.set_text(patch->doc.info["author"]);
                 patchTitle.set_text(patch->doc.info["title"]);
                 patchComments.get_buffer()->set_text(patch->doc.info["comments"]);
@@ -579,7 +576,6 @@ void PatchSelWindow::writePatch (string file, int chan)
 
     /* cull metadata */
     patch->doc.info["revised"] = patchRevised.get_text();
-    patch->doc.info["category"] = patchCategory.get_text();
     patch->doc.info["author"] = patchAuthor.get_text();
     patch->doc.info["title"] = patchTitle.get_text();
     patch->doc.info["comments"] = patchComments.get_buffer()->get_text();
@@ -662,7 +658,6 @@ void PatchSelWindow::CursorChanged (void)
         if (oldpatch)
         {
             oldpatch->doc.info["revised"] = patchRevised.get_text();
-            oldpatch->doc.info["category"] = patchCategory.get_text();
             oldpatch->doc.info["author"] = patchAuthor.get_text();
             oldpatch->doc.info["title"] = patchTitle.get_text();
             oldpatch->doc.info["comments"] = patchComments.get_buffer()->get_text();
@@ -704,7 +699,6 @@ void PatchSelWindow::CursorChanged (void)
             loading_ = true;
 
             patchTitle.set_text(loaded ? patch->doc.info["title"] : string());
-            patchCategory.set_text(loaded ? patch->doc.info["category"] : string());
             patchAuthor.set_text(loaded ? patch->doc.info["author"] : string());
             patchRevised.set_text(loaded ? patch->doc.info["revised"] : string());
             patchComments.get_buffer()->set_text(
@@ -754,7 +748,6 @@ void PatchSelWindow::showNoChannel (void)
     loading_ = true;
 
     patchTitle.set_text(string());
-    patchCategory.set_text(string());
     patchAuthor.set_text(string());
     patchRevised.set_text(string());
     patchComments.get_buffer()->set_text(string());

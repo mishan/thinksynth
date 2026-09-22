@@ -112,9 +112,18 @@ struct thPatchDoc
     int side;
 
     /* Metadata, by property name. `title' is what a menu row calls the patch;
-       `author', `category', `comments' and `revised' are the others the
-       corpus uses, and nothing refuses a property it has not heard of.
-       Newlines arrive unescaped and go back out escaped. */
+       `author', `comments' and `revised' are the others the corpus uses, and
+       nothing refuses a property it has not heard of. Newlines arrive
+       unescaped and go back out escaped.
+
+       `category' was one of them and is not any more: a patch's category is
+       the drawer it lives in, which is load-bearing (`leads/SuperRes.patch'
+       is the name thinkrc and the page's index both use), and the field
+       duplicated it in free text and drifted -- four of the twenty-six that
+       carried one contradicted their own drawer. Nothing here refuses it,
+       because nothing here refuses any property; what changed is that this
+       tree stops writing one (scripts/patchcheck gates the corpus, and the
+       Patch Selector's Category box has gone). */
     map<string, string> info;
 
     /* The chanarg overrides, by name, every value in the order written.

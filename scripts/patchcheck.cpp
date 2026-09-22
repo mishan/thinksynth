@@ -310,6 +310,26 @@ static void checkCorpus (const string &dir)
         check(doc.complaints.empty(), name + ": has nothing to complain about",
               doc.complaints.empty() ? "" : doc.complaints[0]);
 
+        /* And the one rule that is about this corpus rather than about the
+           format: a shipped patch does not carry `info category'.
+         *
+         * A patch's category here is its drawer -- `leads/SuperRes.patch' is
+         * the name thinkrc uses, the name gthPrefs's defaults spell and the
+         * name the page's index lists, so the directory is load-bearing and
+         * is already the grouping every menu draws. The field duplicated it
+         * in free text and drifted: twenty-six of a hundred and one carried
+         * one and four of those contradicted their own drawer. The reader
+         * still accepts the property, because it refuses no property; what
+         * is gated is that this tree stops writing one.
+         *
+         * See docs/DSP_FORMAT.md, "A patch's category is its drawer". */
+        if (doc.info.count("category"))
+            fail(name + ": no `info category'",
+                 "says '" + doc.info.find("category")->second +
+                 "'; a patch's category is its drawer");
+        else
+            ok(name + ": no `info category'");
+
         roundTrips(text, name);
     }
 
