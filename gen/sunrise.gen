@@ -63,25 +63,27 @@ meter 4;
 
 # ---- the arrangement --------------------------------------------------
 #
-# A level here scales velocity, and on this kit velocity is the pedal
-# and on the bass it is the accent: so the hats and the bass are muted
-# or left alone, never scaled, and the numbers under 1 sit on the
-# strings and the pulse, where velocity is only how loud.
+# A level here is the note's gain at the mix and not its velocity: the
+# graph still reads the velocity the chain wrote, so the hats under 0.7
+# in the break are quieter and exactly as open, and the bass at 0.8
+# keeps every accent the filter was going to open on. That is what lets
+# the break turn the kit down rather than off.
 
 section intro  4 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
                         shaker = 0;  clap = 0;  strings = 0;  section = 0;
                         swoop = 0;  pulse = 0; };
-section lift   4 bars { kick = 0;  snare = 0;  hats_open = 0;  shaker = 0;
-                        clap = 0;  strings = 0;  section = 0;  swoop = 0;
-                        pulse = 0; };
+section lift   4 bars { kick = 0;  snare = 0;  hats = 0.6;  hats_open = 0;
+                        shaker = 0;  clap = 0;  strings = 0;  section = 0;
+                        swoop = 0;  pulse = 0; };
 section rise  16 bars { snare = 0;  clap = 0;  section = 0;
                         strings = 0.7;  pulse = 0.8; };
 section main  16 bars { clap = 0; };
-section break  8 bars { kick = 0;  snare = 0;  hats_open = 0;  shaker = 0;
-                        clap = 0;  pulse = 0; };
+section break  8 bars { kick = 0;  snare = 0;  hats = 0.7;  hats_open = 0.5;
+                        shaker = 0.6;  clap = 0;  bass = 0.8;  pulse = 0; };
 section drop  16 bars { section = 1.1; };
 section outro  8 bars { snare = 0;  clap = 0;  hats_open = 0;  section = 0;
-                        swoop = 0;  pulse = 0;  strings = 0.7;  kick = 0.85; };
+                        swoop = 0;  pulse = 0;  strings = 0.7;  kick = 0.85;
+                        bass = 0.85;  hats = 0.8; };
 section end;
 
 # Where the sweep lands when the row says 1, in hertz.
