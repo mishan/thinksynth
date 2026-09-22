@@ -266,22 +266,44 @@ async function main (args)
         const missing = (ext) =>
             ['native', 'wasm'].filter((which) => !fs.existsSync(f(which, ext)));
 
+        /* --levels and --sections on both sides: the two tables are
+           formatted by hand in C and again in JS, down to the column
+           widths and the half-to-even rounding, and the stderr
+           comparison below is the only thing that can notice them
+           drifting apart. The numbers behind them are sums over the
+           same PCM, which this already demands be byte-identical. */
         const [n, w] = await Promise.all([
             run(native, ['-p', path.join(build, 'plugins') + '/',
-                         '-s', seconds, '-o', f('native', 'wav'),
+                         '-s', seconds, '--levels', '--sections',
+                         '-o', f('native', 'wav'),
                          '-t', f('native', 'tape'), rel], env),
             run(process.execPath,
                 [path.join(here, 'genwav.mjs'), '-s', seconds,
+                 '--levels', '--sections',
                  '-o', f('wasm', 'wav'), '-t', f('wasm', 'tape'), rel],
                 env)]);
 
         const problems = [], within = [];
 
+        /* stderr is the summary line and then the two tables. One line
+           is what a report of a piece that matched has room for; where
+           they differ, the first line that does is what to say. */
+        const summary = (t) => t.split('\n')[0].trim();
+
         if (n.status !== w.status)
             problems.push(`exit ${n.status} and ${w.status}`);
 
         if (n.stderr !== w.stderr)
-            problems.push(`summary "${n.stderr.trim()}" / "${w.stderr.trim()}"`);
+        {
+            const a = n.stderr.split('\n'), b = w.stderr.split('\n');
+            let i = 0;
+
+            while (i < a.length && i < b.length && a[i] === b[i])
+                i++;
+
+            problems.push(`report line ${i + 1}: ` +
+                          `"${(a[i] ?? '').trim()}" / "${(b[i] ?? '').trim()}"`);
+        }
 
         /* A tape that was not written is a tape that differs. */
         if (missing('tape').length > 0)
@@ -330,7 +352,7 @@ async function main (args)
             return 'tolerated';
         }
 
-        process.stdout.write(`${label} identical  (${n.stderr.trim()})\n`);
+        process.stdout.write(`${label} identical  (${summary(n.stderr)})\n`);
 
         return 'identical';
     });

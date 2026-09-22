@@ -131,6 +131,49 @@ EMSCRIPTEN_KEEPALIVE int tw_channels (void)
     return synth_->audioChannelCount();
 }
 
+EMSCRIPTEN_KEEPALIVE int tw_midi_channels (void)
+{
+    return synth_->midiChanCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_count (void)
+{
+    return (int)sched_->instruments().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_name (int i)
+{
+    return sched_->instruments()[i].name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int i)
+{
+    return sched_->instruments()[i].channel;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_channel_name (int channel)
+{
+    static std::string name;
+
+    name = sched_->holding(channel);
+    return name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_section_count (void)
+{
+    return (int)sched_->sections().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_section_name (int i)
+{
+    return sched_->sections()[i].name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_section_at (double at)
+{
+    return sched_->sectionAt(at);
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_window (void)
 {
     return synth_->getWindowlen();
@@ -237,6 +280,21 @@ EMSCRIPTEN_KEEPALIVE const float *tw_process (void)
     synth_->process();
 
     return synth_->getOutput();
+}
+
+/* The channel's post-effect, interleaved window, read before tw_process()
+   advances it again. An empty slot has no buffer and zero outputs. */
+EMSCRIPTEN_KEEPALIVE const float *tw_channel_output (int channel)
+{
+    return synth_->getChannelOutput(channel, NULL);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_channel_outputs (int channel)
+{
+    int outputs = 0;
+
+    synth_->getChannelOutput(channel, &outputs);
+    return outputs;
 }
 
 /* Voices thMidiChan's guard dropped for going non-finite, since the module was

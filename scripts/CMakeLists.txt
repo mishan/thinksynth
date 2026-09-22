@@ -471,6 +471,15 @@ add_test(NAME genwav.nonfinite
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/scripts/guard
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGuardPiece.cmake")
 
+add_test(NAME genwav.meters
+         COMMAND "${CMAKE_COMMAND}"
+                 -DGENWAV=$<TARGET_FILE:genwav>
+                 -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/meters.gen
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DTAPE=${PROJECT_BINARY_DIR}/genwav-meters.tape
+                 -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMeters.cmake")
+
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dsplevel>
