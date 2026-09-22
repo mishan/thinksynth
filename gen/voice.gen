@@ -50,6 +50,7 @@
 name "Voice";
 author "Misha Nasledov";
 description "A string machine holding a chord, wearing whatever the microphone hears.";
+category "Playing it yourself";
 
 tempo 68;
 seed 9;

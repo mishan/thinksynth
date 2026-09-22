@@ -51,6 +51,7 @@
 name "Vocoder (live in)";
 author "Misha Nasledov";
 description "Sixteen bands of this channel driven by what the machine is hearing.";
+category "Effects";
 
     @res = 0.89;
     @res.widget = 1;
