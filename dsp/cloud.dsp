@@ -94,11 +94,14 @@ category "Strings and pads";
     @r.max = 20000ms;
     @r.label = "Release";
 
-    @amp = 1;
-    @amp.widget = 1;
-    @amp.min = 0;
-    @amp.max = 2;
-    @amp.label = "Level";
+    # Not `@amp': that name is the channel's own level, which the engine
+    # makes for every channel after it has copied the graph's controls, and
+    # a graph that declares one too has its knob quietly replaced.
+    @level = 1;
+    @level.widget = 1;
+    @level.min = 0;
+    @level.max = 2;
+    @level.label = "Level";
 
 node ionode {
     channels = 2;
@@ -167,12 +170,12 @@ node env env::adsr {
 
 node left mixer::mul {
     in0 = sidel->out;
-    in1 = env->out * @amp * ionode->velocity;
+    in1 = env->out * @level * ionode->velocity;
 };
 
 node right mixer::mul {
     in0 = sider->out;
-    in1 = env->out * @amp * ionode->velocity;
+    in1 = env->out * @level * ionode->velocity;
 };
 
 io ionode;
