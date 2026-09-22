@@ -53,6 +53,7 @@ struct twEvent
     int32_t     velocity;   /* N */
     const char *name;       /* C: chanarg, P: patch, E: node */
     const char *arg;        /* E */
+    double      level;      /* N */
 };
 
 static_assert(offsetof(twEvent, at) == 0, "tape.mjs reads at 0");
@@ -64,7 +65,8 @@ static_assert(offsetof(twEvent, note) == 32, "tape.mjs reads 32");
 static_assert(offsetof(twEvent, velocity) == 36, "tape.mjs reads 36");
 static_assert(offsetof(twEvent, name) == 40, "tape.mjs reads 40");
 static_assert(offsetof(twEvent, arg) == 44, "tape.mjs reads 44");
-static_assert(sizeof(twEvent) == 48, "tape.mjs steps by 48");
+static_assert(offsetof(twEvent, level) == 48, "tape.mjs reads 48");
+static_assert(sizeof(twEvent) == 56, "tape.mjs steps by 56");
 
 /* What the scheduler delivered since the last clear.
  *
@@ -87,6 +89,7 @@ public:
                 e.note = ev.u.note.note;
                 e.velocity = ev.u.note.velocity;
                 e.duration = ev.u.note.duration;
+                e.level = ev.u.note.level;
                 break;
             case THC_EV_CHANARG:
                 e.kind = 'C';

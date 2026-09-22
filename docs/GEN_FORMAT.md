@@ -665,8 +665,10 @@ section end;                          # the piece stops here
 
 A `section` names a stretch of the piece and what that stretch does to the
 chains. A chain named with `0` is **muted** for the section; any other number
-**scales its notes' sound level without changing velocity**; a chain the
-section does not name plays as written. The sections play in the order they
+**scales its notes' sound level without changing velocity** -- the voice is
+that much quieter at the mix, and the graph still reads the velocity the
+composer wrote, so a hat under `0.7` is quieter and exactly as open, and a
+bass keeps its accents; a chain the section does not name plays as written. The sections play in the order they
 appear and then cycle, for ever,
 unless `section end;` closes the list — in which case the transport stops
 itself once the last one is over, and a renderer keeps rendering until the

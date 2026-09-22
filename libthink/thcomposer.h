@@ -155,7 +155,10 @@ typedef struct {
             int    velocity;   /* 1-127                                   */
             double duration;   /* seconds until note-off; <= 0: held
                                   until a matching THC_EV_NOTEOFF        */
-            float  level;      /* voice gain; 1 leaves the sound unchanged */
+            float  level;      /* voice gain at the mix, separate from
+                                  velocity; 1 is as emitted. 0 is read as
+                                  1 by the scheduler, so an emitter that
+                                  zero-fills the struct is not silent    */
         } note;
         struct {
             const char *name;  /* @chanarg name; copied by the sink       */
