@@ -62,6 +62,7 @@
  */
 
 import { createComposerView } from './composerview.js';
+import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
@@ -84,15 +85,28 @@ const VELOCITY = 100;
  * The room page keeps a list of its own, and panecheck.mjs holds the two
  * against each other where they overlap.
  */
-const PANES = ['roll', 'composerview', 'knobs', 'channelbox', 'paramview',
-               'nodeview', 'keyboard', 'patchsource', 'piecesource',
-               'detail'];
+const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
+               'paramview', 'nodeview', 'keyboard', 'patchsource',
+               'piecesource', 'detail'];
 
 /* Which of them belong to which mode. Everything not named here is in
-   both -- the keys, the parameters, the graph, the numbers. */
-const PIECE_PANES = ['roll', 'composerview', 'knobs', 'channelbox',
-                     'piecesource'];
+   all three -- the keys, the parameters, the graph, the numbers.
+
+   A sequence is a piece the page wrote, so its panes are a subset of the
+   piece's: the tracks, the roll, the channels they are heard on, and the
+   .gen it came out as. What it deliberately has not got is the composer
+   canvas -- somebody laying down a pattern does not need to be shown
+   that it is a chain of stages, and the mode exists to not tell them. */
+const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
+                     'channelbox', 'piecesource'];
+const SEQ_PANES = ['roll', 'seqview', 'channelbox', 'piecesource'];
 const PATCH_PANES = ['patchsource'];
+
+/* What each mode makes unavailable: every pane of the other two that is
+   not also one of its own. */
+const modePanes = {
+    seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES,
+};
 
 /* Where they go, the first time somebody opens this page in a window
  * with room to tile.
@@ -119,10 +133,27 @@ const PATCH_LAYOUT = {
             { tabs: ['detail'] }] }],
 };
 
+/* A sequence opens on the tracks and the keys, with the roll under them:
+   what you drew, what you can play over it, and what came out. */
+const SEQ_LAYOUT = {
+    dir: 'row', size: [0.62, 0.38], kids: [
+        { dir: 'col', size: [0.68, 0.32], kids: [
+            { tabs: ['seqview'] },
+            { tabs: ['roll'] }] },
+        { dir: 'col', size: [0.4, 0.3, 0.3], kids: [
+            { tabs: ['paramview'] },
+            { tabs: ['keyboard'] },
+            { tabs: ['channelbox', 'piecesource'] }] }],
+};
+
 const PIECE_LAYOUT = {
     dir: 'row', size: [0.6, 0.4], kids: [
         { dir: 'col', size: [0.62, 0.38], kids: [
-            { tabs: ['composerview'] },
+            /* The sequencer in front of the piece's picture, and the two
+               a tab apart: what somebody opens a piece to do is play
+               with it, and the canvas is what they look at once they
+               want to know how it is put together. */
+            { tabs: ['seqview', 'composerview'] },
             { tabs: ['roll'] }] },
         { dir: 'col', size: [0.26, 0.24, 0.26, 0.24], kids: [
             { tabs: ['knobs'] },
@@ -159,6 +190,9 @@ let roll = null;
    real composer instances in it. The page's half of it is an element and
    a pointer; everything else is the same C++ the desktop draws with. */
 let composer = null;
+
+/* The same piece as tracks: the pane somebody clicks patterns into. */
+let seq = null;
 
 /* The instrument as a graph: the desktop's node editor over whichever
    .dsp this page is playing. Made on Start, since it is another
@@ -232,12 +266,20 @@ function mode ()
  * pane under it for nothing. */
 function showAbout ()
 {
-    $('about').hidden = mode() !== 'piece' || $('about').textContent === '';
+    $('about').hidden = !composing() || $('about').textContent === '';
 }
 
 function keyChannel ()
 {
     return Number($('keychan').value);
+}
+
+/* Whether what is playing is composed: a sequence and a piece are the
+   same scheduler on the same clock, and everything that is not about
+   choosing one is about that rather than about which it is. */
+function composing ()
+{
+    return mode() !== 'patch';
 }
 
 /* ---- what is sounding ---- */
@@ -258,7 +300,7 @@ function press (note)
         return;
     }
 
-    const piecing = mode() === 'piece';
+    const piecing = composing();
     const channel = keyChannel();
 
     sounding.set(note, { count: 1, piece: piecing, channel });
@@ -456,6 +498,113 @@ async function loadPiece ()
     await drawn;
 }
 
+/* ---- the sequence ----
+ *
+ * The mode this page opens on, and the one that asks least of anybody: a
+ * row of tracks, a menu per track for what plays it, and cells to click.
+ *
+ * Its piece is written here rather than shipped in gen/, and that is the
+ * point of it. A mode whose first step is "choose a piece" has already
+ * asked somebody to know what a piece is and which of thirty-two of them
+ * is the one to draw on; this one has four empty tracks in front of them
+ * before they have chosen anything. What comes out is an ordinary .gen
+ * all the same -- it is in the box under the .gen pane, it loads through
+ * the same loader every shipped piece loads through, and it can be saved
+ * and opened in the Composer like any other.
+ *
+ * No `instrument' blocks, deliberately. A channel a piece fills is the
+ * piece's, and the page will not offer to replace it; a channel a piece
+ * merely names is aimed by the page, from the defaults at first and from
+ * the menu on the track after that. That is what puts a menu on every
+ * track here and none on a shipped piece's.
+ */
+const SEQ_TRACKS = 4;
+const SEQ_STEPS = 16;
+/* Six: five degrees and the octave above them, which is a range to
+   write a line in and still leaves four tracks visible at once. */
+const SEQ_ROWS = 6;
+
+/* The first line of what this writes, and what tells the box's contents
+ * apart from any other piece.
+ *
+ * By a mark of its own rather than by what the text contains. "Does this
+ * have a `gen::grid' in it" was the obvious question and the wrong one:
+ * gen/scratch.gen has five, so going to look at it in piece mode and
+ * coming back to the sequencer kept it -- playing a shipped piece as the
+ * sequence, with none of the menus this mode is for. What the guard
+ * means is "is this still the page's own sequence", and only the page
+ * can answer that. */
+const SEQ_MARK = '# A sequence, written by the page.';
+
+function sequenceText ()
+{
+    const empty = Array(SEQ_ROWS).fill('.'.repeat(SEQ_STEPS)).join('/');
+
+    /* One track with something on it, because a sequencer that makes no
+       sound when it is started reads as broken rather than as empty.
+       Four on the floor on the bottom row of the first track. */
+    const first = empty.replace(new RegExp(`\\.{${SEQ_STEPS}}$`),
+                                'x...'.repeat(SEQ_STEPS / 4));
+
+    const track = (n) => `chain track${n} {
+    input midi;
+
+    stage seq gen::grid {
+        notes  = pent;
+        steps  = ${SEQ_STEPS};
+        rows   = ${SEQ_ROWS};
+        cells  = "${n === 1 ? first : empty}";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 96;
+        listen = 0;
+    };
+    sink { channel = ${n}; };
+};`;
+
+    const tracks = [];
+
+    for (let n = 1; n <= SEQ_TRACKS; n++)
+        tracks.push(track(n));
+
+    return `${SEQ_MARK}
+#
+# Four grids on four channels: rows are degrees of the ladder below,
+# columns are steps. Click the cells; the menu on each track says what
+# plays it. Save this file and it opens in the Composer like any other.
+#
+# \`input midi' on each of them is what makes the keys play a track: a
+# note aimed at a channel goes through that channel's chain and out its
+# sink, so what you play is heard on the instrument the track is set to.
+# \`listen = 0' is what keeps it from also drawing itself on the grid --
+# turn that up and playing writes what it plays.
+
+name "A sequence";
+description "Four tracks. Click the cells; pick what plays them.";
+
+tempo 112;
+
+scale pent "C3 D3 E3 G3 A3";
+
+${tracks.join('\n\n')}
+`;
+}
+
+/* The mode, entered. The text is written once a session: coming back to
+   it keeps whatever the box says, which is what somebody who went to look
+   at a patch and came back expects to find. */
+async function loadSequence ()
+{
+    if (!$('gen').value.includes(SEQ_MARK))
+        $('gen').value = sequenceText();
+
+    await loadPiece();
+
+    if (piece !== null)
+        $('status').textContent =
+            'Click cells to draw a pattern, then press Play.';
+}
+
 async function pickPiece ()
 {
     $('gen').value = await (await fetch(`gen/${$('piece').value}`)).text();
@@ -641,6 +790,10 @@ function showChannels ()
        has just been drawn is correct until the module says otherwise, and
        the caller has nothing to do differently either way. */
     showEdited();
+
+    /* The tracks name their channels' instruments, and this is every
+       place that can change. */
+    seq?.refresh();
 }
 
 /* One channel's patch, downloaded.
@@ -739,74 +892,37 @@ async function showEdited ()
     }
 }
 
-/* The menu for one aimable channel: every shipped .patch under the drawer
-   it lives in, then every shipped .dsp on its own.
+/* The menu for one aimable channel: the graphs, under the drawers the
+ * catalog files them in.
  *
- * A .patch is a .dsp and a preset over its knobs and is what the desktop
- * puts on a channel, so those come first; a bare .dsp is the same thing
- * at whatever values its file declares, which is what patch mode plays,
- * and is offered because a person picking an instrument by ear should not
- * have to find a .patch that happens to wrap the .dsp they wanted.
+ * Graphs and not patches, and that is the whole of the altitude question
+ * this menu used to get wrong. It offered seventy-seven .patch files and
+ * then sixty .dsp files in one list, which is two kinds of thing in a row
+ * with nothing to say which is which: a person scrolling it met
+ * `AcidBass', `FatRip' and `TranceSeq' and then, without warning,
+ * `bass.dsp' -- one of which is what those three are made of.
  *
- * The first entry is what the page has not chosen: for a channel the
- * piece named, the default that was put there, and for one it did not,
- * whatever is already on the channel, which the page has no business
- * naming.
+ * So the two questions are asked at the two altitudes they belong to.
+ * What instrument is this? -- a graph, here. Which of the ones somebody
+ * already made do you want? -- a patch, in the panel over that graph's
+ * own knobs, where the values a patch *is* are what is in front of you.
+ *
+ * What it opens on is the graph that is on the channel now, whether it
+ * got there from a patch, from a piece or from this menu; a channel with
+ * nothing on it says so instead.
  */
 function chooser (channel)
 {
     const sel = document.createElement('select');
-    const mine = aimed.get(channel);
     const here = placed.get(channel);
-    const named = (piece?.sinks ?? []).includes(channel);
 
     sel.setAttribute('aria-label', `Channel ${channel + 1}`);
 
-    if (mine === undefined)
-    {
-        const label = !named ? 'as it is'
-                    : here === undefined ? 'nothing -- the default failed'
-                    : `${here.title} (the default)`;
+    if (here === undefined)
+        sel.add(new Option('nothing yet', '', true, true));
 
-        sel.add(new Option(label, '', true, true));
-    }
-
-    let drawer = null;
-    let group = sel;
-
-    for (const name of patchNames)
-    {
-        const cut = name.lastIndexOf('/');
-        const dir = cut < 0 ? '' : name.slice(0, cut);
-
-        if (dir !== drawer)
-        {
-            drawer = dir;
-            group = sel;
-
-            if (dir !== '')
-            {
-                group = document.createElement('optgroup');
-                group.label = dir;
-                sel.append(group);
-            }
-        }
-
-        group.append(new Option(name.slice(cut + 1).replace(/\.patch$/, ''),
-                                name, false, name === mine));
-    }
-
-    /* And the graphs themselves, under the catalog's groups once the module
-       has read their headers -- titles rather than filenames, which is the
-       same menu the patch chooser above the channels row draws. Before Start
-       there is no module and no catalog, so it is the flat list of names.
-
-       Graphs that play a note, which is not every name in the index: the
-       `fx/' entries are there so the worklet can be handed them, and aiming
-       a channel at one would put an ungated effect graph on it as an
-       instrument. */
     if (dspGroups.length > 0)
-        fillCatalog(sel, mine);
+        fillCatalog(sel, here?.dsp);
     else
     {
         const dsps = document.createElement('optgroup');
@@ -814,17 +930,36 @@ function chooser (channel)
         dsps.label = 'dsp';
 
         for (const name of playableDsps())
-            dsps.append(new Option(name, name, false, name === mine));
+            dsps.append(new Option(name, name, false, name === here?.dsp));
 
         sel.append(dsps);
     }
 
-    if (mine !== undefined)
-        sel.value = mine;
+    if (here !== undefined)
+        sel.value = here.dsp;
 
     sel.addEventListener('change', () => aimByHand(channel, sel.value));
 
     return sel;
+}
+
+/* The patches that are for the graph on this channel: a menu of presets
+ * over what is already there, rather than a second way to choose an
+ * instrument.
+ *
+ * Which is what a .patch has always been -- `dsp ts1.dsp' and a column of
+ * values under it -- and what the page had no way to say. Empty, and not
+ * offered at all, for a graph nobody has saved a patch for, which is most
+ * of the corpus and every graph somebody writes themselves.
+ */
+function presets (channel)
+{
+    const here = placed.get(channel);
+
+    if (here === undefined)
+        return [];
+
+    return patchInfo.filter((p) => p.dsp === here.dsp);
 }
 
 /* Somebody chose. It goes on the channel now, and it stays theirs for the
@@ -838,7 +973,7 @@ async function aimByHand (channel, name)
     try
     {
         const what = await quietly(
-            () => patch.load(synth, channel, name));
+            () => patch.place(synth, channel, name));
 
         /* Remembered once it is actually on the channel. A choice that
            did not load is not a choice to repeat at every load of every
@@ -848,10 +983,15 @@ async function aimByHand (channel, name)
         $('status').textContent =
             `${what.title} on channel ${channel + 1}. Play.`;
 
-        /* And the row, which is drawn from the slot rather than from this:
-           the mark belongs to the patch that is on the channel now, not to
-           whatever was there a moment ago, and Save is offered for anything
-           that loaded -- including a channel whose last choice did not. */
+        /* And every menu that says what is on a channel, since a choice
+           made in one of them is a choice the others are showing too: the
+           channels row and the track headings both draw from `placed',
+           and the panel's presets are the ones for the graph that is
+           there now. The row is then drawn from the slot rather than
+           from any of this -- the mark belongs to the patch on the
+           channel now, and Save is offered for anything that loaded. */
+        showChannels();
+        showPresets();
         await showEdited();
     }
     catch (e)
@@ -872,7 +1012,7 @@ async function aimByHand (channel, name)
 
 function frame ()
 {
-    if (mode() === 'piece')
+    if (composing())
         roll.draw();
 
     requestAnimationFrame(frame);
@@ -921,6 +1061,66 @@ function paramChannel ()
  * instance including this page's, so the number in the box moves because
  * the module set the arg and not because the box was typed in -- which is
  * the same path a peer's edit takes, and the reason there is only one. */
+/* The preset row: the patches for the graph on the panel's channel, with
+ * the one that is on it selected if a patch is what put it there.
+ *
+ * Drawn from `placed', which is what the page actually put on the
+ * channel, so it follows a piece's own instrument as readily as a choice
+ * of somebody's -- and hidden outright where there is nothing to offer,
+ * because a menu with one entry that says "as it is" is a control that
+ * does nothing.
+ */
+function showPresets ()
+{
+    const row = $('presetrow');
+    const sel = $('parampatch');
+    const channel = paramChannel();
+    const mine = presets(channel);
+
+    sel.replaceChildren();
+    row.hidden = mine.length === 0;
+
+    if (row.hidden)
+        return;
+
+    const here = placed.get(channel);
+    const bare = !here?.patch;
+
+    /* The graph's own values, which is where a channel starts before any
+       patch is over it and what there has to be a way back to. */
+    sel.add(new Option('as the graph says', '', bare, bare));
+
+    for (const p of mine)
+    {
+        /* Called what the file is called, because two patches in this
+           corpus give themselves the same title and a menu with two
+           identical rows in it is a menu with a coin toss in it. The
+           title is what the row says on hover, where a repeat costs
+           nothing. */
+        const option = new Option(
+            p.name.split('/').pop().replace(/\.patch$/, ''),
+            p.name, p.name === here?.patch, p.name === here?.patch);
+
+        option.title = p.title ?? '';
+        sel.add(option);
+    }
+}
+
+/* One chosen. It goes on the channel through the same call every other
+   choice takes, and it is remembered as this channel's for the session
+   the same way -- a patch is a choice of instrument as much as a graph
+   is, and a piece that reloads afterwards must not undo it. */
+async function pickPreset ()
+{
+    const channel = paramChannel();
+    const name = $('parampatch').value;
+
+    /* The first entry is the graph with nothing over it, and choosing it
+       is loading that graph again -- the way back from a patch, which a
+       menu that only went forwards would not have. */
+    await aimByHand(channel, name || placed.get(channel)?.dsp || '');
+}
+
 async function showParams ()
 {
     if (synth === null)
@@ -960,6 +1160,8 @@ async function showParams ()
         });
 
     params = { channel, panel, setValue };
+
+    showPresets();
 }
 
 /* The panel following the arg.
@@ -1195,14 +1397,22 @@ async function start ()
     $('load').disabled = false;
     $('loadpiece').disabled = false;
 
+    /* What the shipped patches are presets over, on its way. Not awaited:
+       nothing on screen is waiting for it, and the panel that offers them
+       draws itself again when it lands. */
+    readPatches();
+
     /* The view before the load, not after. A load is answered by the
        mirror with a `piece' message, and fromMirror has nowhere to put
        one while composer is still null -- so made afterwards, the first
        Start went by with the message dropped and the "Paint ..." buttons
        never appeared. */
     showComposer(panes.visible('composerview') && mode() === 'piece');
+    showSeq(panes.visible('seqview') && composing());
 
-    if (mode() === 'patch')
+    if (mode() === 'seq')
+        await loadSequence();
+    else if (mode() === 'patch')
         await loadPatch();
     else
         await loadPiece();
@@ -1238,8 +1448,21 @@ async function start ()
    log. */
 function fromMirror (m)
 {
+    if (seq !== null && seq.fromMirror(m))
+        return;
+
     if (composer !== null && composer.fromMirror(m))
         return;
+
+    if (m.type === 'patchinfo')
+    {
+        patchInfo = m.items;
+
+        /* The panel was drawn before there was a list; the row that shows
+           it is empty until this lands, so it is drawn again now. */
+        showPresets();
+        return;
+    }
 
     if (m.type === 'tape')
         diff.take('mirror', m);
@@ -1381,12 +1604,56 @@ function showComposer (on)
     composer.show(on);
 }
 
+/* What is on a channel, in the words a track's heading wants: the name
+ * the piece gave its own instrument, or the file somebody aimed there by
+ * hand, or nothing -- a channel with nothing on it says so by saying the
+ * chain's name instead, which is at least what the track is called. */
+function describeChannel (channel)
+{
+    if (channel < 0)
+        return '';
+
+    const inst = piece?.instruments?.find((i) => i.channel === channel);
+
+    if (inst !== undefined)
+        return inst.name;
+
+    return aimed.get(channel) ?? '';
+}
+
+function showSeq (on)
+{
+    /* Made when it is first wanted, for the reason showComposer is. */
+    if (seq === null && (!on || synth === null))
+        return;
+
+    seq ??= createSeqView({
+        toMirror: (m) => synth?.toMirror(m),
+        onGesture: (g) => synth?.input({ ...g, at: -1 }),
+        describeChannel,
+
+        /* The same menu the channels list draws, on the track it is
+           about -- and by the same rule: a channel the piece filled is
+           the piece's and has nothing to choose. */
+        chooserFor: (channel) =>
+            (channel < 0 || !composing() ||
+             piece?.instruments?.some((i) => i.channel === channel))
+                ? null : chooser(channel),
+    });
+
+    seq.show(on);
+}
+
 /* For pagetest: where a stage's params handle is, and what the popover
    ended up showing. The layout is the canvas's, so asking it is the only
    honest way to press one. */
 window.solo = {
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
     params: () => composer?.params() ?? [],
+
+    /* The tracks the sequencer pane ended up with: which stage each row
+       is and how tall the grid behind it said to be. */
+    tracks: () => seq?.tracks() ?? [],
 
     /* Every load asked for so far, finished -- including the redraw each
        one ends with.
@@ -1441,12 +1708,13 @@ window.solo = {
        were ever compiled for this page. */
     pane: (what, ...args) => panes[what](...args),
 
-    /* Which of the two canvases is asking for frames. A pane in a
+    /* Which of the drawing panes is asking for frames. A pane in a
        background tab, folded away or in the mode that is not up costs
        nothing, and this is the only way to see from outside that it
        really costs nothing. */
     drawing: () => ({ composer: composer?.visible() ?? false,
-                      nodes: nodes?.visible() ?? false }),
+                      nodes: nodes?.visible() ?? false,
+                      seq: seq?.visible() ?? false }),
 
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
@@ -1460,29 +1728,30 @@ window.solo = {
 
 async function pickMode ()
 {
-    const piecing = mode() === 'piece';
+    const which = mode();
 
     /* The chrome each mode has: what to play, and the transport. What
        the piece section used to wrap are panes of their own now, and a
        pane the mode does not have is unavailable rather than hidden --
        it leaves the layout without being forgotten by it, so coming back
        to a mode puts its panes where they were. */
-    $('patchmode').hidden = piecing;
-    $('piecemode').hidden = !piecing;
+    $('patchmode').hidden = which !== 'patch';
+    $('piecemode').hidden = which !== 'piece';
+    $('transport').hidden = which === 'patch';
     showAbout();
 
-    for (const id of PIECE_PANES)
-        panes.available(id, piecing);
+    const mine = new Set(modePanes[which] ?? []);
 
-    for (const id of PATCH_PANES)
-        panes.available(id, !piecing);
+    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+        panes.available(id, mine.has(id));
 
-    panes.mode(piecing ? 'piece' : 'patch');
+    panes.mode(which);
 
     if (synth === null)
         return;
 
-    showComposer(panes.visible('composerview') && piecing);
+    showComposer(panes.visible('composerview') && which === 'piece');
+    showSeq(panes.visible('seqview') && composing());
     showNodes();
 
     /* Emptied rather than left showing the other mode's channel: what
@@ -1493,9 +1762,11 @@ async function pickMode ()
 
     releaseAll();
 
-    /* Each mode loads what it plays as it is entered: the other one's is
+    /* Each mode loads what it plays as it is entered: the last one's is
        still on the channels until it does. */
-    if (piecing)
+    if (which === 'seq')
+        await loadSequence();
+    else if (which === 'piece')
         await loadPiece();
     else
     {
@@ -1571,8 +1842,42 @@ async function served (name)
 }
 
 /* The shipped .patch files by relative name, `leads/SuperRes.patch' --
-   the names the desktop's thinkrc uses -- for the channels row's menus. */
+   the names the desktop's thinkrc uses. */
 let patchNames = [];
+
+/* And what each of them says it is: the graph it is a preset over, and
+ * the title its author gave it.
+ *
+ * Read by the module, once, from the texts this fetches -- the format has
+ * one reading and it is in C++ (src/PatchFile.h). Until the answer comes
+ * back this is empty, and a panel drawn before then offers no presets,
+ * which is right: it does not know of any yet. */
+let patchInfo = [];
+
+/* Every shipped patch, fetched and read. Started after Start and never
+ * awaited by anything somebody is waiting on: the panel that wants it is
+ * behind at least one click, and a menu that fills in a moment later is
+ * better than a page that opens a moment later.
+ */
+async function readPatches ()
+{
+    const items = [];
+
+    await Promise.all(patchNames.map(async (name) =>
+    {
+        try
+        {
+            items.push({ name, text: await patch.patchText(name) });
+        }
+        catch
+        {
+            /* One that the server will not serve is one menu entry
+               missing rather than a reason for the rest to be. */
+        }
+    }));
+
+    synth?.toMirror({ type: 'patchinfo', items });
+}
 
 function fill (select, names, preferred)
 {
@@ -1707,6 +2012,7 @@ async function init ()
     });
 
     $('paramchan').addEventListener('change', showParams);
+    $('parampatch').addEventListener('change', pickPreset);
 
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));
@@ -1735,18 +2041,29 @@ async function init ()
      * the mode switch made before, asked for in one place. */
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'panes:solo',
-        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT },
+        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
+                   seq: SEQ_LAYOUT },
         mode: mode(), on: true,
         onShow: (id, on) =>
         {
             if (id === 'composerview')
                 showComposer(on && mode() === 'piece');
+            else if (id === 'seqview')
+                showSeq(on && composing());
             else if (id === 'nodeview')
                 nodes?.show(on);
             else if (id === 'paramview' && on)
                 pollParams();
         },
     });
+
+    /* And the mode the select is showing, applied to what has just been
+       built. The markup cannot be the answer: it is one arrangement and
+       there are three modes, and the page opens on whichever one the
+       select says -- so the chrome and the panes are put right here,
+       once, by the same function that puts them right on every change.
+       With no synth yet it does nothing else. */
+    await pickMode();
 
     /* Four times a second, which is about the desktop's 50 ms draw timer
        and far below an animation frame: the poll is a message each way,

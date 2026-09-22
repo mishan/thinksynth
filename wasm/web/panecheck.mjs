@@ -151,6 +151,13 @@ try
               () => !document.body.classList.contains('tiled')),
           'and a narrow one is the document whatever the query string says');
 
+    /* Patch mode, for everything below: the page opens on a sequence
+       now, and what this harness is about is a mode with a graph in it --
+       the two canvases that share a leaf, and a pane of its own to switch
+       away from. The mode-switch check further down says which modes it
+       means. */
+    await page.selectOption('#mode', 'patch');
+
     /* And the verbs a pane has, asked of a page that has never tiled:
        there is no layout yet to raise one in and no drawer to put one
        into, because the page is the document it always was. Asking anyway
@@ -306,13 +313,29 @@ try
 
     const quiet = await page.evaluate(() => window.solo.drawing());
 
-    check(!quiet.composer,
-          'the piece\'s picture asks for no frames in patch mode');
+    check(!quiet.composer && !quiet.seq,
+          'the piece\'s picture and its tracks ask for no frames in ' +
+          'patch mode');
 
     await page.selectOption('#mode', 'piece');
+
+    /* Piece mode opens on the sequencer, with the piece's picture the
+       tab behind it, so it is the tracks that start asking for frames --
+       and the two of them share a leaf, which is the whole point: one
+       picture is drawn and not two. */
+    await page.waitForFunction(() => window.solo.drawing().seq,
+                               null, { timeout: 60000 });
+
+    check(!await page.evaluate(() => window.solo.drawing().composer),
+          'the tracks ask for frames when their pane is in front, and the ' +
+          'picture behind them does not');
+
+    await page.click('#panetab-composerview');
     await page.waitForFunction(() => window.solo.drawing().composer,
                                null, { timeout: 60000 });
-    check(true, 'and asks for them again when its pane is in front');
+
+    check(!await page.evaluate(() => window.solo.drawing().seq),
+          'and raising the picture turns the tracks off');
 
     /* ---- two canvases, one leaf ---- */
 
@@ -345,6 +368,50 @@ try
 
     check(swapped.composer && !swapped.nodes,
           'and raising the other one turns the first one off');
+
+    /* ---- and the tracks in the mode they are for ---- */
+
+    /* A sequence is a pane of its own in a layout of its own, so the
+     * pane is raised the moment the mode switches and onShow says so.
+     *
+     * Which is where it went wrong. Every other caller asks the page
+     * whether it is composing -- a sequence and a piece are the same
+     * scheduler, and the tracks are for both -- and this one asked
+     * whether the mode was `piece'. It is not, in the mode the tracks
+     * exist for, so showing the pane turned them off and the grids
+     * stopped redrawing under the pointer. Piece mode above cannot see
+     * it: there the two answers agree.
+     */
+    await page.selectOption('#mode', 'seq');
+    await page.waitForFunction(() => window.solo.tracks().length > 0,
+                               null, { timeout: 60000 });
+
+    check(await page.evaluate(() => window.solo.drawing().seq),
+          'and the tracks draw in the mode they are for, not only in ' +
+          'piece mode');
+
+    /* Put away and raised again, which is the call the mode switch does
+       not make: pickMode turns the tracks on itself after the layout has
+       settled, so it papered over the callback being wrong. Closing the
+       pane and presenting it is onShow and nothing else. */
+    await page.evaluate(() => window.solo.pane('close', 'seqview'));
+    await page.waitForFunction(() => !window.solo.drawing().seq,
+                               null, { timeout: 30000 });
+
+    await page.evaluate(() => window.solo.pane('present', 'seqview'));
+
+    check(await page.evaluate(async () =>
+          {
+              await new Promise((go) => requestAnimationFrame(go));
+
+              return window.solo.drawing().seq;
+          }),
+          'and a sequence pane put away and raised again goes back to ' +
+          'drawing');
+
+    await page.selectOption('#mode', 'piece');
+    await page.waitForFunction(() => window.solo.drawing().composer,
+                               null, { timeout: 60000 });
 
     /* ---- the popovers ---- */
 

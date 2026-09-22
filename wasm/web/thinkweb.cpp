@@ -839,6 +839,15 @@ EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
     rendered_ = frame;
 }
 
+/* What each channel was given, and whether it has been edited since.
+ *
+ * The same slots the application keeps (src/PatchSet.h), instantiated rather
+ * than reached through a singleton -- which is what the singleton being the
+ * application's idea, and staying there, is for. The signals go unconnected:
+ * a page polls, and there is nothing on this side of the ABI to hang a
+ * handler on. */
+static thPatchSet patches_(TH_MIDI_CHANNELS);
+
 /* A .dsp, as text, onto a channel in place of whatever was there. Nonzero
    if it parsed; the parser's complaints go to stderr, which the worklet
    forwards to the page.
@@ -865,8 +874,26 @@ EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
 
     /* At the level the Patch Selector loads one at, on MIDI's 0..127 --
        gthPatchfile.cpp says why that level is where it is. */
-    return synth_->loadTree(TW_PATCH_FILE, channel,
-                            TH_DEFAULT_CHAN_AMP) != NULL ? 1 : 0;
+    if (synth_->loadTree(TW_PATCH_FILE, channel,
+                         TH_DEFAULT_CHAN_AMP) == NULL)
+        return 0;
+
+    /* And the channel is not holding a patch any more.
+     *
+     * A graph put on a channel by name is the graph at whatever its own
+     * file says, which is precisely not the patch that was over it: the
+     * values are gone, and so is the file they came from. Leaving the
+     * slot behind left the shells offering to Save a .patch for a channel
+     * that no longer had one, and calling it edited -- which it was, in
+     * the sense that nothing about it matched the file any more, and
+     * which is the least useful true thing either of them could say.
+     *
+     * The piece loader does not come through here: an instrument a piece
+     * declares goes on through the host's own loader, which keeps the
+     * slot because in the application that slot is the patch tab. */
+    patches_.clear(channel);
+
+    return 1;
 }
 
 /* One of the shipped .dsp files, as text, into the place a piece's
@@ -1261,15 +1288,6 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
 static std::string patchWhy_;
 static std::string patchJson_;
 
-/* What each channel was given, and whether it has been edited since.
- *
- * The same slots the application keeps (src/PatchSet.h), instantiated rather
- * than reached through a singleton -- which is what the singleton being the
- * application's idea, and staying there, is for. The signals go unconnected:
- * a page polls, and there is nothing on this side of the ABI to hang a
- * handler on. */
-static thPatchSet patches_(TH_MIDI_CHANNELS);
-
 /* Reads `text' and puts it on `channel': the graph it names, its side, its
  * effect and its overrides, in the order the format requires.
  *
@@ -1367,6 +1385,32 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_read (const char *text)
 EMSCRIPTEN_KEEPALIVE const char *tw_patch_why (void)
 {
     return patchWhy_.c_str();
+}
+
+/* What a .patch says it is, without putting it anywhere.
+ *
+ * The same reading every other patch path takes -- thPatchParse, once, in
+ * C++ (src/PatchFile.h) -- answered for a text that is not on a channel and
+ * may never be. What asks is a menu: "which of the shipped patches are for
+ * the graph this channel is holding" is a question about seventy-seven files
+ * and no synth, and the alternative to asking here is a second reading of
+ * the format in JavaScript, which is the thing PatchFile exists to have
+ * ended.
+ *
+ * The whole document, since composing it is one call and the caller can
+ * ignore what it does not want. `{}' for a text that is not a patch.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_reads (const char *text)
+{
+    static std::string reads;
+
+    thPatchDoc doc;
+    std::string why;
+
+    reads = (text != NULL && thPatchParse(text, doc, why))
+            ? thPatchDocToJson(doc) : "{}";
+
+    return reads.c_str();
 }
 
 /* What is on `channel', as the document it was given -- its graph, its
@@ -1518,6 +1562,30 @@ EMSCRIPTEN_KEEPALIVE const char *tw_chain_name (int chain)
     return c != NULL ? c->name.c_str() : "";
 }
 
+/* The channel a chain plays, in the engine's numbering, or -1.
+ *
+ * Its first note sink's, and deliberately only that: a chain may fan out
+ * to several, and a chanarg sink is not a voice at all. What asks is a
+ * view that wants to say which instrument a track is heard on, and a
+ * track with two answers is a track that view should not be drawing as
+ * one row. */
+EMSCRIPTEN_KEEPALIVE int tw_chain_channel (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return -1;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL)
+        return -1;
+
+    for (size_t i = 0; i < c->sinks.size(); i++)
+        if (!c->sinks[i].isChanarg())
+            return c->sinks[i].channel;
+
+    return -1;
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
 {
     if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
@@ -1535,7 +1603,7 @@ EMSCRIPTEN_KEEPALIVE const char *tw_stage_name (int chain, int stage)
     return s != NULL && s->plugin != NULL ? s->plugin->name().c_str() : "";
 }
 
-/* Whether this stage has a picture at all. Eight composers draw and the
+/* Whether this stage has a picture at all. Nine composers draw and the
    rest do not, and the canvas shows an empty box for the rest. */
 EMSCRIPTEN_KEEPALIVE int tw_stage_draws (int chain, int stage)
 {

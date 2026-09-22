@@ -1,9 +1,9 @@
 # The shipped pieces
 
-Thirty-one `.gen` files, each of which is meant to be read as well as heard.
+Thirty-two `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
-being impressive; the other seventeen are pieces first and lessons second. The
+being impressive; the other eighteen are pieces first and lessons second. The
 comment at the top of each file is the lesson; this is the index.
 
 Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
@@ -21,8 +21,8 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
-`anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen` and
-`riviera.gen` need nothing else:
+`anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen`,
+`riviera.gen` and `scratch.gen` need nothing else:
 they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -79,6 +79,7 @@ typo in it.
 | piece | the idea |
 | --- | --- |
 | [`hands.gen`](hands.gen) | **Live input.** Nothing generates anything: every chain is fed by `input midi`, so hardware MIDI and the on-screen Keyboard (title bar → **Kbd input**) drive an arpeggiator, a corrector, and a slow shadow. The piece that shows why `THC_EV_NOTEOFF` exists. |
+| [`scratch.gen`](scratch.gen) | **The pattern you click.** Five `gen::grid` tracks and nothing else — rows are degrees of a ladder, columns are steps, and what plays is what is drawn. Press Play, enlarge a grid and click cells while it runs; a cell lands on the next step. The keys track also declares `input midi`, so a phrase you play draws itself on the grid and loops. The place to start if you want to hear your own pattern rather than read somebody's piece. |
 | [`glider.gen`](glider.gen) | **A picture that is a control.** Conway's Game of Life, played. Double-click a stage on the canvas to fill the window with its board, then click cells while it runs — the next generation takes whatever you leave. **Capture to file** writes the board you made back into the piece. |
 
 ## Algorithms
@@ -237,7 +238,9 @@ chains on one seed (both), `bassline` as an octave figure and as an
 offbeat comp (riviera), `accent` into an instrument's accent circuit
 (riviera) and `swing` on a sixteenth grid (pearl).
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
-feeds it.
+feeds it. scratch is `grid` five times over and nothing else: a drum track
+is one row tall, the bass is ties, the hat is accents, and the keys chain
+puts `input midi` in front of one so what is played is what is drawn.
 
 Language: `tempo` and `beats` (pulse), free-running seconds (airports,
 weather), `scale` (airports, hands, loosen, weather), `preset` (tide, bloom),

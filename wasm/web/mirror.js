@@ -138,6 +138,10 @@ function showPiece ()
             chain: c,
             name: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
                                          ['number'], [c])),
+            /* Where this chain is heard, for a view that draws a track
+               and has to say what plays it. -1 for a chain that only
+               writes knobs. */
+            channel: M._tw_chain_channel(c),
             stages,
         });
     }
@@ -209,30 +213,20 @@ function string (name, chain, stage, p)
                 [chain, stage, p]));
 }
 
-/* One frame of the canvas: the list, the strings it indexes and the
- * surfaces it blits, out of the heap and over to the page.
+/* The three tables a draw leaves behind -- the ops, the strings they
+ * index, the surfaces they blit -- copied out of the heap.
  *
  * Copied rather than viewed, and the copies transferred: a view into
  * HEAPF32 is a view into memory this worker goes on writing to, and a
- * transfer costs nothing on top of the copy.
+ * transfer costs nothing on top of the copy. `buffers' is what the post
+ * hands to postMessage as its transfer list.
+ *
+ * Shared by the canvas and by one stage's picture, because they are the
+ * same three tables (thinkweb.cpp): a stage's draw and the canvas's are
+ * one recorder.
  */
-function draw ()
+function readList (words)
 {
-    if (M === null || view.w <= 0 || view.h <= 0)
-        return;
-
-    /* At the drawing's own size, not the view's: the element is as big as
-       the drawing and the scroller around it is what moves, which is what
-       a Gtk scrolled window does to the widget on the desktop. Before a
-       piece has loaded there is no drawing, and the view's size is as
-       good an answer as any. */
-    const w = M._tw_canvas_width() || view.w;
-    const h = M._tw_canvas_height() || view.h;
-    const words = M._tw_canvas_draw(w, h);
-
-    if (words < 0)
-        return;                 /* no canvas yet: no piece has loaded */
-
     const at = M._tw_draw_ops();
     const ops = words > 0
         ? new Float32Array(M.HEAPF32.subarray(at >> 2, (at >> 2) + words))
@@ -258,6 +252,35 @@ function draw ()
                         height, stride, data });
         buffers.push(data.buffer);
     }
+
+    return { ops, strings, surfaces, buffers };
+}
+
+/* One frame of the canvas: the list, the strings it indexes and the
+ * surfaces it blits, out of the heap and over to the page.
+ *
+ * Copied rather than viewed, and the copies transferred: a view into
+ * HEAPF32 is a view into memory this worker goes on writing to, and a
+ * transfer costs nothing on top of the copy.
+ */
+function draw ()
+{
+    if (M === null || view.w <= 0 || view.h <= 0)
+        return;
+
+    /* At the drawing's own size, not the view's: the element is as big as
+       the drawing and the scroller around it is what moves, which is what
+       a Gtk scrolled window does to the widget on the desktop. Before a
+       piece has loaded there is no drawing, and the view's size is as
+       good an answer as any. */
+    const w = M._tw_canvas_width() || view.w;
+    const h = M._tw_canvas_height() || view.h;
+    const words = M._tw_canvas_draw(w, h);
+
+    if (words < 0)
+        return;                 /* no canvas yet: no piece has loaded */
+
+    const { ops, strings, surfaces, buffers } = readList(words);
 
     /* The drawing's own size, for the scroller around the element, and
        the size this list was drawn at, so a page that has resized since
@@ -394,6 +417,85 @@ function receive (m)
         case 'draw':
             draw();
             break;
+
+        /* One stage's own picture, at the size the asker will replay it
+         * at. The canvas's draw is a whole piece laid out as rows; this
+         * is what a view wants that has already decided where a stage
+         * goes -- a track in a sequencer is one grid and nothing else
+         * around it, and laying the canvas out to get at one box of it
+         * would be drawing the other twenty for nobody. */
+        case 'stagedraw':
+        {
+            const words = M._tw_stage_draw(m.chain, m.stage, m.w, m.h);
+
+            /* Every ask is answered, including "no such stage, or it
+               does not draw" -- with no list, which is a different thing
+               from an empty one and says to leave the picture alone. The
+               asker counts what is out and not back so it does not queue
+               frames on a worker already behind, and a request that got
+               no reply at all stopped that count coming down for good:
+               load a piece with fewer chains while the frames are in
+               flight and the pane froze. */
+            const list = words < 0 ? null : readList(words);
+
+            post({ type: 'stagedraw', chain: m.chain, stage: m.stage,
+                   w: m.w, h: m.h, dpr: m.dpr ?? 1,
+                   ops: list?.ops ?? null, strings: list?.strings ?? null,
+                   surfaces: list?.surfaces ?? null },
+                 list?.buffers ?? []);
+            break;
+        }
+
+        /* What a set of .patch texts say they are, read the once.
+         *
+         * A menu wants to offer the patches that are for the graph a
+         * channel is holding, which is a question about every shipped
+         * patch and no channel at all. It is asked here rather than of
+         * the worklet because the worklet's thread is the one making
+         * sound, and seventy-seven parses do not belong on it -- and
+         * asked of the module rather than answered in the page, because
+         * the format has one reading and it is in C++. */
+        case 'patchinfo':
+        {
+            const read = [];
+
+            for (const item of m.items ?? [])
+            {
+                const doc = JSON.parse(M.UTF8ToString(
+                    M.ccall('tw_patch_reads', 'number', ['string'],
+                            [item.text])));
+
+                if (doc.dsp === undefined)
+                    continue;
+
+                read.push({ name: item.name, dsp: doc.dsp,
+                            title: doc.info?.title });
+            }
+
+            post({ type: 'patchinfo', items: read });
+            break;
+        }
+
+        /* Every param of one stage, by name and value. The page has no
+           scheduler to read them from; this instance is where the piece
+           is, which is the same reason the params popover is answered
+           from here. */
+        case 'stageparams':
+        {
+            const params = [];
+
+            for (let p = 0;
+                 p < M._tw_stage_param_count(m.chain, m.stage); p++)
+                params.push({
+                    name: string('tw_stage_param_name', m.chain, m.stage, p),
+                    value: M._tw_stage_param_value(m.chain, m.stage, p),
+                    text: string('tw_stage_param_text', m.chain, m.stage, p),
+                });
+
+            post({ type: 'stageparams', chain: m.chain, stage: m.stage,
+                   params });
+            break;
+        }
     }
 }
 

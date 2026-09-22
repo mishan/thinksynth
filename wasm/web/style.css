@@ -233,6 +233,52 @@ details { margin: 0.8em 0; }
 
 #channels .save { margin-left: 0.5em; font-size: 12px; }
 
+/* ---- the sequencer ----
+ *
+ * One block per track: a heading that says which channel it is heard on
+ * and what is on it, and under that the grid's own picture at the pane's
+ * full width. The canvas is sized by the script, in both dimensions --
+ * its width is what the element gets from here and its height is the
+ * grid's own row count -- because the pointer's coordinates and the
+ * picture's have to be the same numbers (seqview.js).
+ */
+#tracks { margin: 0.4em 0; }
+
+.track { margin: 0 0 0.6em; }
+
+.trackhead { margin: 0 0 0.2em; align-items: baseline; }
+
+.trackhead .chan
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 2em;
+    text-align: right;
+}
+
+.trackhead .what { color: var(--dim); font-size: 0.9em; }
+
+/* What plays this track. Narrow enough that four of them down a pane do
+   not read as a form, wide enough for a drawer's name and a patch's. */
+.trackpick { max-width: 18em; font-size: 0.9em; }
+
+.trackgrid
+{
+    display: block;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #14161a;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+.trackgrid:focus-visible
+{
+    outline: 2px solid var(--held);
+    outline-offset: -2px;
+}
+
 #about { margin: 0.4em 0; color: var(--dim); }
 
 #clock { font: 13px ui-monospace, monospace; }

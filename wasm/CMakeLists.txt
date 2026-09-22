@@ -48,7 +48,7 @@ add_compile_options(-fPIC)
 # The build tree's plugins, which is where genwav.mjs's -p looks by default.
 set(THINK_PLUGIN_PATH "${PROJECT_BINARY_DIR}/plugins/")
 
-# The composers are built here, and eight of them include cairo.h.
+# The composers are built here, and nine of them include cairo.h.
 set(THINK_NEED_CAIRO ON)
 
 include(ThinkEmscripten)

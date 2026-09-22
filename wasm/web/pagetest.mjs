@@ -149,6 +149,71 @@ try
         null, { timeout: 60000 });
     check(true, 'the synth started');
 
+    /* ---- the sequencer, in the document ---- */
+
+    /* The mode the page opens on, and the pane it opens on, untiled.
+     *
+     * Every other claim about the tracks is panecheck's, and panecheck is
+     * about a layout: it adopts the pane into a leaf and CSS of its own
+     * takes over. So the one thing it cannot see is whether the section
+     * is showing in the document the layout is built from -- and it was
+     * not. The markup said `hidden' where a pane that starts closed says
+     * `data-pane-off', and nothing clears `hidden': panes.js will not
+     * touch it on purpose, because a page that uses the attribute for
+     * ordinary hiding would otherwise lose panes to the layout for good.
+     * Both attributes are `display: none !important', so the Sequencer
+     * was a pane with nothing in it in every window narrower than the
+     * tiler turns on at.
+     */
+    check(await page.evaluate(
+              () => document.getElementById('mode').value === 'seq' &&
+                    document.getElementById('seqview').checkVisibility()),
+          'the page opens on the sequencer, and it is showing');
+
+    await page.evaluate(() => window.solo.settled());
+    await page.waitForFunction(() => window.solo.tracks().length > 0,
+                               null, { timeout: 60000 });
+
+    const seqTracks = await page.evaluate(() => window.solo.tracks());
+
+    check(seqTracks.length === 4,
+          `the sequence is four tracks: ${seqTracks.length}`);
+
+    /* A menu on every one of them, which is what the mode is for: its
+       piece declares no instruments, so every channel is the page's to
+       aim. A shipped piece's tracks have a name there instead. */
+    check(await page.$$eval('#tracks .trackpick', (m) => m.length) === 4,
+          'and each one has a menu for what plays it');
+
+    check(await page.evaluate(() => window.solo.drawing().seq),
+          'and they are asking for frames');
+
+    /* ---- and the box keeps the page's own sequence ---- */
+
+    /* Going to look at a piece and coming back must come back to the
+     * sequence, and "does the box hold a gen::grid" was not the way to
+     * ask: gen/scratch.gen is five of them. Opening it and returning
+     * played a shipped piece as the sequence -- no menus, because
+     * scratch declares its own instruments, and nothing the mode is
+     * about.
+     */
+    await page.selectOption('#mode', 'piece');
+    await page.selectOption('#piece', 'scratch.gen');
+    await page.evaluate(() => window.solo.settled());
+
+    await page.selectOption('#mode', 'seq');
+    await page.evaluate(() => window.solo.settled());
+    await page.waitForFunction(() => window.solo.tracks().length > 0,
+                               null, { timeout: 60000 });
+
+    check(await page.evaluate(() => window.solo.tracks().length) === 4 &&
+          await page.$$eval('#tracks .trackpick', (m) => m.length) === 4,
+          'and scratch.gen, which is grids too, does not become the ' +
+          'sequence');
+
+    check(await page.evaluate(() => window.solo.drawing().seq),
+          'and the tracks draw again on the way back');
+
     /* ---- the instrument's parameters ---- */
 
     /* The panel this page has never had. Patch mode, because that is the
@@ -635,30 +700,50 @@ try
 
     check(rows > 0, `${AIMED_PIECE} left ${rows} channels for the page to aim`);
 
-    /* The channel the parameters pane is already showing, so that the patch
-       chosen below and the controls moved after it are the same channel
-       without switching either of them under the other. */
-    const chan = await page.$eval('#paramchan', (sel) => Number(sel.value));
-
-    /* The first .patch the menu offers, chosen. The status line says what
-       went on, by the title the file gives itself -- which only something
-       that has read the file knows, and nothing on the page reads one. */
-    const chosen = await page.evaluate((c) =>
+    /* A channel this piece actually aimed, with the parameters pane moved
+     * onto it so that the patch chosen below and the controls moved after
+     * it are the same channel.
+     *
+     * Not simply the pane's own channel: the keys' channel is in the list
+     * whether or not the piece named it, and a channel with nothing on it
+     * has no graph, no patches over that graph, and nothing for the rest
+     * of this to be about. */
+    const chan = await page.evaluate(() =>
     {
         const row = [...document.querySelectorAll('#channels .channel')]
-            .find((r) => r.querySelector(`.edited[data-channel="${c}"]`));
+            .find((r) => r.querySelector('select')?.value !== '');
 
-        return [...(row?.querySelectorAll('select option') ?? [])]
-            .find((o) => o.value.endsWith('.patch'))?.value ?? '';
-    }, chan);
+        return Number(row?.querySelector('.edited')?.dataset.channel ?? -1);
+    });
+
+    check(chan >= 0, `${AIMED_PIECE} left an instrument on a channel`);
+
+    await page.selectOption('#paramchan', String(chan));
+    await page.waitForFunction(
+        (c) => document.getElementById('paramwhat').textContent
+                       .endsWith(`channel ${c + 1}`),
+        chan, { timeout: 60000 });
+
+    /* The first .patch the panel offers over this channel's graph, chosen.
+     *
+     * The panel and not the channels row: a patch is a .dsp and a column
+     * of values over its knobs, so the menus ask the two questions at the
+     * two altitudes -- which graph, in the row that aims the channel, and
+     * which of the patches somebody saved over it, here among the
+     * controls those values set.
+     *
+     * The status line says what went on by the title the file gives
+     * itself, which only something that has read the file knows and
+     * nothing on the page reads one. */
+    const chosen = await page.evaluate(() =>
+        [...document.getElementById('parampatch').options]
+            .find((o) => o.value.endsWith('.patch'))?.value ?? '');
 
     check(chosen !== '', `channel ${chan + 1} offers a .patch to choose`);
 
     if (chosen !== '')
     {
-        await page.selectOption(
-            `#channels .channel:has(.edited[data-channel="${chan}"]) select`,
-            chosen);
+        await page.selectOption('#parampatch', chosen);
         await page.waitForFunction(
             () => /on channel \d+\. Play\.$/.test(
                 document.getElementById('status').textContent),

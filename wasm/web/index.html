@@ -22,6 +22,7 @@
   <button id="start">Start</button>
 
   <label>Play <select id="mode">
+    <option value="seq">a sequence</option>
     <option value="patch">a patch</option>
     <option value="piece">a piece</option>
   </select></label>
@@ -34,12 +35,19 @@
   <!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
        keyboard still plays, into whatever chains asked for `input midi'.
 
-       What this holds is the chrome of that mode -- the piece to play
-       and the transport, which every layout keeps. What it used to wrap
-       are panes now, below, each hidden by its own `hidden' in the other
-       mode rather than by this going away. -->
+       What this holds is the chrome of that mode -- which piece to play,
+       and nothing else. What it used to wrap are panes now, below, each
+       hidden by its own `hidden' in the other mode rather than by this
+       going away, and the transport is its own strip beside it. -->
   <span id="piecemode" class="group" hidden>
     <label>Piece <select id="piece"></select></label>
+  </span>
+
+  <!-- The transport, which belongs to neither of those and to both: a
+       sequence and a piece are the same scheduler on the same clock, and
+       the only mode with nothing to start is the one playing a single
+       graph from the keys. -->
+  <span id="transport" class="group">
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <button id="rewind" disabled>Rewind</button>
@@ -62,6 +70,21 @@
 
 <canvas id="roll" width="1200" height="360" data-pane-off
         data-pane data-pane-title="Piano roll" data-pane-min="320"></canvas>
+
+<!-- The piece as tracks: one row per gen::grid, each one that plugin's
+     own drawing at the pane's width, with the channel it is heard on
+     beside it. Click a cell to put a note there, again to accent it,
+     again to clear it; drag to draw a run, and the other button erases.
+
+     What a click reaches is not the picture in front of you but a
+     command, applied at its time here and on every peer -- the same path
+     the composer canvas's gestures take, and the reason what you drew
+     appears a moment later. -->
+<section id="seqview" data-pane-off
+         data-pane data-pane-title="Sequencer" data-pane-min="320">
+  <div id="tracks"></div>
+  <p id="seqhint" class="hint"></p>
+</section>
 
 <!-- The piece's picture: one row per chain, its stages with each
      composer's own drawing inside its box, the sinks in their channel's
@@ -130,6 +153,16 @@
     <label>Channel <select id="paramchan"></select></label>
     <span id="paramwhat" class="hint"></span>
   </div>
+
+  <!-- The patches that are for the graph on this channel. A .patch is a
+       .dsp and a column of values over its knobs, so this is where one
+       belongs: a preset over the controls it sets, and not a second
+       instrument menu beside the one that chose the instrument. Hidden
+       for a graph nobody has saved a patch for. -->
+  <div class="row" id="presetrow" hidden>
+    <label>Patch <select id="parampatch"></select></label>
+  </div>
+
   <div id="params"></div>
 </details>
 
