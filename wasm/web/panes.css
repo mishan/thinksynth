@@ -59,13 +59,19 @@
  * and go, and a layout that is a toolbar taller than the window has its
  * bottom row under one. Nothing tiles on a phone, but a narrow laptop
  * window crossing the threshold is the same arithmetic.
+ *
+ * And `--pane-height' over it, because `dvh' accounts for retracting
+ * browser chrome and nothing else: a page with a text box at the bottom
+ * has the on-screen keyboard drawn over it, and the only thing that
+ * reports the box actually visible is `visualViewport'. A page that
+ * tracks it sets this to what it found.
  */
 body.tiled
 {
     max-width: none;
     margin: 0;
     padding: 0.6em 0.8em;
-    height: 100dvh;
+    height: var(--pane-height, 100dvh);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -108,13 +114,14 @@ body.tiled .panesroot > .paneleaf { flex: 1 1 auto; min-height: 0; }
 /* A leaf is its strip of tabs and the pane under them. */
 .paneleaf { flex-direction: column; }
 
-/* The divider. Six pixels of it, which is SPLIT in panes.js -- what
-   refuses a drag and what is drawn have to be the same number -- with a
-   hit area that does not have to be aimed at and a line down the middle
-   that does not move. */
+/* The divider. As thick as `--pane-split', which panes.js writes onto
+   the root from the number its own arithmetic uses -- what refuses a
+   drag and what is drawn are one number now rather than two asked to
+   agree. A hit area that does not have to be aimed at, and a line down
+   the middle that does not move. */
 .panesplit
 {
-    flex: 0 0 6px;
+    flex: 0 0 var(--pane-split, 6px);
     position: relative;
     background: transparent;
     border: 0;
@@ -185,11 +192,17 @@ body.tiled .panesroot > .paneleaf { flex: 1 1 auto; min-height: 0; }
     min-height: 0;
 }
 
-/* A pane whose element the page has hidden -- the mode it belongs to is
-   not up -- is not a gap in the layout. Said in CSS rather than in
-   panes.js so that `hidden' on the element is the whole of the answer,
-   whoever set it. */
-.pane:has(> .panebody > [hidden]) { display: none; }
+/* A pane whose mode is not up.
+ *
+ * The attribute is this module's own (`OFF' in panes.js) rather than
+ * `hidden', which is a word most pages are already using for something
+ * else -- so the element has to be hidden here, since nothing else now
+ * does it. Both rules: the element goes, whether or not there is a
+ * layout, and the pane around it goes with it rather than staying as an
+ * empty bordered box. */
+[data-pane-off] { display: none !important; }
+
+.pane:has(> .panebody > [data-pane-off]) { display: none; }
 
 /* ---- the tabs ----
  *

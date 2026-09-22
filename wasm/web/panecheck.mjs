@@ -818,6 +818,96 @@ try
     check(await page.evaluate(() => document.activeElement.id === 'dsp'),
           'and leaves the caret where the reader left it');
 
+    /* ---- and a second tiler, told something else ---- */
+
+    /*
+     * Everything above drives this page's layout, which takes the
+     * module's defaults for everything. What that cannot show is that
+     * they are defaults: a number the module decides for itself and a
+     * number it was told read exactly alike from out here.
+     *
+     * So: a second instance on two boxes of its own, with a thicker
+     * divider, a different chord and somewhere else to keep what it
+     * saves. Small enough to live in this harness, and the reason a
+     * fixture page is worth building later rather than now.
+     */
+    const told = await page.evaluate(async () =>
+    {
+        const { createPanes } = await import('./panes.js');
+        const root = document.createElement('div');
+        const kept = [];
+
+        const box = (id) =>
+        {
+            const el = document.createElement('section');
+
+            el.id = id;
+            el.dataset.pane = '';
+            el.dataset.paneTitle = id;
+            el.dataset.paneMin = '80';
+            el.textContent = id;
+
+            return el;
+        };
+
+        document.body.append(root, box('fix-a'), box('fix-b'));
+
+        const two = createPanes({
+            root,
+            catalog: ['fix-a', 'fix-b'],
+            mode: 'one',
+            layouts: { one: { dir: 'row', size: [0.5, 0.5],
+                              kids: [{ tabs: ['fix-a'] },
+                                     { tabs: ['fix-b'] }] } },
+            on: true,
+            split: 20,
+            keys: { close: ['KeyQ'] },
+            storage: { getItem: () => null,
+                       setItem: (k) => kept.push(k),
+                       removeItem: () => {} },
+        });
+
+        const bar = root.querySelector('.panesplit');
+        const wide = Math.round(bar.getBoundingClientRect().width);
+
+        /* The chord it was given, and the one it was not. */
+        const fire = (code) => window.dispatchEvent(
+            new KeyboardEvent('keydown', { code, altKey: true,
+                                           bubbles: true, cancelable: true }));
+
+        fire('KeyW');
+        const afterW = root.querySelectorAll('.panetab').length;
+
+        fire('KeyQ');
+        const afterQ = root.querySelectorAll('.panetab').length;
+
+        /* And availability, which is an attribute of the module's own.
+           `hidden' is what a page uses for its own showing and hiding,
+           and the layout must not be reading it. */
+        two.available('fix-b', false);
+
+        const b = document.getElementById('fix-b');
+        const marked = b.hasAttribute('data-pane-off') && !b.hidden;
+
+        return { wide, afterW, afterQ, marked, kept };
+    });
+
+    check(told.wide === 20,
+          `a divider is as thick as the tiler was told: ${told.wide} of 20`);
+
+    check(told.afterW === 2 && told.afterQ === 1,
+          'and the chord it was given closes a pane where the default ' +
+          `does nothing: ${told.afterW} tabs after Alt W, ${told.afterQ} ` +
+          'after Alt Q');
+
+    check(told.marked,
+          'and an unavailable pane is marked with the module\'s own ' +
+          'attribute, not with `hidden\'');
+
+    check(told.kept.length > 0 &&
+          told.kept.every((k) => k.startsWith('panes:')),
+          `and what it saves goes where it was told: ${told.kept.join(' ')}`);
+
     /* ---- and the room page, which is the same catalog again ---- */
 
     /* The two pages share most of their panes and all of their tiler.
