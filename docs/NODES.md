@@ -520,6 +520,18 @@ State-variable filter: low, band and high
 | `out_high` | out | High pass; the three outputs sum to the input |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
 
+### filt::vowel
+
+Vowel (five formants, a to u)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `vowel` | in | 0 a, 1 e, 2 i, 3 o, 4 u, and between two the mouth moving from one to the other |  | 0 to 4 |  |  |
+| `gender` | in | Every formant scaled together: 1 a quarter octave up, -1 one down |  | -1 to 1 |  |  |
+| `out` | out | The five formants, summed |  |  | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ## impulse
 
 ### impulse::blackman
@@ -950,6 +962,22 @@ White, pink or brown noise
 | `color` | in | Which noise |  |  |  | 0 = White, 1 = Pink, 2 = Brown |
 | `amp` | in | Peak amplitude; pink and brown are about nine decibels quieter than white at the same peak | 1 | 0 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
+
+### osc::pad
+
+PADsynth (partials with a bandwidth each)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | The note |  |  | Hz |  |
+| `partials` | in | How many partials, of those under Nyquist | 32 | 1 to 128 |  |  |
+| `bandwidth` | in | Each partial's width at the fundamental; 0 is a sum of sines |  | 0 to 200 | cents |  |
+| `bwscale` | in | How the width grows up the series: 1 the same cents, 0 the same hertz |  | 0 to 2 |  |  |
+| `tilt` | in | How the partials fall off; -6 is a saw's slope |  | -24 to 6 | dB per octave |  |
+| `stretch` | in | Inharmonicity: partial n at n * sqrt(1 + stretch n^2) |  | 0 to 0.01 |  |  |
+| `out` | out | The pad |  | -1 to 1 | full scale |  |
+| `out2` | out | The same pad from half the table away, decorrelated |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
 
 ### osc::sample
 

@@ -5170,6 +5170,399 @@ static void checkGrain (const string &pluginPath)
     std::filesystem::remove_all(dir, ec);
 }
 
+/* ---- osc::pad ----------------------------------------------------------- */
+
+static vector<NodeSpec> padGraph (float freq, float partials, float bandwidth,
+                                  float bwscale, float tilt, float stretch)
+{
+    vector<NodeSpec> spec;
+    NodeSpec p;
+
+    p.name = "pad";
+    p.spelling = "osc/pad";
+    p.values.push_back(Value{ "freq", freq });
+    p.values.push_back(Value{ "partials", partials });
+    p.values.push_back(Value{ "bandwidth", bandwidth });
+    p.values.push_back(Value{ "bwscale", bwscale });
+    p.values.push_back(Value{ "tilt", tilt });
+    p.values.push_back(Value{ "stretch", stretch });
+
+    spec.push_back(p);
+
+    return spec;
+}
+
+/* The power-weighted mean and standard deviation of the spectrum within
+   `half' hertz of `hz', and the total power there. */
+static void bandStats (const vector<double> &power, size_t n, double hz,
+                       double half, double &mean, double &sd, double &total)
+{
+    const double perBin = (double)TH_DEFAULT_SAMPLES / (double)n;
+    double s0 = 0, s1 = 0, s2 = 0;
+
+    for (size_t k = (size_t)fmax(1, (hz - half) / perBin);
+         k < power.size() && k * perBin <= hz + half; k++)
+    {
+        const double f = k * perBin;
+
+        s0 += power[k];
+        s1 += power[k] * f;
+        s2 += power[k] * f * f;
+    }
+
+    total = s0;
+    mean = s0 > 0 ? s1 / s0 : 0;
+    sd = s0 > 0 ? sqrt(fmax(0, s2 / s0 - mean * mean)) : 0;
+}
+
+static void checkPad (const string &pluginPath)
+{
+    const size_t n = 131072;              /* three seconds, 0.34 Hz a bin */
+    const float c4 = 261.63f;
+
+    /* ---- at no bandwidth, lines ---- */
+
+    /* Sixteen partials at middle C, which is octave 0's own base, so the
+       table is read at one sample a sample: nearly all the power has to be
+       within a hertz and a half of a harmonic -- the Hann window's own
+       main lobe, and nothing wider. */
+    {
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, padGraph(c4, 16, 0, 1, -6, 0), "pad", "out",
+                     256, (unsigned)n + 4410, got, why))
+        {
+            fail("osc::pad renders", why);
+            return;
+        }
+
+        const vector<double> power = powerSpectrum(got, 4410, n);
+        const double perBin = (double)TH_DEFAULT_SAMPLES / (double)n;
+        double all = 0, lines = 0;
+
+        for (size_t k = 1; k < power.size(); k++)
+        {
+            const double f = k * perBin;
+            const double h = floor(f / c4 + 0.5);
+
+            all += power[k];
+
+            if (h >= 1 && h <= 16 && fabs(f - h * c4) <= 1.5)
+                lines += power[k];
+        }
+
+        okOrFail(all > 0 && lines / all > 0.99,
+                 "osc::pad: at `bandwidth = 0' the table is a sum of sines "
+                 "at the harmonics",
+                 num(100 * lines / all) + "% of the power on them");
+    }
+
+    /* ---- at 40 cents, bands of 40 cents ---- */
+
+    /* A partial's band is a Gaussian in magnitude whose full width is
+       `bandwidth' cents of its own pitch at `bwscale = 1' -- a standard
+       deviation of half that in hertz, 3.1 Hz at the fundamental and 12.2
+       at the fourth -- and so a Gaussian in power narrower by root two.
+       Measured as the power-weighted spread within four sigmas either
+       side, it has to come out within a quarter of that, centered on the
+       partial. The phases are random, so each bin's power is too; a
+       quarter is what that leaves room for. */
+    {
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, padGraph(c4, 8, 40, 1, 0, 0), "pad", "out",
+                     256, (unsigned)n + 4410, got, why))
+        {
+            fail("osc::pad renders", why);
+            return;
+        }
+
+        const vector<double> power = powerSpectrum(got, 4410, n);
+        const double width = (pow(2.0, 40.0 / 1200) - 1) * c4;
+        bool good = true;
+        string detail;
+
+        for (int h = 1; h <= 4; h *= 4)
+        {
+            const double sigma = width * h / 2;
+            double mean, sd, total;
+
+            bandStats(power, n, c4 * h, 4 * sigma, mean, sd, total);
+
+            if (!(fabs(mean - c4 * h) < sigma / 4 &&
+                  fabs(sd / (sigma / sqrt(2.0)) - 1) < 0.25))
+            {
+                good = false;
+                detail = "partial " + num(h) + ": centered on " + num(mean) +
+                         " Hz with a spread of " + num(sd) + " against " +
+                         num(sigma);
+            }
+        }
+
+        okOrFail(good, "osc::pad: at 40 cents each partial's power is a band "
+                       "that wide, centered on the partial", detail);
+    }
+
+    /* ---- the same table twice, and a second side that is not the first */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > a, b;
+        string why;
+
+        watch.push_back(Watch{ "pad", "out" });
+        watch.push_back(Watch{ "pad", "out2" });
+
+        if (!render(pluginPath, padGraph(220, 32, 25, 1, -6, 0.0004f), watch,
+                    256, TH_DEFAULT_SAMPLES, a, why) ||
+            !render(pluginPath, padGraph(220, 32, 25, 1, -6, 0.0004f), watch,
+                    256, TH_DEFAULT_SAMPLES, b, why))
+            fail("osc::pad renders", why);
+        else
+        {
+            double ll = 0, rr = 0, lr = 0;
+
+            for (size_t i = 0; i < a[0].size(); i++)
+            {
+                ll += (double)a[0][i] * a[0][i];
+                rr += (double)a[1][i] * a[1][i];
+                lr += (double)a[0][i] * a[1][i];
+            }
+
+            okOrFail(a == b, "osc::pad: two synths render the same samples",
+                     "");
+            okOrFail(fabs(lr / sqrt(ll * rr)) < 0.2,
+                     "osc::pad: `out2' is the same pad, decorrelated",
+                     "correlation " + num(lr / sqrt(ll * rr)));
+        }
+    }
+
+    /* ---- finite and in range at every corner ---- */
+    {
+        /* Every table is an FFT of 2^18, so the ends only: the middle of
+           each range is what the checks above already render. */
+        static const float freqs[] = { -1, 20, 20000 };
+        static const float counts[] = { 0, 1e6f };
+        static const float widths[] = { -5, 1e9f };
+        static const float tilts[] = { -100, 100 };
+        bool finite = true;
+        string detail;
+
+        for (float fr : freqs)
+            for (float pc : counts)
+                for (float bw : widths)
+                    for (float tl : tilts)
+                    {
+                        vector<float> got;
+                        string why;
+
+                        if (!render1(pluginPath,
+                                     padGraph(fr, pc, bw, 2, tl, 1), "pad",
+                                     "out", 256, 2000, got, why))
+                        {
+                            fail("osc::pad renders", why);
+                            return;
+                        }
+
+                        if (finite && !(allFinite(got) &&
+                                        peak(got, 0) <= TH_MAX))
+                        {
+                            finite = false;
+                            detail = "freq " + num(fr) + ", partials " +
+                                     num(pc) + ", bandwidth " + num(bw) +
+                                     ", tilt " + num(tl);
+                        }
+                    }
+
+        okOrFail(finite, "osc::pad: finite and in range at every corner",
+                 detail);
+    }
+
+    windowsAgree(pluginPath, padGraph(331, 24, 30, 1, -6, 0), "pad", "out",
+                 "osc::pad: the same pad at one sample a window and at five "
+                 "hundred");
+}
+
+/* ---- filt::vowel -------------------------------------------------------- */
+
+/* The gain of a sine through the formants, RMS out over RMS in over a
+   settled second. */
+static double vowelGain (const string &pluginPath, float hz, float vowel,
+                         float gender)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, v;
+    vector<Watch> watch;
+    vector< vector<float> > got;
+    string why;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+    src.values.push_back(Value{ "freq", hz });
+    src.values.push_back(Value{ "amp", 0.5f });
+    src.values.push_back(Value{ "waveform", 0 });
+
+    v.name = "v";
+    v.spelling = "filt/vowel";
+    v.values.push_back(Value{ "vowel", vowel });
+    v.values.push_back(Value{ "gender", gender });
+    v.wires.push_back(Wire{ "in", "src", "out" });
+
+    spec.push_back(src);
+    spec.push_back(v);
+    watch.push_back(Watch{ "src", "out" });
+    watch.push_back(Watch{ "v", "out" });
+
+    if (!render(pluginPath, spec, watch, 256, TH_DEFAULT_SAMPLES / 2, got,
+                why))
+        return -1;
+
+    return rms(got[1], TH_DEFAULT_SAMPLES / 10) /
+           rms(got[0], TH_DEFAULT_SAMPLES / 10);
+}
+
+static void checkVowel (const string &pluginPath)
+{
+    /* ---- each vowel's first formant stands out ---- */
+
+    /* A sine at each vowel's first formant against one midway to its
+       second: the first is the formant table's loudest and narrowest, so
+       it has to come out at about unity and at least four times the
+       trough -- and the trough is exactly what tells an `a' from an `i'. */
+    {
+        static const float f1[] = { 650, 400, 290, 400, 350 };
+        static const float f2[] = { 1080, 1700, 1870, 800, 600 };
+        bool good = true;
+        string detail;
+
+        for (int v = 0; v < 5; v++)
+        {
+            const double at = vowelGain(pluginPath, f1[v], (float)v, 0);
+            const double mid = vowelGain(pluginPath, (f1[v] + f2[v]) / 2,
+                                         (float)v, 0);
+
+            if (!(at > 0.8 && at < 1.5 && at > 4 * mid))
+            {
+                good = false;
+                detail = "vowel " + num(v) + ": " + num(at) + " at " +
+                         num(f1[v]) + " Hz, " + num(mid) + " at " +
+                         num((f1[v] + f2[v]) / 2);
+            }
+        }
+
+        okOrFail(good, "filt::vowel: each vowel passes its first formant at "
+                       "about unity and a quarter as much between its first "
+                       "two", detail);
+    }
+
+    /* ---- between two vowels, the formants move ---- */
+
+    /* Halfway from `a' to `e' the first formant is halfway from 650 to 400,
+       so 525 has to pass more than either end does. A filter that
+       crossfaded two outputs instead would pass the ends and dip here. */
+    {
+        const double mid = vowelGain(pluginPath, 525, 0.5f, 0);
+        const double a = vowelGain(pluginPath, 650, 0.5f, 0);
+        const double e = vowelGain(pluginPath, 400, 0.5f, 0);
+
+        okOrFail(mid > a && mid > e,
+                 "filt::vowel: halfway from a to e the first formant is "
+                 "halfway between theirs",
+                 num(mid) + " at 525 Hz, " + num(a) + " at 650, " + num(e) +
+                 " at 400");
+    }
+
+    /* ---- and `gender' moves all of them ---- */
+    {
+        const float up = 650 * powf(2, 0.25f);
+        const double moved = vowelGain(pluginPath, up, 0, 1);
+        const double left = vowelGain(pluginPath, 650, 0, 1);
+
+        okOrFail(moved > 0.8 && moved > 1.5 * left,
+                 "filt::vowel: `gender = 1' moves the first formant of `a' "
+                 "a quarter octave up",
+                 num(moved) + " at " + num(up) + " Hz, " + num(left) +
+                 " at 650");
+    }
+
+    /* ---- finite at every corner ---- */
+    {
+        static const float vowels[] = { -5, 0, 2.5f, 4, 100 };
+        static const float genders[] = { -10, 0, 10 };
+        static const float freqs[] = { 20, 3000, 21000 };
+        bool finite = true;
+        string detail;
+
+        for (float v : vowels)
+            for (float g : genders)
+                for (float hz : freqs)
+                {
+                    vector<NodeSpec> spec;
+                    NodeSpec src, n;
+                    vector<float> got;
+                    string why;
+
+                    src.name = "src";
+                    src.spelling = "osc/simple";
+                    src.values.push_back(Value{ "freq", hz });
+                    src.values.push_back(Value{ "amp", TH_MAX });
+                    src.values.push_back(Value{ "waveform", 2 });
+
+                    n.name = "v";
+                    n.spelling = "filt/vowel";
+                    n.values.push_back(Value{ "vowel", v });
+                    n.values.push_back(Value{ "gender", g });
+                    n.wires.push_back(Wire{ "in", "src", "out" });
+
+                    spec.push_back(src);
+                    spec.push_back(n);
+
+                    if (!render1(pluginPath, spec, "v", "out", 256, 8000, got,
+                                 why))
+                    {
+                        fail("filt::vowel renders", why);
+                        return;
+                    }
+
+                    if (finite && !(allFinite(got) && peak(got, 0) < 8))
+                    {
+                        finite = false;
+                        detail = "vowel " + num(v) + ", gender " + num(g) +
+                                 ", " + num(hz) + " Hz: peak " +
+                                 num(peak(got, 0));
+                    }
+                }
+
+        okOrFail(finite, "filt::vowel: finite and bounded at every corner",
+                 detail);
+    }
+
+    {
+        vector<NodeSpec> spec;
+        NodeSpec src, n;
+
+        src.name = "src";
+        src.spelling = "osc/simple";
+        src.values.push_back(Value{ "freq", 110 });
+        src.values.push_back(Value{ "amp", 0.5f });
+        src.values.push_back(Value{ "waveform", 1 });
+
+        n.name = "v";
+        n.spelling = "filt/vowel";
+        n.values.push_back(Value{ "vowel", 1.3f });
+        n.values.push_back(Value{ "gender", 0.4f });
+        n.wires.push_back(Wire{ "in", "src", "out" });
+
+        spec.push_back(src);
+        spec.push_back(n);
+
+        windowsAgree(pluginPath, spec, "v", "out",
+                     "filt::vowel: the same formants at one sample a window "
+                     "and at five hundred");
+    }
+}
+
 /* ---- dyn::compressor ----------------------------------------------------
  *
  * Three things a compressor has to be true about, and they are three
@@ -5611,6 +6004,8 @@ int main (int argc, char **argv)
     checkSample(pluginPath);
     checkGrain(pluginPath);
     checkDrift(pluginPath);
+    checkPad(pluginPath);
+    checkVowel(pluginPath);
     checkCompressor(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
