@@ -48,12 +48,13 @@ import { replay } from './replay.js';
    shortest and tallest. A drum track is one row and a keys track is
    eight; both want to be hittable without either running the pane off
    the screen. */
-const ROW = 20;
+const ROW = 18;
 const MIN_H = 26;
 const MAX_H = 240;
 
 export function createSeqView ({ root = document, toMirror, onGesture,
-                                 describeChannel = () => '' })
+                                 describeChannel = () => '',
+                                 chooserFor = () => null })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -120,9 +121,9 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 ? String(track.channel + 1) : '-';
 
             what.className = 'what';
-            what.textContent = describeChannel(track.channel) || track.name;
 
             head.append(num, what);
+            dress(track, head);
 
             const canvas = document.createElement('canvas');
 
@@ -147,16 +148,42 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                        stage: track.stage });
     };
 
+    /* What plays this track, in the heading: the menu that chooses it
+     * where the page is allowed to choose, and the name of what is there
+     * where it is not.
+     *
+     * Which is the same rule the channels list follows, for the same
+     * reason -- a channel a piece filled is the piece's, and offering to
+     * replace its instrument would be the page overriding the file. The
+     * sequence mode's own piece declares no instruments, so there every
+     * track has a menu, which is the whole point of that mode. */
+    const dress = (track, head) =>
+    {
+        const menu = chooserFor(track.channel);
+
+        if (menu !== null)
+        {
+            menu.className = 'trackpick';
+            head.append(menu);
+            return;
+        }
+
+        head.querySelector('.what').textContent =
+            describeChannel(track.channel) || track.name;
+    };
+
     const say = () =>
     {
         hint.textContent = tracks.length === 0
             ? 'This piece has no grid tracks. Open a piece with ' +
               'gen::grid stages in it -- Scratch is five of them -- and ' +
               'they appear here.'
-            : 'Click a cell to put a note there; click it again to accent ' +
-              'it, and again to clear it. Drag to draw a run of them, and ' +
-              'use the other button to erase. What you click goes out as ' +
-              'a command and arrives at its time, here as on every peer.';
+            : 'Click a cell for a note, again to accent it, again to ' +
+              'clear it. Drag from a note to the right to hold it over ' +
+              'the steps you cover, and back to shorten it. Drag across ' +
+              'empty cells to draw a run of notes, and use the other ' +
+              'button to erase. What you click goes out as a command and ' +
+              'arrives at its time, here as on every peer.';
     };
 
     /* ---- the pointer ---- */
@@ -334,13 +361,17 @@ export function createSeqView ({ root = document, toMirror, onGesture,
            which one moved. */
         refresh ()
         {
-            const heads = box.querySelectorAll('.trackhead .what');
+            const heads = box.querySelectorAll('.trackhead');
 
             tracks.forEach((track, i) =>
             {
-                if (heads[i] !== undefined)
-                    heads[i].textContent =
-                        describeChannel(track.channel) || track.name;
+                const head = heads[i];
+
+                if (head === undefined)
+                    return;
+
+                head.querySelector('.trackpick')?.remove();
+                dress(track, head);
             });
         },
 

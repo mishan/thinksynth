@@ -258,6 +258,10 @@ details { margin: 0.8em 0; }
 
 .trackhead .what { color: var(--dim); font-size: 0.9em; }
 
+/* What plays this track. Narrow enough that four of them down a pane do
+   not read as a form, wide enough for a drawer's name and a patch's. */
+.trackpick { max-width: 18em; font-size: 0.9em; }
+
 .trackgrid
 {
     display: block;

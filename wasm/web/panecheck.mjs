@@ -151,6 +151,14 @@ try
               () => !document.body.classList.contains('tiled')),
           'and a narrow one is the document whatever the query string says');
 
+    /* Patch mode, for everything below: the page opens on a sequence
+       now, and what the layout tests are about is a mode with a graph in
+       it -- the two canvases that share a leaf, the 400-pixel minimum the
+       graph asks for, and a pane of its own in the other mode to switch
+       away to. The mode-switch check further down says which modes it
+       means. */
+    await page.selectOption('#mode', 'patch');
+
     /* And the verbs a pane has, asked of a page that has never tiled:
        there is no layout yet to raise one in and no drawer to put one
        into, because the page is the document it always was. Asking anyway

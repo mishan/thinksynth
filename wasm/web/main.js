@@ -90,10 +90,23 @@ const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
                'piecesource', 'detail'];
 
 /* Which of them belong to which mode. Everything not named here is in
-   both -- the keys, the parameters, the graph, the numbers. */
+   all three -- the keys, the parameters, the graph, the numbers.
+
+   A sequence is a piece the page wrote, so its panes are a subset of the
+   piece's: the tracks, the roll, the channels they are heard on, and the
+   .gen it came out as. What it deliberately has not got is the composer
+   canvas -- somebody laying down a pattern does not need to be shown
+   that it is a chain of stages, and the mode exists to not tell them. */
 const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
                      'channelbox', 'piecesource'];
+const SEQ_PANES = ['roll', 'seqview', 'channelbox', 'piecesource'];
 const PATCH_PANES = ['patchsource'];
+
+/* What each mode makes unavailable: every pane of the other two that is
+   not also one of its own. */
+const modePanes = {
+    seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES,
+};
 
 /* Where they go, the first time somebody opens this page in a window
  * with room to tile.
@@ -118,6 +131,19 @@ const PATCH_LAYOUT = {
             { tabs: ['paramview'] },
             { tabs: ['patchsource'] },
             { tabs: ['detail'] }] }],
+};
+
+/* A sequence opens on the tracks and the keys, with the roll under them:
+   what you drew, what you can play over it, and what came out. */
+const SEQ_LAYOUT = {
+    dir: 'row', size: [0.62, 0.38], kids: [
+        { dir: 'col', size: [0.68, 0.32], kids: [
+            { tabs: ['seqview'] },
+            { tabs: ['roll'] }] },
+        { dir: 'col', size: [0.4, 0.3, 0.3], kids: [
+            { tabs: ['paramview'] },
+            { tabs: ['keyboard'] },
+            { tabs: ['channelbox', 'piecesource'] }] }],
 };
 
 const PIECE_LAYOUT = {
@@ -240,12 +266,20 @@ function mode ()
  * pane under it for nothing. */
 function showAbout ()
 {
-    $('about').hidden = mode() !== 'piece' || $('about').textContent === '';
+    $('about').hidden = !composing() || $('about').textContent === '';
 }
 
 function keyChannel ()
 {
     return Number($('keychan').value);
+}
+
+/* Whether what is playing is composed: a sequence and a piece are the
+   same scheduler on the same clock, and everything that is not about
+   choosing one is about that rather than about which it is. */
+function composing ()
+{
+    return mode() !== 'patch';
 }
 
 /* ---- what is sounding ---- */
@@ -266,7 +300,7 @@ function press (note)
         return;
     }
 
-    const piecing = mode() === 'piece';
+    const piecing = composing();
     const channel = keyChannel();
 
     sounding.set(note, { count: 1, piece: piecing, channel });
@@ -462,6 +496,93 @@ async function loadPiece ()
     })();
 
     await drawn;
+}
+
+/* ---- the sequence ----
+ *
+ * The mode this page opens on, and the one that asks least of anybody: a
+ * row of tracks, a menu per track for what plays it, and cells to click.
+ *
+ * Its piece is written here rather than shipped in gen/, and that is the
+ * point of it. A mode whose first step is "choose a piece" has already
+ * asked somebody to know what a piece is and which of thirty-two of them
+ * is the one to draw on; this one has four empty tracks in front of them
+ * before they have chosen anything. What comes out is an ordinary .gen
+ * all the same -- it is in the box under the .gen pane, it loads through
+ * the same loader every shipped piece loads through, and it can be saved
+ * and opened in the Composer like any other.
+ *
+ * No `instrument' blocks, deliberately. A channel a piece fills is the
+ * piece's, and the page will not offer to replace it; a channel a piece
+ * merely names is aimed by the page, from the defaults at first and from
+ * the menu on the track after that. That is what puts a menu on every
+ * track here and none on a shipped piece's.
+ */
+const SEQ_TRACKS = 4;
+const SEQ_STEPS = 16;
+/* Six: five degrees and the octave above them, which is a range to
+   write a line in and still leaves four tracks visible at once. */
+const SEQ_ROWS = 6;
+
+function sequenceText ()
+{
+    const empty = Array(SEQ_ROWS).fill('.'.repeat(SEQ_STEPS)).join('/');
+
+    /* One track with something on it, because a sequencer that makes no
+       sound when it is started reads as broken rather than as empty.
+       Four on the floor on the bottom row of the first track. */
+    const first = empty.replace(new RegExp(`\\.{${SEQ_STEPS}}$`),
+                                'x...'.repeat(SEQ_STEPS / 4));
+
+    const track = (n) => `chain track${n} {
+    stage seq gen::grid {
+        notes  = pent;
+        steps  = ${SEQ_STEPS};
+        rows   = ${SEQ_ROWS};
+        cells  = "${n === 1 ? first : empty}";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 96;
+        listen = 0;
+    };
+    sink { channel = ${n}; };
+};`;
+
+    const tracks = [];
+
+    for (let n = 1; n <= SEQ_TRACKS; n++)
+        tracks.push(track(n));
+
+    return `# A sequence, written by the page.
+#
+# Four grids on four channels: rows are degrees of the ladder below,
+# columns are steps. Click the cells; the menu on each track says what
+# plays it. Save this file and it opens in the Composer like any other.
+
+name "A sequence";
+description "Four tracks. Click the cells; pick what plays them.";
+
+tempo 112;
+
+scale pent "C3 D3 E3 G3 A3";
+
+${tracks.join('\n\n')}
+`;
+}
+
+/* The mode, entered. The text is written once a session: coming back to
+   it keeps whatever the box says, which is what somebody who went to look
+   at a patch and came back expects to find. */
+async function loadSequence ()
+{
+    if (!/gen::grid/.test($('gen').value))
+        $('gen').value = sequenceText();
+
+    await loadPiece();
+
+    if (piece !== null)
+        $('status').textContent =
+            'Click cells to draw a pattern, then press Play.';
 }
 
 async function pickPiece ()
@@ -884,7 +1005,7 @@ async function aimByHand (channel, name)
 
 function frame ()
 {
-    if (mode() === 'piece')
+    if (composing())
         roll.draw();
 
     requestAnimationFrame(frame);
@@ -1213,8 +1334,11 @@ async function start ()
        Start went by with the message dropped and the "Paint ..." buttons
        never appeared. */
     showComposer(panes.visible('composerview') && mode() === 'piece');
+    showSeq(panes.visible('seqview') && composing());
 
-    if (mode() === 'patch')
+    if (mode() === 'seq')
+        await loadSequence();
+    else if (mode() === 'patch')
         await loadPatch();
     else
         await loadPiece();
@@ -1423,6 +1547,14 @@ function showSeq (on)
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
         describeChannel,
+
+        /* The same menu the channels list draws, on the track it is
+           about -- and by the same rule: a channel the piece filled is
+           the piece's and has nothing to choose. */
+        chooserFor: (channel) =>
+            (channel < 0 || !composing() ||
+             piece?.instruments?.some((i) => i.channel === channel))
+                ? null : chooser(channel),
     });
 
     seq.show(on);
@@ -1512,30 +1644,30 @@ window.solo = {
 
 async function pickMode ()
 {
-    const piecing = mode() === 'piece';
+    const which = mode();
 
     /* The chrome each mode has: what to play, and the transport. What
        the piece section used to wrap are panes of their own now, and a
        pane the mode does not have is unavailable rather than hidden --
        it leaves the layout without being forgotten by it, so coming back
        to a mode puts its panes where they were. */
-    $('patchmode').hidden = piecing;
-    $('piecemode').hidden = !piecing;
+    $('patchmode').hidden = which !== 'patch';
+    $('piecemode').hidden = which !== 'piece';
+    $('transport').hidden = which === 'patch';
     showAbout();
 
-    for (const id of PIECE_PANES)
-        panes.available(id, piecing);
+    const mine = new Set(modePanes[which] ?? []);
 
-    for (const id of PATCH_PANES)
-        panes.available(id, !piecing);
+    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+        panes.available(id, mine.has(id));
 
-    panes.mode(piecing ? 'piece' : 'patch');
+    panes.mode(which);
 
     if (synth === null)
         return;
 
-    showComposer(panes.visible('composerview') && piecing);
-    showSeq(panes.visible('seqview') && piecing);
+    showComposer(panes.visible('composerview') && which === 'piece');
+    showSeq(panes.visible('seqview') && composing());
     showNodes();
 
     /* Emptied rather than left showing the other mode's channel: what
@@ -1546,9 +1678,11 @@ async function pickMode ()
 
     releaseAll();
 
-    /* Each mode loads what it plays as it is entered: the other one's is
+    /* Each mode loads what it plays as it is entered: the last one's is
        still on the channels until it does. */
-    if (piecing)
+    if (which === 'seq')
+        await loadSequence();
+    else if (which === 'piece')
         await loadPiece();
     else
     {
@@ -1788,7 +1922,8 @@ async function init ()
      * the mode switch made before, asked for in one place. */
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'panes:solo',
-        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT },
+        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
+                   seq: SEQ_LAYOUT },
         mode: mode(), on: true,
         onShow: (id, on) =>
         {
@@ -1802,6 +1937,14 @@ async function init ()
                 pollParams();
         },
     });
+
+    /* And the mode the select is showing, applied to what has just been
+       built. The markup cannot be the answer: it is one arrangement and
+       there are three modes, and the page opens on whichever one the
+       select says -- so the chrome and the panes are put right here,
+       once, by the same function that puts them right on every change.
+       With no synth yet it does nothing else. */
+    await pickMode();
 
     /* Four times a second, which is about the desktop's 50 ms draw timer
        and far below an animation frame: the poll is a message each way,

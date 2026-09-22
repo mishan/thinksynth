@@ -22,6 +22,7 @@
   <button id="start">Start</button>
 
   <label>Play <select id="mode">
+    <option value="seq">a sequence</option>
     <option value="patch">a patch</option>
     <option value="piece">a piece</option>
   </select></label>
@@ -34,12 +35,19 @@
   <!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
        keyboard still plays, into whatever chains asked for `input midi'.
 
-       What this holds is the chrome of that mode -- the piece to play
-       and the transport, which every layout keeps. What it used to wrap
-       are panes now, below, each hidden by its own `hidden' in the other
-       mode rather than by this going away. -->
+       What this holds is the chrome of that mode -- which piece to play,
+       and nothing else. What it used to wrap are panes now, below, each
+       hidden by its own `hidden' in the other mode rather than by this
+       going away, and the transport is its own strip beside it. -->
   <span id="piecemode" class="group" hidden>
     <label>Piece <select id="piece"></select></label>
+  </span>
+
+  <!-- The transport, which belongs to neither of those and to both: a
+       sequence and a piece are the same scheduler on the same clock, and
+       the only mode with nothing to start is the one playing a single
+       graph from the keys. -->
+  <span id="transport" class="group">
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <button id="rewind" disabled>Rewind</button>
