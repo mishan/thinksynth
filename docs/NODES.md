@@ -710,6 +710,19 @@ Converts dB to an amplitude value. Arg should be <= 0.
 | `db` | in | Decibels: 0 is unity, below it attenuates, and above it amplifies -- the plugin's own ceiling of 0 is a convention, not a limit |  |  | dB |  |
 | `out` | out | The gain those decibels mean |  |  | ratio |  |
 
+### misc::drift
+
+Drift (smoothed random)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `rate` | in | How often the output reaches a new target |  | 0 to 20 | Hz |  |
+| `depth` | in | How far either side of `center' the targets fall |  |  |  |  |
+| `center` | in | What the output wanders about |  |  |  |  |
+| `seed` | in | Which way it wanders; read on the voice's first sample |  |  |  |  |
+| `out` | out | center + depth times a smooth path through random points in -1..1 |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### misc::freq2samples
 
 Converts a frequency to wavelength in samples
@@ -866,6 +879,31 @@ FM Operator (a sine whose phase is modulated)
 | `out` | out | The operator |  | -1 to 1 | full scale |  |
 | `state` | state |  |  |  |  |  |
 
+### osc::grain
+
+Granular player (a file or a live ring)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `file` | in | The wav to read, found under samples/ on THINK_DSP_PATH |  |  |  |  |
+| `position` | in | Where grains start: through the file, or back into the live ring |  | 0 to 1 |  |  |
+| `spread` | in | How far either way from `position' a grain may start |  | 0 to 1 |  |  |
+| `size` | in | Each grain's length |  | 44 to 44100 | samples |  |
+| `density` | in | How many grains start a second |  | 0 to 2000 | Hz |  |
+| `pitch` | in | Each grain's speed through the source: 2 is an octave up | 1 | 0.25 to 4 |  |  |
+| `jitter` | in | Random detune either way, drawn per grain |  | 0 to 12 | semitones |  |
+| `window` | in | Each grain's shape: 0 Hann, 1 trapezoid |  | 0 to 1 |  |  |
+| `freq` | in | The note to play the cloud at; 0 is no keyboard |  |  | Hz |  |
+| `root` | in | The frequency the source is at; `root = freq' plays it unpitched | 261.63 |  | Hz |  |
+| `seed` | in | Which cloud; read on the voice's first sample |  |  |  |  |
+| `source` | in | 0 reads `file', 1 reads a ring of `in' |  | 0 to 1 |  |  |
+| `in` | in | What the live ring records |  | -1 to 1 | full scale |  |
+| `freeze` | in | 1 stops the live ring recording, so the grains read what it last held |  | 0 to 1 |  |  |
+| `out` | out | Every other grain |  |  | full scale |  |
+| `out2` | out | The grains between them |  |  | full scale |  |
+| `ring` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::multisined
 
 Sums a sine and detuned ramps
@@ -934,6 +972,7 @@ Sample Player (a wav at a voice's pitch)
 | `out` | out | The file |  | -1 to 1 | full scale |  |
 | `play` | out | 1 while there is file left, so a one-shot's note can be the sample's own length |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
+| `xfade` | in | How long the loop's seam crossfades; 0 is a jump |  |  | samples |  |
 
 ### osc::shapeo
 

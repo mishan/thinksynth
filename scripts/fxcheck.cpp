@@ -1587,6 +1587,65 @@ int main (int argc, char **argv)
                  num(cents[0]) + " cents and " + num(cents[1]));
     }
 
+    /* ---- fx/granular.dsp: a frozen ring holds ------------------------ */
+
+    /* A second and a half of the instrument's note into the ring, then
+     * nothing. The grains read eight tenths of a second back, give or take
+     * a quarter, so without the freeze
+     * the cloud goes quiet once the ring's reads have passed the note --
+     * and with `fx.freeze' raised when the note ends, the ring stops
+     * recording and the cloud goes on reading the note, three seconds on.
+     * Wet only, so what is heard is the cloud and not the channel.
+     */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/granular.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        if (!writeFile(instFile, instrument("")))
+            break;
+
+        double late[2] = { 0, 0 };
+
+        for (int frozen = 0; frozen < 2; frozen++)
+        {
+            Session s(pluginPath);
+            const int second = TH_DEFAULT_SAMPLES / s.synth.getWindowlen();
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadEffect(shipped[i], 0) == NULL)
+            {
+                fail("the instrument and " + shipped[i] + " load", "");
+                break;
+            }
+
+            s.synth.setChanArg(0, new thArg("fx.mix", 1.0f));
+            s.synth.addNote(0, 60, 100);
+            s.run(3 * second / 2);
+            s.synth.delNote(0, 60);
+
+            if (frozen)
+                s.synth.setChanArg(0, new thArg("fx.freeze", 1.0f));
+
+            s.run(3 * second);
+
+            vector<float> heard = s.take();
+
+            late[frozen] = peak(vector<float>(
+                heard.end() - TH_DEFAULT_SAMPLES / 2, heard.end()));
+        }
+
+        okOrFail(late[0] < 1e-4 && late[1] > 0.01,
+                 shipped[i] + ": a ring frozen when the note ends goes on "
+                 "playing it, and one left recording does not",
+                 "three seconds on, peak " + num(late[0]) + " recording and " +
+                 num(late[1]) + " frozen");
+    }
+
     /* ---- the shipped effect graphs ------------------------------------- */
 
     /* They are not in the corpus gates: those play notes, and an effect has

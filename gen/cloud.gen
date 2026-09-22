@@ -1,0 +1,135 @@
+# cloud.gen -- ten minutes inside two recordings.
+#
+# The tree's own orchestra hit and its ride cymbal, never played as
+# themselves: cloud.dsp holds each as a grain cloud, sustained for as long
+# as a note is down, and three eno_line loops of long notes in D -- a
+# fifth underneath, then a fourth, then a sixth above -- hold chords of
+# it that overlap and never line up the same way twice. Two gen::walks
+# take the cloud's knobs for a walk over the ten minutes: one moves where
+# in the recordings the grains come from, a new place every fifteen
+# seconds, and the other leans the cloud from the hit toward the ride
+# and back, so the piece is orchestral at one end and metallic air at the
+# other and drifts between them on its own.
+#
+# Under it, bed.dsp holds one note for the whole piece: three colors of
+# noise through bands that wander, which is the room the cloud is in.
+# And once a minute a singing bowl is struck -- or is not, when
+# xform::chance says so -- ringing twenty seconds into fx/space.dsp's
+# long tail.
+#
+# The arrangement is in seconds, since there are no bars in it: the bed
+# and the low loop alone for a minute, everything for four, the middle
+# thinned for three, and two minutes letting go.
+
+name "Cloud";
+author "Misha Nasledov";
+description "Grain clouds of the orchestra hit and the ride, a bed of noise, a bowl once a minute.";
+category "Timbre as material";
+
+seed 1111;
+
+scale dmaj "D3 E3 F#3 A3 B3 D4 E4 F#4 A4 B4";
+
+instrument cloud {
+    dsp "cloud.dsp";
+    amp = 115;
+    grain = 140 ms;
+    density = 32;
+    spread = 0.05;
+    jitter = 0.06;
+    a = 3000 ms;
+    r = 8000 ms;
+
+    effect "fx/space.dsp" {
+        decay = 12;
+        size = 2;
+        predelay = 40 ms;
+        mix = 0.4;
+    };
+};
+
+instrument bed {
+    dsp "bed.dsp";
+    amp = 75;
+    a = 15000 ms;
+    r = 15000 ms;
+};
+
+instrument bowl {
+    dsp "bowl.dsp";
+    amp = 85;
+    ring = 1.2;
+
+    effect "fx/space.dsp" {
+        decay = 18;
+        size = 2.5;
+        mix = 0.35;
+    };
+};
+
+section open   60 s { mid = 0; high = 0; bowl = 0; };
+section bloom 240 s { };
+section thin  180 s { mid = 0.6; high = 0.8; };
+section away  120 s { low = 0.7; mid = 0; bowl = 0; };
+section end;
+
+# ---- the cloud --------------------------------------------------------
+
+chain low {
+    stage src gen::eno_line {
+        notes = "D3 A3"; period = 37 s; jitter = 4 s;
+        hold = 30 s; vel = 84; vel_jitter = 6;
+    };
+    sink { instrument = cloud; };
+};
+
+chain mid {
+    stage src gen::eno_line {
+        notes = "E4 F#4 A4"; period = 29 s; jitter = 3 s;
+        hold = 22 s; vel = 74; vel_jitter = 8;
+    };
+    sink { instrument = cloud; };
+};
+
+chain high {
+    stage src gen::eno_line {
+        notes = "B4 D5 F#5"; period = 43 s; jitter = 5 s;
+        prob = 0.8; hold = 20 s; vel = 62; vel_jitter = 8;
+    };
+    stage q xform::quantize { scale = dmaj; };
+    sink { instrument = cloud; };
+};
+
+# Where in the recordings the grains come from, and which recording.
+chain place {
+    stage src gen::walk {
+        min = 0.05; max = 0.65; step = 0.05; period = 15 s;
+    };
+    sink { instrument = cloud; chanarg = "position"; };
+};
+
+chain lean {
+    stage src gen::walk {
+        min = 0; max = 1; step = 0.08; period = 20 s;
+    };
+    sink { instrument = cloud; chanarg = "blend"; };
+};
+
+# ---- the room ---------------------------------------------------------
+
+chain floor {
+    stage src gen::euclid {
+        steps = 1; fills = 1; rotate = 0;
+        notes = "D3"; period = 620 s; hold = 605 s; vel = 80;
+    };
+    sink { instrument = bed; };
+};
+
+chain bowl {
+    stage src gen::euclid {
+        steps = 1; fills = 1; rotate = 0;
+        notes = "D4"; period = 60 s; hold = 2 s; vel = 100;
+    };
+    stage c xform::chance { prob = 0.7; };
+    sink { instrument = bowl; };
+};

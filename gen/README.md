@@ -22,7 +22,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen`,
-`riviera.gen` and `scratch.gen` need nothing else:
+`riviera.gen`, `scratch.gen` and `cloud.gen` need nothing else:
 they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -101,6 +101,7 @@ typo in it.
 | [`weather.gen`](weather.gen) | **Generative timbre, plainly** — and **one knob, both worlds.** Four random walks pointed at knobs, over a pad of three lines: the walk emits a number and does not know where it lands, and the sink names the target. It carries that pad now, so `Breadth` drives a stage's density and two of the instrument's own chanargs from one slider, and `Tail` sets the pad's release in milliseconds. Read its header before pointing a walk at something new — a chanarg's range belongs to the patch, and `amp` runs 0–127. |
 | [`tide.gen`](tide.gen) | **Presets, and the line between two.** `gen::morph` travels between two named chanarg vectors — as a generator on its own clock, and as a transformer where each note schedules its own sweep. |
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
+| [`cloud.gen`](cloud.gen) | **A recording as a texture.** `cloud.dsp` holds the tree's own orchestra hit and ride cymbal as grain clouds (`osc::grain`) sustained for as long as a note is down, three `eno_line` loops of long notes hold chords of them, and two `gen::walk`s move where in the recordings the grains come from and lean the cloud from the hit to the ride. Under it `bed.dsp`, three colors of noise through wandering bands; once a minute, when `xform::chance` allows, a singing bowl into `fx/space.dsp`. Ten minutes, arranged in seconds. |
 
 ## Pieces
 

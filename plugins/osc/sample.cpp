@@ -52,6 +52,19 @@
  * The frames-from-the-end spelling rather than a loop point is what lets
  * a file be re-trimmed without the number in the graph going stale.
  *
+ * `xfade' IS HOW LONG THE SEAM IS. A loop cut from a recording -- a pad,
+ * a chord, the tree's own renders -- does not end where it began, and the
+ * jump back is a click every time round. With `xfade' set, the last
+ * `xfade' frames of the loop fade into the `xfade' frames just before its
+ * start, by equal power, so that by the end of the file the output is
+ * already reading the frame the loop jumps back to and the jump is not
+ * there to hear. Equal power rather than linear because the two ends of
+ * a sustain are different stretches of the same sound, not the same
+ * samples, and uncorrelated signals crossfaded linearly dip in the
+ * middle. It needs that many frames before the loop to fade from, so it
+ * is held to the loop's own length and to what precedes it; at 0 the
+ * loop is exactly what it always was.
+ *
  * `file2' AND `file3' ARE VELOCITY LAYERS. `select' chooses one on the
  * trigger edge and that file stays under the voice until its next edge.
  * Omitted layers fall back to the one below them. With `alternate = 1',
@@ -83,9 +96,9 @@
 
 enum {IN_FILE, IN_FILE2, IN_FILE3, IN_FREQ, IN_ROOT, IN_START, IN_LOOP,
       IN_TRIGGER, IN_SELECT, IN_SPLIT1, IN_SPLIT2, IN_ALTERNATE,
-      OUT_ARG, OUT_PLAY, INOUT_STATE};
+      OUT_ARG, OUT_PLAY, INOUT_STATE, IN_XFADE};
 
-int args[INOUT_STATE + 1];
+int args[IN_XFADE + 1];
 
 static const char desc[] = "Sample Player (a wav at a voice's pitch)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
@@ -186,6 +199,12 @@ int module_init (thPlugin *plugin)
     /* [0] the playhead, [1] the last trigger, [2] the chosen layer. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
+    /* Registered last, so every arg above keeps the index it had. */
+    args[IN_XFADE] = plugin->regArg("xfade", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_XFADE],
+                       "How long the loop's seam crossfades; 0 is a jump");
+    plugin->setArgUnits(args[IN_XFADE], "samples");
+
     return 0;
 }
 
@@ -196,7 +215,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *state;
     thArg *in_file, *in_file2, *in_file3, *in_freq, *in_root;
     thArg *in_start, *in_loop, *in_trigger, *in_select, *in_split1;
-    thArg *in_split2, *in_alternate;
+    thArg *in_split2, *in_alternate, *in_xfade;
     thArg *out_arg, *out_play;
     thArg *inout_state;
     unsigned int i;
@@ -215,6 +234,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_split1 = mod->getArg(node, args[IN_SPLIT1]);
     in_split2 = mod->getArg(node, args[IN_SPLIT2]);
     in_alternate = mod->getArg(node, args[IN_ALTERNATE]);
+    in_xfade = mod->getArg(node, args[IN_XFADE]);
 
     inout_state = mod->getArg(node, args[INOUT_STATE]);
 
@@ -320,8 +340,30 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             const float frac = at - (float)k;
             const float a = smp->frames[k];
             const float b = smp->frames[(k + 1 < len) ? k + 1 : k];
+            float v = a + (b - a) * frac;
 
-            out[i] = TH_MAX * (a + (b - a) * frac);
+            /* The seam. Held to the loop and to the frames before it, so
+               the frame it fades from always exists. */
+            const float xfade = loop >= 1
+                ? thClampArg((*in_xfade)[i], 0,
+                             fminf(floorf(loop), (float)len - floorf(loop)))
+                : 0;
+
+            if (xfade >= 1 && at >= (float)len - xfade)
+            {
+                const float into = (at - ((float)len - xfade)) / xfade;
+                const float back = at - floorf(loop);
+                const size_t kb = (size_t)back;
+                const float fb = back - (float)kb;
+                const float ab = smp->frames[kb];
+                const float bb = smp->frames[(kb + 1 < len) ? kb + 1 : kb];
+                const float early = ab + (bb - ab) * fb;
+                const float angle = (float)(M_PI / 2) * into;
+
+                v = v * cosf(angle) + early * sinf(angle);
+            }
+
+            out[i] = TH_MAX * v;
         }
 
         play[i] = 1;
