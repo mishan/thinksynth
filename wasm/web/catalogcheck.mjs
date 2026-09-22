@@ -278,15 +278,26 @@ for (const [id, p] of solo.panes)
  * the one exception is the class it puts on the body, and an id selector
  * is a page's own name by definition -- so anything else in here is
  * something that drifted back.
+ *
+ * The prefix is not a word, though -- `.panelrows' opens with it as
+ * surely as `.paneleaf' does -- so the name also has to be one panes.js
+ * writes. A class the tiler never puts on an element is a class that
+ * came from a page, whatever it starts with.
  */
 {
     const css = fs.readFileSync(path.join(here, 'panes.css'), 'utf8')
                   .replace(/\/\*[\s\S]*?\*\//g, '');
+    const js = fs.readFileSync(path.join(here, 'panes.js'), 'utf8');
     /* A color is not a selector, and the fallbacks are written as hex. */
     const ids = [...new Set(css.match(/#[a-zA-Z][-\w]*/g) ?? [])]
         .filter((n) => !/^#[0-9a-f]{3,8}$/i.test(n));
+    /* The names panes.js hands to an element, which it writes as a
+       quoted word and nothing else. */
+    const own = new Set([...js.matchAll(/'([a-zA-Z][-\w]*)'/g)]
+        .map((m) => m[1]));
     const classes = [...new Set(css.match(/\.[a-zA-Z][-\w]*/g) ?? [])]
-        .filter((c) => !c.startsWith('.pane') && c !== '.tiled');
+        .filter((c) => !own.has(c.slice(1)) ||
+                       !(c.startsWith('.pane') || c === '.tiled'));
 
 
     check(ids.length === 0,
