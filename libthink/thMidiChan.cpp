@@ -226,9 +226,8 @@ thMidiChan::~thMidiChan (void)
  *
  * On the channel's prototype and not in finishParse() with those three,
  * deliberately: the node editor parses its own tree through the same call, and
- * an out1 the author never wrote is exactly the phantom port that
- * NodeGraph::ioArgIsSink exists to keep off the audio-out box. The engine's
- * copy is where an arg the engine invents belongs.
+ * its tree should hold only the args the author wrote. The engine's copy is
+ * where an arg the engine invents belongs.
  */
 void thMidiChan::indexIOArgs (void)
 {
