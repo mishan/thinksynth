@@ -21,9 +21,9 @@
 # tape's tone.
 #
 # In seconds: the first phrase alone for a minute and a half, both for
-# six, the cloud for five, both plain again for four, and the phrases
-# stopping at eighteen minutes -- the last two are the tape by itself,
-# fading as it loses twelve percent a lap.
+# six, the cloud for five, both plain again for five and a half, and the
+# phrases stopping at eighteen minutes -- the last two are the tape by
+# itself, fading as it loses twelve percent a lap.
 
 name "Discreet";
 author "Misha Nasledov";
