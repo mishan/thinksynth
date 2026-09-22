@@ -4,7 +4,7 @@
 
 name "TS-2";
 author "Leif Ames";
-description "Cool Synth";
+description "A soft square frequency-modulating a second oscillator of any waveform, into a swept resonant lowpass.";
 category "Synths";
 
 

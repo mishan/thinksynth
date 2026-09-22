@@ -4,7 +4,7 @@
 
 name "Resonant Piano 0";
 author "Leif Ames";
-description "Band-limited waveforms and some filtering";
+description "Two soft squares whose band opens with the envelope, into a 12 dB lowpass swept in hertz.";
 category "Keys";
 
 

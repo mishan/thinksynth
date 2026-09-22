@@ -4,7 +4,7 @@
 
 name "Resonant Piano 1";
 author "Leif Ames";
-description "Band-limited waveforms and some filtering";
+description "Two soft squares whose band opens with the envelope, into a filter with a drive on its feedback.";
 category "Keys";
 
 

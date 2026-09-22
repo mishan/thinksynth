@@ -4,7 +4,7 @@
 
 name "TS-1";
 author "Leif Ames";
-description "Cool Synth";
+description "Two soft squares band-limited by the envelope, crossfaded into a resonant lowpass it also sweeps.";
 category "Synths";
 
 
