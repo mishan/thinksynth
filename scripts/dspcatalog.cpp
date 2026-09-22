@@ -37,6 +37,10 @@
  *   takesInput(). That is the claim the chooser rests on -- that a row drawn
  *   from a header says what loading the file would have said.
  *
+ *   One title each. A chooser draws two graphs under one title as the same
+ *   row twice, and thSynth's tree list is keyed on the name, so the second
+ *   to load evicts the first. Three pairs did this.
+ *
  *   Grouping, and what a chooser offers. Every entry lands in exactly one
  *   group, the groups come back sorted with Uncategorized last, and
  *   inGroup() accounts for every entry. The kind split and the filter are
@@ -72,6 +76,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <fstream>
 #include <sstream>
 
@@ -325,6 +330,35 @@ static void corpus (const string &dir, thSynth *synth)
     check(found == onDisk, "every .dsp has a row",
           "scanned " + std::to_string(found) + ", on disk " +
           std::to_string(onDisk));
+
+    /* No two graphs share a title.
+     *
+     * Three pairs did: bd10/bdshaped both said "BD-10", rpiano0/rpiano1 both
+     * said "Resonant Piano", ts1/ts2 both said "TS-1". A chooser draws that
+     * as the same row twice with only the description under it to tell them
+     * apart -- and thSynth::loadTree registers a tree in treelist_ keyed on
+     * its name and deletes whatever was registered before, so the second one
+     * loaded evicted the first. The titles are distinct now, and this is what
+     * keeps them that way: a new graph that borrows a title fails here rather
+     * than in somebody's menu. */
+    {
+        map<string, string> byTitle;
+
+        for (size_t i = 0; i < cat.entries().size(); i++)
+        {
+            const DspCatalog::Entry &e = cat.entries()[i];
+            map<string, string>::iterator seen = byTitle.find(e.name);
+
+            if (seen != byTitle.end())
+                fail(e.file, "is called '" + e.name + "', and so is " +
+                     seen->second);
+            else
+                byTitle[e.name] = e.file;
+        }
+
+        check(byTitle.size() == cat.entries().size(),
+              "every graph has a title of its own");
+    }
 
     size_t grouped = 0;
 

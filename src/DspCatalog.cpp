@@ -48,10 +48,11 @@ namespace {
             if (a.name != b.name)
                 return a.name < b.name;
 
-            /* Two graphs may share a title -- rpiano0.dsp and rpiano1.dsp
-               both say "Resonant Piano" -- and a sort that called them equal
-               would leave them in whatever order the filesystem handed them
-               over. */
+            /* No two shipped graphs share a title and scripts/dspcatalog
+               is what keeps it so, but this is not the place to depend on
+               that: a sort that called two rows equal would leave them in
+               whatever order the filesystem handed them over, and the
+               directory a catalog is pointed at is not always this tree's. */
             return a.file < b.file;
         }
     };

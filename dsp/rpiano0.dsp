@@ -2,7 +2,7 @@
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
 
-name "Resonant Piano";
+name "Resonant Piano 0";
 author "Leif Ames";
 description "Band-limited waveforms and some filtering";
 category "Keys";

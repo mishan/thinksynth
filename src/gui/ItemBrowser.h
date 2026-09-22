@@ -28,10 +28,10 @@
  * What this replaces, twice over, is a Gtk::FileChooserDialog: sixty-one
  * filenames over dsp/ with no filter and no descriptions, and thirty-one over
  * gen/ the same way. Every one of those files declares a title and a
- * description and no chooser read either -- and a filename is not always
- * enough on its own: `rpiano0.dsp' sits beside `rpiano1.dsp' and both of them
- * are called Resonant Piano, so neither the name nor the title tells them
- * apart and the description is what does.
+ * description and no chooser read either -- and a filename is often not
+ * enough on its own: `rpiano0.dsp' and `rpiano1.dsp' differ by one character
+ * and by which filter they run, which is a thing the description says and
+ * nothing else does.
  *
  * WHAT IT KNOWS is a list of groups of rows, and nothing about where they
  * came from. The rows are asked for again on every keystroke in the filter
