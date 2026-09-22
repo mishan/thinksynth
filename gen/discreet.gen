@@ -1,0 +1,130 @@
+# discreet.gen -- two phrases and a tape loop, for twenty minutes.
+#
+# The Discreet Music arrangement: a short melody repeating, played into a
+# loop of tape long enough that everything played into it comes back
+# many times, layered under what is played next. Here there are two
+# melodies, on one electric piano, and they are different lengths -- ten
+# steps of 1.3 seconds and twelve of 1.55, 13 and 18.6 seconds -- so they
+# line up the same way only once every four minutes or so and never on
+# the same beat of the tape. The tape is fx/tapeloop.dsp: a 14-second
+# loop on the left and 18.2 on the right, keeping 88% of each lap.
+#
+# xform::cloud thickens the second phrase in the middle of the piece:
+# each of its notes arrives with three copies of itself trickling in over
+# the next four seconds, from the same scale, an octave either way.
+#
+# THE ROOM IS A SEND. The master effect is fx/space.dsp at `mix = 0',
+# so the mix passes it dry and only what the piano sends goes into the
+# network. The piano's `send' starts at 0.3, and one chain rides it
+# (`fx.send') on a slow walk, so the room opens and closes over minutes
+# without the loop or the dry piano moving. A second walk turns the
+# tape's tone.
+#
+# In seconds: the first phrase alone for a minute and a half, both for
+# six, the cloud for five, both plain again for four, and the phrases
+# stopping at eighteen minutes -- the last two are the tape by itself,
+# fading as it loses twelve percent a lap.
+
+name "Discreet";
+author "Misha Nasledov";
+description "Two phrases of different lengths into a long tape loop, drifting apart for twenty minutes.";
+category "Pieces";
+
+seed 1975;
+
+scale fmaj "F3 G3 A3 C4 D4 F4 G4 A4 C5 D5 F5";
+
+instrument ep {
+    dsp "rhodes.dsp";
+    amp = 60;
+    decay = 4000 ms;
+    r = 1500 ms;
+    spread = 0.6;
+    send = 0.3;
+
+    effect "fx/tapeloop.dsp" {
+        delay = 14000 ms;
+        spread = 1.3;
+        feedback = 0.88;
+        tone = 2600;
+        wow = 8;
+        rate = 0.2;
+        mix = 0.55;
+    };
+};
+
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 9;
+    size = 2.5;
+    predelay = 30 ms;
+    damping = 7000;
+};
+
+section one    90 s { upper = 0; thick = 0; };
+section both  360 s { thick = 0; };
+section cloud 300 s { upper = 0; };
+section plain 330 s { thick = 0; };
+section tape  120 s { lower = 0; upper = 0; thick = 0; };
+section end;
+
+# ---- the phrases ------------------------------------------------------
+
+# Ten steps: F, held, the A above, a rest, the C a fifth up held three,
+# down to G, two rests.
+chain lower {
+    stage src gen::lsystem {
+        axiom = "F_ ++F r +++F__ --F r r";
+        rules = "";
+        depth = 0;
+        notes = "F3 G3 A3 C4 D4 F4 G4 A4";
+        step = 1.3 s;  hold = 1.2 s;  vel = 72;
+    };
+    sink { instrument = ep; };
+};
+
+# Twelve steps, higher, in the gaps of the first.
+chain upper {
+    stage src gen::lsystem {
+        axiom = "r +++F -F r --F_ r ++++F r r r r";
+        rules = "";
+        depth = 0;
+        notes = "C4 D4 F4 G4 A4 C5 D5";
+        step = 1.55 s;  hold = 1.4 s;  vel = 64;
+    };
+    sink { instrument = ep; };
+};
+
+# The same, with a cloud of copies after each note.
+chain thick {
+    stage src gen::lsystem {
+        axiom = "r +++F -F r --F_ r ++++F r r r r";
+        rules = "";
+        depth = 0;
+        notes = "C4 D4 F4 G4 A4 C5 D5";
+        step = 1.55 s;  hold = 1.4 s;  vel = 64;
+    };
+    stage c xform::cloud {
+        count = 3;  time = 4 s;  pitch = 12;  scale = fmaj;
+        taper = 0.6;  spread = 0.8;  pass = 1;
+    };
+    sink { instrument = ep; };
+};
+
+# ---- the desk ---------------------------------------------------------
+
+# How much of the piano goes into the room.
+chain room {
+    stage src gen::walk {
+        min = 0.1; max = 0.6; step = 0.08; period = 25 s;
+    };
+    sink { instrument = ep; chanarg = "fx.send"; };
+};
+
+# The tape's tone, darker and brighter over minutes.
+chain tone {
+    stage src gen::walk {
+        min = 1400; max = 4200; step = 300; period = 30 s;
+    };
+    sink { instrument = ep; chanarg = "fx.tone"; };
+};

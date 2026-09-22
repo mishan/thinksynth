@@ -105,7 +105,7 @@ typo in it.
 
 ## Pieces
 
-Four files where the idea is the music and the mechanism is in service of
+Five files where the idea is the music and the mechanism is in service of
 it. Each carries its own instruments; each header says how it is put
 together, in the same detail as the others.
 
@@ -115,6 +115,7 @@ together, in the same detail as the others.
 | [`round.gen`](round.gen) | **A canon on one grammar.** One L-system subject, three entries: straight, six steps later a fifth up, and at half speed an octave and a half down. The lag is written as rests in the axiom, the augmentation as `math::mul` on the `Pace` knob, and the ladders are pentatonic so every lag is consonant. Take the trailing rests off the lead and it becomes a phase piece. |
 | [`orrery.gen`](orrery.gen) | **Gears on one clock, and a bass that reads the chords.** Four Euclidean rings of different sizes in `beats`, a harmonizer spelling the chords by degree and voicing each against the one before it, a genetic lead on the `Lift` knob, and two voices swapped under it every thirty-two bars. The bass follows the progression without a message passing between chains: its pool is one four-bar phrase long, five notes under each chord, and the ring is the index. |
 | [`invention.gen`](invention.gen) | **Two voices on a Moog, a chorus on the way out, and the ornaments are rules.** In the spirit of Wendy Carlos: a two-part invention in D minor, a saw lead and a square bass each on their own patch, a harpsichord of broken chords from a pool, and for once an L-system's rules are not empty -- `M`, `T` and `N` in the axiom are rewritten into a mordent, a trill and a turn on whatever note the turtle is standing on. The alto reads the same axiom with the ornaments spelled plain, through `xform::counterpoint`, every other time round, on a `Third` fader. |
+| [`discreet.gen`](discreet.gen) | **Two phrases and a tape loop, for twenty minutes.** Discreet Music's arrangement: two `gen::lsystem` phrases of different lengths, 13 and 18.6 seconds, on one electric piano, into `fx/tapeloop.dsp`, a 14-second loop that keeps 88% of each lap, so everything played comes back layered under what is played next and the two phrases drift against each other and the tape. `xform::cloud` thickens the second phrase for five minutes. The room is a send: `fx/space.dsp` on the mix at `mix = 0`, the piano's `send` into it, and a walk riding `fx.send`. |
 
 ## Game music
 
@@ -235,7 +236,11 @@ every channel has been summed, before the master gain and the output limiter.
 It is the same clause an instrument carries and the same object the engine
 runs, in the one place a reverb belongs and the only place a limiter can be --
 what a limiter limits is the sum, and no channel can see it. `fx/limiter.dsp`
-is a peak follower into a gain, and `warehouse.gen` plays through one.
+is a peak follower into a gain, and `warehouse.gen` plays through one. An
+instrument's `send = 0.3;` puts that much of its channel onto a send bus the
+master effect hears beside the mix, and `fx/space.dsp` there at `mix = 0` is
+one room every channel is in by its own amount; `discreet.gen` is built that
+way.
 
 `ladder.dsp` and `brass.dsp` carry a vibrato by default and `supersaw.dsp`
 carries the control at zero; `anthem.gen`'s lead turns it up, and
@@ -268,6 +273,8 @@ sunrise adds `run` as a pickup into a chord, `steps` as a sweep row the
 length of the arrangement, and `arp` fed by a harmonizer. mirrorball and philly
 add `euclid` emitted `ahead`, a chain `start`, and `bassline` as a guitar's
 rhythm with a harmonizer strumming behind it.
+discreet adds `cloud`, an instrument's `send` into a master reverb, and a
+chain riding `fx.send`.
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it. scratch is `grid` five times over and nothing else: a drum track
 is one row tall, the bass is ties, the hat is accents, and the keys chain
