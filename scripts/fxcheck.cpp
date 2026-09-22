@@ -269,6 +269,42 @@ static bool allFinite (const vector<float> &v)
     return true;
 }
 
+/* Abel and Huang's normalized echo density, averaged from `from' to `to'.
+ *
+ * In each window of ten milliseconds, the fraction of samples further from
+ * zero than the window's own standard deviation, over the fraction a
+ * Gaussian has there, erfc(1/sqrt(2)). Noise is 1 wherever it is measured
+ * and at whatever level; a run of distinct echoes with silence between is
+ * near 0, because a few large samples set a deviation most samples fall
+ * short of. It is a count that a low-pass cannot fool, which is the point:
+ * a smeared echo is still one echo. */
+static double echoDensity (const vector<float> &v, size_t from, size_t to)
+{
+    const size_t win = TH_DEFAULT_SAMPLES / 100;
+    double sum = 0;
+    int windows = 0;
+
+    for (size_t at = from; at + win <= to && at + win <= v.size();
+         at += win)
+    {
+        double e = 0, over = 0;
+
+        for (size_t k = at; k < at + win; k++)
+            e += (double)v[k] * v[k];
+
+        const double sd = sqrt(e / win);
+
+        for (size_t k = at; k < at + win; k++)
+            if (fabs(v[k]) > sd)
+                over++;
+
+        sum += over / win / erfc(1 / sqrt(2.0));
+        windows++;
+    }
+
+    return windows ? sum / windows : 0;
+}
+
 /* Does this graph ask for a second channel? A file that declares side0 is
    one whose point is the side -- and the shipped-graph loop below has to
    give it one, since a vocoder with no carrier is a vocoder doing nothing.
@@ -1244,6 +1280,98 @@ int main (int argc, char **argv)
                          "peak " + num(peak(heard)));
             }
         }
+    }
+
+    /* ---- delay::fdn against the hall ----------------------------------- */
+
+    /* An impulse through each, wet only, and the normalized echo density of
+     * what comes out from a tenth of a second to half of one -- see
+     * echoDensity. fx/hall.dsp's combs make a handful of echoes a round and
+     * its allpasses spread each into a short run, which leaves its tail
+     * about half as dense as noise however long it rings: the combs are
+     * periodic, and a periodic thing is not noise. The network mixes every
+     * line into every other on every pass, and is noise.
+     *
+     * Not a count of the samples that are not silent, which is what this
+     * was first going to be. The hall's damping is a low-pass inside the
+     * loop, which smears every echo it passes across a few dozen samples,
+     * so by that count the two came out at 2542 and 2683 of the first
+     * 4410: a low-pass makes a sparse response look full without making it
+     * any less countable to the ear.
+     *
+     * The impulse is one sample at full scale: env::ad with no attack and a
+     * one-sample decay, which fires once at the top of the voice.
+     */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/hall.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        const string click =
+            "name \"fxcheck-click\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = env->out;\n"
+            "    out1 = env->out;\n"
+            "};\n\n"
+            "node env env::ad {\n"
+            "    a = 0;\n"
+            "    d = 1;\n"
+            "    p = th_max;\n"
+            "};\n\n"
+            "io ionode;\n";
+        const string fx = effect(
+            "", "node net delay::fdn {\n"
+                "    in = ionode->in0;\n"
+                "    decay = 2;\n"
+                "    damping = 6000;\n"
+                "    mod = 8;\n"
+                "    rate = 0.5;\n"
+                "    diffuse = 0.7;\n"
+                "};\n\n", "net->out", "net->out2");
+        vector<float> heard[2];
+
+        if (!writeFile(instFile, click) || !writeFile(fxFile, fx))
+            break;
+
+        for (int which = 0; which < 2; which++)
+        {
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadEffect(which ? fxFile : shipped[i], 0) == NULL)
+            {
+                fail("the click and " +
+                     string(which ? "delay::fdn" : shipped[i]) + " load", "");
+                break;
+            }
+
+            if (which == 0)
+                s.synth.setChanArg(0, new thArg("fx.mix", 1.0f));
+
+            s.synth.addNote(0, 60, 100);
+            s.run(TH_DEFAULT_SAMPLES / 2 / s.synth.getWindowlen() + 1);
+            s.synth.delNote(0, 60);
+
+            heard[which] = s.take();
+        }
+
+        if (heard[0].empty() || heard[1].empty())
+            break;
+
+        const double hall = echoDensity(heard[0], TH_DEFAULT_SAMPLES / 10,
+                                        TH_DEFAULT_SAMPLES / 2);
+        const double net = echoDensity(heard[1], TH_DEFAULT_SAMPLES / 10,
+                                       TH_DEFAULT_SAMPLES / 2);
+
+        okOrFail(net > 0.9 && hall < 0.7,
+                 "delay::fdn: a tail as dense as noise, where " + shipped[i] +
+                 "'s is not",
+                 "echo density " + num(net) + " against " + num(hall));
     }
 
     /* ---- the shipped effect graphs ------------------------------------- */

@@ -2484,6 +2484,866 @@ static void checkComb (const string &pluginPath)
     }
 }
 
+/* ---- delay::pitchshift -------------------------------------------------- */
+
+/* A power spectrum of `n' samples from `from', `n' a power of two, under
+ * a Hann window: a radix-2 transform, since what is wanted here is every
+ * bin and not the one or two that bin() is for. */
+static vector<double> powerSpectrum (const vector<float> &v, size_t from,
+                                     size_t n)
+{
+    vector<double> re(n), im(n, 0);
+
+    for (size_t i = 0; i < n; i++)
+        re[i] = (from + i < v.size() ? v[from + i] : 0) *
+                (0.5 - 0.5 * cos(2.0 * M_PI * (double)i / (double)n));
+
+    for (size_t i = 1, j = 0; i < n; i++)
+    {
+        size_t bit = n >> 1;
+
+        for (; j & bit; bit >>= 1)
+            j ^= bit;
+
+        j ^= bit;
+
+        if (i < j)
+        {
+            std::swap(re[i], re[j]);
+            std::swap(im[i], im[j]);
+        }
+    }
+
+    for (size_t len = 2; len <= n; len <<= 1)
+    {
+        const double step = -2.0 * M_PI / (double)len;
+
+        for (size_t i = 0; i < n; i += len)
+            for (size_t k = 0; k < len / 2; k++)
+            {
+                const double wr = cos(step * k), wi = sin(step * k);
+                const size_t a = i + k, b = i + k + len / 2;
+                const double tr = re[b] * wr - im[b] * wi;
+                const double ti = re[b] * wi + im[b] * wr;
+
+                re[b] = re[a] - tr;
+                im[b] = im[a] - ti;
+                re[a] += tr;
+                im[a] += ti;
+            }
+    }
+
+    vector<double> power(n / 2);
+
+    for (size_t k = 0; k < n / 2; k++)
+        power[k] = re[k] * re[k] + im[k] * im[k];
+
+    return power;
+}
+
+static vector<NodeSpec> shiftGraph (float hz, float ratio, float window,
+                                    float mix)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, ps;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };            /* sine */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    ps.name = "ps";
+    ps.spelling = "delay/pitchshift";
+
+    Value r = { "ratio", ratio };
+    Value wn = { "window", window };
+    Value mx = { "mix", mix };
+    Wire  in = { "in", "src", "out" };
+
+    ps.values.push_back(r);
+    ps.values.push_back(wn);
+    ps.values.push_back(mx);
+    ps.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(ps);
+
+    return spec;
+}
+
+/* The share of a spectrum's power within a semitone of `hz'. */
+static double shareNear (const vector<double> &spectrum, size_t n, double hz)
+{
+    const double hzPerBin = (double)TH_DEFAULT_SAMPLES / (double)n;
+    const double lo = hz * pow(2.0, -1.0 / 12), hi = hz * pow(2.0, 1.0 / 12);
+    double near = 0, all = 0;
+
+    for (size_t k = 1; k < spectrum.size(); k++)
+    {
+        all += spectrum[k];
+
+        if (k * hzPerBin >= lo && k * hzPerBin <= hi)
+            near += spectrum[k];
+    }
+
+    return all > 0 ? near / all : 0;
+}
+
+static void checkPitchshift (const string &pluginPath)
+{
+    /* Fifty milliseconds less a sample, which makes it even: half of it
+       is then a whole number of samples, and `ratio = 1' can be checked
+       to the bit. */
+    const float window = 2204;
+
+    /* ---- an octave up is an octave up ---- */
+
+    /* A 440 Hz sine at `ratio = 2', wet only, over a settled second and a
+       half: most of what comes out has to be within a semitone of 880 Hz,
+       and what is left at 440 has to be under a tenth of it. The heads'
+       crossfade puts sidebands twenty hertz either side of 880, which
+       are inside the semitone and are the warble the effect is known for. */
+    {
+        static const struct { float ratio; double want; } cases[] = {
+            { 2, 880 }, { 0.5f, 220 }, { 1.5f, 660 }
+        };
+        bool good = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            vector<float> got;
+            string why;
+
+            if (!render1(pluginPath, shiftGraph(440, cases[c].ratio, window,
+                                                1),
+                         "ps", "out", 256, 2 * TH_DEFAULT_SAMPLES, got, why))
+            {
+                fail("delay::pitchshift renders", why);
+                return;
+            }
+
+            const vector<double> spectrum =
+                powerSpectrum(got, TH_DEFAULT_SAMPLES / 4, 65536);
+            const double there = shareNear(spectrum, 65536, cases[c].want);
+            const double left = shareNear(spectrum, 65536, 440);
+
+            if (!(there > 0.8 && left < 0.1 * there))
+            {
+                good = false;
+                detail = "at a ratio of " + num(cases[c].ratio) + ", " +
+                         num(there) + " of the power was near " +
+                         num(cases[c].want) + " Hz and " + num(left) +
+                         " was left at 440";
+            }
+        }
+
+        okOrFail(good, "delay::pitchshift: a sine comes out at `ratio' times "
+                       "its frequency, with next to nothing left where it "
+                       "was", detail);
+    }
+
+    /* ---- and `ratio = 1' is a delay of half the window ---- */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ps", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, shiftGraph(440, 1, window, 1), watch, 256,
+                    20000, got, why))
+            fail("delay::pitchshift renders", why);
+        else
+        {
+            const size_t late = (size_t)window / 2;
+            bool same = true;
+            string detail;
+
+            for (size_t i = late; i < got[0].size() && same; i++)
+                if (memcmp(&got[1][i], &got[0][i - late],
+                           sizeof(float)) != 0)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " +
+                             num(got[0][i - late]);
+                }
+
+            okOrFail(same, "delay::pitchshift: `ratio = 1' is the input "
+                           "half a window late, to the bit", detail);
+        }
+    }
+
+    /* ---- `mix = 0' is the dry signal ---- */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ps", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, shiftGraph(440, 2, window, 0), watch, 256,
+                    20000, got, why))
+            fail("delay::pitchshift renders", why);
+        else
+            okOrFail(memcmp(&got[0][0], &got[1][0],
+                            got[0].size() * sizeof(float)) == 0,
+                     "delay::pitchshift: `mix = 0' is the dry signal, to the "
+                     "bit", "");
+    }
+
+    /* ---- finite at every corner ---- */
+    {
+        static const float ratios[] = { -1, 0, 0.25f, 4, 100 };
+        static const float windows[] = { -5, 0, 1, 882, 8820, 1e9f };
+        bool finite = true;
+        string detail;
+
+        for (float r : ratios)
+            for (float w : windows)
+            {
+                vector<float> got;
+                string why;
+
+                if (!render1(pluginPath, shiftGraph(440, r, w, 1), "ps",
+                             "out", 256, TH_DEFAULT_SAMPLES / 2, got, why))
+                {
+                    fail("delay::pitchshift renders", why);
+                    return;
+                }
+
+                if (finite && !(allFinite(got) && peak(got, 0) < 1.5))
+                {
+                    finite = false;
+                    detail = "ratio " + num(r) + ", window " + num(w) +
+                             ": peak " + num(peak(got, 0));
+                }
+            }
+
+        okOrFail(finite, "delay::pitchshift: finite and in range at every "
+                         "corner", detail);
+    }
+
+    windowsAgree(pluginPath, shiftGraph(440, 2, window, 0.5f), "ps", "out",
+                 "delay::pitchshift: the same shift at one sample a window "
+                 "and at five hundred");
+}
+
+/* ---- delay::fdn --------------------------------------------------------- */
+
+/* One sample at full scale into the network, as the comb's impulse is:
+   what comes out is the network's own answer and nothing else. */
+static vector<NodeSpec> fdnGraph (float size, float decay, float damping,
+                                  float mod, float rate, float diffuse,
+                                  float shimmer = 0, float interval = 0)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, fdn;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", 1 };
+    Value p = { "p", TH_MAX };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    fdn.name = "fdn";
+    fdn.spelling = "delay/fdn";
+
+    Value sz = { "size", size };
+    Value dc = { "decay", decay };
+    Value dm = { "damping", damping };
+    Value md = { "mod", mod };
+    Value rt = { "rate", rate };
+    Value df = { "diffuse", diffuse };
+    Value sh = { "shimmer", shimmer };
+    Value iv = { "interval", interval };
+    Wire  in = { "in", "src", "out" };
+
+    fdn.values.push_back(sz);
+    fdn.values.push_back(dc);
+    fdn.values.push_back(dm);
+    fdn.values.push_back(md);
+    fdn.values.push_back(rt);
+    fdn.values.push_back(df);
+    fdn.values.push_back(sh);
+    fdn.values.push_back(iv);
+    fdn.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(fdn);
+
+    return spec;
+}
+
+/* How long a response takes to fall sixty decibels, read off its slope.
+ *
+ * The energy in blocks of fifty milliseconds, in decibels, fitted with a
+ * straight line from `from' to `to' seconds: one realization of a tail is
+ * noise, and a block's energy wanders a decibel or two either side of the
+ * curve, but a least-squares line through hundreds of them does not. */
+static double decayTime (const vector<float> &v, double from, double to)
+{
+    const size_t block = TH_DEFAULT_SAMPLES / 20;
+    double sx = 0, sy = 0, sxx = 0, sxy = 0;
+    int n = 0;
+
+    for (size_t at = (size_t)(from * TH_DEFAULT_SAMPLES);
+         at + block <= v.size() && at < (size_t)(to * TH_DEFAULT_SAMPLES);
+         at += block)
+    {
+        double e = 0;
+
+        for (size_t i = at; i < at + block; i++)
+            e += (double)v[i] * v[i];
+
+        const double x = (double)at / TH_DEFAULT_SAMPLES;
+        const double y = 10.0 * log10(e + 1e-300);
+
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        sxy += x * y;
+        n++;
+    }
+
+    const double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+
+    return -60.0 / slope;
+}
+
+/* Sixteen bands a third of an octave wide, from 250 Hz to 10 kHz, each
+ * the sum of every bin of the spectrum across it. What is returned is the
+ * worst band's excess, in decibels, over the mean of its two neighbors.
+ *
+ * Sums and not bins, because the tail of any reverb, good or bad, is
+ * noise, and the power in one bin of noise is exponentially distributed:
+ * a bin six decibels over its neighbors is a one-in-fifty event in a
+ * perfectly smooth tail. Summed over the hundred-odd bins of the
+ * narrowest band, chance moves a band by half a decibel, so a band six
+ * over its neighbors is a resonance. */
+static double bandExcess (const vector<float> &v, size_t from, size_t n)
+{
+    const int bands = 16;
+    const vector<double> spectrum = powerSpectrum(v, from, n);
+    const double hzPerBin = (double)TH_DEFAULT_SAMPLES / (double)n;
+    vector<double> power(bands, 0);
+
+    for (int b = 0; b < bands; b++)
+    {
+        const double lo = 250.0 * pow(2.0, b / 3.0);
+        const double hi = lo * pow(2.0, 1.0 / 3.0);
+
+        for (size_t k = (size_t)ceil(lo / hzPerBin);
+             k < spectrum.size() && k * hzPerBin < hi; k++)
+            power[b] += spectrum[k];
+    }
+
+    double worst = -1e9;
+
+    for (int b = 1; b + 1 < bands; b++)
+    {
+        const double around = (power[b - 1] + power[b + 1]) / 2;
+        const double excess = 10.0 * log10(power[b] / around);
+
+        if (excess > worst)
+            worst = excess;
+    }
+
+    return worst;
+}
+
+/* How many samples stand clear of `floorAt'. */
+static double echoes (const vector<float> &v, double floorAt)
+{
+    double n = 0;
+
+    for (size_t i = 0; i < v.size(); i++)
+        if (fabs(v[i]) > floorAt)
+            n++;
+
+    return n;
+}
+
+/* The 8 kHz third-octave band against the 250 Hz one, in decibels, over a
+   second and a half from a second in: how dark the tail has gone. */
+static double tilt3 (const vector<float> &v)
+{
+    const vector<double> spectrum =
+        powerSpectrum(v, TH_DEFAULT_SAMPLES, 65536);
+    const double hzPerBin = (double)TH_DEFAULT_SAMPLES / 65536;
+    double lo = 0, hi = 0;
+
+    for (size_t k = 0; k < spectrum.size(); k++)
+    {
+        const double hz = k * hzPerBin;
+
+        if (hz >= 250 && hz < 250 * pow(2.0, 1.0 / 3.0))
+            lo += spectrum[k];
+
+        if (hz >= 8000 && hz < 8000 * pow(2.0, 1.0 / 3.0))
+            hi += spectrum[k];
+    }
+
+    /* Per hertz, since the upper band is thirty-two times as wide. */
+    return 10 * log10((hi / 32) / lo);
+}
+
+static void checkFdn (const string &pluginPath)
+{
+    /* ---- the tail falls sixty decibels in `decay' seconds ---- */
+
+    /* With the damping off, so that every frequency is asked to fall at
+       the rate the gains set and none is falling faster; the slope is
+       read from a fifth of a second in, after the attack has built, to
+       where it is thirty-six decibels down. */
+    {
+        static const float want[] = { 1, 4 };
+        bool good = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(want) / sizeof(want[0]); c++)
+        {
+            vector<float> got;
+            string why;
+
+            if (!render1(pluginPath, fdnGraph(1, want[c], 0, 0, 0, 0.7f),
+                         "fdn", "out", 256,
+                         (unsigned)(want[c] * TH_DEFAULT_SAMPLES), got, why))
+            {
+                fail("delay::fdn renders", why);
+                return;
+            }
+
+            const double t = decayTime(got, 0.2, 0.2 + want[c] * 0.6);
+
+            if (!(fabs(t / want[c] - 1) < 0.1))
+            {
+                good = false;
+                detail = "a decay of " + num(want[c]) + " s fell sixty "
+                         "decibels in " + num(t) + " s";
+            }
+        }
+
+        okOrFail(good, "delay::fdn: the tail falls sixty decibels in "
+                       "`decay' seconds", detail);
+    }
+    /* ---- and a minute is a minute ---- */
+
+    /* An ambient tail of sixty seconds, which a comb bank cannot reach
+       without ringing, and modulated, since that is how one would be run.
+       Twenty seconds of it is twenty decibels, which is enough slope to
+       read. */
+    {
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, fdnGraph(1, 60, 0, 12, 0.5f, 0.7f), "fdn",
+                     "out", 256, 20 * TH_DEFAULT_SAMPLES, got, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            const double t = decayTime(got, 0.2, 20);
+
+            okOrFail(allFinite(got) && fabs(t / 60 - 1) < 0.1,
+                     "delay::fdn: a decay of sixty seconds is sixty seconds, "
+                     "modulated",
+                     "fell sixty decibels in " + num(t) + " s");
+        }
+    }
+
+    /* ---- the first hundred milliseconds are dense ---- */
+
+    /* An echo is a sample well clear of the floor, here a thousandth of
+       the response's peak. Eight lines alone would put eight of them in
+       the first pass; the diffusers have to turn each into a burst, so
+       that most of the first tenth of a second is already sounding. The
+       comparison with fx/hall.dsp is fxcheck's, which loads it. */
+    {
+        vector<float> smeared, bare;
+        string why;
+
+        if (!render1(pluginPath, fdnGraph(1, 2, 0, 0, 0, 0.7f), "fdn", "out",
+                     256, TH_DEFAULT_SAMPLES / 10, smeared, why) ||
+            !render1(pluginPath, fdnGraph(1, 2, 0, 0, 0, 0), "fdn", "out",
+                     256, TH_DEFAULT_SAMPLES / 10, bare, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            const double a = echoes(smeared, peak(smeared, 0) / 1000);
+            const double b = echoes(bare, peak(bare, 0) / 1000);
+
+            okOrFail(a > 10 * b,
+                     "delay::fdn: the diffusers put ten times the echoes "
+                     "into the first hundred milliseconds",
+                     num(a) + " echoes with them, " + num(b) + " without");
+        }
+    }
+
+    /* ---- the tail has no resonance in it ---- */
+
+    /* bandExcess over a second and a half of a thirty-second tail, taken
+       from a second in so that it is the tail and not the attack. The
+       control is a comb at 400 Hz, which is a reverb made of one line:
+       its harmonics are wider apart than the low bands, so some bands
+       hold a peak and some hold none, and it comes out tens of decibels
+       over. */
+    {
+        vector<float> still, moving, comb;
+        string why;
+
+        if (!render1(pluginPath, fdnGraph(1, 30, 0, 0, 0, 0.7f), "fdn",
+                     "out", 256, 3 * TH_DEFAULT_SAMPLES, still, why) ||
+            !render1(pluginPath, fdnGraph(1, 30, 0, 12, 0.5f, 0.7f), "fdn",
+                     "out", 256, 3 * TH_DEFAULT_SAMPLES, moving, why) ||
+            !render1(pluginPath, combImpulseGraph(400, 0.999f, 0), "comb",
+                     "out", 256, 3 * TH_DEFAULT_SAMPLES, comb, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            const double s0 = bandExcess(still, TH_DEFAULT_SAMPLES, 65536);
+            const double s1 = bandExcess(moving, TH_DEFAULT_SAMPLES, 65536);
+            const double c = bandExcess(comb, TH_DEFAULT_SAMPLES, 65536);
+
+            okOrFail(c > 6, "delay::fdn: the resonance check sees a comb's",
+                     "a 400 Hz comb's worst band was only " + num(c) +
+                     " dB over its neighbors");
+            okOrFail(s0 < 6 && s1 < 6,
+                     "delay::fdn: no band of a thirty-second tail is six "
+                     "decibels over its neighbors",
+                     num(s0) + " dB still, " + num(s1) + " dB modulated");
+        }
+
+        /* And the modulation does not darken it: the top band against the
+           bottom, moving against still. This is what linear interpolation
+           in the loop failed, by thirty decibels. */
+        if (!still.empty() && !moving.empty())
+        {
+            const double t0 = tilt3(still), t1 = tilt3(moving);
+
+            okOrFail(fabs(t1 - t0) < 3,
+                     "delay::fdn: modulation leaves the top of the tail "
+                     "where it was",
+                     "8 kHz against 250 Hz was " + num(t0) + " dB still and " +
+                     num(t1) + " dB modulated");
+        }
+    }
+
+    /* ---- damping takes the top faster ---- */
+    {
+        vector<float> open, damped;
+        string why;
+
+        if (!render1(pluginPath, fdnGraph(1, 4, 0, 0, 0, 0.7f), "fdn",
+                     "out", 256, 3 * TH_DEFAULT_SAMPLES, open, why) ||
+            !render1(pluginPath, fdnGraph(1, 4, 3000, 0, 0, 0.7f), "fdn",
+                     "out", 256, 3 * TH_DEFAULT_SAMPLES, damped, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            const double t0 = tilt3(open), t1 = tilt3(damped);
+
+            okOrFail(t1 < t0 - 20,
+                     "delay::fdn: `damping' takes the top of the tail "
+                     "faster than the bottom",
+                     "8 kHz against 250 Hz was " + num(t0) + " dB open and " +
+                     num(t1) + " dB damped");
+        }
+    }
+
+    /* ---- the two sides are the same tail, uncorrelated ---- */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "fdn", "out" };
+        Watch w1 = { "fdn", "out2" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, fdnGraph(1, 4, 6000, 12, 0.5f, 0.7f), watch,
+                    256, 2 * TH_DEFAULT_SAMPLES, got, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            double ll = 0, rr = 0, lr = 0;
+
+            for (size_t i = TH_DEFAULT_SAMPLES / 5; i < got[0].size(); i++)
+            {
+                ll += (double)got[0][i] * got[0][i];
+                rr += (double)got[1][i] * got[1][i];
+                lr += (double)got[0][i] * got[1][i];
+            }
+
+            const double corr = lr / sqrt(ll * rr);
+            const double level = 10 * log10(ll / rr);
+
+            okOrFail(fabs(corr) < 0.1 && fabs(level) < 1,
+                     "delay::fdn: `out' and `out2' are the same tail, "
+                     "uncorrelated",
+                     "correlation " + num(corr) + ", " + num(level) +
+                     " dB apart");
+        }
+    }
+
+    /* ---- the same network twice ---- */
+
+    /* Nothing in it is random, so two fresh synths render the same
+       samples -- still or modulated -- and holding the lines still is
+       not the same network as moving them. */
+    {
+        vector<float> a, b, c, d;
+        string why;
+
+        if (!render1(pluginPath, fdnGraph(1, 4, 6000, 0, 0, 0.7f), "fdn",
+                     "out", 256, TH_DEFAULT_SAMPLES, a, why) ||
+            !render1(pluginPath, fdnGraph(1, 4, 6000, 0, 0, 0.7f), "fdn",
+                     "out", 256, TH_DEFAULT_SAMPLES, b, why) ||
+            !render1(pluginPath, fdnGraph(1, 4, 6000, 12, 0.5f, 0.7f), "fdn",
+                     "out", 256, TH_DEFAULT_SAMPLES, c, why) ||
+            !render1(pluginPath, fdnGraph(1, 4, 6000, 12, 0.5f, 0.7f), "fdn",
+                     "out", 256, TH_DEFAULT_SAMPLES, d, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            okOrFail(a.size() == b.size() &&
+                     memcmp(&a[0], &b[0], a.size() * sizeof(float)) == 0 &&
+                     c.size() == d.size() &&
+                     memcmp(&c[0], &d[0], c.size() * sizeof(float)) == 0,
+                     "delay::fdn: two fresh networks render the same "
+                     "samples", "");
+            okOrFail(memcmp(&a[0], &c[0], a.size() * sizeof(float)) != 0,
+                     "delay::fdn: and `mod' moves them", "");
+        }
+    }
+
+    /* ---- the shimmer puts the tail up an interval ---- */
+
+    /* A third of a second of a 440 Hz sine into a network, and the
+       spectrum of its tail from a second to two and a half. A reverb is
+       linear and cannot make a frequency it was not given, so without
+       the shimmer there is next to nothing at 880; with it the octave has
+       to stand at least twenty decibels higher than that, and at a ratio
+       of 1.5 it is 660 that has to. */
+    {
+        static const struct { float interval; double want; } cases[] = {
+            { 2, 880 }, { 1.5f, 660 }
+        };
+        bool good = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            double near[2];
+
+            for (int on = 0; on < 2; on++)
+            {
+                vector<NodeSpec> spec =
+                    fdnGraph(1, 8, 0, 0, 0, 0.7f, on ? 0.6f : 0,
+                             cases[c].interval);
+                vector<NodeSpec> tone =
+                    shiftGraph(440, 1, 2204, 0);
+                vector<float> got;
+                string why;
+
+                /* The sine, gated to its first third of a second by an
+                   env::ad with no attack, then silence. */
+                NodeSpec gate;
+
+                gate.name = "gate";
+                gate.spelling = "env/ad";
+
+                Value a = { "a", 0 };
+                Value d = { "d", TH_DEFAULT_SAMPLES / 3 };
+                Value p = { "p", TH_MAX };
+                Wire  am = { "amp", "gate", "out" };
+
+                gate.values.push_back(a);
+                gate.values.push_back(d);
+                gate.values.push_back(p);
+
+                tone[0].values.erase(tone[0].values.begin() + 1);
+                tone[0].wires.push_back(am);
+
+                spec[0] = tone[0];
+                spec.insert(spec.begin(), gate);
+
+                if (!render1(pluginPath, spec, "fdn", "out", 256,
+                             (unsigned)(2.5 * TH_DEFAULT_SAMPLES), got, why))
+                {
+                    fail("delay::fdn renders", why);
+                    return;
+                }
+
+                const vector<double> spectrum =
+                    powerSpectrum(got, TH_DEFAULT_SAMPLES, 65536);
+
+                near[on] = shareNear(spectrum, 65536, cases[c].want) *
+                           energy(got, TH_DEFAULT_SAMPLES);
+            }
+
+            const double rise = 10 * log10(near[1] / (near[0] + 1e-30));
+
+            if (!(rise > 20))
+            {
+                good = false;
+                detail = "at " + num(cases[c].want) + " Hz the shimmer "
+                         "added only " + num(rise) + " dB";
+            }
+        }
+
+        okOrFail(good, "delay::fdn: `shimmer' puts the tail up by "
+                       "`interval', where a plain network has nothing",
+                 detail);
+    }
+
+    /* ---- and the climb stops ---- */
+
+    /* Two seconds of noise into a minute-long network shimmering at the
+       ceiling with no damping, which is the worst case: nothing but the
+       shimmer's own gain holds the loop down. The tail twenty seconds on
+       has to be quieter than it was two seconds on, not louder. It
+       measures a third; without the shimmer it is an eighth, and before
+       the high-pass it grew by six orders of magnitude, at DC. */
+    {
+        vector<NodeSpec> spec = fdnGraph(1, 60, 0, 12, 0.5f, 0.7f, 0.9f, 2);
+        vector<float> got;
+        string why;
+
+        NodeSpec gate;
+
+        gate.name = "gate";
+        gate.spelling = "env/ad";
+
+        Value a = { "a", 0 };
+        Value d = { "d", 2 * TH_DEFAULT_SAMPLES };
+        Value p = { "p", TH_MAX };
+
+        gate.values.push_back(a);
+        gate.values.push_back(d);
+        gate.values.push_back(p);
+
+        /* Gated by a multiply and not through `amp', which osc::noise
+           reads a zero on as its default of full scale. */
+        NodeSpec vca;
+
+        vca.name = "vca";
+        vca.spelling = "mixer/mul";
+
+        Wire  g0 = { "in0", "src", "out" };
+        Wire  g1 = { "in1", "gate", "out" };
+        Wire  fed = { "in", "vca", "out" };
+
+        vca.wires.push_back(g0);
+        vca.wires.push_back(g1);
+
+        spec[0].spelling = "osc/noise";
+        spec[0].values.clear();
+        spec[1].wires.clear();
+        spec[1].wires.push_back(fed);
+        spec.insert(spec.begin(), vca);
+        spec.insert(spec.begin(), gate);
+
+        if (!render1(pluginPath, spec, "fdn", "out", 256,
+                     22 * TH_DEFAULT_SAMPLES, got, why))
+            fail("delay::fdn renders", why);
+        else
+        {
+            const double early = rms(vector<float>(
+                got.begin() + 2 * TH_DEFAULT_SAMPLES,
+                got.begin() + 4 * TH_DEFAULT_SAMPLES), 0);
+            const double late = rms(got, 20 * TH_DEFAULT_SAMPLES);
+
+            okOrFail(allFinite(got) && late < early,
+                     "delay::fdn: a shimmer at the ceiling dies away "
+                     "rather than climbing for ever",
+                     "RMS " + num(early) + " two seconds on and " +
+                     num(late) + " twenty seconds on");
+        }
+    }
+
+    /* ---- finite at every corner ---- */
+
+    /* A full-scale square wave rather than an impulse, so that the lines
+       are as full as they get, at every combination of the ends of the
+       args that set lengths and gains -- and a minute of decay at the
+       smallest size, which is the most passes a second the node makes. */
+    {
+        static const float sizes[] = { 0, 0.1f, 4, 50 };
+        static const float decays[] = { 0, 0.01f, 60, 1e6f };
+        static const float damps[] = { 0, 20, 30000 };
+        static const float mods[] = { 0, 64, 1000 };
+        bool finite = true;
+        string detail;
+
+        for (float sz : sizes)
+            for (float dc : decays)
+                for (float dm : damps)
+                    for (float md : mods)
+                    {
+                        vector<NodeSpec> spec =
+                            fdnGraph(sz, dc, dm, md, 20, 0.9f, 1,
+                                     md == 1000 ? 100 : 0.25f);
+                        vector<float> got;
+                        string why;
+
+                        spec[0].spelling = "osc/simple";
+                        spec[0].values.clear();
+
+                        Value f = { "freq", 110 };
+                        Value a = { "amp", TH_MAX };
+                        Value w = { "waveform", 2 };
+
+                        spec[0].values.push_back(f);
+                        spec[0].values.push_back(a);
+                        spec[0].values.push_back(w);
+
+                        if (!render1(pluginPath, spec, "fdn", "out", 256,
+                                     TH_DEFAULT_SAMPLES / 2, got, why))
+                        {
+                            fail("delay::fdn renders", why);
+                            return;
+                        }
+
+                        if (finite && !allFinite(got))
+                        {
+                            finite = false;
+                            detail = "size " + num(sz) + ", decay " +
+                                     num(dc) + ", damping " + num(dm) +
+                                     ", mod " + num(md);
+                        }
+                    }
+
+        okOrFail(finite, "delay::fdn: finite at every corner, shimmering at "
+                         "the ceiling", detail);
+    }
+
+    windowsAgree(pluginPath, fdnGraph(1, 4, 6000, 12, 0.5f, 0.7f), "fdn",
+                 "out", "delay::fdn: the same tail at one sample a window and "
+                 "at five hundred");
+}
+
 /* ---- osc::fmop ---------------------------------------------------------- */
 
 /* What the node claims, and why each one is here rather than left to a
@@ -4182,6 +5042,8 @@ int main (int argc, char **argv)
     checkAllpass(pluginPath);
     checkChorus(pluginPath);
     checkComb(pluginPath);
+    checkPitchshift(pluginPath);
+    checkFdn(pluginPath);
     checkFmop(pluginPath);
     checkSimple(pluginPath);
     checkSample(pluginPath);
