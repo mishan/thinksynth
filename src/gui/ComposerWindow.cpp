@@ -2228,11 +2228,11 @@ ComposerWindow::buildPieceSection (void)
     grid->set_row_spacing(4);
     grid->set_margin(4);
 
-    const char *keys[3] = { "name", "author", "description" };
-    const std::string *vals[3] = { &doc_.name, &doc_.author,
-                                   &doc_.description };
+    const char *keys[4] = { "name", "author", "description", "category" };
+    const std::string *vals[4] = { &doc_.name, &doc_.author,
+                                   &doc_.description, &doc_.category };
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
     {
         std::string key = keys[i];
         Gtk::Label *lbl = manage(new Gtk::Label(key));
@@ -2310,8 +2310,8 @@ ComposerWindow::buildPieceSection (void)
                 structuralReload();
         });
 
-    grid->attach(*pin, 0, 3);
-    grid->attach(*seedSpin, 1, 3);
+    grid->attach(*pin, 0, 4);
+    grid->attach(*seedSpin, 1, 4);
 
     exp->set_child(*grid);
     exp->set_expanded(false);

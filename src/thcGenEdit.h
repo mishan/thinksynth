@@ -183,7 +183,7 @@ public:
 
     struct Doc
     {
-        std::string name, author, description;
+        std::string name, author, description, category;
         bool     hasSeed;
         unsigned seed;
         bool     hasTempo;

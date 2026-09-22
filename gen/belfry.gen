@@ -45,6 +45,7 @@
 name "Belfry";
 author "Misha Nasledov";
 description "A castle at night: harmonic minor, sixteenth arpeggios, a galloping kick, an echo that becomes thirds.";
+category "Game music";
 
 tempo 136;
 seed 1986;

@@ -62,6 +62,7 @@
 name "Orrery";
 author "Misha Nasledov";
 description "Four Euclidean gears on one clock, a bass that reads the chords, a bred lead.";
+category "Pieces";
 
 tempo 104;
 seed 1687;

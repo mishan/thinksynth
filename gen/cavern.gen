@@ -50,6 +50,7 @@
 name "Cavern";
 author "Misha Nasledov";
 description "A seven-eight ostinato and a heartbeat under a drip that keeps no time.";
+category "Game music";
 
 tempo 92;
 seed 1986;

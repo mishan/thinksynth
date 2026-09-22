@@ -88,6 +88,7 @@
 name "Colony";
 author "Misha Nasledov";
 description "A line seeds Conway's board; what grows is learned and harmonized.";
+category "Algorithms";
 
 seed 3391;
 

@@ -41,6 +41,7 @@
 name "Attract";
 author "Misha Nasledov";
 description "Chords arpeggiated faster than the ear, a swept filter, a tune on a loop.";
+category "Game music";
 
 tempo 128;
 seed 1987;

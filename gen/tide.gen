@@ -27,6 +27,7 @@
 name "Tide";
 author "Misha Nasledov";
 description "Two presets and the forty seconds between them.";
+category "Timbre as material";
 
 seed 4412;
 

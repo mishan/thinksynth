@@ -51,6 +51,7 @@
 name "Boombox";
 author "Misha Nasledov";
 description "Electro: an 808 kit, a two-operator bass, and a vocoder whose carrier is the string machine on the next channel.";
+category "The eighties";
 
 tempo 112;
 seed 1982;

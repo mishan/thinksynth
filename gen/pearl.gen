@@ -59,6 +59,7 @@
 name "Pearl";
 author "Misha Nasledov";
 description "Synthpop: an electric piano comping over a chorused pad, a two-operator bass, and a sampled kit with a gate on the snare.";
+category "The eighties";
 
 tempo 112;
 seed 1983;

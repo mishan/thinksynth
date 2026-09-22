@@ -107,6 +107,13 @@ public:
     const std::string &pieceAuthor (void) const { return author_; }
     const std::string &pieceDescription (void) const { return description_; }
 
+    /* Where the piece is filed, or empty. Free text in the format and a
+       documented list the shipped corpus is held to (scripts/gencheck), which
+       is the difference between a category and a schema: a piece of one's own
+       may say whatever it likes, and one that says nothing is Uncategorized
+       rather than refused. */
+    const std::string &pieceCategory (void) const { return category_; }
+
     bool     hasSeed (void) const { return hasSeed_; }
     unsigned seed (void) const { return seed_; }
 
@@ -346,7 +353,7 @@ private:
        gets wrong is reported against the line that got it wrong. */
     std::vector<int> sectionLines_;
 
-    std::string name_, author_, description_;
+    std::string name_, author_, description_, category_;
     bool        hasSeed_;
     unsigned    seed_;
 };

@@ -58,6 +58,7 @@
 name "Overworld";
 author "Misha Nasledov";
 description "Two pulses, an arpeggio, a triangle and noise: a console's overworld.";
+category "Game music";
 
 tempo 138;
 seed 1985;

@@ -32,6 +32,7 @@
 name "Bloom";
 author "Misha Nasledov";
 description "A population of timbres, breeding under a piece's own taste.";
+category "Timbre as material";
 
 seed 2711;
 

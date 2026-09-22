@@ -25,6 +25,7 @@ to sit directly against what follows, so `- 5` is an error, not minus five.
 name "Airports";
 author "Misha Nasledov";
 description "In the spirit of Music for Airports 2/1.";
+category "Start here";          # optional; where a menu files it
 
 tempo 60;                       # optional; only clocked stages need it
 seed 1978;                      # optional; present means replayable
@@ -676,7 +677,7 @@ load, play, and do nothing where a bar of silence was meant.
 genfile     : statement*
 statement   : infostring | tempo | seed | meter | knob | knobmeta | scale
             | preset | instrument | section | chain | mastereffect
-infostring  : ("name" | "author" | "description") STRING ";"
+infostring  : ("name" | "author" | "description" | "category") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
 meter       : "meter" NUMBER ";"                       # before any section
@@ -811,6 +812,32 @@ stage, a new chain) contains:
   a seed the user never chose silently freezes a piece that was meant to
   breathe.
 
+## 7a. Where a piece is filed
+
+`category "Game music";` beside `name`, `author` and `description`. It is what
+the Composer's Open and the page's piece menu group by, and nothing else reads
+it — a piece with no category still loads, and lands under Uncategorized.
+
+The eight the shipped corpus uses are `gen/README.md`'s own sections: *Start
+here*, *Playing it yourself*, *Algorithms*, *Timbre as material*, *Pieces*,
+*Game music*, *The floor*, *The eighties*. That grouping was already real and
+already curated; what it was not was anywhere a program could see, and it had
+drifted — three pieces were in no section at all by the time the field was
+added.
+
+**Free text in the format, a list the shipped corpus is gated against.**
+`scripts/gencheck` fails a shipped piece that declares no category or one
+outside the eight. A piece of your own may say whatever it likes and lands in
+its own group; that is the difference between a category and a schema.
+
+`category` is a *contextual* keyword, like the other three: the lexer hands
+every identifier over as a `WORD` and the loader decides which words it has
+opinions about, so a chain, a knob or an instrument may still be called
+`category`. (A `.dsp`'s keywords are hard, which is why the same field there
+is a permanent reservation — docs/DSP_FORMAT.md § *The DSP language*.) What it
+is reserved from is a *chain name* the editor would write, since a file
+reading `chain category { ... }` is a trap rather than a feature.
+
 ## 8. Where each piece lands
 
 | in the file            | in the engine                                       |
@@ -832,6 +859,7 @@ stage, a new chain) contains:
 | param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |
+| `category`             | nothing at play time; the menus group by it (7a)     |
 | `section`              | `thcSection` on the scheduler: the gate in `propagate` |
 | `section end`          | the transport stops itself after the last section    |
 | `meter`                | beats to a bar, folding a section's `bars` to beats  |

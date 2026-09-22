@@ -38,6 +38,7 @@
 name "Round";
 author "Misha Nasledov";
 description "A three-voice canon on one L-system, the bass in augmentation.";
+category "Pieces";
 
 seed 1685;
 

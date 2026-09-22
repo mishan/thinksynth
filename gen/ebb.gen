@@ -36,6 +36,7 @@
 name "Ebb";
 author "Misha Nasledov";
 description "A pentatonic cloud whose ground turns between A minor and F lydian.";
+category "Pieces";
 
 seed 1618;
 

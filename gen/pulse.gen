@@ -28,6 +28,7 @@
 name "Pulse";
 author "Misha Nasledov";
 description "Three, four, five and sixteen, all on one clock.";
+category "Start here";
 
 tempo 96;
 

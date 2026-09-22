@@ -1,17 +1,28 @@
 # The shipped pieces
 
-Twenty-nine `.gen` files, each of which is meant to be read as well as heard.
+Thirty-one `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
-being impressive; the other twelve are pieces first and lessons second. The comment at the top of each file is the lesson;
-this is the index.
+being impressive; the other seventeen are pieces first and lessons second. The
+comment at the top of each file is the lesson; this is the index.
 
 Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
+
+**The sections below are in the files.** Each piece declares
+`category "Game music";` beside its `name`, and that is what the Composer's
+Open and the page's piece menu group by -- so this index and the menus say the
+same thing because they are the same fact, rather than because somebody kept
+them in step. They were not in step: three pieces had drifted out of every
+section here before the field existed. `scripts/gencheck` now fails a shipped
+piece that is filed under none of the eight or under something else; a piece of
+your own may say whatever it likes, and one that says nothing lands under
+Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 
 `airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
-`anthem.gen`, `acetate.gen`, `pearl.gen` and `riviera.gen` need nothing else:
+`anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen` and
+`riviera.gen` need nothing else:
 they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -148,15 +159,19 @@ only as level; `pluck` already was.
 
 ## The eighties
 
-Two pieces on the instruments the decade is made of, which the tree did not
+Five pieces on the instruments the decade is made of, which the tree did not
 have until recently: a phase-modulation operator (`osc::fmop`) and the DX
 graphs on it, a sampler (`osc::sample`) and a kit of this repository's own
-drums rendered to wavs, a string machine, a Juno pad, a clav and a gated
-reverb. Each carries its own instruments and its own arrangement.
+drums rendered to wavs, a string machine, a Juno pad, a clav, a vocoder, a
+flanger and a gated reverb. Each carries its own instruments and its own
+arrangement.
 
 | piece | the idea |
 | --- | --- |
 | [`pearl.gen`](pearl.gen) | **Synthpop.** One chord walk heard three times at once: three chains run `gen::progression` with the same `seed`, and a DX electric piano voice-leads it, a Juno pad spells it wider, and `xform::bassline` puts a two-operator bass under it. The piano's velocity goes to its modulator's index rather than its output, so `harmonize`'s taper makes the inner voices duller and not just quieter. The kit is `osc::sample` on one channel with the note number picking the drum, and the snare is a *second* channel of the same kit, because `fx/gate.dsp` has to be on the snare alone and a channel has one effect. `xform::swing` a quarter of the way to a triplet, on the hats and the bass. |
+| [`acetate.gen`](acetate.gen) | **A kit that is recordings, and an orchestra that is one note.** Nothing in it is synthesized at the moment you hear it: every drum is a recording of one of this tree's own drum graphs played back by `osc::sample` -- a machine playing short recordings, which is a LinnDrum -- and the chord answering the turnaround is one recording of `stab` and `brass` at C4, transposed by key, which is a Fairlight. The hit gets shorter as it climbs, because a sample read at `freq / root` frames is, and every record that used the sound has that property. The bass is the one voice that is *not* sampled, for the reason it was not then. |
+| [`boombox.gen`](boombox.gen) | **Electro, and a vocoder that needs two channels.** A string machine holds the chord and is the carrier; a ts1 line in sixteenths is the modulator and is never heard at all -- `fx/vocoder.dsp` sits on its channel and replaces everything it plays with sixteen bands of the carrier. `side = pads` is what makes that possible and is why the piece is here: an effect used to hear its own channel's sum and nothing else, so a vocoder could not be written. The modulator's `amp` is a drive rather than a volume, and both factors are amplitudes, so the staging is quadratic. |
+| [`outrun.gen`](outrun.gen) | **Synthwave, and why an arpeggiator is a `gen::` stage.** An `xform::` stage runs when an event passes through it and a `gen::` stage is woken by the transport, and an arpeggiator needs both -- it hears a chord once a bar and then has to put sixteen steps between that event and the next -- so `xform::arp` holds a chord it is never asked about and the channel is silent. The flanger is on the channel and not in the voice, through zero, so the sweep is on the figure rather than restarted by every note in it; the `Jet` knob is signed feedback, and the two signs are two different records. |
 | [`riviera.gen`](riviera.gen) | **Italo disco.** Root and octave in eighths with `xform::accent` marking one step a beat, and `bass.dsp` turning a velocity over its threshold into filter envelope and resonance rather than level -- the 303's accent circuit, which is what makes the part sound played. The same walk on three chains again: a Solina whose ensemble chorus lives *inside* the voice because that is what the instrument is, and a clav on `.r.f.r.t`, eighths with the downbeats left out. The orchestra hit is a recording of this tree's own `stab` and `brass` at unison, one per eight bars from `euclid`'s `fill` pool -- which moves only on the cycles that fire, where a pool consumed every bar would land on the same pitch every time. |
 
 ## Voicing

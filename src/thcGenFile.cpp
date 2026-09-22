@@ -489,6 +489,7 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     name_.clear();
     author_.clear();
     description_.clear();
+    category_.clear();
     hasSeed_ = false;
     seed_ = 0;
 
@@ -726,7 +727,12 @@ thcGenLoader::parseStatement (thcScheduler *sched)
         return false;
     }
 
-    if (t.text == "name" || t.text == "author" || t.text == "description")
+    /* The four info statements. Contextual keywords, unlike .dsp's -- the
+       lexer hands every identifier over as a WORD and this decides which
+       words it has opinions about -- so `category' reserves nothing: a chain,
+       a knob or an instrument may still be called that. */
+    if (t.text == "name" || t.text == "author" || t.text == "description" ||
+        t.text == "category")
     {
         Token key = take();
         const Token &v = peek();
@@ -743,6 +749,8 @@ thcGenLoader::parseStatement (thcScheduler *sched)
             name_ = s.text;
         else if (key.text == "author")
             author_ = s.text;
+        else if (key.text == "category")
+            category_ = s.text;
         else
             description_ = s.text;
 

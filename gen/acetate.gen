@@ -36,6 +36,7 @@
 name "Acetate";
 author "Misha Nasledov";
 description "A sampled kit and a sampled orchestra: the tree played back off a record.";
+category "The eighties";
 
 seed 4409;
 

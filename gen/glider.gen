@@ -45,6 +45,7 @@
 name "Glider";
 author "Misha Nasledov";
 description "Conway's Game of Life, and a board you can click while it plays.";
+category "Playing it yourself";
 
 tempo 108;
 

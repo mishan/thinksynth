@@ -15,6 +15,7 @@
 name "Airports";
 author "Misha Nasledov";
 description "In the spirit of Music for Airports 2/1.";
+category "Start here";
 
 seed 1978;
 
