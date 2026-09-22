@@ -59,6 +59,13 @@
  * one. A tie with no note in front of it in its row is silence, the way
  * a tie after a rest is in every other notation.
  *
+ * And a tie is a drag rather than a mark to type, because length is the
+ * one edit a grid has that a cell cannot express on its own: press a
+ * note and pull it to the right and it lasts that far, pull it back and
+ * it does not. Nothing in the picture has to be aimed at more finely
+ * than a cell for that -- there is no edge to catch, which at a row
+ * twenty pixels tall matters more than the elegance of one.
+ *
  * AND IT LISTENS. A note arriving from upstream lights the cell it
  * names -- the ladder mapping run backwards for the row, the playhead
  * run backwards for the column -- so a chain with `input midi' in front
@@ -176,10 +183,20 @@ struct State {
        in front of somebody is the grid. */
     bool touched;
 
-    /* The last cell a drag painted and what it painted, so dragging
-       across a row paints one value rather than flickering. */
-    int  paintX, paintY;
+    /* What the gesture under way is doing, and where it started.
+     *
+     * PAINT and ERASE write one value everywhere they go, so dragging
+     * back over your own line does not undo it. LENGTHEN is the drag
+     * that starts on a note: it does not write cells, it sets that
+     * note's length, which is the one edit a grid has that a cell
+     * cannot express on its own. */
+    enum Gesture { NONE = 0, PAINT, ERASE, LENGTHEN };
+
+    int  gesture;
+    int  paintX, paintY;      /* the last cell PAINT/ERASE wrote      */
     char paintTo;
+    int  anchorX, anchorY;    /* the note LENGTHEN is stretching      */
+    bool moved;               /* the pointer left the anchor's cell   */
 };
 
 static double
@@ -374,8 +391,11 @@ composer_create (const thcParams *params)
     st->pos = 0;
     st->posAt = 0;
     st->touched = false;
+    st->gesture = State::NONE;
     st->paintX = st->paintY = -1;
     st->paintTo = CELL_OFF;
+    st->anchorX = st->anchorY = -1;
+    st->moved = false;
 
     refresh(st);
 
@@ -580,6 +600,70 @@ layout (const State *st, double w, double h, double &cw, double &ch)
     ch = h / st->rows;
 }
 
+/* The note at (x, y) is `steps' steps long: the cells after it become
+ * ties, and any tie past the end goes back to nothing.
+ *
+ * Length rather than "write a tie here" because that is what a person
+ * dragging means, and because the two edits a tie needs -- growing and
+ * shrinking -- are one operation this way. It stops at the end of the
+ * pattern and at the next thing in the row: a note cannot be stretched
+ * through the one after it, which would otherwise silently delete it.
+ */
+static void
+setLength (State *st, int x, int y, int steps)
+{
+    if (x < 0 || y < 0 || x >= st->steps || y >= st->rows)
+        return;
+
+    const char here = st->cells[idx(st, x, y)];
+
+    if (here != CELL_HIT && here != CELL_ACCENT)
+        return;
+
+    for (int i = x + 1; i < st->steps; i++)
+    {
+        const char cell = st->cells[idx(st, i, y)];
+
+        if (i - x < steps)
+        {
+            if (cell != CELL_OFF && cell != CELL_TIE)
+                break;               /* another note: stop short of it */
+
+            st->cells[idx(st, i, y)] = CELL_TIE;
+        }
+        else
+        {
+            if (cell != CELL_TIE)
+                break;               /* the tail has ended            */
+
+            st->cells[idx(st, i, y)] = CELL_OFF;
+        }
+    }
+}
+
+/* Nothing becomes a note, a note becomes an accent, an accent becomes
+ * nothing again. Three states is one more than a Life board has and it
+ * is the one the ear asks for first: a pattern with nothing louder in it
+ * than anything else is a pattern with no beat.
+ */
+static void
+cycle (State *st, int x, int y)
+{
+    char *cell = &st->cells[idx(st, x, y)];
+
+    if (*cell == CELL_HIT)
+        *cell = CELL_ACCENT;
+    else if (*cell == CELL_ACCENT)
+    {
+        setLength(st, x, y, 1);          /* the tail goes with it      */
+        *cell = CELL_OFF;
+    }
+    else
+        *cell = CELL_HIT;
+
+    st->touched = true;
+}
+
 extern "C" THINK_PLUGIN_API void
 composer_input (void *state, const thcInputEvent *ev)
 {
@@ -602,44 +686,99 @@ composer_input (void *state, const thcInputEvent *ev)
 
     const int y = st->rows - 1 - row;    /* drawn top-down, stored up   */
 
-    if (ev->type == THC_IN_RELEASE)
-    {
-        st->paintX = st->paintY = -1;
-        return;
-    }
-
-    /* A press decides what the gesture paints and the drag then paints
-       that one value everywhere it goes. Toggling per cell instead
-       would make dragging back over your own line erase it.
+    /* A press decides what the whole gesture is, and the drag carries it
+     * out. Which of the three it is comes from the cell it landed on,
+     * because that is the only thing a person can aim at:
      *
-       The primary button cycles the cell it landed on: nothing becomes
-       a note, a note becomes an accent, an accent becomes nothing
-       again. Three states is one more than a Life board has and it is
-       the one the ear asks for first -- a pattern with nothing louder
-       in it than anything else is a pattern with no beat. Any other
-       button erases, always, which is what a right-drag means
-       everywhere else. A tie is not on the cycle: it belongs to the
-       note before it rather than to the cell it is in, so it is a drag
-       along a row and not a click, and until that gesture exists it is
-       written in the text. */
+     *   empty, primary      paint notes wherever the drag goes
+     *   a note, primary     stretch that note: the drag is its length
+     *   anything, other     erase, which is what a right-drag means
+     *                       everywhere else in this tree
+     *
+     * The cycle -- nothing, a note, an accent, nothing again -- is what a
+     * press and release in one cell means, so it happens on the release
+     * rather than the press. Otherwise the drag that lengthens a note
+     * would have accented it on the way past, and a pattern would change
+     * twice for one gesture.
+     *
+     * A tie is not on the cycle and never was: it belongs to the note in
+     * front of it rather than to the cell it is in. Pressing one splits
+     * the note it was holding, which is how a held note is cut short by
+     * hand.
+     */
     if (ev->type == THC_IN_PRESS)
     {
         const char was = st->cells[idx(st, x, y)];
 
+        st->moved = false;
+        st->anchorX = x;
+        st->anchorY = y;
+
         if (ev->button != 1)
+        {
+            st->gesture = State::ERASE;
             st->paintTo = CELL_OFF;
-        else if (was == CELL_OFF || was == CELL_TIE)
-            st->paintTo = CELL_HIT;
-        else if (was == CELL_HIT)
-            st->paintTo = CELL_ACCENT;
+        }
+        else if (was == CELL_HIT || was == CELL_ACCENT)
+        {
+            st->gesture = State::LENGTHEN;
+            st->paintX = st->paintY = -1;
+            return;                      /* the release decides       */
+        }
         else
-            st->paintTo = CELL_OFF;
+        {
+            st->gesture = State::PAINT;
+            st->paintTo = CELL_HIT;
+        }
     }
-    else if (st->paintX == x && st->paintY == y)
+
+    if (ev->type == THC_IN_RELEASE)
+    {
+        /* A press and a release in one cell, with no drag between: the
+           cycle. A gesture that went anywhere has already said what it
+           meant. */
+        if (st->gesture == State::LENGTHEN && !st->moved)
+            cycle(st, st->anchorX, st->anchorY);
+
+        st->gesture = State::NONE;
+        st->paintX = st->paintY = -1;
+        st->anchorX = st->anchorY = -1;
+        return;
+    }
+
+    if (st->gesture == State::LENGTHEN)
+    {
+        /* Only along its own row: a drag that wanders up or down is
+           still about the note it started on, and the alternative is a
+           note whose length changes because a hand moved vertically. */
+        if (y != st->anchorY)
+            return;
+
+        if (x != st->anchorX)
+            st->moved = true;
+
+        setLength(st, st->anchorX, st->anchorY,
+                  x > st->anchorX ? x - st->anchorX + 1 : 1);
+        st->touched = true;
+        return;
+    }
+
+    if (ev->type != THC_IN_PRESS && st->paintX == x && st->paintY == y)
         return;                          /* same cell, still dragging   */
+
+    if (x != st->anchorX || y != st->anchorY)
+        st->moved = true;
 
     st->paintX = x;
     st->paintY = y;
+
+    /* Erasing a note takes its tail with it. A tie whose note has gone
+       is silence that looks like sound -- the draw goes on showing a bar
+       nothing plays -- and nobody would think to rub out the four cells
+       after the one they meant. */
+    if (st->paintTo == CELL_OFF)
+        setLength(st, x, y, 1);
+
     st->cells[idx(st, x, y)] = st->paintTo;
     st->touched = true;
 }
