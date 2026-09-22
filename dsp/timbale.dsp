@@ -24,6 +24,7 @@
 name "Timbale";
 author "Misha Nasledov";
 description "A high steel drum with a rim shot velocity picks: the timbale.";
+category "Drums";
 
     @tune = 0;
     @tune.widget = 1;

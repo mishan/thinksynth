@@ -31,6 +31,7 @@
 name "Kit Kick";
 author "Misha Nasledov";
 description "A head that falls an octave, a shell it rings and a beater click: the acoustic kick.";
+category "Drums";
 
     @tune = 55;
     @tune.widget = 1;

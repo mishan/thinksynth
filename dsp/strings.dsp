@@ -39,6 +39,7 @@
 name "Strings";
 author "Misha Nasledov";
 description "Two saws through a three-tap ensemble at two rates: the string machine.";
+category "Strings and pads";
 
     @detune = 7;
     @detune.widget = 1;

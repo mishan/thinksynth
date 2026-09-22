@@ -2,6 +2,7 @@
 name "AnaSync";
 author "Leif Ames";
 description "Uses hard sync to add extra resonant formant";
+category "Synths";
 
     @a = 4 ms;
     @a.widget = 1;

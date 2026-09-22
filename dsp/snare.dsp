@@ -19,6 +19,7 @@
 name "Snare";
 author "Misha Nasledov";
 description "Noise through a band-pass with a tuned body under it.";
+category "Drums";
 
     @color = 1;
     @color.widget = 1;

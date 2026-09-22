@@ -1,6 +1,7 @@
 name "AMB 01";
 author "Leif Ames";
 description "4 oscs in a stereo mix";
+category "Strings and pads";
 
     @a = 0.7 ms;
     @a.widget = 1;

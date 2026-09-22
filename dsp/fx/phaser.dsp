@@ -34,6 +34,7 @@
 name "Phaser";
 author "Misha Nasledov";
 description "Six allpass stages swept by one LFO against the dry signal.";
+category "Effects";
 
     @centre = 600;
     @centre.widget = 1;

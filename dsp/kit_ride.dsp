@@ -23,6 +23,7 @@
 name "Kit Ride";
 author "Misha Nasledov";
 description "A long wash of inharmonic partials with a bell velocity brings out: the ride cymbal.";
+category "Drums";
 
     @freq = 540;
     @freq.widget = 1;

@@ -58,6 +58,7 @@
 name "FIR Comb";
 author "Misha Nasledov";
 description "An oscillator convolved with an impulse train: a fixed formant, not a sweep.";
+category "Experiments";
 
     @formant = 340;
     @formant.widget = 1;

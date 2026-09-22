@@ -35,6 +35,7 @@
 name "Hat 808";
 author "Misha Nasledov";
 description "Six inharmonic partials through a band-pass, velocity opening the hat: the 808 hi-hat.";
+category "Drums";
 
     @freq = 800;
     @freq.widget = 1;

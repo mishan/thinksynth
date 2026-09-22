@@ -24,6 +24,7 @@
 name "Chorus";
 author "Misha Nasledov";
 description "A stereo chorus for a channel: moving taps on a short delay, half a cycle apart.";
+category "Effects";
 
     @rate = 0.6;
     @rate.widget = 1;

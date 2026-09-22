@@ -5,6 +5,7 @@
 name "Resonant Piano";
 author "Leif Ames";
 description "Band-limited waveforms and some filtering";
+category "Keys";
 
 
     @sfreqlo = 1600;

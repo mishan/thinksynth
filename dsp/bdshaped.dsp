@@ -1,6 +1,7 @@
 name "BD-10";
 author "Leif Ames";
 description "Simple Kick Drum";
+category "Drums";
 
     @d = 50 ms;
     @d.widget = 1;

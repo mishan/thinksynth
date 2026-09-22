@@ -60,6 +60,7 @@
 name "Flanger";
 author "Misha Nasledov";
 description "A swept resonant comb for a channel, with a through-zero option.";
+category "Effects";
 
     @rate = 0.3;
     @rate.widget = 1;

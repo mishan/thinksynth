@@ -5,6 +5,7 @@
 name "Shapeo";
 author "Leif Ames";
 description "Uses the shapeo osc";
+category "Synths";
 
     @shape1 = 0.3;
     @shape1.widget = 1;

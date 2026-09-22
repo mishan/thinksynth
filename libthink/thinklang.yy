@@ -70,7 +70,7 @@ struct thParseContext;
 typedef struct thParseContext thParseContext;
 }
 
-%token NODE IO NAME DESC AUTHOR
+%token NODE IO NAME DESC AUTHOR CAT
 %token MS
 %token WORD 
 %token FLOAT NUMBER
@@ -159,6 +159,8 @@ ionode
 nameset
 |
 descset
+|
+catset
 |
 authset
 |
@@ -662,6 +664,23 @@ DESC STRING
     free($2.str);
 };
 
+/* `category "Drums";' -- where a chooser files this graph, and nothing the
+   engine acts on. Mirrors descset, chanarg and all: the info strings have
+   been readable as chanargs since long before anything else could read them,
+   and a field that appeared in one of those places and not the other would
+   be a field half the tree cannot see. */
+catset:
+CAT STRING
+{
+    thArg *catarg = new thArg("category", NULL, 0);
+    catarg->setComment($2.str);
+
+    ctx->tree->setChanArg(catarg);
+    ctx->tree->setCategory($2.str);
+
+    free($2.str);
+};
+
 assignments:
 |
 assignments assignment ENDSTATE
@@ -824,6 +843,13 @@ yylex (YYSTYPE *yylval, thParseContext *ctx)
         if (w == "io")          return IO;
         if (w == "name")        return NAME;
         if (w == "description") return DESC;
+        /* A hard keyword, like the three around it: the lexer returns this
+           for the word wherever it appears, so no .dsp may use `category' as
+           a node or arg name. Nothing in the corpus did when this was added,
+           and the reservation is permanent after. .gen's is contextual and
+           reserves nothing -- docs/GEN_FORMAT.md 7a says why the two
+           languages differ here. */
+        if (w == "category")    return CAT;
         if (w == "author")      return AUTHOR;
         if (w == "ms")          return MS;
 

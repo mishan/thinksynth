@@ -64,6 +64,7 @@
 name "Drive";
 author "Misha Nasledov";
 description "A gated power-curve saturation whose dirt follows how hard the channel is played.";
+category "Effects";
 
     @drive = 0.3;
     @drive.widget = 1;

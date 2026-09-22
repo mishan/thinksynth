@@ -30,6 +30,7 @@
 name "Kick 808";
 author "Misha Nasledov";
 description "A low sine with a long decay and a click: the 808 bass drum.";
+category "Drums";
 
     @tune = 52;
     @tune.widget = 1;

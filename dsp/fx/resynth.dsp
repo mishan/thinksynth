@@ -87,6 +87,7 @@
 name "Resynth";
 author "Misha Nasledov";
 description "Tracks a channel's pitch and level and plays them on two FM operators.";
+category "Effects";
 
     @detect = 150;
     @detect.widget = 1;

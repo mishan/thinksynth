@@ -44,6 +44,7 @@
 name "Spectral";
 author "Misha Nasledov";
 description "Two shaped ramps subtracted and run through combs tuned off the note.";
+category "Experiments";
 
     @fine = 3;
     @fine.widget = 1;

@@ -68,6 +68,7 @@
 name "Vocoder";
 author "Misha Nasledov";
 description "Sixteen bands of a carrier on another channel, driven by this channel's own spectrum.";
+category "Effects";
 
     @res = 0.89;
     @res.widget = 1;

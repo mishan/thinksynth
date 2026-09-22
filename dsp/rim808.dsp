@@ -39,6 +39,7 @@
 name "Rimshot 808";
 author "Misha Nasledov";
 description "A click into a 1.7 kHz resonator: the 808 rimshot.";
+category "Drums";
 
     @tone = 1700;
     @tone.widget = 1;

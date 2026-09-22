@@ -19,6 +19,7 @@ Anything that edits a `.dsp` needs the rules in section 3.
 ```
 name "TS-1";
 author "Leif Ames";
+category "Synths";          # optional; where a chooser files it
 
 @cutoff = 4;              # a channel arg = user-facing knob
 @cutoff.widget = 1;       # .min .max .label .widget .units .group
@@ -675,6 +676,12 @@ Both are invisible to everything that is not the editor. See
 
 ## 5. Known-bad files
 
+**Every shipped DSP declares a name, a description and a category.**
+`mfm01.dsp` was the exception on the first two -- it called itself `test` and
+said nothing else, while three patches and a shipped piece played it -- and
+now has a header like the rest. `scripts/dspcheck --shipped` is the gate; see
+§ *Choosing a file*.
+
 **Every shipped DSP loads.** Eleven did not, until recently: nine in
 `dsp/effects/` that read `input/wav` or `input/alsa` because they predated an
 effect being able to hear a channel, and two in `dsp/old/` on `input/wav` and
@@ -735,6 +742,40 @@ Entries are grouped by their `category` statement; a file that declares none
 falls back to the directory it was found in (`fx/` is Effects) and then to
 Uncategorized. A category is optional, and that fallback is the difference
 between a category and a schema.
+
+### `category`
+
+`category "Drums";` beside `name`, `author` and `description`. It is a
+statement rather than a `# @category` comment because the other two structured
+comments — a layout and a probe — are the editor's business and the engine has
+no use for them, where this is a fact about the file. `thSynthTree::category()`
+has it, a `.patch` can inherit its graph's, and there is one place it lives.
+
+**The word is reserved.** `.dsp` keywords are hard: the lexer returns `CAT` for
+`category` wherever it appears, so no graph may use it as a node or an arg
+name. Nothing in the corpus did when this was added and the reservation is
+permanent after — the same price the format already paid three times, for
+`name`, `description` and `author`. (`.gen`'s keywords are contextual and its
+`category` reserves nothing; GEN_FORMAT.md § 7a says why the two differ.)
+
+**Free text in the format, a list the shipped corpus is gated against.**
+`scripts/dspcheck --shipped` fails a graph in this tree that declares no
+category or one outside the nine: *Bass*, *Drums*, *Effects*, *Experiments*,
+*Keys*, *Leads and stabs*, *Plucked*, *Strings and pads*, *Synths*. The flag is
+what separates "the corpus" from "a `.dsp`" — the fixtures in `scripts/guard`
+are swept without it, and a graph of your own may say whatever it likes and
+lands in its own group.
+
+The arguable placements are arguable in one direction each. `waveguide.dsp` and
+`guitar.dsp` are plucked strings and get *Plucked* rather than being filed as
+leads; `fircomb.dsp`, `spectral.dsp` and `sandh.dsp` were promoted out of the
+old drawers because they are interesting rather than because they are useful,
+and *Experiments* says so where *Synths* would not.
+
+Nothing writes the statement yet but a text editor. The node editor cannot
+write `name`, `author` or `description` either — there is no header-editing
+surface in it at all — so this is one field short of a feature rather than a
+field left out of one.
 
 `scripts/dspcatalog` holds the two readings together: every shipped file is
 scanned *and* parsed, and the title, the description and the kind have to

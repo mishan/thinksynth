@@ -29,6 +29,12 @@
  *     scripts/dspcheck --plugin-path plugins/ $(find dsp -name '*.dsp')
  *     scripts/dspcheck --plugin-path plugins/ $(find patches -name '*.patch')
  *
+ * --shipped adds the one rule that is about this tree rather than about the
+ * format: every graph shipped here declares a `category', and it is one of
+ * the documented list. The format takes free text -- a .dsp of somebody's own
+ * says whatever it likes -- so the flag is what separates "the corpus" from
+ * "a .dsp", and the fixtures in scripts/guard are swept without it.
+ *
  * Exit status is the number of files that failed to load.
  */
 
@@ -116,6 +122,43 @@ static bool checkDeterminism (const string &pluginPath, const char *file,
     return true;
 }
 
+/* Where a shipped graph may be filed.
+ *
+ * The groups mostly fall out of the description lines, and the arguable ones
+ * are arguable in one direction each: a plucked string is its own thing
+ * rather than a lead, and a graph promoted out of the old drawers because it
+ * was interesting rather than because it was useful is an experiment and
+ * says so. Effects is dsp/fx/, which is the one place a directory already
+ * carries meaning the format relies on.
+ *
+ * A list and not an enum. `category' is free text in the grammar; this is the
+ * discipline the shipped corpus is held to and nothing else, which is the
+ * difference between a category and a schema. See docs/DSP_FORMAT.md
+ * "Choosing a file". */
+static const char *const kCategories[] = {
+    "Bass", "Drums", "Effects", "Experiments", "Keys", "Leads and stabs",
+    "Plucked", "Strings and pads", "Synths", NULL
+};
+
+static bool knownCategory (const string &category)
+{
+    for (int i = 0; kCategories[i] != NULL; i++)
+        if (category == kCategories[i])
+            return true;
+
+    return false;
+}
+
+static string categoryList (void)
+{
+    string out;
+
+    for (int i = 0; kCategories[i] != NULL; i++)
+        out += string(i ? ", " : "") + "'" + kCategories[i] + "'";
+
+    return out;
+}
+
 static void usage (const char *argv0)
 {
     /* PLUGIN_PATH is an argument rather than part of the format. It is a
@@ -127,7 +170,9 @@ static void usage (const char *argv0)
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
            "                          (default: %s)\n"
            "  -w, --windows N         process N windows per file (default 8)\n"
-           "  -q, --quiet             only report failures\n",
+           "  -q, --quiet             only report failures\n"
+           "      --shipped           these are this tree's own graphs: each\n"
+           "                          must declare a documented category\n",
            argv0, PLUGIN_PATH);
 }
 
@@ -136,6 +181,7 @@ int main (int argc, char **argv)
     string pluginPath = PLUGIN_PATH;
     int windows = 8;
     bool quiet = false;
+    bool shipped = false;
     int firstFile = -1;
 
     for (int i = 1; i < argc; i++)
@@ -153,6 +199,10 @@ int main (int argc, char **argv)
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
         {
             quiet = true;
+        }
+        else if (!strcmp(argv[i], "--shipped"))
+        {
+            shipped = true;
         }
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
         {
@@ -218,6 +268,26 @@ int main (int argc, char **argv)
         /* Copy anything we want to report now. The channel owns its tree, so
            reloading the channel below frees this pointer. */
         string treeName = (tree != NULL) ? tree->name() : string();
+
+        /* Where it is filed. Only for this tree's own graphs, and only for a
+           .dsp: a .patch inherits its graph's category and has none of its
+           own to check here. */
+        if (shipped && !isPatch && tree != NULL)
+        {
+            if (tree->category().empty())
+            {
+                printf("FAIL  %s (declares no category; one of %s)\n",
+                       file, categoryList().c_str());
+                failed++;
+            }
+            else if (!knownCategory(tree->category()))
+            {
+                printf("FAIL  %s (filed under '%s', which is not one of "
+                       "%s)\n", file, tree->category().c_str(),
+                       categoryList().c_str());
+                failed++;
+            }
+        }
 
         if (tree == NULL)
         {

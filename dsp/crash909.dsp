@@ -23,6 +23,7 @@
 name "Crash 909";
 author "Misha Nasledov";
 description "Twelve inharmonic partials over noise with a long falling band: the crash cymbal.";
+category "Drums";
 
     @freq = 900;
     @freq.widget = 1;

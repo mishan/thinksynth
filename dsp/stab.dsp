@@ -10,6 +10,7 @@
 name "Stab";
 author "Misha Nasledov";
 description "Three detuned saws and a fifth through a snapping filter: the rave stab.";
+category "Leads and stabs";
 
     @detune = 9;
     @detune.widget = 1;

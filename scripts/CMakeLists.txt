@@ -375,7 +375,7 @@ add_test(NAME dspcheck.dsp
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
-                 -DEXTRA_ARGS=-q
+                 "-DEXTRA_ARGS=-q --shipped"
                  -P "${_runner}")
 
 # The fixtures beside this harness, which are not in dsp/ and so are in no

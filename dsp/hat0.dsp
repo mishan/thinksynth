@@ -13,6 +13,7 @@
 name "Hat 0";
 author "Leif Ames";
 description "Electronic Hihat";
+category "Drums";
 
     @freq = 940;
     @freq.widget = 1;

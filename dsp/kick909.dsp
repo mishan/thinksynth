@@ -13,6 +13,7 @@
 name "Kick 909";
 author "Misha Nasledov";
 description "A falling sine with a noise click and saturation: the dance-floor kick.";
+category "Drums";
 
     @pitch = 190;
     @pitch.widget = 1;

@@ -5,6 +5,7 @@
 name "TS-1";
 author "Leif Ames";
 description "Cool Synth";
+category "Synths";
 
 
     @blim = 0.5;

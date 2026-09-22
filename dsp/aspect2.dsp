@@ -5,6 +5,7 @@
 name "Aspect 2";
 author "Leif Ames";
 description "2 oscs and lots of envelopes";
+category "Synths";
 
 
 # min and max of frequency for the band limited osc

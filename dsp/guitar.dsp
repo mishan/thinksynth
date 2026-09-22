@@ -36,6 +36,7 @@
 name "Guitar";
 author "Misha Nasledov";
 description "A picked string with a palm mute: the rhythm guitar.";
+category "Plucked";
 
     @pluck = 2 ms;
     @pluck.widget = 1;

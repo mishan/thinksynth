@@ -29,6 +29,7 @@
 name "Kit Hat";
 author "Misha Nasledov";
 description "Inharmonic partials with air between them, velocity opening the hat and the pedal closing it.";
+category "Drums";
 
     @freq = 760;
     @freq.widget = 1;

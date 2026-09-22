@@ -49,6 +49,7 @@
 name "Kick Stack";
 author "Misha Nasledov";
 description "Six inharmonic partials over one pitch drop, the high ones dying first.";
+category "Drums";
 
     @top = 200;
     @top.widget = 1;

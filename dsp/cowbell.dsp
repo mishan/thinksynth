@@ -26,6 +26,7 @@
 name "Cowbell";
 author "Misha Nasledov";
 description "Two squares a rough interval apart through a band-pass: the 808 cowbell.";
+category "Drums";
 
     @tune = 587;
     @tune.widget = 1;

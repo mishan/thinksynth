@@ -17,6 +17,7 @@
 name "Shaker";
 author "Misha Nasledov";
 description "A band of noise with a hand's attack, velocity lifting the band.";
+category "Drums";
 
     @tone = 5200;
     @tone.widget = 1;

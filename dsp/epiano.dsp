@@ -32,6 +32,7 @@
 name "FM E.Piano";
 author "Misha Nasledov";
 description "Two operator pairs, a tine over a body: the DX electric piano.";
+category "Keys";
 
     @body = 2.2;
     @body.widget = 1;

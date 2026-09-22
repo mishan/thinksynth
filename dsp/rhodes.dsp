@@ -43,6 +43,7 @@
 name "Rhodes";
 author "Misha Nasledov";
 description "A tine with a hammer bark, a tonebar chime and a stereo tremolo: the electric piano.";
+category "Keys";
 
     @bark = 2.6;
     @bark.widget = 1;

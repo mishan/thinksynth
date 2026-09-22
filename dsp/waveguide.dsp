@@ -51,6 +51,7 @@
 name "Waveguide";
 author "Misha Nasledov";
 description "A noise burst shut in a comb one wavelength long: the plucked string.";
+category "Plucked";
 
     @pluck = 6 ms;
     @pluck.widget = 1;

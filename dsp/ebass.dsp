@@ -44,6 +44,7 @@
 name "Electric Bass";
 author "Misha Nasledov";
 description "A noise burst into a damped delay line: the fingered electric bass.";
+category "Bass";
 
     @glide = 40 ms;
     @glide.widget = 1;

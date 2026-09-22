@@ -1,4 +1,23 @@
-name "test";
+# MFM 01 -- two oscillators, one modulating the other, under two filters.
+#
+# The one file in the corpus that had no description and called itself
+# `test'. It is not a test: three patches and a shipped piece play it.
+# What it is, is a two-oscillator synth where the first oscillator is not
+# heard -- it is the `fm' input of `osc2', so Waveform 1 chooses what
+# modulates and Waveform 2 what is modulated, and FM Amount is how much.
+# Both waveforms are selectable, which is what makes it more than a DX
+# voice: a saw modulating a saw is not a pair of sines.
+#
+# The two filters are in series and swept by an LFO each -- a Moog ladder
+# into an ink2 -- and what `Filter 1 LFO' and `Filter 2 LFO' set is the
+# rate of each sweep rather than a cutoff. Both LFOs map into the same
+# pair of bounds, so `Filter Low' and `Filter High' are the range the
+# whole thing moves in and `Resonance' belongs to both filters.
+
+name "MFM 01";
+author "Misha Nasledov";
+description "Two selectable waveforms, one modulating the other, under two LFO-swept filters.";
+category "Synths";
 
     @wave1 = 5;
     @wave1.widget = 1;
