@@ -13,6 +13,7 @@
     "pagetest": "node pagetest.mjs",
     "keycheck": "node keycheck.mjs",
     "patchcheck": "node patchcheck.mjs",
+    "dspcatalogcheck": "node dspcatalogcheck.mjs",
     "jamtest": "node jamtest.mjs",
     "bench": "node bench.mjs"
   },

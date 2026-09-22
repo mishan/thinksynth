@@ -188,4 +188,19 @@ private:
     map<string, vector<Entry> > byGroup_;
 };
 
+/* The catalog as JSON: the groups in display order, each with its entries.
+ *
+ * One writer for the same reason thPanelToJson is one: this dump is produced
+ * twice -- by scripts/dspcatalog natively and by tw_dsps_json in the module
+ * the browser runs -- and the two are diffed byte for byte
+ * (wasm/web/dspcatalogcheck.mjs). Two writers that agreed about everything
+ * but a tab would fail that gate over the escaper rather than over the thing
+ * being described.
+ *
+ * Grouped rather than flat, and so in a fixed order: entries() is in whatever
+ * order the directory walk found them, which is the filesystem's business and
+ * differs between a Linux directory and a MEMFS one. It is also the shape a
+ * menu wants -- an optgroup per group. */
+string dspCatalogToJson (const DspCatalog &catalog);
+
 #endif /* DSP_CATALOG_H */

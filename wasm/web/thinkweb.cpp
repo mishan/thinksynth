@@ -90,6 +90,7 @@
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
+#include "DspCatalog.h"
 #include "JsonOut.h"
 #include "PatchApply.h"
 #include "PatchFile.h"
@@ -879,6 +880,35 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
         mkdir(path.substr(0, slash).c_str(), 0777);
 
     return writeFile(path.c_str(), text) ? 1 : 0;
+}
+
+/* What the page's menus are drawn from: every .dsp this module has been
+ * handed, with the title and the description its author wrote and whether it
+ * is an effect graph or an instrument.
+ *
+ * A directory walk, exactly as on the desktop, because by here there is a
+ * directory to walk: tw_instrument above has written every shipped graph into
+ * MEMFS under /dsp, `fx/' and all, and DspCatalog::scan is happy with a
+ * filesystem that lives in a heap. So the page gets the same reading of the
+ * same headers the application gets -- not a second one in JavaScript, which
+ * is how the .patch format came to be read two different ways.
+ *
+ * Scanned on the call rather than kept up to date: the page asks once, after
+ * it has handed the graphs over. The dump is dspCatalogToJson's, diffed
+ * against the native harness's byte for byte
+ * (wasm/web/dspcatalogcheck.mjs). Valid until the next call.
+ */
+static std::string dspsJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_dsps_json (void)
+{
+    DspCatalog catalog;
+
+    catalog.scan(TW_DSP_DIR);
+
+    dspsJson_ = dspCatalogToJson(catalog);
+
+    return dspsJson_.c_str();
 }
 
 /* And the same for a wav, which is the one shipped file that is not text.

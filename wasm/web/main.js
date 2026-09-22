@@ -796,18 +796,28 @@ function chooser (channel)
                                 name, false, name === mine));
     }
 
-    const dsps = document.createElement('optgroup');
+    /* And the graphs themselves, under the catalog's groups once the module
+       has read their headers -- titles rather than filenames, which is the
+       same menu the patch chooser above the channels row draws. Before Start
+       there is no module and no catalog, so it is the flat list of names.
 
-    dsps.label = 'dsp';
-
-    /* Graphs that play a note, which is not every name in the index: the
+       Graphs that play a note, which is not every name in the index: the
        `fx/' entries are there so the worklet can be handed them, and aiming
        a channel at one would put an ungated effect graph on it as an
-       instrument. Same filter as the patch menu in init(). */
-    for (const name of playableDsps())
-        dsps.append(new Option(name, name, false, name === mine));
+       instrument. */
+    if (dspGroups.length > 0)
+        fillCatalog(sel, mine);
+    else
+    {
+        const dsps = document.createElement('optgroup');
 
-    sel.append(dsps);
+        dsps.label = 'dsp';
+
+        for (const name of playableDsps())
+            dsps.append(new Option(name, name, false, name === mine));
+
+        sel.append(dsps);
+    }
 
     if (mine !== undefined)
         sel.value = mine;
@@ -1105,6 +1115,33 @@ async function start ()
        resolved against: patch.js fetches the .patch and no more, since
        these are already here. */
     dspTexts = Object.fromEntries(graphs.map((name, i) => [name, texts[i]]));
+
+    /* And what they say about themselves, now that the module has them: the
+       module scans the same MEMFS copy it was just handed, with the same
+       class the desktop's chooser uses. Until here the menu shows filenames,
+       because reading a header takes the module and the module takes a Start;
+       from here it shows what each graph is called.
+
+       The choice is kept across the refill -- somebody who picked a patch
+       before pressing Start picked it. */
+    try
+    {
+        dspGroups = (await synth.dsps()).catalog?.groups ?? [];
+    }
+    catch (e)
+    {
+        /* A menu that shows filenames is the menu that was there a moment
+           ago, so this costs the titles and nothing else. */
+        log(`dsp catalog: ${e.message}`);
+    }
+
+    if (dspGroups.length > 0)
+    {
+        const chosen = $('patch').value;
+
+        $('patch').replaceChildren();
+        fillCatalog($('patch'), chosen);
+    }
 
     /* And the default patches, before anything needs one. The aiming runs
        inside quietly(), with the context suspended, and patchText fetches
@@ -1443,6 +1480,14 @@ async function pickMode ()
 let dspNames = [];
 let dspTexts = {};
 
+/* The same graphs, as the module reads their headers: the groups a menu
+   draws, each entry with the title and the description its author wrote
+   (src/DspCatalog.h). Empty until the module is up and has been handed the
+   texts, which is why the menus are filled twice -- filenames before Start,
+   titles after it. A second reading here in JavaScript is exactly what the
+   .patch format's two parsers were, so there is not one. */
+let dspGroups = [];
+
 /* The ones among them that play a note.
  *
  * The index carries the effect graphs as well, as `fx/<name>', because the
@@ -1495,6 +1540,44 @@ function fill (select, names, preferred)
     for (const name of names)
         select.add(new Option(name, name, name === preferred,
                               name === preferred));
+}
+
+/* An instrument menu out of the catalog: an optgroup per group, a row per
+ * graph with the title it declares and its description as the tooltip.
+ *
+ * The value stays the filename, because that is what everything downstream
+ * asks for -- dspTexts is keyed on it, a .patch's `dsp' line says it, and a
+ * piece's instrument names it. What changes is only what a person reads.
+ *
+ * The effect graphs are skipped for the reason playableDsps() skips them: an
+ * effect has no envelope and nothing to trigger it, so putting one on a
+ * channel as an instrument leaves an ungated graph running for as long as it
+ * is loaded. Which graphs those are is the module's answer now rather than a
+ * guess at the `fx/' prefix. */
+function fillCatalog (select, preferred)
+{
+    for (const group of dspGroups)
+    {
+        const rows = group.entries.filter((e) => !e.effect);
+
+        if (rows.length === 0)
+            continue;
+
+        const optgroup = document.createElement('optgroup');
+
+        optgroup.label = group.name;
+
+        for (const e of rows)
+        {
+            const option = new Option(e.name, e.file, e.file === preferred,
+                                      e.file === preferred);
+
+            option.title = e.desc;
+            optgroup.append(option);
+        }
+
+        select.append(optgroup);
+    }
 }
 
 async function init ()

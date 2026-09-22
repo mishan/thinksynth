@@ -515,6 +515,14 @@ jobs:
       - name: The parameter panel, against the desktop's
         run: node wasm/web/panelcheck.mjs build-web build
 
+      # And the list both shells choose a graph from: every shipped .dsp's
+      # title, description and kind, read out of the header by the module
+      # and by the native harness, and diffed byte for byte. One reading of
+      # the headers, or this fails -- which is the gate the .patch format
+      # did not have while it was being read two different ways.
+      - name: The DSP catalog, against the desktop's
+        run: node wasm/web/dspcatalogcheck.mjs build-web build
+
       # And the .patch format, for the same reason and with more history
       # behind it: the page used to carry its own parser, and the two
       # readings had drifted -- an `effect' line was dropped on the floor

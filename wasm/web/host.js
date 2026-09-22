@@ -156,6 +156,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'patchcompose':
             case 'patchdefault':
             case 'patchdefaults':
+            case 'dsps':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -213,6 +214,14 @@ export async function createSynth (ctx, { windowlen = 256,
         /* A .dsp under the name a piece's `instrument { dsp = ... }' will
            ask for. A worklet cannot fetch, so the page hands these over. */
         instrument: (name, text) => post({ type: 'instrument', name, text }),
+
+        /* What those graphs say about themselves -- the title, the
+           description and whether each is an effect -- grouped the way a menu
+           wants them. Asked of the worklet because that is where the files
+           are: it has been handed every one of them, and the module reads
+           their headers with the class the desktop's chooser uses
+           (src/DspCatalog.h). Ask it after the instruments are over. */
+        dsps: () => ask({ type: 'dsps' }),
 
         /* And a wav under the name an osc::sample node's `file' will ask
            for, which is `samples/kick909.wav' -- the index.json entry,

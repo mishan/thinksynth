@@ -32,6 +32,7 @@
 #include "think.h"
 #include "thLexer.h"
 #include "DspCatalog.h"
+#include "JsonOut.h"
 
 namespace fs = std::filesystem;
 
@@ -401,4 +402,53 @@ const DspCatalog::Entry *DspCatalog::find (const string &file) const
             return &entries_[i];
 
     return NULL;
+}
+
+static void entryToJson (string &out, const DspCatalog::Entry &e)
+{
+    out += "{\"file\":";
+    jsonString(out, e.file);
+    out += ",\"name\":";
+    jsonString(out, e.name);
+    out += ",\"desc\":";
+    jsonString(out, e.desc);
+    out += ",\"author\":";
+    jsonString(out, e.author);
+    out += ",\"category\":";
+    jsonString(out, e.category);
+    out += ",\"effect\":";
+    out += e.isEffect ? "true" : "false";
+    out += "}";
+}
+
+string dspCatalogToJson (const DspCatalog &catalog)
+{
+    string out = "{\"groups\":[";
+
+    for (size_t g = 0; g < catalog.groups().size(); g++)
+    {
+        const string &group = catalog.groups()[g];
+        const vector<DspCatalog::Entry> &list = catalog.inGroup(group);
+
+        if (g)
+            out += ",";
+
+        out += "{\"name\":";
+        jsonString(out, group);
+        out += ",\"entries\":[";
+
+        for (size_t i = 0; i < list.size(); i++)
+        {
+            if (i)
+                out += ",";
+
+            entryToJson(out, list[i]);
+        }
+
+        out += "]}";
+    }
+
+    out += "]}";
+
+    return out;
 }

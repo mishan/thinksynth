@@ -741,3 +741,12 @@ scanned *and* parsed, and the title, the description and the kind have to
 agree. What a chooser offers — the kind split, the filter — is
 `DspCatalog::matches` rather than a rule inside a widget, so it is checked
 there too, with no display anywhere near it.
+
+**The page reads the same headers.** A worklet cannot fetch, so the page hands
+every shipped graph to the module before the first piece loads
+(`tw_instrument`) — which means that by the time a menu is drawn there *is* a
+directory to walk, in MEMFS, and `tw_dsps_json` walks it with this class.
+`wasm/web/dspcatalogcheck.mjs` diffs that dump against
+`scripts/dspcatalog --json` byte for byte. That is the gate the `.patch`
+format did not have while it was being read two different ways, and it is why
+`patch.js` no longer parses anything.

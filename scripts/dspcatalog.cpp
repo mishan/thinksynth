@@ -49,12 +49,19 @@
  *   the io node, a body that does not parse, and a file whose text is empty.
  *   Several of those are cases the shipped corpus cannot contain.
  *
- *     scripts/dspcatalog [-p plugindir] [corpus-dir]
+ *     scripts/dspcatalog [-p plugindir] [--json] [corpus-dir]
  *
  * With no corpus argument it checks the fixtures alone, which is how it runs
  * where there is no source tree beside the build. The plugins are needed only
  * for the half that loads; with no corpus they are not needed at all. Exit
  * status is the number of failures.
+ *
+ * --json prints the catalog and checks nothing. That dump is the other half
+ * of a parity gate: the browser's module scans its own MEMFS copy of the same
+ * tree through the same class and prints the same bytes, and
+ * wasm/web/dspcatalogcheck.mjs diffs the two. A menu the page draws and a
+ * list the desktop draws are then the same list by construction rather than
+ * by inspection.
  */
 
 #include "config.h"
@@ -343,13 +350,27 @@ int main (int argc, char **argv)
 {
     string plugindir = PLUGIN_PATH;
     string dir;
+    bool json = false;
 
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
             plugindir = argv[++i];
+        else if (strcmp(argv[i], "--json") == 0)
+            json = true;
         else
             dir = argv[i];
+    }
+
+    if (json)
+    {
+        DspCatalog cat;
+
+        cat.scan(dir);
+
+        printf("%s\n", dspCatalogToJson(cat).c_str());
+
+        return 0;
     }
 
     fixtures();
