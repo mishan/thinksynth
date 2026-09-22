@@ -28,11 +28,28 @@
  * The tree is nested flex boxes. A split is a box with a direction, its
  * children carry a fraction as `flex-grow' and a minimum as `min-width',
  * and the browser does the arithmetic -- there is no measuring here.
+ *
+ * WHAT IS NOT HERE is what a page puts *in* a pane. That a <details>
+ * adopted into one has to become a column is this file's to say -- it is
+ * the price of adopting the document, and every page that does pays it.
+ * That the piano roll stretches and the keys do not is the page's, and
+ * it moved to style.css: no stylesheet shipped with a tiler can know
+ * which of somebody's boxes is the one that wants the room.
+ *
+ * THE COLORS are read under this file's own names -- `--pane-line' and
+ * the rest -- each with a fallback, so a page that maps nothing still
+ * gets a layout it can see and a page that maps them gets its own
+ * theme. Reading `--line' directly would be worse than reading nothing:
+ * a page that has a `--line' meaning something else would get a layout
+ * quietly wearing the wrong color, which is the failure nobody
+ * investigates.
  */
 
-/* Empty until there is a layout, and nothing in the document should know
-   it is there. */
-#panes:empty { display: none; }
+/* The element the page hands to createPanes, which puts this class on it
+   -- so these rules key on something the module knows it has rather than
+   on the id one page happened to choose. Empty until there is a layout,
+   and nothing in the document should know it is there. */
+.panesroot:empty { display: none; }
 
 /*
  * The page, tiled: the chrome across the top at whatever height it wants,
@@ -55,22 +72,8 @@ body.tiled
     overflow: hidden;
 }
 
-body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
-body.tiled #about { margin: 0.2em 0; }
-body.tiled .row { margin: 0.4em 0; }
-
-/* The room page keeps everything but the join row in a section of its
-   own, so the column goes through it. */
-body.tiled #roompanel
-{
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-}
-
 /* The drawer above, the layout under it. */
-body.tiled #panes
+body.tiled .panesroot
 {
     flex: 1 1 auto;
     min-height: 0;
@@ -79,8 +82,8 @@ body.tiled #panes
     position: relative;
 }
 
-body.tiled #panes > .panebox,
-body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
+body.tiled .panesroot > .panebox,
+body.tiled .panesroot > .paneleaf { flex: 1 1 auto; min-height: 0; }
 
 /* ---- the tree ----
  *
@@ -126,7 +129,7 @@ body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
     content: "";
     position: absolute;
     inset: 0;
-    background: var(--line);
+    background: var(--pane-line, #dcdcdc);
     border-radius: 1px;
 }
 
@@ -135,7 +138,7 @@ body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
 
 .panesplit:hover::after, .panesplit:focus-visible::after
 {
-    background: var(--held);
+    background: var(--pane-held, #5050ff);
 }
 
 .panesplit:focus-visible { outline: none; }
@@ -149,9 +152,9 @@ body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
     flex: 1 1 0;
     min-width: 0;
     min-height: 0;
-    border: 1px solid var(--line);
+    border: 1px solid var(--pane-line, #dcdcdc);
     border-radius: 4px;
-    background: var(--bg);
+    background: var(--pane-bg, #ffffff);
     overflow: hidden;
 }
 
@@ -182,35 +185,6 @@ body.tiled #panes > .paneleaf { flex: 1 1 auto; min-height: 0; }
     min-height: 0;
 }
 
-/* The boxes that are meant to take the room there is. The canvas view's
-   maximum goes with them: 60vh is a share of the window, and in a pane
-   the share that matters is the pane's. */
-body.tiled .panebody .canvasview
-{
-    flex: 1 1 8rem;
-    min-height: 6rem;
-    max-height: none;
-}
-
-body.tiled .panebody textarea
-{
-    flex: 1 1 8rem;
-    height: auto;
-    min-height: 4em;
-}
-
-body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
-
-body.tiled .panebody #editor { flex: 1 1 8rem; min-height: 0; }
-body.tiled .panebody #editor .cm-editor { height: 100%; }
-
-/* And the ones that are not: a row of controls is as tall as its
-   controls, and the keys say how tall they are themselves. */
-body.tiled .panebody > .row,
-body.tiled .panebody .row,
-body.tiled .panebody .hint,
-body.tiled .panebody #keys { flex: 0 0 auto; }
-
 /* A pane whose element the page has hidden -- the mode it belongs to is
    not up -- is not a gap in the layout. Said in CSS rather than in
    panes.js so that `hidden' on the element is the whole of the answer,
@@ -227,8 +201,8 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
 {
     flex: 0 0 auto;
     display: flex;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
+    background: var(--pane-panel, #f4f4f4);
+    border-bottom: 1px solid var(--pane-line, #dcdcdc);
     overflow: hidden;
 }
 
@@ -241,14 +215,14 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     min-width: 0;
     display: flex;
     align-items: stretch;
-    border-right: 1px solid var(--line);
+    border-right: 1px solid var(--pane-line, #dcdcdc);
     border-bottom: 2px solid transparent;
 }
 
 .panetabwrap:has(> .panetab[aria-selected="true"])
 {
-    background: var(--bg);
-    border-bottom-color: var(--held);
+    background: var(--pane-bg, #ffffff);
+    border-bottom-color: var(--pane-held, #5050ff);
 }
 
 .panetab
@@ -258,7 +232,7 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     padding: 0.25em 0.2em 0.25em 0.7em;
     font: inherit;
     font-size: 0.85em;
-    color: var(--dim);
+    color: var(--pane-dim, #666666);
     background: transparent;
     border: 0;
     white-space: nowrap;
@@ -268,9 +242,9 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     touch-action: none;         /* a tab drags; it does not scroll */
 }
 
-.panetab[aria-selected="true"] { color: var(--fg); }
+.panetab[aria-selected="true"] { color: var(--pane-fg, #202020); }
 
-.panetab.dragging { opacity: 0.5; }
+.panetab.panedragging { opacity: 0.5; }
 
 /* Closing a pane puts it in the drawer, so the cross is a quiet one: on
    the tab in front, and on whichever tab the pointer or the focus is at.
@@ -284,7 +258,7 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     font: inherit;
     font-size: 0.85em;
     line-height: 1;
-    color: var(--dim);
+    color: var(--pane-dim, #666666);
     background: transparent;
     border: 0;
     cursor: pointer;
@@ -295,7 +269,7 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
 .panetabwrap:focus-within > .paneshut,
 .panetab[aria-selected="true"] + .paneshut { visibility: visible; }
 
-.paneshut:hover { color: var(--fg); }
+.paneshut:hover { color: var(--pane-fg, #202020); }
 
 /* ---- the drawer ----
  *
@@ -317,7 +291,7 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
 {
     align-self: center;
     font-size: 0.85em;
-    color: var(--dim);
+    color: var(--pane-dim, #666666);
 }
 
 .paneclosed
@@ -325,15 +299,15 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     padding: 0.15em 0.6em;
     font: inherit;
     font-size: 0.85em;
-    color: var(--dim);
-    background: var(--panel);
-    border: 1px dashed var(--line);
+    color: var(--pane-dim, #666666);
+    background: var(--pane-panel, #f4f4f4);
+    border: 1px dashed var(--pane-line, #dcdcdc);
     border-radius: 3px;
     cursor: pointer;
     touch-action: none;
 }
 
-.paneclosed:hover, .panetab:hover { color: var(--fg); }
+.paneclosed:hover, .panetab:hover { color: var(--pane-fg, #202020); }
 
 /* A layout with every pane closed out of it, which is a box with nothing
    in it and needs to say that it is empty rather than broken. */
@@ -342,7 +316,7 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     margin: auto;
     padding: 1em;
     font-size: 0.9em;
-    color: var(--dim);
+    color: var(--pane-dim, #666666);
     text-align: center;
 }
 
@@ -352,8 +326,8 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     position: absolute;
     z-index: 3;
     pointer-events: none;
-    background: color-mix(in srgb, var(--held) 20%, transparent);
-    border: 2px solid var(--held);
+    background: color-mix(in srgb, var(--pane-held, #5050ff) 20%, transparent);
+    border: 2px solid var(--pane-held, #5050ff);
     border-radius: 4px;
 }
 
@@ -367,62 +341,12 @@ body.tiled .panebody #keys { flex: 0 0 auto; }
     flex-direction: column;
 }
 
-/*
- * A panel wraps into as many column pairs as there is room for, and in a
- * pane the room there is is the pane's rather than the window's.
- *
- * style.css asks the window, because in a document those are the same
- * question. Tiled they are not, and a panel laid out three pairs wide in
- * a 300-pixel pane is the answer to the wrong one -- names over their own
- * sliders and a row that runs off the edge. So the same wrapping again,
- * asked of the box the rows are actually in. It is the desktop's FlowBox
- * either way (src/gui/PanelView.cpp): how many fit, rather than how many
- * were guessed at.
- */
+/* A pane is a query container, so a page can lay its own boxes out
+   against the room this one has rather than against the window's. That
+   is the tiler offering a question rather than answering one:
+   style.css's own rules about what wraps inside a pane are what make
+   use of it. */
 body.tiled .panebody { container-type: inline-size; }
-
-body.tiled .panelrows
-{
-    grid-template-columns: max-content minmax(12rem, 1fr);
-}
-
-@container (min-width: 44em)
-{
-    body.tiled .panelrows
-    {
-        grid-template-columns: max-content minmax(12rem, 1fr)
-                               max-content minmax(12rem, 1fr);
-    }
-}
-
-@container (min-width: 70em)
-{
-    body.tiled .panelrows
-    {
-        grid-template-columns: max-content minmax(12rem, 1fr)
-                               max-content minmax(12rem, 1fr)
-                               max-content minmax(12rem, 1fr);
-    }
-}
-
-/* And a pane narrow enough that a name column would leave the slider too
-   short to aim at: the name over the thing it names, as a phone gets. */
-@container (max-width: 26em)
-{
-    body.tiled .panelrows { grid-template-columns: 1fr; }
-
-    body.tiled .panelrow
-    {
-        grid-column: span 1;
-        grid-template-columns: subgrid;
-        grid-template-rows: auto auto;
-        gap: 0.1rem;
-        margin-bottom: 0.4rem;
-    }
-
-    body.tiled .panelrow label { text-align: left; }
-    body.tiled .panelrow > * { grid-column: 1; }
-}
 
 /*
  * Over every pane: where a popover goes, now that the pane it belongs

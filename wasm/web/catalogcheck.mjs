@@ -266,6 +266,46 @@ for (const [id, p] of solo.panes)
           `both pages ask ${id} for at least ${p.min} pixels`);
 }
 
+/* ---- and what the stylesheet may name ---- */
+
+/*
+ * panes.css draws the layout and nothing that is in it. That is a claim
+ * about selectors and it is one a text file can be held to: a rule
+ * naming `#roll' or `.panelrows' is this page's, belongs in style.css,
+ * and is how a stylesheet ends up describing its one consumer.
+ *
+ * The boundary is the prefix. Everything the tiler draws is `pane...',
+ * the one exception is the class it puts on the body, and an id selector
+ * is a page's own name by definition -- so anything else in here is
+ * something that drifted back.
+ */
+{
+    const css = fs.readFileSync(path.join(here, 'panes.css'), 'utf8')
+                  .replace(/\/\*[\s\S]*?\*\//g, '');
+    /* A color is not a selector, and the fallbacks are written as hex. */
+    const ids = [...new Set(css.match(/#[a-zA-Z][-\w]*/g) ?? [])]
+        .filter((n) => !/^#[0-9a-f]{3,8}$/i.test(n));
+    const classes = [...new Set(css.match(/\.[a-zA-Z][-\w]*/g) ?? [])]
+        .filter((c) => !c.startsWith('.pane') && c !== '.tiled');
+
+
+    check(ids.length === 0,
+          `panes.css names no page's ids${
+              ids.length > 0 ? `: ${ids.join(' ')}` : ''}`);
+    check(classes.length === 0,
+          `and no classes but its own${
+              classes.length > 0 ? `: ${classes.join(' ')}` : ''}`);
+
+    /* And the other way round: the colors it draws in are read under its
+       own names, so a page that has a `--line' of its own meaning
+       something else does not quietly repaint the layout with it. */
+    const bare = [...new Set(css.match(/var\(--(?!pane-)[-\w]+/g) ?? [])];
+
+    check(bare.length === 0,
+          `and reads only its own custom properties${
+              bare.length > 0 ? `: ${bare.join(' ')}` : ''}`);
+}
+
 process.stdout.write(`\n${failures === 0
     ? 'the two pages\' panes are declared and listed the same way\n'
     : `${failures} failed\n`}`);
