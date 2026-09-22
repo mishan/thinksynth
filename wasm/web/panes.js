@@ -130,6 +130,12 @@ export function createPanes ({ root, catalog, layouts, mode,
                                store = 'panes', editing = '',
                                onShow = () => {}, on = false })
 {
+    /* The class every rule in panes.css keys on, put here rather than
+       asked of the page: what the layout is drawn into is whatever
+       element this was handed, and a stylesheet naming the id one page
+       happened to choose was a stylesheet naming its one consumer. */
+    root.classList.add('panesroot');
+
     /* Where a key means editing rather than a command: a chord typed
        into a text box is text. Wider than keyfocus.js's idea of a text
        box on purpose -- a list and a slider answer to the arrow keys
@@ -677,7 +683,7 @@ export function createPanes ({ root, catalog, layouts, mode,
                     return;
 
                 dragging = true;
-                tab.classList.add('dragging');
+                tab.classList.add('panedragging');
                 where = under(m.clientX, m.clientY, id);
                 mark(where);
             };
@@ -687,7 +693,7 @@ export function createPanes ({ root, catalog, layouts, mode,
                 tab.removeEventListener('pointermove', move);
                 tab.removeEventListener('pointerup', up);
                 tab.removeEventListener('pointercancel', up);
-                tab.classList.remove('dragging');
+                tab.classList.remove('panedragging');
                 mark(null);
 
                 if (!dragging || where === null)

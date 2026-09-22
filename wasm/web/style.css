@@ -55,6 +55,21 @@
     --key-c:     #eaf7fa;
 }
 
+/* What the tiler is drawn in. panes.css reads these names and no others,
+   with a fallback on each, so it stands alone; this is the page saying
+   which of its own colors each one is. Outside the palette blocks on
+   purpose -- it maps names to names, and the names on the right are what
+   change with the scheme. */
+:root
+{
+    --pane-fg:    var(--fg);
+    --pane-bg:    var(--bg);
+    --pane-dim:   var(--dim);
+    --pane-panel: var(--panel);
+    --pane-line:  var(--line);
+    --pane-held:  var(--held);
+}
+
 @media (prefers-color-scheme: dark)
 {
     :root
@@ -612,4 +627,113 @@ details { margin: 0.8em 0; }
     padding: 0.1rem 0.3rem 0.3rem;
     color: var(--dim);
     font-family: monospace;
+}
+
+/*
+ * ---- what this page puts in a pane ----
+ *
+ * Everything below applies only with the tiler on, and every rule in it
+ * names something of this page's: which of these boxes takes the room a
+ * pane has, and which keeps the height it asks for. panes.css cannot
+ * answer that -- a layout knows it has a box to fill and not what is in
+ * it -- so the answer is here, beside the rules that lay the same boxes
+ * out as a document.
+ */
+
+body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
+body.tiled #about { margin: 0.2em 0; }
+body.tiled .row { margin: 0.4em 0; }
+
+/* The room page keeps everything but the join row in a section of its
+   own, so the column goes through it. */
+body.tiled #roompanel
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The boxes that are meant to take the room there is. The canvas view's
+   maximum goes with them: 60vh is a share of the window, and in a pane
+   the share that matters is the pane's. */
+body.tiled .panebody .canvasview
+{
+    flex: 1 1 8rem;
+    min-height: 6rem;
+    max-height: none;
+}
+
+body.tiled .panebody textarea
+{
+    flex: 1 1 8rem;
+    height: auto;
+    min-height: 4em;
+}
+
+body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
+
+body.tiled .panebody #editor { flex: 1 1 8rem; min-height: 0; }
+body.tiled .panebody #editor .cm-editor { height: 100%; }
+
+/* And the ones that are not: a row of controls is as tall as its
+   controls, and the keys say how tall they are themselves. */
+body.tiled .panebody > .row,
+body.tiled .panebody .row,
+body.tiled .panebody .hint,
+body.tiled .panebody #keys { flex: 0 0 auto; }
+
+/*
+ * A panel wraps into as many column pairs as there is room for, and in a
+ * pane the room there is is the pane's rather than the window's.
+ *
+ * style.css asks the window, because in a document those are the same
+ * question. Tiled they are not, and a panel laid out three pairs wide in
+ * a 300-pixel pane is the answer to the wrong one -- names over their own
+ * sliders and a row that runs off the edge. So the same wrapping again,
+ * asked of the box the rows are actually in. It is the desktop's FlowBox
+ * either way (src/gui/PanelView.cpp): how many fit, rather than how many
+ * were guessed at.
+ */
+body.tiled .panelrows
+{
+    grid-template-columns: max-content minmax(12rem, 1fr);
+}
+
+@container (min-width: 44em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+@container (min-width: 70em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+/* And a pane narrow enough that a name column would leave the slider too
+   short to aim at: the name over the thing it names, as a phone gets. */
+@container (max-width: 26em)
+{
+    body.tiled .panelrows { grid-template-columns: 1fr; }
+
+    body.tiled .panelrow
+    {
+        grid-column: span 1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto auto;
+        gap: 0.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    body.tiled .panelrow label { text-align: left; }
+    body.tiled .panelrow > * { grid-column: 1; }
 }
