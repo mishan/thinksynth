@@ -192,11 +192,11 @@ export function createPanes ({ root, catalog, layouts, mode,
                                store = 'panes', editing = '',
                                onShow = () => {}, on = false,
                                media = MEDIA, split = SPLIT,
-                               /* `floor' here and `leaf' outside: a leaf
+                               /* `least' here and `leaf' outside: a leaf
                                   is what most of this file calls a node,
                                   and an option that shares the name is
                                   read as one wherever it is passed. */
-                               leaf: floor = LEAF,
+                               leaf: least = LEAF,
                                edge = EDGE, param = 'panes',
                                storage = KEEP, keys = {} })
 {
@@ -439,7 +439,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         if (isLeaf(node))
             return row ? Math.max(...liveTabs(node).map(
                              (id) => panes.get(id).min))
-                       : floor;
+                       : least;
 
         const kids = liveKids(node);
         const mins = kids.map((k) => minAcross(k, row));
@@ -645,14 +645,14 @@ export function createPanes ({ root, catalog, layouts, mode,
         drawer(id);
 
         const made = { tabs: [id], active: 0 };
-        const split = { dir, size: [0.5, 0.5],
-                        kids: after ? [leaf, made] : [made, leaf] };
+        const pair = { dir, size: [0.5, 0.5],
+                       kids: after ? [leaf, made] : [made, leaf] };
         const up = parentOf(leaf);
 
         if (up === null)
-            tree = split;
+            tree = pair;
         else
-            up.kids[up.kids.indexOf(leaf)] = split;
+            up.kids[up.kids.indexOf(leaf)] = pair;
     };
 
     /* Whether a leaf has room to be split in a direction: both halves
@@ -667,7 +667,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         const rect = box.getBoundingClientRect();
         const row = dir === 'row';
         const want = minAcross(leaf, row) +
-                     (row ? panes.get(id).min : floor) + split;
+                     (row ? panes.get(id).min : least) + split;
 
         return (row ? rect.width : rect.height) >= want;
     };
@@ -885,7 +885,7 @@ export function createPanes ({ root, catalog, layouts, mode,
         box.addEventListener('pointerdown', () => { focus = leaf; }, true);
 
         box.style.minWidth = `${minAcross(leaf, true)}px`;
-        box.style.minHeight = `${floor}px`;
+        box.style.minHeight = `${least}px`;
         box.prepend(strip);
         seen.set(box, leaf);
 
@@ -1493,14 +1493,14 @@ export function createPanes ({ root, catalog, layouts, mode,
          * get them back. panes.css hides the element either way, so a
          * page that starts a pane off says so in the markup with the
          * same attribute. */
-        available: (id, on) =>
+        available: (id, ok) =>
         {
             const p = panes.get(id);
 
-            if (p === undefined || off(p.el) === !on)
+            if (p === undefined || off(p.el) === !ok)
                 return;
 
-            p.el.toggleAttribute(OFF, !on);
+            p.el.toggleAttribute(OFF, !ok);
 
             if (tiled)
                 render();
