@@ -152,7 +152,12 @@ flicks a mordent on it -- and `xform::accent`, which weights a note by where it
 falls, over a pattern and across a bar. `gen::euclid` answers three bars with a
 fourth from its `fill` pool. The filter envelopes in `supersaw`, `stab`, `bass`
 and `ladder` are scaled by velocity, so all of that is heard as tone and not
-only as level; `pluck` already was.
+only as level; `pluck` already was. `vary` also dresses every note, beside
+that one thing: `pan`, `tone` and `attack` move the note's `aux0`, `aux1` and
+`aux2` by up to that much either way, which a graph reads per voice (see
+`docs/DSP_FORMAT.md` on the io node). `supersaw` reads `aux1` as an octave of
+cutoff either way, so `tone = 0.5` on a line through it is a line whose notes
+are each a little brighter or darker than the last.
 
 | piece | the idea |
 | --- | --- |

@@ -226,9 +226,8 @@ thMidiChan::~thMidiChan (void)
  *
  * On the channel's prototype and not in finishParse() with those three,
  * deliberately: the node editor parses its own tree through the same call, and
- * an out1 the author never wrote is exactly the phantom port that
- * NodeGraph::ioArgIsSink exists to keep off the audio-out box. The engine's
- * copy is where an arg the engine invents belongs.
+ * its tree should hold only the args the author wrote. The engine's copy is
+ * where an arg the engine invents belongs.
  */
 void thMidiChan::indexIOArgs (void)
 {
@@ -409,13 +408,14 @@ void thMidiChan::setEffect (thChanEffect *effect, RetireQueue *retire)
  * All this does is allocate. It reads modnode_, which the audio thread never
  * writes -- notes run on their own copies of the tree, not on the prototype.
  */
-thMidiNote *thMidiChan::buildNote (float note, float velocity, float level)
+thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
+                                   const float *aux)
 {
     if (modnode_ == NULL)
         return NULL;
 
     return new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX,
-                          level);
+                          level, aux);
 }
 
 /* Audio thread. Takes a voice out of notes_ and leaves it sounding in

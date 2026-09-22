@@ -553,7 +553,7 @@ main (int argc, char *argv[])
      * belfry has no `input midi' chain to press a key on. */
     roll.SetTimeSpan(5, 2.5);
 
-    thcEvent down;
+    thcEvent down = {};
 
     down.type            = THC_EV_NOTE;
     down.at              = sched.now();

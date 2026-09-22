@@ -112,6 +112,19 @@ using namespace std;
  * this: a plugin's `in' is a plugin's. */
 #define INPUTPREFIX "in"
 
+/* And a voice's per-note timbre, for an instrument.
+ *
+ * aux0..aux<TH_NOTE_AUX-1> on an instrument's io node carry the four floats a
+ * composed note brings besides its pitch and velocity -- a pan, a brightness,
+ * an attack, whatever the graph reads them as. Written once, when the voice is
+ * built, and never again: a mono slide retunes a voice without touching them,
+ * for the reason it leaves `velocity' alone. A graph that reads none of them
+ * pays for none of them, because they are only written where the graph
+ * mentions them. What a zero means is the graph's to say; a note from MIDI, or
+ * from a composer that never set them, carries zeros. */
+#define AUXPREFIX "aux"
+#define TH_NOTE_AUX 4
+
 /* And the channel an effect listens to besides its own.
  *
  * side0..side<N-1> on an effect's io node carry another channel's audio --

@@ -232,6 +232,19 @@ construction — see below. Everything else travels the other way —
 `thChanEffect` writes `in<N>`, and the author's constants are read by whoever
 wants them.
 
+**`aux0` to `aux3` are a note's own timbre.** A composed note carries four
+floats beside its pitch, velocity and level (`thcEvent`'s `u.note.aux`), and
+`thMidiNote` writes them into the voice's io node when the voice is built and
+never again — a mono slide leaves them where they were, as it leaves
+`velocity`. A graph reads them like `note`: `cutoff = @cutoff *
+exp2(ionode->aux1)` is how `supersaw.dsp` takes a brightness per note. They are
+written only into a graph that mentions them, so a file that reads none has
+none. What each one means is the graph's to say, and a zero is a value — a MIDI
+note, or one from a composer that never set them, carries zeros, so a graph
+should read zero as "as patched". The convention the shipped graphs keep, and
+`xform::vary` writes: `aux0` is a pan from -1 (left) to 1 (right), `aux1` a
+brightness, `aux2` how slow the attack is, each -1 to 1 and 0 in the middle.
+
 So an arg is an input to the audio-out half if
 
 - the engine reads it — `out<N>`, `play`, `channels`, `poly`, `mono`,

@@ -23,7 +23,9 @@
 
 class THINK_API thMidiNote {
 public:
-    thMidiNote (thSynthTree *tree, float note, float velocity, float level = 1);
+    /* `aux' is TH_NOTE_AUX floats, or NULL for all zeros; see AUXPREFIX. */
+    thMidiNote (thSynthTree *tree, float note, float velocity, float level = 1,
+                const float *aux = NULL);
     thMidiNote (thSynthTree *tree);
     ~thMidiNote ();
     

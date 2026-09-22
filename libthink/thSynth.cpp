@@ -1676,7 +1676,8 @@ void thSynth::listTrees (void)
  * to the audio thread. Doing both here, while the callback walked notes_, is
  * what produced the static when two notes sounded together.
  */
-bool thSynth::addNote (int channum, float note, float velocity, float level)
+bool thSynth::addNote (int channum, float note, float velocity, float level,
+                       const float *aux)
 {
     /* was `> midiChannelCnt_' -- midiChannels_[midiChannelCnt_] is one past
        the end of the array. */
@@ -1704,7 +1705,7 @@ bool thSynth::addNote (int channum, float note, float velocity, float level)
     if (silent_)
         return true;
 
-    thMidiNote *newnote = chan->buildNote(note, velocity, level);
+    thMidiNote *newnote = chan->buildNote(note, velocity, level, aux);
 
     if (newnote == NULL)
     {

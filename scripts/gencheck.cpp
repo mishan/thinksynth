@@ -396,11 +396,26 @@ render (thcScheduler &sched, double seconds, double step)
         {
             char buf[160];
 
+            /* The aux only when one is set, as genwav prints them. */
             if (ev.type == THC_EV_NOTE)
-                snprintf(buf, sizeof(buf), "N %.17g %d %d %d %.17g %.9g\n",
-                         ev.at, ev.channel, ev.u.note.note,
-                         ev.u.note.velocity, ev.u.note.duration,
-                         (double)ev.u.note.level);
+            {
+                const float *aux = ev.u.note.aux;
+
+                if (aux[0] != 0 || aux[1] != 0 || aux[2] != 0 || aux[3] != 0)
+                    snprintf(buf, sizeof(buf),
+                             "N %.17g %d %d %d %.17g %.9g %.9g %.9g %.9g "
+                             "%.9g\n",
+                             ev.at, ev.channel, ev.u.note.note,
+                             ev.u.note.velocity, ev.u.note.duration,
+                             (double)ev.u.note.level, (double)aux[0],
+                             (double)aux[1], (double)aux[2], (double)aux[3]);
+                else
+                    snprintf(buf, sizeof(buf),
+                             "N %.17g %d %d %d %.17g %.9g\n",
+                             ev.at, ev.channel, ev.u.note.note,
+                             ev.u.note.velocity, ev.u.note.duration,
+                             (double)ev.u.note.level);
+            }
             /* Structure edits are on the tape for the same reason notes
                are: they are what the piece did. A replay gate that
                diffed only the notes would call a piece identical while
@@ -6780,6 +6795,7 @@ struct Heard
     double at;
     int    channel, note, vel;
     double dur, level;
+    double aux[4];             /* zeros where the tape printed none */
 };
 
 static std::vector<Heard>
@@ -6793,12 +6809,17 @@ notesOf (const std::string &tape)
     {
         std::istringstream f(line);
         std::string tag;
-        Heard h;
+        Heard h = {};
 
         if ((f >> tag >> h.at >> h.channel >> h.note >> h.vel >> h.dur >>
               h.level) &&
             tag == "N")
+        {
+            if (!(f >> h.aux[0] >> h.aux[1] >> h.aux[2] >> h.aux[3]))
+                h.aux[0] = h.aux[1] = h.aux[2] = h.aux[3] = 0;
+
             out.push_back(h);
+        }
     }
 
     return out;
@@ -9406,6 +9427,96 @@ checkVariation (const std::map<std::string, thcPlugin *> &plugins,
                          "pass-through");
                     break;
                 }
+    }
+
+    /* The timbre: `pan' moves aux0 by up to that much either way, and
+       nothing else -- aux1 and aux2 stay at zero, every note of four
+       seconds is heard, and the notes are not all placed alike. */
+    {
+        std::vector<Heard> h = varied("vary pan", "pan = 0.5;", 4.1);
+        bool within = !h.empty(), others = true, spread = false;
+
+        for (size_t i = 0; i < h.size(); i++)
+        {
+            if (!(fabs(h[i].aux[0]) <= 0.5))
+                within = false;
+
+            if (h[i].aux[1] != 0 || h[i].aux[2] != 0 || h[i].aux[3] != 0)
+                others = false;
+
+            if (i > 0 && !near(h[i].aux[0], h[0].aux[0]))
+                spread = true;
+        }
+
+        if (!within || !others || !spread || h.size() < 8)
+            fail("vary: pan = 0.5 should place every note somewhere in "
+                 "aux0 = -0.5..0.5, differently, and touch no other aux; "
+                 "heard " + std::to_string(h.size()));
+    }
+
+    /* And the timbre has its own dice: the same line with every pitch
+       operation at a half, once with the timbre at full width and once
+       without, has to come out as the same notes at the same times. If
+       the timbre drew from the first generator this would be a different
+       line, and so would every piece already written with a vary. */
+    {
+        const char *ops = "leap = 0.25; push = 0.25; double = 0.25; ";
+        std::vector<Heard> plain = varied("vary ops", ops, 6.1);
+        std::vector<Heard> dressed = varied("vary ops dressed",
+            std::string(ops) + "pan = 1; tone = 1; attack = 1;", 6.1);
+        bool same = !plain.empty() && plain.size() == dressed.size();
+        bool dressedAll = same;
+
+        for (size_t i = 0; same && i < plain.size(); i++)
+        {
+            if (plain[i].note != dressed[i].note ||
+                plain[i].vel != dressed[i].vel ||
+                !near(plain[i].at, dressed[i].at) ||
+                !near(plain[i].dur, dressed[i].dur))
+                same = false;
+
+            if (plain[i].aux[0] != 0 || plain[i].aux[1] != 0 ||
+                plain[i].aux[2] != 0)
+                same = false;
+
+            if (dressed[i].aux[0] == 0 && dressed[i].aux[1] == 0 &&
+                dressed[i].aux[2] == 0)
+                dressedAll = false;
+        }
+
+        if (!same)
+            fail("vary: turning the timbre up changed which notes a seeded "
+                 "line plays, or a line with it off carried an aux");
+        else if (!dressedAll)
+            fail("vary: pan, tone and attack at 1 left a note undressed");
+    }
+
+    /* Two stages compose: a note already carrying aux0 is moved from
+       there, and held to -1..1 however far two stages push it. */
+    {
+        std::vector<Heard> h = varied("vary twice", "pan = 1;", 4.1);
+        std::string body = line;
+
+        body.replace(body.find("%s"), 2, "pan = 1;");
+        body.replace(body.find("  sink"), 0,
+                     "  stage w xform::vary { pan = 1; };\n");
+
+        std::vector<Heard> twice = playBody(plugins, synth, "vary twice",
+                                            body, 4.1);
+        bool held = !twice.empty(), moved = false;
+
+        for (size_t i = 0; i < twice.size() && i < h.size(); i++)
+        {
+            if (!(fabs(twice[i].aux[0]) <= 1))
+                held = false;
+
+            if (!near(twice[i].aux[0], h[i].aux[0]))
+                moved = true;
+        }
+
+        if (!held || !moved)
+            fail("vary: a second stage should move aux0 on from where the "
+                 "first left it, and never past -1..1");
     }
 
     /* Every probability in turn, at 1, so what each one does is a fact

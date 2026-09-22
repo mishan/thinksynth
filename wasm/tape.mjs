@@ -33,7 +33,7 @@
  */
 
 /* sizeof(twEvent); the offsets are in readEvent. */
-export const EVENT_SIZE = 56;
+export const EVENT_SIZE = 88;
 
 export function readEvent (M, p)
 {
@@ -50,6 +50,8 @@ export function readEvent (M, p)
         name:     M.UTF8ToString(u32[(p + 40) >> 2]),
         arg:      M.UTF8ToString(u32[(p + 44) >> 2]),
         level:    f64[(p + 48) >> 3],
+        aux:      [f64[(p + 56) >> 3], f64[(p + 64) >> 3],
+                   f64[(p + 72) >> 3], f64[(p + 80) >> 3]],
     };
 }
 
@@ -125,8 +127,17 @@ export function tapeLine (e)
     switch (e.kind)
     {
         case 'N':
+        {
+            /* The aux only when one is set, so a piece that sets none
+               prints the line it always did. An event from before the
+               field existed has none to print. */
+            const aux = e.aux || [0, 0, 0, 0];
+            const tail = aux.some((a) => a !== 0)
+                ? ' ' + aux.map((a) => fixed(a, 3)).join(' ') : '';
+
             return `N ${at} ${e.channel} ${e.note} ${e.velocity} ` +
-                   `${fixed(e.duration, 3)} ${fixed(e.level, 3)}\n`;
+                   `${fixed(e.duration, 3)} ${fixed(e.level, 3)}${tail}\n`;
+        }
         case 'C':
             return `C ${at} ${e.channel} ${e.name} ${fixed(e.value, 4)}\n`;
         case 'P':

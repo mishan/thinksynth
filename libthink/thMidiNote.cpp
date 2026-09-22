@@ -25,7 +25,7 @@
 #include "think.h"
 
 thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
-                        float level)
+                        float level, const float *aux)
     : synthTree_(*tree)
 {
     synthTree_.buildSynthTree();
@@ -34,6 +34,21 @@ thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
     ionode->setArg("note", note);
     ionode->setArg("velocity", velocity);
     ionode->setArg("trigger", 1);
+
+    /* Only where the graph reads one. The tree's parse made an arg for every
+       `ionode->aux<N>' the file wrote, so a getArg that finds nothing is a
+       graph that never asked -- and creating the arg in this copy would take
+       an index the prototype does not have, which is the trouble finishParse
+       declares `note' and `velocity' up front to avoid. */
+    for (int i = 0; i < TH_NOTE_AUX; i++)
+    {
+        char name[16];
+
+        snprintf(name, sizeof(name), AUXPREFIX "%d", i);
+
+        if (ionode->getArg(name) != NULL)
+            ionode->setArg(name, aux != NULL ? aux[i] : 0.0f);
+    }
 
     note_ = note;
     level_ = level;

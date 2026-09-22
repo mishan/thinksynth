@@ -403,6 +403,106 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a note's aux reaches its own voice, and no other ------------- */
+
+    /* A graph whose oscillator's amplitude is `ionode->aux1', so what a note
+       carries there is what the voice sounds at. Two notes on one channel,
+       0.25 and 0.75: each voice's io node holds its own, the second note
+       arriving does not rewrite the first's, and the two sound at a third
+       of each other. A MIDI note -- no aux at all -- carries zeros. */
+    {
+        string g = graph("", "freq->out", "");
+        const string amp = "    amp = ionode->velocity;\n";
+
+        g.replace(g.find(amp), amp.size(), "    amp = ionode->aux1;\n");
+
+        if (writeFile(file, g))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL ||
+                synth.loadTree(file, 1, 100) == NULL ||
+                synth.loadTree(file, 2, 100) == NULL)
+                fail("a graph that reads aux1 loads", "");
+            else
+            {
+                const float quarter[TH_NOTE_AUX] = { 0, 0.25f, 0, 0 };
+                const float most[TH_NOTE_AUX] = { 0, 0.75f, 0, 0 };
+
+                synth.addNote(0, 60, 100, 1, quarter);
+                synth.addNote(0, 64, 100, 1, most);
+                synth.addNote(1, 60, 100, 1, quarter);
+                synth.addNote(2, 60, 100, 1, most);
+                synth.addNote(0, 67, 100);
+
+                for (int i = 0; i < 8; i++)
+                    synth.process();
+
+                auto aux1 = [&](int chan, int note) -> float {
+                    thMidiNote *n = synth.getChannel(chan)->getNote(note);
+                    thArg *a = n ? n->synthTree()->IONode()->getArg("aux1")
+                                 : NULL;
+
+                    return a ? (*a)[0] : -1;
+                };
+                auto level = [&](int chan) {
+                    thMidiChan *ch = synth.getChannel(chan);
+                    const int len = synth.getWindowlen();
+
+                    return rms(vector<float>(ch->output(),
+                                             ch->output() + len));
+                };
+
+                okOrFail(aux1(0, 60) == 0.25f && aux1(0, 64) == 0.75f &&
+                         aux1(0, 67) == 0,
+                         "each voice's io node holds the aux its own note "
+                         "carried, and a note with none holds zero",
+                         "60 holds " + num(aux1(0, 60)) + ", 64 holds " +
+                         num(aux1(0, 64)) + ", the MIDI note " +
+                         num(aux1(0, 67)));
+
+                okOrFail(level(1) > 0 &&
+                         near(level(2), level(1) * 3, 0.01),
+                         "a graph reading aux1 sounds each note at what it "
+                         "carried",
+                         "0.25 gave " + num(level(1)) + ", 0.75 gave " +
+                         num(level(2)));
+            }
+        }
+    }
+
+    /* And a graph that never mentions one has none: the aux are written
+       only where they are read, so no voice of the other ninety-odd graphs
+       grows an arg its prototype does not have. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        const float some[TH_NOTE_AUX] = { 0.5f, 0.5f, 0.5f, 0.5f };
+
+        if (synth.loadTree(file, 0, 100) == NULL)
+            fail("a graph for the aux loads", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1, some);
+            synth.process();
+
+            thMidiNote *n = synth.getChannel(0)->getNote(60);
+            bool none = n != NULL;
+
+            for (int a = 0; none && a < TH_NOTE_AUX; a++)
+            {
+                char name[16];
+
+                snprintf(name, sizeof(name), AUXPREFIX "%d", a);
+                none = n->synthTree()->IONode()->getArg(name) == NULL;
+            }
+
+            okOrFail(none, "a graph that reads no aux gets no aux arg", "");
+        }
+    }
+
     if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
     {
         thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,

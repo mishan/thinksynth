@@ -163,18 +163,30 @@ struct HeldComposers {
 };
 
 /* One line per delivered event, in gencheck's spelling minus the
-   seventeen digits: N time channel note velocity duration level, C for a
-   chanarg, P for a swap, E for a node-arg edit. Channels are the
-   engine's, counted from zero; the tape names those channels first. */
+   seventeen digits: N time channel note velocity duration level, and the
+   four aux after it only when one is not zero -- so a piece that sets none
+   prints the tape it always did. C for a chanarg, P for a swap, E for a
+   node-arg edit. Channels are the engine's, counted from zero; the tape
+   names those channels first. wasm/tape.mjs's tapeLine is the same line. */
 static void writeEvent (FILE *tape, const thcEvent &ev)
 {
     switch (ev.type)
     {
         case THC_EV_NOTE:
-            fprintf(tape, "N %.3f %d %d %d %.3f %.3f\n", ev.at, ev.channel,
+        {
+            const float *aux = ev.u.note.aux;
+
+            fprintf(tape, "N %.3f %d %d %d %.3f %.3f", ev.at, ev.channel,
                     ev.u.note.note, ev.u.note.velocity,
                     ev.u.note.duration, (double)ev.u.note.level);
+
+            if (aux[0] != 0 || aux[1] != 0 || aux[2] != 0 || aux[3] != 0)
+                fprintf(tape, " %.3f %.3f %.3f %.3f", (double)aux[0],
+                        (double)aux[1], (double)aux[2], (double)aux[3]);
+
+            fputc('\n', tape);
             break;
+        }
         case THC_EV_CHANARG:
             fprintf(tape, "C %.3f %d %s %.4f\n", ev.at, ev.channel,
                     ev.u.chanarg.name ? ev.u.chanarg.name : "",
