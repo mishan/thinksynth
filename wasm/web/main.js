@@ -550,13 +550,23 @@ async function loadPatch ()
     await showParams();
 }
 
+/* The same fetch before the same kind of load, so the same `picking' --
+   see pickPiece. */
 async function pickPatch ()
 {
-    $('dsp').value = await (await fetch(`dsp/${$('patch').value}`)).text();
+    const run = (async () =>
+    {
+        $('dsp').value =
+            await (await fetch(`dsp/${$('patch').value}`)).text();
 
-    showNodes();
+        showNodes();
 
-    await loadPatch();
+        await loadPatch();
+    })();
+
+    picking = run.catch(() => {});
+
+    await run;
 }
 
 /* ---- the tempo ---- */
