@@ -46,10 +46,15 @@ int module_init (thPlugin *plugin)
     /* `(int)(*in_size)[i]' -- a delay line is a whole number of samples.
        Read every sample and used to size the ring, so changing it mid-note
        reallocates and loses what was in it. A size of 0 passes the input
-       straight through. */
+       straight through.
+
+       Sixty seconds is allowed and used: fx/tapeloop.dsp's ring is that long,
+       2.6 million floats at 44.1 kHz, allocated on the first window. No cap
+       is enforced here; the browser builds grow their heap to fit. */
     plugin->setArgStep(args[IN_SIZE], 1);
     plugin->setArgDesc(args[IN_SIZE],
-                       "How long the ring is; it has to be at least `delay'");
+                       "How long the ring is, up to sixty seconds; it has to be "
+                       "at least `delay'");
     plugin->setArgUnits(args[IN_SIZE], "samples");
     args[IN_DELAY] = plugin->regArg("delay", thPlugin::ARG_IN);
     /* Taken modulo the ring, and negative values walk forward rather than
