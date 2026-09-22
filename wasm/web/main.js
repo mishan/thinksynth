@@ -192,9 +192,29 @@ let piece = null;
 let roll = null;
 
 /* The last tape message, kept for its clock: where transport zero is, how
-   fast the clock is turned and where the output has got to. The roll
-   takes the notes out of it; this is for window.solo, at the bottom. */
+   fast the clock is turned and where the output has got to. For
+   window.solo, at the bottom. */
 let lastTape = null;
+
+/* And the notes off that tape, for window.solo as well.
+ *
+ * Kept here rather than asked of the roll, which is the shape this was in
+ * when the page drew its own roll by hand and held the notes to do it.
+ * The roll is the mirror's now (rollview.js) and keeps nothing on this
+ * side -- and it is made only when somebody opens the pane, so a harness
+ * reading it was reading a pane's state for an answer about the piece.
+ * The tape is where the notes were coming from either way.
+ *
+ * Emptied on an epoch, which is what a rewind or a load bumps: notes
+ * stamped in the old run's seconds are a different piece's, and a beat
+ * measured across the two is neither's. */
+let tapeNotes = [];
+let tapeEpoch = 0;
+
+/* How much of it to keep. The window the hand-drawn roll showed, for no
+   better reason than that nothing has since asked for more: this is a
+   harness's window on the recent past, not a history. */
+const TAPE_NOTE_SECONDS = 30;
 
 /* The composer view: the piece's own picture, drawn by the mirror -- a
    second scheduler in a worker, fed the messages the worklet is fed, with
@@ -1492,6 +1512,34 @@ async function pollParams ()
         asked.setValue(row.id, answer.values[i]));
 }
 
+/* The notes out of a tape message, into tapeNotes above.
+ *
+ * An epoch that is not the one held empties it first: a rewind or a load
+ * restarts the transport's seconds, and the worklet posts what it has
+ * under the old epoch before anything from the new run joins it
+ * (worklet.js), so a batch is all one run's. */
+function takeTapeNotes (m)
+{
+    if (m.epoch !== tapeEpoch)
+    {
+        tapeEpoch = m.epoch;
+        tapeNotes = [];
+    }
+
+    for (const e of m.events)
+        if (e.kind === 'N')
+            tapeNotes.push(e);
+
+    /* Whatever ended before the window, wherever it sits: a long note at
+       the front must not keep everything behind it alive. Rebuilt only
+       when there is something to drop, so an idle piece is not copying
+       its list every batch. */
+    const first = m.now - TAPE_NOTE_SECONDS;
+
+    if (tapeNotes.some((e) => e.at + e.duration < first))
+        tapeNotes = tapeNotes.filter((e) => e.at + e.duration >= first);
+}
+
 /* ---- starting, and switching ---- */
 
 async function start ()
@@ -1509,6 +1557,7 @@ async function start ()
                                              micPeak = m.capture ?? 0;
                                              micDropped = m.captureDropped ?? 0;
                                              lastTape = m;
+                                             takeTapeNotes(m);
 
                                              diff.take('worklet', m);
                                              showClock($('clock'), m);
@@ -2059,10 +2108,11 @@ window.solo = {
        is and how tall the grid behind it said to be. */
     tracks: () => seq?.tracks() ?? [],
 
-    /* The notes the roll is holding, in transport seconds. What a harness
-       about the tempo has to read: a control that moved a number in a box
-       and nothing else would pass every check that asks the box. */
-    notes: () => roll?.notes.map((e) => ({ at: e.at, note: e.note })) ?? [],
+    /* The notes the tape has carried, in transport seconds. What a
+       harness about the tempo has to read: a control that moved a number
+       in a box and nothing else would pass every check that asks the
+       box. */
+    notes: () => tapeNotes.map((e) => ({ at: e.at, note: e.note })),
 
     /* The four numbers the last tape message carried about the clock, and
        the rate to read them against.
