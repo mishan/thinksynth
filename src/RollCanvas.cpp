@@ -144,11 +144,20 @@ RollCanvas::onDelivered (const thcEvent &ev)
 void
 RollCanvas::onTransportReset (void)
 {
+    clear();
+}
+
+void
+RollCanvas::clear (void)
+{
     notes_.clear();
     argTicks_.clear();
     edits_.clear();
+    pendingView_.clear();
     viewNow_ = 0;
     following_ = true;
+    dragging_ = false;
+    requestRedraw();
 }
 
 void

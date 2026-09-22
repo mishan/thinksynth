@@ -83,8 +83,17 @@
      of them back where it was when the layout goes away. -->
 <div id="panes"></div>
 
-<canvas id="roll" width="1200" height="360" data-pane-off
-        data-pane data-pane-title="Piano roll" data-pane-min="320"></canvas>
+<!-- The piano roll: every chain's output on one timeline, the past left
+     of the now-line and the *scheduled future* ghosted to the right of
+     it -- what the piece has already decided and not yet played. It is
+     the desktop's roll, compiled to wasm and drawn by the mirror, which
+     is where the scheduler holding that future is. Drag it to scrub back
+     through what has been played, double-click to go back to live, and
+     the wheel changes how much time is on screen. -->
+<div id="roll" class="canvasview rollview" data-pane-off
+     data-pane data-pane-title="Piano roll" data-pane-min="320">
+  <canvas id="rollcanvas" tabindex="0"></canvas>
+</div>
 
 <!-- The piece as tracks: one row per gen::grid, each one that plugin's
      own drawing at the pane's width, with the channel it is heard on

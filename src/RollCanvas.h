@@ -77,6 +77,17 @@ public:
     /* seconds of history and of lookahead on screen */
     void SetTimeSpan (double past, double future);
 
+    /* Drop everything kept, and go back to live at zero.
+     *
+     * What a transport reset does, and this is the signal handler it does
+     * it through -- public because a *load* is the same thing said
+     * differently and not every host spells it as a reset. The desktop's
+     * reload rewinds the scheduler, so the signal is enough there; the
+     * browser's tw_piece_load stops the transport and loads over the top,
+     * and history kept across that is the previous piece's notes drawn
+     * against this one's clock. */
+    void clear (void);
+
     /* Draws everything, having first taken this frame's view of the
      * scheduler -- the transport's time while following, one copy of the
      * pending queue, the prune and the pitch-range ease.

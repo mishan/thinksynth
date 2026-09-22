@@ -268,7 +268,10 @@ const size_t thStaticVisualCount =
 # again here: one drawing, one behaviour, two shells. CanvasContent is its
 # base; what it draws through is cairo2d's cairomm face, and what it never
 # sees is a toolkit -- the first Gtk:: that got into either would fail this
-# build, which is the guard the split exists for.
+# build, which is the guard the split exists for. The piano roll is the same
+# move for the pane below it: RollCanvas is the desktop's widget with the
+# widget taken off, and the page's second, smaller drawing of the same event
+# stream went with it.
 #
 # PanelModel and ArgPanel are the same move for a parameter panel: what a
 # control is, in as many words as it takes and none of them a widget
@@ -290,6 +293,7 @@ add_executable(thinkweb
     "${THINK_TOP}/src/thVisual.cpp"
     "${THINK_TOP}/src/CanvasContent.cpp"
     "${THINK_TOP}/src/ComposerCanvas.cpp"
+    "${THINK_TOP}/src/RollCanvas.cpp"
     "${THINK_TOP}/src/NodeCanvas.cpp"
     "${THINK_TOP}/src/NodeGraph.cpp"
     "${THINK_TOP}/src/NodeEdit.cpp"
@@ -342,9 +346,10 @@ target_link_options(thinkweb PRIVATE
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
 set(SITE_SOURCES index.html jam.html style.css panes.css main.js keyboard.js
-                keyfocus.js panel.js patch.js host.js roll.js worklet.js
+                keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js mirror.js canvasview.js composerview.js
-                seqview.js nodeview.js panes.js popover.js tapediff.js)
+                seqview.js nodeview.js rollview.js panes.js popover.js
+                tapediff.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -525,10 +530,11 @@ else()
   # what it pins: a dependency bumped without it here would rebuild
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
-                  roll.js host.js keyboard.js panel.js patch.js mic.js
+                  host.js keyboard.js panel.js patch.js mic.js
                   ../tape.mjs
-                  canvasview.js composerview.js nodeview.js panes.js
-                  popover.js tapediff.js bundle.mjs package-lock.json)
+                  canvasview.js composerview.js nodeview.js rollview.js
+                  panes.js popover.js tapediff.js bundle.mjs
+                  package-lock.json)
   set(JAM_DEPENDS "")
 
   foreach(f IN LISTS JAM_SOURCES)

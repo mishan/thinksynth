@@ -36,9 +36,13 @@
  * literally what it is.
  *
  * What it sends back: its own tape, for the page to hold against the
- * worklet's, and display lists -- the composer canvas lives here too, next
- * to the scheduler it draws from, and what crosses is the list of ops the
- * page replays on a Canvas2D (cairo-canvas2d).
+ * worklet's, and display lists -- the composer canvas and the piano roll
+ * both live here, next to the scheduler they draw from, and what crosses
+ * is the list of ops the page replays on a Canvas2D (cairo-canvas2d). The
+ * roll is here for a reason of its own on top of that one: half of what it
+ * draws is the scheduler's *pending* queue, and a tape -- which is what the
+ * page used to draw a roll from -- is by definition what has already been
+ * delivered.
  *
  * A gesture goes the other way and comes back round: the page sends the
  * pointer, the canvas here works out which stage it landed on and where in
@@ -63,8 +67,13 @@ let epoch = 0;
 /* The last size the page asked for a drawing at, in CSS pixels, and the
    device pixel ratio it will replay at. The canvas lays out in CSS pixels
    and the replayer scales; the ratio is here only so that a list drawn for
-   one size is not replayed at another. */
+   one size is not replayed at another.
+
+   One per canvas: the composer view and the piano roll are two panes and
+   two boxes, and a single `view' had whichever of them drew last decide
+   how big the other one was. */
 let view = { w: 0, h: 0, dpr: 1 };
+let rollView = { w: 0, h: 0, dpr: 1 };
 
 const post = (m, transfer) => postMessage(m, transfer ?? []);
 const log = (text) => post({ type: 'log', text: `mirror: ${text}` });
@@ -298,6 +307,94 @@ function draw ()
          buffers);
 }
 
+/* ---- the piano roll ----
+ *
+ * The other canvas drawn here, and here for a reason the composer view
+ * only half shares: what the roll shows to the right of the now-line is
+ * the scheduler's *pending* queue -- what the piece has already decided
+ * and not yet played -- and this worker holds the only scheduler the page
+ * has. The worklet's tape cannot answer the question at all: a tape is
+ * what has been delivered.
+ *
+ * The messages are the canvas view's, with `canvas: "roll"' on them, so
+ * one shell file drives both panes and the routing is one line.
+ */
+function drawRoll ()
+{
+    if (M === null || rollView.w <= 0 || rollView.h <= 0)
+        return;
+
+    /* The roll's drawing is always exactly its view (src/RollCanvas.h),
+       so there is no separate drawing size to ask for and nothing to
+       scroll. */
+    const w = M._tw_roll_width() || rollView.w;
+    const h = M._tw_roll_height() || rollView.h;
+    const words = M._tw_roll_draw(w, h);
+
+    if (words < 0)
+        return;                 /* no scheduler yet: nothing to draw */
+
+    const at = M._tw_draw_ops();
+    const ops = words > 0
+        ? new Float32Array(M.HEAPF32.subarray(at >> 2, (at >> 2) + words))
+        : new Float32Array(0);
+
+    const strings = [];
+
+    for (let i = 0; i < M._tw_draw_string_count(); i++)
+        strings.push(M.UTF8ToString(M._tw_draw_string(i)));
+
+    /* No surfaces: the roll blits nothing. The page's replayer takes the
+       empty list and the message is that much smaller. */
+    post({ type: 'draw', canvas: 'roll', ops, strings, surfaces: [],
+           w, h, dpr: rollView.dpr, width: w, height: h,
+           now: M._tw_roll_view_now(),
+           following: M._tw_roll_following() !== 0,
+           spanPast: M._tw_roll_span_past(),
+           spanFuture: M._tw_roll_span_future() },
+         [ops.buffer]);
+}
+
+/* True if the message was the roll's. */
+function rollReceive (m)
+{
+    switch (m.type)
+    {
+        case 'view':
+            rollView = { w: m.w, h: m.h, dpr: m.dpr ?? 1 };
+            M._tw_roll_viewport(m.x ?? 0, m.y ?? 0, m.w, m.h);
+
+            /* `fit' is dropped, and deliberately: the roll's drawing is
+               its view, so every fit this base offers computes exactly 1
+               (src/RollCanvas.h). */
+            break;
+
+        case 'press':
+            M._tw_roll_press(m.x, m.y, m.button ?? 1, m.nPress ?? 1);
+            break;
+
+        case 'motion':
+            M._tw_roll_motion(m.x, m.y);
+            break;
+
+        case 'release':
+            M._tw_roll_release(m.x, m.y, m.button ?? 1);
+            break;
+
+        /* A wheel notch. The shell says how much bigger to draw and the
+           roll spends it as a span, which is the one place a number here
+           is read as something other than its name -- RollCanvas::zoomBy
+           says why. */
+        case 'zoomBy':
+            M._tw_roll_zoom_by(m.by);
+            break;
+
+        case 'draw':
+            drawRoll();
+            break;
+    }
+}
+
 function receive (m)
 {
     if (m.type === 'start')
@@ -317,6 +414,14 @@ function receive (m)
        be shown what loaded. */
     if (apply(M, m, { log, piece: (id, ok) => ok && showPiece() }))
         return;
+
+    /* The piano roll's half of the canvas-view protocol, told apart by
+       the page tagging it. Everything below is the composer view's. */
+    if (m.canvas === 'roll')
+    {
+        rollReceive(m);
+        return;
+    }
 
     switch (m.type)
     {

@@ -699,6 +699,130 @@ try
               'and the next press closes it');
     }
 
+    /* ---- the piano roll ----
+     *
+     * The other canvas the mirror draws, and the one this page did not
+     * have until it was drawn there: the desktop's RollCanvas over the
+     * mirror's scheduler, in place of thirty seconds of tape drawn by
+     * hand. What is checked here is what no headless gate can be --
+     * that the pane is wired end to end, that a pointer on it reaches
+     * the canvas in the worker, and that what comes back changes the
+     * view.
+     */
+    await page.waitForFunction(() =>
+    {
+        const c = document.getElementById('rollcanvas');
+
+        return c.width > 0 && c.height > 0;
+    }, null, { timeout: 60000 });
+
+    const rollInk = () => page.evaluate(() =>
+    {
+        const c = document.getElementById('rollcanvas');
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+                   .data;
+        let sum = 0;
+
+        for (let i = 0; i < d.length; i += 4)
+            sum += d[i] + d[i + 1] + d[i + 2];
+
+        return sum;
+    });
+
+    const rollSize = await page.$eval('#rollcanvas',
+                                      (c) => ({ w: c.width, h: c.height }));
+
+    check(await rollInk() > 0,
+          `the piano roll drew, ${rollSize.w} by ${rollSize.h} device pixels`);
+
+    /* The drawing is exactly the view: no scrollbar, and the element as
+       wide as the box around it. A roll with a scroller would be a second,
+       silent answer to where "now" is (src/RollCanvas.h). */
+    const rollFit = await page.evaluate(() =>
+    {
+        const d = document.getElementById('roll');
+
+        return { over: d.scrollWidth > d.clientWidth + 1 ||
+                       d.scrollHeight > d.clientHeight + 1,
+                 w: parseFloat(
+                     document.getElementById('rollcanvas').style.width),
+                 box: d.clientWidth };
+    });
+
+    check(!rollFit.over && Math.abs(rollFit.w - rollFit.box) <= 1,
+          `and fills its box exactly: ${rollFit.w} in ${rollFit.box}, ` +
+          `${rollFit.over ? 'and scrolls' : 'nothing to scroll'}`);
+
+    /* A few seconds of the piece, so there is history to scrub through
+       and a future to have been drawn ahead of the now-line. */
+    await page.click('#play');
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const live = await page.evaluate(() => window.solo.roll());
+
+    check(live !== null && live.following && live.now > 0.5,
+          `and follows the transport: the now-line is at ${live?.now
+              ?.toFixed(2)}s`);
+
+    /* A drag to the right pulls the past back under the now-line, which
+       is what drops it out of follow mode. The pointer goes to the
+       mirror, the canvas there decides what it meant, and what comes
+       back is where the view ended up -- so this is the whole round
+       trip, not a number the page kept for itself. */
+    const rollBox = await page.$eval('#roll', (d) =>
+    {
+        const r = d.getBoundingClientRect();
+
+        return { x: r.x, y: r.y, w: d.clientWidth, h: d.clientHeight };
+    });
+
+    await page.mouse.move(rollBox.x + rollBox.w * 0.4,
+                          rollBox.y + rollBox.h * 0.5);
+    await page.mouse.down();
+
+    for (let i = 1; i <= 6; i++)
+    {
+        await page.mouse.move(rollBox.x + rollBox.w * (0.4 + 0.01 * i),
+                              rollBox.y + rollBox.h * 0.5);
+        await new Promise((r) => setTimeout(r, 40));
+    }
+
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 400));
+
+    const scrubbed = await page.evaluate(() => window.solo.roll());
+
+    check(!scrubbed.following && scrubbed.now < live.now,
+          `a drag scrubs back and drops out of follow: ${live.now.toFixed(2)}` +
+          `s -> ${scrubbed.now.toFixed(2)}s`);
+
+    /* And a double-click puts it back on the live edge, which is the way
+       out of a scrub that does not need the edge found by hand. */
+    await page.mouse.dblclick(rollBox.x + rollBox.w * 0.5,
+                              rollBox.y + rollBox.h * 0.5);
+    await page.waitForFunction(() => window.solo.roll()?.following === true,
+                               null, { timeout: 15000 });
+    check(true, 'and a double-click goes back to live');
+
+    /* The wheel is time here, not scale: the roll has nothing to scroll,
+       so a bare wheel means the span (canvasview.js, `wheelZooms'). */
+    const spanBefore = (await page.evaluate(() => window.solo.roll())).spanPast;
+
+    await page.mouse.move(rollBox.x + rollBox.w * 0.5,
+                          rollBox.y + rollBox.h * 0.5);
+    await page.mouse.wheel(0, -120);
+    await page.waitForFunction(
+        (was) => window.solo.roll()?.spanPast !== was,
+        spanBefore, { timeout: 15000 });
+
+    const spanAfter = (await page.evaluate(() => window.solo.roll())).spanPast;
+
+    check(spanAfter < spanBefore,
+          `and the wheel is time: ${spanBefore.toFixed(1)}s of history -> ` +
+          `${spanAfter.toFixed(1)}s`);
+
+    await page.click('#stop');
+
     /* ---- a channel the piece left for the page to aim ---- */
 
     /* A piece that names channels and declares no instrument of its own is
@@ -999,7 +1123,7 @@ site.close();
 
 process.stdout.write(`\n${failures === 0
                           ? 'the solo page\'s keys, knobs, parameters, ' +
-                            'composer view and instrument graph still ' +
-                            'work\n'
+                            'composer view, piano roll and instrument ' +
+                            'graph still work\n'
                           : `${failures} failed\n`}`);
 process.exitCode = failures;

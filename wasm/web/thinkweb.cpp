@@ -87,6 +87,7 @@
 #include "twdraw.h"
 
 #include "ComposerCanvas.h"
+#include "RollCanvas.h"
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
@@ -718,6 +719,92 @@ private:
 WebComposerCanvas *canvas_ = NULL;
 Cairo::RefPtr<Cairo::Context> canvasContext_;
 
+/* ---- the piano roll, in a module ----
+ *
+ * The desktop's RollCanvas, compiled again here, with the same shell shape
+ * the composer canvas has: a page and a worker instead of a gtk widget. It
+ * lives in the mirror beside the scheduler it draws from -- which is the
+ * only scheduler the page has, and the only place the *future* half of this
+ * drawing can be asked about at all. The worklet's tape says what has been
+ * delivered; a roll that was fed one could never show what has not been.
+ *
+ * The roll's drawing is always exactly its view, so the drawing's size is
+ * the viewport's and there is nothing to scroll. What that buys is that
+ * canvasview.js drives this with no change: the element is as big as the
+ * drawing, as it is for the other two, and the arithmetic comes out at 1:1.
+ */
+class WebRollCanvas : public RollCanvas
+{
+public:
+    explicit WebRollCanvas (thcScheduler *sched)
+        : RollCanvas(sched), dirty_(true),
+          viewX_(0), viewY_(0), viewW_(0), viewH_(0) {}
+
+    bool takeDirty (void)
+    {
+        const bool was = dirty_;
+
+        dirty_ = false;
+        return was;
+    }
+
+    /* How big the drawing is, which for this canvas is how big the view
+       is. The page sizes its element to this, as it does for the other
+       two, and gets an element that exactly fills its box. */
+    int width (void) const { return (int)viewW_; }
+    int height (void) const { return (int)viewH_; }
+
+    void setViewport (double x, double y, double w, double h)
+    {
+        viewX_ = x;
+        viewY_ = y;
+        viewW_ = w;
+        viewH_ = h;
+
+        dirty_ = true;
+    }
+
+protected:
+    void requestRedraw (void) override { dirty_ = true; }
+
+    bool shellViewport (double &x, double &y, double &w,
+                        double &h) const override
+    {
+        if (viewW_ <= 0.0 || viewH_ <= 0.0)
+            return false;
+
+        x = viewX_;
+        y = viewY_;
+        w = viewW_;
+        h = viewH_;
+
+        return true;
+    }
+
+private:
+    bool dirty_;
+    double viewX_, viewY_, viewW_, viewH_;
+};
+
+WebRollCanvas *roll_ = NULL;
+Cairo::RefPtr<Cairo::Context> rollContext_;
+
+/* Made on the first call that needs it, and never by the worklet, which
+ * makes none of them. That matters more here than it does for the composer
+ * canvas: a RollCanvas connects thcScheduler::sigDelivered and keeps every
+ * event that comes out of it, so one built in the audio thread would be a
+ * growing history nobody would ever draw.
+ *
+ * NULL before a synth exists, which is what a call before tw_create looks
+ * like. */
+WebRollCanvas *rollCanvas (void)
+{
+    if (roll_ == NULL && sched_ != NULL)
+        roll_ = new WebRollCanvas(sched_);
+
+    return roll_;
+}
+
 /* A params popover the canvas asked for: which stage, and where its box
    is in shell pixels so the page can put the panel beside it. The last
    one asked for, since a second request replaces the first -- there is
@@ -1070,6 +1157,14 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     const bool ok = loader_->load(TW_PIECE_FILE, sched_);
 
     epoch_++;
+
+    /* The roll's history was about the piece that just went away. It
+       keys its notes to transport time and the transport is not being
+       rewound here -- stopped, and loaded over -- so nothing else tells
+       it (RollCanvas::clear). NULL until the mirror has drawn once; the
+       worklet never has one at all. */
+    if (roll_ != NULL)
+        roll_->clear();
 
     if (!ok)
     {
@@ -1979,6 +2074,136 @@ EMSCRIPTEN_KEEPALIVE void tw_canvas_enlarge (int chain, int stage)
 EMSCRIPTEN_KEEPALIVE int tw_canvas_dirty (void)
 {
     return canvas_ != NULL && canvas_->takeDirty() ? 1 : 0;
+}
+
+/* ---- the piano roll ----
+ *
+ * The same family again, for the other canvas the mirror draws. Every call
+ * builds the roll if it is not there yet, so the first thing the page sends
+ * -- a viewport, on opening the pane -- is what brings it into being.
+ *
+ * A piece's whole timeline, not a viewport onto one: there is no zoom here
+ * and no fit, because the drawing is the view (src/RollCanvas.h). What
+ * there is instead is the time span, which the wheel changes, and the
+ * scrub, which a drag does.
+ */
+
+/* Draw it at w x h, and answer with the length of the list. -1 before
+   there is a scheduler to draw from. */
+EMSCRIPTEN_KEEPALIVE int tw_roll_draw (int w, int h)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll == NULL)
+        return -1;
+
+    cairo_t *cr = twDrawingBegin();
+
+    if (!rollContext_)
+        rollContext_ = Cairo::Context::create(cr);
+
+    roll->draw(rollContext_, w, h);
+
+    return cairo2d_op_words(cr);
+}
+
+/* The gestures, in shell pixels, as the desktop's controllers deliver
+   them. A press starts a scrub, a double-click goes back to live. */
+EMSCRIPTEN_KEEPALIVE void tw_roll_press (double x, double y, int button,
+                                         int nPress)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->pressAt(x, y, button, nPress);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_roll_motion (double x, double y)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->motionTo(x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_roll_release (double x, double y, int button)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->releaseAt(x, y, button);
+}
+
+/* A wheel notch, as the factor canvasview.js already sends for one. The
+   roll spends it as a span rather than a scale; RollCanvas::zoomBy says
+   why a number named for one is read as the other. */
+EMSCRIPTEN_KEEPALIVE void tw_roll_zoom_by (double by)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->zoomBy(by);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_roll_viewport (double x, double y, double w,
+                                            double h)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->setViewport(x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_width (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->width() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_height (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->height() : 0;
+}
+
+/* How many seconds of history and of lookahead are on screen. The page
+   shows neither; a harness reads them to say that a wheel moved them. */
+EMSCRIPTEN_KEEPALIVE double tw_roll_span_past (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->spanPast() : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_roll_span_future (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->spanFuture() : 0.0;
+}
+
+/* Where the now-line is, in transport seconds, and whether it is still
+   tracking the transport. What a drag moves, and what a double-click puts
+   back -- so this is how a harness on either side says "it scrubbed". */
+EMSCRIPTEN_KEEPALIVE double tw_roll_view_now (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->viewNow() : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_following (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL && roll->following() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_dirty (void)
+{
+    return roll_ != NULL && roll_->takeDirty() ? 1 : 0;
 }
 
 /* ---- the knobs the piece declared ----

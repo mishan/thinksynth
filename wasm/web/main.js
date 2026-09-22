@@ -72,7 +72,7 @@ import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
 import * as patch from './patch.js';
-import { Roll } from './roll.js';
+import { createRollView, showClock } from './rollview.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -185,7 +185,8 @@ let keyfocus = null;             /* and who has it, the page or the keys  */
 const sounding = new Map();
 
 /* The piece, as it stands: what the worklet said when it loaded, and the
-   roll of what it has delivered since. */
+   roll the mirror draws of it -- the past it has played and the future it
+   has already decided (rollview.js). */
 let piece = null;
 let roll = null;
 
@@ -559,7 +560,6 @@ async function loadPiece ()
         return loaded;
     });
 
-    roll.clear();
     piece = it.errors.length === 0 ? it : null;
     placed = aiming.placed;
 
@@ -601,7 +601,6 @@ async function loadPiece ()
         showChannels();
         showNodes();
         await showParams();
-        roll.draw();
     })();
 
     await drawn;
@@ -1119,14 +1118,6 @@ async function aimByHand (channel, name)
     await showParams();
 }
 
-function frame ()
-{
-    if (composing())
-        roll.draw();
-
-    requestAnimationFrame(frame);
-}
-
 /* ---- the instrument's parameters ---- */
 
 /* The panel that is up: which channel it is over, what the module said it
@@ -1344,7 +1335,7 @@ async function start ()
                                              micDropped = m.captureDropped ?? 0;
 
                                              diff.take('worklet', m);
-                                             roll.tape(m);
+                                             showClock($('clock'), m);
 
                                              /* What a probe armed here
                                                 is watching, as jam.js
@@ -1532,6 +1523,7 @@ async function start ()
        never appeared. */
     showComposer(panes.visible('composerview') && mode() === 'piece');
     showSeq(panes.visible('seqview') && composing());
+    showRoll(panes.visible('roll') && composing());
 
     if (mode() === 'seq')
         await loadSequence();
@@ -1579,6 +1571,9 @@ function fromMirror (m)
         return;
 
     if (composer !== null && composer.fromMirror(m))
+        return;
+
+    if (roll !== null && roll.fromMirror(m))
         return;
 
     if (m.type === 'patchinfo')
@@ -1771,6 +1766,20 @@ function showSeq (on)
     seq.show(on);
 }
 
+/* The piano roll, on the same terms: made when it is first wanted, and
+   drawing only while somebody is looking at it. Its drawing is the
+   mirror's too -- that is where the scheduler is, and the scheduler is
+   where the piece's future is. */
+function showRoll (on)
+{
+    if (roll === null && (!on || synth === null))
+        return;
+
+    roll ??= createRollView({ toMirror: (m) => synth?.toMirror(m) });
+
+    roll.show(on);
+}
+
 /* For pagetest: where a stage's params handle is, and what the popover
    ended up showing. The layout is the canvas's, so asking it is the only
    honest way to press one. */
@@ -1840,8 +1849,13 @@ window.solo = {
        nothing, and this is the only way to see from outside that it
        really costs nothing. */
     drawing: () => ({ composer: composer?.visible() ?? false,
+                      roll: roll?.visible() ?? false,
                       nodes: nodes?.visible() ?? false,
                       seq: seq?.visible() ?? false }),
+
+    /* Where the roll's now-line is and whether it is still live, so a
+       harness that dragged on it can say that it scrubbed. */
+    roll: () => roll?.where() ?? null,
 
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
@@ -1879,6 +1893,7 @@ async function pickMode ()
 
     showComposer(panes.visible('composerview') && which === 'piece');
     showSeq(panes.visible('seqview') && composing());
+    showRoll(panes.visible('roll') && composing());
     showNodes();
 
     /* Emptied rather than left showing the other mode's channel: what
@@ -2106,7 +2121,6 @@ async function init ()
     for (let c = 0; c < 16; c++)
         $('keychan').add(new Option(String(c + 1), c, c === 0, c === 0));
 
-    roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'),
                             { onPress: press, onRelease: release });
     /* Who has the keyboard, and the one line on the page that says so.
@@ -2178,6 +2192,8 @@ async function init ()
                 showComposer(on && mode() === 'piece');
             else if (id === 'seqview')
                 showSeq(on && composing());
+            else if (id === 'roll')
+                showRoll(on && composing());
             else if (id === 'nodeview')
                 nodes?.show(on);
             else if (id === 'paramview' && on)
@@ -2205,8 +2221,6 @@ async function init ()
        and a pane is a box that scrolls -- so a popover left inside one
        would be clipped by it the moment it reached the edge. */
     panes.overlay().append($('composerparams'), $('nodemenu'));
-
-    requestAnimationFrame(frame);
 }
 
 init();
