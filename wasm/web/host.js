@@ -338,6 +338,12 @@ export async function createSynth (ctx, { windowlen = 256,
            what is in it is still what was loaded. */
         pieceSetTempo: (bpm) => ask({ type: 'settempo', bpm }),
 
+        /* How fast the clock runs, as a multiple of real time, at a
+           transport time or -1 for the next window. Everything moves with
+           it, which is what makes it the control a piece written in
+           seconds has where the tempo is the one it has not. */
+        speed: (value, at = -1) => post({ type: 'speed', value, at }),
+
         /* `knob' is the index loadPiece reported the knob under; `at' a
            transport time, or -1 for the next window. */
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),

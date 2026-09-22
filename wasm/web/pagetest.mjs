@@ -426,6 +426,112 @@ try
           }),
           'a piece written in seconds dims it, and says why');
 
+    /* ---- and the speed, which every piece has ---- */
+
+    /* The control that reaches the piece the tempo cannot. A tempo scales
+     * beat-valued durations and leaves `period = 0.25 s' where it is, so
+     * dimming the box and saying so is only half an answer: the other
+     * half is a control that turns the transport itself.
+     *
+     * Measured against the wall clock, because that is what it means. The
+     * clock reads transport seconds, so at 2x twice as many of them pass
+     * in a second of real time -- and the piece under it is ebb.gen,
+     * whose every duration is in seconds and which the tempo above could
+     * not move at all.
+     */
+    check(await page.evaluate(
+              () => !document.getElementById('speed').disabled),
+          'and the speed beside it is live where the tempo is not');
+
+    /* Transport seconds per real second. The clock reads to a tenth, so
+       the window is long enough that a tenth is not the answer. */
+    const advance = async (x) =>
+    {
+        const clock = () => page.evaluate(() =>
+        {
+            const [m, sec] =
+                document.getElementById('clock').textContent.split(':');
+
+            return Number(m) * 60 + Number(sec);
+        });
+
+        await page.fill('#speed', String(x));
+        await page.dispatchEvent('#speed', 'input');
+        await page.waitForTimeout(250);
+
+        const a = await clock();
+
+        await page.waitForTimeout(1500);
+
+        return (await clock() - a) / 1.5;
+    };
+
+    await page.click('#play');
+
+    const atOne = await advance(1);
+    const atTwo = await advance(2);
+    const atHalf = await advance(0.5);
+
+    check(Math.abs(atTwo / atOne - 2) < 0.3,
+          `twice the speed is twice the clock: ${atTwo.toFixed(2)} ` +
+          `against ${atOne.toFixed(2)} transport seconds a second`);
+
+    check(Math.abs(atHalf / atOne - 0.5) < 0.2,
+          `and half is half: ${atHalf.toFixed(2)} against ` +
+          `${atOne.toFixed(2)}`);
+
+    /* And turning it does not move the playhead.
+     *
+     * The clock is pinned to the output as a line -- a transport time at
+     * a frame, and a slope -- and a speed change turns that line through
+     * where it has got to. Setting the slope without moving the pin
+     * would rescale the whole run back to its origin, and the piece would
+     * skip or repeat a stretch of itself on every nudge. Ten seconds in
+     * at 1x, a change to 3x would land the playhead at 30. */
+    await advance(1);
+
+    const wasAt = await page.evaluate(
+        () => document.getElementById('clock').textContent);
+
+    await page.fill('#speed', '3');
+    await page.dispatchEvent('#speed', 'input');
+    await page.waitForTimeout(120);
+
+    const nowAt = await page.evaluate(
+        () => document.getElementById('clock').textContent);
+
+    const secs = (t) =>
+    {
+        const [m, sec] = t.split(':');
+
+        return Number(m) * 60 + Number(sec);
+    };
+
+    check(secs(nowAt) - secs(wasAt) < 1,
+          `and turning it does not move the playhead: ${wasAt} to ` +
+          `${nowAt}`);
+
+    check(await page.evaluate(
+              () => document.getElementById('speedis').textContent),
+          'the reading says where the slider is');
+
+    await page.click('#stop');
+
+    /* It belongs to the listener rather than to the piece: no statement
+       writes it, nothing reads it back out of a file, and choosing
+       another piece leaves it where it was put. */
+    await page.fill('#speed', '1.5');
+    await page.dispatchEvent('#speed', 'input');
+    await page.selectOption('#piece', 'colony.gen');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(
+              () => document.getElementById('speed').value === '1.5'),
+          'and it survives a piece being chosen: it is not the piece\'s');
+
+    await page.fill('#speed', '1');
+    await page.dispatchEvent('#speed', 'input');
+
     await page.selectOption('#mode', 'seq');
     await page.evaluate(() => window.solo.settled());
 

@@ -497,6 +497,11 @@ class ThinkProcessor extends AudioWorkletProcessor
                rule ComposerWindow follows with the same question. */
             tempo: this.M._tw_tempo(),
             beats: this.M._tw_uses_beats() !== 0,
+
+            /* And how fast the clock is running, which a load does not
+               reset: it is what the listener asked for rather than
+               anything this piece says. */
+            speed: this.M._tw_speed_now(),
             knobs,
             instruments,
             listens,

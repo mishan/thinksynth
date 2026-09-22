@@ -566,13 +566,74 @@ function showTempo ()
         : piece === null
             ? 'Load a piece to set its tempo.'
             : 'This piece writes every duration in seconds, which the ' +
-              'tempo does not scale. Write a duration as `4 beats\' to ' +
-              'put a stage on the clock.';
+              'tempo does not scale. Speed, beside this, turns the clock ' +
+              'itself and moves it; or write a duration as `4 beats\' to ' +
+              'put a stage on the tempo.';
 
     /* Not while it is being typed in: a box that rewrote itself under the
        caret would make 90 unreachable on the way to 900. */
     if (piece !== null && document.activeElement !== box)
         box.value = String(Math.round(piece.tempo));
+
+    showSpeed();
+}
+
+/* And the clock's own speed, which every piece has.
+ *
+ * The tempo above is the musical control and it cannot reach a piece that
+ * writes `period = 0.25 s' -- which is most of the corpus. This one turns
+ * the transport itself, so everything moves whatever it is written in.
+ * Offered wherever there is a piece to play rather than only where the
+ * tempo means something, which is the whole point of having it.
+ *
+ * It is not a property of the piece and there is no statement for it: a
+ * tempo is something a piece *is*, a speed is something a listener is
+ * doing. So nothing is written back, and it stays across a load the way
+ * the channels somebody aimed do. */
+function showSpeed ()
+{
+    const box = $('speed');
+    const live = piece !== null && composing();
+
+    box.disabled = !live;
+    $('speedlabel').title = live
+        ? 'How fast the clock runs, as a multiple of real time. Every ' +
+          'duration moves with it, in seconds or in beats.'
+        : 'Load a piece to change how fast it plays.';
+
+    if (piece !== null && document.activeElement !== box)
+        box.value = String(piece.speed);
+
+    saySpeed();
+}
+
+/* The reading beside the slider. Two decimals, because the step is 0.05
+   and a slider you cannot read a number off is one you cannot put back. */
+function saySpeed ()
+{
+    $('speedis').textContent = `${Number($('speed').value).toFixed(2)}\u00d7`;
+}
+
+/* Somebody dragged it.
+ *
+ * On `input' rather than `change', unlike the tempo box: a slider's whole
+ * point is that it is heard while it moves, and a drag reports every
+ * position. Each one is a stamped command, which is the same traffic a
+ * knob drag already makes.
+ */
+function setSpeed ()
+{
+    const box = $('speed');
+    const value = Number(box.value);
+
+    saySpeed();
+
+    if (synth === null || piece === null || !Number.isFinite(value) ||
+        value <= 0)
+        return;
+
+    synth.speed(value);
+    piece.speed = value;
 }
 
 /* Somebody moved it.
@@ -2106,7 +2167,7 @@ async function pickMode ()
         piece = null;
         placed = new Map();
         showChannels();
-        showTempo();               /* nothing composing has a tempo */
+        showTempo();               /* nor a speed: see showSpeed */
         await loadPatch();
     }
 }
@@ -2357,6 +2418,7 @@ async function init ()
        two tempo commands nobody asked for, the first of them below the
        range. */
     $('tempo').addEventListener('change', setTempo);
+    $('speed').addEventListener('input', setSpeed);
 
     $('down').addEventListener('click', () => keys.shift(-1));
     $('up').addEventListener('click', () => keys.shift(1));
