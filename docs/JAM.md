@@ -583,6 +583,13 @@ agreeing on every `at` while they did it. Sharing it is a `transport`
 op alongside `tempo` and the same `at` discipline; nothing else about it
 is new, and the room page does not offer the control until it is there.
 
+The page's own clock is already ready for it. A tape message carries where
+transport zero falls as a frame *and* the speed, because the two together
+are the line `TransportClock` walks to turn a transport time into a frame
+(`clock.js`) — a clock that read the origin and assumed 1x would stamp
+every command off by whatever the speed was. In a room it is 1, and read
+rather than assumed.
+
 ## 5. Seats and editing
 
 **A seat is a MIDI channel.** Sixteen exist. Joining claims one; the piece's

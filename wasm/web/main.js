@@ -189,6 +189,11 @@ const sounding = new Map();
 let piece = null;
 let roll = null;
 
+/* The last tape message, kept for its clock: where transport zero is, how
+   fast the clock is turned and where the output has got to. The roll
+   takes the notes out of it; this is for window.solo, at the bottom. */
+let lastTape = null;
+
 /* The composer view: the piece's own picture, drawn by the mirror -- a
    second scheduler in a worker, fed the messages the worklet is fed, with
    real composer instances in it. The page's half of it is an element and
@@ -1511,6 +1516,7 @@ async function start ()
                                          {
                                              micPeak = m.capture ?? 0;
                                              micDropped = m.captureDropped ?? 0;
+                                             lastTape = m;
 
                                              diff.take('worklet', m);
                                              roll.tape(m);
@@ -2047,6 +2053,19 @@ window.solo = {
        about the tempo has to read: a control that moved a number in a box
        and nothing else would pass every check that asks the box. */
     notes: () => roll?.notes.map((e) => ({ at: e.at, note: e.note })) ?? [],
+
+    /* The four numbers the last tape message carried about the clock, and
+       the rate to read them against.
+     *
+       Where transport zero is, how fast the clock is turned and where the
+       output has got to are one line, and clock.js walks it from the
+       other end to stamp a command (TransportClock). A harness that only
+       watched the readout would not see the line come apart -- the
+       readout is `now', which the module hands over ready-made. */
+    transport: () => lastTape === null ? null
+        : { now: lastTape.now, frame: lastTape.frame,
+            origin: lastTape.origin, speed: lastTape.speed,
+            rate: ctx?.sampleRate ?? 0 },
 
     /* Every load asked for so far, finished -- including the redraw each
        one ends with.

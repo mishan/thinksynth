@@ -1155,6 +1155,18 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
 {
     delivery_.disconnect();
     pending_.clear();
+
+    /* A speed change still in the queue is not a command about this
+       piece: it is what the listener asked the clock to do, and the clock
+       is not what is being reloaded. Kept rather than dropped with the
+       rest, or a slider moved less than a window before a load would be
+       thrown away and then written back over the control by the piece
+       reply, which reads speed_. Only the value -- the pin below is going
+       to be -1 either way. */
+    for (size_t i = 0; i < scheduled_.size(); i++)
+        if (scheduled_[i].op == TW_SPEED && scheduled_[i].value > 0)
+            speed_ = scheduled_[i].value;
+
     scheduled_.clear();
     armed_ = false;
 
@@ -2536,17 +2548,6 @@ EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
     schedule(c);
 }
 
-/* A gesture on a stage's picture, at a transport time.
- *
- * One more stamped command, made and sent the way a knob is: applied at
- * `at' in the step on every peer, the sender included, so a Life board
- * that was clicked on one screen is the same board everywhere from that
- * moment. The clicker hears their own click a knob lead late, as they
- * hear their own knob.
- *
- * `at' below zero is "now", as for a knob on a stopped transport, which
- * is what a solo page sends.
- */
 /* How fast the clock runs, as a multiple of real time, at a transport
  * time.
  *
@@ -2580,6 +2581,17 @@ EMSCRIPTEN_KEEPALIVE double tw_speed_now (void)
     return speed_;
 }
 
+/* A gesture on a stage's picture, at a transport time.
+ *
+ * One more stamped command, made and sent the way a knob is: applied at
+ * `at' in the step on every peer, the sender included, so a Life board
+ * that was clicked on one screen is the same board everywhere from that
+ * moment. The clicker hears their own click a knob lead late, as they
+ * hear their own knob.
+ *
+ * `at' below zero is "now", as for a knob on a stopped transport, which
+ * is what a solo page sends.
+ */
 EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
                                     int kind, double x, double y, double w,
                                     double h, int button)
@@ -2763,10 +2775,18 @@ EMSCRIPTEN_KEEPALIVE int tw_late (void)
     return late_;
 }
 
-/* The frame transport zero falls on, or -1 before any start. */
+/* The frame transport zero falls on, or -1 before any start.
+ *
+ * Which is not originFrame_ any more: the clock is pinned at wherever it
+ * had got to when it was last started or turned, so originFrame_ is the
+ * frame originAt_ falls on and only the two together say where zero is.
+ * Answered by running the line back to zero, so the number means what it
+ * has always meant to the page -- but only alongside tw_speed_now, since
+ * a transport second is rate_/speed_ frames and clock.js does the same
+ * subtraction from the other end. */
 EMSCRIPTEN_KEEPALIVE double tw_origin (void)
 {
-    return originFrame_;
+    return originFrame_ < 0 ? -1 : frameOf(0);
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)

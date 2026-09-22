@@ -275,6 +275,7 @@ class Peer
             this.tape += tapeLine(e);
 
         this.transport.report({ now: M._tw_now(), origin: M._tw_origin(),
+                                speed: M._tw_speed_now(),
                                 running: M._tw_running() !== 0 },
                               this.perfNow());
 

@@ -511,9 +511,31 @@ try
           `and turning it does not move the playhead: ${wasAt} to ` +
           `${nowAt}`);
 
-    check(await page.evaluate(
-              () => document.getElementById('speedis').textContent),
-          'the reading says where the slider is');
+    const reading = await page.evaluate(
+        () => document.getElementById('speedis').textContent);
+
+    check(reading === '3.00\u00d7',
+          `the reading says where the slider is: ${reading}`);
+
+    /* And the clock the page would stamp a command with is still the
+     * clock the module is running.
+     *
+     * Transport zero, the speed and the frame the output has reached are
+     * one line, and clock.js walks it from the other end (TransportClock)
+     * to turn a transport time into a frame. Turning the speed pins that
+     * line where the clock has got to, so transport zero stops being the
+     * frame the run was started at -- and a tape message that carried the
+     * pin instead of the zero, or the zero without the speed, would leave
+     * every stamp off by whatever the slider was moved to. Checked at 3x,
+     * where a factor of three is not a rounding error. */
+    const line = await page.evaluate(() => window.solo.transport());
+
+    check(Math.abs((line.frame - line.origin) * line.speed / line.rate -
+                   line.now) < 0.05,
+          `and the tape's clock is one line: (${Math.round(line.frame)} - ` +
+          `${Math.round(line.origin)}) * ${line.speed} / ${line.rate} is ` +
+          `${((line.frame - line.origin) * line.speed /
+              line.rate).toFixed(2)}, now is ${line.now.toFixed(2)}`);
 
     await page.click('#stop');
 

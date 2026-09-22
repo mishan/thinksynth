@@ -677,10 +677,14 @@ class ThinkProcessor extends AudioWorkletProcessor
     postTape ()
     {
         this.quanta = 0;
-        /* `frame' is where this synth's output has got to and `origin'
-           where its transport zero is, so the page can turn a transport
-           time into a frame and back; `late' is how many commands have
-           been applied after their time (thinkweb.cpp). */
+        /* `frame' is where this synth's output has got to, `origin' where
+           its transport zero is and `speed' how many transport seconds a
+           second of output carries, so the page can turn a transport time
+           into a frame and back; `late' is how many commands have been
+           applied after their time (thinkweb.cpp). The speed is here
+           because the two numbers are the whole of that line: a clock
+           that read the origin and assumed the speed would be wrong by
+           the factor the slider was moved to. */
         this.port.postMessage({
             type: 'tape',
             now: this.M._tw_now(),
@@ -688,6 +692,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             running: this.M._tw_running() !== 0,
             frame: this.M._tw_frame(),
             origin: this.M._tw_origin(),
+            speed: this.M._tw_speed_now(),
             late: this.M._tw_late(),
 
             /* The loudest capture frame since the last batch, and what the
