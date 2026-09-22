@@ -116,23 +116,6 @@ const photograph = () => page.evaluate(() =>
 
 let page = null;
 
-/* A press, a move and a release over a target -- the layout's own
-   gestures, which are pointer events and not the browser's drag: what is
-   being moved is a box in a layout, and where it would land is drawn by
-   the page rather than by a drag image. */
-const drag = async (from, to, at = { x: 0.5, y: 0.5 }) =>
-{
-    const a = await page.locator(from).boundingBox();
-    const b = await page.locator(to).boundingBox();
-
-    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(b.x + b.width * at.x, b.y + b.height * at.y,
-                          { steps: 10 });
-    await page.mouse.up();
-    await page.waitForTimeout(100);
-};
-
 try
 {
     page = await browser.newPage({ viewport: NARROW });

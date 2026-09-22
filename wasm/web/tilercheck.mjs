@@ -370,6 +370,29 @@ try
                       .parentElement.dataset.dir === 'row'),
           'and one dropped on a leaf\'s edge splits it that way');
 
+    /* And the other way, which is not the same code path reflected: the
+       two halves of a column are measured against a leaf's own floor
+       rather than against what the panes in it asked for. A drop that
+       only ever lands on a side edge never reads that number. */
+    await drag('#panetab-fx-plot', '#pane-fx-doc', { x: 0.5, y: 0.92 });
+
+    check(await page.evaluate(() =>
+          {
+              const leaf = document.getElementById('pane-fx-plot')
+                                   .closest('.paneleaf');
+              const box = leaf.parentElement;
+
+              return box.dataset.dir === 'col' &&
+                     box.contains(document.getElementById('pane-fx-doc')) &&
+                     leaf.previousElementSibling !== null;
+          }),
+          'and one dropped on a bottom edge splits it downward');
+
+    check(await page.evaluate(() =>
+              [...document.querySelectorAll('.paneleaf')]
+                  .every((n) => /^\d+px$/.test(n.style.minHeight))),
+          'every leaf carries the height floor it was given');
+
     /* ---- driven from the keys ---- */
 
     await page.keyboard.press('Alt+Digit0');
