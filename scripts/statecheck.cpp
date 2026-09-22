@@ -5563,6 +5563,78 @@ static void checkVowel (const string &pluginPath)
     }
 }
 
+/* ---- mixer::pan --------------------------------------------------------- */
+
+static void checkPan (const string &pluginPath)
+{
+    /* A sine through the pan at five places, both sides watched: the two
+       sides' powers have to sum to the input's at every sample -- which is
+       the law, and is what a linear pan fails by half at the middle --
+       with -1 all on the left, 1 all on the right, and the middle equal. */
+    static const float places[] = { -1, -0.5f, 0, 0.3f, 1 };
+    bool law = true, ends = true;
+    string detail;
+
+    for (float place : places)
+    {
+        vector<NodeSpec> spec;
+        NodeSpec src, pan;
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        src.name = "src";
+        src.spelling = "osc/simple";
+        src.values.push_back(Value{ "freq", 440 });
+        src.values.push_back(Value{ "amp", 0.8f });
+        src.values.push_back(Value{ "waveform", 0 });
+
+        pan.name = "pan";
+        pan.spelling = "mixer/pan";
+        pan.values.push_back(Value{ "pan", place });
+        pan.wires.push_back(Wire{ "in", "src", "out" });
+
+        spec.push_back(src);
+        spec.push_back(pan);
+        watch.push_back(Watch{ "src", "out" });
+        watch.push_back(Watch{ "pan", "out0" });
+        watch.push_back(Watch{ "pan", "out1" });
+
+        if (!render(pluginPath, spec, watch, 256, 4410, got, why))
+        {
+            fail("mixer::pan renders", why);
+            return;
+        }
+
+        for (size_t i = 0; i < got[0].size(); i++)
+        {
+            const double in = got[0][i], l = got[1][i], r = got[2][i];
+
+            if (law && fabs(l * l + r * r - in * in) > 1e-6)
+            {
+                law = false;
+                detail = "at " + num(place) + ", sample " + num((double)i) +
+                         ": " + num(l * l + r * r) + " against " +
+                         num(in * in);
+            }
+
+            if (ends && ((place == -1 && (r != 0 || l != (float)in)) ||
+                         (place == 1 && fabs(l) > 1e-6) ||
+                         (place == 0 && l != r)))
+            {
+                ends = false;
+                detail = "at " + num(place) + ": left " + num(l) +
+                         ", right " + num(r);
+            }
+        }
+    }
+
+    okOrFail(law, "mixer::pan: the two sides' powers sum to the input's "
+                  "wherever it is panned", detail);
+    okOrFail(ends, "mixer::pan: -1 is the left alone, 1 the right, and 0 "
+                   "the two equal", detail);
+}
+
 /* ---- dyn::compressor ----------------------------------------------------
  *
  * Three things a compressor has to be true about, and they are three
@@ -6006,6 +6078,7 @@ int main (int argc, char **argv)
     checkDrift(pluginPath);
     checkPad(pluginPath);
     checkVowel(pluginPath);
+    checkPan(pluginPath);
     checkCompressor(pluginPath);
 
     printf("\n%d failure(s)\n", failed);

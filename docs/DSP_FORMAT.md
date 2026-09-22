@@ -242,8 +242,10 @@ written only into a graph that mentions them, so a file that reads none has
 none. What each one means is the graph's to say, and a zero is a value — a MIDI
 note, or one from a composer that never set them, carries zeros, so a graph
 should read zero as "as patched". The convention the shipped graphs keep, and
-`xform::vary` writes: `aux0` is a pan from -1 (left) to 1 (right), `aux1` a
-brightness, `aux2` how slow the attack is, each -1 to 1 and 0 in the middle.
+`xform::vary` and `xform::cloud` write: `aux0` is a pan from -1 (left) to 1
+(right), `aux1` a brightness, `aux2` how slow the attack is, each -1 to 1 and 0
+in the middle. `mixer::pan` is the node that reads `aux0` that way, by constant
+power.
 
 So an arg is an input to the audio-out half if
 

@@ -53,7 +53,7 @@ think_add_plugin_category(misc     latch noisegate midi2freq midi2range
                                    freq2samples print decibel slew vibrato
                                    drift)
 
-think_add_plugin_category(mixer    add fade mul)
+think_add_plugin_category(mixer    add fade mul pan)
 
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
                                    fmop sample grain pad
@@ -101,6 +101,7 @@ think_add_composer(steps)
 think_add_composer(pump)
 think_add_composer(transpose)
 think_add_composer(vary)
+think_add_composer(cloud)
 think_add_composer(accent)
 think_add_composer(run)
 think_add_composer(grid)
