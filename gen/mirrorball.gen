@@ -44,9 +44,10 @@
 # and fires every thirty-two, so it lands on the downbeat of every
 # eighth bar.
 #
-# A level in a section scales velocity, and on this kit velocity is
-# the pedal, so the hats are muted or left alone and the numbers under
-# one sit on the strings and the Rhodes.
+# A level in a section is the note's gain at the mix, not its velocity,
+# so the hats in the break are at 0.6 and exactly as open as they were,
+# and the guitar at 0.8 in the intro is quieter without the palm
+# changing. Velocity stays the player's; the level is the desk's.
 #
 # The tambourine's chance, the section's runs and the snare's ratchet
 # roll dice; the seed is pinned for them. Self-contained: open it and
@@ -65,13 +66,14 @@ meter 4;
 
 section intro  8 bars { kick = 0;  snare = 0;  hats_open = 0;  tamb = 0;
                         clap = 0;  bass = 0;  rhodes = 0;  section = 0;
-                        swoop = 0; };
+                        swoop = 0;  guitar = 0.8; };
 section groove 16 bars { clap = 0;  section = 0.7; };
-section break   8 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
-                         tamb = 0;  rhodes = 0;  section = 0;  swoop = 0; };
+section break   8 bars { kick = 0;  snare = 0;  hats = 0.6;  hats_open = 0.6;
+                         tamb = 0;  rhodes = 0;  section = 0;  swoop = 0;
+                         bass = 0.85; };
 section full   24 bars { clap = 0;  rhodes = 1.1; };
-section out     8 bars { snare = 0;  clap = 0;  hats_open = 0;  rhodes = 0;
-                         swoop = 0;  section = 0.8; };
+section out     8 bars { snare = 0;  clap = 0;  hats_open = 0.5;  rhodes = 0;
+                         swoop = 0;  section = 0.8;  kick = 0.85; };
 section end;
 
 # How hard the guitarist's palm sits on the strings.

@@ -39,10 +39,11 @@
 # plate. Congas answer on the `and's; the tambourine keeps the
 # sixteenths. Closed hat on the beats and open on the `and's, choked.
 #
-# A level in a section scales velocity, and on the kit velocity is the
-# pedal and on the brass it is the filter, so those chains are muted
-# or left alone; the numbers under one sit on the strings and the
-# Rhodes.
+# A level in a section is the note's gain at the mix, not its velocity:
+# the brushes in the verse are the kit at 0.8 with the wires exactly as
+# soft as the velocities say, and the open hat in the break is half as
+# loud and as open as ever. Velocity is the player's; the level is the
+# desk's.
 #
 # The runs and the tambourine's chance roll dice; the seed is pinned
 # for them. Self-contained: open it and press Play.
@@ -61,10 +62,12 @@ meter 4;
 section intro   8 bars { kick = 0;  snare = 0;  hats = 0;  hats_open = 0;
                          congas = 0;  tamb = 0;  bass = 0;  horns = 0;
                          organ = 0;  section = 0.8;  section_runs = 0; };
-section verse  16 bars { horns = 0;  section = 0.8;  section_runs = 0; };
+section verse  16 bars { horns = 0;  section = 0.8;  section_runs = 0;
+                         kick = 0.8;  snare = 0.8;  tamb = 0.7; };
 section chorus 16 bars { section = 0;  rhodes = 0.9; };
-section break   8 bars { kick = 0;  snare = 0;  hats_open = 0;  horns = 0;
-                         section = 0;  section_runs = 0;  rhodes = 0; };
+section break   8 bars { kick = 0;  snare = 0;  hats_open = 0.5;  horns = 0;
+                         section = 0;  section_runs = 0;  rhodes = 0;
+                         bass = 0.85; };
 section chorus2 16 bars { section = 0;  rhodes = 0.9; };
 section end;
 
