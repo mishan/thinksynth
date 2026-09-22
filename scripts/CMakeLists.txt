@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;PANEL;PATCH;DSPCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -41,6 +41,13 @@ function(think_harness name)
   # directory to stand in.
   if(H_PATCH)
     list(APPEND sources $<TARGET_OBJECTS:think_patch>)
+  endif()
+
+  # What a .dsp says before anything loads it (src/DspCatalog.h). No graph
+  # and no plugins, which is what lets dspcatalog check a chooser's list on
+  # every platform -- and, where a corpus is at hand, against the parser.
+  if(H_DSPCATALOG)
+    list(APPEND sources $<TARGET_OBJECTS:think_dspcatalog>)
   endif()
 
   # A canvas's content (src/CanvasContent.h): the base and the one canvas
@@ -266,6 +273,12 @@ think_harness(panelcheck PANEL)
 # no plugins and no channel -- a document is a string, which is the whole
 # point of having one.
 think_harness(patchcheck PATCH)
+
+# What a chooser would show: every shipped .dsp's title, description and kind,
+# read out of the header rather than out of a built graph -- and each one put
+# beside what the parser says about the same file, since a format read twice
+# is a format free to drift. Fixtures for the headers the corpus cannot have.
+think_harness(dspcatalog DSPCATALOG)
 
 # The composer framework: the .gen loader's validation (each bad file is
 # built on the fly and must fail with the right complaint), the shared pitch
@@ -561,6 +574,13 @@ add_test(NAME patchcheck
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
+
+# The corpus, because "a row says what loading the file would have said" is a
+# claim about the shipped graphs; the fixtures run either way. The plugins are
+# for the half that loads.
+add_test(NAME dspcatalog
+         COMMAND dspcatalog -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp")
 
 # Needs the plugins, because what it compares is two runs of the real ones.
 add_test(NAME hostcheck

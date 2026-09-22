@@ -103,6 +103,19 @@ target_include_directories(think_patch PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(think_patch PUBLIC think)
 
+# What a .dsp *says*, before anything loads it (src/DspCatalog.h): the title
+# and the description its author wrote, and whether the io node declares in0.
+# Its own object library rather than a member of think_nodemodel, for the
+# reason think_patch is one: scripts/dspcatalog wants exactly this and a
+# corpus directory -- no plugins, no graph, nothing dlopened -- which is what
+# lets a chooser's list be a gate on every platform. It links libthink for
+# thLexer, the scanner .dsp and .gen share, and for nothing else.
+add_library(think_dspcatalog OBJECT DspCatalog.cpp)
+target_include_directories(think_dspcatalog PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_dspcatalog PUBLIC think)
+
 add_library(think_canvas OBJECT CanvasContent.cpp)
 target_include_directories(think_canvas PUBLIC
     "${PROJECT_SOURCE_DIR}"
@@ -234,6 +247,7 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_composerhost>
     $<TARGET_OBJECTS:think_panel>
     $<TARGET_OBJECTS:think_patch>
+    $<TARGET_OBJECTS:think_dspcatalog>
     $<TARGET_OBJECTS:think_canvas>
     $<TARGET_OBJECTS:think_nodecanvas>
     $<TARGET_OBJECTS:think_composercanvas>)
