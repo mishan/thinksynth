@@ -627,7 +627,10 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/phaser.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/rotary.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/vocoder.dsp"
-                 "${PROJECT_SOURCE_DIR}/dsp/fx/comp.dsp")
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/comp.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/space.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/shimmer.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/detune.dsp")
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
