@@ -607,22 +607,26 @@ async function runBrowser (label, type)
      * anyway since only the vocoder can have added the difference.
      */
     {
-        let quiet, loud;
+        /* A catch each, because the two runs fail for different reasons and
+           the report has to name the one that did: sharing a catch made a
+           timeout on the microphone run print "it was silent without" one. */
+        const run = async (withMic, what) =>
+        {
+            try
+            {
+                return await withTimeout(
+                    pieceInBrowser(page, SHIPPED, withMic, LIVE_SECONDS,
+                                   WINDOW),
+                    `${label} ${SHIPPED} ${what}`);
+            }
+            catch (e)
+            {
+                return { peak: 0, why: e.message.split('\n')[0] };
+            }
+        };
 
-        try
-        {
-            quiet = await withTimeout(
-                pieceInBrowser(page, SHIPPED, false, LIVE_SECONDS, WINDOW),
-                `${label} ${SHIPPED} without a microphone`);
-            loud = await withTimeout(
-                pieceInBrowser(page, SHIPPED, true, LIVE_SECONDS, WINDOW),
-                `${label} ${SHIPPED} with one`);
-        }
-        catch (e)
-        {
-            quiet = { peak: 0, why: e.message.split('\n')[0] };
-            loud = { peak: 0, why: '' };
-        }
+        const quiet = await run(false, 'without a microphone');
+        const loud = await run(true, 'with one');
 
         /* How much louder it has to get, and why the number is loose.
          *
@@ -644,20 +648,27 @@ async function runBrowser (label, type)
          *
          * Firefox gets 1.0x. Its fake device is a tone at a level it chooses,
          * and a single sine lights one of sixteen bands; there is nothing to
-         * hold it to but connectedness. */
-        const want = label === 'chromium' ? 1.15 : 1.0;
+         * hold it to but connectedness -- and a bound of 1.0x is not that. The
+         * two peaks come off two independent real-time runs, so a ratio landing
+         * at 1.0 falls either side of it by chance and the leg would flake on
+         * the coin. 0.9x is the loosest reading of "both runs made sound",
+         * which is all Firefox is being asked here. */
+        const want = label === 'chromium' ? 1.15 : 0.9;
         const ratio = quiet.peak > 0 ? loud.peak / quiet.peak : 0;
+        const because = (why) => (why === '' ? '' : ` -- ${why}`);
 
-        if (quiet.peak === 0 || ratio <= want)
+        if (quiet.peak === 0 || loud.peak === 0 || ratio <= want)
         {
             ok = false;
             process.stdout.write(
                 `FAIL  ${label} ${SHIPPED}: ` +
                 (quiet.peak === 0
-                    ? `it was silent without a microphone -- ${quiet.why}`
-                    : `the microphone moved it by ${ratio.toFixed(2)}x, ` +
-                      `wanted over ${want}x: ${quiet.peak.toFixed(3)} then ` +
-                      `${loud.peak.toFixed(3)}`) + '\n');
+                    ? 'it was silent without a microphone' + because(quiet.why)
+                    : loud.peak === 0
+                        ? 'it was silent with a microphone' + because(loud.why)
+                        : `the microphone moved it by ${ratio.toFixed(2)}x, ` +
+                          `wanted over ${want}x: ${quiet.peak.toFixed(3)} ` +
+                          `then ${loud.peak.toFixed(3)}`) + '\n');
         }
         else
             process.stdout.write(

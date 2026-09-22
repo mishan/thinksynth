@@ -148,11 +148,27 @@ export async function openMic (ctx, node, { deviceId = null } = {})
         processing[name] = (name in got) ? got[name] : null;
 
     /* A source node has to outlive this call or it is collected and the input
-       goes quiet, so it is held in what comes back. */
-    const source = ctx.createMediaStreamSource(stream);
+       goes quiet, so it is held in what comes back. Nothing is returned if the
+       wiring throws, so the tracks have to be stopped here or the device stays
+       held -- and the recording indicator lit -- with no close() to call. */
+    let source;
 
-    /* To the worklet's input and to nothing else. See the head. */
-    source.connect(node);
+    try
+    {
+        source = ctx.createMediaStreamSource(stream);
+
+        /* To the worklet's input and to nothing else. See the head. */
+        source.connect(node);
+    }
+    catch (e)
+    {
+        if (source !== undefined)
+            source.disconnect();
+
+        stream.getTracks().forEach((t) => t.stop());
+
+        throw new Error(`the microphone did not open: ${e.message || e.name}`);
+    }
 
     let open = true;
 

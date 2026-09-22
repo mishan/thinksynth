@@ -969,17 +969,28 @@ int main (int argc, char **argv)
             }
 
             bool same = dry.size() == wet.size() && !dry.empty();
+            size_t at = 0;
 
             for (size_t i = 0; i < dry.size() && same; i++)
                 if (memcmp(&dry[i], &wet[i], sizeof(float)) != 0)
+                {
                     same = false;
+                    at = i;
+                }
 
+            /* Silence passes the comparison and fails the assertion, so it
+             * needs a detail of its own: reporting it as a difference sends
+             * whoever reads the line looking for one that is not there. */
             okOrFail(same && peak(dry) > 0,
                      "a graph that asks for no live input renders bit for bit "
                      "the same while a host is capturing",
-                     dry.size() == wet.size()
-                         ? "the two renders differ"
-                         : "the two renders are different lengths");
+                     dry.size() != wet.size()
+                         ? "the two renders are different lengths"
+                         : dry.empty()
+                             ? "neither render produced a frame"
+                             : same
+                                 ? "it rendered silence"
+                                 : "they differ at frame " + num((double)at));
         }
     }
 
