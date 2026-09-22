@@ -415,6 +415,8 @@ thcScheduler::addChain (const std::string &name)
     chains_.back().name = name;
     chains_.back().muted = false;
     chains_.back().inputMidi = false;
+    chains_.back().start = 0;
+    chains_.back().startBeats = false;
 
     return chains_.size() - 1;
 }
@@ -438,6 +440,41 @@ thcScheduler::setChainInput (size_t chain, bool midi)
 {
     if (chain < chains_.size())
         chains_[chain].inputMidi = midi;
+}
+
+void
+thcScheduler::setChainStart (size_t chain, double at, bool beats)
+{
+    if (chain < chains_.size())
+    {
+        chains_[chain].start = at;
+        chains_[chain].startBeats = beats;
+
+        /* The stages this chain already has: `start' may be written
+           below them, and a wake armed at the old time has to move. */
+        bool moved = false;
+
+        for (size_t i = 0; i < wakeups_.size(); i++)
+            if (wakeups_[i].chain == chain &&
+                chains_[chain].stages[wakeups_[i].stage]->awaitingStart)
+            {
+                wakeups_[i].at = chainStartTime(chains_[chain]);
+                moved = true;
+            }
+
+        if (moved)
+            std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+    }
+}
+
+double
+thcScheduler::chainStartTime (const thcChain &chain) const
+{
+    if (!chain.startBeats)
+        return std::max(transportNow_, chain.start);
+
+    return transportNow_ + std::max(0.0, chain.start - beat_) *
+        60.0 / tempo_;
 }
 
 /* Deterministic mixing of the master seed with the stage's position, so
@@ -508,7 +545,7 @@ thcScheduler::addStage (size_t chain, thcPlugin *plugin, bool asGenerator)
 
     if (s->ticks)
     {
-        wakeups_.push_back({ transportNow_, chain, stage, heapSeq_++ });
+        wakeups_.push_back({ chainStartTime(c), chain, stage, heapSeq_++ });
         std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
     }
 
@@ -1807,6 +1844,7 @@ thcScheduler::runDueTicks (double now)
 
         thcChain &c = chains_[w.chain];
         thcStage *s = c.stages[w.stage].get();
+        s->awaitingStart = false;
 
         /* The transport as this stage sees it: its own wake, and the beat
            that time falls on. */
@@ -1876,7 +1914,7 @@ thcScheduler::rearmStage (size_t chain, size_t stage)
 
     thcStage *s = chains_[chain].stages[stage].get();
 
-    if (!s->sleeping || !s->ticks)
+    if (!s->sleeping || !s->ticks || s->awaitingStart)
         return;
 
     s->sleeping = false;
@@ -2343,6 +2381,7 @@ thcScheduler::reset (void)
                armed by the first announcement and then again below: two
                wakes at zero, two ticks, and a replay that was not one. */
             s->sleeping = false;
+            s->awaitingStart = s->ticks;
 
             /* Everything the load did, done again to the instance that
                now serves the store -- see replay(). After the swap,
@@ -2352,7 +2391,8 @@ thcScheduler::reset (void)
 
             if (s->ticks && s->state != NULL)
             {
-                wakeups_.push_back({ 0.0, ci, si, heapSeq_++ });
+                wakeups_.push_back({ chainStartTime(chains_[ci]), ci, si,
+                                     heapSeq_++ });
                 std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
             }
         }
@@ -2364,7 +2404,28 @@ void
 thcScheduler::setTempo (double bpm)
 {
     if (bpm > 0)
+    {
         tempo_ = bpm;
+
+        /* A beat-valued chain start follows the clock until its first
+           tick. Once the generator has begun, its own schedule owns it. */
+        bool moved = false;
+
+        for (size_t i = 0; i < wakeups_.size(); i++)
+        {
+            Wakeup &w = wakeups_[i];
+            const thcChain &c = chains_[w.chain];
+
+            if (c.startBeats && c.stages[w.stage]->awaitingStart)
+            {
+                w.at = chainStartTime(c);
+                moved = true;
+            }
+        }
+
+        if (moved)
+            std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+    }
 }
 
 bool
@@ -2373,6 +2434,9 @@ thcScheduler::usesBeats (void) const
     for (size_t ci = 0; ci < chains_.size(); ci++)
     {
         const thcChain &c = chains_[ci];
+
+        if (c.startBeats)
+            return true;
 
         for (size_t si = 0; si < c.stages.size(); si++)
             if (c.stages[si] && c.stages[si]->params.anyBeats())

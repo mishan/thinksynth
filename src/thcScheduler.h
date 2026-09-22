@@ -341,6 +341,7 @@ struct thcStage
        transformer as an xform:: one -- the file's declared role, not
        the module's capability, decides what gets scheduled. */
     bool           ticks;
+    bool           awaitingStart; /* first tick still pending           */
 
     /* How many times inside the current transport step this stage has
        asked to be woken at a time that has already passed. Re-arming
@@ -353,7 +354,7 @@ struct thcStage
 
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), state(NULL), params(p, seed), sleeping(false),
-          ticks(wantTick), stalled(0) {}
+          ticks(wantTick), awaitingStart(wantTick), stalled(0) {}
 };
 
 /* Where a chain's events go when they fall off the end. A plain sink
@@ -390,6 +391,8 @@ struct thcChain
     std::string  name;
     bool         muted;
     bool         inputMidi;  /* fed by live MIDI on the sink channel     */
+    double       start;      /* first generator wake, seconds or beats  */
+    bool         startBeats;
 
     /* unique_ptr for the address stability thcParamStore::params()
        documents, not for shared ownership. */
@@ -461,6 +464,8 @@ public:
     void      addSink (size_t chain, int channel,
                        const std::string &chanarg = "");
     void      setChainInput (size_t chain, bool midi);
+    /* May be set while loading the chain, before transport starts. */
+    void      setChainStart (size_t chain, double at, bool beats);
     void      clearChains (void);
 
     /* ---- piece knobs ----
@@ -854,6 +859,7 @@ public:
     sigc::signal<void ()> sigReset;
 
 private:
+    double chainStartTime (const thcChain &chain) const;
     /* The values half of applyInstrument, on a channel whose graph is
        already up. Split out so every refusal has one caller, and that
        caller can take the graph back down. */

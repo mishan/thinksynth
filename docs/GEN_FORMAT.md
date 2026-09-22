@@ -364,6 +364,13 @@ intuition in whoever edits the file.
 
 A chain body holds, in order:
 
+- optionally `start = 93 beats;` — the chain's generators first wake at
+  that transport position. Seconds (`s`), milliseconds (`ms`), beats (`beats`
+  or `b`), and bars are accepted; bars use the piece's `meter`. The default
+  is zero. A rewind arms the generators at the same position again. Live MIDI
+  input is unaffected, so a chain with no generator stage may not set one.
+  Write `meter` before a chain start in bars. The composer panel's chain
+  strip has an entry for it beside the name.
 - optionally `input midi;` — the chain is fed by live MIDI arriving on the
   sink channel (arpeggiators, Markov training). A chain may have an input, a
   generator stage, both, or neither only if it is all transformers reached by
@@ -681,6 +688,7 @@ infostring  : ("name" | "author" | "description" | "category") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
 meter       : "meter" NUMBER ";"                       # before any section
+                                                       # or start in bars
 section     : "section" WORD NUMBER seclen "{" seclevel* "}" ";"
             | "section" "end" ";"                      # closes the list
 seclen      : "bars" | "beats" | "b" | "s"
@@ -702,7 +710,9 @@ effectside  : "side" "=" WORD ";"                      # at most one; an
                                                        #   not on the mix
 instrval    : WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
 argunit     : "ms" | "%"                               # what .dsp folds
-chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
+chain       : "chain" WORD "{" (start | input | stage)* sink+ "}" ";"
+start       : "start" "=" NUMBER startunit ";"       # once per chain
+startunit   : "s" | "ms" | "beats" | "b" | "bars"
 input       : "input" "midi" ";"
 stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
                                                        # gen/xform: a

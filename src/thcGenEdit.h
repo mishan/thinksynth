@@ -103,6 +103,7 @@ public:
     struct Chain
     {
         std::string name;
+        std::string startText;  /* empty when the chain starts at zero */
         bool inputMidi;
         std::vector<Stage> stages;
         std::vector<Sink> sinks;
@@ -336,6 +337,13 @@ public:
 
     static Result setChainInput (const std::string &filename,
                                  const std::string &chain, bool midi,
+                                 std::string &why);
+
+    /* `"93 beats"', or "" to remove the line. Refuses anything the
+       loader would not read back. */
+    static Result setChainStart (const std::string &filename,
+                                 const std::string &chain,
+                                 const std::string &start,
                                  std::string &why);
 
     /* ---- stages ------------------------------------------------------- */
