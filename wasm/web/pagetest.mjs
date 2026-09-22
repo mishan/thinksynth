@@ -282,7 +282,20 @@ try
      * scratch declares its own instruments, and nothing the mode is
      * about.
      */
+    /* And the other way: the page opened on the sequence, so entering a
+       piece must load the piece the menu names rather than the sequence
+       still in the box -- or the menu says ebb.gen over the sequence, and
+       choosing ebb.gen does nothing because the menu already says so. */
     await page.selectOption('#mode', 'piece');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await page.evaluate(() =>
+              document.getElementById('piece').value === 'ebb.gen' &&
+              /^name "Ebb";/m.test(document.getElementById('gen').value) &&
+              /Loaded Ebb/.test(
+                  document.getElementById('status').textContent)),
+          'entering a piece loads the one the menu names: ebb.gen');
+
     await page.selectOption('#piece', 'scratch.gen');
     await page.evaluate(() => window.solo.settled());
 

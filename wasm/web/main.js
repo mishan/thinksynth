@@ -898,6 +898,8 @@ ${tracks.join('\n\n')}
    at a patch and came back expects to find. */
 async function loadSequence ()
 {
+    holdText('seq');
+
     if (!$('gen').value.includes(SEQ_MARK))
         $('gen').value = sequenceText();
 
@@ -908,11 +910,61 @@ async function loadSequence ()
             'Click cells to draw a pattern, then press Play.';
 }
 
-async function pickPiece ()
+/* The .gen box is one box and two modes write in it: the sequence and the
+ * piece. Each mode's text is kept here while the other has the box, so
+ * entering a mode puts back what it held -- the piece the menu names, or
+ * the pattern somebody drew -- rather than loading whatever the last mode
+ * left there. Without it, the page opening on the sequencer and then going
+ * to a piece loaded the sequence under a menu that said ebb.gen, and
+ * choosing ebb.gen did nothing, since the menu already said so.
+ *
+ * `null' is a mode that has never had the box: the sequence writes its own
+ * text the first time (loadSequence), and the piece is given the menu's
+ * default at init. */
+const modeText = { seq: null, piece: null };
+let textMode = null;             /* whose text the box is holding now */
+
+function holdText (which)
 {
-    $('gen').value = await (await fetch(`gen/${$('piece').value}`)).text();
+    if (textMode === which)
+        return;
+
+    if (textMode !== null)
+        modeText[textMode] = $('gen').value;
+
+    textMode = which;
+
+    if (modeText[which] !== null)
+        $('gen').value = modeText[which];
+}
+
+/* The piece mode, entered: its own text back in the box, then loaded. */
+async function loadPieceMode ()
+{
+    holdText('piece');
 
     await loadPiece();
+}
+
+/* A choice from the menu, in flight. The fetch comes before the load and
+   the load is what quietly() tracks, so without this a harness asking
+   settled() between the two was told the page had settled on the piece
+   before the one it chose. */
+let picking = Promise.resolve();
+
+async function pickPiece ()
+{
+    const run = (async () =>
+    {
+        $('gen').value =
+            await (await fetch(`gen/${$('piece').value}`)).text();
+
+        await loadPiece();
+    })();
+
+    picking = run.catch(() => {});
+
+    await run;
 }
 
 /* A load builds graphs on the audio thread, between two quanta, and a big
@@ -1755,7 +1807,7 @@ async function start ()
     else if (mode() === 'patch')
         await loadPatch();
     else
-        await loadPiece();
+        await loadPieceMode();
 
     try
     {
@@ -2145,11 +2197,14 @@ window.solo = {
        worklet and land after the load that quiet tracks is finished. */
     settled: async () =>
     {
-        for (let was = null, drew = null; was !== quiet || drew !== drawn; )
+        for (let was = null, drew = null, chose = null;
+             was !== quiet || drew !== drawn || chose !== picking; )
         {
             was = quiet;
             drew = drawn;
+            chose = picking;
 
+            await picking;
             await quiet;
             await drawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
@@ -2245,7 +2300,7 @@ async function pickMode ()
     if (which === 'seq')
         await loadSequence();
     else if (which === 'piece')
-        await loadPiece();
+        await loadPieceMode();
     else
     {
         synth.transport('stop');
@@ -2449,6 +2504,10 @@ async function init ()
         fetch(`dsp/${$('patch').value}`).then((r) => r.text()),
         fetch(`gen/${$('piece').value}`).then((r) => r.text()),
     ]);
+
+    /* The piece the menu names, which the box holds until a mode says
+       otherwise -- see holdText. */
+    textMode = 'piece';
 
     /* Sixteen is all there are, counted the way the file counts them and
        the way the channels row does -- the engine's number is one lower
