@@ -337,6 +337,31 @@ string DspCatalog::groupOf (const Entry &e)
     return dir;
 }
 
+namespace {
+    string fold (const string &s)
+    {
+        string out = s;
+
+        for (string::size_type i = 0; i < out.size(); i++)
+            out[i] = (char)tolower((unsigned char)out[i]);
+
+        return out;
+    }
+}
+
+bool DspCatalog::matches (const Entry &e, bool effects, const string &needle)
+{
+    if (e.isEffect != effects)
+        return false;
+
+    if (needle.empty())
+        return true;
+
+    const string hay = fold(e.name + " " + e.desc + " " + e.file);
+
+    return hay.find(fold(needle)) != string::npos;
+}
+
 void DspCatalog::index (void)
 {
     groups_.clear();

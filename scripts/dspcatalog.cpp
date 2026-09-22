@@ -37,8 +37,11 @@
  *   takesInput(). That is the claim the chooser rests on -- that a row drawn
  *   from a header says what loading the file would have said.
  *
- *   Grouping. Every entry lands in exactly one group, the groups come back
- *   sorted with Uncategorized last, and inGroup() accounts for every entry.
+ *   Grouping, and what a chooser offers. Every entry lands in exactly one
+ *   group, the groups come back sorted with Uncategorized last, and
+ *   inGroup() accounts for every entry. The kind split and the filter are
+ *   DspCatalog::matches rather than the browser's own, which is the reason
+ *   what a chooser shows can be held still with no display anywhere near.
  *
  *   The fixtures. A file per awkward header, asserting the documented answer
  *   rather than whatever the code happens to do: no header at all, an `io'
@@ -188,6 +191,43 @@ static void fixtures (void)
 
         check(e != NULL && e->name == "Broken",
               "a bad file still has a row");
+    }
+
+    /* What a chooser offers: the kind split and the filter. Both are
+       DspCatalog::matches and neither is the widget's, which is what makes
+       them checkable here. */
+    {
+        DspCatalog cat;
+
+        cat.take("bd10.dsp", "name \"BD-10\";\n"
+                             "description \"A tuned sine and a click.\";\n"
+                             "node ionode { channels = 2; };\nio ionode;\n");
+        cat.take("fx/echo.dsp", "name \"Echo\";\n"
+                                "description \"A stereo delay.\";\n"
+                                "node ionode { in0 = 0; };\nio ionode;\n");
+
+        const DspCatalog::Entry &drum = *cat.find("bd10.dsp");
+        const DspCatalog::Entry &echo = *cat.find("fx/echo.dsp");
+
+        check(DspCatalog::matches(drum, false, ""),
+              "an instrument is in the instrument list");
+        check(!DspCatalog::matches(drum, true, ""),
+              "an instrument is not in the effect list");
+        check(DspCatalog::matches(echo, true, ""),
+              "an effect is in the effect list");
+        check(!DspCatalog::matches(echo, false, ""),
+              "an effect is not in the instrument list");
+
+        check(DspCatalog::matches(drum, false, "bd-10"),
+              "the filter reads the title");
+        check(DspCatalog::matches(drum, false, "BD-10"),
+              "the filter ignores case");
+        check(DspCatalog::matches(drum, false, "bd10.dsp"),
+              "the filter reads the filename");
+        check(DspCatalog::matches(drum, false, "click"),
+              "the filter reads the description");
+        check(!DspCatalog::matches(drum, false, "reverb"),
+              "the filter excludes what it does not match");
     }
 
     /* Where a file with no category of its own is filed. */

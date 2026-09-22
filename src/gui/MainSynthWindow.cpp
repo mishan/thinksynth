@@ -46,6 +46,7 @@
 #include "MidiMap.h"
 #include "ArgPanelView.h"
 #include "NodeEditor.h"
+#include "DspBrowser.h"
 #include "Dialogs.h"
 #include "SaveButton.h"
 
@@ -93,7 +94,12 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     /* Likewise the DSP browser: DSP_PATH is the *build* machine's install
        prefix, so on a relocatable package it names a directory the user has
        never had. findDataDir finds the one that is actually there. */
-    prevDir_ = thUtil::findDataDir("dsp", "THINK_DSP_PATH", DSP_PATH);
+    dspDir_ = thUtil::findDataDir("dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    /* Where a file chooser opens, which the preferences may move; the
+       catalog's root, above, is the shipped tree and does not move with it.
+       They start out the same. */
+    prevDir_ = dspDir_;
 
     /* "win.keyboard" and the rest resolve against this. */
     actions_ = Gio::SimpleActionGroup::create();
@@ -920,36 +926,31 @@ void MainSynthWindow::reloadPages (int chan)
         notebook_.set_current_page(chan);
 }
 
+/* The effect chooser, which is the instrument browser with the other half of
+ * the corpus in it.
+ *
+ * This used to open the same file chooser at the same directory, so nothing
+ * stopped an instrument being picked and the only thing that said so was the
+ * dialog below, afterwards. The browser offers effect graphs and no others,
+ * which is the distinction being made where the choice is made. */
 void MainSynthWindow::onEffectBrowse (int chan)
 {
-    Gtk::FileChooserDialog *fileSel =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Load Channel Effect",
-                                   Gtk::FileChooser::Action::OPEN);
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
 
-    fileSel->set_modal(true);
-    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
-    fileSel->add_button("_Open", Gtk::ResponseType::OK);
+    DspBrowser *browser =
+        new DspBrowser(*this, DspBrowser::EFFECTS, dspDir_,
+                       patch ? patch->doc.effect : string());
 
-    if (prevDir_ != "")
-        fileSel->set_current_folder(Gio::File::create_for_path(prevDir_));
-
-    fileSel->signal_response().connect(
+    browser->signal_chosen().connect(
         sigc::bind(sigc::mem_fun(*this,
-                                 &MainSynthWindow::onEffectBrowseResponse),
-                   fileSel, chan));
+                                 &MainSynthWindow::onEffectChosen), chan));
 
-    fileSel->present();
+    browser->present();
 }
 
-void MainSynthWindow::onEffectBrowseResponse (int response,
-                                              Gtk::FileChooserDialog *fileSel,
-                                              int chan)
+void MainSynthWindow::onEffectChosen (string picked, int chan)
 {
-    const string picked = response == Gtk::ResponseType::OK
-                          ? chosenPath(*fileSel) : string();
-
-    closeDialog(fileSel);
-
     if (picked.empty())
         return;
 
@@ -1609,27 +1610,32 @@ void MainSynthWindow::onDspEntryActivate (void)
     notebook_.set_current_page(pagenum);
 }
 
+/* The instrument chooser: a browser over the catalog rather than a file
+ * chooser over a directory.
+ *
+ * What the user picked from before was sixty-one filenames with no filter and
+ * no descriptions -- and the titles and descriptions have been written into
+ * every one of those files for years. See src/gui/DspBrowser.h.
+ */
 void MainSynthWindow::onBrowseButton (void)
 {
-    Gtk::FileChooserDialog *fileSel =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Load DSP",
-                                   Gtk::FileChooser::Action::OPEN);
+    const int pagenum = notebook_.get_current_page();
 
-    fileSel->set_modal(true);
-    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
-    fileSel->add_button("_Open", Gtk::ResponseType::OK);
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(pagenum);
 
-    if (prevDir_ != "")
-        fileSel->set_current_folder(Gio::File::create_for_path(prevDir_));
+    DspBrowser *browser =
+        new DspBrowser(*this, DspBrowser::INSTRUMENTS, dspDir_,
+                       patch ? patch->doc.dsp : string());
 
-    /* The page is captured now rather than read in the handler: the chooser
+    /* The page is captured now rather than read in the handler: the browser
        is not modal to the notebook, and the tab that was current when Browse
        was clicked is the one this is loading onto. */
-    fileSel->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onBrowseResponse),
-                   fileSel, notebook_.get_current_page()));
+    browser->signal_chosen().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onBrowseChosen),
+                   pagenum));
 
-    fileSel->present();
+    browser->present();
 }
 
 void MainSynthWindow::queueSavePatch (string file, int chan)
@@ -1639,15 +1645,12 @@ void MainSynthWindow::queueSavePatch (string file, int chan)
             sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
 }
 
-void MainSynthWindow::onBrowseResponse (int response,
-                                        Gtk::FileChooserDialog *fileSel,
-                                        int pagenum)
+/* `picked' is the name the file is named by -- `ts1.dsp' -- or, from the
+ * browser's Other File..., an absolute path. newPatch resolves either and
+ * keeps the name as given, so a patch saved afterwards carries the short one.
+ */
+void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
 {
-    const string picked = response == Gtk::ResponseType::OK
-                          ? chosenPath(*fileSel) : string();
-
-    closeDialog(fileSel);
-
     if (picked.empty())
         return;
 
@@ -1660,10 +1663,14 @@ void MainSynthWindow::onBrowseResponse (int response,
         return;
     }
 
-    prevDir_ = thUtil::dirname(picked.c_str());
-    prevDir_ += "/";
-
+    /* Only a path moves the chooser's folder. A name out of the catalog says
+       nothing about a directory -- it came out of the shipped tree, which is
+       where the chooser already opens. */
+    if (std::filesystem::path(picked).is_absolute())
     {
+        prevDir_ = thUtil::dirname(picked.c_str());
+        prevDir_ += "/";
+
         string **vals = new string *[2];
 
         vals[0] = new string(prevDir_);

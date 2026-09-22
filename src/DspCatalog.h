@@ -143,6 +143,25 @@ public:
        a thing the catalog remembers. */
     static string groupOf (const Entry &e);
 
+    /* Whether a chooser showing `effects' and filtered by `needle' has a row
+     * for `e'.
+     *
+     * Here rather than in the widget that draws the list, so that what a
+     * chooser offers can be checked without a display -- and so that the
+     * browser and the browser's harness cannot come to disagree about it. The
+     * two halves:
+     *
+     *   The kind. An effect graph and an instrument are the same format and
+     *   are not interchangeable, so neither appears in the other's dialog.
+     *
+     *   The needle, matched over the title, the description *and* the
+     *   filename. The file is `bd10.dsp' and the title is `BD-10'; somebody
+     *   who knows one of those should not have to know the other. Case is
+     *   folded over ASCII only, which leaves a UTF-8 description's bytes
+     *   alone rather than mangling them -- a filter is a convenience and a
+     *   full Unicode casefold is a dependency. */
+    static bool matches (const Entry &e, bool effects, const string &needle);
+
     /* What Uncategorized is called, in one place, since the menus, the
        harness and the fallback all have to agree on the spelling. */
     static const char *const UNCATEGORIZED;

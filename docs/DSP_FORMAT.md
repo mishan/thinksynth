@@ -364,7 +364,8 @@ never finishes a note. `thSynth::loadEffect` refuses a graph with no `in0`,
 `thSynth::loadTree` will happily load an effect and it will sit there
 silently, and the note-playing harnesses (`dsplevel`, `dspsweep`, `dspprobe`)
 skip a graph that declares `in0` and say so. `scripts/fxcheck` is where effect
-graphs are covered.
+graphs are covered, and § *Choosing a file* is how the distinction reaches the
+chooser, which used to discover it only after the file was picked.
 
 **What it writes replaces what it was fed.** The dry signal is the graph's to
 mix:
@@ -701,3 +702,42 @@ filtered by name, on `Rythmic` — which also caught `ThickRythmic.patch` and
 `ThickRythmic-2.patch`, two healthy patches on `ts2.dsp`, and dropped them from
 the gate for as long as it stood. That is the argument for matching on content
 in one line.
+
+## 6. Choosing a file
+
+Every shipped `.dsp` declares a `name` and (with one exception) a
+`description`, and until recently no chooser read either: the desktop's Browse
+opened a file chooser over `dsp/` and the page's menu listed filenames, so the
+one moment a person has to pick a graph was the one moment nothing told them
+what the graphs were. `bd10.dsp` sits beside `bdshaped.dsp` and both declare
+`name "BD-10"`.
+
+`src/DspCatalog.h` is what makes reading them cheap. **The header, not the
+graph**: parsing a `.dsp` builds a `thSynthTree` and `dlopen`s every plugin it
+names, which is not a thing to do seventy-seven times to draw a list. The
+catalog runs the shared lexer (`libthink/thLexer.h`) over the file and picks up
+the info statements, plus which node the `io` statement names and whether that
+node declares `in0` — `thSynthTree::takesInput`, answered over the text.
+
+That last part is what lets **the effect split be enforced where the choice is
+made**. An effect graph and an instrument are the same format and are not
+interchangeable (§ *An effect graph*); the effect chooser offers the graphs
+that declare `in0` and the instrument chooser offers the ones that do not,
+rather than both offering everything and a dialog afterwards saying it was the
+wrong kind.
+
+An entry is named the way a file names it — `ts1.dsp`, `fx/echo.dsp` — because
+that is what `thUtil::findDataFile` resolves, what a `.patch`'s `dsp` line
+says and what a `.gen`'s `dsp` clause says. Choosing from the catalog therefore
+puts the short name in the document rather than this machine's absolute path.
+
+Entries are grouped by their `category` statement; a file that declares none
+falls back to the directory it was found in (`fx/` is Effects) and then to
+Uncategorized. A category is optional, and that fallback is the difference
+between a category and a schema.
+
+`scripts/dspcatalog` holds the two readings together: every shipped file is
+scanned *and* parsed, and the title, the description and the kind have to
+agree. What a chooser offers — the kind split, the filter — is
+`DspCatalog::matches` rather than a rule inside a widget, so it is checked
+there too, with no display anywhere near it.

@@ -154,6 +154,7 @@ set(THINKSYNTH_SOURCES
     gui/ArgPanelView.cpp
     gui/ColumnUtil.cpp
     gui/Dialogs.cpp
+    gui/DspBrowser.cpp
     gui/Keyboard.cpp
     gui/KeyboardWindow.cpp
     gui/MainSynthWindow.cpp
