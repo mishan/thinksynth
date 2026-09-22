@@ -149,7 +149,7 @@ static const double SCRAMBLE_STEPS = 6;
 
 static string pluginPath;
 static string scratchPath;
-static int note = 60;
+static int note = -1;
 
 struct Gene {
     string node;        /* empty for a top-level control */
@@ -439,6 +439,17 @@ static bool render (const string &source, vector<float> &mono,
                      (w.node == tree->IONode()->name() && w.arg == "play")))
                     continue;
 
+                /* Only a wire carrying a signal. A frequency, a gate or
+                   an envelope goes through the same `->' and a filter on
+                   it is a number filtered, which is not what the pool is
+                   for. What a port carries is its units. */
+                thNode *src = tree->findNode(w.srcNode);
+                thPlugin *srcPlugin = src ? src->plugin() : NULL;
+                const int srcIdx = argIndex(srcPlugin, w.srcPort);
+
+                if (srcIdx < 0 || srcPlugin->getArgUnits(srcIdx) != "full scale")
+                    continue;
+
                 bool have = false;
 
                 for (size_t i = 0; i < shape->wires.size(); i++)
@@ -492,9 +503,133 @@ static unsigned int le (const unsigned char *p, int bytes)
     return v;
 }
 
-/* PCM of 16, 24 or 32 bits or 32-bit float, mixed to mono. At the synth's
-   own rate or not at all: a resampler is a filter, and a target that has
-   been through one is a different target. */
+/* Windowed-sinc resampling, 32 taps a side, cut off below the lower of the
+   two Nyquists. A target at 48 kHz is the usual case and a comparison at
+   the synth's rate is the only comparison there is. */
+static void resample (vector<float> &x, double from, double to)
+{
+    const int TAPS = 32;
+    const double ratio = to / from;
+    const double cutoff = ratio < 1 ? ratio : 1.0;
+    const size_t n = (size_t)(x.size() * ratio);
+    vector<float> y(n);
+
+    for (size_t i = 0; i < n; i++)
+    {
+        const double at = i / ratio;
+        const long center = (long)floor(at);
+        double acc = 0, gain = 0;
+
+        for (long k = center - TAPS + 1; k <= center + TAPS; k++)
+        {
+            const double t = at - k;
+            const double w = 0.5 + 0.5 * cos(thv::FFT_PI * t / TAPS);
+            const double sinc = t == 0 ? 1.0
+                : sin(thv::FFT_PI * cutoff * t) / (thv::FFT_PI * cutoff * t);
+            const double h = w * sinc * cutoff;
+
+            gain += h;
+
+            if (k >= 0 && k < (long)x.size())
+                acc += h * x[k];
+        }
+
+        y[i] = (float)(gain > 0 ? acc / gain * cutoff : 0);
+    }
+
+    x.swap(y);
+}
+
+/* The note a recording is at, by YIN over the half second after its
+   onset, or -1 for a sound with no pitch -- a drum, noise. Half a second
+   because a note's attack is where the pitch is not yet what it will be. */
+static int detectNote (const vector<float> &x)
+{
+    const int rate = TH_DEFAULT_SAMPLES;
+    const int LO = rate / 1200, HI = rate / 30;   /* 30 Hz .. 1.2 kHz */
+    const size_t W = (size_t)rate / 2;
+
+    double peak = 0;
+
+    for (size_t i = 0; i < x.size(); i++)
+        peak = std::max(peak, (double)fabs(x[i]));
+
+    size_t onset = 0;
+
+    while (onset < x.size() && fabs(x[onset]) < peak * 0.05)
+        onset++;
+
+    /* Past the attack, and no further than the sound goes. */
+    size_t start = onset + (size_t)rate / 20;
+
+    if (start + W + HI > x.size())
+    {
+        if (x.size() < W + HI + 1)
+            return -1;
+
+        start = x.size() - W - HI - 1;
+    }
+
+    /* Cumulative-mean-normalized difference; the first dip under the
+       threshold, refined by a parabola. */
+    vector<double> d(HI + 1, 0.0);
+
+    for (int tau = 1; tau <= HI; tau++)
+    {
+        double acc = 0;
+
+        for (size_t i = start; i < start + W; i++)
+        {
+            const double diff = (double)x[i] - x[i + tau];
+
+            acc += diff * diff;
+        }
+
+        d[tau] = acc;
+    }
+
+    double running = 0;
+    vector<double> cmnd(HI + 1, 1.0);
+
+    for (int tau = 1; tau <= HI; tau++)
+    {
+        running += d[tau];
+        cmnd[tau] = running > 0 ? d[tau] * tau / running : 1.0;
+    }
+
+    int best = -1;
+
+    for (int tau = LO; tau < HI; tau++)
+        if (cmnd[tau] < 0.15)
+        {
+            while (tau + 1 < HI && cmnd[tau + 1] < cmnd[tau])
+                tau++;
+
+            best = tau;
+            break;
+        }
+
+    if (best < 0)
+        return -1;
+
+    double period = best;
+
+    if (best > 1 && best + 1 <= HI)
+    {
+        const double a = cmnd[best - 1], b = cmnd[best], c = cmnd[best + 1];
+        const double den = a - 2 * b + c;
+
+        if (den != 0)
+            period += 0.5 * (a - c) / den;
+    }
+
+    const double hz = rate / period;
+
+    return (int)lrint(69 + 12 * log2(hz / 440.0));
+}
+
+/* PCM of 16, 24 or 32 bits or 32-bit float, mixed to mono and brought to
+   the synth's rate. */
 static bool readWav (const char *path, vector<float> &mono, string &why)
 {
     std::ifstream in(path, std::ios::binary);
@@ -545,9 +680,9 @@ static bool readWav (const char *path, vector<float> &mono, string &why)
                 return false;
             }
 
-            if (rate != TH_DEFAULT_SAMPLES)
+            if (rate == 0)
             {
-                why = "the target has to be at 44100 Hz";
+                why = "no sample rate";
                 return false;
             }
 
@@ -578,6 +713,9 @@ static bool readWav (const char *path, vector<float> &mono, string &why)
 
                 mono.push_back((float)(acc / channels));
             }
+
+            if (rate != TH_DEFAULT_SAMPLES)
+                resample(mono, rate, TH_DEFAULT_SAMPLES);
 
             return true;
         }
@@ -917,6 +1055,7 @@ static int probe (const Extractor &ex, const char *file)
             if (d[k] < DEAD)
                 d[k] = probeTerm == "spectral" ? parts.spectral
                      : probeTerm == "envelope" ? parts.envelope
+                     : probeTerm == "noise"    ? parts.noise
                      : d[k];
 
             if (d[k] > furthest)
@@ -1067,9 +1206,10 @@ static double search (const Extractor &ex, const Features &target,
 
     if (label)
     {
-        printf("%s\n%5s %9s %9s %9s %6s\n", label, "gen", "best", "spectral",
-               "envelope", "sigma");
-        printf("%5d %9.3f %9.3f %9.3f\n", 0, best, parts.spectral, parts.envelope);
+        printf("%s\n%5s %9s %9s %9s %9s %6s\n", label, "gen", "best", "spectral",
+               "envelope", "noise", "sigma");
+        printf("%5d %9.3f %9.3f %9.3f %9.3f\n", 0, best, parts.spectral,
+               parts.envelope, parts.noise);
     }
 
     if (quantity.empty())
@@ -1166,8 +1306,8 @@ static double search (const Extractor &ex, const Features &target,
         if (label && (gen % 10 == 0 || gen == generations))
         {
             score(ex, target, bestSource, &parts);
-            printf("%5d %9.3f %9.3f %9.3f %6.2f\n", gen, best,
-                   parts.spectral, parts.envelope, sigma);
+            printf("%5d %9.3f %9.3f %9.3f %9.3f %6.2f\n", gen, best,
+                   parts.spectral, parts.envelope, parts.noise, sigma);
         }
     }
 
@@ -1343,6 +1483,46 @@ static int recover (const Extractor &ex, const char *file, unsigned int seed,
 
 /* ----------------------------------------------------------------- match */
 
+/* The distance between a WAV and a patch as it stands, and where the two
+   differ in noisiness: the flatness of each, over the note. */
+static int scoreOnly (const Extractor &ex, const char *wav, const char *file)
+{
+    string source, why;
+    vector<float> heard, mono;
+    Features target, mine;
+
+    if (!readWav(wav, heard, why) || !readFile(file, source) ||
+        !render(source, mono))
+    {
+        printf("%s / %s: %s\n", wav, file, why.c_str());
+        return 2;
+    }
+
+    heard.resize(mono.size(), 0.0f);
+    ex.extract(heard, target);
+    ex.extract(mono, mine);
+
+    if (!target.usable() || !mine.usable())
+        return 2;
+
+    const Distance d = Extractor::distance(target, mine);
+
+    printf("%-40s total %6.2f  spectral %5.2f  envelope %5.2f  noise %5.2f\n",
+           file, d.total(), d.spectral, d.envelope, d.noise);
+
+    if (getenv("DSPMATCH_FLATNESS"))
+    {
+        printf("  flatness dB per 12 ms, target / patch:\n ");
+
+        for (size_t f = 0; f < target.noise.size() && f < mine.noise.size() && f < 24; f++)
+            printf(" %4.0f/%-4.0f", target.noise[f], mine.noise[f]);
+
+        printf("\n");
+    }
+
+    return 0;
+}
+
 static int match (const Extractor &ex, const char *wav, const char *file,
                   unsigned int seed, int generations, const string &prefix)
 {
@@ -1355,6 +1535,22 @@ static int match (const Extractor &ex, const char *wav, const char *file,
     {
         printf("%s: %s\n", wav, why.c_str());
         return 2;
+    }
+
+    if (note < 0)
+    {
+        const int heardNote = detectNote(heard);
+
+        note = heardNote >= 0 ? heardNote : 60;
+        printf("%s: %s\n", wav, heardNote >= 0 ? "pitched" : "unpitched");
+    }
+
+    if (note < 0)
+    {
+        const int heardNote = detectNote(heard);
+
+        note = heardNote >= 0 ? heardNote : 60;
+        printf("%s: %s\n", wav, heardNote >= 0 ? "pitched" : "unpitched");
     }
 
     if (!readFile(file, source) || !render(source, mono, &genes) || genes.empty())
@@ -1708,6 +1904,22 @@ static int growTowards (const Extractor &ex, const char *wav, const char *file,
         return 2;
     }
 
+    if (note < 0)
+    {
+        const int heardNote = detectNote(heard);
+
+        note = heardNote >= 0 ? heardNote : 60;
+        printf("%s: %s\n", wav, heardNote >= 0 ? "pitched" : "unpitched");
+    }
+
+    if (note < 0)
+    {
+        const int heardNote = detectNote(heard);
+
+        note = heardNote >= 0 ? heardNote : 60;
+        printf("%s: %s\n", wav, heardNote >= 0 ? "pitched" : "unpitched");
+    }
+
     if (!readFile(file, source) || !render(source, mono))
     {
         printf("%s: would not load\n", file);
@@ -1762,17 +1974,19 @@ int main (int argc, char **argv)
         (i + 1 >= argc && strcmp(argv[i], "pool")))
     {
         printf("usage: %s -p PLUGINS [options] near file.dsp ...\n"
-               "       %s -p PLUGINS [options] [-t spectral|envelope] probe file.dsp\n"
+               "       %s -p PLUGINS [options] [-t spectral|envelope|noise] probe file.dsp\n"
                "       %s -p PLUGINS [options] [-o PREFIX] recover file.dsp\n"
                "       %s -p PLUGINS [options] [-o PREFIX] match target.wav file.dsp\n"
                "       %s -p PLUGINS [options] [-o PREFIX] [-r ROUNDS] grow target.wav file.dsp\n"
+               "       %s -p PLUGINS [options] score target.wav file.dsp\n"
                "       %s -p PLUGINS pool\n"
-               "  -n NOTE         the note played, 60 unless given\n"
+               "  -n NOTE         the note played; match and grow detect it from the target,\n"
+               "                  the rest play 60\n"
                "  -w HOLD         how long it is held, in windows of 1024 frames\n"
                "  -s SEED  -g GENERATIONS\n"
                "  -o PREFIX       write PREFIX-target, -start and -found, as .wav\n"
                "                  and, where there is a patch, as .dsp\n",
-               argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
+               argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -1793,6 +2007,9 @@ int main (int argc, char **argv)
 
     const Extractor ex(TH_DEFAULT_SAMPLES);
     const string mode = argv[i++];
+
+    if (note < 0 && mode != "match" && mode != "grow")
+        note = 60;
     int rc = 2;
 
     if (mode == "near")
@@ -1805,6 +2022,8 @@ int main (int argc, char **argv)
         rc = showPool();
     else if (mode == "grow" && i + 1 < argc)
         rc = growTowards(ex, argv[i], argv[i + 1], seed, generations, rounds, prefix);
+    else if (mode == "score" && i + 1 < argc)
+        rc = scoreOnly(ex, argv[i], argv[i + 1]);
     else if (mode == "match" && i + 1 < argc)
         rc = match(ex, argv[i], argv[i + 1], seed, generations, prefix);
 

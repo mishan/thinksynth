@@ -39,6 +39,14 @@
  *              points, and bands an eighth of an octave apart from 27.5 to
  *              880 Hz, where a semitone is most of a band.
  *
+ *   noise      spectral flatness per frame -- the geometric over the
+ *              arithmetic mean of the power spectrum, in dB -- at the
+ *              2048-point size. Band energies cannot tell a noise from
+ *              dense partials with the same envelope, and a search that
+ *              was judged on them alone matched a snare with a ringing
+ *              tone and a piano with a buzz. An ear tells those apart
+ *              before it tells anything else.
+ *
  *   envelope   RMS in dB below the sound's own peak, every 10 ms. The
  *              spectrograms are taken after loudness normalization and so
  *              know little about how a note swells and dies; this term is
@@ -60,6 +68,7 @@
 
 #include <math.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "fftr.h"
@@ -74,6 +83,8 @@ const unsigned int FFT_ORDERS[RESOLUTIONS] = { 9, 11, 12, 14 };
 
 /* The last of those is the bass layer, banded in octaves, not mels. */
 const int BASS_RESOLUTION = 3;
+const int NOISE_RESOLUTION = 1;
+const double TONAL_DB = -30.0;
 const double BASS_LO_HZ = 27.5, BASS_HI_HZ = 880.0;
 
 /* A band's level is 20 log10(magnitude + FLOOR), so it approaches
@@ -117,6 +128,10 @@ struct Features {
     /* dB below the loudest 10 ms, one per 10 ms. */
     vector<float> envelope;
 
+    /* Flatness in dB per frame of mel[NOISE_RESOLUTION]: 0 is white
+       noise, -30 or so is a sine. */
+    vector<float> noise;
+
 
     Features (void) : verdict(SILENT)
     {
@@ -130,14 +145,15 @@ struct Features {
 struct Distance {
     double spectral;    /* mean |dB| per band per frame, over resolutions */
     double envelope;    /* mean |dB| per 10 ms                            */
+    double noise;       /* mean |dB| of flatness per frame                */
 
-    Distance (void) : spectral(0), envelope(0) {}
+    Distance (void) : spectral(0), envelope(0), noise(0) {}
 
     /* One number, for a search that wants one. Both terms are already in
        dB, so the weight is a statement about taste rather than about
        units: a dB of envelope error matters half as much as a dB of
        spectral error, because the spectrograms hear the envelope too. */
-    double total (void) const { return spectral + 0.5 * envelope; }
+    double total (void) const { return spectral + 0.5 * envelope + 0.5 * noise; }
 };
 
 inline double hzToMel (double hz) { return 2595.0 * log10(1.0 + hz / 700.0); }
@@ -394,6 +410,28 @@ public:
         if (counted)
             d.envelope = acc / (double)counted;
 
+        const int nf = std::min(a.frames[NOISE_RESOLUTION], b.frames[NOISE_RESOLUTION]);
+        double nacc = 0;
+        size_t ncounted = 0;
+
+        for (int f = 0; f < nf; f++)
+        {
+            const float *fa = &a.mel[NOISE_RESOLUTION][(size_t)f * MEL_BANDS];
+            const float *fb = &b.mel[NOISE_RESOLUTION][(size_t)f * MEL_BANDS];
+
+            /* Both, not either: the envelope term already charges a
+               sound that has stopped, and the flatness of nothing is
+               that of white noise. */
+            if (!audible(fa) || !audible(fb))
+                continue;
+
+            nacc += fabs((double)a.noise[f] - (double)b.noise[f]);
+            ncounted++;
+        }
+
+        if (ncounted)
+            d.noise = nacc / (double)ncounted;
+
         return d;
     }
 
@@ -432,11 +470,40 @@ private:
 
             fft_[r]->magnitude(at, &mag[0]);
 
+            if (r == NOISE_RESOLUTION)
+                out.noise.push_back((float)flatness(mag));
+
             out.mel[r].resize(out.mel[r].size() + MEL_BANDS);
             bank_[r]->apply(&mag[0],
                             &out.mel[r][(size_t)out.frames[r] * MEL_BANDS]);
             out.frames[r]++;
         }
+    }
+
+    /* Over the bins from 100 Hz to 10 kHz, since neither end has much in
+       it but the window. Power floored so that silence is not a NaN. */
+    double flatness (const vector<float> &mag) const
+    {
+        const double hzPerBin = samplerate_ * 0.5 / (double)mag.size();
+        const size_t lo = (size_t)(100.0 / hzPerBin), hi = std::min(mag.size(), (size_t)(10000.0 / hzPerBin));
+        double logSum = 0, sum = 0;
+
+        for (size_t i = lo; i < hi; i++)
+        {
+            const double p = (double)mag[i] * mag[i] + 1e-12;
+
+            logSum += log(p);
+            sum += p;
+        }
+
+        const double n = (double)(hi - lo);
+
+        const double db = 10.0 * log10(exp(logSum / n) / (sum / n));
+
+        /* Below -30 dB everything is a tone. A Rhodes at -66 and a sine at
+           -85 are as different as flatness gets and an ear hears one
+           thing; a snare at -10 and a ring at -20 are what it is for. */
+        return db < TONAL_DB ? TONAL_DB : db;
     }
 
     void envelope (const vector<float> &x, Features &out) const
