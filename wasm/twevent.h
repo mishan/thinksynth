@@ -39,6 +39,9 @@
 
 #include "libthink/thcomposer.h"
 
+/* thcEvent's four, as doubles like every other number JavaScript reads. */
+#define TH_NOTE_AUX_TAPE 4
+
 /* `kind' is the tape's letter rather than the enum, so the enum's numbering
    stays this side of the boundary -- except for an event the tape has no
    letter for, whose raw type rides in `note'. */
@@ -54,6 +57,7 @@ struct twEvent
     const char *name;       /* C: chanarg, P: patch, E: node */
     const char *arg;        /* E */
     double      level;      /* N */
+    double      aux[TH_NOTE_AUX_TAPE]; /* N */
 };
 
 static_assert(offsetof(twEvent, at) == 0, "tape.mjs reads at 0");
@@ -66,7 +70,10 @@ static_assert(offsetof(twEvent, velocity) == 36, "tape.mjs reads 36");
 static_assert(offsetof(twEvent, name) == 40, "tape.mjs reads 40");
 static_assert(offsetof(twEvent, arg) == 44, "tape.mjs reads 44");
 static_assert(offsetof(twEvent, level) == 48, "tape.mjs reads 48");
-static_assert(sizeof(twEvent) == 56, "tape.mjs steps by 56");
+static_assert(offsetof(twEvent, aux) == 56, "tape.mjs reads 56");
+static_assert(sizeof(twEvent) == 88, "tape.mjs steps by 88");
+static_assert(sizeof(((thcEvent *)0)->u.note.aux) ==
+              TH_NOTE_AUX_TAPE * sizeof(float), "one tape slot per aux");
 
 /* What the scheduler delivered since the last clear.
  *
@@ -90,6 +97,9 @@ public:
                 e.velocity = ev.u.note.velocity;
                 e.duration = ev.u.note.duration;
                 e.level = ev.u.note.level;
+
+                for (int a = 0; a < TH_NOTE_AUX_TAPE; a++)
+                    e.aux[a] = ev.u.note.aux[a];
                 break;
             case THC_EV_CHANARG:
                 e.kind = 'C';

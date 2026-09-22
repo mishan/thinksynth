@@ -34,17 +34,33 @@
  *   approach  a neighbor from `scale' leaned on first
  *   ornament  a mordent from `scale': the note, its neighbor, the note
  *
- * NO HELD NOTES. A note that carries its own duration is a note this can
- * divide, shorten and place; a held one (duration <= 0, live input's
- * spelling of "who knows") has no length yet and no end to move, and a
- * dropped press would owe its release the bookkeeping xform::form spells
- * out. Held notes and their offs go through as they came, which is also
- * why there is no state here beyond the last pitch.
+ * AND A TIMBRE for every note, beside the one thing above: `pan', `tone'
+ * and `attack' move the note's aux0, aux1 and aux2 by up to that much
+ * either way, uniformly. Every note, and held ones too, since a note's aux
+ * is written when it starts and asks nothing of how long it lasts. They
+ * are offsets, added to whatever the note already carried and held to -1
+ * to 1, so two stages compose; what a graph does with them is the graph's
+ * (see AUXPREFIX in think.h) -- the shipped ones read aux0 as a pan, -1
+ * left to 1 right, aux1 as brightness and aux2 as how slow the attack is.
+ *
+ * NO HELD NOTES for the six above. A note that carries its own duration
+ * is a note this can divide, shorten and place; a held one (duration <= 0,
+ * live input's spelling of "who knows") has no length yet and no end to
+ * move, and a dropped press would owe its release the bookkeeping
+ * xform::form spells out. Held notes and their offs go through as they
+ * came, timbre aside, which is also why there is no state here beyond the
+ * last pitch.
  *
  * TWO DRAWS PER NOTE, always -- which one, and which way -- whatever the
  * probabilities say. Drawing only when a knob is up would mean that
  * turning one reseeded every note after it, and `chance' says why that
  * is the wrong kind of surprise.
+ *
+ * THREE MORE FOR THE TIMBRE, always, from a second generator. Not the
+ * first: three draws more a note on it would move every draw after, so
+ * every piece already written with a `vary' under it would come out
+ * different. The second is seeded from the same seed, so a piece still
+ * varies the same way twice.
  *
  * DETERMINISM is the instance seed, so the same piece varies the same
  * way twice. Everything else is a function of the note.
@@ -59,7 +75,7 @@
 #include "thcomposer.h"
 
 enum { P_SCALE, P_GRID, P_REST, P_LEAP, P_PUSH, P_DOUBLE, P_APPROACH,
-       P_ORNAMENT, P_COUNT };
+       P_ORNAMENT, P_PAN, P_TONE, P_ATTACK, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -83,6 +99,12 @@ composer_init (thcComposerInfo *info)
           THC_PARAM_FLOAT, 0, 1, 0, NULL, NULL },
         { "ornament", "chance a note carries a mordent",
           THC_PARAM_FLOAT, 0, 1, 0, NULL, NULL },
+        { "pan",      "how far either way a note's aux0 (pan) moves",
+          THC_PARAM_FLOAT, 0, 1, 0, NULL, NULL },
+        { "tone",     "how far either way a note's aux1 (brightness) moves",
+          THC_PARAM_FLOAT, 0, 1, 0, NULL, NULL },
+        { "attack",   "how far either way a note's aux2 (attack) moves",
+          THC_PARAM_FLOAT, 0, 1, 0, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -90,7 +112,8 @@ composer_init (thcComposerInfo *info)
 
     info->set_flags(info->host, THC_TRANSFORMER);
     info->set_desc(info->host,
-        "Vary a written line: rests, leaps, pushes, doubles and ornaments.");
+        "Vary a written line: rests, leaps, pushes, doubles and ornaments, "
+        "and a pan, tone and attack per note.");
 
     return 0;
 }
@@ -98,6 +121,7 @@ composer_init (thcComposerInfo *info)
 struct State {
     const thcParams *params;
     std::mt19937     rng;
+    std::mt19937     timbre;            /* see the head */
 
     /* The scale, as given. Neighbors are found modulo 12 against it,
        the way xform::quantize snaps: pitch classes are the scale, and
@@ -175,6 +199,14 @@ composer_create (const thcParams *params)
 
     st->params = params;
     st->rng.seed(params->seed);
+
+    /* Its own stream from the same seed: seed_seq mixes the seed with a
+       second word, so the two generators share no sequence. */
+    {
+        std::seed_seq mix{ (unsigned)params->seed, 0x74696d62u };
+
+        st->timbre.seed(mix);
+    }
     st->last = 0;
     st->haveLast = false;
     st->reparse();
@@ -204,15 +236,54 @@ vel (double v)
     return i < 1 ? 1 : i > 127 ? 127 : i;
 }
 
+/* `aux' moved by up to `width' either way, held to -1..1. `draw' is the
+   uniform 0..1 already taken, whatever the width, for the head's reason. */
+static float
+nudge (float aux, double width, double draw)
+{
+    const double v = aux + width * (2 * draw - 1);
+
+    return (float)(v < -1 ? -1 : v > 1 ? 1 : v);
+}
+
 extern "C" THINK_PLUGIN_API void
-composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
+composer_receive (void *state, const thcEvent *in, thcEventSink *out)
 {
     State *st = static_cast<State *>(state);
     const thcParams *p = st->params;
     auto get = [&](int i) { return p->get(p->ctx, paramIndex[i]); };
 
+    if (in->type != THC_EV_NOTE)
+    {
+        out->emit(out->ctx, in);
+        return;
+    }
+
+    /* The timbre first, on every note, so that whatever happens to the
+       note below happens to the note with its timbre on. A width of zero
+       leaves the aux exactly as it came: the offset is a zero added. */
+    thcEvent placed = *in;
+    const thcEvent *ev = &placed;
+
+    {
+        std::uniform_real_distribution<double> uni(0.0, 1.0);
+        const double dp = uni(st->timbre);
+        const double dt = uni(st->timbre);
+        const double da = uni(st->timbre);
+        const double wp = get(P_PAN), wt = get(P_TONE), wa = get(P_ATTACK);
+
+        if (wp > 0)
+            placed.u.note.aux[0] = nudge(in->u.note.aux[0], wp, dp);
+
+        if (wt > 0)
+            placed.u.note.aux[1] = nudge(in->u.note.aux[1], wt, dt);
+
+        if (wa > 0)
+            placed.u.note.aux[2] = nudge(in->u.note.aux[2], wa, da);
+    }
+
     /* See the header: only a note that knows how long it is. */
-    if (ev->type != THC_EV_NOTE || ev->u.note.duration <= 0)
+    if (ev->u.note.duration <= 0)
     {
         out->emit(out->ctx, ev);
         return;

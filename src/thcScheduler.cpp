@@ -2136,7 +2136,8 @@ thcScheduler::deliver (const thcEvent &ev)
         case THC_EV_NOTE:
         {
             synth_->addNote(ev.channel, ev.u.note.note,
-                            ev.u.note.velocity, ev.u.note.level);
+                            ev.u.note.velocity, ev.u.note.level,
+                            ev.u.note.aux);
 
             /* A composed note carries its whole life in the duration;
                the off lands exactly there, keyed off the event's own
@@ -2256,7 +2257,7 @@ thcScheduler::flushHeld (void)
     while (!held_.empty())
     {
         const NoteOff h = held_.back();
-        thcEvent off;
+        thcEvent off = {};
 
         held_.pop_back();
         synth_->delNote(h.channel, h.note);

@@ -74,7 +74,9 @@ extern "C" {
  * a value keeps every existing value's number and every existing
  * struct's layout, and those did not need a bump. A union arm that
  * changes sizeof does. */
-#define COMPOSER_IFACE_VER 2
+/* 3: the note arm gained `aux', four floats, which takes it from 24 bytes to
+ * 40 and the union with it -- a bump for version 2's reason. */
+#define COMPOSER_IFACE_VER 3
 
 typedef struct _cairo cairo_t;  /* drawing is optional; no hard cairo dep */
 
@@ -159,6 +161,11 @@ typedef struct {
                                   velocity; 1 is as emitted. 0 is read as
                                   1 by the scheduler, so an emitter that
                                   zero-fills the struct is not silent    */
+            float  aux[4];     /* per-note timbre, read by the graph as
+                                  ionode->aux0..aux3 and written once, at
+                                  note-on. What each means is the graph's
+                                  to say, and 0 is a value: unlike
+                                  `level', nothing lifts it              */
         } note;
         struct {
             const char *name;  /* @chanarg name; copied by the sink       */

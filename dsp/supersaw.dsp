@@ -164,15 +164,22 @@ node fenv env::adsr {
 # opens them is scaled by velocity, so a line played softly is darker as
 # well as quieter -- which is what makes an accent or a swell audible as
 # tone and not only as level.
+#
+# And the whole cutoff is moved by the note's aux1, an octave up at 1 and
+# down at -1: a composer's brightness for this one note, which is what
+# xform::vary's `tone' writes. A note that carries none is 2^0 = 1 times
+# the cutoff, which is the filter it always was.
 node filtl filt::svf {
     in = (s0->out + s1->out + s3->out + s5->out) * 0.25;
-    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
+    cutoff = (@cutoff + fenv->out * @depth * ionode->velocity) *
+             exp2(ionode->aux1);
     res = @res;
 };
 
 node filtr filt::svf {
     in = (s0->out + s2->out + s4->out + s6->out) * 0.25;
-    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
+    cutoff = (@cutoff + fenv->out * @depth * ionode->velocity) *
+             exp2(ionode->aux1);
     res = @res;
 };
 

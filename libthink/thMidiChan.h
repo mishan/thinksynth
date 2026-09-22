@@ -62,7 +62,8 @@ public:
        Deliberately separate from installing it: this is far too expensive to
        do in an audio callback, so the GUI thread builds and thSynth hands the
        finished object over through the command queue. */
-    thMidiNote *buildNote (float note, float velocity, float level = 1);
+    thMidiNote *buildNote (float note, float velocity, float level = 1,
+                           const float *aux = NULL);
 
     /* ---- audio thread ---- */
 
