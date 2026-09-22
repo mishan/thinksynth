@@ -1518,6 +1518,30 @@ EMSCRIPTEN_KEEPALIVE const char *tw_chain_name (int chain)
     return c != NULL ? c->name.c_str() : "";
 }
 
+/* The channel a chain plays, in the engine's numbering, or -1.
+ *
+ * Its first note sink's, and deliberately only that: a chain may fan out
+ * to several, and a chanarg sink is not a voice at all. What asks is a
+ * view that wants to say which instrument a track is heard on, and a
+ * track with two answers is a track that view should not be drawing as
+ * one row. */
+EMSCRIPTEN_KEEPALIVE int tw_chain_channel (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return -1;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL)
+        return -1;
+
+    for (size_t i = 0; i < c->sinks.size(); i++)
+        if (!c->sinks[i].isChanarg())
+            return c->sinks[i].channel;
+
+    return -1;
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
 {
     if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())

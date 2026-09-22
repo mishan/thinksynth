@@ -62,6 +62,7 @@
  */
 
 import { createComposerView } from './composerview.js';
+import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
@@ -84,14 +85,14 @@ const VELOCITY = 100;
  * The room page keeps a list of its own, and panecheck.mjs holds the two
  * against each other where they overlap.
  */
-const PANES = ['roll', 'composerview', 'knobs', 'channelbox', 'paramview',
-               'nodeview', 'keyboard', 'patchsource', 'piecesource',
-               'detail'];
+const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
+               'paramview', 'nodeview', 'keyboard', 'patchsource',
+               'piecesource', 'detail'];
 
 /* Which of them belong to which mode. Everything not named here is in
    both -- the keys, the parameters, the graph, the numbers. */
-const PIECE_PANES = ['roll', 'composerview', 'knobs', 'channelbox',
-                     'piecesource'];
+const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
+                     'channelbox', 'piecesource'];
 const PATCH_PANES = ['patchsource'];
 
 /* Where they go, the first time somebody opens this page in a window
@@ -122,7 +123,11 @@ const PATCH_LAYOUT = {
 const PIECE_LAYOUT = {
     dir: 'row', size: [0.6, 0.4], kids: [
         { dir: 'col', size: [0.62, 0.38], kids: [
-            { tabs: ['composerview'] },
+            /* The sequencer in front of the piece's picture, and the two
+               a tab apart: what somebody opens a piece to do is play
+               with it, and the canvas is what they look at once they
+               want to know how it is put together. */
+            { tabs: ['seqview', 'composerview'] },
             { tabs: ['roll'] }] },
         { dir: 'col', size: [0.26, 0.24, 0.26, 0.24], kids: [
             { tabs: ['knobs'] },
@@ -159,6 +164,9 @@ let roll = null;
    real composer instances in it. The page's half of it is an element and
    a pointer; everything else is the same C++ the desktop draws with. */
 let composer = null;
+
+/* The same piece as tracks: the pane somebody clicks patterns into. */
+let seq = null;
 
 /* The instrument as a graph: the desktop's node editor over whichever
    .dsp this page is playing. Made on Start, since it is another
@@ -641,6 +649,10 @@ function showChannels ()
        has just been drawn is correct until the module says otherwise, and
        the caller has nothing to do differently either way. */
     showEdited();
+
+    /* The tracks name their channels' instruments, and this is every
+       place that can change. */
+    seq?.refresh();
 }
 
 /* One channel's patch, downloaded.
@@ -1238,6 +1250,9 @@ async function start ()
    log. */
 function fromMirror (m)
 {
+    if (seq !== null && seq.fromMirror(m))
+        return;
+
     if (composer !== null && composer.fromMirror(m))
         return;
 
@@ -1381,12 +1396,48 @@ function showComposer (on)
     composer.show(on);
 }
 
+/* What is on a channel, in the words a track's heading wants: the name
+ * the piece gave its own instrument, or the file somebody aimed there by
+ * hand, or nothing -- a channel with nothing on it says so by saying the
+ * chain's name instead, which is at least what the track is called. */
+function describeChannel (channel)
+{
+    if (channel < 0)
+        return '';
+
+    const inst = piece?.instruments?.find((i) => i.channel === channel);
+
+    if (inst !== undefined)
+        return inst.name;
+
+    return aimed.get(channel) ?? '';
+}
+
+function showSeq (on)
+{
+    /* Made when it is first wanted, for the reason showComposer is. */
+    if (seq === null && (!on || synth === null))
+        return;
+
+    seq ??= createSeqView({
+        toMirror: (m) => synth?.toMirror(m),
+        onGesture: (g) => synth?.input({ ...g, at: -1 }),
+        describeChannel,
+    });
+
+    seq.show(on);
+}
+
 /* For pagetest: where a stage's params handle is, and what the popover
    ended up showing. The layout is the canvas's, so asking it is the only
    honest way to press one. */
 window.solo = {
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
     params: () => composer?.params() ?? [],
+
+    /* The tracks the sequencer pane ended up with: which stage each row
+       is and how tall the grid behind it said to be. */
+    tracks: () => seq?.tracks() ?? [],
 
     /* Every load asked for so far, finished -- including the redraw each
        one ends with.
@@ -1441,12 +1492,13 @@ window.solo = {
        were ever compiled for this page. */
     pane: (what, ...args) => panes[what](...args),
 
-    /* Which of the two canvases is asking for frames. A pane in a
+    /* Which of the drawing panes is asking for frames. A pane in a
        background tab, folded away or in the mode that is not up costs
        nothing, and this is the only way to see from outside that it
        really costs nothing. */
     drawing: () => ({ composer: composer?.visible() ?? false,
-                      nodes: nodes?.visible() ?? false }),
+                      nodes: nodes?.visible() ?? false,
+                      seq: seq?.visible() ?? false }),
 
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
@@ -1483,6 +1535,7 @@ async function pickMode ()
         return;
 
     showComposer(panes.visible('composerview') && piecing);
+    showSeq(panes.visible('seqview') && piecing);
     showNodes();
 
     /* Emptied rather than left showing the other mode's channel: what
@@ -1741,6 +1794,8 @@ async function init ()
         {
             if (id === 'composerview')
                 showComposer(on && mode() === 'piece');
+            else if (id === 'seqview')
+                showSeq(on && mode() === 'piece');
             else if (id === 'nodeview')
                 nodes?.show(on);
             else if (id === 'paramview' && on)

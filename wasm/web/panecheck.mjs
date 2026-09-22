@@ -306,13 +306,29 @@ try
 
     const quiet = await page.evaluate(() => window.solo.drawing());
 
-    check(!quiet.composer,
-          'the piece\'s picture asks for no frames in patch mode');
+    check(!quiet.composer && !quiet.seq,
+          'the piece\'s picture and its tracks ask for no frames in ' +
+          'patch mode');
 
     await page.selectOption('#mode', 'piece');
+
+    /* Piece mode opens on the sequencer, with the piece's picture the
+       tab behind it, so it is the tracks that start asking for frames --
+       and the two of them share a leaf, which is the whole point: one
+       picture is drawn and not two. */
+    await page.waitForFunction(() => window.solo.drawing().seq,
+                               null, { timeout: 60000 });
+
+    check(!await page.evaluate(() => window.solo.drawing().composer),
+          'the tracks ask for frames when their pane is in front, and the ' +
+          'picture behind them does not');
+
+    await page.click('#panetab-composerview');
     await page.waitForFunction(() => window.solo.drawing().composer,
                                null, { timeout: 60000 });
-    check(true, 'and asks for them again when its pane is in front');
+
+    check(!await page.evaluate(() => window.solo.drawing().seq),
+          'and raising the picture turns the tracks off');
 
     /* ---- two canvases, one leaf ---- */
 

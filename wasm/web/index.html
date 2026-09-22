@@ -63,6 +63,21 @@
 <canvas id="roll" width="1200" height="360" data-pane-off
         data-pane data-pane-title="Piano roll" data-pane-min="320"></canvas>
 
+<!-- The piece as tracks: one row per gen::grid, each one that plugin's
+     own drawing at the pane's width, with the channel it is heard on
+     beside it. Click a cell to put a note there, again to accent it,
+     again to clear it; drag to draw a run, and the other button erases.
+
+     What a click reaches is not the picture in front of you but a
+     command, applied at its time here and on every peer -- the same path
+     the composer canvas's gestures take, and the reason what you drew
+     appears a moment later. -->
+<section id="seqview" hidden
+         data-pane data-pane-title="Sequencer" data-pane-min="320">
+  <div id="tracks"></div>
+  <p id="seqhint" class="hint"></p>
+</section>
+
 <!-- The piece's picture: one row per chain, its stages with each
      composer's own drawing inside its box, the sinks in their channel's
      colour. It is the desktop's composer canvas, compiled to wasm and
