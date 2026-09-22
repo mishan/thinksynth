@@ -149,11 +149,17 @@ struct Distance {
 
     Distance (void) : spectral(0), envelope(0), noise(0) {}
 
-    /* One number, for a search that wants one. Both terms are already in
-       dB, so the weight is a statement about taste rather than about
+    /* One number, for a search that wants one. The terms are already in
+       dB, so the weights are a statement about taste rather than about
        units: a dB of envelope error matters half as much as a dB of
-       spectral error, because the spectrograms hear the envelope too. */
-    double total (void) const { return spectral + 0.5 * envelope + 0.5 * noise; }
+       spectral error, because the spectrograms hear the envelope too.
+       Noisiness weighs three times spectral, from listening: at 0.5 and
+       1.5 a snare search still traded its noise for a tone with the
+       noise's mean spectrum, and came out a buzz; at 3 it kept the
+       noise within a few dB of the target's. The pairs an ear called
+       close have next to no noise error, so the weight costs them
+       nothing. */
+    double total (void) const { return spectral + 0.5 * envelope + 3.0 * noise; }
 };
 
 inline double hzToMel (double hz) { return 2595.0 * log10(1.0 + hz / 700.0); }

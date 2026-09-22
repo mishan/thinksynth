@@ -45,8 +45,9 @@
  *            graph get to that sound. `-o' names where the answer goes.
  *
  *   grow     match, and then the graph itself: a node from the pool spliced
- *            into a wire, wherever one can go, kept if the sound is nearer
- *            for it. `pool' lists what may be spliced in.
+ *            into a wire, or an envelope or an LFO put on a constant,
+ *            wherever one can go, kept if the sound is nearer for it.
+ *            `pool' lists what may be spliced in.
  *
  * A gene is a constant the author wrote down -- `node { arg = 0.3; }' or a
  * top-level `@control = 0.3;' -- and an edit is NodeEdit::Text splicing the
@@ -84,16 +85,20 @@
  * way.
  *
  * A graph edit is judged as a choice is, and costs what a choice costs, so
- * it is raced in two heats: every candidate gets a few generations, which
- * is enough to tell a filter on the note number from a filter on the
- * signal, and the few that come through get a trial of the full length
- * beside the graph as it stands. An edit has to win by a margin, not by a
+ * it is raced in heats: every candidate gets three generations, which is
+ * enough to tell a filter on the note number from a filter on the signal,
+ * the top third get five more, and the few that come through get a trial
+ * of the full length beside the graph as it stands. An edit has to win by a margin, not by a
  * hair. A bigger graph always fits a little better, and a node that buys a
  * hundredth of a dB is a node someone has to read.
  *
  * The edits are text edits -- NodeEdit::Text adds the node and moves the
  * wire -- so a grown patch is a .dsp with one more block in it, and what it
- * grew is a diff.
+ * grew is a diff. A modulation is three blocks, since the editor writes
+ * wires and not arithmetic: the modulator at unit amplitude, a math::mul
+ * for the depth and a math::add holding what the constant was, and the
+ * arg now reads the sum. `cutoff = 700 + env->out * 300' is what a person
+ * would write, and folding the three back into that line is a later pass.
  *
  * The search is a separable CMA-ES: a step size per gene, learned from
  * which steps paid. One step size for every gene was tried first and
@@ -226,8 +231,18 @@ struct Wire {
 };
 
 /* What of a patch's structure an edit needs to know. */
+/* A constant, or a control, an arg reads: somewhere a modulator can go. */
+struct Slot {
+    string node, arg;
+    string control;     /* empty for a constant */
+    double value;
+    bool octaves;       /* how a depth is sized: by the value, or by the range */
+    double lo, hi;
+};
+
 struct Shape {
     vector<Wire> wires;
+    vector<Slot> slots;
     vector<string> names;
 };
 
@@ -458,6 +473,76 @@ static bool render (const string &source, vector<float> &mono,
 
                 if (!have)
                     shape->wires.push_back(w);
+            }
+        }
+
+        const thSynthTree::NodeMap &nodes = tree->nodes();
+
+        for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
+             n != nodes.end(); ++n)
+        {
+            thNode *nd = n->second;
+
+            if (nd == NULL || nd == tree->IONode())
+                continue;
+
+            thPlugin *plugin = nd->plugin();
+            const thArgMap &args = nd->args();
+
+            for (thArgMap::const_iterator a = args.begin(); a != args.end(); ++a)
+            {
+                thArg *arg = a->second;
+                const int idx = argIndex(plugin, a->first);
+
+                if (arg == NULL || idx < 0 || arg->len() != 1)
+                    continue;
+
+                /* An arg the file never wrote is at the plugin's default,
+                   and a slot all the same: a saw's pulse width is where
+                   PWM goes, and a patch with no PWM has no `pw' line. The
+                   editor adds one. */
+                const bool written =
+                    NodeEdit::Text::find(source, n->first, a->first) == NodeEdit::OK;
+
+                /* A choice, a count or a time is nothing to modulate; nor
+                   is a signal input, which is what the pool is for. */
+                if (!plugin->getArgValues(idx).empty() || plugin->getArgStep(idx) >= 1 ||
+                    plugin->getArgUnits(idx) == "samples" ||
+                    plugin->getArgUnits(idx) == "full scale")
+                    continue;
+
+                Slot sl;
+
+                sl.node = n->first;
+                sl.arg = a->first;
+                sl.lo = plugin->getArgMin(idx);
+                sl.hi = plugin->getArgMax(idx);
+
+                if (arg->type() == thArg::ARG_VALUE)
+                {
+                    sl.value = written ? (*arg)[0] : plugin->getArgDefault(idx);
+
+                    if (sl.value == 0)
+                        continue;
+                }
+                else if (!written)
+                    continue;
+                else if (arg->type() == thArg::ARG_CHANNEL)
+                {
+                    thArg *ctl = tree->getChanArg(arg->argPtrName());
+
+                    if (ctl == NULL || ctl->len() != 1 || !ctl->valueNames().empty())
+                        continue;
+
+                    sl.control = arg->argPtrName();
+                    sl.value = (*ctl)[0];
+                }
+                else
+                    continue;
+
+                sl.octaves = !plugin->argHasRange(idx) || sl.hi <= sl.lo ||
+                             !plugin->getArgUnits(idx).empty();
+                shape->slots.push_back(sl);
             }
         }
     }
@@ -1730,6 +1815,78 @@ static bool splice (string &source, const Shape &shape, const Wire &wire,
            NodeEdit::Text::connect(source, wire.node, wire.arg, name, sp.out, why) == NodeEdit::OK;
 }
 
+/* An envelope or an LFO on `slot': three nodes, and the arg reads the
+   last of them. `kind' 0 is env::ad, 1 is a sine osc::simple. The depth
+   starts at the value itself for a quantity in octaves and at a quarter
+   of the range otherwise, and is a constant the search then tunes, as
+   are the base and the modulator's own args. */
+static bool modulate (string &source, Shape &shape, const Slot &slot,
+                      int kind, string &what)
+{
+    string why;
+    vector<pair<string, double> > init;
+    const string mod = NodeCatalog::suggestName(kind ? "lfo" : "env", shape.names);
+
+    shape.names.push_back(mod);
+
+    const string mul = NodeCatalog::suggestName("depth", shape.names);
+
+    shape.names.push_back(mul);
+
+    const string add = NodeCatalog::suggestName("base", shape.names);
+
+    shape.names.push_back(add);
+
+    if (kind == 0)
+    {
+        init.push_back(std::make_pair(string("a"), 0.0));
+        init.push_back(std::make_pair(string("d"), TH_DEFAULT_SAMPLES * 0.2));
+        init.push_back(std::make_pair(string("p"), 1.0));
+
+        if (NodeEdit::Text::addNode(source, mod, "env::ad", init, why) != NodeEdit::OK)
+            return false;
+    }
+    else
+    {
+        init.push_back(std::make_pair(string("freq"), 4.0));
+        init.push_back(std::make_pair(string("waveform"), 0.0));
+
+        if (NodeEdit::Text::addNode(source, mod, "osc::simple", init, why) != NodeEdit::OK)
+            return false;
+    }
+
+    const double depth = slot.octaves ? fabs(slot.value) * (kind ? 0.25 : 1.0)
+                                      : (slot.hi - slot.lo) * 0.25;
+
+    init.clear();
+    init.push_back(std::make_pair(string("in1"), depth));
+
+    if (NodeEdit::Text::addNode(source, mul, "math::mul", init, why) != NodeEdit::OK ||
+        NodeEdit::Text::connect(source, mul, "in0", mod, "out", why) != NodeEdit::OK)
+        return false;
+
+    init.clear();
+
+    if (slot.control.empty())
+        init.push_back(std::make_pair(string("in1"), slot.value));
+
+    if (NodeEdit::Text::addNode(source, add, "math::add", init, why) != NodeEdit::OK ||
+        NodeEdit::Text::connect(source, add, "in0", mul, "out", why) != NodeEdit::OK)
+        return false;
+
+    if (!slot.control.empty() &&
+        NodeEdit::Text::connectControl(source, add, "in1", slot.control, why) != NodeEdit::OK)
+        return false;
+
+    if (NodeEdit::Text::connect(source, slot.node, slot.arg, add, "out", why) != NodeEdit::OK)
+        return false;
+
+    what = string(kind ? "lfo" : "env") + " on " + slot.node + "." + slot.arg +
+           (slot.control.empty() ? "" : " = @" + slot.control);
+
+    return true;
+}
+
 struct Candidate {
     string what;
     string source;
@@ -1835,14 +1992,38 @@ static int grow (const Extractor &ex, const Features &target,
                     heat.push_back(c);
             }
 
-        printf("\nround %d: %d wires, %d splices, %d candidates\n", round,
-               (int)shape.wires.size(), (int)pool.size(), (int)heat.size());
+        for (size_t sl = 0; sl < shape.slots.size(); sl++)
+            for (int kind = 0; kind < 2; kind++)
+            {
+                string source = best.source, what;
+                Shape scratch = shape;
+                Candidate c;
 
+                if (modulate(source, scratch, shape.slots[sl], kind, what) &&
+                    candidate(source, what, c))
+                    heat.push_back(c);
+            }
+
+        printf("\nround %d: %d wires, %d splices, %d slots, %d candidates\n", round,
+               (int)shape.wires.size(), (int)pool.size(), (int)shape.slots.size(),
+               (int)heat.size());
+
+        /* Three generations tell most candidates apart: a filter that
+           kills the sound or a modulator on the wrong arg is a dB or
+           more behind by then. The top third gets the rest of the heat. */
         for (size_t i = 0; i < heat.size(); i++)
         {
             heat[i].score = score(ex, target, heat[i].source);
-            tune(ex, target, heat[i], rng, HEAT);
+            tune(ex, target, heat[i], rng, 3);
         }
+
+        std::stable_sort(heat.begin(), heat.end());
+
+        if (heat.size() > (size_t)FINALISTS * 2)
+            heat.resize(std::max((size_t)FINALISTS * 2, heat.size() / 3));
+
+        for (size_t i = 0; i < heat.size(); i++)
+            tune(ex, target, heat[i], rng, HEAT - 3);
 
         std::stable_sort(heat.begin(), heat.end());
 
