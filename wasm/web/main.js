@@ -535,6 +535,8 @@ function sequenceText ()
                                 'x...'.repeat(SEQ_STEPS / 4));
 
     const track = (n) => `chain track${n} {
+    input midi;
+
     stage seq gen::grid {
         notes  = pent;
         steps  = ${SEQ_STEPS};
@@ -558,6 +560,12 @@ function sequenceText ()
 # Four grids on four channels: rows are degrees of the ladder below,
 # columns are steps. Click the cells; the menu on each track says what
 # plays it. Save this file and it opens in the Composer like any other.
+#
+# \`input midi' on each of them is what makes the keys play a track: a
+# note aimed at a channel goes through that channel's chain and out its
+# sink, so what you play is heard on the instrument the track is set to.
+# \`listen = 0' is what keeps it from also drawing itself on the grid --
+# turn that up and playing writes what it plays.
 
 name "A sequence";
 description "Four tracks. Click the cells; pick what plays them.";
