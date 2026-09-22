@@ -51,6 +51,12 @@
  *      with no modulator is silence -- so anything at all coming out is the
  *      microphone.
  *
+ *   and the shipped piece.          gen/voice.gen fetched off the site and
+ *      played twice, once with a device and once without, asserting it got
+ *      louder. That is the walk a person takes -- pick it out of the menu,
+ *      press Play, press Live in -- and the only leg that touches the piece,
+ *      its `dry' blend and the index the page fetches.
+ *
  * Exit status is the number of browsers that failed.
  */
 
@@ -307,6 +313,94 @@ async function micInBrowser (page, gen, seconds, windowlen)
     }, { gen, dsps: DSPS, seconds, windowlen });
 }
 
+/* The shipped piece this is all for. Fetched by the page from the site the
+   server below is serving, which is the path the Piece menu takes. */
+const SHIPPED = 'voice.gen';
+
+/* One of the shipped pieces, played the way the page plays it, with or without
+ * a microphone. Live, because a device is, and measured through an analyser for
+ * the same reason micInBrowser is.
+ */
+async function pieceInBrowser (page, name, withMic, seconds, windowlen)
+{
+    return page.evaluate(async ({ name, withMic, seconds, windowlen }) =>
+    {
+        const { createSynth } = await import('./host.js');
+        const { openMic } = await import('./mic.js');
+
+        const grab = async (p) =>
+        {
+            const r = await fetch(p);
+
+            if (!r.ok)
+                throw new Error(`${p}: ${r.status}`);
+
+            return r.text();
+        };
+
+        /* Every .dsp the piece may name, which is what the page hands over
+           before any piece is loaded: a worklet cannot fetch. */
+        const index = JSON.parse(await grab('dsp/index.json'));
+        const ctx = new AudioContext();
+        const logs = [];
+        const synth = await createSynth(ctx, { windowlen,
+                                               onLog: (s) => logs.push(s) });
+
+        for (const dsp of index.filter((n) => !n.startsWith('samples/')))
+            synth.instrument(dsp, await grab(`dsp/${dsp}`));
+
+        const loaded = await synth.loadPiece(await grab(`gen/${name}`));
+
+        if (loaded.errors.length > 0)
+            return { peak: 0, why: loaded.errors.join('; ') };
+
+        const tap = ctx.createAnalyser();
+
+        tap.fftSize = 2048;
+        synth.node.connect(tap);
+        tap.connect(ctx.destination);
+
+        await ctx.resume();
+
+        let mic = null;
+
+        if (withMic)
+        {
+            try
+            {
+                mic = await openMic(ctx, synth.node);
+            }
+            catch (e)
+            {
+                return { peak: 0, why: e.message };
+            }
+        }
+
+        synth.transport('start');
+        await synth.flush();
+
+        const samples = new Float32Array(tap.fftSize);
+        let peak = 0;
+
+        for (let i = 0; i < seconds * 20; i++)
+        {
+            await new Promise((r) => setTimeout(r, 50));
+
+            tap.getFloatTimeDomainData(samples);
+
+            for (const v of samples)
+                peak = Math.max(peak, Math.abs(v));
+        }
+
+        if (mic)
+            mic.close();
+
+        await ctx.close();
+
+        return { peak, why: '', logs };
+    }, { name, withMic, seconds, windowlen });
+}
+
 /* ---- the run ----------------------------------------------------------- */
 
 const server = await serve(build, 0);
@@ -435,6 +529,47 @@ async function runBrowser (label, type)
                 `vocoder, peak ${got.peak.toFixed(3)}` +
                 (got.warnings.length > 0
                     ? ` (${got.warnings.join('; ')})` : '') + '\n');
+    }
+
+    /* ---- and the shipped piece, the way a person will ----------------- */
+
+    /* gen/voice.gen off the site rather than a piece written here: what is
+     * being asked is whether the thing somebody picks out of the menu does
+     * what its own header says it does. It carries `dry', so it is audible
+     * before the microphone is on -- which makes the assertion "it got
+     * louder" rather than "it made a sound", and that is the stronger one
+     * anyway since only the vocoder can have added the difference.
+     */
+    {
+        let quiet, loud;
+
+        try
+        {
+            quiet = await pieceInBrowser(page, SHIPPED, false, LIVE_SECONDS,
+                                         WINDOW);
+            loud = await pieceInBrowser(page, SHIPPED, true, LIVE_SECONDS,
+                                        WINDOW);
+        }
+        catch (e)
+        {
+            quiet = { peak: 0, why: e.message.split('\n')[0] };
+            loud = { peak: 0, why: '' };
+        }
+
+        if (quiet.peak === 0 || loud.peak <= quiet.peak)
+        {
+            ok = false;
+            process.stdout.write(
+                `FAIL  ${label} ${SHIPPED}: ` +
+                (quiet.peak === 0
+                    ? `it was silent without a microphone -- ${quiet.why}`
+                    : `the microphone changed nothing: ${quiet.peak} then ` +
+                      `${loud.peak}`) + '\n');
+        }
+        else
+            process.stdout.write(
+                `ok    ${label} ${SHIPPED}: ${quiet.peak.toFixed(3)} on its ` +
+                `own, ${loud.peak.toFixed(3)} with the microphone\n`);
     }
 
     for (const e of errors)

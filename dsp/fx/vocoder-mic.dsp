@@ -82,6 +82,25 @@ description "Sixteen bands of this channel driven by what the machine is hearing
     @level.max = 16;
     @level.label = "Level";
 
+    # How much of the carrier goes out without passing through the bands.
+    #
+    # Zero by default, because a vocoder is a vocoder: everything you hear
+    # should be the carrier wearing the modulator, and anything else is the
+    # carrier leaking round the side of the machine.
+    #
+    # It is here anyway because of what the modulator is now. `fx/vocoder.dsp'
+    # takes its modulator from a channel the piece is playing, so there is
+    # always one; this one takes it from a microphone that may not be plugged
+    # in, be switched on, or exist. Fully wet, that is a piece that is silent
+    # until somebody talks -- fine for a vocoder and no way to ship a demo. A
+    # piece that wants to be audible before anybody finds the microphone sets
+    # this, and `gen/voice.gen' does.
+    @dry = 0;
+    @dry.widget = 1;
+    @dry.min = 0;
+    @dry.max = 1;
+    @dry.label = "Dry";
+
 node ionode {
     channels = 2;
 
@@ -209,8 +228,16 @@ node hiss filt::svf {
     res = 0;
 };
 
+# The carrier, round the side. Doubled because `car' is the two inputs
+# summed and halved, so `dry = 1' is the carrier at the level it came in at
+# rather than half of it.
+node dry math::mul {
+    in0 = car->out;
+    in1 = @dry * 2;
+};
+
 node out math::add {
-    in0 = voiced->out;
+    in0 = voiced->out + dry->out;
     in1 = hiss->out_high * @sibilance;
 };
 

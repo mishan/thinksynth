@@ -438,8 +438,9 @@ node ionode {
 That is the modulator a vocoder needs when the thing being vocoded is a person.
 `dsp/fx/vocoder-mic.dsp` is that graph: the same sixteen bands as
 `fx/vocoder.dsp`, with the modulator off `live0` and the carrier off `in0`, so
-a piece wears whoever is in the room by naming one master effect and nothing
-else.
+a piece wears whoever is in the room by naming one effect and nothing else.
+`gen/voice.gen` is that piece — a string machine holding a chord, and its
+header is the shortest way to find out what this sounds like.
 
 Unlike a side it **names nothing**, because there is only ever one thing the
 machine is hearing — so a graph asks for it by declaring it and no `.gen`
@@ -448,7 +449,9 @@ and `live1` is handed the one signal twice, which is the rule `side<N>` already
 follows for a mono side.
 
 **Where no host is capturing it is silence**, which is also what a vocoder with
-nothing to vocode should sound like. Every offline path — `genwav`, `gencheck`,
+nothing to vocode should sound like — so a graph meant to be *opened* rather
+than only played into wants some way past the bands, which is what
+`fx/vocoder-mic.dsp`'s `dry` is for and why it defaults to 0. Every offline path — `genwav`, `gencheck`,
 `dspcheck` — feeds nothing and therefore reads zeros, so a piece carrying a
 live graph renders the same today as it did before one could. And a graph that
 declares no `live0` renders bit for bit the same whether or not a host is

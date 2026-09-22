@@ -277,9 +277,14 @@ effect "fx/vocoder-mic.dsp";        # the mix as the carrier, the room as the
                                     # modulator
 ```
 
+It works on an instrument too, and there it leaves the master slot free — which
+is what `gen/voice.gen` does, so the piece can still carry a limiter and a
+piece with drums in it need not have them vocoded.
+
 DSP_FORMAT.md's "An effect graph" says what `live<N>` is, what it costs and why
 a piece carrying one still renders the same under `genwav`: an offline path
-captures nothing, and nothing is silence.
+captures nothing, and nothing is silence. A piece that wants to be audible
+before anybody switches a microphone on sets the vocoder's `dry`.
 
 **And the piece may carry one of its own.**
 
