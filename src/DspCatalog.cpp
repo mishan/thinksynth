@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <system_error>
 
@@ -91,6 +92,23 @@ bool DspCatalog::readHeader (const string &text, Entry &out)
        but nothing says it must. */
     map<string, bool> takesInput;
     string ioNode;
+
+    /* And which nodes something reads a `note' from -- `note = ionode->note'
+     * on an oscillator, wherever in the file it is written.
+     *
+     * A sweep of its own over the token stream rather than a case in the
+     * walk below, because the walk skips node bodies wholesale and every one
+     * of these references is inside one. Three tokens, so it costs a pass
+     * over a header and nothing else. */
+    std::set<string> readsNote;
+
+    for (size_t j = 0; j + 2 < tokens.size(); j++)
+        if (tokens[j].kind == thLexToken::WORD &&
+            tokens[j + 1].kind == thLexToken::PUNCT &&
+            tokens[j + 1].text == "->" &&
+            tokens[j + 2].kind == thLexToken::WORD &&
+            tokens[j + 2].text == "note")
+            readsNote.insert(tokens[j].text);
 
     size_t i = 0;
 
@@ -201,6 +219,12 @@ bool DspCatalog::readHeader (const string &text, Entry &out)
        declaring in1 and not in0 has a typo in it. */
     out.isEffect = !ioNode.empty() &&
                    takesInput.find(ioNode) != takesInput.end();
+
+    /* The io node's note, read by something. A graph with no io statement
+       reads nothing from it, which is the same answer as a graph that
+       ignores it: neither plays a pitch. */
+    out.readsNote = !ioNode.empty() &&
+                    readsNote.find(ioNode) != readsNote.end();
 
     return lexed;
 }
@@ -424,6 +448,8 @@ static void entryToJson (string &out, const DspCatalog::Entry &e)
     jsonString(out, e.category);
     out += ",\"effect\":";
     out += e.isEffect ? "true" : "false";
+    out += ",\"note\":";
+    out += e.readsNote ? "true" : "false";
     out += "}";
 }
 

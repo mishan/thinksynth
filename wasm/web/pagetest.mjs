@@ -188,6 +188,59 @@ try
     check(await page.evaluate(() => window.solo.drawing().seq),
           'and they are asking for frames');
 
+    /* ---- a drum track is one row ---- */
+
+    /* An instrument that ignores the note it is sent sounds the same on
+     * every row, so a ladder over one is a ladder that does nothing. The
+     * page sets that track's grid to a single row -- a command, because
+     * the grid is playing and `rows' is a param that is heard.
+     *
+     * Kick 909 and Tom 808 are both `category "Drums"'. The kick ignores
+     * the note and the tom does not, which is the whole reason the rule
+     * reads the graph rather than the category, and is why both are here.
+     */
+    const rowsOf = (n) => page.evaluate(
+        (i) => window.solo.tracks()[i]?.rows ?? -1, n);
+
+    const settle = async (i, want) =>
+    {
+        await page.waitForFunction(
+            ([j, r]) => window.solo.tracks()[j]?.rows === r,
+            [i, want], { timeout: 30000 }).catch(() => {});
+
+        return rowsOf(i);
+    };
+
+    await page.selectOption('#tracks .track:nth-child(1) select.trackpick',
+                            'kick909.dsp');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await settle(0, 1) === 1,
+          'a track aimed at Kick 909, which ignores the note, is one row');
+
+    /* And the strip is the height one row asks for rather than six. */
+    const strips = await page.$$eval('#tracks .trackgrid',
+        (all) => all.map((c) => Math.round(c.getBoundingClientRect().height)));
+
+    check(strips[0] < strips[1],
+          `and its strip is shorter than a pitched one: ${strips[0]} ` +
+          `against ${strips[1]}`);
+
+    await page.selectOption('#tracks .track:nth-child(2) select.trackpick',
+                            'tom808.dsp');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await settle(1, 6) === 6,
+          'a track aimed at Tom 808, which is a drum that reads the note, ' +
+          'keeps its ladder');
+
+    await page.selectOption('#tracks .track:nth-child(1) select.trackpick',
+                            'ts1.dsp');
+    await page.evaluate(() => window.solo.settled());
+
+    check(await settle(0, 6) === 6,
+          'and a synth back on the first one gives its rows back');
+
     /* ---- and the box keeps the page's own sequence ---- */
 
     /* Going to look at a piece and coming back must come back to the

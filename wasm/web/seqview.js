@@ -54,7 +54,8 @@ const MAX_H = 240;
 
 export function createSeqView ({ root = document, toMirror, onGesture,
                                  describeChannel = () => '',
-                                 chooserFor = () => null })
+                                 chooserFor = () => null,
+                                 onMeasure = () => {} })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -72,6 +73,19 @@ export function createSeqView ({ root = document, toMirror, onGesture,
        eight tracks at sixty frames a second is four hundred and eighty
        messages, and the playhead moves eight times a second. */
     let waiting = 0;
+
+    /* When the heights were last asked about.
+     *
+     * A track is as tall as its grid has rows, and `rows' is a param --
+     * so it moves. The page sets it when the instrument under a track
+     * turns out to ignore the note it is sent; in a room a peer sets it,
+     * or a piece knob does. Asked rather than remembered, like everything
+     * else the module is the authority on, and asked slowly: a height is
+     * not a frame, and four tracks twice a second is nothing beside the
+     * pictures. */
+    let measured = 0;
+
+    const MEASURE_MS = 500;
 
     const ratio = () => globalThis.devicePixelRatio || 1;
 
@@ -93,7 +107,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 if (stage.name === 'grid')
                     out.push({ chain: chain.chain, stage: stage.stage,
                                name: chain.name, channel: chain.channel,
-                               rows: 1, canvas: null, ctx: null,
+                               rows: 1, rowsParam: -1,
+                               canvas: null, ctx: null,
                                w: 0, h: 0, dpr: 0 });
 
         return out;
@@ -319,6 +334,17 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                            dpr: track.dpr });
             }
 
+        const now = performance.now();
+
+        if (now - measured >= MEASURE_MS)
+        {
+            measured = now;
+
+            for (const track of tracks)
+                toMirror({ type: 'stageparams', chain: track.chain,
+                           stage: track.stage });
+        }
+
         frameId = requestAnimationFrame(ask);
     };
 
@@ -374,9 +400,16 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 if (track === undefined)
                     return true;
 
-                const rows = m.params.find((p) => p.name === 'rows');
+                /* By index, because the index is what a command naming
+                   this param has to carry: the list is in the plugin's
+                   own order (mirror.js). */
+                const p = m.params.findIndex((x) => x.name === 'rows');
 
-                track.rows = Math.max(1, Math.round(rows?.value ?? 1));
+                track.rowsParam = p;
+                track.rows = p < 0
+                    ? 1 : Math.max(1, Math.round(m.params[p].value));
+
+                onMeasure();
                 return true;
             }
         }
@@ -419,9 +452,12 @@ export function createSeqView ({ root = document, toMirror, onGesture,
            claim that a hidden pane costs nothing is gated on. */
         visible: () => visible,
 
-        /* For the harnesses: what the pane ended up showing. */
+        /* What the pane ended up showing -- for the harnesses, and for
+           the page, which decides how tall a track's grid ought to be
+           from what is playing it and needs to know what it is now. */
         tracks: () => tracks.map((t) => ({ chain: t.chain, stage: t.stage,
                                            channel: t.channel,
-                                           rows: t.rows })),
+                                           rows: t.rows,
+                                           rowsParam: t.rowsParam })),
     };
 }

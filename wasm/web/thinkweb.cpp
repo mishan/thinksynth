@@ -143,8 +143,8 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB and TW_INPUT have entry points of their own and
-   never arrive as an op from there. */
+   four too; TW_KNOB, TW_INPUT and TW_STAGEPARAM have entry points of
+   their own and never arrive as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -153,6 +153,7 @@ enum TransportOp
     TW_TEMPO,
     TW_KNOB,
     TW_INPUT,
+    TW_STAGEPARAM,
 };
 
 struct Command
@@ -185,9 +186,12 @@ struct Command
 struct Scheduled
 {
     double at;
-    int    op;                  /* TW_STOP, TW_TEMPO, TW_KNOB, TW_INPUT */
+    int    op;
     int    knob;                /* TW_KNOB: an index into knobs_       */
-    double value;               /* TW_KNOB's value, TW_TEMPO's bpm     */
+    double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's */
+
+    /* TW_STAGEPARAM: which param of the stage named below. */
+    int    param;
 
     /* TW_INPUT: a gesture on a stage's picture, in the coordinates the
        draw was handed. The stage is named by chain and stage index --
@@ -437,6 +441,45 @@ void applyScheduled (const Scheduled &c)
                 knobs_[c.knob]->setValue((float)c.value);
 
             break;
+
+        case TW_STAGEPARAM:
+        {
+            /* One numeric param of one stage, set at `at' inside the step
+             * -- the same place a knob lands, and for the same reason: a
+             * param is read at a tick, and two peers that set it either
+             * side of one compose two different pieces.
+             *
+             * Through the store rather than around it, so a param bound to
+             * a piece knob keeps its binding and a plugin that has to
+             * rebuild on an edit is told (composer_param_changed). What
+             * this is not is an edit to the file: the .gen text is
+             * unchanged, exactly as a clicked Life board leaves it
+             * unchanged, and a host that wants the new value written back
+             * asks the plugin to capture it.
+             */
+            thcStage *st = stageAt(c.chain, c.stage);
+
+            if (st == NULL || st->plugin == NULL)
+            {
+                fprintf(stderr, "param for stage %d.%d, which is not "
+                                "there\n", c.chain, c.stage);
+                break;
+            }
+
+            if (c.param < 0 || c.param >= st->plugin->paramCount())
+            {
+                fprintf(stderr, "stage %d.%d has no param %d\n",
+                        c.chain, c.stage, c.param);
+                break;
+            }
+
+            st->params.set(c.param, c.value);
+
+            if (st->state != NULL)
+                st->plugin->paramChanged(st->state, c.param);
+
+            break;
+        }
 
         case TW_INPUT:
         {
@@ -2329,6 +2372,33 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
  * `at' below zero is "now", as for a knob on a stopped transport, which
  * is what a solo page sends.
  */
+/* One numeric param of one stage, at a transport time.
+ *
+ * The write half of tw_stage_param_value, and a stamped command like a
+ * knob: applied at `at' in the step on every peer, the sender included, so
+ * a grid told to be one row tall is one row tall everywhere from that
+ * moment. `at' below zero is "now", as for a knob.
+ *
+ * Numeric only. The text params -- a pattern, an axiom, a note set -- are
+ * the ones a plugin captures and a file states, and setting one from a page
+ * would need the string carried through the queue; nothing asks for it yet
+ * and the shape it should take is a question about the editor rather than
+ * about this. */
+EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
+                                          int p, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_STAGEPARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.param = p;
+    c.value = value;
+
+    schedule(c);
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
                                     int kind, double x, double y, double w,
                                     double h, int button)

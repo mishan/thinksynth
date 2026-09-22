@@ -89,7 +89,22 @@ public:
            instrument. See the header comment. */
         bool isEffect;
 
-        Entry (void) : isEffect(false) { }
+        /* Something in the graph reads the io node's `note': what is played
+         * changes with the pitch it is played at.
+         *
+         * Which is a real distinction and not a taxonomy. A kick drum
+         * ignores the note -- kick909.dsp says so in its header, "a kick is
+         * a kick" -- so every pitch it is sent is the same sound, and a
+         * chooser or a sequencer that offers a ladder of them is offering a
+         * choice that does nothing. A tom under the same `category "Drums"'
+         * does read it, and collapsing that one would take away the thing
+         * it is for.
+         *
+         * Read from the text like isEffect, and for the same reason: no
+         * graph is built and no plugin is loaded to answer it. */
+        bool readsNote;
+
+        Entry (void) : isEffect(false), readsNote(false) { }
     };
 
     /* Walks `path' for .dsp files, at the top and one level down, and reads

@@ -1621,6 +1621,62 @@ function describeChannel (channel)
     return aimed.get(channel) ?? '';
 }
 
+/* Whether a graph plays what it is sent at the pitch it is sent.
+ *
+ * The catalog's own reading of the file: something in the graph reads the
+ * io node's `note' (src/DspCatalog.h). A graph nobody has a row for counts
+ * as pitched, because a ladder that turns out to do nothing is a smaller
+ * surprise than a pattern silently collapsed to one row. */
+function readsNote (file)
+{
+    for (const group of dspGroups)
+        for (const e of group.entries)
+            if (e.file === file)
+                return e.note;
+
+    return true;
+}
+
+/* How tall each track's grid ought to be, given what is playing it.
+ *
+ * A kick, a hat, a clap ignores the note it is sent -- kick909.dsp says so
+ * in its own header, "a kick is a kick" -- so a six-row ladder over one is
+ * six rows that make one sound, and every cell in the column is the same
+ * cell. One row is the whole of what that instrument has to say.
+ *
+ * The graph's answer and not its category, which is the distinction the
+ * corpus insists on: `category "Drums"' holds Kick 909, which ignores the
+ * note, and Tom 808, which does not. A tom keeps its ladder because a tom
+ * is played at pitch.
+ *
+ * Sequence mode only. The piece there is the one the page wrote, and its
+ * `rows' is the page's to set; a shipped piece's is its author's, and
+ * aiming an instrument at one of its channels is not a licence to reshape
+ * the pattern under it.
+ *
+ * Sent as a command rather than written into the box: the grid is playing,
+ * the text is not what it is playing from, and a param that is heard lands
+ * at a transport time on every peer the way a knob does.
+ */
+function fitTracks ()
+{
+    if (mode() !== 'seq' || synth === null || seq === null)
+        return;
+
+    for (const track of seq.tracks())
+    {
+        if (track.rowsParam < 0 || track.channel < 0)
+            continue;
+
+        const dsp = placed.get(track.channel)?.dsp;
+        const want = dsp !== undefined && !readsNote(dsp) ? 1 : SEQ_ROWS;
+
+        if (track.rows !== want)
+            synth.stageParam({ chain: track.chain, stage: track.stage,
+                               param: track.rowsParam, value: want });
+    }
+}
+
 function showSeq (on)
 {
     /* Made when it is first wanted, for the reason showComposer is. */
@@ -1639,6 +1695,13 @@ function showSeq (on)
             (channel < 0 || !composing() ||
              piece?.instruments?.some((i) => i.channel === channel))
                 ? null : chooser(channel),
+
+        /* The pane has just been told how tall its grids say to be, which
+           is the moment to say whether that is the height they want. The
+           answer is the module's both ways round -- the page sends a
+           param and hears what it became -- so a load, a menu and a peer
+           all arrive here by the same door. */
+        onMeasure: fitTracks,
     });
 
     seq.show(on);

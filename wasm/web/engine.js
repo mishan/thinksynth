@@ -181,6 +181,14 @@ export function apply (M, m, host = NOWHERE)
                     [m.kind, m.a, m.b, m.row, m.text]);
             return true;
 
+        case 'stageparam':
+            /* One numeric param of one composer stage, at a transport
+               time: what a grid's `rows' is set to when the instrument
+               under it turns out to ignore the note it is sent. Stamped
+               like a knob, because a param is read at a tick. */
+            M._tw_stage_param(m.at, m.chain, m.stage, m.param, m.value);
+            return true;
+
         case 'input':
             /* A gesture on a stage's picture, at a transport time.
                The coordinates are the ones the composer's own draw
