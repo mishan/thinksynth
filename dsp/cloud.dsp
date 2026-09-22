@@ -21,13 +21,17 @@
 # is a smear. The grains alternate sides, so the stereo is the cloud's
 # own.
 #
-# The file is a quoted name in the node and not a control -- see
-# osc::sample -- so a cloud of another recording is a copy of this graph
-# with the name changed.
+# Two recordings, and `Blend' between them: the orchestra hit at 0 and
+# the kit's ride cymbal at 1, whose long wash of metal is a cloud with no
+# pitch in it at all -- grains from it are shimmer and air, played at the
+# key like the hit's. A file is a quoted name in a node and not a
+# control (see osc::sample), which is why a second recording is a second
+# node rather than a knob; the ride is thirteen decibels quieter than the
+# hit through its first seventy percent, and is brought up to meet it.
 
 name "Cloud";
 author "Misha Nasledov";
-description "A granular pad on a recording: grains drifting through the orchestra hit.";
+description "A granular pad on two recordings: grains drifting through the orchestra hit and the ride.";
 category "Strings and pads";
 
     @position = 0.25;
@@ -65,6 +69,12 @@ category "Strings and pads";
     @density.min = 1;
     @density.max = 400;
     @density.label = "Density";
+
+    @blend = 0;
+    @blend.widget = 1;
+    @blend.min = 0;
+    @blend.max = 1;
+    @blend.label = "Blend (hit to ride)";
 
     @jitter = 0.08;
     @jitter.widget = 1;
@@ -123,6 +133,30 @@ node cloud osc::grain {
     seed = ionode->note;
 };
 
+node ride osc::grain {
+    file = "kit_ride_mid.wav";
+    position = place->out;
+    spread = @spread;
+    size = @grain;
+    density = @density;
+    jitter = @jitter;
+    freq = freq->out;
+    root = 261.63;
+    seed = ionode->note + 128;
+};
+
+node sidel mixer::fade {
+    in0 = cloud->out;
+    in1 = ride->out * 4;
+    fade = @blend;
+};
+
+node sider mixer::fade {
+    in0 = cloud->out2;
+    in1 = ride->out2 * 4;
+    fade = @blend;
+};
+
 node env env::adsr {
     a = @a;
     d = 1 ms;
@@ -132,12 +166,12 @@ node env env::adsr {
 };
 
 node left mixer::mul {
-    in0 = cloud->out;
+    in0 = sidel->out;
     in1 = env->out * @amp * ionode->velocity;
 };
 
 node right mixer::mul {
-    in0 = cloud->out2;
+    in0 = sider->out;
     in1 = env->out * @amp * ionode->velocity;
 };
 
