@@ -728,6 +728,11 @@ add_test(NAME editorcheck
 set_tests_properties(editorcheck PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
+# Alone under `ctest -j': both pump the main loop a fixed number of times
+# and then read what GTK mapped, and with every core busy a popover can be
+# built but not yet shown when composercheck looks.
+set_tests_properties(composercheck editorcheck PROPERTIES RUN_SERIAL TRUE)
+
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
                      exprcheck statecheck voicecheck fxcheck gencheck
