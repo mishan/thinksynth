@@ -17,29 +17,33 @@
  */
 
 /*
- * serviceworker.js -- the solo page, offline.
+ * serviceworker.js -- the site, offline and on one build.
  *
  * Not served as it is: precache.mjs puts VERSION and FILES in front of it
  * and writes the result to the build directory as sw.js. FILES is every
- * file the solo page can ask for -- the page, its modules, the wasm, and
- * every .dsp, .gen and .patch with the indexes naming them -- and VERSION
- * is a hash of their contents. A build that changes any of them changes
- * sw.js, and a changed sw.js is the only thing that makes a browser
- * install a new worker.
+ * file either page can ask for -- the solo page and the room page, their
+ * modules, the wasm, and every .dsp, .gen and .patch with the indexes
+ * naming them -- and VERSION is a hash of their contents. A build that
+ * changes any of them changes sw.js, and a changed sw.js is the only thing
+ * that makes a browser install a new worker.
  *
  * One cache per VERSION, filled whole on install, and every request for
- * one of FILES answered from it: the page, the worklet and the mirror
- * worker all load from the one build, so the module, the worklet's glue
- * and the .dsp files the module parses always agree. Anything else --
- * jam.html, jam.js, config.json -- goes to the network untouched. The
- * room page needs a relay, so it has nothing to do offline.
+ * one of FILES answered from it: a page, its worklet and its mirror worker
+ * all load from the one build, so the module, the worklet's glue and the
+ * .dsp files the module parses always agree. The room page is kept for
+ * that and not for being offline, where it has no relay: it loads the
+ * same worklet, mirror and wasm as the solo page, and its mirror worker's
+ * requests carry nothing to say which page made it, so the only way its
+ * bundle agrees with them is to come from the same cache. What is left to
+ * the network is config.json, which says where the relay is and no build
+ * of the page depends on, and the bundle's source map.
  *
  * A new version waits. Activating it under a page that is running would
  * hand that page's next .dsp fetch to a different build from the wasm it
- * already loaded. The page asks for it at load instead (main.js), and it
- * is granted only if that page is the one window of the site open, since
- * then nothing has been loaded from the old cache that the new one could
- * disagree with.
+ * already loaded. Either page asks for it at load instead (offline.js),
+ * and it is granted only if that page is the one window of the site open,
+ * since then nothing has been loaded from the old cache that the new one
+ * could disagree with.
  *
  * The site is scoped to the directory sw.js is served from. On GitHub
  * Pages that is /thinksynth/ on an origin other repositories share, so
@@ -84,8 +88,9 @@ self.addEventListener('activate', (e) =>
 });
 
 /* A page asking for the waiting version, at load. Granted only to the one
-   window of this site that is open. Clients outside the scope are other
-   sites on a shared origin, and are not counted. */
+   window of this site that is open, of either page: both run from the
+   cache. Clients outside the scope are other sites on a shared origin,
+   and are not counted. */
 self.addEventListener('message', (e) =>
 {
     if (e.data !== 'activate')

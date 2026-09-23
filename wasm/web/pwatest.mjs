@@ -34,7 +34,8 @@
  *                waits; the next load activates it, loads again from it,
  *                and the old version's cache is gone
  *
- * And the room page is left to the network, since it needs a relay.
+ * And the room page is kept from the same cache, so that it runs the same
+ * build as the worklet, mirror and wasm it shares with the solo page.
  *
  * It serves a copy of the site, the files sw.js lists and the few it does
  * not, because the update is made by rewriting sw.js.
@@ -88,7 +89,7 @@ const site = path.join(build, 'pwatest-site');
 
 fs.rmSync(site, { recursive: true, force: true });
 
-for (const rel of [...FILES, 'sw.js', 'jam.html', 'config.json'])
+for (const rel of [...FILES, 'sw.js', 'config.json'])
 {
     fs.mkdirSync(path.dirname(path.join(site, rel)), { recursive: true });
     fs.copyFileSync(path.join(build, rel), path.join(site, rel));
@@ -181,11 +182,14 @@ try
               fs.readFileSync(path.join(site, 'dsp', PATCH), 'utf8'),
           `offline, a patch never fetched online loads: ${PATCH}`);
 
+    /* Nothing to join offline, but the page itself comes from the cache,
+       which is what keeps its bundle on the build its worklet is. */
     const room = await context.newPage();
-    const reached = await room.goto(`${origin}/jam.html`)
+    const reached = await room.goto(`${origin}/jam.html?sw`)
+        .then(() => room.waitForSelector('#joinrow'))
         .then(() => true, () => false);
 
-    check(!reached, 'offline, the room page is not kept');
+    check(reached, 'offline, the room page loads from the same cache');
     await room.close();
 
     /* ---- a new version ---- */

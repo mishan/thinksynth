@@ -72,6 +72,7 @@ import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
+import { keepOffline } from './offline.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 
@@ -2639,34 +2640,6 @@ async function init ()
        and a pane is a box that scrolls -- so a popover left inside one
        would be clipped by it the moment it reached the edge. */
     panes.overlay().append($('composerparams'), $('nodemenu'));
-}
-
-/* The service worker, which keeps this page for offline use
- * (serviceworker.js). Over https only: that is where the site is
- * published, and a worker on serve.mjs's http://localhost would answer a
- * rebuilt tree from the cache of the last one. `?sw' asks for it anyway,
- * for the harness that tests it.
- *
- * A version the worker has fetched waits until it is asked for, and it is
- * asked for here, at load, before anything has been played -- see the
- * worker for why not later. If it takes over, the page loads again from
- * it. */
-async function keepOffline ()
-{
-    if (!('serviceWorker' in navigator) ||
-        (location.protocol !== 'https:' &&
-         !new URLSearchParams(location.search).has('sw')))
-        return;
-
-    const reg = await navigator.serviceWorker.register('sw.js');
-
-    if (reg.waiting === null || navigator.serviceWorker.controller === null)
-        return;
-
-    navigator.serviceWorker.addEventListener('controllerchange',
-                                             () => location.reload(),
-                                             { once: true });
-    reg.waiting.postMessage('activate');
 }
 
 init();

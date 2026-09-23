@@ -272,15 +272,14 @@ else
  * sw.js carries its own list of the site, FILES, and a file left off it
  * is one the page can load online and not offline: a patch picked on a
  * train is a 404 nobody saw on a desk. So the list is held against the
- * whole dist, both ways. What is left off on purpose is the room page and
- * what only it loads, since it needs a relay, and the worker itself.
+ * whole dist, both ways. What is left off on purpose is config.json, which
+ * no build depends on, the room page's source map, and the worker itself.
  *
  * And the manifest's icons, which no page names, so the walk above does
  * not reach them.
  */
 {
-    const NETWORK = new Set(['jam.html', 'jam.js', 'jam.js.map',
-                             'config.json', 'sw.js']);
+    const NETWORK = new Set(['jam.js.map', 'config.json', 'sw.js']);
     let files = null;
 
     try
@@ -313,8 +312,8 @@ else
             fail(`sw.js leaves ${left.length} file(s) out, which will not ` +
                  `load offline: ${left.slice(0, 8).join(', ')}`);
         else
-            ok(`sw.js keeps all ${files.length} file(s) the solo page ` +
-               'can load');
+            ok(`sw.js keeps all ${files.length} file(s) the pages can ` +
+               'load');
     }
 
     try

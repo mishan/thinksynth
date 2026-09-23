@@ -197,7 +197,8 @@ publishes once the wasm gates pass on it. The solo page installs as an app
 (the browser's Install item, or Add to Home Screen) and keeps itself for
 offline use: once loaded over https it plays with no network, every shipped
 patch and piece included. A new build takes over on the first load after
-it has downloaded, when no other window of the page is open.
+it has downloaded, when no other window of the site is open. The room
+page loads from the same copy, so its code always matches the synth's.
 
 Emscripten builds it, at a pinned version — the comparison against the
 native build is only as repeatable as the compiler on the wasm side:

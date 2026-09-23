@@ -53,6 +53,7 @@ import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
+import { keepOffline } from './offline.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 import { Room } from './room.js';
@@ -1113,3 +1114,4 @@ function init ()
 }
 
 init();
+keepOffline().catch((e) => console.warn('no offline copy:', e));

@@ -21,7 +21,7 @@
 # it, and jam.html with its bundled jam.js -- the room page, which is the
 # one thing here with dependencies (`npm ci' in this directory, once). And
 # manifest.json and sw.js, which make the solo page an installable app
-# that plays offline.
+# that plays offline, and keep both pages on one build.
 #
 # The build directory can be served as it is, and `serve.mjs' does. For
 # putting it somewhere else there is
@@ -351,7 +351,7 @@ set(SITE_SOURCES index.html jam.html style.css panes.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js mirror.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js panes.js popover.js
-                tapediff.js manifest.json)
+                tapediff.js offline.js manifest.json)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -535,7 +535,7 @@ else()
                   host.js keyboard.js panel.js patch.js mic.js
                   ../tape.mjs
                   canvasview.js composerview.js nodeview.js rollview.js
-                  panes.js popover.js tapediff.js bundle.mjs
+                  panes.js popover.js tapediff.js offline.js bundle.mjs
                   package-lock.json)
   set(JAM_DEPENDS "")
 
@@ -583,14 +583,13 @@ foreach(pair IN LISTS SITE_ICONS)
   list(APPEND DIST_ICON_FILES "${PROJECT_BINARY_DIR}/icons/${name}")
 endforeach()
 
-# The service worker, which keeps the solo page for offline use
-# (serviceworker.js). What it keeps is every file here the solo page can
-# load: everything above but the room page's two, plus the module and the
-# indexes, which are not custom command outputs. precache.mjs hashes them
-# into sw.js, so a build that changes one is a new version to a browser.
+# The service worker, which keeps the site for offline use
+# (serviceworker.js). What it keeps is every file here either page can
+# load: everything above, the room page's two included, plus the module
+# and the indexes, which are not custom command outputs. precache.mjs
+# hashes them into sw.js, so a build that changes one is a new version to
+# a browser.
 set(PRECACHE_FILES ${SITE_OUTPUTS})
-list(REMOVE_ITEM PRECACHE_FILES "${PROJECT_BINARY_DIR}/jam.html"
-                                "${PROJECT_BINARY_DIR}/jam.js")
 list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/thinkweb.js"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm"
