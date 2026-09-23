@@ -201,12 +201,29 @@ node fmap env::map {
     outmax = cutglide->out + (@fmax - cutglide->out) * ionode->velocity;
 };
 
+# Where the sub gives up. The same clamp dsp/bass.dsp carries, for the
+# same reason: `osc3' plays an octave below the note, so at MIDI 24 it
+# plays at 16 Hz, which is not a pitch but sixteen pulses a second. It
+# fades out below 120 Hz and is gone by 55 Hz; above 120 Hz -- which is
+# most of what a lead plays -- nothing here changes. The detune is not
+# part of this and was measured not to be: with `Detune' at zero the
+# flutter is still there.
+#
+# The same clamp scales what is taken off the two saws, so the fade does
+# not also make the low notes quieter.
+node subamt math::clamp {
+    in = (vib->out - 55) / 65;
+    lo = 0;
+    hi = 1;
+};
+
 # The two saws averaged, then faded against the sub. This was a pair of
 # mixer::fade nodes -- `(a + b) * 0.5' and `mix*(1 - sub) + sub*osc3' are
 # what each of them computed -- and is the same two multiplies and two
 # adds either way, built at load and named after the arg they feed.
 node filt filt::moog {
-    in = (osc1->out + osc2->out) * 0.5 * (1 - @sub) + osc3->out * @sub;
+    in = (osc1->out + osc2->out) * 0.5 * (1 - @sub * subamt->out) +
+         osc3->out * @sub * subamt->out;
     cutoff = fmap->out;
     res = @res;
 };

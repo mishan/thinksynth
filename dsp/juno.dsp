@@ -168,8 +168,25 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
+# Where the sub gives up. The same clamp dsp/bass.dsp carries, for the
+# same reason: the sub plays an octave below the note, so in the bottom
+# octave it plays below hearing -- at MIDI 24 the note is 32.7 Hz and
+# the sub is 16.4 Hz, which is a flutter rather than weight. It fades
+# out below 120 Hz and is gone by 55 Hz, and above 120 Hz nothing here
+# changes.
+#
+# Unlike bass.dsp the pulse is not scaled against the sub here -- the
+# original's sub was added to a pulse that stayed where it was -- so a
+# low note loses the sub's share of the level rather than having it
+# handed back. That is the Juno's arithmetic and is left alone.
+node subamt math::clamp {
+    in = (freq->out - 55) / 65;
+    lo = 0;
+    hi = 1;
+};
+
 node filt filt::svf {
-    in = osc->out * 0.5 + sub->out * 0.5 * @sub;
+    in = osc->out * 0.5 + sub->out * 0.5 * @sub * subamt->out;
     cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
     res = @res;
 };
