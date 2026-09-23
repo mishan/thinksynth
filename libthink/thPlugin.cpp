@@ -35,6 +35,7 @@ thPlugin::thPlugin (const string &path)
     state_ = NOTLOADED;
 
     callback_ = NULL;
+    reset_ = NULL;
 
     args_.reserve(ARGCHUNK);
 
@@ -57,6 +58,13 @@ void thPlugin::fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
 {
     if (callback_) {
         callback_(node, mod, windowlen, samples);
+    }
+}
+
+void thPlugin::reset (void)
+{
+    if (reset_) {
+        reset_(this);
     }
 }
 
@@ -214,6 +222,9 @@ int thPlugin::moduleLoad (void)
         goto loaderr;
     }
 
+    /* Optional: most plugins keep nothing per synth. */
+    reset_ = (ModuleReset)thDynLib::symbol(handle_, "module_reset");
+
     return 0;
 
 loaderr:
@@ -250,4 +261,5 @@ void thPlugin::moduleUnload (void)
     /* Finally, unload the plugin */
     thDynLib::close(handle_);
     handle_ = NULL;
+    reset_ = NULL;
 }

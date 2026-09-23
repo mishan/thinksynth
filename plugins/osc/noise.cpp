@@ -102,6 +102,11 @@ void module_cleanup (thPlugin *plugin)
     thNoiseRelease(plugin);
 }
 
+void module_reset (thPlugin *plugin)
+{
+    thNoiseRestart(plugin);
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);

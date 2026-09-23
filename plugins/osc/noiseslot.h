@@ -103,6 +103,16 @@ static inline void thNoiseClaim (const thPlugin *plugin)
     }
 }
 
+/* The synth is starting over: its generator goes back to where every
+   synth's starts. */
+static inline void thNoiseRestart (const thPlugin *plugin)
+{
+    thNoiseSlot *slot = thNoiseSlotFor(plugin);
+
+    if (slot != NULL)
+        slot->state = 1;
+}
+
 /* The synth is done with this plugin: its slot goes back. */
 static inline void thNoiseRelease (const thPlugin *plugin)
 {

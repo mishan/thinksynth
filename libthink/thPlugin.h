@@ -95,6 +95,14 @@ extern "C" {
                                            unsigned int windowlen,
                                            unsigned int samples);
     THINK_PLUGIN_API void module_cleanup (thPlugin *plugin);
+
+    /* Optional, like module_cleanup: put whatever the plugin keeps for
+       `plugin' -- the synth that loaded it -- back where module_init
+       left it. The noise sources' generators are what it is for: a
+       private synth that renders one note after another restarts them
+       before each, so the same patch renders the same twice without a
+       synth, and a module_init of everything, per render. */
+    THINK_PLUGIN_API void module_reset (thPlugin *plugin);
 }
 #endif
 
@@ -225,6 +233,7 @@ public:
     typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
     typedef int (*ModuleInit)(thPlugin *);
     typedef void (*ModuleCleanup)(thPlugin *);
+    typedef void (*ModuleReset)(thPlugin *);
 
     const string &path (void) const { return path_; };
     const string &desc (void) const { return desc_; };
@@ -334,6 +343,10 @@ public:
 
     void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
                unsigned int samples);
+
+    /* The plugin's module_reset, if it has one. Only on the thread that
+       renders this plugin's synth, while it is not rendering. */
+    void reset (void);
 private:
     int moduleLoad (void);
     void moduleUnload (void);
@@ -356,6 +369,7 @@ private:
     static const string noDesc_;
 
     Callback callback_;
+    ModuleReset reset_;
 };
 
 #endif /* TH_PLUGIN_H */
