@@ -264,6 +264,10 @@ static void layout (float *state, double decay, double damper, double damp,
 
         state[S_START + k] = (float)start;
         state[S_LEN + k] = (float)(ceil(period) + 4);
+        /* A new rate is a new length, and the write position has to stay
+           inside it. */
+        state[S_POS + k] = (float)((unsigned int)state[S_POS + k] %
+                                   (unsigned int)state[S_LEN + k]);
         /* The per-trip gains the two T60s want, divided by what the
            low-pass already takes at the string's pitch, so `damp' darkens
            the partials without shortening the fundamental. The input is
@@ -300,6 +304,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out, *buffer, *state;
     const double follow = 1.0 - exp(-1.0 / (PEDAL_TIME * samples));
     double decay, damper, damp;
+    unsigned int start[KEYS], len[KEYS], pos[KEYS], back[KEYS];
     float pedal;
     int low, high, undamped, k;
     unsigned int i, cap;
@@ -357,6 +362,18 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     pedal = state[S_PEDAL];
 
+    /* The lines' integers, out of the float state once a window rather
+       than once a sample. Every write position is below its line's length
+       and every read delay is too, so a step or a read wraps with one
+       compare and no division. */
+    for (k = low - KEY_LOWEST; k <= high - KEY_LOWEST; k++)
+    {
+        start[k] = (unsigned int)state[S_START + k];
+        len[k] = (unsigned int)state[S_LEN + k];
+        pos[k] = (unsigned int)state[S_POS + k];
+        back[k] = (unsigned int)state[S_BACK + k];
+    }
+
     for (i = 0; i < windowlen; i++)
     {
         const float raw = (*in_arg)[i];
@@ -368,17 +385,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         for (k = low - KEY_LOWEST; k <= high - KEY_LOWEST; k++)
         {
-            float *line = buffer + (unsigned int)state[S_START + k];
-            const unsigned int len = (unsigned int)state[S_LEN + k];
-            const unsigned int w = (unsigned int)state[S_POS + k] % len;
-            const unsigned int back = (unsigned int)state[S_BACK + k];
+            float *line = buffer + start[k];
+            const unsigned int w = pos[k];
+            const unsigned int r = w >= back[k] ? w - back[k]
+                                                : w + len[k] - back[k];
             const double eta = state[S_ETA + k];
             const double free = state[S_FREE + k];
             const double g = (KEY_LOWEST + k >= undamped)
                              ? free
                              : state[S_HELD + k] +
                                (free - state[S_HELD + k]) * pedal;
-            const double x = line[(w + len - back) % len];
+            const double x = line[r];
             const double t = eta * x + state[S_THIRAN + k];
             const double lp = (1 - damp) * t + damp * state[S_LP + k];
             const double y = flush(state[S_IN + k] * in + g * lp);
@@ -386,12 +403,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             state[S_THIRAN + k] = (float)flush(x - eta * t);
             state[S_LP + k] = (float)flush(lp);
             line[w] = (float)y;
-            state[S_POS + k] = (float)((w + 1) % len);
+            pos[k] = w + 1 == len[k] ? 0 : w + 1;
             sum += y;
         }
 
         out[i] = (float)sum;
     }
+
+    for (k = low - KEY_LOWEST; k <= high - KEY_LOWEST; k++)
+        state[S_POS + k] = (float)pos[k];
 
     state[S_PEDAL] = pedal;
 
