@@ -987,6 +987,39 @@ static double hammerSolve (double hy, double hv, const double *base,
     return y;
 }
 
+/* The dispersion filter on each of N strings. Section by section across
+   the strings rather than string by string: each string's cascade is one
+   long dependent chain, and side by side they run in each other's shadow. */
+template <int N>
+static inline void cascade (int kind, int sections, const double *c1,
+                            const double *c2, float z1[][DISP_MAX],
+                            float z2[][DISP_MAX], double *xs)
+{
+    int k, s;
+
+    if (kind == 1)
+        for (k = 0; k < sections; k++)
+            for (s = 0; s < N; s++)
+            {
+                const double x = xs[s];
+                const double y = c1[k] * x + z1[s][k];
+
+                z1[s][k] = (float)flush(x - c1[k] * y);
+                xs[s] = y;
+            }
+    else if (kind == 2)
+        for (k = 0; k < sections; k++)
+            for (s = 0; s < N; s++)
+            {
+                const double x = xs[s];
+                const double y = c2[k] * x + z1[s][k];
+
+                z1[s][k] = (float)flush(c1[k] * x - c1[k] * y + z2[s][k]);
+                z2[s][k] = (float)flush(x - c2[k] * y);
+                xs[s] = y;
+            }
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
@@ -1218,7 +1251,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const double in = thIsFinite(raw) ? raw : 0;
         const double down = (*in_gate)[i] > 0 ? 0 : 1;
         const float last = dcy1;
-        double x, y, sum = 0, bridge, kept, mean = 0;
+        double x, y, xs[STRINGS_MAX], sum = 0, bridge, kept, mean = 0;
 
         dcy1 = (float)flush(in - dcx + dcpole * dcy1);
         dcy2 = (float)flush(dcy1 - last + dcpole * dcy2);
@@ -1227,29 +1260,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         for (s = 0; s < strings; s++)
         {
             /* The line's output, and the Thiran's fraction on it. */
-            x = line[s][(at + len - (lines[s] - da)) % len];
+            const unsigned int back = (unsigned int)(lines[s] - da);
+
+            x = line[s][at >= back ? at - back : at + len - back];
             y = eta[s] * x + thz[s];
             thz[s] = (float)flush(x - eta[s] * y);
-            x = y;
+            xs[s] = y;
+        }
 
-            if (kind == 1)
-                for (k = 0; k < sections; k++)
-                {
-                    y = c1[k] * x + z1[s][k];
-                    z1[s][k] = (float)flush(x - c1[k] * y);
-                    x = y;
-                }
-            else if (kind == 2)
-                for (k = 0; k < sections; k++)
-                {
-                    y = c2[k] * x + z1[s][k];
-                    z1[s][k] = (float)flush(c1[k] * x - c1[k] * y +
-                                            z2[s][k]);
-                    z2[s][k] = (float)flush(x - c2[k] * y);
-                    x = y;
-                }
+        if (strings == 3)
+            cascade<3>(kind, sections, c1, c2, z1, z2, xs);
+        else if (strings == 2)
+            cascade<2>(kind, sections, c1, c2, z1, z2, xs);
+        else
+            cascade<1>(kind, sections, c1, c2, z1, z2, xs);
 
-            lossz[s] = (float)flush(g[s] * (1.0 + pole[s]) * x -
+        for (s = 0; s < strings; s++)
+        {
+            lossz[s] = (float)flush(g[s] * (1.0 + pole[s]) * xs[s] -
                                     pole[s] * lossz[s]);
             sum += lossz[s];
         }
@@ -1300,7 +1328,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             for (s = 0; s < strings; s++)
             {
                 fromBridge[s] = -(lossz[s] - bridge) * kept;
-                fromNear[s] = -near[s][(apos + lenA - da) % lenA];
+                fromNear[s] = -near[s][apos >= (unsigned int)da
+                                       ? apos - da : apos + lenA - da];
 
                 /* Where the string would be with no hammer on it. */
                 base[s] = ys[s] + (fromBridge[s] + fromNear[s] +
@@ -1339,7 +1368,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
 
             force[i] = (float)total;
-            apos = (apos + 1) % lenA;
+            if (++apos == lenA)
+                apos = 0;
         }
 
         mean /= strings;
@@ -1353,7 +1383,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         play[i] = (age < hold || peak > PLAY_FLOOR) ? 1 : 0;
 
-        at = (at + 1) % len;
+        if (++at == len)
+            at = 0;
     }
 
     for (s = 0; s < strings; s++)
