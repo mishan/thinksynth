@@ -40,7 +40,7 @@ think_add_plugin_category(env      adsr adsfr ad dynmap follower followavg map)
 think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole
                                    res2pole res2pole2 resgrav moog svf
-                                   vowel)
+                                   vowel pianostring)
 
 think_add_plugin_category(impulse  sine parabola square blackman)
 

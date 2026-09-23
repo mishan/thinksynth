@@ -429,6 +429,24 @@ Moog Filter
 | `out_high` | out | High pass |  |  | full scale |  |
 | `out_bandpass` | out | Band pass |  |  | full scale |  |
 
+### filt::pianostring
+
+Stiff String (a piano string)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Excitation |  | -1 to 1 | full scale |  |
+| `freq` | in | The fundamental; read once per window |  |  | Hz |  |
+| `b` | in | Inharmonicity: partial n at n f0 sqrt(1 + b n^2); 0 is a harmonic string |  | 0 to 0.05 |  |  |
+| `decay` | in | How long the fundamental takes to fall sixty decibels | 10 | 0.01 to 200 | seconds |  |
+| `hidecay` | in | The same for the partials near 3 kHz; 0 is `decay' |  | 0.01 to 200 | seconds |  |
+| `damper` | in | How long the string takes to fall sixty decibels with the damper down | 0.15 | 0.01 to 200 | seconds |  |
+| `gate` | in | Above 0 the string is free; at 0 the damper is down |  | 0 to 2 |  |  |
+| `out` | out | The string |  |  | full scale |  |
+| `play` | out | 1 while the string is still sounding |  | 0 to 1 |  |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### filt::rds
 
 Resonant Difference Scaling Filter
