@@ -27,13 +27,14 @@
  * harness that wants a piece to replay exactly sets it synchronous
  * instead, and every answer is in by the time hear() returns.
  *
- * The private synths load the same modules the audio thread is running,
- * through plugin managers of their own. A module's module_init writes its
+ * The private synth loads the same modules the audio thread is running,
+ * through a plugin manager of its own. A module's module_init writes its
  * arg indices into file-scope globals, so a second init writes the same
- * numbers over themselves -- the hazard thcScheduler shares one control
- * synth across chains to avoid. This takes it once per render anyway,
- * because a synth is the only thing that starts the noise sources over,
- * and a genome heard twice has to be one distance.
+ * numbers over themselves -- the reason thcScheduler shares one control
+ * synth across chains applies here too, and is why this keeps one synth
+ * for its lifetime rather than one per render. Its noise starts over
+ * every render (thsound::renderNote resets its plugins), so a genome
+ * heard twice is one distance.
  *
  * What an instrument is -- its .dsp, its chanargs in the engine's terms,
  * which one a chain sinks to -- is the scheduler's knowledge, and it is
@@ -51,6 +52,8 @@
 
 #include "thcomposer.h"
 #include "thSoundFeat.h"
+
+class thSynth;
 
 class thcAuditioner
 {
@@ -141,6 +144,7 @@ private:
     int answered_;
 
     /* Worker-thread state. */
+    thSynth *synth_;
     thsound::Extractor extractor_;
 
     struct Target

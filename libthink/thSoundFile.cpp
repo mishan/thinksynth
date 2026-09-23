@@ -21,6 +21,7 @@
 #include <sstream>
 
 #include "thSoundFile.h"
+#include "thPluginManager.h"
 #include "thSynth.h"
 #include "thSynthTree.h"
 #include "thFFT.h"
@@ -313,6 +314,11 @@ bool renderNote (thSynth &synth, const string &dspPath,
                  int note, int holdWindows, int tailWindows,
                  vector<float> &mono, const string &effectPath)
 {
+    thPluginManager *plugins = synth.getPluginManager();
+
+    if (plugins != NULL)
+        plugins->resetPlugins();
+
     thSynthTree *tree = synth.loadTree(dspPath, 0, 100);
 
     if (tree == NULL)

@@ -25,7 +25,7 @@
 thcAuditioner::thcAuditioner (const std::string &pluginPath, double rate)
     : pluginPath_(pluginPath), rate_(rate), synchronous_(false), quit_(false),
       busy_(-1), busyForgotten_(false), nextTicket_(0), answered_(0),
-      extractor_(rate)
+      synth_(NULL), extractor_(rate)
 {
 }
 
@@ -41,6 +41,8 @@ thcAuditioner::~thcAuditioner (void)
 
     if (worker_.joinable())
         worker_.join();
+
+    delete synth_;
 }
 
 int
@@ -176,15 +178,14 @@ thcAuditioner::run (void)
     }
 }
 
-/* A synth of its own for every render: the noise sources start over only
-   when a synth loads them, and a synth kept from render to render would
-   carry its noise on, so one genome heard twice would be two distances. */
 bool
 thcAuditioner::render (const Instrument &inst, int note, std::vector<float> &mono)
 {
-    thSynth synth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH, (int)rate_);
+    if (synth_ == NULL)
+        synth_ = new thSynth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH,
+                             (int)rate_);
 
-    return thsound::renderNote(synth, inst.dsp, inst.chanargs, note,
+    return thsound::renderNote(*synth_, inst.dsp, inst.chanargs, note,
                                thsound::HOLD_WINDOWS, thsound::TAIL_WINDOWS,
                                mono, inst.effect);
 }

@@ -39,6 +39,11 @@ void module_cleanup (thPlugin *plugin)
     thNoiseRelease(plugin);
 }
 
+void module_reset (thPlugin *plugin)
+{
+    thNoiseRestart(plugin);
+}
+
 /* ModuleLoad() invokes this function with a pointer to the plugin
  * instance. */
 enum { OUT_ARG,INOUT_LAST,IN_SAMPLE };

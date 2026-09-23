@@ -79,6 +79,11 @@ public:
 
     void unloadPlugin(const std::string &name);
 
+    /* Every loaded plugin's module_reset: this manager's synth starts its
+       plugins' per-synth state over. On the thread that renders that
+       synth, between renders. */
+    void resetPlugins (void);
+
     /* The loaded plugin, or NULL. Does not load, and -- unlike the
        operator[] this used to be -- does not modify anything. */
     thPlugin *getPlugin (const std::string &name);

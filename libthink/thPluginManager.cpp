@@ -248,6 +248,15 @@ void thPluginManager::unloadPlugin(const string &name)
     delete plugin;
 }
 
+void thPluginManager::resetPlugins (void)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    for (PluginMap::iterator i = plugins_.begin(); i != plugins_.end(); ++i)
+        if (i->second != NULL)
+            i->second->reset();
+}
+
 /* No lock: the only caller is the destructor, and anything still holding a
    reference to a manager that is being destroyed has a worse problem than
    this map. */
