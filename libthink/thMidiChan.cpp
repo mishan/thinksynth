@@ -986,8 +986,11 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
      * single voice. */
     if (effect_ != NULL)
     {
+        /* The controller's 0..127, as the fraction a graph wants. */
+        const float pedal = argSustain_ ? (*argSustain_)[0] / 127.0f : 0;
+
         if (!effect_->process(output_, channels_, windowlength_, side,
-                              sidechannels))
+                              sidechannels, pedal))
         {
             reportNonFinite(GUARD_EFFECT);
         }

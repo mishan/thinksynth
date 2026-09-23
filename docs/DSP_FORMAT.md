@@ -483,6 +483,35 @@ its usual 256: 2.7 ms against 10.7.
 **A microphone and speakers in one room is an oscillator.** The master limiter
 saturates it rather than preventing it. Headphones.
 
+**And it may hear the sustain pedal.** An io node that declares `pedal` is
+given the channel's `SusPedal` there, every window, as 0 for up to 1 for down —
+the controller's 0…127 over 127, so a half pedal reads 0.5:
+
+```
+node ionode {
+    channels = 2;
+
+    in0   = 0;
+    in1   = 0;
+    pedal = 0;          # the channel's sustain pedal
+
+    out0 = ionode->in0 + strings->out * @amount;
+    out1 = ionode->in1 + strings->out * @amount;
+};
+```
+
+A voice only learns of the pedal whether a released note is held (its `trigger`
+stays at 2). An effect sees the pedal itself, which is what a piano's
+sympathetic strings need: with the dampers off every string on the instrument is
+free, not only the ones that were played. `dsp/fx/sympathetic.dsp` is that
+graph. One arg, not one per channel, since a channel has one pedal. Like
+`live<N>` it is written only where it was declared, and a master effect, which
+has no one channel's pedal to hear, reads zeros.
+
+A piece presses it with a chanarg sink —
+`sink { instrument = piano; chanarg = "SusPedal"; };` fed 0…127 — and a
+keyboard's pedal reaches it through a MIDI Map binding of CC 64 to `SusPedal`.
+
 **Its `@chanargs` are its own**, kept apart from the instrument's so that an
 instrument's `@a` and an effect's cannot collide. From outside they are named
 `fx.<name>`: `fx.delay` is the effect's, a bare `delay` is the instrument's.

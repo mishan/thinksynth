@@ -66,6 +66,11 @@
  * should sound like -- and is what keeps every offline path reproducible. See
  * LIVEPREFIX in think.h and thSynth::feedCapture.
  *
+ * It may also hear the sustain pedal. An effect whose io node declares
+ * `pedal' is given the channel's pedal there, 0 up to 1 down: what a piano's
+ * sympathetic strings need, since the pedal frees every string and not only
+ * the played ones. See PEDALARG in think.h.
+ *
  * Where no side was named, side<N> is *this* channel. A graph that reads it
  * therefore always has a signal there -- a compressor keyed from side0 is an
  * ordinary compressor until a piece names a kick for it -- which is the rule
@@ -116,9 +121,13 @@ public:
      * which case `buf' is untouched and what the voices mixed goes out dry.
      * An effect that diverges would otherwise take the channel with it for as
      * long as it is loaded, which is the failure the per-voice guard exists to
-     * stop one note doing. */
+     * stop one note doing.
+     *
+     * `pedal' is the channel's sustain pedal, 0 up to 1 down, for a graph
+     * that declares one -- see PEDALARG. */
     bool process (float *buf, int channels, int windowlen,
-                  const float *side = NULL, int sidechannels = 0);
+                  const float *side = NULL, int sidechannels = 0,
+                  float pedal = 0);
 
     /* The same, on a buffer laid out the other way round: `channels'
      * whole windows end to end, which is how thSynth keeps the mix.
@@ -178,7 +187,8 @@ private:
        how far apart two channels start: (channels, 1) is interleaved and
        (1, windowlen) is planar. */
     bool run (float *buf, int channels, int windowlen, int step, int hop,
-              const float *side, int sidechannels, const float *send);
+              const float *side, int sidechannels, const float *send,
+              float pedal);
 
     void copyChanArgs (void);
     void assignChanArgPointers (void);
@@ -224,6 +234,10 @@ private:
        an effect that is not fading. Last, so that every member an inline
        accessor above reads keeps the offset it had. */
     int fadelen_, faderemaining_;
+
+    /* Where `pedal' lives, or -1 where the file declared none. Last, for
+       the reason above. */
+    int pedalindex_;
 };
 
 #endif /* TH_CHANEFFECT_H */

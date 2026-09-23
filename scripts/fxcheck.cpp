@@ -912,6 +912,79 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- and the pedal --------------------------------------------------- */
+
+    /* `pedal' carries the channel's SusPedal as a fraction of 127.
+     *
+     * The same three passes as live0 below, for the same reason: what reaches
+     * getOutput() has been through the channel amplitude, the master gain and
+     * the limiter, so the claim is read as absent, constant and linear rather
+     * than as one absolute number. Nothing written is 0; 64 and 127 are two
+     * levels in the ratio 64 : 127.
+     */
+    {
+        const string fx =
+            "name \"fxcheck-pedal\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    in0 = 0;\n"
+            "    in1 = 0;\n"
+            "    pedal = 0;\n"
+            "    out0 = ionode->pedal * 0.25;\n"
+            "    out1 = ionode->pedal * 0.25;\n"
+            "};\n\n"
+            "io ionode;\n";
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            double up = -1, half = 0, down = 0;
+            bool flat = false;
+
+            for (int pass = 0; pass < 3; pass++)
+            {
+                Session s(pluginPath);
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadEffect(fxFile, 0, -1) == NULL)
+                {
+                    fail("an effect that declares a pedal loads", "");
+                    break;
+                }
+
+                if (pass > 0)
+                    s.synth.setChanArg(0, new thArg("SusPedal",
+                                                    pass == 1 ? 64 : 127));
+
+                s.run(2);
+
+                const vector<float> got = s.take();
+                const double top = peak(got);
+
+                if (pass == 0)
+                    up = top;
+                else if (pass == 1)
+                {
+                    half = top;
+                    flat = !got.empty();
+
+                    for (size_t i = 1; i < got.size() && flat; i++)
+                        if (fabs(got[i] - got[0]) > 1e-6)
+                            flat = false;
+                }
+                else
+                    down = top;
+            }
+
+            okOrFail(up >= 0 && up < 1e-9 && half > 0 && flat &&
+                     fabs(half / down - 64.0 / 127) < 0.001,
+                     "pedal carries the channel's sustain pedal, 0 up to 1 "
+                     "down",
+                     "up " + num(up) + ", at 64 " + num(half) +
+                     (flat ? "" : " (not flat across the window)") +
+                     ", at 127 " + num(down));
+        }
+    }
+
     /* ---- and the machine ----------------------------------------------- */
 
     /* live0 carries what the host fed, and nothing when it fed nothing.

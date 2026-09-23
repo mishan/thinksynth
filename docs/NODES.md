@@ -429,6 +429,35 @@ Moog Filter
 | `out_high` | out | High pass |  |  | full scale |  |
 | `out_bandpass` | out | Band pass |  |  | full scale |  |
 
+### filt::pianostring
+
+Stiff String (a piano string)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Excitation |  | -1 to 1 | full scale |  |
+| `freq` | in | The fundamental; read once per window |  |  | Hz |  |
+| `b` | in | Inharmonicity: partial n at n f0 sqrt(1 + b n^2), f0 sqrt(1 + b) the fundamental; 0 is a harmonic string |  | 0 to 0.05 |  |  |
+| `decay` | in | How long the fundamental takes to fall sixty decibels | 10 | 0.01 to 200 | seconds |  |
+| `hidecay` | in | The same for the partials near 3 kHz; 0 is `decay' |  | 0.01 to 200 | seconds |  |
+| `damper` | in | How long the string takes to fall sixty decibels with the damper down | 0.15 | 0.01 to 200 | seconds |  |
+| `gate` | in | Above 0 the string is free; at 0 the damper is down |  | 0 to 2 |  |  |
+| `strings` | in | How many unison strings; read once per window | 1 | 1 to 3 |  |  |
+| `unison` | in | How far apart neighboring strings are tuned |  | 0 to 100 | cents |  |
+| `prompt` | in | How long the strings moving together take to fall sixty decibels into the bridge; 0 is uncoupled |  | 0.01 to 200 | seconds |  |
+| `imbalance` | in | The tilt across the unison: the outer strings are struck, and heard, 1 plus and minus this |  | 0 to 1 |  |  |
+| `out` | out | The strings' mean, tilted by `imbalance' |  |  | full scale |  |
+| `strike` | in | Launches the hammer when it rises above 0 |  | 0 to 2 |  |  |
+| `velocity` | in | The hammer's speed at the string; read at the blow |  | 0 to 1 |  |  |
+| `mass` | in | The hammer's mass over the string's; 0 is no hammer |  | 0 to 100 |  |  |
+| `felt` | in | The felt's stiffness K, in millions: F = K d^p |  | 0 to 1e+08 |  |  |
+| `exponent` | in | The felt's exponent p: how much harder it gets the more it is squeezed | 2.5 | 1 to 5 |  |  |
+| `position` | in | Where the hammer strikes, as a fraction of the string from the near end | 0.125 | 0.02 to 0.5 |  |  |
+| `play` | out | 1 while the strings are still sounding |  | 0 to 1 |  |  |
+| `force` | out | The hammer's force on the strings; 0 when it is clear of them |  |  |  |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### filt::rds
 
 Resonant Difference Scaling Filter
@@ -519,6 +548,24 @@ State-variable filter: low, band and high
 | `out_band` | out | Band pass, peaking at 1 whatever the resonance is |  | -1 to 1 | full scale |  |
 | `out_high` | out | High pass; the three outputs sum to the input |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
+
+### filt::sympathetic
+
+Sympathetic strings (a piano's, with a pedal)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | What the bridge carries: the channel |  | -1 to 1 | full scale |  |
+| `pedal` | in | The sustain pedal: 0 up, 1 down, between is a half pedal |  | 0 to 1 |  |  |
+| `low` | in | The lowest string; read once per window | 21 | 21 to 108 | MIDI note |  |
+| `high` | in | The highest string; read once per window | 108 | 21 to 108 | MIDI note |  |
+| `undamped` | in | The lowest string with no damper; read once per window | 90 | 21 to 109 | MIDI note |  |
+| `decay` | in | A free string's T60 at middle C, doubling every twenty-eight keys down | 15 | 0.01 to 200 | seconds |  |
+| `damper` | in | A damped string's T60 | 0.1 | 0.01 to 200 | seconds |  |
+| `damp` | in | How much darker each trip is; 0 rings every partial as long as the fundamental |  | 0 to 0.95 |  |  |
+| `out` | out | Every string, summed |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
 
 ### filt::vowel
 

@@ -5384,6 +5384,1184 @@ static void checkPad (const string &pluginPath)
                  "hundred");
 }
 
+/* ---- filt::pianostring -------------------------------------------------- */
+
+/* What the node claims, and what each check is for:
+ *
+ *   - the fundamental is `freq' to within half a cent, from A0 to C7, with
+ *     the dispersion filter's delay and the loss filter's in the loop, and
+ *     within a cent up to the top of the MIDI range;
+ *
+ *   - the partials sit at n f0 sqrt(1 + b n^2), f0 sqrt(1 + b) = `freq', to
+ *     within a few cents, for every partial the fit covers -- the stretch
+ *     that is the reason the node exists, and which filt::comb cannot make;
+ *
+ *   - the fundamental falls sixty decibels in `decay', and with `hidecay'
+ *     shorter the partials near 3 kHz fall in that instead;
+ *
+ *   - `gate = 0' brings the string down in `damper', stiff or not, and
+ *     `play' follows the string rather than the gate, and ends even when
+ *     the excitation has a net DC;
+ *
+ *   - and a window boundary is not an event.
+ */
+
+static vector<NodeSpec> pianoGraph (float freq, float b, float decay,
+                                    float hidecay, float damper, float gate,
+                                    float pulse = 1)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, str;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", pulse };
+    Value p = { "p", TH_MAX };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    str.name = "string";
+    str.spelling = "filt/pianostring";
+
+    Value f = { "freq", freq };
+    Value bv = { "b", b };
+    Value dc = { "decay", decay };
+    Value hd = { "hidecay", hidecay };
+    Value dm = { "damper", damper };
+    Value gt = { "gate", gate };
+    Wire  in = { "in", "src", "out" };
+
+    str.values.push_back(f);
+    str.values.push_back(bv);
+    str.values.push_back(dc);
+    str.values.push_back(hd);
+    str.values.push_back(dm);
+    str.values.push_back(gt);
+    str.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(str);
+
+    return spec;
+}
+
+/* The magnitude of `n' samples from `from' at `hz', through a four-term
+   Blackman-Harris window: its sidelobes are 92 dB down, so a partial is
+   not pulled by its neighbors, and its main lobe is four bins either
+   side, which a one-second window keeps inside the 27 Hz between A0's
+   partials. */
+static double windowedMag (const vector<float> &v, size_t from, size_t n,
+                           double hz)
+{
+    const double w = 2.0 * M_PI * hz / TH_DEFAULT_SAMPLES;
+    double re = 0, im = 0;
+
+    for (size_t i = 0; i < n && from + i < v.size(); i++)
+    {
+        const double x = 2.0 * M_PI * (double)i / (double)(n - 1);
+        const double win = 0.35875 - 0.48829 * cos(x) +
+                           0.14128 * cos(2 * x) - 0.01168 * cos(3 * x);
+
+        re += win * v[from + i] * cos(w * i);
+        im -= win * v[from + i] * sin(w * i);
+    }
+
+    return sqrt(re * re + im * im);
+}
+
+/* Where the spectrum peaks within `span' cents of `hz': a scan at a cent
+   and a golden-section search on the best of it. */
+static double peakNear (const vector<float> &v, size_t from, size_t n,
+                        double hz, double span)
+{
+    const double golden = 0.6180339887498949;
+    double best = 0, bestAt = hz, lo, hi;
+
+    for (double c = -span; c <= span; c += 1)
+    {
+        const double f = hz * pow(2.0, c / 1200);
+        const double m = windowedMag(v, from, n, f);
+
+        if (m > best)
+        {
+            best = m;
+            bestAt = f;
+        }
+    }
+
+    lo = bestAt * pow(2.0, -1.0 / 1200);
+    hi = bestAt * pow(2.0, 1.0 / 1200);
+
+    for (int i = 0; i < 30; i++)
+    {
+        const double x0 = hi - golden * (hi - lo);
+        const double x1 = lo + golden * (hi - lo);
+
+        if (windowedMag(v, from, n, x0) > windowedMag(v, from, n, x1))
+            hi = x1;
+        else
+            lo = x0;
+    }
+
+    return 0.5 * (lo + hi);
+}
+
+/* A plausible piano's inharmonicity by MIDI key: about 2e-4 at A0, least
+   in the tenor, 1.6e-2 at C8. */
+static double pianoB (int key)
+{
+    return 1e-4 * (pow(2.0, (key - 48) * 0.1218) +
+                   pow(2.0, (48 - key) * 0.0385));
+}
+
+static void checkPianostring (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- the fundamental and the partials ---- */
+
+    /* An impulse into a string that barely decays, and a second of it
+       after the first twentieth. Every partial under 6 kHz up to the
+       eighth, against the stiff-string formula with its first partial at
+       `freq': the fundamental to half a cent, the rest to two. */
+    {
+        static const int keys[] = { 21, 33, 45, 60, 69, 81, 96 };
+
+        for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
+        {
+            const double hz = 440 * pow(2.0, (keys[k] - 69) / 12.0);
+            const double b = pianoB(keys[k]);
+            const double f0 = hz / sqrt(1 + b);
+            const size_t from = (size_t)(rate / 20);
+            const size_t n = (size_t)rate;
+            vector<float> out;
+            string why, detail;
+            double worst = 0;
+            bool good = true;
+
+            if (!render1(pluginPath,
+                         pianoGraph((float)hz, (float)b, 60, 0, 0, 1),
+                         "string", "out", 256, (unsigned)(from + n), out,
+                         why))
+            {
+                fail("filt::pianostring renders", why);
+                return;
+            }
+
+            for (int p = 1; p <= 8; p++)
+            {
+                const double want = p == 1 ? hz
+                                           : p * f0 * sqrt(1 + b * p * p);
+                double got, off;
+
+                if (want > 6000)
+                    break;
+
+                got = peakNear(out, from, n, want, 50);
+                off = cents(got, want);
+
+                if (fabs(off) > fabs(worst))
+                    worst = off;
+
+                if (fabs(off) > (p == 1 ? 0.5 : 2))
+                {
+                    good = false;
+                    detail = "key " + num(keys[k]) + " partial " + num(p) +
+                             " at " + num(got) + " Hz for " + num(want) +
+                             ", " + num(off) + " cents";
+                    break;
+                }
+            }
+
+            okOrFail(good, "filt::pianostring: key " + num(keys[k]) +
+                           "'s partials are n f0 sqrt(1 + b n^2) (worst " +
+                           num(worst) + " cents)",
+                     detail);
+        }
+    }
+
+    /* The top of the MIDI range, where the fundamental is over a quarter of
+       the rate and the Thiran's phase delay there is far from its
+       fraction. */
+    {
+        static const int keys[] = { 108, 116, 120, 124, 127 };
+        string detail;
+        double worst = 0;
+        bool good = true;
+
+        for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
+        {
+            const double hz = 440 * pow(2.0, (keys[k] - 69) / 12.0);
+            const double b = pianoB(keys[k]) < 0.05 ? pianoB(keys[k]) : 0.05;
+            const size_t from = (size_t)(rate / 20);
+            const size_t n = (size_t)rate;
+            vector<float> out;
+            string why;
+            double off;
+
+            if (!render1(pluginPath,
+                         pianoGraph((float)hz, (float)b, 60, 0, 0, 1),
+                         "string", "out", 256, (unsigned)(from + n), out,
+                         why))
+            {
+                fail("filt::pianostring renders", why);
+                return;
+            }
+
+            off = cents(peakNear(out, from, n, hz, 60), hz);
+
+            if (fabs(off) > fabs(worst))
+                worst = off;
+
+            if (fabs(off) > 1 && good)
+            {
+                good = false;
+                detail = "key " + num(keys[k]) + " is " + num(off) +
+                         " cents out";
+            }
+        }
+
+        okOrFail(good, "filt::pianostring: keys 108 to 127 are `freq' to "
+                       "a cent (worst " + num(worst) + " cents)",
+                 detail);
+    }
+
+    /* ---- the two decays ---- */
+
+    /* 500 Hz with no stiffness, so the sixth partial is at 3 kHz exactly,
+       where `hidecay' is measured. Each partial's level a quarter-second
+       in and three quarters in: half a second, so a T60 of t falls 30 / t
+       decibels between them. */
+    {
+        static const float hidecays[] = { 0, 0.5f };
+
+        for (size_t h = 0; h < 2; h++)
+        {
+            const double f0 = 500;
+            const float decay = 2;
+            const size_t n = (size_t)(rate / 10);
+            const size_t t1 = (size_t)(rate / 4), t2 = (size_t)(rate * 3 / 4);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         pianoGraph((float)f0, 0, decay, hidecays[h], 0, 1),
+                         "string", "out", 256, (unsigned)(t2 + n), out, why))
+            {
+                fail("filt::pianostring renders", why);
+                return;
+            }
+
+            for (int p = 1; p <= 6; p += 5)
+            {
+                const double hz = p * f0;
+                const double fell =
+                    20 * log10(windowedMag(out, t2, n, hz) /
+                               windowedMag(out, t1, n, hz));
+                const double t60 = -60 * (double)(t2 - t1) / rate / fell;
+                const double want = (p == 6 && hidecays[h] > 0)
+                                    ? hidecays[h] : decay;
+
+                okOrFail(fabs(t60 / want - 1) < 0.1,
+                         "filt::pianostring: " +
+                         string(hidecays[h] > 0 ? "with `hidecay' 0.5, "
+                                                : "with `hidecay' 0, ") +
+                         "partial " + num(p) + " falls 60 dB in " +
+                         num(want) + " s",
+                         "it took " + num(t60) + " s");
+            }
+        }
+    }
+
+    /* ---- the damper, and `play' ---- */
+
+    /* `gate = 0' from the start: a free string's `decay' and the damper's
+       together are 1 / (1 / decay + 1 / damper). A harmonic string, and
+       two stiff ones whose loops are longer than a period at the
+       fundamental by what the dispersion filter delays it: A0 on the
+       second-order cascade, F6 on the first-order one. */
+    {
+        /* The key is 0 for no stiffness. Seconds, and each window long
+           enough to hold several periods. */
+        struct Damped {
+            double hz;
+            int key;
+            double decay, damper, t1, t2, n;
+        };
+        static const Damped cases[] = {
+            { 220, 0, 10, 0.3, 0.05, 0.2, 0.05 },
+            { 27.5, 21, 60, 1, 0.1, 0.6, 0.25 },
+            { 1396.9, 89, 60, 0.3, 0.05, 0.2, 0.05 },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            const Damped &k = cases[c];
+            const double b = k.key > 0 ? pianoB(k.key) : 0;
+            const size_t n = (size_t)(rate * k.n);
+            const size_t t1 = (size_t)(rate * k.t1);
+            const size_t t2 = (size_t)(rate * k.t2);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         pianoGraph((float)k.hz, (float)b, (float)k.decay, 0,
+                                    (float)k.damper, 0),
+                         "string", "out", 256, (unsigned)(t2 + n), out, why))
+            {
+                fail("filt::pianostring renders", why);
+                return;
+            }
+
+            const double fell = 20 * log10(windowedMag(out, t2, n, k.hz) /
+                                           windowedMag(out, t1, n, k.hz));
+            const double t60 = -60 * (double)(t2 - t1) / rate / fell;
+            const double want = 1 / (1 / k.decay + 1 / k.damper);
+
+            okOrFail(fabs(t60 / want - 1) < 0.1,
+                     "filt::pianostring: at " + num(k.hz) + " Hz, b " +
+                     num(b) + ", with the damper down the string falls 60 "
+                     "dB in `damper' and `decay' together",
+                     "it took " + num(t60) + " s for " + num(want));
+        }
+    }
+
+    {
+        vector< vector<float> > got[2];
+        static const float gates[] = { 1, 0 };
+        bool bad = false;
+
+        for (size_t g = 0; g < 2 && !bad; g++)
+        {
+            vector<Watch> watch;
+            string why;
+            Watch w = { "string", "play" };
+
+            watch.push_back(w);
+
+            if (!render(pluginPath, pianoGraph(220, 0, 10, 0, 0.1f, gates[g]),
+                        watch, 256, (unsigned)rate, got[g], why))
+            {
+                fail("filt::pianostring renders", why);
+                bad = true;
+            }
+        }
+
+        if (!bad)
+        {
+            const vector<float> &held = got[0][0], &damped = got[1][0];
+
+            okOrFail(held.back() == 1 && damped[0] == 1 && damped.back() == 0,
+                     "filt::pianostring: `play' is 1 while the string "
+                     "sounds and 0 once the damper has stopped it",
+                     "held ends " + num(held.back()) + ", damped starts " +
+                     num(damped[0]) + " and ends " + num(damped.back()));
+        }
+    }
+
+    /* A pulse that is all one sign has a net DC, and the loop's gain at DC
+       is its highest: with `hidecay' this much shorter than `decay' at
+       1.5 kHz the loss filter's gain there is at its clamp. Unless the
+       string keeps DC out, that mode outlasts the fundamental's two
+       seconds by hours and `play' never falls. */
+    {
+        vector<float> play;
+        string why;
+
+        if (!render1(pluginPath,
+                     pianoGraph(1500, 0, 2, 0.3f, 0, 1, (float)(rate / 100)),
+                     "string", "play", 256, (unsigned)(rate * 4), play, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        okOrFail(play.back() == 0,
+                 "filt::pianostring: a pulse with a net DC ends in the "
+                 "fundamental's time, not the DC's",
+                 "`play' is still " + num(play.back()) + " after 4 s");
+    }
+
+    /* The line, the Thiran, sixteen sections' states, the loss filter and
+       the damper's fade all cross a window boundary. A0, so the
+       second-order cascade is the one in the loop. */
+    windowsAgree(pluginPath,
+                 pianoGraph(27.5f, (float)pianoB(21), 20, 2, 0.2f, 1),
+                 "string", "out",
+                 "filt::pianostring: the same string at one sample a window "
+                 "and at five hundred");
+    windowsAgree(pluginPath,
+                 pianoGraph(440, (float)pianoB(69), 8, 1, 0.2f, 0),
+                 "string", "out",
+                 "filt::pianostring: and the first-order cascade, damped");
+}
+
+/* The same string with `strings', `unison' and `prompt' set. */
+static vector<NodeSpec> unisonGraph (float freq, float b, float decay,
+                                     float strings, float unison,
+                                     float prompt)
+{
+    vector<NodeSpec> spec = pianoGraph(freq, b, decay, 0, 0, 1);
+    Value n = { "strings", strings };
+    Value u = { "unison", unison };
+    Value p = { "prompt", prompt };
+
+    spec[1].values.push_back(n);
+    spec[1].values.push_back(u);
+    spec[1].values.push_back(p);
+
+    return spec;
+}
+
+/* The fundamental's level, in decibels, over `n' samples from `from'. */
+static double levelAt (const vector<float> &v, double hz, double from,
+                       double n)
+{
+    return 20 * log10(windowedMag(v, (size_t)(from * TH_DEFAULT_SAMPLES),
+                                  (size_t)(n * TH_DEFAULT_SAMPLES), hz) +
+                      1e-30);
+}
+
+static void checkPianoUnison (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- each string at its own pitch ---- */
+
+    /* Uncoupled and fifty cents apart, so a one-second window resolves
+       them: 440 Hz's neighbors are 13 Hz away. Two strings sit either side
+       of the note and three on it and either side. */
+    for (int strings = 2; strings <= 3; strings++)
+    {
+        const double f0 = 440;
+        const size_t from = (size_t)(rate / 20), n = (size_t)rate;
+        vector<float> out;
+        string why, detail;
+        bool good = true;
+
+        if (!render1(pluginPath, unisonGraph((float)f0, 0, 60, strings, 50, 0),
+                     "string", "out", 256, (unsigned)(from + n), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        for (int k = 0; k < strings && good; k++)
+        {
+            const double want = f0 * pow(2.0, (k - 0.5 * (strings - 1)) *
+                                              50 / 1200);
+            const double got = peakNear(out, from, n, want, 15);
+
+            if (fabs(cents(got, want)) > 0.5)
+            {
+                good = false;
+                detail = "string " + num(k) + " at " + num(got) + " Hz for " +
+                         num(want);
+            }
+        }
+
+        okOrFail(good, "filt::pianostring: " + num(strings) + " strings "
+                       "`unison' cents apart each ring at their own pitch",
+                 detail);
+    }
+
+    /* ---- the bridge takes the in-phase motion in `prompt' ---- */
+
+    /* In tune and struck together, the strings only ever move together,
+       so they lose to the bridge and to their own loss at once:
+       1 / (1/10 + 1/0.5) is 0.476 s. */
+    {
+        const double f0 = 262;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, unisonGraph((float)f0, 0, 10, 3, 0, 0.5f),
+                     "string", "out", 256, (unsigned)(rate / 2), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        const double fell = levelAt(out, f0, 0.25, 0.1) -
+                            levelAt(out, f0, 0.05, 0.1);
+        const double t60 = -60 * 0.2 / fell;
+        const double want = 1 / (1 / 10.0 + 1 / 0.5);
+
+        okOrFail(fabs(t60 / want - 1) < 0.1,
+                 "filt::pianostring: three strings in tune fall 60 dB in "
+                 "`prompt' and `decay' together",
+                 "it took " + num(t60) + " s for " + num(want));
+    }
+
+    /* ---- an uneven blow leaves an aftersound in tune ---- */
+
+    /* Two strings struck and heard 1.2 and 0.8: the in-phase part falls
+       in `prompt' and `decay' together as above, and the 0.2 against it
+       is the bridge-free motion, heard at 0.2 of that and falling in
+       `decay' alone -- 4 dB a second for fifteen, exactly, since in tune
+       it is a mode of its own. */
+    {
+        const double f0 = 262;
+        vector<NodeSpec> spec = unisonGraph((float)f0, 0, 15, 2, 0, 0.5f);
+        Value im = { "imbalance", 0.2f };
+        vector<float> out;
+        string why;
+
+        spec[1].values.push_back(im);
+
+        if (!render1(pluginPath, spec, "string", "out", 256,
+                     (unsigned)(rate * 6), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        const double early = (levelAt(out, f0, 0.25, 0.1) -
+                              levelAt(out, f0, 0.05, 0.1)) / 0.2;
+        const double late = (levelAt(out, f0, 4, 1) -
+                             levelAt(out, f0, 2, 1)) / 2;
+
+        okOrFail(early < -40 && fabs(late / -4 - 1) < 0.1,
+                 "filt::pianostring: a tilted unison in tune "
+                 "leaves motion the bridge does not take, falling in "
+                 "`decay'",
+                 "early " + num(early) + " dB/s, late " + num(late) +
+                 " dB/s for -4");
+    }
+
+    /* ---- and the mistuning leaves an aftersound ---- */
+
+    /* The same three strings a cent and a half apart, with `prompt' at a
+       second and `decay' at fifteen. The prompt sound falls at about
+       60 dB a second. What is left is mostly the strings moving against
+       each other, which the bridge does not take, so it falls at least
+       five times slower -- but not as slowly as `decay''s 4 dB a second
+       alone, since a mistuned mode is never wholly out of phase and keeps
+       leaking into the bridge (about 10 dB a second here). The late rate
+       is over two-second windows three seconds apart, which average the
+       beating out. In tune, the same graph has no aftersound at all --
+       the control. */
+    {
+        static const float unisons[] = { 1.5f, 0 };
+        const double f0 = 262;
+        double late[2] = { 0, 0 }, early[2] = { 0, 0 };
+        bool bad = false;
+
+        for (size_t u = 0; u < 2 && !bad; u++)
+        {
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         unisonGraph((float)f0, 0, 15, 3, unisons[u], 1),
+                         "string", "out", 256, (unsigned)(rate * 8), out,
+                         why))
+            {
+                fail("filt::pianostring renders", why);
+                bad = true;
+                break;
+            }
+
+            early[u] = (levelAt(out, f0, 0.3, 0.1) -
+                        levelAt(out, f0, 0.05, 0.1)) / 0.25;
+            late[u] = (levelAt(out, f0, 5, 2) - levelAt(out, f0, 2, 2)) / 3;
+        }
+
+        if (!bad)
+        {
+            okOrFail(early[0] < -20 && late[0] > early[0] / 5 &&
+                     late[0] < -3.5,
+                     "filt::pianostring: mistuned unison strings fall fast "
+                     "and then slowly: the two-stage decay",
+                     "early " + num(early[0]) + " dB/s, late " +
+                     num(late[0]) + " dB/s");
+            okOrFail(late[1] < -30,
+                     "filt::pianostring: and in tune they only fall fast",
+                     "late " + num(late[1]) + " dB/s");
+        }
+    }
+
+    /* ---- the flattest string still fits its line ---- */
+
+    /* The lowest note with the widest unison puts the outer strings a
+       semitone either side of FREQ_MIN, the flat one below it. Uncoupled
+       and eight seconds long, so the window resolves the 0.9 Hz between
+       them. */
+    {
+        const double f0 = 16;
+        const size_t from = (size_t)(rate / 20), n = (size_t)(rate * 8);
+        vector<float> out;
+        string why, detail;
+        bool good = true;
+
+        if (!render1(pluginPath, unisonGraph((float)f0, 0, 60, 3, 100, 0),
+                     "string", "out", 256, (unsigned)(from + n), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        for (int k = 0; k < 3 && good; k++)
+        {
+            const double want = f0 * pow(2.0, (k - 1) * 100 / 1200.0);
+            const double got = peakNear(out, from, n, want, 30);
+
+            if (fabs(cents(got, want)) > 2)
+            {
+                good = false;
+                detail = "string " + num(k) + " at " + num(got) + " Hz for " +
+                         num(want);
+            }
+        }
+
+        okOrFail(good, "filt::pianostring: the widest unison on the lowest "
+                       "note rings each string at its own pitch",
+                 detail);
+    }
+
+    /* ---- strings rejoin the unison at rest ---- */
+
+    /* Three strings struck, two of them dropped at 1.5 s and taken back at
+       3 s. Falling 60 dB in three seconds, the one left is 30 dB below
+       where the others stopped; had they kept what they held, taking
+       them back would bring the note up by that much. */
+    {
+        const unsigned windowlen = 256;
+        const unsigned drop = (unsigned)(rate * 1.5) / windowlen * windowlen;
+        const unsigned back = (unsigned)(rate * 3) / windowlen * windowlen;
+        const unsigned total = back + (unsigned)(rate / 2);
+        const size_t span = (size_t)(rate / 10);
+        thSynth synth(pluginPath, (int)windowlen, TH_DEFAULT_SAMPLES);
+        thSynthTree tree("statecheck", &synth);
+        vector<float> out;
+        string why;
+
+        if (!buildGraph(synth, tree, unisonGraph(262, 0, 3, 3, 0, 0), why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        thNode *str = tree.findNode("string");
+        thArg *arg = str->getArg("out");
+
+        for (unsigned done = 0; done < total; done += windowlen)
+        {
+            if (done == drop)
+                str->setArg("strings", 1);
+            else if (done == back)
+                str->setArg("strings", 3);
+
+            tree.setActiveNodes();
+            tree.process(windowlen);
+
+            for (unsigned i = 0; i < windowlen; i++)
+                out.push_back((*arg)[i]);
+        }
+
+        double before = 0, after = 0;
+
+        for (size_t i = 0; i < span; i++)
+        {
+            before += (double)out[back - span + i] * out[back - span + i];
+            after += (double)out[back + i] * out[back + i];
+        }
+
+        const double rise = 10 * log10((after + 1e-30) / (before + 1e-30));
+
+        okOrFail(rise < 1,
+                 "filt::pianostring: strings taken back into the unison "
+                 "start at rest",
+                 "the note rose " + num(rise) + " dB");
+    }
+
+    windowsAgree(pluginPath,
+                 unisonGraph(110, (float)pianoB(45), 10, 3, 1.5f, 1),
+                 "string", "out",
+                 "filt::pianostring: three coupled strings the same at one "
+                 "sample a window and at five hundred");
+}
+
+/* ---- filt::pianostring's hammer ------------------------------------------ */
+
+/* What the hammer claims:
+ *
+ *   - a harder blow is a shorter one and a brighter note -- the felt's
+ *     nonlinearity, which nothing else in the node or the graph supplies;
+ *   - it leaves: after the blow the force is 0 and stays there;
+ *   - the strike point is a node of the partials it divides: struck an
+ *     eighth of the way along, the 8th partial is missing;
+ *   - it stays finite at every corner of its args;
+ *   - and a window boundary is not an event.
+ */
+
+static vector<NodeSpec> hammerGraph (float freq, float strings, float velocity,
+                                     float mass, float felt, float exponent,
+                                     float position)
+{
+    vector<NodeSpec> spec = unisonGraph(freq, 0, 20, strings, 1, 8);
+    Value v[] = { { "strike", 1 }, { "velocity", velocity },
+                  { "mass", mass }, { "felt", felt },
+                  { "exponent", exponent }, { "position", position } };
+
+    /* No click: the hammer is the excitation. (`p = 0' would not do it:
+       env::ad reads 0 as full scale.) */
+    spec[1].wires.clear();
+
+    for (size_t i = 0; i < sizeof(v) / sizeof(v[0]); i++)
+        spec[1].values.push_back(v[i]);
+
+    return spec;
+}
+
+/* Spectral centroid of `n' samples from `from', over `f0', from half the
+   fundamental up. */
+static double centroidOver (const vector<float> &v, size_t from, size_t n,
+                            double f0)
+{
+    double num = 0, den = 0;
+
+    for (double hz = f0 / 2; hz < 8000; hz += f0 / 8)
+    {
+        const double m = windowedMag(v, from, n, hz);
+
+        num += m * m * hz;
+        den += m * m;
+    }
+
+    return den > 0 ? num / den / f0 : 0;
+}
+
+static void checkHammer (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- a harder blow is shorter and brighter ---- */
+    {
+        static const float speeds[] = { 0.3f, 1 };
+        double contact[2] = { 0, 0 }, bright[2] = { 0, 0 };
+        bool bad = false;
+
+        for (size_t v = 0; v < 2 && !bad; v++)
+        {
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+            Watch w0 = { "string", "out" };
+            Watch w1 = { "string", "force" };
+
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath,
+                        hammerGraph(261.63f, 3, speeds[v], 1.7f, 250, 2.5f,
+                                    0.125f),
+                        watch, 256, (unsigned)(rate / 2), got, why))
+            {
+                fail("filt::pianostring renders with a hammer", why);
+                bad = true;
+                break;
+            }
+
+            size_t first = got[1].size(), last = 0;
+
+            for (size_t i = 0; i < got[1].size(); i++)
+                if (got[1][i] > 0)
+                {
+                    if (first == got[1].size())
+                        first = i;
+
+                    last = i;
+                }
+
+            contact[v] = first < last ? (last - first) / rate * 1000 : 0;
+            bright[v] = centroidOver(got[0], (size_t)(rate / 50),
+                                     (size_t)(rate / 5), 261.63);
+        }
+
+        if (!bad)
+            okOrFail(contact[0] > contact[1] && contact[1] > 0.5 &&
+                     contact[0] < 10 && bright[1] > bright[0] * 1.1,
+                     "filt::pianostring: a harder blow is a shorter one and "
+                     "a brighter note",
+                     "contact " + num(contact[0]) + " ms at 0.3, " +
+                     num(contact[1]) + " ms at 1; centroid " +
+                     num(bright[0]) + " and " + num(bright[1]) + " f0");
+    }
+
+    /* ---- it leaves ---- */
+    {
+        vector<float> force;
+        string why;
+
+        if (!render1(pluginPath,
+                     hammerGraph(261.63f, 1, 0.7f, 1.7f, 250, 2.5f, 0.125f),
+                     "string", "force", 256, (unsigned)(rate / 4), force, why))
+            fail("filt::pianostring renders with a hammer", why);
+        else
+        {
+            const size_t after = (size_t)(rate / 50);
+            bool clear = true;
+
+            for (size_t i = after; i < force.size(); i++)
+                if (force[i] != 0)
+                    clear = false;
+
+            okOrFail(peak(force, 0) > 0 && clear,
+                     "filt::pianostring: the hammer strikes and then is "
+                     "clear of the string",
+                     "peak force " + num(peak(force, 0)) +
+                     (clear ? "" : ", still in contact after 20 ms"));
+        }
+    }
+
+    /* ---- the strike point is a node ---- */
+
+    /* One harmonic string, struck an eighth along: the 8th partial against
+       the 7th and 9th either side of it. */
+    {
+        const double f0 = 220;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     hammerGraph((float)f0, 1, 0.7f, 1.7f, 250, 2.5f, 0.125f),
+                     "string", "out", 256, (unsigned)rate, out, why))
+            fail("filt::pianostring renders with a hammer", why);
+        else
+        {
+            const size_t from = (size_t)(rate / 10), n = (size_t)(rate / 2);
+            const double m7 = windowedMag(out, from, n, 7 * f0);
+            const double m8 = windowedMag(out, from, n, 8 * f0);
+            const double m9 = windowedMag(out, from, n, 9 * f0);
+            const double dip = 20 * log10(m8 / sqrt(m7 * m9));
+
+            okOrFail(dip < -20,
+                     "filt::pianostring: struck an eighth along, the 8th "
+                     "partial is missing",
+                     "the 8th is " + num(dip) + " dB against the 7th and 9th");
+        }
+    }
+
+    /* ---- finite at every corner ---- */
+    {
+        static const float masses[] = { 0.01f, 100 };
+        static const float felts[] = { 0.001f, 1e8f };
+        static const float exps[] = { 1, 5 };
+        bool good = true;
+        string detail;
+
+        for (size_t a = 0; a < 2 && good; a++)
+            for (size_t b = 0; b < 2 && good; b++)
+                for (size_t c = 0; c < 2 && good; c++)
+                    for (int note = 0; note < 2 && good; note++)
+                    {
+                        vector<float> out;
+                        string why;
+                        const float hz = note ? 4186 : 27.5f;
+
+                        if (!render1(pluginPath,
+                                     hammerGraph(hz, 3, 1, masses[a],
+                                                 felts[b], exps[c], 0.5f),
+                                     "string", "out", 256,
+                                     (unsigned)(rate / 4), out, why))
+                        {
+                            good = false;
+                            detail = why;
+                        }
+                        else if (!allFinite(out) || peak(out, 0) > 100)
+                        {
+                            good = false;
+                            detail = num(hz) + " Hz, mass " +
+                                     num(masses[a]) + ", felt " +
+                                     num(felts[b]) + ", exponent " +
+                                     num(exps[c]) + ": peak " +
+                                     num(peak(out, 0));
+                        }
+                    }
+
+        okOrFail(good, "filt::pianostring: the hammer stays finite at every "
+                       "corner of mass, felt and exponent", detail);
+    }
+
+    /* ---- idle until the first blow ---- */
+
+    /* `strike' held at 0 and the string rung through `in' instead: the
+       hammer is never launched, so it must never touch the string -- no
+       force, and the same sound as with no felt on it at all. */
+    {
+        vector< vector<float> > got[2];
+        static const float felts[] = { 250, 0 };
+        bool bad = false;
+
+        for (size_t a = 0; a < 2 && !bad; a++)
+        {
+            vector<NodeSpec> spec = hammerGraph(261.63f, 3, 1, 1.7f, felts[a],
+                                                2.5f, 0.125f);
+            vector<Watch> watch;
+            string why;
+            Watch w0 = { "string", "out" };
+            Watch w1 = { "string", "force" };
+            Wire in = { "in", "src", "out" };
+
+            for (size_t i = 0; i < spec[1].values.size(); i++)
+                if (string(spec[1].values[i].arg) == "strike")
+                    spec[1].values[i].value = 0;
+
+            spec[1].wires.push_back(in);
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath, spec, watch, 256, (unsigned)(rate / 10),
+                        got[a], why))
+            {
+                fail("filt::pianostring renders with a hammer", why);
+                bad = true;
+            }
+        }
+
+        if (!bad)
+            okOrFail(peak(got[0][1], 0) == 0 && peak(got[0][0], 0) > 0 &&
+                     got[0][0] == got[1][0],
+                     "filt::pianostring: the hammer is idle until `strike' "
+                     "first rises",
+                     "peak force " + num(peak(got[0][1], 0)) +
+                     (got[0][0] == got[1][0] ? ""
+                                             : ", and the felt changes the "
+                                               "sound"));
+    }
+
+    windowsAgree(pluginPath,
+                 hammerGraph(110, 3, 0.8f, 0.5f, 250, 2.5f, 0.125f),
+                 "string", "out",
+                 "filt::pianostring: the hammer the same at one sample a "
+                 "window and at five hundred");
+}
+
+/* ---- filt::sympathetic -------------------------------------------------- */
+
+/* What the node claims:
+ *
+ *   - a free string passes a sine at its own pitch at unity, whatever its
+ *     decay, and a damped one next to nothing;
+ *   - `pedal' is what frees them, and the keys from `undamped' up are free
+ *     without it;
+ *   - a free string rings at its key's pitch and falls in `decay' at middle
+ *     C, shorter above;
+ *   - and a window boundary is not an event.
+ */
+
+static vector<NodeSpec> sympatheticGraph (const NodeSpec &src, float low,
+                                          float high, float pedal,
+                                          float undamped, float decay,
+                                          float damp)
+{
+    vector<NodeSpec> spec;
+    NodeSpec bank;
+
+    bank.name = "bank";
+    bank.spelling = "filt/sympathetic";
+
+    Value l = { "low", low };
+    Value h = { "high", high };
+    Value p = { "pedal", pedal };
+    Value u = { "undamped", undamped };
+    Value d = { "decay", decay };
+    Value dp = { "damp", damp };
+    Wire  in = { "in", "src", "out" };
+
+    bank.values.push_back(l);
+    bank.values.push_back(h);
+    bank.values.push_back(p);
+    bank.values.push_back(u);
+    bank.values.push_back(d);
+    bank.values.push_back(dp);
+    bank.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(bank);
+
+    return spec;
+}
+
+static NodeSpec sineSource (float hz)
+{
+    NodeSpec osc;
+
+    osc.name = "src";
+    osc.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value w = { "waveform", 0 };
+    Value a = { "amp", 0.5f };
+
+    osc.values.push_back(f);
+    osc.values.push_back(w);
+    osc.values.push_back(a);
+
+    return osc;
+}
+
+static NodeSpec clickSource (void)
+{
+    NodeSpec src;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", 1 };
+    Value p = { "p", TH_MAX };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    return src;
+}
+
+static void checkSympathetic (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- a free string at unity, a damped one near nothing ---- */
+
+    /* One string fed a sine at its own pitch for two seconds -- long past
+       a two-second string's rise -- and the last tenth measured. The input
+       peaks at 0.5, so unity is 0.5 out. Four cases: pedal down, pedal up,
+       pedal up on a key above `undamped', and pedal up on that key with
+       nothing undamped. A damped string still passes about `damper' over
+       its free T60 of a sine at its pitch: a tenth of a second against two
+       at A4, but against 0.8 at key 96, so that key's bound is looser --
+       and still well under the 0.5 it passes when free. */
+    {
+        struct Case {
+            float key, pedal, undamped;
+            float most;             /* the damped bound; 0 for free */
+            const char *what;
+        };
+        static const Case cases[] = {
+            { 69, 1, 109, 0,     "with the pedal down a string at its own "
+                                 "pitch passes it at unity" },
+            { 69, 0, 90,  0.05f, "with the pedal up a key below "
+                                 "`undamped' is damped" },
+            { 96, 0, 90,  0,     "and a key above `undamped' is free with "
+                                 "the pedal up" },
+            { 96, 0, 109, 0.1f,  "and with nothing undamped the same key "
+                                 "is damped" },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            const double hz = 440 * pow(2.0, (cases[c].key - 69) / 12.0);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         sympatheticGraph(sineSource((float)hz), cases[c].key,
+                                          cases[c].key, cases[c].pedal,
+                                          cases[c].undamped, 2, 0),
+                         "bank", "out", 256, (unsigned)(rate * 2), out, why))
+            {
+                fail("filt::sympathetic renders", why);
+                return;
+            }
+
+            const double got = peak(out, out.size() - (size_t)(rate / 10));
+
+            okOrFail(cases[c].most == 0 ? fabs(got / 0.5 - 1) < 0.02
+                                        : got < cases[c].most,
+                     string("filt::sympathetic: ") + cases[c].what,
+                     "peak " + num(got) + " for a 0.5 input");
+        }
+    }
+
+    /* ---- at its pitch, and in `decay' ---- */
+
+    /* A click into one free string: it rings at its key's pitch to a cent
+       with `damp' in the loop, and falls 60 dB in `decay' at middle C and
+       in 2^(-12/28) of it an octave up. */
+    {
+        static const int keys[] = { 60, 72 };
+
+        for (size_t k = 0; k < 2; k++)
+        {
+            const double hz = 440 * pow(2.0, (keys[k] - 69) / 12.0);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         sympatheticGraph(clickSource(), keys[k], keys[k], 1,
+                                          109, 2, 0.3f),
+                         "bank", "out", 256, (unsigned)(rate * 1.2), out,
+                         why))
+            {
+                fail("filt::sympathetic renders", why);
+                return;
+            }
+
+            const double pitch = peakNear(out, (size_t)(rate / 10),
+                                          (size_t)rate, hz, 20);
+            const double fell = levelAt(out, hz, 0.8, 0.1) -
+                                levelAt(out, hz, 0.1, 0.1);
+            const double t60 = -60 * 0.7 / fell;
+            const double want = 2 * pow(2.0, (60 - keys[k]) / 28.0);
+
+            okOrFail(fabs(cents(pitch, hz)) < 1 && fabs(t60 / want - 1) < 0.1,
+                     "filt::sympathetic: key " + num(keys[k]) + " rings at "
+                     "its pitch and falls 60 dB in " + num(want) + " s",
+                     num(cents(pitch, hz)) + " cents, " + num(t60) + " s");
+        }
+    }
+
+    /* The worst corner: `decay' two hundred seconds and `damp' as dark as
+       it goes. Compensating the low-pass at a string's pitch lifts the
+       loop's gain at DC toward one, and must stop short of it. In the top
+       two octaves at this `damp' a string's own pitch is gone within half
+       a second, and what is left is what each loop holds at DC: that has
+       to fall, the last second quieter than the half second after the
+       click. A loop gaining a part in two thousand a trip is over ten
+       times louder by then. */
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     sympatheticGraph(clickSource(), 84, 108, 1, 109, 200,
+                                      0.95f),
+                     "bank", "out", 256, (unsigned)(rate * 5), out, why))
+            fail("filt::sympathetic renders", why);
+        else
+        {
+            const vector<float> early(out.begin() + (size_t)(rate / 2),
+                                      out.begin() + (size_t)rate);
+            const double first = peak(early, 0);
+            const double last = peak(out, (size_t)(rate * 4));
+
+            okOrFail(allFinite(out) && last < first,
+                     "filt::sympathetic: at `damp' 0.95 and `decay' 200 "
+                     "the top strings fall rather than grow",
+                     "0.5 to 1 s " + num(first) + ", last second " +
+                     num(last));
+        }
+    }
+
+    /* Eighty-eight lines, their low-passes and the pedal's follower all
+       cross a window boundary. */
+    {
+        vector<NodeSpec> spec = sympatheticGraph(clickSource(), 21, 108, 1,
+                                                 90, 8, 0.3f);
+
+        windowsAgree(pluginPath, spec, "bank", "out",
+                     "filt::sympathetic: the same bank at one sample a "
+                     "window and at five hundred");
+    }
+}
+
 /* ---- filt::vowel -------------------------------------------------------- */
 
 /* The gain of a sine through the formants, RMS out over RMS in over a
@@ -6069,6 +7247,10 @@ int main (int argc, char **argv)
     checkAllpass(pluginPath);
     checkChorus(pluginPath);
     checkComb(pluginPath);
+    checkPianostring(pluginPath);
+    checkPianoUnison(pluginPath);
+    checkHammer(pluginPath);
+    checkSympathetic(pluginPath);
     checkPitchshift(pluginPath);
     checkFdn(pluginPath);
     checkFmop(pluginPath);
