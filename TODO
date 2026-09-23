@@ -50,6 +50,18 @@ The corpus
   limiter rather than fixed: old/test.dsp diverges to 1.75e5, old/bd10.dsp to
   2e4. They want looking at separately.  (docs/AUDIO.md)
 
+- grand.dsp is too expensive to start a note on. Through the wasm module on
+  a desktop, one note-on costs about 1.4 ms of a quantum -- half the 2.67 ms
+  a 128-frame quantum has at 48 kHz -- and a six-note chord about 7 ms,
+  every time. ts1, pluck, ladder and rhodes stay under 0.8 ms for the same
+  chord. A phone is several times slower, so the grand clicks on every note
+  there, and the web page opens patch mode on ladder.dsp rather than on it.
+  The cost is in building the voice rather than running it (the median
+  quantum is flat), so the per-note allocation under Engine is a suspect,
+  alongside whatever the unison strings, the hammer and the board modes set
+  up per note. Measure with a variant of wasm/web/bench.mjs that holds a
+  chord on one .dsp, and keep the sound bit-identical.
+
 
 Coverage
 --------
