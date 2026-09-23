@@ -299,6 +299,30 @@ double armFrame_;
  * without ever having drawn anything. */
 thcGenEdit::Doc canvasDoc_;
 
+/* The param edits TW_PARAM has written to the piece since the page last
+ * asked (tw_param_edits_json), each as the command named it and as it was
+ * written.
+ *
+ * The page needs both. The piece's file is this instance's, and the text a
+ * reload, a Save or the next Start reads is the page's -- the solo page's
+ * box, a room's document -- so an edit that stopped here was gone at the
+ * next load. The command's half is how a room page tells its own edit from
+ * a peer's, since only the peer who made one writes it to the document; the
+ * written half is what it writes. */
+struct AppliedParam
+{
+    double      at;
+    int         chain, stage;       /* the scheduler's numbering */
+    std::string row, text;          /* as the command carried them */
+
+    std::string chainName;          /* the document's, for a splice */
+    int         docStage;
+    std::string param, valueText;
+};
+
+std::vector<AppliedParam> applied_;
+std::string               appliedJson_;
+
 /* The piece side. plugins_ is built once, from the table the build wrote,
    and outlives every load; the loader clears the scheduler's chains itself. */
 std::map<std::string, thcPlugin *> plugins_;
@@ -645,6 +669,20 @@ void applyScheduled (const Scheduled &c)
                 thcGenEdit::OK)
                 fprintf(stderr, "the piece will not read back: %s\n",
                         why.c_str());
+
+            AppliedParam done;
+
+            done.at = c.at;
+            done.chain = c.chain;
+            done.stage = c.stage;
+            done.row = c.row;
+            done.text = c.text;
+            done.chainName = canvasDoc_.chains[(size_t)c.chain].name;
+            done.docStage = docStage;
+            done.param = edit.row;
+            done.valueText = edit.valueText;
+
+            applied_.push_back(done);
 
             /* And the audible half, after the splice: a panel is described
                from the document, so a stage poked first would be heard
@@ -1365,6 +1403,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     tape_.clear();
     knobs_.clear();
     sinks_.clear();
+    applied_.clear();
 
     sched_->stop();
 
@@ -3060,6 +3099,110 @@ EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
     c.text = text;
 
     schedule(c);
+}
+
+/* How many param edits have been written to the piece and not yet asked
+   for. The worklet reads it every quantum, which is why it is a count and
+   not the list. */
+EMSCRIPTEN_KEEPALIVE int tw_param_edit_count (void)
+{
+    return (int)applied_.size();
+}
+
+/* The param edits written since the last call, oldest first, and forgotten:
+ *
+ *     [{"at":..,"chain":..,"stage":..,"row":..,"text":..,
+ *       "chainName":..,"docStage":..,"param":..,"valueText":..}, ...]
+ *
+ * Valid until the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
+{
+    appliedJson_ = "[";
+
+    for (size_t i = 0; i < applied_.size(); i++)
+    {
+        const AppliedParam &a = applied_[i];
+
+        if (i)
+            appliedJson_ += ',';
+
+        appliedJson_ += "{\"at\":";
+        jsonNumber(appliedJson_, a.at);
+        appliedJson_ += ",\"chain\":";
+        jsonInt(appliedJson_, a.chain);
+        appliedJson_ += ",\"stage\":";
+        jsonInt(appliedJson_, a.stage);
+        appliedJson_ += ",\"row\":";
+        jsonString(appliedJson_, a.row);
+        appliedJson_ += ",\"text\":";
+        jsonString(appliedJson_, a.text);
+        appliedJson_ += ",\"chainName\":";
+        jsonString(appliedJson_, a.chainName);
+        appliedJson_ += ",\"docStage\":";
+        jsonInt(appliedJson_, a.docStage);
+        appliedJson_ += ",\"param\":";
+        jsonString(appliedJson_, a.param);
+        appliedJson_ += ",\"valueText\":";
+        jsonString(appliedJson_, a.valueText);
+        appliedJson_ += '}';
+    }
+
+    appliedJson_ += ']';
+    applied_.clear();
+
+    return appliedJson_.c_str();
+}
+
+/* `text' with one stage's param set to `valueText', by the writer TW_PARAM
+ * splices the piece with, or "" if it would not take the edit.
+ *
+ * For a text that is not the piece this instance loaded: a room's document,
+ * which may have moved on since the load, gets the edit its peer made and
+ * not a copy of this instance's file. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
+                                                   const char *chain,
+                                                   int docStage,
+                                                   const char *param,
+                                                   const char *valueText)
+{
+    static const char *const SCRATCH = "/splice.gen";
+    static std::string out;
+
+    out.clear();
+
+    if (text == NULL || chain == NULL || param == NULL || valueText == NULL)
+        return "";
+
+    std::string why;
+
+    if (!writeFile(SCRATCH, text) ||
+        thcGenEdit::setParam(SCRATCH, chain, docStage, param, valueText,
+                             why) != thcGenEdit::OK)
+    {
+        if (!why.empty())
+            fprintf(stderr, "%s: %s\n", param, why.c_str());
+
+        remove(SCRATCH);
+
+        return "";
+    }
+
+    FILE *f = fopen(SCRATCH, "rb");
+
+    if (f != NULL)
+    {
+        char buf[4096];
+        size_t got;
+
+        while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+            out.append(buf, got);
+
+        fclose(f);
+    }
+
+    remove(SCRATCH);
+
+    return out.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,

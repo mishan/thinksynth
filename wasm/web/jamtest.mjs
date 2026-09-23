@@ -210,6 +210,9 @@ async function paintTogether (pages)
      *
      * From A, which has enlarged nothing, so its canvas is showing every
      * stage and its params handle is where the canvas says. */
+    const pieceFile = await A.page.evaluate(() => window.jam.piece());
+    const docWas = await A.page.evaluate(
+        (name) => window.jam.file(name), pieceFile);
     const edited = await editParam(A);
 
     await at(PAINT_SECONDS * 1000);
@@ -246,9 +249,40 @@ async function paintTogether (pages)
         fail('no stage param was set, so nothing about setting one was '
              + 'tested');
     else
+    {
         ok(`${A.label} set ${params[0].row} on stage ` +
            `${params[0].chain}.${params[0].stage} to ${params[0].text}, ` +
            `stamped ${params[0].at.toFixed(3)}`);
+
+        /* And the document says so, on both pages, once. Every peer applies
+           the edit to its own copy of the piece; the next Start, and a peer
+           joining mid-run, read the document -- so an edit that stayed in
+           the worklets was gone at the next load. Once, because two peers
+           splicing the same change would insert it twice. */
+        const docs = await Promise.all(pages.map(({ page }) =>
+            page.waitForFunction(([name, was]) =>
+                window.jam.file(name) !== was, [pieceFile, docWas],
+                { timeout: 15000 }).catch(() => {})
+                .then(() => page.evaluate(
+                    (name) => window.jam.file(name), pieceFile))));
+
+        const wasLines = docWas.split('\n');
+        const nowLines = docs[0].split('\n');
+        const changed = nowLines.filter((l, i) => l !== wasLines[i]);
+
+        if (docs[0] !== docs[1])
+            fail(`the two pages' documents differ after the edit: ` +
+                 `${firstDifference(docs[0], docs[1])}`);
+        else if (nowLines.length !== wasLines.length ||
+                 changed.length !== 1 ||
+                 !changed[0].includes(params[0].row) ||
+                 !changed[0].includes(params[0].text))
+            fail(`the edit is not the one line of ${pieceFile} that ` +
+                 `changed: ${JSON.stringify(changed)}`);
+        else
+            ok(`and ${pieceFile} carries it on both pages: ` +
+               `${changed[0].trim()}`);
+    }
 
     if (stopAt === undefined)
     {

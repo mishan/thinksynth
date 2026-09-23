@@ -77,6 +77,7 @@ function wasmBytes ()
 export async function createSynth (ctx, { windowlen = 256,
                                           onLog = () => {},
                                           onTape = () => {},
+                                          onParamEdits = () => {},
                                           onMirror = null } = {})
 {
     const [bytes] = await Promise.all([
@@ -162,12 +163,16 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'patchstate':
             case 'patchcompose':
             case 'settempo':
+            case 'genparam':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
             case 'gens':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
+                break;
+            case 'paramedits':
+                onParamEdits(m);
                 break;
             case 'tape':
                 /* And the mirror is told how far this has got: it steps
@@ -337,6 +342,13 @@ export async function createSynth (ctx, { windowlen = 256,
            somebody may have typed into, and only the page knows whether
            what is in it is still what was loaded. */
         pieceSetTempo: (bpm) => ask({ type: 'settempo', bpm }),
+
+        /* `text' with one stage's param set, as a `paramedits' edit names
+           it, or "" if the edit was refused. Resolves to `{ text }'. For a
+           room's document, which is not the piece the worklet holds. */
+        genSetParam: (text, { chainName, docStage, param, valueText }) =>
+            ask({ type: 'genparam', text, chain: chainName, stage: docStage,
+                  param, valueText }),
 
         /* How fast the clock runs, as a multiple of real time, at a
            transport time or -1 for the next window. Everything moves with

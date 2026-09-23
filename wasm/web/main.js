@@ -803,6 +803,19 @@ async function setTempo ()
     loadedText = text;
 }
 
+/* A stage's params, set from the popover and written into the worklet's
+ * copy of the piece: into the box as well, which is what a Load, a mode
+ * switch and a Save read. On the tempo's terms -- only while the box still
+ * holds what was loaded, or the edit is live and the text is theirs. */
+function paramsEdited ({ piece: text })
+{
+    if (text === '' || $('gen').value !== loadedText)
+        return;
+
+    $('gen').value = text;
+    loadedText = text;
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -1702,6 +1715,7 @@ async function start ()
                                                 the scope stays blank. */
                                              nodes?.feed(m.probes);
                                          },
+                                         onParamEdits: paramsEdited,
                                          onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();

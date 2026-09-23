@@ -1195,6 +1195,7 @@ try
                 (e) => e.closest('.panelrow').dataset.row);
             const was = await box2.inputValue();
             const want = String(Number(was) + 1);
+            const genWas = await page.inputValue('#gen');
 
             await box2.fill(want);
             await box2.press('Enter');
@@ -1210,6 +1211,22 @@ try
 
             check(true, `a stage's ${row} took ${want} and came back with ` +
                         'it');
+
+            /* And the box has it, which is what a Load, a mode switch and
+               a Save read: an edit that stayed in the worklet's copy of the
+               piece was gone at the next of those. */
+            const genNow = await page.waitForFunction(
+                (was) => document.getElementById('gen').value !== was,
+                genWas, { timeout: 15000 })
+                .then(() => page.inputValue('#gen'), () => genWas);
+            const wasLines = genWas.split('\n');
+            const changed = genNow.split('\n')
+                .filter((l, i) => l !== wasLines[i]);
+
+            check(changed.length === 1 && changed[0].includes(row) &&
+                  changed[0].includes(want),
+                  `and the piece's text carries it: ` +
+                  `${JSON.stringify(changed)}`);
         }
 
         /* A value typed and then clicked away from, rather than entered.
