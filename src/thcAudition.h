@@ -1,0 +1,157 @@
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ */
+
+#ifndef THC_AUDITION_H
+#define THC_AUDITION_H 1
+
+/*
+ * The host's ear: what stands behind thcAudition in libthink/thcomposer.h.
+ *
+ * A composer hands over a chanarg vector and a target; this renders the
+ * chain's instrument with those values on a synth of its own, renders or
+ * reads the target and keeps its features until the target changes, and
+ * answers with the distance thSoundFeat.h measures. Rendering takes tens
+ * of milliseconds a candidate and a tick may not, so the renders run on a
+ * worker thread and a composer collects answers on a later tick. A
+ * harness that wants a piece to replay exactly sets it synchronous
+ * instead, and every answer is in by the time hear() returns.
+ *
+ * The private synths load the same modules the audio thread is running,
+ * through plugin managers of their own. A module's module_init writes its
+ * arg indices into file-scope globals, so a second init writes the same
+ * numbers over themselves -- the hazard thcScheduler shares one control
+ * synth across chains to avoid. This takes it once per render anyway,
+ * because a synth is the only thing that starts the noise sources over,
+ * and a genome heard twice has to be one distance.
+ *
+ * What an instrument is -- its .dsp, its chanargs in the engine's terms,
+ * which one a chain sinks to -- is the scheduler's knowledge, and it is
+ * resolved there, on the scheduler's thread, before a job is queued. The
+ * worker sees file paths and numbers.
+ */
+
+#include <condition_variable>
+#include <map>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#include "thcomposer.h"
+#include "thSoundFeat.h"
+
+class thcAuditioner
+{
+public:
+    /* A patch, its effect or empty, and the values that make it an
+       instrument -- the effect's under `fx.'. */
+    struct Instrument
+    {
+        std::string dsp;
+        std::string effect;
+        std::vector<std::pair<std::string, float> > chanargs;
+    };
+
+    /* `pluginPath' is where the audio synth's modules came from and
+       `rate' the rate it runs at: chanargs come folded in its terms, so
+       the private synth runs at the same one. */
+    thcAuditioner (const std::string &pluginPath, double rate);
+    ~thcAuditioner (void);
+
+    /* Render inside hear(), on the caller's thread: slower ticks and an
+       exact replay. For genwav and gencheck. */
+    void setSynchronous (bool on) { synchronous_ = on; }
+
+    /* `candidate' is the chain's instrument with the composer's values
+       already folded in. `target' is either an instrument -- `targetInstrument'
+       set, rendered and remembered under `targetKey' until its files or
+       chanargs change -- or a sound file at `targetFile', read again
+       once it is written over. Returns a ticket, or -1 if nothing can be
+       rendered. */
+    int hear (const Instrument &candidate, const std::string &targetKey,
+              const Instrument *targetInstrument, const std::string &targetFile);
+
+    /* 1 with the distance, 0 while pending, -1 if the render failed. */
+    int heard (int ticket, double *distance);
+
+    /* A ticket nobody will collect: unqueued if it has not started, its
+       answer dropped when it has or once it arrives. */
+    void forget (int ticket);
+
+    /* Blocks until every queued job has an answer. */
+    void drain (void);
+
+    /* Answers that have been collected, for a harness to count. */
+    int answered (void) const { return answered_; }
+
+private:
+    thcAuditioner (const thcAuditioner &);
+    thcAuditioner &operator= (const thcAuditioner &);
+
+    struct Job
+    {
+        int ticket;
+        Instrument candidate;
+        std::string targetKey;
+        Instrument targetInstrument;
+        bool targetIsFile;
+        std::string targetFile;
+    };
+
+    struct Answer
+    {
+        bool ok;
+        double distance;
+    };
+
+    void run (void);
+    Answer judge (const Job &job);
+    bool render (const Instrument &inst, int note, std::vector<float> &mono);
+    const thsound::Features *targetOf (const Job &job, int &note);
+
+    std::string pluginPath_;
+    double rate_;
+    bool synchronous_;
+
+    std::thread worker_;
+    std::mutex lock_;
+    std::condition_variable wake_;
+    bool quit_;
+
+    std::vector<Job> queue_;
+    std::map<int, Answer> answers_;
+
+    /* The job the worker is rendering, off the queue, or -1; and whether
+       it was forgotten while it rendered. */
+    int busy_;
+    bool busyForgotten_;
+    int nextTicket_;
+    int answered_;
+
+    /* Worker-thread state. */
+    thsound::Extractor extractor_;
+
+    struct Target
+    {
+        thsound::Features features;
+        int note;
+        bool ok;
+        std::string print;   /* what the target was when it was heard */
+    };
+
+    std::map<std::string, Target> targets_;
+};
+
+#endif /* THC_AUDITION_H */

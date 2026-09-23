@@ -61,6 +61,7 @@ set(THINK_SOURCES
     thPluginManager.cpp
     thMidiControllerConnection.cpp
     thMidiController.cpp
+    thSoundFile.cpp
     thSynth.cpp
     thUtil.cpp
     thDynLib.cpp

@@ -56,13 +56,15 @@ add_library(think_composerhost OBJECT
     thcScheduler.cpp
     thcNodeHost.cpp
     thcGenFile.cpp
-    thcGenEdit.cpp)
+    thcGenEdit.cpp
+    thcAudition.cpp)
 
 target_include_directories(think_composerhost PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
+find_package(Threads REQUIRED)
+target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM Threads::Threads)
 
 # The three canvases' content -- what they draw and what a click on them
 # means -- with no toolkit in it, so the same classes compile to wasm and run

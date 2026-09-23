@@ -82,7 +82,7 @@
 #include <cairo.h>
 
 #include "thVisual.h"
-#include "fftr.h"
+#include "thFFT.h"
 
 namespace fs = std::filesystem;
 

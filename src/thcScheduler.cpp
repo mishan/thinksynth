@@ -21,6 +21,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <filesystem>
 
 #include "think.h"
 #include "thUnits.h"
@@ -54,6 +55,10 @@ thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
     params_.get = cbGet;
     params_.get_string = cbGetString;
     params_.seed = seed;
+
+    /* No ear until the scheduler offers one, and never in a build
+       that has none. Left unset, a module read a stray pointer here. */
+    params_.audition = NULL;
 }
 
 double
@@ -382,7 +387,7 @@ thcScheduler::thcScheduler (thSynth *synth)
        even though nothing about it is more fundamental. swapped_ is a
        container and needs no mention. */
     : synth_(synth), endAfter_(false), controlSynth_(NULL),
-      running_(false), transportNow_(0), beat_(0), tempo_(120),
+      auditioner_(NULL), running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
       masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
       injectingLive_(false)
@@ -396,6 +401,12 @@ thcScheduler::~thcScheduler (void)
     timer_.disconnect();
     flushNoteOffs();
     clearChains();
+
+#ifndef __EMSCRIPTEN__
+    /* Not compiled into the worklet build, where none is ever made. */
+    delete auditioner_;
+#endif
+    auditioner_ = NULL;
 
     /* One last go, since after this there is nobody left to try. If the
        ring is still full the graph outlives us, which is the honest
@@ -519,6 +530,23 @@ thcScheduler::addStage (size_t chain, thcPlugin *plugin, bool asGenerator)
         new thcStage(plugin, stageSeed(chain, stage), wantTick)));
 
     thcStage *s = c.stages.back().get();
+
+    /* The ear, offered before the instance exists so that a module may
+       read it whenever it likes. Absent where nothing can render off
+       the tick's thread: the browser's worklet has no thread to give,
+       and a scheduler with no synth has nothing to render with. */
+    ensureAuditioner();
+
+    if (auditioner_ != NULL)
+    {
+        s->sched = this;
+        s->chain = chain;
+        s->ear.ctx = s;
+        s->ear.hear = cbHear;
+        s->ear.heard = cbHeard;
+        s->ear.forget = cbForget;
+        s->params.params_.audition = &s->ear;
+    }
 
     s->state = plugin->create(s->params.params());
 
@@ -747,6 +775,203 @@ thcScheduler::newNodeHost (void)
             (int)controlRate());
 
     return new thcNodeHost(controlSynth_, controlRate());
+}
+
+/* ---- the ear ----------------------------------------------------------- */
+
+void
+thcScheduler::ensureAuditioner (void)
+{
+#ifndef __EMSCRIPTEN__
+    if (auditioner_ == NULL && synth_ != NULL &&
+        synth_->getPluginManager() != NULL)
+        auditioner_ = new thcAuditioner(synth_->getPluginManager()->pluginPath(),
+                                        (double)synth_->getSampleRate());
+#endif
+}
+
+void
+thcScheduler::setAuditionSynchronous (bool on)
+{
+    ensureAuditioner();
+
+#ifndef __EMSCRIPTEN__
+    if (auditioner_ != NULL)
+        auditioner_->setSynchronous(on);
+#endif
+}
+
+int
+thcScheduler::cbHear (void *ctx, const char *target,
+                      const char *const *names, const double *values, int n)
+{
+    thcStage *s = static_cast<thcStage *>(ctx);
+
+    return s && s->sched ? s->sched->hear(s, target, names, values, n) : -1;
+}
+
+int
+thcScheduler::cbHeard (void *ctx, int ticket, double *distance)
+{
+#ifdef __EMSCRIPTEN__
+    return -1;
+#else
+    thcStage *s = static_cast<thcStage *>(ctx);
+
+    if (s == NULL || s->sched == NULL || s->sched->auditioner_ == NULL)
+        return -1;
+
+    return s->sched->auditioner_->heard(ticket, distance);
+#endif
+}
+
+void
+thcScheduler::cbForget (void *ctx, int ticket)
+{
+#ifndef __EMSCRIPTEN__
+    thcStage *s = static_cast<thcStage *>(ctx);
+
+    if (s != NULL && s->sched != NULL && s->sched->auditioner_ != NULL)
+        s->sched->auditioner_->forget(ticket);
+#else
+    (void)ctx;
+    (void)ticket;
+#endif
+}
+
+bool
+thcScheduler::auditionInstrument (const thcInstrument &inst,
+                                  thcAuditioner::Instrument &out)
+{
+    if (inst.dsp.empty() || synth_ == NULL)
+        return false;
+
+    const std::string path =
+        thUtil::findDataFile(inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    out.dsp = path.empty() ? inst.dsp : path;
+    out.effect.clear();
+    out.chanargs.clear();
+
+    /* Its side, if it names one, is another channel's sound, and the
+       private synth has only this one: the effect is heard on its own. */
+    if (!inst.effect.empty())
+    {
+        const std::string fx =
+            thUtil::findDataFile(inst.effect, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        out.effect = fx.empty() ? inst.effect : fx;
+    }
+
+    for (size_t i = 0; i < inst.args.size(); i++)
+    {
+        const thcInstrumentArg &a = inst.args[i];
+        double v = a.value;
+
+        if (!a.knob.empty())
+        {
+            thArg *k = knob(a.knob);
+
+            if (k == NULL)
+                continue;
+
+            v = (double)(*k)[0];
+        }
+
+        out.chanargs.push_back(std::make_pair(
+            a.name, (float)thFoldUnit(v, a.units, synth_->getSampleRate())));
+    }
+
+    return true;
+}
+
+/* The stage's chain sinks to an instrument; that, with the composer's
+   values written over its own, is the candidate. The target is an
+   instrument of the piece if the name is one, and a sound file
+   otherwise -- as written, or found where samples are. */
+int
+thcScheduler::hear (thcStage *stage, const char *target,
+                    const char *const *names, const double *values, int n)
+{
+#ifdef __EMSCRIPTEN__
+    /* No thcAudition.cpp in the worklet build, and no ear offered. */
+    return -1;
+#else
+    if (auditioner_ == NULL || target == NULL || *target == '\0' ||
+        stage->chain >= chains_.size())
+        return -1;
+
+    const thcChain &c = chains_[stage->chain];
+    const thcInstrument *mine = NULL;
+    int channel = -1;
+
+    for (size_t i = 0; i < c.sinks.size() && mine == NULL; i++)
+        if (c.sinks[i].isChanarg())
+        {
+            channel = c.sinks[i].channel;
+            mine = channelOf(channel);
+        }
+
+    thcAuditioner::Instrument candidate;
+
+    if (mine == NULL || !auditionInstrument(*mine, candidate))
+        return -1;
+
+    /* Where each value lands live: every chanarg sink on that channel
+       takes it, under the sink's name unless the sink is `*' -- the
+       rename propagate() does, in the order it does it. */
+    for (int i = 0; i < n; i++)
+        for (size_t j = 0; j < c.sinks.size(); j++)
+        {
+            const thcSink &sink = c.sinks[j];
+
+            if (!sink.isChanarg() || sink.channel != channel)
+                continue;
+
+            const std::string name =
+                sink.namesItsOwn() ? std::string(names[i]) : sink.chanarg;
+            bool found = false;
+
+            for (size_t k = 0; k < candidate.chanargs.size(); k++)
+                if (candidate.chanargs[k].first == name)
+                {
+                    candidate.chanargs[k].second = (float)values[i];
+                    found = true;
+                }
+
+            if (!found)
+                candidate.chanargs.push_back(
+                    std::make_pair(name, (float)values[i]));
+        }
+
+    const thcInstrument *other = instrument(target);
+    thcAuditioner::Instrument targetInstrument;
+
+    if (other != NULL)
+    {
+        if (!auditionInstrument(*other, targetInstrument))
+            return -1;
+
+        return auditioner_->hear(candidate, "instrument:" + other->name,
+                                 &targetInstrument, "");
+    }
+
+    std::string file = target;
+
+    if (!std::filesystem::exists(file))
+    {
+        const std::string found =
+            thUtil::findDataFile(std::string("samples/") + target, "dsp",
+                                 "THINK_DSP_PATH", DSP_PATH);
+
+        if (found.empty())
+            return -1;
+
+        file = found;
+    }
+
+    return auditioner_->hear(candidate, "file:" + file, NULL, file);
+#endif
 }
 
 /* ---- instruments ------------------------------------------------------- */

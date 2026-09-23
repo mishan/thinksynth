@@ -50,11 +50,25 @@
  *            at one end of it, so a population does not collapse onto
  *            its seed and stay there.
  *
- * Audio-feature fitness -- judging the sound rather than the vector --
- * wants a shadow synth to render candidates into, and is deliberately not
- * here. What this needs to become that is a different fitness() and
- * nothing else, which is most of the argument for building it this way
- * first.
+ *   listen   how far the candidate sounds from `target', in dB of the
+ *            host's distance (libthink/thSoundFeat.h), a tenth of a dB
+ *            per unit so a dB weighs like the terms above. The host
+ *            renders each genome through the chain's instrument and
+ *            measures it -- thcAudition in thcomposer.h -- and this
+ *            plugin still knows nothing of the patch: it hands over
+ *            names and numbers and gets a number back. `target' is an
+ *            instrument of the piece or a sound file, so a pad can be
+ *            bred toward the lead, or toward a recording.
+ *
+ * Listening is asynchronous. Rendering a population is tens of
+ * milliseconds a genome, which a tick may not spend, so a generation is
+ * submitted when the champion is played and bred when every answer is
+ * in, which on a live host is the next cycle. The champion is replayed
+ * until then. A host that answers inside the tick -- genwav, gencheck --
+ * breeds every cycle, and that is the host on which a piece that
+ * listens replays exactly; live, the wall clock decides which cycle a
+ * generation lands on. Where the host offers no ear, or no target is
+ * named, fitness is the arithmetic above and nothing changes.
  *
  * All randomness from the per-instance seed, so a replay is exact.
  */
@@ -78,7 +92,7 @@
 #include "thMath.h"
 
 enum { P_FROM, P_TOWARD, P_POPULATION, P_MUTATION, P_ELITES, P_SPREAD,
-       P_AIM, P_DRIFT, P_REACH, P_PERIOD, P_COUNT };
+       P_AIM, P_DRIFT, P_REACH, P_PERIOD, P_TARGET, P_LISTEN, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -106,6 +120,10 @@ composer_init (thcComposerInfo *info)
           0, 4, 0.25, NULL, NULL },
         { "period", "time between generations", THC_PARAM_FLOAT,
           0.05, 600, 6, NULL, "s" },
+        { "target", "an instrument of the piece, or a sound file, to sound like",
+          THC_PARAM_STRING, 0, 0, 0, "", NULL },
+        { "listen", "weight on sounding like `target'", THC_PARAM_FLOAT,
+          0, 4, 1, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -184,7 +202,29 @@ struct State {
     /* Drawn: the best fitness of each generation, so the search's shape
        is visible rather than only audible. */
     std::vector<double> fitHistory;
+
+    /* The host's answers about the population as it stands: a ticket
+       per genome while one is out, and the distance once it is in.
+       Empty tickets is a population nobody asked about. */
+    std::vector<int>    tickets;
+    std::vector<double> distance;
+    std::vector<char>   answered;
 };
+
+/* Every ticket still out handed back to the host, which would otherwise
+   render it for nobody and keep its answer. */
+static void
+dropTickets (State *st)
+{
+    const thcAudition *ear = st->params->audition;
+
+    if (ear != NULL && ear->forget != NULL)
+        for (size_t i = 0; i < st->tickets.size(); i++)
+            if (!st->answered[i] && st->tickets[i] >= 0)
+                ear->forget(ear->ctx, st->tickets[i]);
+
+    st->tickets.clear();
+}
 
 extern "C" THINK_PLUGIN_API void *
 composer_create (const thcParams *params)
@@ -202,7 +242,10 @@ composer_create (const thcParams *params)
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)
 {
-    delete static_cast<State *>(state);
+    State *st = static_cast<State *>(state);
+
+    dropTickets(st);
+    delete st;
 }
 
 static double
@@ -347,13 +390,19 @@ norm (const Gene &g, double a, double b)
 
 static double
 fitness (State *st, const Genome &g,
-         const std::vector<double> &target, const std::vector<char> &hasTarget)
+         const std::vector<double> &target, const std::vector<char> &hasTarget,
+         double heard)
 {
     const double aim = getp(st, P_AIM);
     const double drift = getp(st, P_DRIFT);
     const double reach = getp(st, P_REACH);
+    const double listen = getp(st, P_LISTEN);
 
     double score = 0;
+
+    /* listen: nearer the target sound is better. `heard' is dB. */
+    if (listen > 0 && !std::isnan(heard))
+        score -= listen * heard / 10.0;
 
     /* aim: closer to the target is better, so the distance is subtracted. */
     if (aim > 0)
@@ -440,6 +489,7 @@ scatter (State *st)
     st->seeded = true;
     st->generation = 0;
     st->fitHistory.clear();
+    dropTickets(st);
 }
 
 static const Genome &
@@ -460,8 +510,10 @@ tournament (State *st, const std::vector<double> &fit)
     return st->pop[best];
 }
 
+/* `heard' is the host's distance per genome, or empty when nothing was
+   asked. */
 static void
-generation (State *st)
+generation (State *st, const std::vector<double> &heard)
 {
     if (st->pop.size() < 2)
         return;
@@ -471,10 +523,27 @@ generation (State *st)
 
     targetOf(st, target, hasTarget);
 
+    /* A genome the host could not judge -- negative -- is farther than
+       the farthest it could: a patch that will not render, or renders
+       silence, is not a timbre, and no fixed number is sure to be worse
+       than every real distance. */
+    double worst = 0;
+
+    for (size_t i = 0; i < heard.size(); i++)
+        if (heard[i] > worst)
+            worst = heard[i];
+
     std::vector<double> fit(st->pop.size());
 
     for (size_t i = 0; i < st->pop.size(); i++)
-        fit[i] = fitness(st, st->pop[i], target, hasTarget);
+    {
+        double h = i < heard.size() ? heard[i] : std::nan("");
+
+        if (h < 0)
+            h = worst + 60.0;
+
+        fit[i] = fitness(st, st->pop[i], target, hasTarget, h);
+    }
 
     std::vector<size_t> order(st->pop.size());
 
@@ -546,6 +615,75 @@ generation (State *st)
     st->generation++;
 }
 
+/* Whether there is an ear to ask and a target to ask about. */
+static bool
+listening (State *st)
+{
+    const char *target = st->params->get_string(st->params->ctx,
+                                                paramIndex[P_TARGET]);
+
+    return st->params->audition != NULL && st->params->audition->hear != NULL &&
+           target != NULL && *target != '\0' && getp(st, P_LISTEN) > 0;
+}
+
+/* Every genome of the population handed to the host. A genome the host
+   refuses on the spot is answered on the spot. */
+static void
+ask (State *st)
+{
+    const thcAudition *ear = st->params->audition;
+    const char *target = st->params->get_string(st->params->ctx,
+                                                paramIndex[P_TARGET]);
+
+    std::vector<const char *> names(st->genes.size());
+
+    for (size_t k = 0; k < st->genes.size(); k++)
+        names[k] = st->genes[k].name.c_str();
+
+    st->tickets.assign(st->pop.size(), -1);
+    st->distance.assign(st->pop.size(), -1.0);
+    st->answered.assign(st->pop.size(), 0);
+
+    for (size_t i = 0; i < st->pop.size(); i++)
+    {
+        st->tickets[i] = ear->hear(ear->ctx, target,
+                                   names.empty() ? NULL : &names[0],
+                                   st->pop[i].empty() ? NULL : &st->pop[i][0],
+                                   (int)st->pop[i].size());
+
+        if (st->tickets[i] < 0)
+            st->answered[i] = 1;
+    }
+}
+
+/* True once every genome has its answer. */
+static bool
+collect (State *st)
+{
+    const thcAudition *ear = st->params->audition;
+    bool all = true;
+
+    for (size_t i = 0; i < st->tickets.size(); i++)
+    {
+        if (st->answered[i])
+            continue;
+
+        double d = 0;
+        const int r = ear->heard(ear->ctx, st->tickets[i], &d);
+
+        if (r == 0)
+        {
+            all = false;
+            continue;
+        }
+
+        st->distance[i] = r > 0 ? d : -1.0;
+        st->answered[i] = 1;
+    }
+
+    return all;
+}
+
 extern "C" THINK_PLUGIN_API double
 composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 {
@@ -583,7 +721,24 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
     st->lastPlayed = st->champion;
 
-    generation(st);
+    if (!listening(st))
+    {
+        dropTickets(st);
+        generation(st, std::vector<double>());
+        return t->now + period;
+    }
+
+    /* Asked about once, bred once the answers are in, and asked again
+       about what the breeding made. A host that answers inside the
+       tick gets all three in one cycle. */
+    if (st->tickets.empty())
+        ask(st);
+
+    if (collect(st))
+    {
+        generation(st, st->distance);
+        ask(st);
+    }
 
     return t->now + period;
 }
