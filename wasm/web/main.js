@@ -2593,9 +2593,12 @@ async function init ()
      * background tab, folded away, or belonging to the mode that is not
      * up is a pane whose work can stop, and these are the three places
      * this page has work to stop. They are the same calls the folds and
-     * the mode switch made before, asked for in one place. */
+     * the mode switch made before, asked for in one place.
+     *
+     * The store is named for the site: localStorage belongs to the whole
+     * origin, and on GitHub Pages that is every repository's site. */
     panes = createPanes({
-        root: $('panes'), catalog: PANES, store: 'panes:solo',
+        root: $('panes'), catalog: PANES, store: 'thinksynth:panes:solo',
         layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
         mode: mode(), on: true,

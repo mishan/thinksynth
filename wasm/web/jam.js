@@ -1014,7 +1014,7 @@ function init ()
      * worth stopping. The editor is where a key means editing rather
      * than a command, as it is for the keys. */
     panes = createPanes({
-        root: $('panes'), catalog: PANES, store: 'panes:jam',
+        root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor',
         onShow: (id, on) =>
