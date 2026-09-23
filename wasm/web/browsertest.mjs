@@ -24,6 +24,9 @@
  *   cd wasm/web && npm ci && npx playwright install chromium firefox
  *   node browsertest.mjs [BUILD_DIR]
  *
+ * BROWSERS=chromium (or firefox) runs one of the two, which is how CI splits
+ * them across two runners.
+ *
  * For each browser: serve the site and build the synth exactly as the page
  * does (host.js), but on an OfflineAudioContext. Then twice over.
  *
@@ -51,13 +54,14 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { chromium, firefox } from 'playwright';
 
 import { tapeBefore, tapeLine } from '../tape.mjs';
-import { SECONDS, firstDifference, instruments, pieces, reference }
+import { SECONDS, firstDifference, instruments, pieces, referenceAsync }
     from './piececheck.mjs';
 import { renderDirect } from './render.mjs';
 import { serve } from './serve.mjs';
@@ -202,14 +206,39 @@ if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
     process.exit(1);
 }
 
+const ENGINES = { chromium, firefox };
+const wanted = (process.env.BROWSERS ?? 'chromium,firefox').split(',');
+
+for (const w of wanted)
+    if (!(w in ENGINES))
+    {
+        process.stdout.write(`browsertest: BROWSERS names ${w}; ` +
+                             'known are chromium and firefox\n');
+        process.exit(2);
+    }
+
 const server = await serve(build, 0);
 const url = `http://127.0.0.1:${server.address().port}/`;
 const dsps = instruments(build);
 
-/* Once, not once per browser: a minute of each piece rendered under Node. */
+/* Once, not once per browser: a minute of each piece rendered under Node,
+   one genwav per core. Serially this was two minutes of a four-core runner
+   with three cores idle, before either browser had started. */
 const seededPieces = pieces(build).filter((p) => p.seeded);
-const references = new Map(
-    seededPieces.map((p) => [p.name, reference(p.name, nodeBuild)]));
+const references = new Map();
+let nextPiece = 0;
+
+await Promise.all(Array.from(
+    { length: Math.min(os.availableParallelism(), seededPieces.length) },
+    async () =>
+    {
+        while (nextPiece < seededPieces.length)
+        {
+            const p = seededPieces[nextPiece++];
+
+            references.set(p.name, await referenceAsync(p.name, nodeBuild));
+        }
+    }));
 
 /* And the phrase, for the same reason: what the module renders directly is
    what both browsers are held against, so it is one render each and not
@@ -354,8 +383,7 @@ async function runBrowser (label, type)
 }
 
 const failed = (await Promise.all(
-    [['chromium', chromium], ['firefox', firefox]]
-        .map(([label, type]) => runBrowser(label, type))))
+    wanted.map((label) => runBrowser(label, ENGINES[label]))))
     .filter((ok) => !ok).length;
 
 /* close() alone waits for the browsers' keep-alive connections, which
