@@ -398,7 +398,10 @@ thcScheduler::~thcScheduler (void)
     flushNoteOffs();
     clearChains();
 
+#ifndef __EMSCRIPTEN__
+    /* Not compiled into the worklet build, where none is ever made. */
     delete auditioner_;
+#endif
     auditioner_ = NULL;
 
     /* One last go, since after this there is nobody left to try. If the
