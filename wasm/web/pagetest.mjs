@@ -211,6 +211,35 @@ try
           'the microphone and MIDI wait for a synth and the window is still '
           + 'a choice');
 
+    /* And both are out of the way while nothing in play listens: the
+       sequence the page opens on does not, and Voice, whose vocoder reads
+       the microphone, does -- the window with it, since it is still a
+       choice before Start. */
+    const liveShown = () => page.evaluate(() => [
+        document.getElementById('livein').checkVisibility(),
+        document.getElementById('windowlabel').checkVisibility()].join());
+
+    const liveBefore = await liveShown();
+
+    await page.selectOption('#mode', 'piece');
+    await page.selectOption('#piece', 'voice.gen');
+    await page.waitForFunction(
+        () => document.getElementById('livein').checkVisibility(),
+        null, { timeout: 30000 }).catch(() => {});
+
+    const liveVoice = await liveShown();
+
+    await page.selectOption('#piece', 'ebb.gen');
+    await page.selectOption('#mode', 'seq');
+    await page.waitForFunction(
+        () => !document.getElementById('livein').checkVisibility(),
+        null, { timeout: 30000 }).catch(() => {});
+
+    check(liveBefore === 'false,false' && liveVoice === 'true,true' &&
+          await liveShown() === 'false,false',
+          'the window and Live in show only for what listens: ' +
+          `${liveBefore} on the sequence, ${liveVoice} on Voice`);
+
     /* Start, then a piece, and the knobs it declared. */
     await page.click('#start');
     await page.waitForFunction(
@@ -256,14 +285,24 @@ try
 
     const seqTracks = await page.evaluate(() => window.solo.tracks());
 
-    check(seqTracks.length === 4,
-          `the sequence is four tracks: ${seqTracks.length}`);
+    check(seqTracks.length === 5,
+          `the sequence is five tracks: ${seqTracks.length}`);
 
     /* A menu on every one of them, which is what the mode is for: its
        piece declares no instruments, so every channel is the page's to
        aim. A shipped piece's tracks have a name there instead. */
-    check(await page.$$eval('#tracks .trackpick', (m) => m.length) === 4,
+    check(await page.$$eval('#tracks .trackpick', (m) => m.length) === 5,
           'and each one has a menu for what plays it');
+
+    /* A kit and two voices, the kit first: what plays each track is the
+       sequence's own default and not the desktop's first-run four, and
+       the keys go to the last voice rather than to the kick. */
+    check(await page.$$eval('#tracks .trackpick',
+                            (m) => m.map((s) => s.value).join(' ')) ===
+              'kit_kick.dsp kit_snare.dsp kit_hat.dsp ebass.dsp rhodes.dsp' &&
+          await page.inputValue('#keychan') === '4',
+          'the tracks open on a kit, a bass and a Rhodes, and the keys go ' +
+          'to the Rhodes');
 
     check(await page.evaluate(() => window.solo.drawing().seq),
           'and they are asking for frames');
@@ -291,11 +330,14 @@ try
         return rowsOf(i);
     };
 
-    await page.selectOption('#tracks .track:nth-child(1) select.trackpick',
+    check(await settle(0, 1) === 1,
+          'the kick track, which ignores the note, opens one row tall');
+
+    await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
                             'kick909.dsp');
     await page.evaluate(() => window.solo.settled());
 
-    check(await settle(0, 1) === 1,
+    check(await settle(3, 1) === 1,
           'a track aimed at Kick 909, which ignores the note, is one row');
 
     /* And the strip is the height one row asks for rather than six.
@@ -310,31 +352,31 @@ try
     {
         const all = [...document.querySelectorAll('#tracks .trackgrid')];
 
-        return all.length > 1 &&
-               all[0].getBoundingClientRect().height <
-               all[1].getBoundingClientRect().height;
+        return all.length > 4 &&
+               all[3].getBoundingClientRect().height <
+               all[4].getBoundingClientRect().height;
     }, null, { timeout: 30000 }).catch(() => {});
 
     const strips = await heights();
 
-    check(strips[0] < strips[1],
-          `and its strip is shorter than a pitched one: ${strips[0]} ` +
-          `against ${strips[1]}`);
+    check(strips[3] < strips[4],
+          `and its strip is shorter than a pitched one: ${strips[3]} ` +
+          `against ${strips[4]}`);
 
     await page.selectOption('#tracks .track:nth-child(2) select.trackpick',
                             'tom808.dsp');
     await page.evaluate(() => window.solo.settled());
 
     check(await settle(1, 6) === 6,
-          'a track aimed at Tom 808, which is a drum that reads the note, ' +
-          'keeps its ladder');
+          'the snare track aimed at Tom 808, which is a drum that reads ' +
+          'the note, gets a ladder');
 
-    await page.selectOption('#tracks .track:nth-child(1) select.trackpick',
+    await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
                             'ts1.dsp');
     await page.evaluate(() => window.solo.settled());
 
-    check(await settle(0, 6) === 6,
-          'and a synth back on the first one gives its rows back');
+    check(await settle(3, 6) === 6,
+          'and a synth back on it gives its rows back');
 
     /* ---- and the box keeps the page's own sequence ---- */
 
@@ -367,8 +409,8 @@ try
     await page.waitForFunction(() => window.solo.tracks().length > 0,
                                null, { timeout: 60000 });
 
-    check(await page.evaluate(() => window.solo.tracks().length) === 4 &&
-          await page.$$eval('#tracks .trackpick', (m) => m.length) === 4,
+    check(await page.evaluate(() => window.solo.tracks().length) === 5 &&
+          await page.$$eval('#tracks .trackpick', (m) => m.length) === 5,
           'and scratch.gen, which is grids too, does not become the ' +
           'sequence');
 
@@ -386,23 +428,26 @@ try
      * every check that asks the box. The sequence's first track is four on
      * the floor over `period = 0.25 beats', so the gap between its onsets
      * is one beat: 60/112 at the tempo the page writes, and twice that at
-     * half of it.
+     * half of it. Its onsets alone, on channel 1: the hat plays eighths.
      */
     check(await page.evaluate(
               () => document.getElementById('tempo').value === '112' &&
                     !document.getElementById('tempo').disabled),
           'the sequence offers its tempo, at what the piece says: 112');
 
-    /* The median gap between onsets, which is a beat. Median rather than
-       the first gap: four tracks sink to four channels and the tape holds
-       all of them, so what is wanted is the spacing that repeats. */
+    /* The median gap between the kick's onsets, which is a beat. Median
+       rather than the first gap, so what is wanted is the spacing that
+       repeats. */
     const beat = async () =>
     {
-        await page.waitForFunction(() => window.solo.notes().length >= 6,
-                                   null, { timeout: 30000 });
+        await page.waitForFunction(
+            () => window.solo.notes().filter((n) => n.channel === 0)
+                      .length >= 6,
+            null, { timeout: 30000 });
 
         const at = await page.evaluate(
-            () => window.solo.notes().map((n) => n.at).sort((a, b) => a - b));
+            () => window.solo.notes().filter((n) => n.channel === 0)
+                      .map((n) => n.at).sort((a, b) => a - b));
         const gaps = at.slice(1)
                        .map((v, i) => v - at[i])
                        .filter((g) => g > 1e-6)

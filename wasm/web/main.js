@@ -535,6 +535,7 @@ async function toggleMic ()
         $('micstatus').textContent = '';
         $('miclevel').textContent = '';
         showLatency();
+        showLiveIn();
         return;
     }
 
@@ -565,6 +566,61 @@ async function toggleMic ()
         (warnings.length > 0 ? `; ${warnings.join('; ')}` : '');
 
     showLatency();
+}
+
+/* ---- whether anything is listening ----
+ *
+ * The window and Live in are for a graph that reads the live input, and
+ * one that does names it `ionode->live0' (docs/DSP_FORMAT.md). Only
+ * fx/vocoder-mic.dsp does today, so everywhere but Voice the two were
+ * controls that did nothing, on the strip a phone has least room in.
+ *
+ * So they are offered when what is in play listens: the patch box's text
+ * in patch mode, and in the other two the graphs on the piece's channels
+ * -- the ones it names, instrument and effect alike, and the ones the page
+ * aimed. Live in stays while the input is on, so it can be switched off.
+ * The window is chosen before Start and fixed by it, so it goes then.
+ */
+const LIVE = /\bionode->live\d/;
+
+async function listens ()
+{
+    if (mode() === 'patch')
+        return LIVE.test($('dsp').value);
+
+    const names = new Set();
+
+    for (const p of placed.values())
+        if (p?.dsp)
+            names.add(p.dsp);
+
+    /* The piece's own names, as doc.js reads them for the room: the
+       `dsp' of an instrument block and each `effect' in one. */
+    if (mode() === 'piece')
+        for (const m of $('gen').value.matchAll(
+                 /\b(?:dsp|effect)\s+"([^"]+)"/g))
+            names.add(m[1]);
+
+    const texts = await Promise.all([...names].map(
+        (n) => dspTexts[n] ?? patch.graphText(n).catch(() => '')));
+
+    return texts.some((t) => LIVE.test(t));
+}
+
+/* Asked after anything that changes what is in play; only the latest
+   answer is drawn. */
+let liveAsked = 0;
+
+async function showLiveIn ()
+{
+    const asked = ++liveAsked;
+    const on = mic !== null || await listens().catch(() => false);
+
+    if (asked !== liveAsked)
+        return;
+
+    $('livein').hidden = !on;
+    $('windowlabel').hidden = synth !== null;
 }
 
 /* ---- what the browser admits to ---- */
@@ -615,6 +671,8 @@ async function loadPatch ()
 
     $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
                                  : 'That .dsp did not parse; see below.';
+
+    showLiveIn();
 
     if (!ok)
         seeBelow();
@@ -830,13 +888,17 @@ async function loadPiece ()
         const loaded = await synth.loadPiece($('gen').value);
 
         if (loaded.errors.length === 0)
-            aiming = await patch.aim(synth, loaded.sinks, aimed);
+            aiming = await patch.aim(
+                synth, loaded.sinks,
+                mode() === 'seq' ? new Map([...sequenceVoices(), ...aimed])
+                                 : aimed);
 
         return loaded;
     });
 
     piece = it.errors.length === 0 ? it : null;
     placed = aiming.placed;
+    showLiveIn();
 
     if (piece === null)
     {
@@ -903,11 +965,35 @@ async function loadPiece ()
  * the menu on the track after that. That is what puts a menu on every
  * track here and none on a shipped piece's.
  */
-const SEQ_TRACKS = 4;
 const SEQ_STEPS = 16;
 /* Six: five degrees and the octave above them, which is a range to
-   write a line in and still leaves four tracks visible at once. */
+   write a line in and still leaves the tracks visible at once. */
 const SEQ_ROWS = 6;
+
+/* The tracks, in channel order, and what each opens playing: a kit on the
+ * first three and two voices over it, the newer instruments rather than
+ * the desktop's first-run four -- which are four tonal patches, six rows
+ * each, and made the opening screen on a phone four tall grids of one
+ * kind of sound.
+ *
+ * A drum that ignores the note gets a grid one row tall (see fitTracks),
+ * so the kit costs a strip each. The beat is there so that Play makes
+ * something straight away; the voices start empty, for somebody to draw
+ * on. These are the page's defaults for its own sequence, handed to the
+ * aiming ahead of the first-run ones, and a track's menu still replaces
+ * any of them.
+ */
+const SEQ_VOICES = [
+    { dsp: 'kit_kick.dsp',  cells: 'x...x...x...x...' },
+    { dsp: 'kit_snare.dsp', cells: '....x.......x...' },
+    { dsp: 'kit_hat.dsp',   cells: 'x.x.x.x.x.x.x.x.' },
+    { dsp: 'ebass.dsp' },
+    { dsp: 'rhodes.dsp' },
+];
+
+/* Where the keys go in the sequence: the last voice, the Rhodes, rather
+   than channel 1 -- which is the kick. */
+const SEQ_KEYS = SEQ_VOICES.length - 1;
 
 /* The first line of what this writes, and what tells the box's contents
  * apart from any other piece.
@@ -923,22 +1009,33 @@ const SEQ_MARK = '# A sequence, written by the page.';
 
 function sequenceText ()
 {
-    const empty = Array(SEQ_ROWS).fill('.'.repeat(SEQ_STEPS)).join('/');
+    /* A drum's pattern on its one row; a voice's on the bottom row of its
+       ladder, the root, where a single line of cells reads as a line. */
+    const cells = ({ dsp, cells = '' }) =>
+    {
+        const line = cells.padEnd(SEQ_STEPS, '.');
 
-    /* One track with something on it, because a sequencer that makes no
-       sound when it is started reads as broken rather than as empty.
-       Four on the floor on the bottom row of the first track. */
-    const first = empty.replace(new RegExp(`\\.{${SEQ_STEPS}}$`),
-                                'x...'.repeat(SEQ_STEPS / 4));
+        if (!readsNote(dsp))
+            return { rows: 1, cells: line };
 
-    const track = (n) => `chain track${n} {
+        const empty = '.'.repeat(SEQ_STEPS);
+
+        return { rows: SEQ_ROWS,
+                 cells: [...Array(SEQ_ROWS - 1).fill(empty), line].join('/') };
+    };
+
+    const track = (voice, n) =>
+    {
+        const { rows, cells: grid } = cells(voice);
+
+        return `chain track${n} {
     input midi;
 
     stage seq gen::grid {
         notes  = pent;
         steps  = ${SEQ_STEPS};
-        rows   = ${SEQ_ROWS};
-        cells  = "${n === 1 ? first : empty}";
+        rows   = ${rows};
+        cells  = "${grid}";
         period = 0.25 beats;
         hold   = 0.2 beats;
         vel    = 96;
@@ -946,17 +1043,15 @@ function sequenceText ()
     };
     sink { channel = ${n}; };
 };`;
-
-    const tracks = [];
-
-    for (let n = 1; n <= SEQ_TRACKS; n++)
-        tracks.push(track(n));
+    };
 
     return `${SEQ_MARK}
 #
-# Four grids on four channels: rows are degrees of the ladder below,
-# columns are steps. Click the cells; the menu on each track says what
-# plays it. Save this file and it opens in the Composer like any other.
+# A kit and two voices, one grid each on a channel of its own: rows are
+# degrees of the ladder below, columns are steps, and a drum that plays
+# the same sound at any pitch has one row. Click the cells; the menu on
+# each track says what plays it. Save this file and it opens in the
+# Composer like any other.
 #
 # \`input midi' on each of them is what makes the keys play a track: a
 # note aimed at a channel goes through that channel's chain and out its
@@ -965,14 +1060,21 @@ function sequenceText ()
 # turn that up and playing writes what it plays.
 
 name "A sequence";
-description "Four tracks. Click the cells; pick what plays them.";
+description "A beat, a bass and keys. Click the cells; pick what plays them.";
 
 tempo 112;
 
 scale pent "C3 D3 E3 G3 A3";
 
-${tracks.join('\n\n')}
+${SEQ_VOICES.map((v, i) => track(v, i + 1)).join('\n\n')}
 `;
+}
+
+/* The sequence's own defaults, as channel -> the .dsp: what the aiming
+   uses on a track nobody has chosen for. */
+function sequenceVoices ()
+{
+    return new Map(SEQ_VOICES.map((v, i) => [i, v.dsp]));
 }
 
 /* The mode, entered. The text is written once a session: coming back to
@@ -983,7 +1085,13 @@ async function loadSequence ()
     holdText('seq');
 
     if (!$('gen').value.includes(SEQ_MARK))
+    {
         $('gen').value = sequenceText();
+
+        /* Once, with the text: after this the keys go wherever they are
+           sent, and coming back to the mode does not move them. */
+        $('keychan').value = String(SEQ_KEYS);
+    }
 
     await loadPiece();
 
@@ -1042,6 +1150,7 @@ async function pickPiece ()
             await (await fetch(`gen/${$('piece').value}`)).text();
 
         await loadPiece();
+        showLiveIn();
     })();
 
     picking = run.catch(() => {});
@@ -1728,6 +1837,7 @@ async function start ()
        asking for one needs a gesture besides. */
     $('window').disabled = true;
     $('mic').disabled = !micAvailable();
+    showLiveIn();
 
     if (!micAvailable())
         $('micstatus').textContent = 'needs https, or localhost';
@@ -2252,7 +2362,8 @@ window.solo = {
        harness about the tempo has to read: a control that moved a number
        in a box and nothing else would pass every check that asks the
        box. */
-    notes: () => tapeNotes.map((e) => ({ at: e.at, note: e.note })),
+    notes: () => tapeNotes.map((e) => ({ at: e.at, note: e.note,
+                                        channel: e.channel })),
 
     /* What is held down, and by how many hands and MIDI keys: the route
        and velocity each note went out with. */
@@ -2370,6 +2481,7 @@ async function pickMode ()
         panes.available(id, mine.has(id));
 
     panes.mode(which);
+    showLiveIn();
 
     if (synth === null)
         return;
@@ -2589,7 +2701,11 @@ async function init ()
     dspNames = dsps;
     genNames = gens;
     patchNames = patchList;
-    fill($('patch'), playableDsps(), 'ts1.dsp');
+    /* Patch mode opens on the ladder: one of the newer graphs, a sound
+       that holds for as long as the key does, and cheap to start a note
+       on. Not the grand, whose note-on costs about half a 128-frame
+       quantum on a desktop, which is a whole one on a phone. */
+    fill($('patch'), playableDsps(), 'ladder.dsp');
     fill($('piece'), gens, 'ebb.gen');
 
     [$('dsp').value, $('gen').value] = await Promise.all([
@@ -2674,6 +2790,14 @@ async function init ()
        the fold is the reader's from here on. */
     if (matchMedia('(min-width: 60em)').matches)
         $('patchsource').open = $('piecesource').open = true;
+
+    /* And the parameters the other way round. On a phone they are a
+       screen and more of sliders between the chrome and the keys, so the
+       keys were a scroll away in every mode; folded, the summary says
+       they are there. The same two shapes style.css calls small: narrow,
+       and a phone held sideways. */
+    if (matchMedia('(max-width: 40em), (max-height: 30em)').matches)
+        $('paramview').open = false;
 
     /* And the layout, over what is in the document now.
      *
