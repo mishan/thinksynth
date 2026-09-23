@@ -108,6 +108,27 @@ jobs:
             build/package/*.dmg
           if-no-files-found: error
 
+  # The GTK runtime data checks, beside the linux job rather than at the end
+  # of it: each reconfigures with THINK_BUNDLE_GTK and rebuilds, which was
+  # five of that job's eleven minutes, and none of it needs the linux job's
+  # tree or its tests.
+  gtk-data:
+    name: linux GTK runtime data
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
+
       # The bundled GTK data -- schemas, pixbuf loaders, icon themes -- exists
       # for macOS and Windows, which are precisely the two platforms where it
       # cannot be tested: CI has no machine without GTK on it, so a package
@@ -125,8 +146,9 @@ jobs:
           # here because the dependency closure is otherwise code that only
           # runs where nobody can watch it, and the thing it most recently got
           # wrong was invisible on Linux for exactly that reason.
-          cmake -S . -B build -DTHINK_BUNDLE_GTK=ON -DTHINK_PKG_DEPS=ON \
-                              -DCMAKE_INSTALL_PREFIX="$PWD/stage"
+          cmake -S . -B build -G Ninja \
+                -DTHINK_BUNDLE_GTK=ON -DTHINK_PKG_DEPS=ON \
+                -DCMAKE_INSTALL_PREFIX="$PWD/stage"
           cmake --build build
           cmake --install build
 
@@ -633,10 +655,20 @@ jobs:
         run: node catalogcheck.mjs
 
   # The page and the worklet, in the two engines the page has to work in.
+  #
+  # One runner per engine for browsertest.mjs, the bulk of the job: every
+  # seeded piece at two windows, and the two engines were sharing four cores.
+  # The page's own gates after it drive both engines in one script each and
+  # are under a minute together, so they run on the chromium leg only.
   wasm-browsers:
-    name: wasm (emscripten) in browsers
+    name: wasm (emscripten) in ${{ matrix.browser }}
     runs-on: ubuntu-latest
     needs: wasm-build
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
 
     # Everything here is minutes, so an hour means something is wedged rather
     # than slow. Without this a hang runs to GitHub's six-hour default, which
@@ -655,10 +687,15 @@ jobs:
       # without a backend, and an unresolved promise inside page.evaluate has
       # no timeout of its own. Same module and same reasoning as the jam job,
       # which needs one for jamtest's two live peers.
+      #
+      # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
+      # runs there.
       - name: Install dependencies
+        if: matrix.browser == 'chromium'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
       - name: An audio sink for the live-context tests
+        if: matrix.browser == 'chromium'
         run: |
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=mictest
@@ -675,18 +712,24 @@ jobs:
         working-directory: wasm/web
         run: npm ci
 
+      # Both engines on the chromium leg, for the page's gates below it.
+      - name: Playwright's browsers
+        working-directory: wasm/web
+        run: >-
+          npx playwright install --with-deps
+          ${{ matrix.browser == 'chromium' && 'chromium firefox' || 'firefox' }}
+
       # browsertest.mjs plays a phrase through the worklet in Chromium and
       # in Firefox and holds each against the module run directly, to the
       # bit, then runs the same piece comparison through the worklet at a
       # window of 256 and of 128. That is the plumbing between page,
       # worklet and module -- the messages, the stamps, the quanta -- in
-      # the two engines the page has to work in. The two browsers run at
-      # once and their output interleaves; every line names its browser.
-      - name: Browser build, in browsers
+      # the two engines the page has to work in, one per leg.
+      - name: Browser build, in ${{ matrix.browser }}
         working-directory: wasm/web
-        run: |
-          npx playwright install --with-deps chromium firefox
-          node browsertest.mjs ../../build-web ../../build-wasm
+        env:
+          BROWSERS: ${{ matrix.browser }}
+        run: node browsertest.mjs ../../build-web ../../build-wasm
 
       # A live input in real browsers, which is the half miccheck.mjs cannot
       # see. Two legs: a known capture connected to the worklet's own input on
@@ -695,6 +738,7 @@ jobs:
       # device reading a generated wav and by Firefox's fake tone, asked only
       # whether the microphone reached the vocoder.
       - name: A live input, in browsers
+        if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node mictest.mjs ../../build-web
 
@@ -709,6 +753,7 @@ jobs:
       # has changed, and a number typed into a stage's params popover
       # leaves the same way and comes back in the description.
       - name: The page's keys, knobs, parameters and composer view
+        if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
 
@@ -719,6 +764,7 @@ jobs:
       # tiler is worth on a page with two wasm canvases in it: a pane
       # nobody is looking at asks the mirror for nothing.
       - name: The page, tiled
+        if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node panecheck.mjs ../../build-web
 
@@ -729,6 +775,7 @@ jobs:
       # person can see. No module and no build directory -- keyboard.js and
       # keyfocus.js on a page of controls, clicked and tabbed at.
       - name: Who has the keyboard
+        if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node keycheck.mjs
 
@@ -738,6 +785,7 @@ jobs:
       # the synth started with the network gone, and a new sw.js installed,
       # waiting, and activated on the next load.
       - name: Installed, offline, and updated
+        if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node pwatest.mjs ../../build-web
 

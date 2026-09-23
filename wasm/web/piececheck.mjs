@@ -69,7 +69,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { seeded, tapeBefore } from '../tape.mjs';
@@ -189,9 +189,45 @@ export function pieces (buildDir)
  * `stopAt' is the transport time the tape is cut at, and genwav is asked
  * for a few seconds past it so that the stop itself is on what comes back.
  * Without one the whole of `seconds' is taken. */
-export function reference (name, nodeBuildDir,
-                           { commands = [], knobs = {}, stopAt = null,
-                             seconds = SECONDS } = {})
+export function reference (name, nodeBuildDir, options = {})
+{
+    const { args, env, cut } = genwavCall(name, nodeBuildDir, options);
+    let text;
+
+    try
+    {
+        text = execFileSync('node', args,
+                            { cwd: top, encoding: 'utf8', env });
+    }
+    catch (e)
+    {
+        throw genwavFailure(name, e.status, e.stderr);
+    }
+
+    return tapeBefore(text, cut);
+}
+
+/* The same tape without blocking, so a gate that needs one per piece can
+   render them on every core at once. execFile reports the exit status as
+   `code' where execFileSync reports it as `status'. */
+export function referenceAsync (name, nodeBuildDir, options = {})
+{
+    const { args, env, cut } = genwavCall(name, nodeBuildDir, options);
+
+    return new Promise((resolve, reject) =>
+        execFile('node', args, { cwd: top, encoding: 'utf8', env },
+                 (e, stdout, stderr) =>
+                 {
+                     if (e)
+                         reject(genwavFailure(name, e.code, stderr));
+                     else
+                         resolve(tapeBefore(stdout, cut));
+                 }));
+}
+
+function genwavCall (name, nodeBuildDir,
+                     { commands = [], knobs = {}, stopAt = null,
+                       seconds = SECONDS } = {})
 {
     const until = stopAt === null ? seconds : stopAt + 5;
 
@@ -219,34 +255,26 @@ export function reference (name, nodeBuildDir,
 
     args.push(path.join(top, 'gen', name));
 
-    let text;
+    return { args,
+             env: { ...process.env, THINK_WASM_BUILD: nodeBuildDir },
+             cut: stopAt === null ? seconds : stopAt };
+}
 
-    try
-    {
-        text = execFileSync('node', args,
-                            { cwd: top, encoding: 'utf8',
-                              env: { ...process.env,
-                                     THINK_WASM_BUILD: nodeBuildDir } });
-    }
-    catch (e)
-    {
-        /* genwav.mjs's statuses, which are scripts/genwav's: 4 is a voice the
-           engine's guard dropped for going non-finite, 3 is a render that
-           reached full scale. Either way what came back is a report of
-           something other than the piece, so it is not a tape to hold
-           anything against -- and an execFileSync that merely threw said only
-           that a command had failed. */
-        const why = e.status === 4
-            ? 'a voice went non-finite (genwav exit 4)'
-            : e.status === 3
-              ? 'the render clipped (genwav exit 3)'
-              : `genwav exited ${e.status === undefined ? '?' : e.status}`;
+/* genwav.mjs's statuses, which are scripts/genwav's: 4 is a voice the
+   engine's guard dropped for going non-finite, 3 is a render that reached
+   full scale. Either way what came back is a report of something other
+   than the piece, so it is not a tape to hold anything against -- and a
+   child process that merely failed said only that a command had failed. */
+function genwavFailure (name, status, stderr)
+{
+    const why = status === 4
+        ? 'a voice went non-finite (genwav exit 4)'
+        : status === 3
+          ? 'the render clipped (genwav exit 3)'
+          : `genwav exited ${status === undefined ? '?' : status}`;
 
-        throw new Error(`reference: ${name}: ${why}` +
-                        `${e.stderr ? `\n${e.stderr}` : ''}`);
-    }
-
-    return tapeBefore(text, stopAt === null ? seconds : stopAt);
+    return new Error(`reference: ${name}: ${why}` +
+                     `${stderr ? `\n${stderr}` : ''}`);
 }
 
 /* Where the two first differ, for a failure that can be acted on. */
