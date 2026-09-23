@@ -98,6 +98,10 @@
  * cutoff at Nyquist means. */
 #define CUTOFF_CEIL 0.49f
 
+/* Below this the state is zero. Six hundred decibels under full scale:
+   nothing that can be heard, and well clear of the denormals. */
+#define SVF_FLUSH 1e-30f
+
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_LOW, OUT_BAND, OUT_HIGH, INOUT_LAST};
 int args[INOUT_LAST + 1];
 
@@ -172,6 +176,29 @@ static inline float clip (float x)
     return x;
 }
 
+/* The trapezoidal coefficients for a cutoff in hertz and a resonance. */
+static void coefficients (float cut, float res, unsigned int samples,
+                          float *k, float *a1, float *a2, float *a3)
+{
+    const double g = tan(M_PI * thClampArg(cut, 0.0f, CUTOFF_CEIL * samples) /
+                         (double)samples);
+    const double kk = 2.0 - 2.0 * thClampArg(res, 0.0f, RESMAX);
+    const double d = 1.0 / (1.0 + g * (g + kk));
+
+    *k = (float)kk;
+    *a1 = (float)d;
+    *a2 = (float)(g * d);
+    *a3 = (float)(g * g * d);
+}
+
+/* With nothing coming in, rounding keeps a resonant filter's state circling
+   just above zero, in the denormals, for as long as the note lasts -- where
+   some processors take a hundred times as long over every multiply. */
+static inline float flush (float x)
+{
+    return fabsf(x) < SVF_FLUSH ? 0.0f : x;
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
@@ -209,42 +236,84 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
     in_res = mod->getArg(node, args[IN_RES]);
 
-    for (i = 0; i < windowlen; i++)
+    float in[windowlen];
+
+    in_arg->getBuffer(in, windowlen);
+
+    /* A cutoff and a resonance that are one value each are one set of
+       coefficients, and the loop is the recursion and nothing else: the
+       outputs are clipped afterwards, a pass the compiler can widen. */
+    if (in_cutoff->len() <= 1 && in_res->len() <= 1)
     {
-        const float v0 = thClampArg((*in_arg)[i], TH_MIN, TH_MAX);
-        const float cut = (*in_cutoff)[i];
-        const float res = (*in_res)[i];
-        float v1, v2, v3;
+        bool quiet = ic1 == 0 && ic2 == 0;
 
-        if (!have || cut != lastCut || res != lastRes)
+        for (i = 0; quiet && i < windowlen; i++)
+            quiet = in[i] == 0;
+
+        /* A filter at rest with nothing coming in stays at rest. */
+        if (quiet)
         {
-            const double g = tan(M_PI *
-                                 thClampArg(cut, 0.0f,
-                                            CUTOFF_CEIL * samples) /
-                                 (double)samples);
-            const double kk = 2.0 - 2.0 * thClampArg(res, 0.0f, RESMAX);
-            const double d = 1.0 / (1.0 + g * (g + kk));
-
-            k = (float)kk;
-            a1 = (float)d;
-            a2 = (float)(g * d);
-            a3 = (float)(g * g * d);
-            lastCut = cut;
-            lastRes = res;
-            have = true;
+            memset(out_low, 0, windowlen * sizeof(float));
+            memset(out_band, 0, windowlen * sizeof(float));
+            memset(out_high, 0, windowlen * sizeof(float));
         }
+        else
+        {
+            coefficients((*in_cutoff)[0], (*in_res)[0], samples, &k, &a1,
+                         &a2, &a3);
 
-        v3 = v0 - ic2;
-        v1 = a1 * ic1 + a2 * v3;
-        v2 = ic2 + a2 * ic1 + a3 * v3;
+            for (i = 0; i < windowlen; i++)
+            {
+                const float v0 = thClampArg(in[i], TH_MIN, TH_MAX);
+                const float v3 = v0 - ic2;
+                const float v1 = a1 * ic1 + a2 * v3;
+                const float v2 = ic2 + a2 * ic1 + a3 * v3;
 
-        ic1 = 2.0f * v1 - ic1;
-        ic2 = 2.0f * v2 - ic2;
+                ic1 = flush(2.0f * v1 - ic1);
+                ic2 = flush(2.0f * v2 - ic2);
 
-        out_low[i] = clip(v2);
-        out_band[i] = clip(k * v1);
-        out_high[i] = clip(v0 - k * v1 - v2);
+                in[i] = v0;
+                out_band[i] = v1;
+                out_low[i] = v2;
+            }
+
+            for (i = 0; i < windowlen; i++)
+            {
+                const float v1 = out_band[i], v2 = out_low[i];
+
+                out_low[i] = clip(v2);
+                out_band[i] = clip(k * v1);
+                out_high[i] = clip(in[i] - k * v1 - v2);
+            }
+        }
     }
+    else
+        for (i = 0; i < windowlen; i++)
+        {
+            const float v0 = thClampArg(in[i], TH_MIN, TH_MAX);
+            const float cut = (*in_cutoff)[i];
+            const float res = (*in_res)[i];
+            float v1, v2, v3;
+
+            if (!have || cut != lastCut || res != lastRes)
+            {
+                coefficients(cut, res, samples, &k, &a1, &a2, &a3);
+                lastCut = cut;
+                lastRes = res;
+                have = true;
+            }
+
+            v3 = v0 - ic2;
+            v1 = a1 * ic1 + a2 * v3;
+            v2 = ic2 + a2 * ic1 + a3 * v3;
+
+            ic1 = flush(2.0f * v1 - ic1);
+            ic2 = flush(2.0f * v2 - ic2);
+
+            out_low[i] = clip(v2);
+            out_band[i] = clip(k * v1);
+            out_high[i] = clip(v0 - k * v1 - v2);
+        }
 
     out_last[0] = ic1;
     out_last[1] = ic2;
