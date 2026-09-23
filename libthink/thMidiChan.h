@@ -138,6 +138,12 @@ public:
         if (i != args_.end()) return i->second;
         return NULL;
     }
+    /* GUI thread, before queueing setArg: every chanarg reference in the
+       prototype named `name' now points at `arg'. The GUI thread copies the
+       prototype for every note, so the GUI thread is the one that may write
+       it; the audio thread never reads it. */
+    void pointPrototype (const string &name, thArg *arg);
+
     /* Audio thread: replaces the arg of the same name and retires the old one
        rather than deleting it under the GUI thread's feet. */
     void setArg (thArg *arg, RetireQueue *retire);
@@ -206,6 +212,7 @@ public:
     
 private:
     void assignChanArgPointers(thSynthTree *mod);
+    void repoint (thMidiNote *note, const thArg *old, thArg *arg);
 
     /* Resolves the io-node args process() reads, and creates any this .dsp did
        not write. Constructor only: it allocates, and it is what stops the

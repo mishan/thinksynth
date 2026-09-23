@@ -1191,13 +1191,23 @@ void thSynth::setChanArg (int channum, thArg *arg)
     if (existing != NULL)
         describeLike(arg, existing);
 
+    /* Notes are copied from the prototype on this thread, so this thread
+       points it at the replacement, now, before anything queued after this
+       can be copied from it; the audio thread moves the live voices when it
+       installs the arg. See thMidiChan::setArg. A command that could not be
+       queued was deleted, and the prototype goes back to what it had. */
+    const string name = arg->name();
+
+    guiChannels_[channum]->pointPrototype(name, arg);
+
     thSynthCommand cmd;
 
     cmd.type = thSynthCommand::SET_CHAN_ARG;
     cmd.chan = channum;
     cmd.arg = arg;
 
-    postCommand(cmd);
+    if (!postCommand(cmd))
+        guiChannels_[channum]->pointPrototype(name, existing);
 
 }
 
