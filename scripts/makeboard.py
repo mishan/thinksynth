@@ -32,6 +32,27 @@ nudged off the grid so no two are in a simple ratio. Each mode:
 - and falls above BOARD_KNEE at 6 dB an octave, where the bridge gets
   too heavy for the string to move.
 
+THE BRIDGE'S OWN PATH. A sum of modes at random phases is, at any one
+frequency, a random number: its magnitude is Rayleigh-distributed and 5
+or 6 dB either side of its trend, with holes of 20 dB. That is what one
+point on a board measures, and it is not what a room hears -- and in a
+commuted piano it is worse than uneven, because a treble note is mostly
+its fundamental and the board's level at that one frequency becomes the
+note's loudness: middle C sharp came out 19 dB under its neighbors. So
+beside the modes there is a smooth path, the bridge's resistive
+impedance, with the modes' knee, at BOARD_DIRECT times their energy. At
+twenty the board's level at the 67 fundamentals from A1 to D#7 varies by
+1.9 dB (its worst note 7 dB under its neighbors), about as evenly as a
+voiced piano's notes; the modes still ring on behind it, which is where
+the body is.
+
+That path is not an impulse. A plate carries bending waves, and bending
+waves are dispersive -- the high frequencies outrun the low ones -- so
+what arrives first at a point on a board is a sweep downward, not a
+click. A sweep over DIRECT_SWEEP has the impulse's flat spectrum without
+its peak: a one-pole impulse there put a 1 ms spike in every note, twice
+the crest factor of a recorded one, and clipped chords.
+
 Nothing here is a measurement of a particular piano; it is a board with
 the right statistics, and the seed fixes which one. The file is
 generated, not recorded, so it regenerates from this script and carries
@@ -58,6 +79,10 @@ BOARD_SPACING = 18.0     # mean distance between modes, Hz
 BOARD_LOSS = 0.02        # loss factor: T60 = 2.2 / (loss * f)
 BOARD_T60_MAX = 1.0      # seconds; the lowest modes are held to this
 BOARD_KNEE = 2000.0      # Hz, above which the response falls 6 dB/octave
+BOARD_DIRECT = 20.0      # the bridge's smooth path, in the modes' energy
+DIRECT_HIGH = 12000.0    # Hz, where that path's sweep starts
+DIRECT_LOW = 30.0        # Hz, and where it ends
+DIRECT_SWEEP = 0.025     # seconds it takes
 
 FADE = 0.03              # seconds of fade at the end of the file
 PEAK = 0.9               # the file's peak, full scale
@@ -79,6 +104,36 @@ def modes(rng):
     return out
 
 
+def sweep():
+    """The bridge's own path: a sweep from DIRECT_HIGH down to DIRECT_LOW.
+
+    Exponential, so the time spent near f is proportional to 1/f, and the
+    sweep's magnitude spectrum goes as a(f) / sqrt(f); an amplitude of
+    sqrt(f) with the modes' knee on it makes the spectrum flat with that
+    knee. Short raised-cosine ends keep the ripple they would cause out of
+    the band."""
+    count = int(DIRECT_SWEEP * RATE)
+    ratio = DIRECT_LOW / DIRECT_HIGH
+    rate = math.log(ratio) / DIRECT_SWEEP
+    edge = int(0.001 * RATE)
+    out = []
+
+    for i in range(count):
+        t = i / RATE
+        f = DIRECT_HIGH * ratio ** (t / DIRECT_SWEEP)
+        phase = 2 * math.pi * DIRECT_HIGH * (ratio ** (t / DIRECT_SWEEP) - 1) / rate
+        amp = math.sqrt(f) / math.sqrt(1 + (f / BOARD_KNEE) ** 2)
+
+        if i < edge:
+            amp *= 0.5 * (1 - math.cos(math.pi * i / edge))
+        elif i >= count - edge:
+            amp *= 0.5 * (1 - math.cos(math.pi * (count - 1 - i) / edge))
+
+        out.append(amp * math.sin(phase))
+
+    return out
+
+
 def render(board):
     n = int(SECONDS * RATE)
     buf = [0.0] * n
@@ -95,6 +150,13 @@ def render(board):
         for i in range(last):
             buf[i] += im
             re, im = re * cw - im * sw, re * sw + im * cw
+
+    direct = sweep()
+    modal = sum(x * x for x in buf)
+    gain = math.sqrt(BOARD_DIRECT * modal / sum(x * x for x in direct))
+
+    for i, x in enumerate(direct):
+        buf[i] += gain * x
 
     fade = int(FADE * RATE)
 

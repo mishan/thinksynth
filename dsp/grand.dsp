@@ -11,19 +11,25 @@
 # strings one instrument is that every property moves smoothly from A0 to
 # C8, so each is an expression over `ionode->note':
 #
-# - `b', the inharmonicity: about 2e-4 at A0, least in the tenor, 1.6e-2
-#   at C8. The wound bass strings are stiffer than their pitch suggests
-#   and the short treble ones much stiffer. `Stretch' scales the curve;
-#   0 is a harmonic string.
+# - `b', the inharmonicity: fitted to the partials of a recorded grand
+#   (University of Iowa's), about 1.5e-4 in the bass, least around A1 and
+#   C2, 3e-4 at middle C and 1.6e-3 at C6. The wound bass strings are
+#   stiffer than their pitch suggests and the short treble ones much
+#   stiffer. Too much in the bass is a twang: an earlier curve half again
+#   as stiff there turned every low note into a spring. `Stretch' scales
+#   the curve; 0 is a harmonic string.
 #
-# - `decay', the fundamental's T60: 40 s at A0, 8 s at middle C, just
-#   over a second at C8, doubling every seventeen keys down. `Sustain'
+# - `decay', the fundamental's T60: 40 s at A0, 15 s at middle C, just
+#   over four at C8, doubling every twenty-eight keys down. `Sustain'
 #   scales it.
 #
 # - `hidecay', the T60 near 3 kHz. The bridge and the air take the fast
-#   motion first, so a bass note's top dies in a second or two while its
-#   fundamental rings on. `Tone' is that time; above it the high partials
-#   last as long as the low ones and the note is glassy.
+#   motion first, so the top of a note dies before its fundamental -- but
+#   less than it seems: a recorded middle C's 5th to 10th partials fall
+#   only 6 to 13 dB a second. `Tone' is that time, 12 s. At a second or
+#   two everything above the octave is gone almost at once and what rings
+#   on is a fundamental and its octave, which is how an electric piano
+#   sustains and not how a piano does.
 #
 # - `strings': one from A0 to F#1, where each note is a single heavy
 #   wound string; two to C3; three above.
@@ -37,7 +43,9 @@
 # drifts them out of phase, which the bridge barely feels, and that part
 # rings on at the strings' own `decay'. The loud, fast-falling start and
 # the long quiet tail of a piano note -- and the slow beating inside it --
-# come from that and nothing else. Wide, the note is a honky-tonk.
+# come from that and nothing else. `Unison' is 2.5 cents, where a
+# recorded middle C's fundamental wavers as much as this one's; at one it
+# decays as smoothly as a tine. Wide, the note is a honky-tonk.
 #
 # In the bass a cent beats too slowly to matter, and the tail comes from
 # the unison not being symmetric: the hammer meets its strings a little
@@ -56,19 +64,17 @@
 # the knock at the front of a note comes from: the excitation passes
 # through the strings once before they have rung at all.
 #
-# THE HAMMER is a low-pass on it. Felt stiffens the harder it is
-# squeezed, so a harder blow is a shorter one and puts more of the board
-# into the strings: the corner rises two octaves from pianissimo to
-# fortissimo. It rises an octave every two octaves up the keyboard too,
-# where the hammers are smaller and harder. `Brightness' is the corner
-# at middle C, played softly. The level is velocity squared, since a
+# THE HAMMER is a low-pass on it, and where its corner sits is most of
+# what the instrument sounds like. It is fitted to a recorded grand
+# (University of Iowa's, mezzo-forte), by the energy in five bands over
+# the first 400 ms of B0, A1, C2, A2, C4 and C6: four poles, a corner
+# that falls an octave every sixty keys up from 800 Hz at middle C and
+# another every eight below A1, where the hammers are big and soft --
+# and never below the note itself, where a treble note would only be
+# made quieter. `Brightness' is the corner at middle C at mezzo-forte; it
+# rises two octaves from pianissimo to fortissimo, since felt stiffens
+# the harder it is squeezed. The level is velocity squared, since a
 # hammer's force grows faster than the key's speed.
-#
-# WHERE IT STRIKES. A hammer an eighth of the way along the string cannot
-# excite the partials with a node there: the 8th, 16th, 24th. The felted
-# board minus itself an eighth of a period later has exactly those notches.
-# It also takes out the board's lowest modes under a treble note, which
-# the short strings up there cannot take in either.
 #
 # THE DAMPERS are the string's own: `gate' is `ionode->trigger', which
 # the engine holds at 2 while the sustain pedal keeps a released key up,
@@ -101,26 +107,26 @@ category "Keys";
 
     # Seconds, and deliberately a plain number: a unit in a .dsp is folded
     # into samples, and the string wants seconds.
-    @tone = 1.5;
+    @tone = 12;
     @tone.widget = 1;
     @tone.min = 0.1;
     @tone.max = 20;
     @tone.label = "Tone (s)";
 
-    @bright = 700;
+    @bright = 800;
     @bright.widget = 1;
-    @bright.min = 100;
-    @bright.max = 4000;
+    @bright.min = 200;
+    @bright.max = 3000;
     @bright.label = "Brightness (Hz)";
 
-    @unison = 1;
+    @unison = 2.5;
     @unison.widget = 1;
     @unison.min = 0;
     @unison.max = 20;
     @unison.label = "Unison (cents)";
 
     # Seconds, as a plain number.
-    @prompt = 3;
+    @prompt = 8;
     @prompt.widget = 1;
     @prompt.min = 0.1;
     @prompt.max = 10;
@@ -131,6 +137,12 @@ category "Keys";
     @tilt.min = 0;
     @tilt.max = 1;
     @tilt.label = "Unison Tilt";
+
+    @knock = 1;
+    @knock.widget = 1;
+    @knock.min = 0;
+    @knock.max = 3;
+    @knock.label = "Knock";
 
     @damper = 0.12;
     @damper.widget = 1;
@@ -170,36 +182,48 @@ node board osc::sample {
     trigger = ionode->trigger;
 };
 
-# The board gives the bass less than a pulse did: most of its energy is
-# above the lowest strings' fundamentals. Up to 7 dB more from middle C
-# down puts the bass back where it balances.
+# The corner, never below the note itself: see THE HAMMER above.
+node corner math::max {
+    in0 = freq->out;
+    in1 = @bright * exp2(((ionode->velocity - 0.63) * 2) +
+                         (60 - ionode->note) / 60 -
+                         clamp((33 - ionode->note) / 8, 0, 3));
+};
+
+# The low-pass is two pairs of poles at a Q of a half, so it takes the
+# fundamental down by (1 + (f0 / corner)^2)^2; that much back keeps a dark
+# note as loud as a bright one, and the corner decides the timbre and not
+# the level. Below middle C they rise again, 7 dB by A1, against what
+# the board cannot radiate there. Above
+# C5 the notes then ease off, 12 dB by C6, as the recording's do: a treble
+# note is nearly all fundamental, and at the bass's level it rings out
+# over everything.
 node felt filt::svf {
-    in = board->out * ionode->velocity * ionode->velocity * 0.4 *
-         (1 + clamp((60 - ionode->note) / 30, 0, 1.5));
-    cutoff = @bright * exp2((ionode->velocity * 2) +
-                            (ionode->note - 60) / 24);
+    in = board->out * ionode->velocity * ionode->velocity * 0.9 *
+         (1 + (freq->out / corner->out) * (freq->out / corner->out)) *
+         (1 + (freq->out / corner->out) * (freq->out / corner->out)) *
+         exp2(clamp((60 - ionode->note) / 16, 0, 1.3) -
+              clamp((ionode->note - 72) / 6, 0, 2.2));
+    cutoff = corner->out;
     res = 0;
 };
 
-node period misc::freq2samples {
-    freq = freq->out;
-};
-
-# An eighth of a period, and the felted board minus it.
-node strike delay::echo {
+# Two of them: four poles, 24 dB an octave. At twelve a bass note keeps
+# its upper partials 15 to 30 dB louder than a recorded one's, and hears
+# them die away over the first second -- a filter sweeping shut, the
+# `bowww' of a physical model's bass.
+node felt2 filt::svf {
     in = felt->out_low;
-    size = 4096;
-    delay = period->out / 8;
-    feedback = 0;
-    dry = 0;
+    cutoff = corner->out;
+    res = 0;
 };
 
 node string filt::pianostring {
-    in = felt->out_low - strike->out;
+    in = felt2->out_low;
     freq = freq->out;
-    b = 0.0001 * @stretch * (exp2((ionode->note - 48) * 0.1218) +
-                             exp2((48 - ionode->note) * 0.0385));
-    decay = @sustain * 40 * exp2((21 - ionode->note) / 17);
+    b = 0.000275 * @stretch * exp2((ionode->note - 60) / 9.5) +
+        0.000085 * @stretch * exp2((33 - ionode->note) / 15);
+    decay = @sustain * 40 * exp2((21 - ionode->note) / 28);
     hidecay = @tone;
     damper = @damper;
     gate = max(ionode->trigger, clamp((ionode->note - 89.5) * 100, 0, 1));
@@ -210,9 +234,50 @@ node string filt::pianostring {
     imbalance = @tilt;
 };
 
+# THE KNOCK: the board struck by the hammer, heard directly and not through
+# the strings. A recorded grand's first 60 ms has about a fiftieth of its
+# energy between the partials -- 17 dB under the tone in the middle, 13 at
+# C6 -- and a note without it is clean the way an electric piano is. The
+# strings cannot supply it: in the treble the hammer's corner is at the
+# note, so all that reaches them is the note. It is loudest at the ends,
+# the bass's thump and the treble's knock where the tone is thin, and
+# least around G3, where the tone covers it: doubling every ten keys
+# down from G3 and every hundred up, which lands within 3 dB of the
+# recording at A1, A2, C4 and C6. It is darker down the keyboard, 800 Hz
+# at middle C and an octave lower every twelve keys down to 500 Hz, with
+# the board's lowest modes taken off it: a bass knock is a thump and not
+# a boom.
+# `Knock' scales it.
+node knockhp filt::svf {
+    in = board->out;
+    cutoff = 150;
+    res = 0;
+};
+
+node knock filt::svf {
+    in = knockhp->out_high * ionode->velocity * ionode->velocity * @knock *
+         0.6 *
+         exp2(clamp((55 - ionode->note) / 10, 0, 5) +
+              clamp((ionode->note - 55) / 100, 0, 5));
+    cutoff = clamp(800 * exp2((ionode->note - 60) / 12), 500, 3000);
+    res = 0;
+};
+
+# THE BOARD CANNOT RADIATE THE BASS. A soundboard is small against the
+# wavelength of a bass note, and below a couple of hundred hertz it moves
+# air back and forth around its own edge rather than pushing it away: a
+# recorded A1's fundamental is 23 dB under its strongest partial, and
+# A2's 13. Without this every bass note is a round boom under its
+# partials.
+node radiate filt::svf {
+    in = string->out + knock->out_low;
+    cutoff = 180;
+    res = 0;
+};
+
 # The piano as the player hears it: bass on the left.
 node pan mixer::pan {
-    in = string->out * @level;
+    in = radiate->out_high * @level;
     pan = clamp((ionode->note - 64) / 44, -1, 1) * @width;
 };
 
