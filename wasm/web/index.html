@@ -23,6 +23,14 @@
 <div class="row" id="chrome">
   <h1>thinksynth</h1>
 
+  <!-- Where it comes from, and the browser's Install offered as a button:
+       Chromium's own is an icon in the address bar that is easy to miss.
+       Shown only where the browser will install it (offline.js). -->
+  <span id="site" class="group">
+    <a id="source" href="https://github.com/mishan/thinksynth">GitHub</a>
+    <button id="install" hidden>Install</button>
+  </span>
+
   <button id="start">Start</button>
 
   <label>Play <select id="mode">

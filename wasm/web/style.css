@@ -139,6 +139,10 @@ pre
    with rows under it. */
 #chrome h1 { margin: 0; }
 
+/* The link to the source: beside the title and quieter than it, since it
+   is not a control of the page's. */
+#source { color: var(--dim); font-size: 0.9em; }
+
 /* A mode's own controls, wrapping as a group rather than one at a time:
    a Rewind on a line of its own, away from the Play it belongs with, is
    not a row wrapping usefully. */

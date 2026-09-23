@@ -53,3 +53,46 @@ export async function keepOffline ()
                                              { once: true });
     reg.waiting.postMessage('activate');
 }
+
+/* The browser's install question, on a button of the page's.
+ *
+ * Chromium asks from an icon at the end of its address bar, which is easy
+ * to miss, and it also fires `beforeinstallprompt' at a page it would
+ * install. Holding on to that event is what lets a button ask the same
+ * question. Nothing else fires it -- Safari installs from Share, Add to
+ * Home Screen -- and Chromium stops once the page is installed, so the
+ * button is only ever there when pressing it would do something.
+ *
+ * Called at load, since the event can come before anything else is done. */
+export function offerInstall (button)
+{
+    let asking = null;
+
+    addEventListener('beforeinstallprompt', (e) =>
+    {
+        /* The button instead of the mini-infobar a phone would show. */
+        e.preventDefault();
+        asking = e;
+        button.hidden = false;
+    });
+
+    button.addEventListener('click', async () =>
+    {
+        if (asking === null)
+            return;
+
+        /* One use each: a dismissed prompt is not shown again, and
+           Chromium fires a fresh event if it will ask again. */
+        const it = asking;
+
+        asking = null;
+        button.hidden = true;
+        await it.prompt();
+    });
+
+    addEventListener('appinstalled', () =>
+    {
+        asking = null;
+        button.hidden = true;
+    });
+}

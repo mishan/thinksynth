@@ -73,7 +73,7 @@ import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
-import { keepOffline } from './offline.js';
+import { keepOffline, offerInstall } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
@@ -2730,6 +2730,8 @@ async function init ()
        would be clipped by it the moment it reached the edge. */
     panes.overlay().append($('composerparams'), $('nodemenu'));
 }
+
+offerInstall($('install'));
 
 /* After init, whose fetches are done by then -- see offline.js. */
 init().finally(() =>
