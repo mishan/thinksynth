@@ -30,12 +30,12 @@
  * everything they touch. The worklet imports only the module and tape.js
  * and is not bundled.
  *
- * Two imports have to be pointed somewhere else. The tape reader and the
- * cairo stand-in's replayer both live outside this directory -- one in
- * wasm/, shared with the Node host, the other in the cairo-canvas2d
- * package, which has no knowledge of this tree at all -- and the build
- * copies each in beside the pages under the name the browser loads it
- * by. A module that is loaded both ways, bundled here and fetched there,
+ * Four imports have to be pointed somewhere else. The tape reader, the
+ * cairo stand-in's replayer and the tiler live outside this directory --
+ * the first in wasm/, shared with the Node host, the others in the
+ * cairo-canvas2d and mullion packages, which have no knowledge of this
+ * tree at all -- and the build copies each in beside the pages under the
+ * name the browser loads it by. A module that is loaded both ways, bundled here and fetched there,
  * therefore imports the copied name; the plugin below is how the bundler
  * finds the original.
  */
@@ -55,10 +55,13 @@ if (out === undefined)
     process.exit(2);
 }
 
-/* The replayer is resolved rather than spelled out, so that the path
-   stays npm's business and not a guess about where node_modules is. */
+/* The packages are resolved rather than spelled out, so that the paths
+   stay npm's business and not a guess about where node_modules is. */
+const require = createRequire(import.meta.url);
 const COPIED_IN = {
-    './replay.js': createRequire(import.meta.url).resolve('cairo-canvas2d'),
+    './replay.js': require.resolve('cairo-canvas2d'),
+    './panes.js': require.resolve('mullion'),
+    './popover.js': require.resolve('mullion/popover.js'),
     './tape.js': path.join(here, '..', 'tape.mjs'),
 };
 
@@ -66,7 +69,7 @@ const copiedIn = {
     name: 'copied-in',
     setup (build)
     {
-        build.onResolve({ filter: /^\.\/(replay|tape)\.js$/ }, (args) =>
+        build.onResolve({ filter: /^\.\/(replay|panes|popover|tape)\.js$/ }, (args) =>
             ({ path: COPIED_IN[args.path] }));
     },
 };
