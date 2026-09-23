@@ -351,20 +351,6 @@ void thMidiChan::setArg (thArg *arg, RetireQueue *retire)
         return;
     }
 
-    if (oldArg)
-    {
-        thRetired item;
-
-        item.kind = thRetired::ARG;
-        item.arg = oldArg;
-
-        /* Node args in live note trees still point at oldArg until
-           assignChanArgPointers() below re-resolves them, so it cannot be
-           freed here. */
-        if (retire == NULL || !retire->push(item))
-            delete oldArg;
-    }
-
     args_[arg->name()] = arg;
 
     if (arg->name() == "SusPedal")
@@ -372,12 +358,62 @@ void thMidiChan::setArg (thArg *arg, RetireQueue *retire)
         argSustain_ = arg;
     }
 
-    /* Node args in the shared tree hold raw thArg* into this map (see
-       assignChanArgPointers), so swapping an arg out from under them leaves
-       those pointers dangling. Re-resolve them. */
-    if (modnode_)
+    /* Node args hold raw thArg* into this map (see assignChanArgPointers),
+       in every voice copied from the prototype, so swapping an arg out from
+       under them leaves those pointers dangling. The prototype itself was
+       pointed at `arg' by the GUI thread before this was queued (see
+       pointPrototype), so every voice that is here now was copied either
+       before that -- and points at the old arg -- or after, and points at
+       this one already. Only the old pointers move: a pointer compare an arg,
+       and no lookups. */
+    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
+        repoint(i->second, oldArg, arg);
+
+    for (NoteList::iterator i = decaying_.begin(); i != decaying_.end(); ++i)
+        repoint(*i, oldArg, arg);
+
+    for (NoteList::iterator i = fading_.begin(); i != fading_.end(); ++i)
+        repoint(*i, oldArg, arg);
+
+    /* Only now is nothing left pointing at it. */
+    if (oldArg)
     {
-        assignChanArgPointers(modnode_);
+        thRetired item;
+
+        item.kind = thRetired::ARG;
+        item.arg = oldArg;
+
+        if (retire == NULL || !retire->push(item))
+            delete oldArg;
+    }
+}
+
+/* Audio thread. See setArg. Every chanarg reference in `note' that named
+   `arg' and pointed at `old' -- NULL for an arg that did not exist -- now
+   points at `arg'. No allocation: a walk over maps that already exist. */
+void thMidiChan::repoint (thMidiNote *note, const thArg *old, thArg *arg)
+{
+    if (note == NULL)
+        return;
+
+    const thSynthTree::NodeMap &nodes = note->synthTree()->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        if (i->second == NULL)
+            continue;
+
+        const thArgMap &args = i->second->args();
+
+        for (thArgMap::const_iterator j = args.begin(); j != args.end(); ++j)
+        {
+            thArg *ref = j->second;
+
+            if (ref && ref->type() == thArg::ARG_CHANNEL &&
+                ref->argPtr() == old && ref->argPtrName() == arg->name())
+                ref->setArgPtr(arg);
+        }
     }
 }
 
@@ -427,6 +463,33 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
 
     return new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX,
                           level, aux);
+}
+
+/* GUI thread. See the header. */
+void thMidiChan::pointPrototype (const string &name, thArg *arg)
+{
+    if (modnode_ == NULL)
+        return;
+
+    const thSynthTree::NodeMap &nodes = modnode_->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        if (i->second == NULL)
+            continue;
+
+        const thArgMap &args = i->second->args();
+
+        for (thArgMap::const_iterator j = args.begin(); j != args.end(); ++j)
+        {
+            thArg *ref = j->second;
+
+            if (ref && ref->type() == thArg::ARG_CHANNEL &&
+                ref->argPtrName() == name)
+                ref->setArgPtr(arg);
+        }
+    }
 }
 
 /* Audio thread. Takes a voice out of notes_ and leaves it sounding in
@@ -543,6 +606,7 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
 {
     if (midinote == NULL)
         return;
+
 
     int id = midinote->id();
 

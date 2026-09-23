@@ -263,6 +263,21 @@ static int runLevel (const string &pluginPath, const char *file, int level,
         }
     }
 
+    /* The chanargs the graph declares, for the level that replaces them.
+       Read here, before the audio thread starts: the channel's map is the
+       audio thread's to write once it runs. `amp' is the slider below, which
+       is only ever one value, and a two-value SusPedal means nothing. */
+    vector<string> swappable;
+
+    {
+        const thArgMap args = synth.getChanArgs(0);
+
+        for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+            if (i->second != NULL && i->first != "amp" &&
+                i->first != "SusPedal")
+                swappable.push_back(i->first);
+    }
+
     StressCounters counters;
     std::atomic<bool> running(true);
 
@@ -346,11 +361,28 @@ static int runLevel (const string &pluginPath, const char *file, int level,
             if (amp)
                 amp->setValue((float)((r >> 16) % 128));
         }
-        else if (level >= LVL_CHANARG && pick < 96)
+        else if (level >= LVL_CHANARG && pick < 95)
         {
             /* Replacing an arg outright, as loading a patch does. */
             synth.setChanArg(chan, new thArg(string("amp"),
                                              (float)((r >> 16) % 128)));
+        }
+        else if (level >= LVL_CHANARG && pick < 96)
+        {
+            /* And one that changes length, which cannot be done in place:
+               this thread points the prototype at the replacement and the
+               audio thread swaps it in and re-points the voices reading it.
+               Any chanarg the graph declares, always two values long, so
+               the next one is a swap as well and not the slider path. */
+            if (!swappable.empty())
+            {
+                const float v[2] = { (float)((r >> 20) % 128), 0.5f };
+
+                synth.setChanArg(chan,
+                                 new thArg(swappable[(r >> 16) %
+                                                     swappable.size()],
+                                           v, 2));
+            }
         }
         else if (level >= LVL_RELOAD && pick < 99)
         {

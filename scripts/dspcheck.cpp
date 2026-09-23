@@ -318,6 +318,37 @@ int main (int argc, char **argv)
         for (int w = 0; w < windows; w++)
             synth.process();
 
+        /* Replace every chanarg outright while voices sound -- a two-value
+           array keeps its value and changes its length, which setChanArg
+           cannot do in place -- and strike a note straight after, so one
+           voice is copied before the audio thread has made the swap. Then
+           a note-on on this thread, which frees the old args, and more
+           windows: a voice still pointing at one reads freed memory, which
+           is what ASan is watching for. SusPedal is left alone; a two-value
+           pedal means nothing new. */
+        {
+            const thArgMap chanargs = synth.getChanArgs(0);
+
+            for (thArgMap::const_iterator i = chanargs.begin();
+                 i != chanargs.end(); ++i)
+            {
+                if (i->second == NULL || i->first == "SusPedal")
+                    continue;
+
+                const float v = (*i->second)[0];
+                const float pair[2] = { v, v };
+
+                synth.setChanArg(0, new thArg(i->first, pair, 2));
+            }
+
+            synth.addNote(0, 62, 100);
+            synth.process();
+            synth.addNote(0, 69, 100);
+
+            for (int w = 0; w < windows; w++)
+                synth.process();
+        }
+
         synth.clearAll();
         synth.process();
 
