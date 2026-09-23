@@ -447,7 +447,14 @@ Stiff String (a piano string)
 | `prompt` | in | How long the strings moving together take to fall sixty decibels into the bridge; 0 is uncoupled |  | 0.01 to 200 | seconds |  |
 | `imbalance` | in | The tilt across the unison: the outer strings are struck, and heard, 1 plus and minus this |  | 0 to 1 |  |  |
 | `out` | out | The strings' mean, tilted by `imbalance' |  |  | full scale |  |
+| `strike` | in | Launches the hammer when it rises above 0 |  | 0 to 2 |  |  |
+| `velocity` | in | The hammer's speed at the string; read at the blow |  | 0 to 1 |  |  |
+| `mass` | in | The hammer's mass over the string's; 0 is no hammer |  | 0 to 10 |  |  |
+| `felt` | in | The felt's stiffness K, in millions: F = K d^p |  | 0 to 10000 |  |  |
+| `exponent` | in | The felt's exponent p: how much harder it gets the more it is squeezed | 2.5 | 1 to 5 |  |  |
+| `position` | in | Where the hammer strikes, as a fraction of the string from the near end | 0.125 | 0.02 to 0.5 |  |  |
 | `play` | out | 1 while the strings are still sounding |  | 0 to 1 |  |  |
+| `force` | out | The hammer's force on the strings; 0 when it is clear of them |  |  |  |  |
 | `buffer` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |
 

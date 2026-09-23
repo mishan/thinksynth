@@ -6086,6 +6086,215 @@ static void checkPianoUnison (const string &pluginPath)
                  "sample a window and at five hundred");
 }
 
+/* ---- filt::pianostring's hammer ------------------------------------------ */
+
+/* What the hammer claims:
+ *
+ *   - a harder blow is a shorter one and a brighter note -- the felt's
+ *     nonlinearity, which nothing else in the node or the graph supplies;
+ *   - it leaves: after the blow the force is 0 and stays there;
+ *   - the strike point is a node of the partials it divides: struck an
+ *     eighth of the way along, the 8th partial is missing;
+ *   - it stays finite at every corner of its args;
+ *   - and a window boundary is not an event.
+ */
+
+static vector<NodeSpec> hammerGraph (float freq, float strings, float velocity,
+                                     float mass, float felt, float exponent,
+                                     float position)
+{
+    vector<NodeSpec> spec = unisonGraph(freq, 0, 20, strings, 1, 8);
+    Value v[] = { { "strike", 1 }, { "velocity", velocity },
+                  { "mass", mass }, { "felt", felt },
+                  { "exponent", exponent }, { "position", position } };
+
+    /* No click: the hammer is the excitation. (`p = 0' would not do it:
+       env::ad reads 0 as full scale.) */
+    spec[1].wires.clear();
+
+    for (size_t i = 0; i < sizeof(v) / sizeof(v[0]); i++)
+        spec[1].values.push_back(v[i]);
+
+    return spec;
+}
+
+/* Spectral centroid of `n' samples from `from', over `f0', from half the
+   fundamental up. */
+static double centroidOver (const vector<float> &v, size_t from, size_t n,
+                            double f0)
+{
+    double num = 0, den = 0;
+
+    for (double hz = f0 / 2; hz < 8000; hz += f0 / 8)
+    {
+        const double m = windowedMag(v, from, n, hz);
+
+        num += m * m * hz;
+        den += m * m;
+    }
+
+    return den > 0 ? num / den / f0 : 0;
+}
+
+static void checkHammer (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- a harder blow is shorter and brighter ---- */
+    {
+        static const float speeds[] = { 0.3f, 1 };
+        double contact[2] = { 0, 0 }, bright[2] = { 0, 0 };
+        bool bad = false;
+
+        for (size_t v = 0; v < 2 && !bad; v++)
+        {
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+            Watch w0 = { "string", "out" };
+            Watch w1 = { "string", "force" };
+
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath,
+                        hammerGraph(261.63f, 3, speeds[v], 1.7f, 250, 2.5f,
+                                    0.125f),
+                        watch, 256, (unsigned)(rate / 2), got, why))
+            {
+                fail("filt::pianostring renders with a hammer", why);
+                bad = true;
+                break;
+            }
+
+            size_t first = got[1].size(), last = 0;
+
+            for (size_t i = 0; i < got[1].size(); i++)
+                if (got[1][i] > 0)
+                {
+                    if (first == got[1].size())
+                        first = i;
+
+                    last = i;
+                }
+
+            contact[v] = first < last ? (last - first) / rate * 1000 : 0;
+            bright[v] = centroidOver(got[0], (size_t)(rate / 50),
+                                     (size_t)(rate / 5), 261.63);
+        }
+
+        if (!bad)
+            okOrFail(contact[0] > contact[1] && contact[1] > 0.5 &&
+                     contact[0] < 10 && bright[1] > bright[0] * 1.1,
+                     "filt::pianostring: a harder blow is a shorter one and "
+                     "a brighter note",
+                     "contact " + num(contact[0]) + " ms at 0.3, " +
+                     num(contact[1]) + " ms at 1; centroid " +
+                     num(bright[0]) + " and " + num(bright[1]) + " f0");
+    }
+
+    /* ---- it leaves ---- */
+    {
+        vector<float> force;
+        string why;
+
+        if (!render1(pluginPath,
+                     hammerGraph(261.63f, 1, 0.7f, 1.7f, 250, 2.5f, 0.125f),
+                     "string", "force", 256, (unsigned)(rate / 4), force, why))
+            fail("filt::pianostring renders with a hammer", why);
+        else
+        {
+            const size_t after = (size_t)(rate / 50);
+            bool clear = true;
+
+            for (size_t i = after; i < force.size(); i++)
+                if (force[i] != 0)
+                    clear = false;
+
+            okOrFail(peak(force, 0) > 0 && clear,
+                     "filt::pianostring: the hammer strikes and then is "
+                     "clear of the string",
+                     "peak force " + num(peak(force, 0)) +
+                     (clear ? "" : ", still in contact after 20 ms"));
+        }
+    }
+
+    /* ---- the strike point is a node ---- */
+
+    /* One harmonic string, struck an eighth along: the 8th partial against
+       the 7th and 9th either side of it. */
+    {
+        const double f0 = 220;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     hammerGraph((float)f0, 1, 0.7f, 1.7f, 250, 2.5f, 0.125f),
+                     "string", "out", 256, (unsigned)rate, out, why))
+            fail("filt::pianostring renders with a hammer", why);
+        else
+        {
+            const size_t from = (size_t)(rate / 10), n = (size_t)(rate / 2);
+            const double m7 = windowedMag(out, from, n, 7 * f0);
+            const double m8 = windowedMag(out, from, n, 8 * f0);
+            const double m9 = windowedMag(out, from, n, 9 * f0);
+            const double dip = 20 * log10(m8 / sqrt(m7 * m9));
+
+            okOrFail(dip < -20,
+                     "filt::pianostring: struck an eighth along, the 8th "
+                     "partial is missing",
+                     "the 8th is " + num(dip) + " dB against the 7th and 9th");
+        }
+    }
+
+    /* ---- finite at every corner ---- */
+    {
+        static const float masses[] = { 0.01f, 10 };
+        static const float felts[] = { 0.001f, 10000 };
+        static const float exps[] = { 1, 5 };
+        bool good = true;
+        string detail;
+
+        for (size_t a = 0; a < 2 && good; a++)
+            for (size_t b = 0; b < 2 && good; b++)
+                for (size_t c = 0; c < 2 && good; c++)
+                    for (int note = 0; note < 2 && good; note++)
+                    {
+                        vector<float> out;
+                        string why;
+                        const float hz = note ? 4186 : 27.5f;
+
+                        if (!render1(pluginPath,
+                                     hammerGraph(hz, 3, 1, masses[a],
+                                                 felts[b], exps[c], 0.5f),
+                                     "string", "out", 256,
+                                     (unsigned)(rate / 4), out, why))
+                        {
+                            good = false;
+                            detail = why;
+                        }
+                        else if (!allFinite(out) || peak(out, 0) > 100)
+                        {
+                            good = false;
+                            detail = num(hz) + " Hz, mass " +
+                                     num(masses[a]) + ", felt " +
+                                     num(felts[b]) + ", exponent " +
+                                     num(exps[c]) + ": peak " +
+                                     num(peak(out, 0));
+                        }
+                    }
+
+        okOrFail(good, "filt::pianostring: the hammer stays finite at every "
+                       "corner of mass, felt and exponent", detail);
+    }
+
+    windowsAgree(pluginPath,
+                 hammerGraph(110, 3, 0.8f, 0.5f, 250, 2.5f, 0.125f),
+                 "string", "out",
+                 "filt::pianostring: the hammer the same at one sample a "
+                 "window and at five hundred");
+}
+
 /* ---- filt::sympathetic -------------------------------------------------- */
 
 /* What the node claims:
@@ -6993,6 +7202,7 @@ int main (int argc, char **argv)
     checkComb(pluginPath);
     checkPianostring(pluginPath);
     checkPianoUnison(pluginPath);
+    checkHammer(pluginPath);
     checkSympathetic(pluginPath);
     checkPitchshift(pluginPath);
     checkFdn(pluginPath);

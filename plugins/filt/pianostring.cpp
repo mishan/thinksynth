@@ -112,6 +112,47 @@
  * `out' is the strings' mean, weighted by the same tilt; at one string it
  * is the string.
  *
+ * THE HAMMER. With `mass' above 0 the strings are struck by a hammer
+ * rather than driven by `in' alone: a mass on a felt spring whose force
+ * is
+ *
+ *     F = K d^p,    d the felt's compression, p about 2.5
+ *
+ * (Chaigne and Askenfelt, "Numerical simulations of piano strings",
+ * JASA 1994; Stulov, JASA 1995). The felt stiffens as it is squeezed, so
+ * a harder blow is a shorter one and puts more of its force into the
+ * high partials -- a loud note is brighter because of what felt is, and
+ * nothing here says so. The hammer pushes against the string's own
+ * displacement at the strike point, so the waves it launches come back
+ * and push it off again: in the treble the reflection from the near end
+ * throws it clear in a millisecond, and in the bass it can bounce.
+ *
+ * For that each string is split where the hammer hits it, `position' of
+ * the way along: one loop to the bridge and back, carrying every filter
+ * above, and one to the near end and back, a plain delay with the sign
+ * a fixed end gives it. Their lengths sum to the string's, so the tuning
+ * is the tuning. The strike point is a node of every partial whose index
+ * is a multiple of 1 / `position', which no longer needs saying either.
+ *
+ * Units: the string's impedance is 1, so a force F puts F / 2 of velocity
+ * into each direction. `mass' is the hammer's over the string's, the
+ * string's being its impedance times the time a wave takes to cross it,
+ * 1 / (2 f0). `felt' is K in millions. `velocity' is the hammer's speed,
+ * in the units the string's waves are in, so `out' scales with it. The
+ * hammer is launched when `strike' rises above 0, and each sample its
+ * position is solved for exactly -- the felt, the string and the hammer
+ * are one delay-free loop -- by a Newton iteration, safeguarded by
+ * bisection, around one for each string's force. It stops being computed
+ * HAMMER_TIME after the blow.
+ *
+ * `out' is then the wave arriving at the bridge, after the dispersion and
+ * the loss, rather than the wave leaving the strike point: the blow reaches
+ * the board spread out by the string's stiffness, and heard at the strike
+ * point it is a click no one at a piano hears.
+ *
+ * At `mass' 0 there is no hammer and nothing above changes, sample for
+ * sample.
+ *
  * `play' is the strings' own energy: 1 for PLAY_HOLD after the note starts
  * and while the output's peak follower is above PLAY_FLOOR. A voice ends
  * when its strings are quiet, not when its key comes up.
@@ -170,6 +211,14 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define STRINGS_MAX 3
 #define UNISON_MAX 100.0f
 
+/* The hammer: how long after the blow it is followed, the felt exponent
+   when `exponent' is 0, where it strikes when `position' is 0, and the
+   solver's iterations. */
+#define HAMMER_TIME 0.05
+#define HAMMER_P_DEFAULT 2.5
+#define HAMMER_POSITION_DEFAULT 0.125
+#define HAMMER_ITERATIONS 30
+
 /* How long the damper takes to land, in seconds. */
 #define DAMPER_FADE 0.01
 
@@ -206,8 +255,9 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define FLUSH 1e-30
 
 enum {IN_ARG, IN_FREQ, IN_B, IN_DECAY, IN_HIDECAY, IN_DAMPER, IN_GATE,
-      IN_STRINGS, IN_UNISON, IN_PROMPT, IN_IMBALANCE, OUT_ARG, OUT_PLAY, INOUT_BUFFER,
-      INOUT_STATE};
+      IN_STRINGS, IN_UNISON, IN_PROMPT, IN_IMBALANCE, IN_STRIKE, IN_VELOCITY,
+      IN_MASS, IN_FELT, IN_EXPONENT, IN_POSITION, OUT_ARG, OUT_PLAY,
+      OUT_FORCE, INOUT_BUFFER, INOUT_STATE};
 
 int args[INOUT_STATE + 1];
 
@@ -248,13 +298,20 @@ enum {
     S_C1,                   /* DISP_MAX first coefficients */
     S_C2 = S_C1 + DISP_MAX, /* DISP_MAX second coefficients */
     S_STRING = S_C2 + DISP_MAX, /* STRINGS_MAX blocks of P_COUNT */
-    S_COUNT = S_STRING + STRINGS_MAX * P_COUNT
+    S_TOTAL = S_STRING + STRINGS_MAX * P_COUNT, /* the loop's delay */
+    S_HY,                   /* the hammer's position */
+    S_HV,                   /* and velocity */
+    S_HTIME,                /* samples since the blow; past HAMMER_TIME, done */
+    S_HPREV,                /* `strike' last sample, for its rising edge */
+    S_APOS,                 /* the near ends' write position */
+    S_YS,                   /* STRINGS_MAX displacements at the strike point */
+    S_COUNT = S_YS + STRINGS_MAX
 };
 
 /* Everything the design produces, in double until it is stored. */
 struct Design {
     int kind, sections, strings;
-    double g, pole, beta, dgain;
+    double g, pole, beta, dgain, total;
     double c1[DISP_MAX], c2[DISP_MAX];
     int line[STRINGS_MAX];
     double eta[STRINGS_MAX], sg[STRINGS_MAX], spole[STRINGS_MAX];
@@ -355,10 +412,49 @@ int module_init (thPlugin *plugin)
                        "The strings' mean, tilted by `imbalance'");
     plugin->setArgUnits(args[OUT_ARG], "full scale");
 
+    args[IN_STRIKE] = plugin->regArg("strike", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_STRIKE],
+                       "Launches the hammer when it rises above 0");
+    plugin->setArgRange(args[IN_STRIKE], 0, 2);
+
+    args[IN_VELOCITY] = plugin->regArg("velocity", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_VELOCITY],
+                       "The hammer's speed at the string; read at the blow");
+    plugin->setArgRange(args[IN_VELOCITY], 0, 1);
+
+    args[IN_MASS] = plugin->regArg("mass", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_MASS],
+                       "The hammer's mass over the string's; 0 is no hammer");
+    plugin->setArgRange(args[IN_MASS], 0, 10);
+
+    args[IN_FELT] = plugin->regArg("felt", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FELT],
+                       "The felt's stiffness K, in millions: F = K d^p");
+    plugin->setArgRange(args[IN_FELT], 0, 10000);
+
+    args[IN_EXPONENT] = plugin->regArg("exponent", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_EXPONENT],
+                       "The felt's exponent p: how much harder it gets the "
+                       "more it is squeezed");
+    plugin->setArgRange(args[IN_EXPONENT], 1, 5);
+    plugin->setArgDefault(args[IN_EXPONENT], HAMMER_P_DEFAULT);
+
+    args[IN_POSITION] = plugin->regArg("position", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_POSITION],
+                       "Where the hammer strikes, as a fraction of the "
+                       "string from the near end");
+    plugin->setArgRange(args[IN_POSITION], 0.02f, 0.5f);
+    plugin->setArgDefault(args[IN_POSITION], HAMMER_POSITION_DEFAULT);
+
     args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_PLAY],
                        "1 while the strings are still sounding");
     plugin->setArgRange(args[OUT_PLAY], 0, 1);
+
+    args[OUT_FORCE] = plugin->regArg("force", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_FORCE],
+                       "The hammer's force on the strings; 0 when it is "
+                       "clear of them");
 
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
@@ -741,6 +837,7 @@ static void design (Design *d, double freq, double b, double decay,
        there: the period and what the dispersion filter adds to it. */
     d->dgain = pow(10.0, -3.0 * targetDelay(w1, f0, b, rate) /
                          (rate * damper));
+    d->total = total;
 
     /* The in-phase motion's per-trip gain is 1 - N beta. One string has
        no motion against the bridge to keep, so it is not coupled: its
@@ -760,6 +857,7 @@ static void store (float *state, const Design *d)
     state[S_SECTIONS] = (float)d->sections;
     state[S_BETA] = (float)d->beta;
     state[S_DGAIN] = (float)d->dgain;
+    state[S_TOTAL] = (float)d->total;
 
     for (k = 0; k < DISP_MAX; k++)
     {
@@ -783,18 +881,121 @@ static inline double flush (double x)
     return fabs(x) < FLUSH ? 0 : x;
 }
 
+/* One string's force for a felt squeezed `a' before the string gives:
+   F = K (a - F h)^p, h the string's give per unit force this sample. The
+   right side falls as F rises and is concave, so Newton from 0 climbs to
+   the root from below and never past it. */
+static double feltForce (double a, double k, double p, double h)
+{
+    double f = 0;
+    int i;
+
+    if (!(a > 0) || k <= 0)
+        return 0;
+
+    for (i = 0; i < HAMMER_ITERATIONS; i++)
+    {
+        const double u = a - f * h;
+        double up, phi, slope, next;
+
+        if (!(u > 0))
+            break;
+
+        up = pow(u, p - 1);
+        phi = f - k * up * u;
+        slope = 1 + k * p * up * h;
+        next = f - phi / slope;
+
+        if (next > a / h)
+            next = a / h;
+
+        if (!(next > f) || next - f <= 1e-12 * next)
+        {
+            if (next > f)
+                f = next;
+
+            break;
+        }
+
+        f = next;
+    }
+
+    return f;
+}
+
+/* The hammer's position after this sample, and each string's force in
+   `f': the root of
+       Y = hy + (hv - sum F(Y) dt / m) dt
+   which rises through zero once, so Newton inside a bracket that bisects
+   whenever a step would leave it. `base' is where each string would be
+   with no hammer on it, and `weight' the tilt across the unison. */
+static double hammerSolve (double hy, double hv, const double *base,
+                           const double *weight, int strings, double k,
+                           double p, double m, double dt, double *f)
+{
+    double hi = hy + hv * dt, lo = hi, y = hi;
+    int i, s;
+
+    for (s = 0; s < strings; s++)
+        if (base[s] < lo)
+            lo = base[s];
+
+    for (i = 0; i < HAMMER_ITERATIONS; i++)
+    {
+        double sum = 0, dsum = 0, g, dg, next;
+
+        for (s = 0; s < strings; s++)
+        {
+            const double ks = k * weight[s];
+            const double fs = feltForce(y - base[s], ks, p, dt / 2);
+
+            f[s] = fs;
+            sum += fs;
+
+            if (fs > 0)
+            {
+                const double u = y - base[s] - fs * dt / 2;
+                const double c = ks * p * pow(u, p - 1);
+
+                dsum += c / (1 + c * dt / 2);
+            }
+        }
+
+        g = y - (hy + hv * dt) + sum * dt * dt / m;
+
+        if (g == 0 || hi - lo <= 1e-15 * (fabs(hi) + 1e-30))
+            break;
+
+        if (g > 0)
+            hi = y;
+        else
+            lo = y;
+
+        dg = 1 + dsum * dt * dt / m;
+        next = y - g / dg;
+
+        y = (next > lo && next < hi) ? next : 0.5 * (lo + hi);
+    }
+
+    return y;
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
     thArg *in_arg, *in_freq, *in_b, *in_decay, *in_hidecay, *in_damper;
     thArg *in_gate, *in_strings, *in_unison, *in_prompt, *in_imbalance;
-    thArg *out_arg, *out_play, *inout_buffer, *inout_state;
-    float *out, *play, *buffer, *state;
+    thArg *in_strike, *in_velocity, *in_mass, *in_felt, *in_exponent;
+    thArg *in_position;
+    thArg *out_arg, *out_play, *out_force, *inout_buffer, *inout_state;
+    float *out, *play, *force, *buffer, *state;
     /* Room for the flattest string: FREQ_MIN's period, and the widest
        unison's outer string a whole UNISON_MAX below it. */
     const unsigned int len =
         (unsigned int)(samples / FREQ_MIN * pow(2.0, UNISON_MAX / 1200.0)) +
         8;
+    /* The near end's loop is at most half the string's. */
+    const unsigned int lenA = len / 2 + 8;
     const double rate = samples;
     const double fade = 1.0 - exp(-1.0 / (DAMPER_FADE * rate));
     const double release = exp(-1.0 / (PLAY_RELEASE * rate));
@@ -809,8 +1010,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     double c1[DISP_MAX], c2[DISP_MAX], beta, dgain;
     double eta[STRINGS_MAX], g[STRINGS_MAX], pole[STRINGS_MAX];
     double strike[STRINGS_MAX], imbalance;
-    float *line[STRINGS_MAX];
+    float *line[STRINGS_MAX], *near[STRINGS_MAX];
     int lines[STRINGS_MAX];
+    float ys[STRINGS_MAX], hy, hv, htime, hprev;
+    double mass, hmass = 1, felt, exponent, position;
+    unsigned int apos = 0;
+    int da = 0;
     unsigned int at, i;
     int kind, sections, strings, s, k;
 
@@ -825,15 +1030,23 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_unison = mod->getArg(node, args[IN_UNISON]);
     in_prompt = mod->getArg(node, args[IN_PROMPT]);
     in_imbalance = mod->getArg(node, args[IN_IMBALANCE]);
+    in_strike = mod->getArg(node, args[IN_STRIKE]);
+    in_velocity = mod->getArg(node, args[IN_VELOCITY]);
+    in_mass = mod->getArg(node, args[IN_MASS]);
+    in_felt = mod->getArg(node, args[IN_FELT]);
+    in_exponent = mod->getArg(node, args[IN_EXPONENT]);
+    in_position = mod->getArg(node, args[IN_POSITION]);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
     out_play = mod->getArg(node, args[OUT_PLAY]);
     play = out_play->allocate(windowlen);
+    out_force = mod->getArg(node, args[OUT_FORCE]);
+    force = out_force->allocate(windowlen);
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
     inout_state = mod->getArg(node, args[INOUT_STATE]);
-    buffer = inout_buffer->allocate(STRINGS_MAX * len);
+    buffer = inout_buffer->allocate(STRINGS_MAX * (len + lenA));
     state = inout_state->allocate(S_COUNT);
 
     /* The line needs FREQ_MIN's period and the filters at least a sample
@@ -908,6 +1121,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     imbalance = thClampArg((*in_imbalance)[0], 0, 1);
 
+    mass = thClampArg((*in_mass)[0], 0, 10);
+    felt = thClampArg((*in_felt)[0], 0, 10000) * 1e6;
+    exponent = (*in_exponent)[0] == 0 ? HAMMER_P_DEFAULT
+                                      : thClampArg((*in_exponent)[0], 1, 5);
+    position = (*in_position)[0] == 0
+               ? HAMMER_POSITION_DEFAULT
+               : thClampArg((*in_position)[0], 0.02f, 0.5f);
+
     for (s = 0; s < strings; s++)
     {
         const float *str = state + S_STRING + s * P_COUNT;
@@ -917,6 +1138,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                     : 1.0;
 
         line[s] = buffer + s * len;
+        near[s] = buffer + STRINGS_MAX * len + s * lenA;
+        ys[s] = state[S_YS + s];
         lines[s] = (int)str[P_LINE];
         eta[s] = str[P_ETA];
         g[s] = str[P_G];
@@ -942,6 +1165,41 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     if (at >= len)
         at = 0;
 
+    hy = state[S_HY];
+    hv = state[S_HV];
+    htime = state[S_HTIME];
+    hprev = state[S_HPREV];
+    apos = (unsigned int)state[S_APOS];
+
+    if (apos >= lenA)
+        apos = 0;
+
+    if (mass > 0)
+    {
+        int shortest = lines[0];
+
+        for (s = 1; s < strings; s++)
+            if (lines[s] < shortest)
+                shortest = lines[s];
+
+        /* The near end's share of the loop, whole samples: the fraction
+           stays with the Thiran on the bridge side. */
+        da = (int)floor(position * state[S_TOTAL] + 0.5);
+
+        if (da > (int)lenA - 2)
+            da = (int)lenA - 2;
+
+        if (da > shortest - 1)
+            da = shortest - 1;
+
+        if (da < 1)
+            da = 1;
+
+        /* The string's mass is its impedance, 1, times the time a wave
+           takes to cross it. */
+        hmass = mass / (2.0 * freq);
+    }
+
     for (i = 0; i < windowlen; i++)
     {
         const float raw = (*in_arg)[i];
@@ -957,7 +1215,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         for (s = 0; s < strings; s++)
         {
             /* The line's output, and the Thiran's fraction on it. */
-            x = line[s][(at + len - lines[s]) % len];
+            x = line[s][(at + len - (lines[s] - da)) % len];
             y = eta[s] * x + thz[s];
             thz[s] = (float)flush(x - eta[s] * y);
             x = y;
@@ -990,13 +1248,86 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         damp = (float)(damp + (down - damp) * fade);
         kept = 1.0 - damp * (1.0 - dgain);
 
-        for (s = 0; s < strings; s++)
+        if (mass <= 0)
         {
-            y = dcy2 * strike[s] + (lossz[s] - bridge) * kept;
-            y = flush(y);
+            for (s = 0; s < strings; s++)
+            {
+                y = dcy2 * strike[s] + (lossz[s] - bridge) * kept;
+                y = flush(y);
 
-            line[s][at] = (float)y;
-            mean += y * strike[s];
+                line[s][at] = (float)y;
+                mean += y * strike[s];
+            }
+
+            force[i] = 0;
+        }
+        else
+        {
+            /* What arrives at the strike point from each end: from the
+               bridge through every filter, from the near end a plain
+               delay, each turned over by the end it came from. */
+            double fromBridge[STRINGS_MAX], fromNear[STRINGS_MAX];
+            double base[STRINGS_MAX], f[STRINGS_MAX], total = 0;
+            const float struck = (*in_strike)[i];
+
+            if (struck > 0 && hprev <= 0)
+            {
+                /* Launched from where the strings are, touching. */
+                hy = ys[0];
+
+                for (s = 1; s < strings; s++)
+                    if (ys[s] > hy)
+                        hy = ys[s];
+
+                hv = (float)thClampArg((*in_velocity)[i], 0, 1);
+                htime = 0;
+            }
+
+            hprev = struck;
+
+            for (s = 0; s < strings; s++)
+            {
+                fromBridge[s] = -(lossz[s] - bridge) * kept;
+                fromNear[s] = -near[s][(apos + lenA - da) % lenA];
+
+                /* Where the string would be with no hammer on it. */
+                base[s] = ys[s] + (fromBridge[s] + fromNear[s] +
+                                   dcy2 * strike[s]) / rate;
+                f[s] = 0;
+            }
+
+            if (htime < HAMMER_TIME * rate)
+            {
+                const double yh = hammerSolve(hy, hv, base, strike, strings,
+                                              felt, exponent, hmass,
+                                              1.0 / rate, f);
+
+                for (s = 0; s < strings; s++)
+                    total += f[s];
+
+                hv = (float)(hv - total / rate / hmass);
+                hy = (float)yh;
+                htime++;
+            }
+
+            for (s = 0; s < strings; s++)
+            {
+                const double inject = dcy2 * strike[s] + f[s] / 2;
+
+                y = flush(fromNear[s] + inject);
+                line[s][at] = (float)y;
+                near[s][apos] = (float)flush(fromBridge[s] + inject);
+                ys[s] = (float)(base[s] + f[s] / 2 / rate);
+
+                /* Heard at the bridge, not at the hammer: the wave as it
+                   arrives there, through the dispersion and the loss. The
+                   blow itself is never heard raw -- by the time it reaches
+                   the board the string's stiffness has spread it out. */
+                mean += -fromBridge[s] * strike[s];
+            }
+
+            force[i] = (float)total;
+            apos = (apos + 1) % lenA;
         }
 
         mean /= strings;
@@ -1027,6 +1358,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
     }
 
+    for (s = 0; s < strings; s++)
+        state[S_YS + s] = ys[s];
+
+    state[S_HY] = hy;
+    state[S_HV] = hv;
+    state[S_HTIME] = htime;
+    state[S_HPREV] = hprev;
+    state[S_APOS] = (float)apos;
     state[S_POS] = (float)at;
     state[S_AGE] = age;
     state[S_PEAK] = peak;
