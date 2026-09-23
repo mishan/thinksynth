@@ -954,6 +954,83 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- CC 64 is the sustain pedal ------------------------------------ */
+
+    /* What a keyboard's pedal sends, arriving as it does from the wire, with
+       nothing bound in MIDI Map: down holds a released note, up lets it go,
+       and SusPedal reads the controller's own value either way. A short
+       release, so that let go means gone within the windows looked at. */
+    if (writeFile(file, graph("", "freq->out", "", "10 ms")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("the voicecheck graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 127);
+            const float down = (*s.synth.getChanArg(0, "SusPedal"))[0];
+
+            s.synth.delNote(0, 60);
+            vector<float> held = s.settled(8);
+
+            s.synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 0);
+            const float up = (*s.synth.getChanArg(0, "SusPedal"))[0];
+            vector<float> gone = s.settled(8);
+
+            okOrFail(down == 127 && up == 0 &&
+                     near(rms(held), rms(first), 0.02) &&
+                     rms(gone) < rms(first) * 0.01,
+                     "CC 64 is the sustain pedal: down holds a released note "
+                     "and up lets it go",
+                     "SusPedal " + num(down) + " then " + num(up) + "; " +
+                     num(rms(first)) + " played, " + num(rms(held)) +
+                     " held, " + num(rms(gone)) + " after");
+        }
+    }
+
+    /* And a MIDI Map binding on CC 64 replaces that on its channel, as a
+       binding replaces what any controller did: the pedal's messages go to
+       the bound arg and the note is let go at once. */
+    if (writeFile(file, graph("", "freq->out", "", "10 ms")))
+    {
+        Session s(pluginPath);
+        thArg bound(string("bound"), 0);
+        thMidiControllerConnection *link =
+            new thMidiControllerConnection(&bound, 0, 1,
+                                           thMidiControllerConnection::LINEAR,
+                                           0, TH_MIDI_CC_SUSTAIN, 0, "bound");
+
+        if (!s.load(file))
+            fail("the voicecheck graph loads", "");
+        else
+        {
+            s.synth.newMidiControllerConnection(0, TH_MIDI_CC_SUSTAIN, link);
+
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 127);
+            s.synth.delNote(0, 60);
+            vector<float> after = s.settled(8);
+
+            const float pedal = (*s.synth.getChanArg(0, "SusPedal"))[0];
+
+            okOrFail(bound[0] == 1 && pedal == 0 &&
+                     rms(after) < rms(first) * 0.01,
+                     "a MIDI Map binding on CC 64 takes it from the pedal",
+                     "bound arg " + num(bound[0]) + ", SusPedal " +
+                     num(pedal) + ", " + num(rms(after)) + " after the key");
+
+            s.synth.newMidiControllerConnection(0, TH_MIDI_CC_SUSTAIN, NULL);
+        }
+
+        delete link;
+    }
+
     /* ---- the glide ----------------------------------------------------- */
 
     /* misc::slew on the frequency, inside the graph. The voice persists

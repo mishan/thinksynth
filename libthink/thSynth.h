@@ -322,6 +322,12 @@ public:
        reason the `fx.' side of setChanArg refuses one. */
     void setMasterArg (thArg *arg);
 
+    /* A controller message off the wire. MIDI Map's bindings get it first;
+     * the sustain pedal, TH_MIDI_CC_SUSTAIN, that nothing is bound to on its
+     * channel goes to that channel's SusPedal, which is what a keyboard's
+     * pedal is expected to do without anybody having to say so. A binding on
+     * CC 64 replaces that on its channel, as a binding replaces what any
+     * controller did before. */
     void handleMidiController (unsigned char channel, unsigned int param,
                                unsigned int value);
 
