@@ -14,6 +14,7 @@
 
 #include "thcAudition.h"
 
+#include <chrono>
 #include <filesystem>
 #include <sstream>
 #include <system_error>
@@ -206,7 +207,11 @@ stamp (const std::string &path)
 
     std::ostringstream out;
 
-    out << size << '@' << when.time_since_epoch().count();
+    /* In nanoseconds, whose count is a long long everywhere: libc++'s
+       file clock counts in an __int128 no ostream prints. */
+    out << size << '@'
+        << (long long)std::chrono::duration_cast<std::chrono::nanoseconds>(
+               when.time_since_epoch()).count();
 
     return out.str();
 }
