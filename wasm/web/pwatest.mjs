@@ -34,7 +34,8 @@
  *                waits; the next load activates it, loads again from it,
  *                and the old version's cache is gone. A deploy and one
  *                ordinary refresh are enough; and a page with the synth
- *                started offers Update rather than reloading under it
+ *                started offers Update rather than reloading under it; and
+ *                a forced reload, past the worker, loads again from it
  *
  * And the room page is kept from the same cache, so that it runs the same
  * build as the worklet, mirror and wasm it shares with the solo page.
@@ -349,6 +350,49 @@ try
           'and Update takes it');
 
     await loaded(page);
+
+    /* ---- a forced reload ----
+     *
+     * Past the worker for the page, and not for the mirror worker the
+     * page starts, which the worker still serves: two builds, if a deploy
+     * came between, and the mirror dies on its first call into the
+     * module. So the page loads again, normally, and is the worker's.
+     */
+    const controlled = () => page.evaluate(() =>
+        navigator.serviceWorker.controller !== null);
+
+    const twice = page.waitForEvent('load', { timeout: 60000 })
+        .then(() => page.waitForEvent('load', { timeout: 15000 }))
+        .then(() => true, () => false);
+
+    await cdp.send('Page.reload', { ignoreCache: true });
+
+    const reloaded = await twice;
+
+    await loaded(page);
+
+    check(reloaded && await controlled(),
+          'a forced reload loads again, and from the worker');
+
+    /* And once: a browser that loads past the worker every time --
+       DevTools' "Bypass for network" -- is not reloaded forever. */
+    await cdp.send('Network.enable');
+    await cdp.send('Network.setBypassServiceWorker', { bypass: true });
+
+    let loads = 0;
+    const count = () => loads++;
+
+    page.on('load', count);
+    await page.reload();
+    await loaded(page);
+    await page.waitForTimeout(3000);
+    page.off('load', count);
+
+    check(loads === 2 && !await controlled(),
+          `bypassing the worker for good reloads once, not forever ` +
+          `(${loads} loads)`);
+
+    await cdp.send('Network.setBypassServiceWorker', { bypass: false });
 
     /* Only now, since a console error is exactly what an offline load
        that fell through to the network would print. */
