@@ -94,6 +94,31 @@ function showLineNumbers (on)
         box.checked = on;
 }
 
+/* Storage can be refused outright (all cookies blocked, a sandboxed
+   frame), and then the setting just is not kept. */
+function savedLineNumbers ()
+{
+    try
+    {
+        return localStorage.getItem(LINE_NUMBERS) === '1';
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+function saveLineNumbers (on)
+{
+    try
+    {
+        localStorage.setItem(LINE_NUMBERS, on ? '1' : '0');
+    }
+    catch
+    {
+    }
+}
+
 const VELOCITY = 100;
 
 /* The panels this page tiles, in the order the document has them.
@@ -2908,13 +2933,13 @@ async function init ()
     $('loadpiece').addEventListener('click', loadPiece);
     $('piece').addEventListener('change', pickPiece);
 
-    showLineNumbers(localStorage.getItem(LINE_NUMBERS) === '1');
+    showLineNumbers(savedLineNumbers());
 
     for (const box of document.querySelectorAll('.numbered input'))
         box.addEventListener('change', () =>
         {
-            localStorage.setItem(LINE_NUMBERS, box.checked ? '1' : '0');
             showLineNumbers(box.checked);
+            saveLineNumbers(box.checked);
         });
 
     /* The key channel is one of the channels the row shows, so moving the

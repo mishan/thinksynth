@@ -35,7 +35,8 @@
  */
 
 import { minimalSetup } from 'codemirror';
-import { Compartment, EditorState } from '@codemirror/state';
+import { Annotation, Compartment, EditorState,
+         Transaction } from '@codemirror/state';
 import { EditorView, highlightActiveLine, highlightActiveLineGutter,
          keymap, lineNumbers } from '@codemirror/view';
 import { bracketMatching, indentUnit } from '@codemirror/language';
@@ -44,6 +45,9 @@ import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { dspLanguage, genLanguage, pageLook } from './thinklang.js';
 
 const LANGUAGES = { dsp: dspLanguage, gen: genLanguage };
+
+/* Marks a change written to `value', which sends no `input' event. */
+const fromScript = Annotation.define();
 
 export class SourceBox extends HTMLElement
 {
@@ -54,6 +58,17 @@ export class SourceBox extends HTMLElement
         super();
         this.gutter = new Compartment();
         this.view = null;
+
+        /* The editor's own text and its search field fire the browser's
+           `input' events, which would bubble out of the box beside ours:
+           two per keystroke, and more for a search typed. Only ours get
+           out. This listener is the box's first, so stopping it here
+           keeps it from any main.js adds. */
+        this.addEventListener('input', (e) =>
+        {
+            if (e.target !== this)
+                e.stopImmediatePropagation();
+        });
     }
 
     connectedCallback ()
@@ -65,7 +80,7 @@ export class SourceBox extends HTMLElement
     {
         if (this.view === null)
             this.view = new EditorView({ parent: this,
-                                         state: this.stateFor('') });
+                                         state: this.state() });
 
         return this.view;
     }
@@ -82,12 +97,9 @@ export class SourceBox extends HTMLElement
             ? [lineNumbers(), highlightActiveLineGutter()] : [];
     }
 
-    /* A fresh state, as a textarea's value written from script starts
-       over: no undo past it, and the cursor at the top. */
-    stateFor (text)
+    state ()
     {
         return EditorState.create({
-            doc: text,
             extensions: [
                 minimalSetup,
                 this.gutter.of(this.gutterFor()),
@@ -103,7 +115,8 @@ export class SourceBox extends HTMLElement
                     autocapitalize: 'off' }),
                 EditorView.updateListener.of((u) =>
                 {
-                    if (u.docChanged)
+                    if (u.docChanged && !u.transactions.every(
+                            (tr) => tr.annotation(fromScript)))
                         this.dispatchEvent(new Event('input',
                                                      { bubbles: true }));
                 }),
@@ -116,9 +129,37 @@ export class SourceBox extends HTMLElement
         return this.view?.state.doc.toString() ?? '';
     }
 
+    /* Only the stretch that differs is replaced, so the scroll, the
+       cursor and a person's undo history outlast a write -- the canvas
+       and the popovers write back on every edit they make. The write
+       itself is not undoable, as a textarea's is not. */
     set value (text)
     {
-        this.made().setState(this.stateFor(String(text)));
+        const view = this.made();
+        const old = view.state.doc.toString();
+        const now = String(text);
+
+        if (now === old)
+            return;
+
+        const most = Math.min(old.length, now.length);
+        let from = 0;
+
+        while (from < most && old[from] === now[from])
+            from++;
+
+        let end = 0;
+
+        while (end < most - from
+               && old[old.length - 1 - end] === now[now.length - 1 - end])
+            end++;
+
+        view.dispatch({
+            changes: { from, to: old.length - end,
+                       insert: now.slice(from, now.length - end) },
+            annotations: [fromScript.of(true),
+                          Transaction.addToHistory.of(false)],
+        });
     }
 
     focus ()
