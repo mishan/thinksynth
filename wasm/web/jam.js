@@ -53,6 +53,7 @@ import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
+import { midiAvailable, midiToggle } from './midi.js';
 import { keepOffline } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
@@ -157,13 +158,16 @@ let panes = null;
 let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
 let keyfocus = null;            /* and who has it, the page or the keys  */
+let midiIn = null;              /* the MIDI in button (midi.js)          */
 let maker = null;
 const dedupe = new Dedupe();
 
 let piece = null;               /* the worklet's word on the loaded piece */
 let listens = new Set();        /* channels the piece takes input on */
 
-const sounding = new Map();     /* note -> { count, seat } */
+/* note -> { count, midi, seat }: how many hands are on it, how many of
+   those are MIDI keys, and the seat it went out on. */
+const sounding = new Map();
 
 /* What the numbers panel and the harness read back. Bounded, the way
    Dedupe bounds what it remembers: a knob is a command per slider tick
@@ -479,7 +483,9 @@ async function tempo ()
 
 /* ---- keys ---- */
 
-function press (note)
+/* As on the solo page (main.js): `midi' says a MIDI keyboard is the one
+   holding the note, which releaseKeys leaves down. */
+function press (note, velocity = VELOCITY, midi = false)
 {
     if (synth === null || room.seat === null)
         return;
@@ -489,19 +495,34 @@ function press (note)
     if (already !== undefined)
     {
         already.count++;
+
+        if (midi)
+            already.midi++;
+
         return;
     }
 
-    sounding.set(note, { count: 1, seat: room.seat });
-    send(maker.note(room.seat, note, VELOCITY));
+    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat: room.seat });
+    send(maker.note(room.seat, note, velocity));
     keyboard.hold(note, true);
 }
 
-function release (note)
+function release (note, midi = false)
 {
     const held = sounding.get(note);
 
-    if (held === undefined || --held.count > 0)
+    if (held === undefined)
+        return;
+
+    if (midi)
+    {
+        if (held.midi === 0)
+            return;
+
+        held.midi--;
+    }
+
+    if (--held.count > 0)
         return;
 
     sounding.delete(note);
@@ -509,15 +530,34 @@ function release (note)
     keyboard.hold(note, false);
 }
 
+/* Everything, whoever is holding it: a seat change is about to aim the
+   keys somewhere else. */
 function releaseAll ()
+{
+    midiIn?.forget();
+
+    for (const held of sounding.values())
+        held.midi = 0;
+
+    releaseKeys();
+}
+
+/* What the pointer and the computer keyboard hold, and not what a MIDI
+   keyboard does: its note off arrives wherever the focus is. */
+function releaseKeys ()
 {
     keyboard?.releaseAll();
     keys?.forget();
 
     for (const [note, held] of [...sounding])
     {
-        held.count = 1;
-        release(note);
+        if (held.midi > 0)
+            held.count = held.midi;
+        else
+        {
+            held.count = 1;
+            release(note);
+        }
     }
 }
 
@@ -525,7 +565,7 @@ function releaseAll ()
    move the keys under the hands, and say where they are now. */
 function shifted (lowest)
 {
-    releaseAll();
+    releaseKeys();
     keyboard.setLowest(lowest);
     showRange($('range'), keyboard);
 }
@@ -866,6 +906,12 @@ async function start ()
     audioClock = new AudioClock(ctx.sampleRate);
     transport = new TransportClock(ctx.sampleRate);
 
+    $('midi').disabled = !midiAvailable();
+
+    if (!midiAvailable())
+        $('midistatus').textContent = 'needs Chromium or Firefox, over https '
+                                      + 'or on localhost';
+
     /* What the defaults are made of. Fetched once, here, because the
        aiming below happens inside a load and a load has no time to wait
        for the network: every peer loads at the same moment, when the
@@ -971,7 +1017,7 @@ function init ()
        named here; everything else it works out for itself. */
     keyfocus = createKeyFocus({ editing: '.cm-editor',
                                 indicator: $('keysstate'),
-                                onRelease: releaseAll });
+                                onRelease: releaseKeys });
     keys = new TypingKeys({
         press, release, shifted, focus: keyfocus,
         playable: () => synth !== null,
@@ -979,6 +1025,12 @@ function init ()
     keyboard.setLowest(keys.lowest);
     keyboard.fit();
     showRange($('range'), keyboard);
+
+    midiIn = midiToggle({
+        button: $('midi'), status: $('midistatus'),
+        onNoteOn: (note, velocity) => press(note, velocity, true),
+        onNoteOff: (note) => release(note, true),
+    });
 
     $('join').addEventListener('click', join);
     $('start').addEventListener('click', start);
@@ -1006,7 +1058,7 @@ function init ()
 
     window.addEventListener('keydown', (e) => keys.keyDown(e));
     window.addEventListener('keyup', (e) => keys.keyUp(e));
-    window.addEventListener('blur', releaseAll);
+    window.addEventListener('blur', releaseKeys);
 
     /* And the layout, over what is in the document now.
      *

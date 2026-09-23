@@ -251,6 +251,11 @@
          Empty the rest of the time: the ordinary state is not worth a
          word, and a line that is always there is one nobody reads. -->
     <span id="keysstate" class="hint" aria-live="polite"></span>
+
+    <!-- A MIDI keyboard onto the same keys, on the same channel (midi.js).
+         Offered once the synth has started. -->
+    <button id="midi" disabled>MIDI in</button>
+    <span id="midistatus" class="hint"></span>
   </div>
   <svg id="keys" role="application" aria-label="Keyboard"></svg>
   <p class="hint">
@@ -258,6 +263,7 @@
     <kbd>Z</kbd>&ndash;<kbd>/</kbd> is an octave and a bit from C with the
     black keys on the row above, <kbd>Q</kbd>&ndash;<kbd>P</kbd> the octave
     above that, and <kbd>-</kbd> and <kbd>=</kbd> move both.
+    A MIDI keyboard plays them too, after <em>MIDI in</em>.
   </p>
 </section>
 

@@ -66,6 +66,7 @@ import { createComposerView } from './composerview.js';
 import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { micAvailable, openMic } from './mic.js';
+import { midiAvailable, midiToggle } from './midi.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
@@ -177,15 +178,20 @@ const PATCH_CHANNEL = 0;
 let ctx = null;
 let synth = null;
 let mic = null;                  /* what openMic returned, or null */
+let midiIn = null;               /* the MIDI in button (midi.js)    */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
 let micDropped = 0;
 let keyboard = null;
 let keys = null;                 /* the computer keyboard as a musical one */
 let keyfocus = null;             /* and who has it, the page or the keys  */
 
-/* note -> { count, piece, channel }: how many fingers are on it, and the
-   route it went out by, which is the route its release has to take. */
+/* note -> { count, midi, velocity, piece, channel }: how many fingers are
+   on it, how many of those are MIDI keys, and the route it went out by,
+   which is the route its release has to take. */
 const sounding = new Map();
+
+/* The channel a MIDI sustain pedal is down on, or null. */
+let pedalChannel = null;
 
 /* The piece, as it stands: what the worklet said when it loaded, and the
    roll the mirror draws of it -- the past it has played and the future it
@@ -319,8 +325,9 @@ function composing ()
 
 /* Every way of pressing a note comes here. A second press of a note
    already down is counted and nothing else: one note, however many things
-   are holding it. */
-function press (note)
+   are holding it. `midi' says a MIDI keyboard is the one holding it, which
+   is counted apart as well (releaseKeys). */
+function press (note, velocity = VELOCITY, midi = false)
 {
     if (synth === null)
         return;
@@ -330,18 +337,23 @@ function press (note)
     if (already !== undefined)
     {
         already.count++;
+
+        if (midi)
+            already.midi++;
+
         return;
     }
 
     const piecing = composing();
     const channel = keyChannel();
 
-    sounding.set(note, { count: 1, piece: piecing, channel });
+    sounding.set(note, { count: 1, midi: midi ? 1 : 0, velocity,
+                         piece: piecing, channel });
 
     if (piecing)
-        synth.midiOn(note, VELOCITY, -1, channel);
+        synth.midiOn(note, velocity, -1, channel);
     else
-        synth.noteOn(note, VELOCITY);
+        synth.noteOn(note, velocity);
 
     keyboard?.hold(note, true);
 }
@@ -349,11 +361,23 @@ function press (note)
 /* And every way of letting go. The route is the one the press took, not
    the one the page is in now: a mode or a channel changed under a held
    note must not leave it sounding for ever. */
-function release (note)
+function release (note, midi = false)
 {
     const held = sounding.get(note);
 
-    if (held === undefined || --held.count > 0)
+    if (held === undefined)
+        return;
+
+    /* A MIDI note off for a note releaseAll already let go of. */
+    if (midi)
+    {
+        if (held.midi === 0)
+            return;
+
+        held.midi--;
+    }
+
+    if (--held.count > 0)
         return;
 
     sounding.delete(note);
@@ -366,18 +390,64 @@ function release (note)
     keyboard?.hold(note, false);
 }
 
-/* Everything, whoever is holding it: a key released while the page was not
-   looking never sends its keyup, and a mode change is about to make the
-   routes wrong. */
+/* Everything, whoever is holding it, and the pedal: a mode change is about
+   to make the routes wrong. */
 function releaseAll ()
+{
+    midiIn?.forget();
+    pedal(0);
+
+    for (const held of sounding.values())
+        held.midi = 0;
+
+    releaseKeys();
+}
+
+/* A MIDI sustain pedal, 0..127, onto SusPedal on the channel the keys play:
+ * thMidiChan holds a released note while it reads 64 or more, as
+ * thSynth::handleMidiController routes controller 64 natively.
+ *
+ * Solo page only. A chanarg command lands whenever it arrives, and a pedal
+ * in a room would have to land at the same transport time on every peer.
+ * The channel it went down on is the one it comes up on, whatever the page
+ * has switched to since.
+ */
+function pedal (value)
+{
+    if (synth === null)
+        return;
+
+    const channel = value >= 64 ? (composing() ? keyChannel() : PATCH_CHANNEL)
+                                : pedalChannel;
+
+    if (channel === null)
+        return;
+
+    if (pedalChannel !== null && pedalChannel !== channel)
+        synth.chanarg(pedalChannel, 'SusPedal', 0);
+
+    synth.chanarg(channel, 'SusPedal', value);
+    pedalChannel = value >= 64 ? channel : null;
+}
+
+/* Everything the pointer and the computer keyboard hold: a key released
+   while the page was not looking never sends its keyup. A MIDI key's note
+   off arrives wherever the focus is, so what a MIDI keyboard holds stays
+   down. */
+function releaseKeys ()
 {
     keyboard?.releaseAll();
     keys?.forget();
 
     for (const [note, held] of [...sounding])
     {
-        held.count = 1;
-        release(note);
+        if (held.midi > 0)
+            held.count = held.midi;
+        else
+        {
+            held.count = 1;
+            release(note);
+        }
     }
 }
 
@@ -388,7 +458,7 @@ function releaseAll ()
    cost. */
 function shifted (lowest)
 {
-    releaseAll();
+    releaseKeys();
     keyboard?.setLowest(lowest);
     showRange($('range'), keyboard);
     showLatency();
@@ -1662,6 +1732,12 @@ async function start ()
     if (!micAvailable())
         $('micstatus').textContent = 'needs https, or localhost';
 
+    $('midi').disabled = !midiAvailable();
+
+    if (!midiAvailable())
+        $('midistatus').textContent = 'needs Chromium or Firefox, over https '
+                                      + 'or on localhost';
+
     /* The instruments a piece may name, before any piece asks for one: a
        worklet has no file system of its own and cannot fetch. All at once,
        since nothing here waits on anything else.
@@ -2178,6 +2254,10 @@ window.solo = {
        box. */
     notes: () => tapeNotes.map((e) => ({ at: e.at, note: e.note })),
 
+    /* What is held down, and by how many hands and MIDI keys: the route
+       and velocity each note went out with. */
+    sounding: () => [...sounding].map(([note, held]) => ({ note, ...held })),
+
     /* The four numbers the last tape message carried about the clock, and
        the rate to read them against.
      *
@@ -2535,7 +2615,7 @@ async function init ()
        Escape hands it back, and lets go of anything it was holding on
        the way -- a note whose key-up is about to land somewhere else. */
     keyfocus = createKeyFocus({ indicator: $('keysstate'),
-                                onRelease: releaseAll });
+                                onRelease: releaseKeys });
     keys = new TypingKeys({ press, release, shifted, focus: keyfocus,
                             playable: () => synth !== null });
     keyboard.setLowest(keys.lowest);
@@ -2544,6 +2624,12 @@ async function init ()
 
     $('start').addEventListener('click', start);
     $('mic').addEventListener('click', toggleMic);
+    midiIn = midiToggle({
+        button: $('midi'), status: $('midistatus'),
+        onNoteOn: (note, velocity) => press(note, velocity, true),
+        onNoteOff: (note) => release(note, true),
+        onPedal: pedal,
+    });
     $('mode').addEventListener('change', pickMode);
 
     $('load').addEventListener('click', loadPatch);
@@ -2580,7 +2666,7 @@ async function init ()
 
     window.addEventListener('keydown', (e) => keys.keyDown(e));
     window.addEventListener('keyup', (e) => keys.keyUp(e));
-    window.addEventListener('blur', releaseAll);
+    window.addEventListener('blur', releaseKeys);
 
     /* A screen with room for the source next to the keys opens it; one
        without keeps it folded, since on a phone it is most of the page.
