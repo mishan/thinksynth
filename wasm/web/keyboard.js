@@ -48,6 +48,10 @@ const SVG = 'http://www.w3.org/2000/svg';
 
 /* Semitone of each white key within an octave, and of each black one. */
 const WHITE = [0, 2, 4, 5, 7, 9, 11];
+
+/* How long a white key may be, in white-key widths. A piano's are about
+   six and a half: 150 mm by 23. */
+const TALLEST = 6.5;
 const BLACK = [1, 3, 6, 8, 10];
 
 /* Where each black key sits, as a left edge in white-key units from the
@@ -123,6 +127,22 @@ export class Keyboard
 
         const octaves = Math.max(1, Math.min(
             4, Math.floor(width / (PER_OCTAVE * NARROWEST))));
+
+        /* No taller than a piano's keys are for their width. The element
+           is as tall as whatever holds it makes it, and a phone's tiled
+           strip can be twice that: keys a finger wide and a hand long.
+           Capped on the element, so what is left of the strip stays the
+           page's and the viewBox below comes out the shape it is drawn. */
+        const most = Math.round(width / (octaves * PER_OCTAVE + 1) * TALLEST);
+
+        if (this.svg.style.maxHeight !== `${most}px`)
+        {
+            this.svg.style.maxHeight = `${most}px`;
+
+            if (height > most)
+                return;             /* the observer comes back at `most' */
+        }
+
         const aspect = height / width;
 
         /* The shape matters as much as the count: a phone turned sideways

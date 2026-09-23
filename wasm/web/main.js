@@ -185,15 +185,17 @@ const PHONE = '(pointer: coarse) and (max-width: 40em), ' +
               '(pointer: coarse) and (max-height: 30em)';
 
 const PHONE_LAYOUTS = {
-    patch: { dir: 'col', size: [0.5, 0.5], kids: [
+    patch: { dir: 'col', size: [0.6, 0.4], kids: [
         { tabs: ['paramview', 'nodeview'] },
         { tabs: ['keyboard'] }] },
 
     /* The tracks are what the sequence is for; the keys are a tab. */
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
 
+    /* The roll in front: what the piece is doing is what a phone is
+       for watching; the knobs are a tab away. */
     piece: { dir: 'col', size: [0.6, 0.4], kids: [
-        { tabs: ['knobs', 'roll', 'seqview', 'channelbox', 'paramview'] },
+        { tabs: ['roll', 'knobs', 'seqview', 'channelbox', 'paramview'] },
         { tabs: ['keyboard'] }] },
 };
 
@@ -204,9 +206,48 @@ const SIDEWAYS = '(max-height: 30em)';
 const SIDEWAYS_LAYOUTS = {
     patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
-    piece: { tabs: ['keyboard', 'knobs', 'roll', 'seqview', 'channelbox',
+    piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'channelbox',
                     'paramview'] },
 };
+
+/* The two popovers, which live in the layout's overlay and are moved to
+   the new one when a phone turns over. */
+let popovers = [];
+
+/* The tiler, for a desktop, a phone, or a phone held sideways, each
+ * with its own layouts under its own store.
+ */
+function tile (phone, forced)
+{
+    const sideways = phone && matchMedia(SIDEWAYS).matches;
+
+    panes = createPanes({
+        root: $('panes'), catalog: PANES,
+        store: sideways ? 'thinksynth:panes:touch-sideways'
+             : phone ? 'thinksynth:panes:touch' : 'thinksynth:panes:solo',
+        layouts: sideways ? SIDEWAYS_LAYOUTS
+               : phone ? PHONE_LAYOUTS
+               : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
+                   seq: SEQ_LAYOUT },
+
+        /* And a divider a finger can take hold of. */
+        ...(phone ? { media: forced ? 'all' : PHONE, split: 18 } : {}),
+        mode: mode(), on: true,
+        onShow: (id, on) =>
+        {
+            if (id === 'composerview')
+                showComposer(on && mode() === 'piece');
+            else if (id === 'seqview')
+                showSeq(on && composing());
+            else if (id === 'roll')
+                showRoll(on && composing());
+            else if (id === 'nodeview')
+                nodes?.show(on);
+            else if (id === 'paramview' && on)
+                pollParams();
+        },
+    });
+}
 
 /* The layout. Made at the end of init(), because what it adopts has to be
    in the document and the folds the page opens by hand have to be set. */
@@ -2521,31 +2562,38 @@ function keysFor (which)
     keysMode = which;
 }
 
-async function pickMode ()
+/* The panes a mode has, and its layout. A pane the mode does not have is
+   unavailable rather than hidden: it leaves the layout without being
+   forgotten by it, so coming back to a mode puts its panes where they
+   were. */
+function panesFor (which)
 {
-    const which = mode();
-
-    /* The chrome each mode has: what to play, and the transport. What
-       the piece section used to wrap are panes of their own now, and a
-       pane the mode does not have is unavailable rather than hidden --
-       it leaves the layout without being forgotten by it, so coming back
-       to a mode puts its panes where they were. */
-    /* For style.css, which has rules for one mode on a phone. */
-    document.body.dataset.mode = which;
-
-    keysFor(which);
-
-    $('patchmode').hidden = which !== 'patch';
-    $('piecemode').hidden = which !== 'piece';
-    $('transport').hidden = which === 'patch';
-    showAbout();
-
     const mine = new Set(modePanes[which] ?? []);
 
     for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
         panes.available(id, mine.has(id));
 
     panes.mode(which);
+}
+
+async function pickMode ()
+{
+    const which = mode();
+
+    /* For style.css, which has rules for one mode on a phone. */
+    document.body.dataset.mode = which;
+
+    keysFor(which);
+
+    /* The chrome each mode has: what to play, and the transport. What
+       the piece section used to wrap are panes of their own now, and
+       panesFor's. */
+    $('patchmode').hidden = which !== 'patch';
+    $('piecemode').hidden = which !== 'piece';
+    $('transport').hidden = which === 'patch';
+    showAbout();
+
+    panesFor(which);
     showLiveIn();
 
     if (synth === null)
@@ -2887,36 +2935,12 @@ async function init ()
     moveLayouts('panes:solo', 'thinksynth:panes:solo',
                 ['patch', 'piece', 'seq']);
 
-    /* Which of the three, decided at load: turning the phone over later
-       keeps the layout it opened with, which is still a phone's. */
+    /* A phone or not is decided at load; which way up it is, whenever it
+       turns (below). */
     const forced = new URLSearchParams(location.search).get('phone') === '1';
     const phone = forced || matchMedia(PHONE).matches;
-    const sideways = phone && matchMedia(SIDEWAYS).matches;
 
-    panes = createPanes({
-        root: $('panes'), catalog: PANES,
-        store: sideways ? 'thinksynth:panes:sideways'
-             : phone ? 'thinksynth:panes:phone' : 'thinksynth:panes:solo',
-        layouts: sideways ? SIDEWAYS_LAYOUTS
-               : phone ? PHONE_LAYOUTS
-               : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
-                   seq: SEQ_LAYOUT },
-        ...(phone ? { media: forced ? 'all' : PHONE } : {}),
-        mode: mode(), on: true,
-        onShow: (id, on) =>
-        {
-            if (id === 'composerview')
-                showComposer(on && mode() === 'piece');
-            else if (id === 'seqview')
-                showSeq(on && composing());
-            else if (id === 'roll')
-                showRoll(on && composing());
-            else if (id === 'nodeview')
-                nodes?.show(on);
-            else if (id === 'paramview' && on)
-                pollParams();
-        },
-    });
+    tile(phone, forced);
 
     /* And the mode the select is showing, applied to what has just been
        built. The markup cannot be the answer: it is one arrangement and
@@ -2937,7 +2961,21 @@ async function init ()
        beside the box on a canvas that asked for it, in page coordinates,
        and a pane is a box that scrolls -- so a popover left inside one
        would be clipped by it the moment it reached the edge. */
-    panes.overlay().append($('composerparams'), $('nodemenu'));
+    popovers = [$('composerparams'), $('nodemenu')];
+    panes.overlay().append(...popovers);
+
+    /* A phone turned over gets the other shape's layout for the mode it
+       is in: the tiler is taken down, which puts every pane back where the
+       document had it, and made again from the other set. Nothing is
+       loaded again; the panes are the same elements. */
+    if (phone)
+        matchMedia(SIDEWAYS).addEventListener('change', () =>
+        {
+            panes.destroy();
+            tile(phone, forced);
+            panesFor(mode());
+            panes.overlay().append(...popovers);
+        });
 }
 
 offerInstall($('install'));

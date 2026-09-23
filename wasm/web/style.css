@@ -899,13 +899,23 @@ body.tiled .panelrows
     .panesroot .panetabwrap,
     #panes .paneclosed { flex: 0 0 auto; }
 
-    /* The keys take the strip they are given: it is the one thing in it,
-       and a taller key is an easier one to hit. */
+    /* The keys take the strip they are given, up to a piano's shape
+       (keyboard.js), and sit at the bottom of it, where the thumbs are. */
     body.tiled .panebody #keys
     {
         flex: 1 1 auto;
         height: auto;
         min-height: 6rem;
+    }
+
+    body.tiled #keyboard { justify-content: flex-end; }
+
+    /* A divider a finger can find: thicker, drawn as a short handle
+       rather than a hairline, and not a scroll -- see .panesplit below. */
+    #panes .panebox[data-dir="col"] > .panesplit::after
+    {
+        inset: 6px 35%;
+        border-radius: 2px;
     }
 
     .panesroot .panetab { font-size: 0.95em; padding: 0.5em 0.3em 0.5em 0.8em; }
@@ -917,3 +927,9 @@ body.tiled .panelrows
         display: none;
     }
 }
+
+/* A drag on a divider is a drag, not a scroll. Without it a finger moved
+   the divider a few pixels and the browser took the rest of the gesture
+   as a scroll, cancelling the pointer -- tabs had this and dividers did
+   not (mullion's panes.css). */
+.panesplit { touch-action: none; }
