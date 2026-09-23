@@ -597,6 +597,13 @@ list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/gen/index.json"
     "${PROJECT_BINARY_DIR}/patches/index.json")
 list(JOIN PRECACHE_FILES "\n" precache_list)
+
+# What sw.js is rebuilt on is the same list less the .wasm, which the link
+# writes beside thinkweb.js without Ninja knowing it has a rule: named
+# here, a fresh tree stops with "no known rule to make it". thinkweb.js is
+# written by the same link, so depending on it covers both.
+set(PRECACHE_DEPENDS ${PRECACHE_FILES})
+list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm")
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
      CONTENT "${precache_list}\n")
 
@@ -605,7 +612,7 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
             "${PROJECT_BINARY_DIR}"
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${PROJECT_BINARY_DIR}/precache.list"
-    DEPENDS ${PRECACHE_FILES} thinkweb
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
             "${PROJECT_BINARY_DIR}/precache.list"
