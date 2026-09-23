@@ -339,6 +339,19 @@ void thSynth::collectRetired (void)
     }
 }
 
+/* GUI thread. See the header. */
+void thSynth::setVoicePool (bool on)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    pool_ = on;
+
+    for (int i = 0; !on && i < midiChannelCnt_; i++)
+        if (guiChannels_[i])
+            guiChannels_[i]->emptyPool();
+}
+
 /* GUI thread. A finished voice back to the channel that built it, if that
    channel is still loaded and has room, and deleted otherwise. By serial and
    not by pointer: a channel replaced since the voice was built may have been

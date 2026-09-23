@@ -145,9 +145,9 @@ public:
 
     /* GUI thread. Whether a finished voice goes back to its channel to be
        started over (see thMidiChan::recycle) or is deleted. On by default;
-       off is every note a fresh copy, which is what scripts/poolcheck
-       compares against. */
-    void setVoicePool (bool on) { pool_ = on; }
+       off empties every channel's pool, so from then on every note is a
+       fresh copy, which is what scripts/poolcheck compares against. */
+    void setVoicePool (bool on);
 
     /* Commands postCommand could not queue because the ring was full,
        since construction. Read on the GUI thread, which is the one that

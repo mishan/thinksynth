@@ -224,10 +224,7 @@ thMidiChan::~thMidiChan (void)
     delete[] bufamp_;
     bufamp_ = NULL;
 
-    for (size_t i = 0; i < pool_.size(); i++)
-        delete pool_[i];
-
-    pool_.clear();
+    emptyPool();
 }
 
 /* GUI thread, once, at construction.
@@ -457,6 +454,15 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
     voice->setChannel(serial_);
 
     return voice;
+}
+
+/* GUI thread. See the header. */
+void thMidiChan::emptyPool (void)
+{
+    for (size_t i = 0; i < pool_.size(); i++)
+        delete pool_[i];
+
+    pool_.clear();
 }
 
 /* GUI thread. See the header. */

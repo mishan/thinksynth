@@ -79,6 +79,12 @@ public:
      * can sound at once, `poly', up to TH_POOL_MAX. */
     bool recycle (thMidiNote *note);
 
+    /* GUI thread. Deletes every pooled voice. */
+    void emptyPool (void);
+
+    /* GUI thread. How many voices wait in the pool. */
+    size_t pooled (void) const { return pool_.size(); }
+
     /* GUI thread. How many voices buildNote() has taken from the pool. */
     unsigned long restarts (void) const { return restarts_; }
 
