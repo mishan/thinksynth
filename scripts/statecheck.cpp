@@ -6174,19 +6174,29 @@ static void checkSympathetic (const string &pluginPath)
 
     /* ---- a free string at unity, a damped one near nothing ---- */
 
-    /* One string, A4, fed a sine at 440 for two seconds -- long past a
-       two-second string's rise -- and the last tenth measured. The input
+    /* One string fed a sine at its own pitch for two seconds -- long past
+       a two-second string's rise -- and the last tenth measured. The input
        peaks at 0.5, so unity is 0.5 out. Four cases: pedal down, pedal up,
-       pedal up on a key above `undamped', and pedal up with nothing
-       undamped. */
+       pedal up on a key above `undamped', and pedal up on that key with
+       nothing undamped. A damped string still passes about `damper' over
+       its free T60 of a sine at its pitch: a tenth of a second against two
+       at A4, but against 0.8 at key 96, so that key's bound is looser --
+       and still well under the 0.5 it passes when free. */
     {
-        struct Case { float key, pedal, undamped; bool free; const char *what; };
+        struct Case {
+            float key, pedal, undamped;
+            float most;             /* the damped bound; 0 for free */
+            const char *what;
+        };
         static const Case cases[] = {
-            { 69, 1, 109, true,  "with the pedal down a string at its own "
+            { 69, 1, 109, 0,     "with the pedal down a string at its own "
                                  "pitch passes it at unity" },
-            { 69, 0, 109, false, "with the pedal up it is damped" },
-            { 96, 0, 90,  true,  "and a key above `undamped' is free with "
+            { 69, 0, 90,  0.05f, "with the pedal up a key below "
+                                 "`undamped' is damped" },
+            { 96, 0, 90,  0,     "and a key above `undamped' is free with "
                                  "the pedal up" },
+            { 96, 0, 109, 0.1f,  "and with nothing undamped the same key "
+                                 "is damped" },
         };
 
         for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
@@ -6207,7 +6217,8 @@ static void checkSympathetic (const string &pluginPath)
 
             const double got = peak(out, out.size() - (size_t)(rate / 10));
 
-            okOrFail(cases[c].free ? fabs(got / 0.5 - 1) < 0.02 : got < 0.05,
+            okOrFail(cases[c].most == 0 ? fabs(got / 0.5 - 1) < 0.02
+                                        : got < cases[c].most,
                      string("filt::sympathetic: ") + cases[c].what,
                      "peak " + num(got) + " for a 0.5 input");
         }
@@ -6251,25 +6262,36 @@ static void checkSympathetic (const string &pluginPath)
         }
     }
 
-    /* The worst corner: every string free for two hundred seconds and as
-       dark as `damp' goes. Compensating the low-pass at a high key's pitch
-       would lift that loop's gain at DC past one; it must stay bounded. */
+    /* The worst corner: `decay' two hundred seconds and `damp' as dark as
+       it goes. Compensating the low-pass at a string's pitch lifts the
+       loop's gain at DC toward one, and must stop short of it. In the top
+       two octaves at this `damp' a string's own pitch is gone within half
+       a second, and what is left is what each loop holds at DC: that has
+       to fall, the last second quieter than the half second after the
+       click. A loop gaining a part in two thousand a trip is over ten
+       times louder by then. */
     {
         vector<float> out;
         string why;
 
         if (!render1(pluginPath,
-                     sympatheticGraph(clickSource(), 21, 108, 1, 109, 200,
+                     sympatheticGraph(clickSource(), 84, 108, 1, 109, 200,
                                       0.95f),
                      "bank", "out", 256, (unsigned)(rate * 5), out, why))
             fail("filt::sympathetic renders", why);
         else
-            okOrFail(allFinite(out) && peak(out, (size_t)(rate * 4)) <
-                                       peak(out, 0) + 1,
+        {
+            const vector<float> early(out.begin() + (size_t)(rate / 2),
+                                      out.begin() + (size_t)rate);
+            const double first = peak(early, 0);
+            const double last = peak(out, (size_t)(rate * 4));
+
+            okOrFail(allFinite(out) && last < first,
                      "filt::sympathetic: at `damp' 0.95 and `decay' 200 "
-                     "every string stays bounded",
-                     "peak " + num(peak(out, 0)) + ", last second " +
-                     num(peak(out, (size_t)(rate * 4))));
+                     "the top strings fall rather than grow",
+                     "0.5 to 1 s " + num(first) + ", last second " +
+                     num(last));
+        }
     }
 
     /* Eighty-eight lines, their low-passes and the pedal's follower all
