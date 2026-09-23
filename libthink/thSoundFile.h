@@ -58,7 +58,9 @@ THINK_API int detectNote (const std::vector<float> &x, double rate = TH_DEFAULT_
    caller folds units), the note is held `holdWindows' windows and left
    to ring for `tailWindows' more. The synth's process() is driven here,
    so this is for a private synth on whatever thread owns it, never the
-   one the audio thread is running.
+   one the audio thread is running. The noise sources' generators start
+   over only when a synth loads them, so two renders of one patch are the
+   same render only if each has a synth of its own.
 
    `effectPath', if not empty, is put on channel 0 after the patch, so
    `fx.' chanargs reach it; it hears only its own channel. */

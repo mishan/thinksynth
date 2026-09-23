@@ -2796,6 +2796,43 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
                 fail("a forgotten ticket still had an answer to collect");
     }
 
+    /* A patch with noise in it is one distance however often it is heard,
+       and a target heard again once it has changed. */
+    if (synth->getPluginManager() != NULL)
+    {
+        thcAuditioner ear(synth->getPluginManager()->pluginPath(),
+                          (double)synth->getSampleRate());
+        thcAuditioner::Instrument clap, dark, bright;
+
+        ear.setSynchronous(true);
+
+        clap.dsp = thUtil::findDataFile("clap.dsp", "dsp", "THINK_DSP_PATH",
+                                        DSP_PATH);
+        dark.dsp = thUtil::findDataFile("bass.dsp", "dsp", "THINK_DSP_PATH",
+                                        DSP_PATH);
+        dark.chanargs.push_back(std::make_pair(std::string("cutoff"), 220.0f));
+        bright = dark;
+        bright.chanargs[0].second = 3000.0f;
+
+        double first = -1, second = -2;
+
+        ear.heard(ear.hear(clap, "instrument:bass", &dark, ""), &first);
+        ear.heard(ear.hear(clap, "instrument:bass", &dark, ""), &second);
+
+        if (first != second)
+            fail("a noise patch heard twice was two distances: " +
+                 std::to_string(first) + " and " + std::to_string(second));
+
+        double same = -1, moved = -1;
+
+        ear.heard(ear.hear(dark, "instrument:bass", &dark, ""), &same);
+        ear.heard(ear.hear(dark, "instrument:bass", &bright, ""), &moved);
+
+        if (!(moved > same + 1.0))
+            fail("a target whose cutoff moved was still heard as it was: " +
+                 std::to_string(same) + " dB, then " + std::to_string(moved));
+    }
+
     /* Resampling keeps the level: a constant stays the constant. */
     {
         std::vector<float> dc(48000, 0.5f);

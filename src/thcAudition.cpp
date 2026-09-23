@@ -14,13 +14,17 @@
 
 #include "thcAudition.h"
 
+#include <filesystem>
+#include <sstream>
+#include <system_error>
+
 #include "think.h"
 #include "thSoundFile.h"
 
 thcAuditioner::thcAuditioner (const std::string &pluginPath, double rate)
     : pluginPath_(pluginPath), rate_(rate), synchronous_(false), quit_(false),
       busy_(-1), busyForgotten_(false), nextTicket_(0), answered_(0),
-      synth_(NULL), extractor_(rate)
+      extractor_(rate)
 {
 }
 
@@ -36,8 +40,6 @@ thcAuditioner::~thcAuditioner (void)
 
     if (worker_.joinable())
         worker_.join();
-
-    delete synth_;
 }
 
 int
@@ -173,25 +175,85 @@ thcAuditioner::run (void)
     }
 }
 
+/* A synth of its own for every render: the noise sources start over only
+   when a synth loads them, and a synth kept from render to render would
+   carry its noise on, so one genome heard twice would be two distances. */
 bool
 thcAuditioner::render (const Instrument &inst, int note, std::vector<float> &mono)
 {
-    if (synth_ == NULL)
-        synth_ = new thSynth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH,
-                             (int)rate_);
+    thSynth synth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH, (int)rate_);
 
-    return thsound::renderNote(*synth_, inst.dsp, inst.chanargs, note,
+    return thsound::renderNote(synth, inst.dsp, inst.chanargs, note,
                                thsound::HOLD_WINDOWS, thsound::TAIL_WINDOWS,
                                mono, inst.effect);
 }
 
+/* A file's size and modification time, or nothing if it is not there. */
+static std::string
+stamp (const std::string &path)
+{
+    std::error_code e;
+    const std::uintmax_t size = std::filesystem::file_size(path, e);
+
+    if (e)
+        return std::string();
+
+    const std::filesystem::file_time_type when =
+        std::filesystem::last_write_time(path, e);
+
+    if (e)
+        return std::string();
+
+    std::ostringstream out;
+
+    out << size << '@' << when.time_since_epoch().count();
+
+    return out.str();
+}
+
+/* Everything a target sounds like: the file and when it was written, or
+   the instrument's files, when they were written and every chanarg.
+   A target whose print has changed since it was heard is heard again. */
+static std::string
+print (const thcAuditioner::Instrument &inst, bool isFile,
+       const std::string &file)
+{
+    std::ostringstream out;
+
+    if (isFile)
+    {
+        out << file << '|' << stamp(file);
+        return out.str();
+    }
+
+    out << inst.dsp << '|' << stamp(inst.dsp) << '|'
+        << inst.effect << '|' << stamp(inst.effect);
+
+    out.precision(9);
+
+    for (size_t i = 0; i < inst.chanargs.size(); i++)
+        out << '|' << inst.chanargs[i].first << '=' << inst.chanargs[i].second;
+
+    return out.str();
+}
+
 /* A target's features, rendered or read the first time it is asked for
-   and kept. A sound file's note is what it sounds at; an instrument is
-   heard at middle C. */
+   and kept until what it is changes: an edit, a knob its chanargs are
+   bound to, another piece's instrument of the same name, a file written
+   over. A sound file's note is what it sounds at; an instrument is heard
+   at middle C. */
 const thsound::Features *
 thcAuditioner::targetOf (const Job &job, int &note)
 {
+    const std::string now = print(job.targetInstrument, job.targetIsFile,
+                                  job.targetFile);
     std::map<std::string, Target>::iterator t = targets_.find(job.targetKey);
+
+    if (t != targets_.end() && t->second.print != now)
+    {
+        targets_.erase(t);
+        t = targets_.end();
+    }
 
     if (t == targets_.end())
     {
@@ -201,6 +263,7 @@ thcAuditioner::targetOf (const Job &job, int &note)
 
         target.ok = false;
         target.note = 60;
+        target.print = now;
 
         if (job.targetIsFile)
         {

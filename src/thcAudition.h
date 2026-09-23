@@ -20,19 +20,20 @@
  *
  * A composer hands over a chanarg vector and a target; this renders the
  * chain's instrument with those values on a synth of its own, renders or
- * reads the target once and keeps its features, and answers with the
- * distance thSoundFeat.h measures. Rendering takes tens of milliseconds
- * a candidate and a tick may not, so the renders run on a worker thread
- * and a composer collects answers on a later tick. A harness that wants
- * a piece to replay exactly sets it synchronous instead, and every
- * answer is in by the time hear() returns.
+ * reads the target and keeps its features until the target changes, and
+ * answers with the distance thSoundFeat.h measures. Rendering takes tens
+ * of milliseconds a candidate and a tick may not, so the renders run on a
+ * worker thread and a composer collects answers on a later tick. A
+ * harness that wants a piece to replay exactly sets it synchronous
+ * instead, and every answer is in by the time hear() returns.
  *
- * The private synth loads the same modules the audio thread is running,
- * through a plugin manager of its own. A module's module_init writes its
+ * The private synths load the same modules the audio thread is running,
+ * through plugin managers of their own. A module's module_init writes its
  * arg indices into file-scope globals, so a second init writes the same
- * numbers over themselves -- the reason thcScheduler shares one control
- * synth across chains applies here too, and is why this keeps one synth
- * for its lifetime rather than one per render.
+ * numbers over themselves -- the hazard thcScheduler shares one control
+ * synth across chains to avoid. This takes it once per render anyway,
+ * because a synth is the only thing that starts the noise sources over,
+ * and a genome heard twice has to be one distance.
  *
  * What an instrument is -- its .dsp, its chanargs in the engine's terms,
  * which one a chain sinks to -- is the scheduler's knowledge, and it is
@@ -50,8 +51,6 @@
 
 #include "thcomposer.h"
 #include "thSoundFeat.h"
-
-class thSynth;
 
 class thcAuditioner
 {
@@ -77,8 +76,9 @@ public:
 
     /* `candidate' is the chain's instrument with the composer's values
        already folded in. `target' is either an instrument -- `targetInstrument'
-       set, rendered once and remembered under `targetKey' -- or a sound
-       file at `targetFile'. Returns a ticket, or -1 if nothing can be
+       set, rendered and remembered under `targetKey' until its files or
+       chanargs change -- or a sound file at `targetFile', read again
+       once it is written over. Returns a ticket, or -1 if nothing can be
        rendered. */
     int hear (const Instrument &candidate, const std::string &targetKey,
               const Instrument *targetInstrument, const std::string &targetFile);
@@ -141,7 +141,6 @@ private:
     int answered_;
 
     /* Worker-thread state. */
-    thSynth *synth_;
     thsound::Extractor extractor_;
 
     struct Target
@@ -149,6 +148,7 @@ private:
         thsound::Features features;
         int note;
         bool ok;
+        std::string print;   /* what the target was when it was heard */
     };
 
     std::map<std::string, Target> targets_;

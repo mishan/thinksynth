@@ -313,11 +313,6 @@ bool renderNote (thSynth &synth, const string &dspPath,
                  int note, int holdWindows, int tailWindows,
                  vector<float> &mono, const string &effectPath)
 {
-    /* Every render from the same place: a patch with a noise source in
-       it renders the same twice, which a comparison of two renders needs
-       and a search of one patch needs more. */
-    srand(1);
-
     thSynthTree *tree = synth.loadTree(dspPath, 0, 100);
 
     if (tree == NULL)
