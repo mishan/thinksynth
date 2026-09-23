@@ -4,7 +4,7 @@
 # Neither Windows nor macOS can use an SVG: the executable embeds a .ico and
 # the bundle carries a .icns, and both are rendered from that SVG ahead of time
 # and committed, so that building for either needs no rasteriser on the machine
-# doing it.  The cost of committing them is that they can drift, and the drift
+# doing it.  The browser build's install icons are PNGs rendered the same way.  The cost of committing them is that they can drift, and the drift
 # is silent -- nothing about editing the SVG makes a stale render stop working.
 #
 # So the generator records the SVG's hash beside them, and this compares it
@@ -29,8 +29,10 @@ set(_stamp "${THINK_SOURCE_DIR}/src/thinksynth-icon.stamp")
 # surface as a link error on Windows or a generic icon on macOS.
 set(_ico "${THINK_SOURCE_DIR}/src/thinksynth.ico")
 set(_icns "${THINK_SOURCE_DIR}/src/thinksynth.icns")
+set(_web "${THINK_SOURCE_DIR}/wasm/web/icons")
 
-foreach(_f "${_svg}" "${_stamp}" "${_ico}" "${_icns}")
+foreach(_f "${_svg}" "${_stamp}" "${_ico}" "${_icns}"
+           "${_web}/icon-192.png" "${_web}/icon-512.png")
   if(NOT EXISTS "${_f}")
     message(FATAL_ERROR "missing ${_f}")
   endif()
@@ -77,12 +79,12 @@ if(NOT _recorded STREQUAL _actual)
     "  recorded: ${_recorded}\n"
     "  actual:   ${_actual}\n"
     "\n"
-    "src/thinksynth.ico and src/thinksynth.icns are committed rather than\n"
-    "built, so editing the SVG does not update them. Re-render and commit\n"
-    "all three together:\n"
+    "src/thinksynth.ico, src/thinksynth.icns and wasm/web/icons/*.png are\n"
+    "committed rather than built, so editing the SVG does not update them.\n"
+    "Re-render and commit them together:\n"
     "\n"
     "    python3 scripts/make-icons.py\n")
 endif()
 
-message(STATUS "thinksynth.ico and thinksynth.icns are current with the SVG "
+message(STATUS "the committed icons are current with the SVG "
                "(${_actual})")

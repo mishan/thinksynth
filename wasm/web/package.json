@@ -17,6 +17,7 @@
     "dspcatalogcheck": "node dspcatalogcheck.mjs",
     "gencatalogcheck": "node gencatalogcheck.mjs",
     "jamtest": "node jamtest.mjs",
+    "pwatest": "node pwatest.mjs",
     "bench": "node bench.mjs"
   },
   "devDependencies": {

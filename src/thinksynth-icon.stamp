@@ -2,11 +2,12 @@
 #
 #     src/thinksynth.ico
 #     src/thinksynth.icns
+#     wasm/web/icons/icon-{192,512}.png
 #
 # If ctest reports this as stale, they have not been
 # regenerated since the SVG changed:
 #
 #     python3 scripts/make-icons.py
 #
-# and commit all three files together.
+# and commit them together.
 ddcd4f77e9ef3ca5aec907d72822ffecf5aeff483f78d8ed3bf6d12532e7fdcf

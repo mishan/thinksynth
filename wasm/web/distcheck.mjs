@@ -267,5 +267,75 @@ else
            `instruments have something to play`);
 }
 
+/* ---- the offline copy -------------------------------------------------
+ *
+ * sw.js carries its own list of the site, FILES, and a file left off it
+ * is one the page can load online and not offline: a patch picked on a
+ * train is a 404 nobody saw on a desk. So the list is held against the
+ * whole dist, both ways. What is left off on purpose is the room page and
+ * what only it loads, since it needs a relay, and the worker itself.
+ *
+ * And the manifest's icons, which no page names, so the walk above does
+ * not reach them.
+ */
+{
+    const NETWORK = new Set(['jam.html', 'jam.js', 'jam.js.map',
+                             'config.json', 'sw.js']);
+    let files = null;
+
+    try
+    {
+        const m = /^const FILES = (.*);$/m.exec(
+            fs.readFileSync(path.join(dist, 'sw.js'), 'utf8'));
+
+        files = m && JSON.parse(m[1]);
+    }
+    catch (e)
+    {
+        fail(`sw.js does not read: ${e.message}`);
+    }
+
+    if (files !== null && !Array.isArray(files))
+        fail('sw.js has no FILES list');
+    else if (files !== null)
+    {
+        const kept = new Set(files);
+        const all = fs.readdirSync(dist, { recursive: true })
+            .map((n) => n.split(path.sep).join('/'))
+            .filter((n) => fs.statSync(path.join(dist, n)).isFile());
+        const gone = files.filter((n) => !present(n));
+        const left = all.filter((n) => !kept.has(n) && !NETWORK.has(n));
+
+        if (gone.length)
+            fail(`sw.js keeps ${gone.length} file(s) the dist does not ` +
+                 `have: ${gone.slice(0, 8).join(', ')}`);
+        else if (left.length)
+            fail(`sw.js leaves ${left.length} file(s) out, which will not ` +
+                 `load offline: ${left.slice(0, 8).join(', ')}`);
+        else
+            ok(`sw.js keeps all ${files.length} file(s) the solo page ` +
+               'can load');
+    }
+
+    try
+    {
+        const icons = JSON.parse(fs.readFileSync(
+            path.join(dist, 'manifest.json'), 'utf8')).icons ?? [];
+        const absent = icons.map((i) => i.src).filter((s) => !present(s));
+
+        if (icons.length === 0)
+            fail('manifest.json names no icons, so the page cannot install');
+        else if (absent.length)
+            fail(`manifest.json names icons the dist does not have: ` +
+                 absent.join(', '));
+        else
+            ok(`manifest.json: its ${icons.length} icon(s) are here`);
+    }
+    catch (e)
+    {
+        fail(`manifest.json does not read: ${e.message}`);
+    }
+}
+
 process.stdout.write(`\n${failures} failure(s)\n`);
 process.exit(failures);
