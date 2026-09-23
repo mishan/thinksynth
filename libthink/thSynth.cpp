@@ -1216,6 +1216,19 @@ thArg *thSynth::getChanArg (int channum, const string &argname)
 void thSynth::handleMidiController (unsigned char channel, unsigned int param,
                                     unsigned int value)
 {
+    /* SusPedal holds the controller's own 0..127: thMidiChan compares it
+       with 64, as the specification's half-way point, and a channel effect
+       is handed it over 127. setChanArg's fast path makes this one store
+       into the arg that is there, under the synth's lock. */
+    if (param == TH_MIDI_CC_SUSTAIN &&
+        controllerHandler_->getConnection(channel, param) == NULL)
+    {
+        setChanArg(channel, new thArg(string("SusPedal"),
+                                      (float)(value > MIDIVALMAX ? MIDIVALMAX
+                                                                 : value)));
+        return;
+    }
+
     controllerHandler_->handleMidi(channel, param, value);
 }
 

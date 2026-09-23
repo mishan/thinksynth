@@ -91,6 +91,12 @@ using namespace std;
    channel count it is always paired with. */
 #define TH_MIDI_CONTROLLERS 128
 
+/* The sustain pedal's controller number, in the MIDI 1.0 specification. A
+   keyboard's pedal sends it, 0 to 63 up and 64 to 127 down, and
+   thSynth::handleMidiController routes it to the channel's SusPedal unless
+   MIDI Map has bound it to something else. */
+#define TH_MIDI_CC_SUSTAIN 64
+
 /* number of node argument references allocated at a time */
 #define ARGCHUNK 16
 
