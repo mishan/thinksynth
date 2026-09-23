@@ -408,6 +408,19 @@ if(UNIX)
       COMMENT "Rendering dsp/samples/ from the tree's own drum graphs")
 endif()
 
+# `cmake --build <build> --target board' rewrites dsp/samples/piano_board.wav,
+# the soundboard response dsp/grand.dsp strikes its strings with. The same
+# terms as `kit': committed, written into the source tree only when asked,
+# and skipped where there is no Python to run the generator.
+find_program(THINK_PYTHON3 python3)
+
+if(THINK_PYTHON3)
+  add_custom_target(board
+      COMMAND "${THINK_PYTHON3}" "${PROJECT_SOURCE_DIR}/scripts/makeboard.py"
+              "${PROJECT_SOURCE_DIR}/dsp/samples/piano_board.wav"
+      COMMENT "Writing dsp/samples/piano_board.wav")
+endif()
+
 # `cmake --build <build> --target nodes' after touching a plugin's arg
 # declarations. The ctest below fails if anybody forgets.
 add_custom_target(nodes

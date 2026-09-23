@@ -433,8 +433,9 @@ endforeach()
 # the list as playable patches skips them along with the `fx/' entries.
 #
 # dsp/samples/ is generated -- scripts/makekit.sh renders the tree's own
-# drum graphs into it -- so a tree that has never run it simply has no
-# samples here, and the glob is empty rather than wrong.
+# drum graphs into it and scripts/makeboard.py writes the piano's
+# soundboard -- so a tree that has never run them simply has no samples
+# here, and the glob is empty rather than wrong.
 file(GLOB SHIPPED_SAMPLES "${THINK_TOP}/dsp/samples/*.wav")
 list(SORT SHIPPED_SAMPLES)
 
