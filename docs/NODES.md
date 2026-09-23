@@ -449,8 +449,8 @@ Stiff String (a piano string)
 | `out` | out | The strings' mean, tilted by `imbalance' |  |  | full scale |  |
 | `strike` | in | Launches the hammer when it rises above 0 |  | 0 to 2 |  |  |
 | `velocity` | in | The hammer's speed at the string; read at the blow |  | 0 to 1 |  |  |
-| `mass` | in | The hammer's mass over the string's; 0 is no hammer |  | 0 to 10 |  |  |
-| `felt` | in | The felt's stiffness K, in millions: F = K d^p |  | 0 to 10000 |  |  |
+| `mass` | in | The hammer's mass over the string's; 0 is no hammer |  | 0 to 100 |  |  |
+| `felt` | in | The felt's stiffness K, in millions: F = K d^p |  | 0 to 1e+08 |  |  |
 | `exponent` | in | The felt's exponent p: how much harder it gets the more it is squeezed | 2.5 | 1 to 5 |  |  |
 | `position` | in | Where the hammer strikes, as a fraction of the string from the near end | 0.125 | 0.02 to 0.5 |  |  |
 | `play` | out | 1 while the strings are still sounding |  | 0 to 1 |  |  |

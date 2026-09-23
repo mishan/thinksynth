@@ -6249,8 +6249,8 @@ static void checkHammer (const string &pluginPath)
 
     /* ---- finite at every corner ---- */
     {
-        static const float masses[] = { 0.01f, 10 };
-        static const float felts[] = { 0.001f, 10000 };
+        static const float masses[] = { 0.01f, 100 };
+        static const float felts[] = { 0.001f, 1e8f };
         static const float exps[] = { 1, 5 };
         bool good = true;
         string detail;

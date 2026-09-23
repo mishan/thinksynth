@@ -219,6 +219,13 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define HAMMER_POSITION_DEFAULT 0.125
 #define HAMMER_ITERATIONS 30
 
+/* The heaviest hammer and the hardest felt, K in millions. A treble
+   hammer is light against a light string, so its mass over the string's
+   climbs to tens up the keyboard, and its felt doubles in hardness every
+   few keys: these leave room for both up to MIDI's top note. */
+#define MASS_MAX 100.0f
+#define FELT_MAX 1e8f
+
 /* How long the damper takes to land, in seconds. */
 #define DAMPER_FADE 0.01
 
@@ -425,12 +432,12 @@ int module_init (thPlugin *plugin)
     args[IN_MASS] = plugin->regArg("mass", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_MASS],
                        "The hammer's mass over the string's; 0 is no hammer");
-    plugin->setArgRange(args[IN_MASS], 0, 10);
+    plugin->setArgRange(args[IN_MASS], 0, MASS_MAX);
 
     args[IN_FELT] = plugin->regArg("felt", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FELT],
                        "The felt's stiffness K, in millions: F = K d^p");
-    plugin->setArgRange(args[IN_FELT], 0, 10000);
+    plugin->setArgRange(args[IN_FELT], 0, FELT_MAX);
 
     args[IN_EXPONENT] = plugin->regArg("exponent", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_EXPONENT],
@@ -1126,8 +1133,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     imbalance = thClampArg((*in_imbalance)[0], 0, 1);
 
-    mass = thClampArg((*in_mass)[0], 0, 10);
-    felt = thClampArg((*in_felt)[0], 0, 10000) * 1e6;
+    mass = thClampArg((*in_mass)[0], 0, MASS_MAX);
+    felt = thClampArg((*in_felt)[0], 0, FELT_MAX) * 1e6;
     exponent = (*in_exponent)[0] == 0 ? HAMMER_P_DEFAULT
                                       : thClampArg((*in_exponent)[0], 1, 5);
     position = (*in_position)[0] == 0
