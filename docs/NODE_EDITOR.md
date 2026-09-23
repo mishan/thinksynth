@@ -19,7 +19,8 @@ behaviour and layout.
 | Canvas: the gtk widget around it | `src/gui/NodeCanvasWidget.{h,cpp}`, `src/gui/GraphCanvas.{h,cpp}` |
 | Position writer | `src/NodeLayout.{h,cpp}` |
 | Everything-else writer | `src/NodeEdit.{h,cpp}` |
-| Parameter panel | `src/gui/NodeParams.{h,cpp}` |
+| Parameter panel: what a param is | `src/NodePanel.{h,cpp}` over `src/PanelModel.h` |
+| Parameter panel: the gtk widget | `src/gui/NodeParamsView.{h,cpp}` over `src/gui/PanelView.{h,cpp}` |
 | Plugin palette | `NodeCatalog`, `src/gui/NodePalette.{h,cpp}` |
 
 `NodeWindow` parses its own tree through `thSynth::parseTree()`, which neither

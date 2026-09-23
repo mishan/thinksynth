@@ -31,11 +31,12 @@
  * were only ever exercised by hand, on the page a change to either is
  * most likely to break.
  *
- * The parameter panel is here for the half of it that needs a browser: that
+ * A parameter panel is here for the half of it that needs a browser: that
  * the module's description of a channel's controls became elements, and
- * that moving one reaches the arg. What the description says, and that it
- * is the same description the desktop draws, is scripts/panelcheck's and
- * wasm/web/panelcheck.mjs's.
+ * that moving one reaches the arg -- and the same for a composer stage's
+ * params, which the popover beside a stage box now takes as well as shows.
+ * What a description says, and that it is the same description the desktop
+ * draws, is scripts/panelcheck's and wasm/web/panelcheck.mjs's.
  *
  * Small on purpose: the octave, the sliders, the channel's parameter panel,
  * a key down and up, and a key typed into a text box, which must play
@@ -729,9 +730,8 @@ try
     check(typing === '0.12',
           `a half-typed number survives the poll: "${typing}"`);
 
-    /* While it is being typed into, the box is the only thing on the panel
-       that is not showing the module: the slider beside it is the same row
-       and keeps following. */
+    /* While it is being typed into, the box is not showing the module: it
+       holds what was typed and the module still holds something else. */
     const apart = await page.evaluate(() =>
     {
         const box = document.querySelector('#params .value');
@@ -740,8 +740,8 @@ try
     });
 
     check(Number(apart.shown) !== Number(apart.range),
-          `and only that box holds back: box ${apart.shown}, slider ` +
-          `${apart.range}`);
+          `and holds what was typed, not what the module has: box ` +
+          `${apart.shown}, slider ${apart.range}`);
 
     /* And it is let go of the moment it stops being typed into. Leaving the
        box is what confirms the number, so this is the edit landing and the
@@ -1173,6 +1173,90 @@ try
         check(rows.length > 0,
               `the params handle opens ${title}: ${rows.join(', ')}`);
 
+        /* And the rows can be typed into, which is the thing this panel
+         * could not do at all.
+         *
+         * A number box, found by asking the DOM rather than by knowing
+         * which stage the piece opens with: what the rows are is the
+         * module's and is checked where the module is
+         * (wasm/web/panelcheck.mjs). What is checked here is the round
+         * trip -- an element takes a number, the edit leaves as a command,
+         * every instance applies it, and the description that comes back
+         * carries it.
+         */
+        const box2 = await page.$(
+            '#composerparams .panelrow input[type="number"]:not([disabled])');
+
+        if (box2 === null)
+            check(false, 'the popover has a number to type into');
+        else
+        {
+            const row = await box2.evaluate(
+                (e) => e.closest('.panelrow').dataset.row);
+            const was = await box2.inputValue();
+            const want = String(Number(was) + 1);
+
+            await box2.fill(want);
+            await box2.press('Enter');
+
+            /* The panel follows the piece rather than the box: what is
+               waited for is the description coming back with the new
+               number in it, which is the module having taken the edit. */
+            await page.waitForFunction(
+                ([id, value]) => document.querySelector(
+                    `#composerparams .panelrow[data-row="${id}"] ` +
+                    'input[type="number"]')?.value === value,
+                [row, want], { timeout: 15000 });
+
+            check(true, `a stage's ${row} took ${want} and came back with ` +
+                        'it');
+        }
+
+        /* A value typed and then clicked away from, rather than entered.
+         *
+           Which is how most numbers get committed: a box reports on
+           `change', and `change' fires when the focus leaves. The press
+           that takes the focus away is also the press that closes the
+           popover, and the popover closing used to throw away what the
+           panel was about -- so the edit went to a TypeError instead of to
+           the piece, and the number somebody had just typed vanished with
+           the popover. Read back by opening it again, since by then there
+           is nothing on screen to read. */
+        const box3 = await page.$(
+            '#composerparams .panelrow input[type="number"]:not([disabled])');
+
+        if (box3 !== null)
+        {
+            const row = await box3.evaluate(
+                (e) => e.closest('.panelrow').dataset.row);
+            const want = String(Number(await box3.inputValue()) + 1);
+
+            await box3.fill(want);
+
+            /* Somewhere that is not the popover: this both blurs the box
+               and closes it. */
+            await page.mouse.click(box.x + box.w / 2, box.y + box.h - 4);
+
+            await page.waitForFunction(
+                () => document.getElementById('composerparams').hidden,
+                null, { timeout: 15000 });
+
+            await page.mouse.click(box.x + handle.x, box.y + handle.y);
+            await page.waitForFunction(
+                () => !document.getElementById('composerparams').hidden,
+                null, { timeout: 15000 });
+
+            const kept = await page.waitForFunction(
+                ([id, value]) => document.querySelector(
+                    `#composerparams .panelrow[data-row="${id}"] ` +
+                    'input[type="number"]')?.value === value,
+                [row, want], { timeout: 15000 }).then(() => true, () => false);
+
+            check(kept,
+                  `a stage's ${row} typed and clicked away from still ` +
+                  `reached the piece: ${want}`);
+        }
+
         /* And it goes away with the next press somewhere else. */
         await page.mouse.click(box.x + box.w / 2, box.y + box.h - 4);
         check(await page.$eval('#composerparams', (e) => e.hidden),
@@ -1570,7 +1654,11 @@ try
             check(false, `${node.name} has nothing to type into`);
         else
         {
-            const arg = await field.evaluate((i) => i.dataset.arg);
+            /* The row carries its own identity; the control inside it
+               is just a control. panel.js puts the row's id on the row,
+               which for a node's panel is the arg's name. */
+            const arg = await field.evaluate(
+                (i) => i.closest('.panelrow').dataset.row);
 
             await field.fill('0.234');
             await field.press('Enter');

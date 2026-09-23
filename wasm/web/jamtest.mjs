@@ -199,6 +199,19 @@ async function paintTogether (pages)
 
     await B.page.mouse.up();
 
+    /* And the other page edits a stage's parameter while the piece runs.
+     *
+     * The same shape of thing one noun along: a param is heard, so a
+     * command carries the transport time it applies at and every peer
+     * applies it there. If it did not -- if it were applied on arrival, as
+     * a chanarg is -- the two peers would change `line's ring a window or
+     * two apart and their tapes would part from that point. The tape
+     * comparison below is what says they did not.
+     *
+     * From A, which has enlarged nothing, so its canvas is showing every
+     * stage and its params handle is where the canvas says. */
+    const edited = await editParam(A);
+
     await at(PAINT_SECONDS * 1000);
     await A.page.evaluate(() => window.jam.stop());
     await at(PAINT_SECONDS * 1000 + 3000);
@@ -227,6 +240,16 @@ async function paintTogether (pages)
        `stamped ${painted[0].at.toFixed(3)} to ` +
        `${painted.at(-1).at.toFixed(3)}`);
 
+    const params = sent.filter((c) => c.type === 'param');
+
+    if (!edited || params.length === 0)
+        fail('no stage param was set, so nothing about setting one was '
+             + 'tested');
+    else
+        ok(`${A.label} set ${params[0].row} on stage ` +
+           `${params[0].chain}.${params[0].stage} to ${params[0].text}, ` +
+           `stamped ${params[0].at.toFixed(3)}`);
+
     if (stopAt === undefined)
     {
         fail('no stop was sent in the painted room');
@@ -251,6 +274,66 @@ async function paintTogether (pages)
         ok('and it is not the tape of the run nobody painted on');
     else
         fail('painting the board changed nothing about what it played');
+}
+
+/* A stage's parameter, typed into the popover beside its box.
+ *
+ * The panel is the module's description of the stage (src/StagePanel.cpp)
+ * drawn by panel.js, which is the same renderer every other panel on this
+ * page uses; what is pressed here is an ordinary number box in it. What the
+ * rows say is checked where the module is -- wasm/web/panelcheck.mjs -- and
+ * what is checked here is that typing in one reaches the room.
+ *
+ * True if something was actually set. A piece whose first stage has nothing
+ * to type into would leave the caller asserting nothing, which is the one
+ * outcome a harness must not report as a pass.
+ */
+async function editParam (peer)
+{
+    const handle = await peer.page.evaluate(
+        () => window.jam.handleOf(0, 0));
+
+    if (!handle || handle.x < 0)
+        return false;
+
+    await peer.page.locator('#composerscroll').scrollIntoViewIfNeeded();
+
+    const box = await peer.page.$eval('#composer', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+
+    await peer.page.mouse.click(box.x + handle.x, box.y + handle.y);
+    await peer.page.waitForFunction(
+        () => !document.getElementById('composerparams').hidden,
+        null, { timeout: 15000 }).catch(() => {});
+
+    const input = await peer.page.$(
+        '#composerparams .panelrow input[type="number"]:not([disabled])');
+
+    if (input === null)
+        return false;
+
+    const row = await input.evaluate((e) => e.closest('.panelrow')
+                                             .dataset.row);
+    const want = String(Number(await input.inputValue()) + 1);
+
+    await input.fill(want);
+    await input.press('Enter');
+
+    /* The description coming back with the new number in it, which is this
+       peer's own module having taken the edit off the room rather than off
+       the box (docs/JAM.md: the page is the nearest peer, not a privileged
+       one). */
+    await peer.page.waitForFunction(
+        ([id, value]) => document.querySelector(
+            `#composerparams .panelrow[data-row="${id}"] ` +
+            'input[type="number"]')?.value === value,
+        [row, want], { timeout: 15000 }).catch(() => {});
+
+    return true;
 }
 
 /*
@@ -340,7 +423,10 @@ async function editTogether (pages)
         return;
     }
 
-    const arg = await input.evaluate((i) => i.dataset.arg);
+    /* The row carries its own identity, which for a node's panel is the
+       arg's name; the control inside it is just a control. */
+    const arg = await input.evaluate(
+        (i) => i.closest('.panelrow').dataset.row);
     const value = '0.321';
 
     await input.fill(value);
@@ -416,7 +502,21 @@ async function editTogether (pages)
 
     const boxesWere = graph.boxes;
 
-    await A.page.mouse.click(box.x + port.x, box.y + port.y,
+    /* The canvas's origin again, and not the one read before the edit
+       above: setting a value rewrites the file, which rebuilds the graph
+       and redraws the params panel under the canvas -- so a panel that
+       came out a different height has moved everything above it, and a
+       right-click aimed with the old origin lands beside the port rather
+       than on it. Ports are a few pixels across; the miss is silent and
+       looks like a menu that offered nothing. */
+    const canvasAt = await A.page.$eval('#nodecanvas', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+
+    await A.page.mouse.click(canvasAt.x + port.x, canvasAt.y + port.y,
                              { button: 'right' });
     await A.page.waitForFunction(
         () => document.querySelectorAll('#nodemenu button').length > 0,

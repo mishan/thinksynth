@@ -34,7 +34,7 @@
 #include "../NodeLayout.h"
 #include "../NodeEdit.h"
 #include "NodeCanvasWidget.h"
-#include "NodeParams.h"
+#include "NodeParamsView.h"
 #include "NodePalette.h"
 #include "../NodeCatalog.h"
 #include "NodeEditor.h"
@@ -125,7 +125,15 @@ NodeEditor::NodeEditor (thSynth *synth)
     split_.set_start_child(scroller_);
     split_.set_resize_start_child(true);
     split_.set_shrink_start_child(false);
-    split_.set_end_child(params_);
+    /* Vertically only: the panel's rows wrap into whatever width the pane
+       gives them, so a horizontal bar would mean the wrapping had failed
+       rather than that there was more to see. */
+    paramScroll_.set_policy(Gtk::PolicyType::NEVER,
+                            Gtk::PolicyType::AUTOMATIC);
+    paramScroll_.set_propagate_natural_width(true);
+    paramScroll_.set_child(params_);
+
+    split_.set_end_child(paramScroll_);
     split_.set_resize_end_child(false);
     split_.set_shrink_end_child(false);
 
@@ -320,7 +328,7 @@ void NodeEditor::onToggleParams (void)
 {
     if (paramsBtn_.get_active())
     {
-        params_.show();
+        paramScroll_.show();
 
         /* Not set here: showing the panel is itself a resize, so the paned's
            width is about to change and the position that expresses this width
@@ -330,7 +338,7 @@ void NodeEditor::onToggleParams (void)
     else
     {
         paramsWidth_ = paramsWidth();
-        params_.hide();
+        paramScroll_.hide();
     }
 }
 

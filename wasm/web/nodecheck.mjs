@@ -99,6 +99,9 @@ const edit = (name, types, args) =>
 /* NodeEdit::Result. */
 const OK = 0;
 
+/* thPanel::Kind, for the panel over a box. */
+const NODE_VALUE = 3;
+
 /* ---- the palette ------------------------------------------------------- */
 
 {
@@ -216,25 +219,26 @@ for (const name of names)
 
     for (let b = 0; b < built && where === null; b++)
     {
-        if (M._tw_graph_box_kind(b) !== 0)
+        /* A plain value: not wired, not an output, and a number. Which of a
+           box's params those are is the panel's answer (src/NodePanel.cpp),
+           and `editable' is the whole of it -- the same rule the page draws
+           a box to type in from. */
+        if (M._tw_graph_box_kind(b) !== 0 ||
+            M._tw_graph_box_settable(b) === 0 ||
+            M._tw_panel_open(NODE_VALUE, b, 0) === 0)
             continue;
 
-        for (let p = 0; p < M._tw_graph_param_count(b); p++)
-        {
-            /* A plain value: not wired, not an output, and a number. */
-            if (M._tw_graph_param_kind(b, p) !== 0 ||
-                M._tw_graph_param_is_output(b, p) ||
-                !M._tw_graph_param_has_value(b, p))
-                continue;
+        const row = JSON.parse(M.UTF8ToString(M._tw_panel_json()))
+                        .rows.find((r) => r.editable);
 
-            where = {
-                node: call('tw_graph_box_name', ['number'], [b]),
-                arg: call('tw_graph_param_name', ['number', 'number'],
-                          [b, p]),
-                was: M._tw_graph_param_value(b, p),
-            };
-            break;
-        }
+        if (row === undefined)
+            continue;
+
+        where = {
+            node: call('tw_graph_box_name', ['number'], [b]),
+            arg: row.id,
+            was: row.value,
+        };
     }
 
     if (where === null)

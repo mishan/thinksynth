@@ -98,6 +98,9 @@
 #include "PatchFile.h"
 #include "PatchSet.h"
 #include "KnobPanel.h"
+#include "NodePanel.h"
+#include "StagePanel.h"
+#include "twnode.h"
 
 #include "twevent.h"
 
@@ -144,8 +147,8 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM and TW_SPEED have entry
-   points of their own and never arrive as an op from there. */
+   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED and TW_PARAM have
+   entry points of their own and never arrive as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -156,6 +159,7 @@ enum TransportOp
     TW_INPUT,
     TW_STAGEPARAM,
     TW_SPEED,
+    TW_PARAM,
 };
 
 struct Command
@@ -206,6 +210,17 @@ struct Scheduled
     int    kind;                /* thcInputType                        */
     double x, y, w, h;
     int    button;
+
+    /* TW_PARAM: which param of that stage, and the part of the line the
+       person touched -- a number, a unit, a binding. Completed against the
+       line the file already has, by every peer, which is why what crosses
+       is this and not the whole right-hand side (src/StagePanel.h).
+
+       Strings, unlike every other field here, because a param is named by
+       name: the plugin's own registration order is the only index there
+       would be, and a peer a revision behind would then set its
+       neighbour. */
+    std::string row, text;
 };
 
 /* Room for this many commands in flight before the queue has to grow. */
@@ -273,6 +288,16 @@ double frameOf (double at)
    transport zero is that frame and not the start of its window. */
 bool   armed_;
 double armFrame_;
+
+/* The piece as thcGenEdit reads it back: the authored spellings, the chains
+ * and their stages in order.
+ *
+ * Two readers now, which is why it is described at the load rather than when
+ * a canvas asks. The canvas lays it out, and holds a pointer to it; a stage's
+ * parameter panel is described from it and spliced into it, in every
+ * instance, because a param edit is a command and the worklet applies one
+ * without ever having drawn anything. */
+thcGenEdit::Doc canvasDoc_;
 
 /* The piece side. plugins_ is built once, from the table the build wrote,
    and outlives every load; the loader clears the scheduler's chains itself. */
@@ -552,6 +577,79 @@ void applyScheduled (const Scheduled &c)
 
             if (st->state != NULL)
                 st->plugin->paramChanged(st->state, c.param);
+
+            break;
+        }
+
+        /* A stage's parameter, set: the piece's own text spliced, and the
+         * running stage poked so that the new line is heard from here.
+         *
+         * Stamped, and applied inside the step at `at' like an input and a
+         * knob, for the reason they are: it is heard. A `period' that
+         * changes a window earlier on one peer than another moves that
+         * stage's next firing by a window, and from there the two are
+         * composing different pieces. The peer who typed it hears their own
+         * edit a lead late, as they hear their own knob.
+         *
+         * Both halves here and neither in tw_panel_edit, so that there is
+         * one door: a second one opening at a different moment is exactly
+         * the divergence the stamp exists to stop.
+         */
+        case TW_PARAM:
+        {
+            StagePanel target;
+
+            target.setPiece(&canvasDoc_, sched_);
+            target.setStage(c.chain, c.stage);
+
+            thPanelEdit edit;
+
+            const thPanelResult r = target.propose(c.row, c.text, edit);
+
+            if (!r.ok)
+            {
+                fprintf(stderr, "%s: %s\n", c.row.c_str(), r.why.c_str());
+                break;
+            }
+
+            if (!r.changed)
+                break;
+
+            if (c.chain < 0 || (size_t)c.chain >= canvasDoc_.chains.size())
+                break;
+
+            /* The document's numbering, which is what a splice is in; the
+               command names the stage the way every other one does, by its
+               place in the scheduler's list. */
+            const int docStage =
+                thcGenEdit::docIndex(canvasDoc_.chains[(size_t)c.chain],
+                                     c.stage);
+
+            std::string why;
+
+            if (thcGenEdit::setParam(TW_PIECE_FILE,
+                                     canvasDoc_.chains[(size_t)c.chain].name,
+                                     docStage, edit.row, edit.valueText,
+                                     why) != thcGenEdit::OK)
+            {
+                fprintf(stderr, "%s: %s\n", edit.row.c_str(), why.c_str());
+                break;
+            }
+
+            /* Described again rather than patched in place: the splice is
+               what happened, and reading it back is the only account of it
+               that cannot drift from the file. A panel is tens of rows and
+               an edit is a keystroke, so there is nothing to save by
+               guessing what changed. */
+            if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+                thcGenEdit::OK)
+                fprintf(stderr, "the piece will not read back: %s\n",
+                        why.c_str());
+
+            /* And the audible half, after the splice: a panel is described
+               from the document, so a stage poked first would be heard
+               before it was written (src/StagePanel.h). */
+            target.deliver(edit);
 
             break;
         }
@@ -945,11 +1043,6 @@ struct CanvasInput
 
 std::vector<CanvasInput> canvasInputs_;
 
-/* The piece as thcGenEdit reads it back: the authored spellings, the
-   chains and their stages in order, which is what the canvas lays out.
-   Kept because the canvas holds a pointer to it. */
-thcGenEdit::Doc canvasDoc_;
-
 /* ---- the one index a stage has across this boundary ----
  *
  * Every tw_* call that names a stage names it by its place in the
@@ -1314,6 +1407,26 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
         return 0;
     }
 
+    /* The piece as its own text describes it: the authored right-hand
+     * sides, which is what a stage's parameters are read from and spliced
+     * into (src/StagePanel.h).
+     *
+     * At the load, and so in every instance, because an edit is a command
+     * -- the worklet applies one as the mirror does and neither has drawn a
+     * panel. It used to be described in tw_canvas_show, which only the
+     * mirror calls; the worklet would then have had the sound of a piece and
+     * no idea what its file said. */
+    canvasDoc_ = thcGenEdit::Doc();
+
+    {
+        std::string why;
+
+        if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+            thcGenEdit::OK)
+            fprintf(stderr, "the piece loaded but cannot be read back: "
+                    "%s\n", why.c_str());
+    }
+
     /* In the map's order, which is by name: the .gen's own order is not
        kept anywhere, and a page drawing sliders wants some order. */
     for (const auto &k : sched_->knobs())
@@ -1340,6 +1453,38 @@ EMSCRIPTEN_KEEPALIVE const char *tw_error (int k)
         return "";
 
     return loader_->errors()[k].c_str();
+}
+
+/* The piece's text as this instance now holds it.
+ *
+ * Which is not always what it was handed: a stage's param edited through a
+ * panel is spliced into this copy (tw_panel_edit), by every peer, off the
+ * same command. So the page reads this back when it wants the edit to last
+ * -- a document revision to share and to save -- and the instances stay
+ * identical whether or not it ever does.
+ *
+ * Valid until the next call. A piece is a few kilobytes and this is asked
+ * for when somebody edits one, not per frame. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_text (void)
+{
+    static std::string text;
+
+    text.clear();
+
+    FILE *f = fopen(TW_PIECE_FILE, "rb");
+
+    if (f == NULL)
+        return "";
+
+    char buf[4096];
+    size_t got;
+
+    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+        text.append(buf, got);
+
+    fclose(f);
+
+    return text.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE const char *tw_piece_name (void)
@@ -1951,8 +2096,6 @@ EMSCRIPTEN_KEEPALIVE int tw_stage_draw (int chain, int stage, double w,
    part of the load. */
 EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
 {
-    std::string why;
-
     if (canvas_ == NULL)
     {
         canvas_ = new WebComposerCanvas();
@@ -1996,11 +2139,11 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
             });
     }
 
-    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-        thcGenEdit::OK)
+    /* Described at the load and not here: the worklet needs it too, and
+       what it is for is no longer only the drawing. An empty one is a piece
+       whose text would not read back, which is nothing to draw. */
+    if (canvasDoc_.chains.empty())
     {
-        fprintf(stderr, "the composer view cannot read the piece: %s\n",
-                why.c_str());
         canvas_->SetPiece(NULL, NULL);
         return 0;
     }
@@ -2454,6 +2597,8 @@ EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
 
 static ArgPanel argPanel_;
 static KnobPanel knobPanel_;
+static NodePanel nodePanel_;
+static StagePanel stagePanel_;
 static thPanel openPanel_;
 static std::string panelJson_;
 static std::string panelWhy_;
@@ -2492,6 +2637,24 @@ static bool buildPanel (int kind, int a, int b)
             knobPanel_.setKnobs(knobs_);
 
             return knobPanel_.build(openPanel_);
+
+        case thPanel::GEN_PARAM:
+            /* The chain and the stage, the stage in the scheduler's
+               numbering like every other tw_ call that names one -- see
+               liveOf() above for what happens to a chain with a dsp node in
+               it when the two numberings are read raw. */
+            stagePanel_.setPiece(&canvasDoc_, sched_);
+            stagePanel_.setStage(a, b);
+
+            return stagePanel_.build(openPanel_);
+
+        case thPanel::NODE_VALUE:
+            /* `a' is the box, in the numbering of the graph thinknode.cpp
+               last built -- which is the numbering everything else about
+               the node editor is in. See twnode.h. */
+            nodePanel_.setBox(twGraph(), a);
+
+            return nodePanel_.build(openPanel_);
     }
 
     return false;
@@ -2564,6 +2727,15 @@ EMSCRIPTEN_KEEPALIVE double tw_panel_value (int row)
         case thPanel::KNOB:
             knobPanel_.valueFor(openPanel_.rows[row].id, value);
             break;
+
+        /* Nothing to poll for either of these, and for the same reason:
+           what they are built from is a file. A node's graph is rebuilt
+           when its text moves and a stage's row is described from the .gen,
+           so the rebuild tw_panel_shape performs is the poll -- and a param
+           read through a knob picks the knob's number up in it. */
+        case thPanel::GEN_PARAM:
+        case thPanel::NODE_VALUE:
+            break;
         default:
             break;
     }
@@ -2628,6 +2800,23 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
 
             return 1;
         }
+
+    }
+
+    /* A node's value is not set here either, and for a plainer reason:
+     * there is nothing live to write. It is a number in a `.dsp', and what
+     * changes one is a splice into that text -- tw_edit_set_value, which
+     * hands the new file back for the page to put in the document. So the
+     * page asks this panel what the rows are and sends the edit the way it
+     * sends every other edit to a file.
+     *
+     * Kept a refusal rather than left to fall through to "no such panel",
+     * because the two are different things and only one of them is a bug. */
+    if (kind == thPanel::NODE_VALUE)
+    {
+        panelWhy_ = "a node's value is set by splicing the file";
+
+        return 0;
     }
 
     /* A knob is not set here, and the refusal says so rather than
@@ -2642,6 +2831,21 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
     if (kind == thPanel::KNOB)
     {
         panelWhy_ = "a knob is moved by a stamped command, not by an edit";
+
+        return 0;
+    }
+
+    /* And a stage's param is not set here either, for the same reason one
+     * noun along: it is heard. A `period' that changes a window earlier on
+     * one peer than another moves that stage's next firing, and from there
+     * the peers are composing different pieces -- so it goes through
+     * tw_param, which carries a transport time and is applied inside the
+     * step. A second door to the same write, opening at a different moment,
+     * is exactly the divergence the stamp exists to stop. */
+    if (kind == thPanel::GEN_PARAM)
+    {
+        panelWhy_ = "a stage's param is set by a stamped command, "
+                    "not by an edit";
 
         return 0;
     }
@@ -2822,6 +3026,42 @@ EMSCRIPTEN_KEEPALIVE double tw_speed_now (void)
  * `at' below zero is "now", as for a knob on a stopped transport, which
  * is what a solo page sends.
  */
+/* A stage's parameter, set at a transport time.
+ *
+ * `row' is the param's name and `text' is the part of its line the person
+ * touched: "4000", "ms", "@warmth", "@", a note set as notes. What it means
+ * is worked out on arrival, against the line the file has at that moment,
+ * by every peer -- which is why the whole right-hand side is not what
+ * crosses. Two peers completing the same partial against the same document
+ * write the same line; a sender that completed it first would be telling
+ * the others what their own file says.
+ *
+ * Stamped like a knob and for the same reason: a param is heard. `at' below
+ * zero is "now", which is what a solo page and a stopped transport send.
+ *
+ * The refusal goes to the log rather than back to the caller. It is the
+ * knob's arrangement: what arrives here has already been through a panel on
+ * the peer that typed it, and the peers that did not type it have nobody to
+ * tell.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
+                                    const char *row, const char *text)
+{
+    if (row == NULL || text == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.row = row;
+    c.text = text;
+
+    schedule(c);
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
                                     int kind, double x, double y, double w,
                                     double h, int button)
@@ -2844,14 +3084,23 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
 
 /* ---- a stage's parameters ----
  *
- * What the params popover shows. The canvas asks for one and says where
- * to put it; what goes in it is a form, and a form is the platform's --
- * so the page builds it out of these.
+ * Ten accessors and a marshalling loop in mirror.js, gone: what the popover
+ * shows is a panel now (src/StagePanel.cpp), opened with
+ * tw_panel_open(GEN_PARAM, chain, stage) and read like any other. They were
+ * a panel model already -- name, desc, units, knob, text, type, value, min,
+ * max, count -- flattened into C, written by hand, answering for one panel
+ * only, and derived from the domain objects a second time rather than from
+ * whatever the window derived.
  *
- * Read-only. The canvas reports rather than edits, and editing the piece
- * from it is the step after this one: on the desktop a param goes through
- * thcGenEdit into the file, and in a room the text in the editor is the
- * piece.
+ * And read-only, which is the part that has actually changed. The page can
+ * set a stage's params now, because what a typed value becomes -- the unit,
+ * the knob binding, the note names, the preset's spelling -- is one function
+ * both shells call rather than a rule welded to a Gtk::SpinButton.
+ *
+ * Four of them stay, for a reader that is not a popover: the sequencer's
+ * grid finds `rows' by its index in the plugin's own order, because the
+ * index is what a `stageparam' command carries, and wants the value the
+ * stage is playing rather than the text the file holds.
  */
 
 static const thcPlugin::ParamInfo *paramAt (int chain, int stage, int p)
@@ -2874,48 +3123,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_name (int chain, int stage,
     const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
 
     return info != NULL ? info->name.c_str() : "";
-}
-
-EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_desc (int chain, int stage,
-                                                      int p)
-{
-    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
-
-    return info != NULL ? info->desc.c_str() : "";
-}
-
-/* The unit the plugin declares: "" for a plain number, "s" for a duration
-   -- which the store keeps in seconds and a .gen file may have written in
-   beats (thcParamStore::setBeats). */
-EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_units (int chain, int stage,
-                                                       int p)
-{
-    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
-
-    return info != NULL ? info->units.c_str() : "";
-}
-
-/* thcParamType: a float, an int, a note, a note set, a string... which is
-   what decides whether the popover shows a number or a word. */
-EMSCRIPTEN_KEEPALIVE int tw_stage_param_type (int chain, int stage, int p)
-{
-    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
-
-    return info != NULL ? (int)info->type : -1;
-}
-
-EMSCRIPTEN_KEEPALIVE double tw_stage_param_min (int chain, int stage, int p)
-{
-    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
-
-    return info != NULL ? info->min : 0.0;
-}
-
-EMSCRIPTEN_KEEPALIVE double tw_stage_param_max (int chain, int stage, int p)
-{
-    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
-
-    return info != NULL ? info->max : 0.0;
 }
 
 /* The value as the stage is playing it now -- read through the knob when
@@ -2945,23 +3152,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_text (int chain, int stage,
     const char *text = s->params.getString(p);
 
     return text != NULL ? text : "";
-}
-
-/* The piece knob this param is read through, or "": `prob = @density' in
-   the .gen file. Worth showing, because a number that moves on its own is
-   otherwise a mystery. */
-EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_knob (int chain, int stage,
-                                                      int p)
-{
-    thcStage *s = stageAt(chain, stage);
-
-    if (s == NULL || s->plugin == NULL || p < 0 ||
-        p >= s->plugin->paramCount())
-        return "";
-
-    const thArg *knob = s->params.knobBinding(p);
-
-    return knob != NULL ? knob->name().c_str() : "";
 }
 
 /* Whether a stage's picture is a control -- its module exports

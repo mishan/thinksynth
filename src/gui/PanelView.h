@@ -94,8 +94,17 @@ protected:
         Gtk::Label *readout;                     /* READONLY */
         Gtk::CheckButton *toggle;                /* TOGGLE */
 
+        /* The two menus that sit beside a value rather than being one: the
+           unit a number is written in and the knob it is read through. Each
+           is present only where the row offers it, and each reports its own
+           choice -- the provider is what composes a line out of the three
+           (src/StagePanel.h). */
+        Gtk::DropDown *unit;
+        Gtk::DropDown *bind;
+
         Bound (void)
-            : choice(NULL), entry(NULL), readout(NULL), toggle(NULL) {}
+            : choice(NULL), entry(NULL), readout(NULL), toggle(NULL),
+              unit(NULL), bind(NULL) {}
     };
 
     void clear (void);
@@ -112,6 +121,10 @@ protected:
     Gtk::Widget *makeRead   (size_t at);
     Gtk::Widget *makeToggle (size_t at);
 
+    /* The menus beside the control, where the row asks for them. */
+    Gtk::Widget *makeUnit (size_t at);
+    Gtk::Widget *makeBind (size_t at);
+
     /* These rows, wrapped into however many columns the width allows. */
     Gtk::FlowBox *makeFlow (const std::vector<size_t> &rows);
 
@@ -121,6 +134,8 @@ protected:
     void onChoice (size_t at);
     void onEntry (size_t at);
     void onToggle (size_t at);
+    void onUnit (size_t at);
+    void onBind (size_t at);
     void onAction (string id);
 
     thPanel panel_;

@@ -20,8 +20,8 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece', `transport', `begin',
- * `at', `knob', `paneledit', `input', `midion', `midioff', `on', `off' or
- * `alloff' message, turned into the tw_ call that applies it. It used to live in worklet.js, and
+ * `at', `knob', `paneledit', `stageparam', `param', `input', `midion', `midioff', `on',
+ * `off' or `alloff' message, turned into the tw_ call that applies it. It used to live in worklet.js, and
  * moved here when there were two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
@@ -194,6 +194,25 @@ export function apply (M, m, host = NOWHERE)
                under it turns out to ignore the note it is sent. Stamped
                like a knob, because a param is read at a tick. */
             M._tw_stage_param(m.at, m.chain, m.stage, m.param, m.value);
+            return true;
+
+        case 'param':
+            /* A stage's parameter, at a transport time.
+             *
+             * Stamped, unlike `paneledit' above, and the difference is what
+             * the two reach. A chanarg is what an instrument is, and setting
+             * it a window early or late is the same instrument; a composer's
+             * param is heard -- a `period' that changes a window earlier on
+             * one peer moves that stage's next firing, and from there the
+             * peers are composing different pieces.
+             *
+             * `row' is the param's name and `text' is the part of the line
+             * the person touched. What it completes to is worked out on
+             * arrival against the file this instance holds, by every
+             * instance (src/StagePanel.h). */
+            M.ccall('tw_param', null,
+                    ['number', 'number', 'number', 'string', 'string'],
+                    [m.at ?? -1, m.chain, m.stage, m.row, m.text]);
             return true;
 
         case 'input':
