@@ -6288,6 +6288,53 @@ static void checkHammer (const string &pluginPath)
                        "corner of mass, felt and exponent", detail);
     }
 
+    /* ---- idle until the first blow ---- */
+
+    /* `strike' held at 0 and the string rung through `in' instead: the
+       hammer is never launched, so it must never touch the string -- no
+       force, and the same sound as with no felt on it at all. */
+    {
+        vector< vector<float> > got[2];
+        static const float felts[] = { 250, 0 };
+        bool bad = false;
+
+        for (size_t a = 0; a < 2 && !bad; a++)
+        {
+            vector<NodeSpec> spec = hammerGraph(261.63f, 3, 1, 1.7f, felts[a],
+                                                2.5f, 0.125f);
+            vector<Watch> watch;
+            string why;
+            Watch w0 = { "string", "out" };
+            Watch w1 = { "string", "force" };
+            Wire in = { "in", "src", "out" };
+
+            for (size_t i = 0; i < spec[1].values.size(); i++)
+                if (string(spec[1].values[i].arg) == "strike")
+                    spec[1].values[i].value = 0;
+
+            spec[1].wires.push_back(in);
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath, spec, watch, 256, (unsigned)(rate / 10),
+                        got[a], why))
+            {
+                fail("filt::pianostring renders with a hammer", why);
+                bad = true;
+            }
+        }
+
+        if (!bad)
+            okOrFail(peak(got[0][1], 0) == 0 && peak(got[0][0], 0) > 0 &&
+                     got[0][0] == got[1][0],
+                     "filt::pianostring: the hammer is idle until `strike' "
+                     "first rises",
+                     "peak force " + num(peak(got[0][1], 0)) +
+                     (got[0][0] == got[1][0] ? ""
+                                             : ", and the felt changes the "
+                                               "sound"));
+    }
+
     windowsAgree(pluginPath,
                  hammerGraph(110, 3, 0.8f, 0.5f, 250, 2.5f, 0.125f),
                  "string", "out",

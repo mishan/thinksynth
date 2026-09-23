@@ -1075,6 +1075,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                                   : thClampArg((*in_prompt)[0], DECAY_MIN,
                                                DECAY_MAX);
 
+    /* A fresh hammer is at rest, done with a blow it never struck, until
+       `strike' first rises. */
+    if (state[S_FREQ] == 0)
+        state[S_HTIME] = (float)ceil(HAMMER_TIME * rate);
+
     /* A fresh state has freq 0, which no bounded freq equals. */
     if ((float)freq != state[S_FREQ] || (float)b != state[S_B] ||
         (float)decay != state[S_DECAY] || (float)hidecay != state[S_HIDECAY] ||
