@@ -59,7 +59,9 @@
    with a fallback on each, so it stands alone; this is the page saying
    which of its own colors each one is. Outside the palette blocks on
    purpose -- it maps names to names, and the names on the right are what
-   change with the scheme. */
+   change with the scheme. The held color is the exception: it is
+   AccentColor, as the sliders are, so an installed page takes the
+   desktop's accent for both. */
 :root
 {
     --pane-fg:    var(--fg);
@@ -67,7 +69,7 @@
     --pane-dim:   var(--dim);
     --pane-panel: var(--panel);
     --pane-line:  var(--line);
-    --pane-held:  var(--held);
+    --pane-held:  AccentColor;
 }
 
 @media (prefers-color-scheme: dark)
