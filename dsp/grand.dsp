@@ -1,6 +1,6 @@
-# Grand -- a hammer on one stiff string.
+# Grand -- a hammer on a piano's unison strings.
 #
-# `filt::pianostring' is the string: a waveguide whose partials sit at
+# `filt::pianostring' is the strings: waveguides whose partials sit at
 # n f0 sqrt(1 + b n^2) rather than on the harmonic series, and whose
 # fundamental and upper partials each decay in their own time. The
 # stretch is what separates a piano from a harpsichord or a dulcimer, and
@@ -24,6 +24,26 @@
 #   motion first, so a bass note's top dies in a second or two while its
 #   fundamental rings on. `Tone' is that time; above it the high partials
 #   last as long as the low ones and the note is glassy.
+#
+# - `strings': one from A0 to F#1, where each note is a single heavy
+#   wound string; two to C3; three above.
+#
+# - `prompt', how fast the strings moving together lose their energy into
+#   the bridge: `Prompt' at middle C, twice as long two octaves down.
+#
+# THE UNISON IS WHERE THE PIANO IS. The strings of a note are tuned
+# `Unison' cents apart and coupled at the bridge. The hammer sets them
+# moving together, which the bridge drains in `prompt'; the mistuning
+# drifts them out of phase, which the bridge barely feels, and that part
+# rings on at the strings' own `decay'. The loud, fast-falling start and
+# the long quiet tail of a piano note -- and the slow beating inside it --
+# come from that and nothing else. Wide, the note is a honky-tonk.
+#
+# In the bass a cent beats too slowly to matter, and the tail comes from
+# the unison not being symmetric: the hammer meets its strings a little
+# unevenly and the bridge rocks under strings pulling against each other.
+# `Unison Tilt' is how much, and it is what keeps a note ringing even
+# with `Unison' at 0.
 #
 # THE HAMMER is a pulse, not a burst of noise. Felt on a string stays in
 # contact for about 4 ms in the bass and under 1 ms at the top, and a
@@ -50,10 +70,8 @@
 # `play' IS THE STRING'S. A voice ends when its string is quiet, not
 # when its key comes up, so there is no amp envelope at all.
 #
-# One string per note, and no soundboard: a real piano's two and three
-# unison strings, their beating and their two-stage decay, and the body
-# they ring through, are not here yet. What is here is the tuning and
-# the decay of one string, done right.
+# No soundboard yet: the body the strings ring through, and the other
+# strings ringing in sympathy, are not here.
 
 name "Grand";
 author "Misha Nasledov";
@@ -98,6 +116,25 @@ category "Keys";
     @felt.min = 0;
     @felt.max = 1;
     @felt.label = "Felt Noise";
+
+    @unison = 1;
+    @unison.widget = 1;
+    @unison.min = 0;
+    @unison.max = 20;
+    @unison.label = "Unison (cents)";
+
+    # Seconds, as a plain number.
+    @prompt = 3;
+    @prompt.widget = 1;
+    @prompt.min = 0.1;
+    @prompt.max = 10;
+    @prompt.label = "Prompt (s)";
+
+    @tilt = 0.5;
+    @tilt.widget = 1;
+    @tilt.min = 0;
+    @tilt.max = 1;
+    @tilt.label = "Unison Tilt";
 
     @damper = 0.12;
     @damper.widget = 1;
@@ -176,6 +213,11 @@ node string filt::pianostring {
     hidecay = @tone;
     damper = @damper;
     gate = max(ionode->trigger, clamp((ionode->note - 89.5) * 100, 0, 1));
+    strings = 1 + (clamp((ionode->note - 30.5) * 100, 0, 1) +
+                   clamp((ionode->note - 48.5) * 100, 0, 1));
+    unison = @unison;
+    prompt = @prompt * exp2((60 - ionode->note) / 24);
+    imbalance = @tilt;
 };
 
 # The piano as the player hears it: bass on the left.

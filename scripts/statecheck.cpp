@@ -5800,6 +5800,198 @@ static void checkPianostring (const string &pluginPath)
                  "filt::pianostring: and the first-order cascade, damped");
 }
 
+/* The same string with `strings', `unison' and `prompt' set. */
+static vector<NodeSpec> unisonGraph (float freq, float b, float decay,
+                                     float strings, float unison,
+                                     float prompt)
+{
+    vector<NodeSpec> spec = pianoGraph(freq, b, decay, 0, 0, 1);
+    Value n = { "strings", strings };
+    Value u = { "unison", unison };
+    Value p = { "prompt", prompt };
+
+    spec[1].values.push_back(n);
+    spec[1].values.push_back(u);
+    spec[1].values.push_back(p);
+
+    return spec;
+}
+
+/* The fundamental's level, in decibels, over `n' samples from `from'. */
+static double levelAt (const vector<float> &v, double hz, double from,
+                       double n)
+{
+    return 20 * log10(windowedMag(v, (size_t)(from * TH_DEFAULT_SAMPLES),
+                                  (size_t)(n * TH_DEFAULT_SAMPLES), hz) +
+                      1e-30);
+}
+
+static void checkPianoUnison (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- each string at its own pitch ---- */
+
+    /* Uncoupled and fifty cents apart, so a one-second window resolves
+       them: 440 Hz's neighbors are 13 Hz away. Two strings sit either side
+       of the note and three on it and either side. */
+    for (int strings = 2; strings <= 3; strings++)
+    {
+        const double f0 = 440;
+        const size_t from = (size_t)(rate / 20), n = (size_t)rate;
+        vector<float> out;
+        string why, detail;
+        bool good = true;
+
+        if (!render1(pluginPath, unisonGraph((float)f0, 0, 60, strings, 50, 0),
+                     "string", "out", 256, (unsigned)(from + n), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        for (int k = 0; k < strings && good; k++)
+        {
+            const double want = f0 * pow(2.0, (k - 0.5 * (strings - 1)) *
+                                              50 / 1200);
+            const double got = peakNear(out, from, n, want, 15);
+
+            if (fabs(cents(got, want)) > 0.5)
+            {
+                good = false;
+                detail = "string " + num(k) + " at " + num(got) + " Hz for " +
+                         num(want);
+            }
+        }
+
+        okOrFail(good, "filt::pianostring: " + num(strings) + " strings "
+                       "`unison' cents apart each ring at their own pitch",
+                 detail);
+    }
+
+    /* ---- the bridge takes the in-phase motion in `prompt' ---- */
+
+    /* In tune and struck together, the strings only ever move together,
+       so they lose to the bridge and to their own loss at once:
+       1 / (1/10 + 1/0.5) is 0.476 s. */
+    {
+        const double f0 = 262;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, unisonGraph((float)f0, 0, 10, 3, 0, 0.5f),
+                     "string", "out", 256, (unsigned)(rate / 2), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        const double fell = levelAt(out, f0, 0.25, 0.1) -
+                            levelAt(out, f0, 0.05, 0.1);
+        const double t60 = -60 * 0.2 / fell;
+        const double want = 1 / (1 / 10.0 + 1 / 0.5);
+
+        okOrFail(fabs(t60 / want - 1) < 0.1,
+                 "filt::pianostring: three strings in tune fall 60 dB in "
+                 "`prompt' and `decay' together",
+                 "it took " + num(t60) + " s for " + num(want));
+    }
+
+    /* ---- an uneven blow leaves an aftersound in tune ---- */
+
+    /* Two strings struck and heard 1.2 and 0.8: the in-phase part falls
+       in `prompt' and `decay' together as above, and the 0.2 against it
+       is the bridge-free motion, heard at 0.2 of that and falling in
+       `decay' alone -- 4 dB a second for fifteen, exactly, since in tune
+       it is a mode of its own. */
+    {
+        const double f0 = 262;
+        vector<NodeSpec> spec = unisonGraph((float)f0, 0, 15, 2, 0, 0.5f);
+        Value im = { "imbalance", 0.2f };
+        vector<float> out;
+        string why;
+
+        spec[1].values.push_back(im);
+
+        if (!render1(pluginPath, spec, "string", "out", 256,
+                     (unsigned)(rate * 6), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        const double early = (levelAt(out, f0, 0.25, 0.1) -
+                              levelAt(out, f0, 0.05, 0.1)) / 0.2;
+        const double late = (levelAt(out, f0, 4, 1) -
+                             levelAt(out, f0, 2, 1)) / 2;
+
+        okOrFail(early < -40 && fabs(late / -4 - 1) < 0.1,
+                 "filt::pianostring: a tilted unison in tune "
+                 "leaves motion the bridge does not take, falling in "
+                 "`decay'",
+                 "early " + num(early) + " dB/s, late " + num(late) +
+                 " dB/s for -4");
+    }
+
+    /* ---- and the mistuning leaves an aftersound ---- */
+
+    /* The same three strings a cent and a half apart, with `prompt' at a
+       second and `decay' at fifteen. The prompt sound falls at about
+       60 dB a second. What is left is mostly the strings moving against
+       each other, which the bridge does not take, so it falls at least
+       five times slower -- but not as slowly as `decay''s 4 dB a second
+       alone, since a mistuned mode is never wholly out of phase and keeps
+       leaking into the bridge (about 10 dB a second here). The late rate
+       is over two-second windows three seconds apart, which average the
+       beating out. In tune, the same graph has no aftersound at all --
+       the control. */
+    {
+        static const float unisons[] = { 1.5f, 0 };
+        const double f0 = 262;
+        double late[2] = { 0, 0 }, early[2] = { 0, 0 };
+        bool bad = false;
+
+        for (size_t u = 0; u < 2 && !bad; u++)
+        {
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         unisonGraph((float)f0, 0, 15, 3, unisons[u], 1),
+                         "string", "out", 256, (unsigned)(rate * 8), out,
+                         why))
+            {
+                fail("filt::pianostring renders", why);
+                bad = true;
+                break;
+            }
+
+            early[u] = (levelAt(out, f0, 0.3, 0.1) -
+                        levelAt(out, f0, 0.05, 0.1)) / 0.25;
+            late[u] = (levelAt(out, f0, 5, 2) - levelAt(out, f0, 2, 2)) / 3;
+        }
+
+        if (!bad)
+        {
+            okOrFail(early[0] < -20 && late[0] > early[0] / 5 &&
+                     late[0] < -3.5,
+                     "filt::pianostring: mistuned unison strings fall fast "
+                     "and then slowly: the two-stage decay",
+                     "early " + num(early[0]) + " dB/s, late " +
+                     num(late[0]) + " dB/s");
+            okOrFail(late[1] < -30,
+                     "filt::pianostring: and in tune they only fall fast",
+                     "late " + num(late[1]) + " dB/s");
+        }
+    }
+
+    windowsAgree(pluginPath,
+                 unisonGraph(110, (float)pianoB(45), 10, 3, 1.5f, 1),
+                 "string", "out",
+                 "filt::pianostring: three coupled strings the same at one "
+                 "sample a window and at five hundred");
+}
+
 /* ---- filt::vowel -------------------------------------------------------- */
 
 /* The gain of a sine through the formants, RMS out over RMS in over a
@@ -6486,6 +6678,7 @@ int main (int argc, char **argv)
     checkChorus(pluginPath);
     checkComb(pluginPath);
     checkPianostring(pluginPath);
+    checkPianoUnison(pluginPath);
     checkPitchshift(pluginPath);
     checkFdn(pluginPath);
     checkFmop(pluginPath);

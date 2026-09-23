@@ -76,9 +76,45 @@
  * ionode->trigger' is the pedal too; a key with no damper is a graph that
  * writes `gate = 1'.
  *
- * `play' is the string's own energy: 1 for PLAY_HOLD after the note starts
+ * UNISON. Most piano notes have two or three strings, tuned a cent or two
+ * apart and struck together. `strings' loops share one dispersion design
+ * and each has its own line, Thiran and loss filter, detuned `unison'
+ * cents from its neighbor. They are coupled where they meet the bridge:
+ *
+ *     v = beta * sum(x_k)            y_k = in + x_k - v
+ *
+ * the bridge moving with what arrives from all of them and taking it out
+ * of each. The scattering matrix I - beta 1 1^T has eigenvalue 1 - N beta
+ * for the strings moving together and 1 for every way of moving against
+ * each other, so it is passive for beta up to 2 / N, and only the
+ * in-phase motion drives the bridge. `prompt' is that motion's T60.
+ *
+ * A hammer strikes the strings in phase, so the note starts all
+ * in-phase motion and falls fast in `prompt'; the mistuning turns it,
+ * a beat at a time, into motion against the bridge, which falls only in
+ * `decay'. That is the two-stage decay of a piano note -- the prompt
+ * sound and the aftersound (Weinreich, "Coupled piano strings", JASA
+ * 1977) -- and the beating in it, and neither is written anywhere here:
+ * both follow from the coupling. How loud the aftersound is depends on
+ * the mistuning against the coupling.
+ *
+ * In the bass a cent is a beat every half minute, too slow to turn
+ * anything, and there the aftersound comes from the unison not being
+ * symmetric. The hammer's face meets the strings a little unevenly, so
+ * part of the blow goes straight into motion against the bridge; and the
+ * bridge rocks under strings pulling against each other, so part of that
+ * motion is heard. Both are a tilt across the unison, and `imbalance' is
+ * its size: string k is struck, and heard, 1 + imbalance c_k, with c_k
+ * running -1 to 1 across the strings. The mean blow is unchanged, and in
+ * tune the difference is a mode the bridge does not damp, heard at
+ * imbalance^2 of the note and falling in `decay'.
+ *
+ * `out' is the strings' mean, weighted by the same tilt; at one string it
+ * is the string.
+ *
+ * `play' is the strings' own energy: 1 for PLAY_HOLD after the note starts
  * and while the output's peak follower is above PLAY_FLOOR. A voice ends
- * when its string is quiet, not when its key comes up.
+ * when its strings are quiet, not when its key comes up.
  */
 
 #include <stdio.h>
@@ -130,6 +166,10 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define DECAY_DEFAULT 10.0f
 #define DAMPER_DEFAULT 0.15f
 
+/* The most strings a note may have, and the widest unison in cents. */
+#define STRINGS_MAX 3
+#define UNISON_MAX 100.0f
+
 /* How long the damper takes to land, in seconds. */
 #define DAMPER_FADE 0.01
 
@@ -166,18 +206,30 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define FLUSH 1e-30
 
 enum {IN_ARG, IN_FREQ, IN_B, IN_DECAY, IN_HIDECAY, IN_DAMPER, IN_GATE,
-      OUT_ARG, OUT_PLAY, INOUT_BUFFER, INOUT_STATE};
+      IN_STRINGS, IN_UNISON, IN_PROMPT, IN_IMBALANCE, OUT_ARG, OUT_PLAY, INOUT_BUFFER,
+      INOUT_STATE};
 
 int args[INOUT_STATE + 1];
 
+/* Where each string's own state lives, from the start of its block. */
+enum {
+    P_THIRAN,               /* the Thiran's state */
+    P_LOSS,                 /* the loss filter's last output */
+    P_LINE,                 /* the line's integer delay */
+    P_ETA,                  /* the Thiran's coefficient */
+    P_G,                    /* the loss filter's gain */
+    P_POLE,                 /* and pole */
+    P_Z1,                   /* DISP_MAX first states */
+    P_Z2 = P_Z1 + DISP_MAX, /* DISP_MAX second states */
+    P_COUNT = P_Z2 + DISP_MAX
+};
+
 /* Where each piece of the state lives, in INOUT_STATE. */
 enum {
-    S_POS,                  /* the line's write position */
+    S_POS,                  /* the lines' write position */
     S_AGE,                  /* samples since the note began, saturating */
     S_PEAK,                 /* the output's peak follower */
     S_DAMP,                 /* the damper, 0 off to 1 down */
-    S_THIRAN,               /* the Thiran's state */
-    S_LOSS,                 /* the loss filter's last output */
     S_DCX,                  /* the high-pass's last input */
     S_DCY1,                 /* its first stage's last output */
     S_DCY2,                 /* and its second's */
@@ -186,25 +238,26 @@ enum {
     S_DECAY,
     S_HIDECAY,
     S_DAMPER,
+    S_STRINGS,
+    S_UNISON,
+    S_PROMPT,
     S_KIND,                 /* 0 no dispersion, 1 first-order, 2 second */
     S_SECTIONS,             /* how many sections */
-    S_LINE,                 /* the line's integer delay */
-    S_ETA,                  /* the Thiran's coefficient */
-    S_G,                    /* the loss filter's gain */
-    S_POLE,                 /* and pole */
+    S_BETA,                 /* the bridge coupling */
     S_DGAIN,                /* the damper's per-trip gain */
     S_C1,                   /* DISP_MAX first coefficients */
     S_C2 = S_C1 + DISP_MAX, /* DISP_MAX second coefficients */
-    S_Z1 = S_C2 + DISP_MAX, /* DISP_MAX first states */
-    S_Z2 = S_Z1 + DISP_MAX, /* DISP_MAX second states */
-    S_COUNT = S_Z2 + DISP_MAX
+    S_STRING = S_C2 + DISP_MAX, /* STRINGS_MAX blocks of P_COUNT */
+    S_COUNT = S_STRING + STRINGS_MAX * P_COUNT
 };
 
 /* Everything the design produces, in double until it is stored. */
 struct Design {
-    int kind, sections, line;
-    double eta, g, pole, dgain;
+    int kind, sections, strings;
+    double g, pole, beta, dgain;
     double c1[DISP_MAX], c2[DISP_MAX];
+    int line[STRINGS_MAX];
+    double eta[STRINGS_MAX], sg[STRINGS_MAX], spole[STRINGS_MAX];
 };
 
 void module_cleanup (thPlugin *plugin)
@@ -268,15 +321,43 @@ int module_init (thPlugin *plugin)
                        "down");
     plugin->setArgRange(args[IN_GATE], 0, 2);
 
+    args[IN_STRINGS] = plugin->regArg("strings", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_STRINGS],
+                       "How many unison strings; read once per window");
+    plugin->setArgRange(args[IN_STRINGS], 1, STRINGS_MAX);
+    plugin->setArgStep(args[IN_STRINGS], 1);
+    plugin->setArgDefault(args[IN_STRINGS], 1);
+
+    args[IN_UNISON] = plugin->regArg("unison", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_UNISON],
+                       "How far apart neighboring strings are tuned");
+    plugin->setArgUnits(args[IN_UNISON], "cents");
+    plugin->setArgRange(args[IN_UNISON], 0, UNISON_MAX);
+
+    args[IN_PROMPT] = plugin->regArg("prompt", thPlugin::ARG_IN);
+    /* The in-phase motion's own loss, on top of `decay'. */
+    plugin->setArgDesc(args[IN_PROMPT],
+                       "How long the strings moving together take to fall "
+                       "sixty decibels into the bridge; 0 is uncoupled");
+    plugin->setArgUnits(args[IN_PROMPT], "seconds");
+    plugin->setArgRange(args[IN_PROMPT], DECAY_MIN, DECAY_MAX);
+
+    args[IN_IMBALANCE] = plugin->regArg("imbalance", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_IMBALANCE],
+                       "The tilt across the unison: the outer strings are "
+                       "struck, and heard, 1 plus and minus this");
+    plugin->setArgRange(args[IN_IMBALANCE], 0, 1);
+
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     /* No range: a string driven at its own pitch builds up past its
        input. */
-    plugin->setArgDesc(args[OUT_ARG], "The string");
+    plugin->setArgDesc(args[OUT_ARG],
+                       "The strings' mean, tilted by `imbalance'");
     plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_PLAY],
-                       "1 while the string is still sounding");
+                       "1 while the strings are still sounding");
     plugin->setArgRange(args[OUT_PLAY], 0, 1);
 
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
@@ -349,8 +430,8 @@ static double excessTurns (double wm, double f0, double b, double rate)
 }
 
 /* The loss filter from the two decays. */
-static void designLoss (Design *d, double f0, double b, double decay,
-                        double hidecay, double rate)
+static void designLoss (double *g, double *pole, double f0, double b,
+                        double decay, double hidecay, double rate)
 {
     const double w1 = 2.0 * M_PI * partialHz(1, f0, b) / rate;
     double fh = LOSS_HI_HZ, wh, g1, gh, ratio, cs, disc, a;
@@ -359,8 +440,8 @@ static void designLoss (Design *d, double f0, double b, double decay,
         fh = 2.0 * partialHz(1, f0, b);
 
     g1 = pow(10.0, -3.0 * targetDelay(w1, f0, b, rate) / (rate * decay));
-    d->g = g1;
-    d->pole = 0;
+    *g = g1;
+    *pole = 0;
 
     if (fh >= 0.45 * rate || hidecay >= decay)
         return;
@@ -389,11 +470,11 @@ static void designLoss (Design *d, double f0, double b, double decay,
     if (a > 0)
         a = 0;
 
-    d->pole = a;
-    d->g = g1 * sqrt(1.0 + 2.0 * a * cos(w1) + a * a) / (1.0 + a);
+    *pole = a;
+    *g = g1 * sqrt(1.0 + 2.0 * a * cos(w1) + a * a) / (1.0 + a);
 
-    if (d->g > 0.999999)
-        d->g = 0.999999;
+    if (*g > 0.999999)
+        *g = 0.999999;
 }
 
 /* The second-order staircase. Returns how many sections it placed. */
@@ -468,10 +549,11 @@ static int designSecond (Design *d, double f0, double b, double rate)
     return n;
 }
 
-/* The loop's lag at w from everything but the line and the Thiran. */
-static double filterLag (const Design *d, double w)
+/* The loop's lag at w from everything but the line and the Thiran, with
+   a loss filter whose pole is `pole'. */
+static double filterLag (const Design *d, double pole, double w)
 {
-    double lag = lagLoss(d->pole, w);
+    double lag = lagLoss(pole, w);
     int k;
 
     if (d->kind == 1)
@@ -547,71 +629,33 @@ static double designFirst (const Design *d, int m, double f0, double b,
     return 0.5 * (lo + hi);
 }
 
-/* The whole loop for one note. `freq' is the first partial, so the f0 in
-   the formula is a little under it. */
-static void design (Design *d, double freq, double b, double decay,
-                    double hidecay, double damper, double rate)
+/* The delay line and the Thiran that tune one string to f0, given the
+   dispersion already designed and a loss filter with pole `pole'. */
+static void designLine (const Design *d, double pole, double f0, double b,
+                        double rate, int *line, double *eta, double *total)
 {
-    const double f0 = freq / sqrt(1.0 + b);
-    const double w1 = 2.0 * M_PI * freq / rate;
-    double total, want, frac, lo, hi;
+    const double w1 = 2.0 * M_PI * partialHz(1, f0, b) / rate;
+    double lo = THIRAN_MIN, hi = THIRAN_MAX, want, frac;
     int i;
 
-    designLoss(d, f0, b, decay, hidecay, rate);
+    *total = (2.0 * M_PI - filterLag(d, pole, w1)) / w1;
 
-    d->kind = 0;
-    d->sections = 0;
+    if (*total < LINE_MIN)
+        *total = LINE_MIN;
 
-    if (b > 0)
-    {
-        d->sections = designSecond(d, f0, b, rate);
-
-        if (d->sections > 0)
-            d->kind = 2;
-        else
-        {
-            /* Fewer sections until the line has room. */
-            int m;
-
-            for (m = DISP_FO; m > 0; m--)
-            {
-                d->kind = 1;
-                d->sections = m;
-                d->c1[0] = designFirst(d, m, f0, b, rate);
-
-                if ((2.0 * M_PI - filterLag(d, w1)) / w1 >= LINE_MIN + 0.5)
-                    break;
-            }
-
-            if (m == 0)
-            {
-                d->kind = 0;
-                d->sections = 0;
-            }
-        }
-    }
-
-    total = (2.0 * M_PI - filterLag(d, w1)) / w1;
-
-    if (total < LINE_MIN)
-        total = LINE_MIN;
-
-    d->line = (int)floor(total - 0.5);
+    *line = (int)floor(*total - 0.5);
 
     /* The fraction against the Thiran's own phase at the fundamental. Near
        the top of the range that phase is far from the fraction's, and the
        lag wanted can be more than THIRAN_MAX gives; a sample more line
        takes a turn of the fundamental off it. */
-    want = (total - d->line) * w1;
+    want = (*total - *line) * w1;
 
     if (want > lagFirst((1.0 - THIRAN_MAX) / (1.0 + THIRAN_MAX), w1))
     {
-        d->line++;
+        (*line)++;
         want -= w1;
     }
-
-    lo = THIRAN_MIN;
-    hi = THIRAN_MAX;
 
     for (i = 0; i < 50; i++)
     {
@@ -624,12 +668,88 @@ static void design (Design *d, double freq, double b, double decay,
     }
 
     frac = 0.5 * (lo + hi);
-    d->eta = (1.0 - frac) / (1.0 + frac);
+    *eta = (1.0 - frac) / (1.0 + frac);
+}
+
+/* The whole loop for one note. The dispersion is designed once, at the
+   note's own pitch, and shared: a cent's detune moves the target by less
+   than the fit's own error. Each string gets its own loss filter and its
+   own line. `freq' is the first partial, so the f0 in the formula is a
+   little under it. */
+static void design (Design *d, double freq, double b, double decay,
+                    double hidecay, double damper, int strings,
+                    double unison, double prompt, double rate)
+{
+    const double f0 = freq / sqrt(1.0 + b);
+    const double w1 = 2.0 * M_PI * freq / rate;
+    double total;
+    int k;
+
+    designLoss(&d->g, &d->pole, f0, b, decay, hidecay, rate);
+
+    d->kind = 0;
+    d->sections = 0;
+    d->strings = strings;
+
+    if (b > 0)
+    {
+        d->sections = designSecond(d, f0, b, rate);
+
+        if (d->sections > 0)
+            d->kind = 2;
+        else
+        {
+            /* Fewer sections until the line has room. The widest unison
+               makes the outer strings 6% shorter, which the half sample
+               over LINE_MIN covers. */
+            int m;
+
+            for (m = DISP_FO; m > 0; m--)
+            {
+                d->kind = 1;
+                d->sections = m;
+                d->c1[0] = designFirst(d, m, f0, b, rate);
+
+                if ((2.0 * M_PI - filterLag(d, d->pole, w1)) / w1 >=
+                    LINE_MIN + 0.5)
+                    break;
+            }
+
+            if (m == 0)
+            {
+                d->kind = 0;
+                d->sections = 0;
+            }
+        }
+    }
+
+    /* Neighbors `unison' cents apart, centered on the note. */
+    for (k = 0; k < strings; k++)
+    {
+        const double cents = (k - 0.5 * (strings - 1)) * unison;
+        const double fk = f0 * pow(2.0, cents / 1200.0);
+        double tk;
+
+        designLoss(&d->sg[k], &d->spole[k], fk, b, decay, hidecay, rate);
+        designLine(d, d->spole[k], fk, b, rate, &d->line[k], &d->eta[k],
+                   &tk);
+    }
+
+    total = (2.0 * M_PI - filterLag(d, d->pole, w1)) / w1;
 
     /* Per trip, and a trip at the fundamental is the loop's group delay
        there: the period and what the dispersion filter adds to it. */
     d->dgain = pow(10.0, -3.0 * targetDelay(w1, f0, b, rate) /
                          (rate * damper));
+
+    /* The in-phase motion's per-trip gain is 1 - N beta. One string has
+       no motion against the bridge to keep, so it is not coupled: its
+       loss to the bridge is in `decay'. */
+    d->beta = 0;
+
+    if (strings > 1 && prompt > 0)
+        d->beta = (1.0 - pow(10.0, -3.0 * total / (rate * prompt))) /
+                  strings;
 }
 
 static void store (float *state, const Design *d)
@@ -638,16 +758,23 @@ static void store (float *state, const Design *d)
 
     state[S_KIND] = (float)d->kind;
     state[S_SECTIONS] = (float)d->sections;
-    state[S_LINE] = (float)d->line;
-    state[S_ETA] = (float)d->eta;
-    state[S_G] = (float)d->g;
-    state[S_POLE] = (float)d->pole;
+    state[S_BETA] = (float)d->beta;
     state[S_DGAIN] = (float)d->dgain;
 
     for (k = 0; k < DISP_MAX; k++)
     {
         state[S_C1 + k] = (float)(d->kind == 1 ? d->c1[0] : d->c1[k]);
         state[S_C2 + k] = (float)d->c2[k];
+    }
+
+    for (k = 0; k < d->strings; k++)
+    {
+        float *str = state + S_STRING + k * P_COUNT;
+
+        str[P_LINE] = (float)d->line[k];
+        str[P_ETA] = (float)d->eta[k];
+        str[P_G] = (float)d->sg[k];
+        str[P_POLE] = (float)d->spole[k];
     }
 }
 
@@ -660,7 +787,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
     thArg *in_arg, *in_freq, *in_b, *in_decay, *in_hidecay, *in_damper;
-    thArg *in_gate, *out_arg, *out_play, *inout_buffer, *inout_state;
+    thArg *in_gate, *in_strings, *in_unison, *in_prompt, *in_imbalance;
+    thArg *out_arg, *out_play, *inout_buffer, *inout_state;
     float *out, *play, *buffer, *state;
     const unsigned int len = (unsigned int)(samples / FREQ_MIN) + 8;
     const double rate = samples;
@@ -668,14 +796,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const double release = exp(-1.0 / (PLAY_RELEASE * rate));
     const double hold = PLAY_HOLD * rate;
     const double dcpole = exp(-2.0 * M_PI * DC_HZ / rate);
-    double freq, b, decay, hidecay, damper;
+    double freq, b, decay, hidecay, damper, unison, prompt;
     /* The state is float between samples as it is between windows, so a
        window boundary rounds nothing a sample boundary does not. */
-    float z1[DISP_MAX], z2[DISP_MAX], thz, lossz, dcx, dcy1, dcy2;
-    float damp, peak, age;
-    double c1[DISP_MAX], c2[DISP_MAX], eta, g, pole, dgain;
+    float z1[STRINGS_MAX][DISP_MAX], z2[STRINGS_MAX][DISP_MAX];
+    float thz[STRINGS_MAX], lossz[STRINGS_MAX], damp, peak, age;
+    float dcx, dcy1, dcy2;
+    double c1[DISP_MAX], c2[DISP_MAX], beta, dgain;
+    double eta[STRINGS_MAX], g[STRINGS_MAX], pole[STRINGS_MAX];
+    double strike[STRINGS_MAX], imbalance;
+    float *line[STRINGS_MAX];
+    int lines[STRINGS_MAX];
     unsigned int at, i;
-    int kind, sections, line, k;
+    int kind, sections, strings, s, k;
 
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_freq = mod->getArg(node, args[IN_FREQ]);
@@ -684,6 +817,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_hidecay = mod->getArg(node, args[IN_HIDECAY]);
     in_damper = mod->getArg(node, args[IN_DAMPER]);
     in_gate = mod->getArg(node, args[IN_GATE]);
+    in_strings = mod->getArg(node, args[IN_STRINGS]);
+    in_unison = mod->getArg(node, args[IN_UNISON]);
+    in_prompt = mod->getArg(node, args[IN_PROMPT]);
+    in_imbalance = mod->getArg(node, args[IN_IMBALANCE]);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
@@ -692,7 +829,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
     inout_state = mod->getArg(node, args[INOUT_STATE]);
-    buffer = inout_buffer->allocate(len);
+    buffer = inout_buffer->allocate(STRINGS_MAX * len);
     state = inout_state->allocate(S_COUNT);
 
     /* The line needs FREQ_MIN's period and the filters at least a sample
@@ -715,16 +852,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     damper = (*in_damper)[0] == 0 ? DAMPER_DEFAULT
                                   : thClampArg((*in_damper)[0], DECAY_MIN,
                                                DECAY_MAX);
+    strings = (int)floor(thClampArg((*in_strings)[0], 1, STRINGS_MAX) + 0.5);
+    unison = thClampArg((*in_unison)[0], 0, UNISON_MAX);
+    prompt = (*in_prompt)[0] == 0 ? 0
+                                  : thClampArg((*in_prompt)[0], DECAY_MIN,
+                                               DECAY_MAX);
 
     /* A fresh state has freq 0, which no bounded freq equals. */
     if ((float)freq != state[S_FREQ] || (float)b != state[S_B] ||
         (float)decay != state[S_DECAY] || (float)hidecay != state[S_HIDECAY] ||
-        (float)damper != state[S_DAMPER])
+        (float)damper != state[S_DAMPER] ||
+        (float)strings != state[S_STRINGS] ||
+        (float)unison != state[S_UNISON] || (float)prompt != state[S_PROMPT])
     {
         Design d;
 
         memset(&d, 0, sizeof(d));
-        design(&d, freq, b, decay, hidecay, damper, rate);
+        design(&d, freq, b, decay, hidecay, damper, strings, unison, prompt,
+               rate);
         store(state, &d);
 
         state[S_FREQ] = (float)freq;
@@ -732,30 +877,51 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         state[S_DECAY] = (float)decay;
         state[S_HIDECAY] = (float)hidecay;
         state[S_DAMPER] = (float)damper;
+        state[S_STRINGS] = (float)strings;
+        state[S_UNISON] = (float)unison;
+        state[S_PROMPT] = (float)prompt;
     }
 
     kind = (int)state[S_KIND];
     sections = (int)state[S_SECTIONS];
-    line = (int)state[S_LINE];
-    eta = state[S_ETA];
-    g = state[S_G];
-    pole = state[S_POLE];
+    beta = state[S_BETA];
     dgain = state[S_DGAIN];
 
     for (k = 0; k < DISP_MAX; k++)
     {
         c1[k] = state[S_C1 + k];
         c2[k] = state[S_C2 + k];
-        z1[k] = state[S_Z1 + k];
-        z2[k] = state[S_Z2 + k];
+    }
+
+    imbalance = thClampArg((*in_imbalance)[0], 0, 1);
+
+    for (s = 0; s < strings; s++)
+    {
+        const float *str = state + S_STRING + s * P_COUNT;
+
+        strike[s] = strings > 1
+                    ? 1.0 + imbalance * (2.0 * s / (strings - 1) - 1.0)
+                    : 1.0;
+
+        line[s] = buffer + s * len;
+        lines[s] = (int)str[P_LINE];
+        eta[s] = str[P_ETA];
+        g[s] = str[P_G];
+        pole[s] = str[P_POLE];
+        thz[s] = str[P_THIRAN];
+        lossz[s] = str[P_LOSS];
+
+        for (k = 0; k < DISP_MAX; k++)
+        {
+            z1[s][k] = str[P_Z1 + k];
+            z2[s][k] = str[P_Z2 + k];
+        }
     }
 
     at = (unsigned int)state[S_POS];
     age = state[S_AGE];
     peak = state[S_PEAK];
     damp = state[S_DAMP];
-    thz = state[S_THIRAN];
-    lossz = state[S_LOSS];
     dcx = state[S_DCX];
     dcy1 = state[S_DCY1];
     dcy2 = state[S_DCY2];
@@ -769,45 +935,62 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const double in = thIsFinite(raw) ? raw : 0;
         const double down = (*in_gate)[i] > 0 ? 0 : 1;
         const float last = dcy1;
-        double x, y;
+        double x, y, sum = 0, bridge, kept, mean = 0;
 
         dcy1 = (float)flush(in - dcx + dcpole * dcy1);
         dcy2 = (float)flush(dcy1 - last + dcpole * dcy2);
         dcx = (float)in;
 
-        /* The line's output, and the Thiran's fraction on it. */
-        x = buffer[(at + len - line) % len];
-        y = eta * x + thz;
-        thz = (float)flush(x - eta * y);
-        x = y;
+        for (s = 0; s < strings; s++)
+        {
+            /* The line's output, and the Thiran's fraction on it. */
+            x = line[s][(at + len - lines[s]) % len];
+            y = eta[s] * x + thz[s];
+            thz[s] = (float)flush(x - eta[s] * y);
+            x = y;
 
-        if (kind == 1)
-            for (k = 0; k < sections; k++)
-            {
-                y = c1[k] * x + z1[k];
-                z1[k] = (float)flush(x - c1[k] * y);
-                x = y;
-            }
-        else if (kind == 2)
-            for (k = 0; k < sections; k++)
-            {
-                y = c2[k] * x + z1[k];
-                z1[k] = (float)flush(c1[k] * x - c1[k] * y + z2[k]);
-                z2[k] = (float)flush(x - c2[k] * y);
-                x = y;
-            }
+            if (kind == 1)
+                for (k = 0; k < sections; k++)
+                {
+                    y = c1[k] * x + z1[s][k];
+                    z1[s][k] = (float)flush(x - c1[k] * y);
+                    x = y;
+                }
+            else if (kind == 2)
+                for (k = 0; k < sections; k++)
+                {
+                    y = c2[k] * x + z1[s][k];
+                    z1[s][k] = (float)flush(c1[k] * x - c1[k] * y +
+                                            z2[s][k]);
+                    z2[s][k] = (float)flush(x - c2[k] * y);
+                    x = y;
+                }
 
-        lossz = (float)flush(g * (1.0 + pole) * x - pole * lossz);
+            lossz[s] = (float)flush(g[s] * (1.0 + pole[s]) * x -
+                                    pole[s] * lossz[s]);
+            sum += lossz[s];
+        }
+
+        /* What the bridge takes, the same from every string. */
+        bridge = beta * sum;
 
         damp = (float)(damp + (down - damp) * fade);
+        kept = 1.0 - damp * (1.0 - dgain);
 
-        y = dcy2 + lossz * (1.0 - damp * (1.0 - dgain));
-        y = flush(y);
+        for (s = 0; s < strings; s++)
+        {
+            y = dcy2 * strike[s] + (lossz[s] - bridge) * kept;
+            y = flush(y);
 
-        buffer[at] = (float)y;
-        out[i] = (float)y;
+            line[s][at] = (float)y;
+            mean += y * strike[s];
+        }
 
-        peak = (float)(fabs(y) > peak * release ? fabs(y) : peak * release);
+        mean /= strings;
+        out[i] = (float)mean;
+
+        peak = (float)(fabs(mean) > peak * release ? fabs(mean)
+                                                   : peak * release);
 
         if (age < hold)
             age++;
@@ -817,18 +1000,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         at = (at + 1) % len;
     }
 
-    for (k = 0; k < DISP_MAX; k++)
+    for (s = 0; s < strings; s++)
     {
-        state[S_Z1 + k] = z1[k];
-        state[S_Z2 + k] = z2[k];
+        float *str = state + S_STRING + s * P_COUNT;
+
+        str[P_THIRAN] = thz[s];
+        str[P_LOSS] = lossz[s];
+
+        for (k = 0; k < DISP_MAX; k++)
+        {
+            str[P_Z1 + k] = z1[s][k];
+            str[P_Z2 + k] = z2[s][k];
+        }
     }
 
     state[S_POS] = (float)at;
     state[S_AGE] = age;
     state[S_PEAK] = peak;
     state[S_DAMP] = damp;
-    state[S_THIRAN] = thz;
-    state[S_LOSS] = lossz;
     state[S_DCX] = dcx;
     state[S_DCY1] = dcy1;
     state[S_DCY2] = dcy2;

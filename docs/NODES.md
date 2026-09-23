@@ -442,8 +442,12 @@ Stiff String (a piano string)
 | `hidecay` | in | The same for the partials near 3 kHz; 0 is `decay' |  | 0.01 to 200 | seconds |  |
 | `damper` | in | How long the string takes to fall sixty decibels with the damper down | 0.15 | 0.01 to 200 | seconds |  |
 | `gate` | in | Above 0 the string is free; at 0 the damper is down |  | 0 to 2 |  |  |
-| `out` | out | The string |  |  | full scale |  |
-| `play` | out | 1 while the string is still sounding |  | 0 to 1 |  |  |
+| `strings` | in | How many unison strings; read once per window | 1 | 1 to 3 |  |  |
+| `unison` | in | How far apart neighboring strings are tuned |  | 0 to 100 | cents |  |
+| `prompt` | in | How long the strings moving together take to fall sixty decibels into the bridge; 0 is uncoupled |  | 0.01 to 200 | seconds |  |
+| `imbalance` | in | The tilt across the unison: the outer strings are struck, and heard, 1 plus and minus this |  | 0 to 1 |  |  |
+| `out` | out | The strings' mean, tilted by `imbalance' |  |  | full scale |  |
+| `play` | out | 1 while the strings are still sounding |  | 0 to 1 |  |  |
 | `buffer` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |
 
