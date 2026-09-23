@@ -38,7 +38,7 @@ category "Effects";
     @amount.label = "Amount";
 
     # Seconds, as a plain number: a unit in a .dsp is folded into samples.
-    @sustain = 8;
+    @sustain = 15;
     @sustain.widget = 1;
     @sustain.min = 0.5;
     @sustain.max = 30;

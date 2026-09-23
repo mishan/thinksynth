@@ -48,12 +48,12 @@
  *
  * `decay' is the T60 at middle C; the strings below ring longer and those
  * above shorter, doubling every DECAY_KEYS keys down as dsp/grand.dsp's
- * do. `damp' is how much darker each trip is, with its phase delay taken
- * off the line so the loop stays in tune. The line's fraction is a
- * first-order Thiran allpass, as in filt::pianostring, and not a linear
- * read: a linear read is a low-pass too, and in a loop it would take a
- * free string's gain below unity and shorten its decay, more the higher
- * the key.
+ * do, and its default is grand.dsp's middle C, 15 s. `damp' is how much
+ * darker each trip is, with its phase delay taken off the line so the
+ * loop stays in tune. The line's fraction is a first-order Thiran
+ * allpass, as in filt::pianostring, and not a linear read: a linear read
+ * is a low-pass too, and in a loop it would take a free string's gain
+ * below unity and shorten its decay, more the higher the key.
  *
  * What is not here: the keys that are held down with the pedal up are
  * free too, and this cannot know which they are.
@@ -78,11 +78,11 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define PEDAL_TIME 0.05
 
 /* The decay curve: `decay' at middle C, doubling this many keys down. */
-#define DECAY_KEYS 17.0
+#define DECAY_KEYS 28.0
 
 #define DECAY_MIN 0.01f
 #define DECAY_MAX 200.0f
-#define DECAY_DEFAULT 8.0f
+#define DECAY_DEFAULT 15.0f
 #define DAMPER_DEFAULT 0.1f
 #define DAMP_MAX 0.95f
 
@@ -165,7 +165,7 @@ int module_init (thPlugin *plugin)
     args[IN_DECAY] = plugin->regArg("decay", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_DECAY],
                        "A free string's T60 at middle C, doubling every "
-                       "seventeen keys down");
+                       "twenty-eight keys down");
     plugin->setArgUnits(args[IN_DECAY], "seconds");
     plugin->setArgRange(args[IN_DECAY], DECAY_MIN, DECAY_MAX);
     plugin->setArgDefault(args[IN_DECAY], DECAY_DEFAULT);

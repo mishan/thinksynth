@@ -6217,7 +6217,7 @@ static void checkSympathetic (const string &pluginPath)
 
     /* A click into one free string: it rings at its key's pitch to a cent
        with `damp' in the loop, and falls 60 dB in `decay' at middle C and
-       in 2^(-12/17) of it an octave up. */
+       in 2^(-12/28) of it an octave up. */
     {
         static const int keys[] = { 60, 72 };
 
@@ -6242,7 +6242,7 @@ static void checkSympathetic (const string &pluginPath)
             const double fell = levelAt(out, hz, 0.8, 0.1) -
                                 levelAt(out, hz, 0.1, 0.1);
             const double t60 = -60 * 0.7 / fell;
-            const double want = 2 * pow(2.0, (60 - keys[k]) / 17.0);
+            const double want = 2 * pow(2.0, (60 - keys[k]) / 28.0);
 
             okOrFail(fabs(cents(pitch, hz)) < 1 && fabs(t60 / want - 1) < 0.1,
                      "filt::sympathetic: key " + num(keys[k]) + " rings at "

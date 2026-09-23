@@ -553,7 +553,7 @@ Sympathetic strings (a piano's, with a pedal)
 | `low` | in | The lowest string; read once per window | 21 | 21 to 108 | MIDI note |  |
 | `high` | in | The highest string; read once per window | 108 | 21 to 108 | MIDI note |  |
 | `undamped` | in | The lowest string with no damper; read once per window | 90 | 21 to 109 | MIDI note |  |
-| `decay` | in | A free string's T60 at middle C, doubling every seventeen keys down | 8 | 0.01 to 200 | seconds |  |
+| `decay` | in | A free string's T60 at middle C, doubling every twenty-eight keys down | 15 | 0.01 to 200 | seconds |  |
 | `damper` | in | A damped string's T60 | 0.1 | 0.01 to 200 | seconds |  |
 | `damp` | in | How much darker each trip is; 0 rings every partial as long as the fundamental |  | 0 to 0.95 |  |  |
 | `out` | out | Every string, summed |  |  | full scale |  |
