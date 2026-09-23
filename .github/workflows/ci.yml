@@ -88,8 +88,13 @@ jobs:
       # is the only place the three meet. Everything else here is headless and
       # does not care. editorcheck skips itself rather than failing where there
       # is no display, so this is what makes it actually run.
+      #
+      # -j: the gates are independent processes and the runner has four
+      # cores. The two that build widgets are RUN_SERIAL in
+      # scripts/CMakeLists.txt, so they still run with the machine to
+      # themselves.
       - name: Test
-        run: xvfb-run -a ctest --test-dir build --output-on-failure
+        run: xvfb-run -a ctest --test-dir build --output-on-failure -j "$(nproc)"
 
       - name: Package
         run: cpack --config build/CPackConfig.cmake -B build/package
@@ -212,10 +217,18 @@ jobs:
       # THINK_SANITIZE applies the flags globally rather than per-target, so
       # they reach libthink and all 62 plugins. An earlier round of
       # measurements was worthless because they reached only the harness.
+      #
+      # Debug for the asserts, at -O1 rather than Debug's -O0: gencheck took
+      # 474 s at -O0 and 180 s at -O1 under the same sanitizers, and at -O0
+      # it was closing on its 900 s TIMEOUT. -O1 is what the ASan docs
+      # recommend; it keeps stack traces usable with the frame pointers
+      # THINK_SANITIZE already asks for.
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
+            "-DCMAKE_C_FLAGS_DEBUG=-O1 -g" \
+            "-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g" \
             -DTHINK_SANITIZE=address,undefined
 
       - name: Build
@@ -229,7 +242,7 @@ jobs:
         # deliberately destroys the editor at the end, so the teardown order --
         # stop the tick, close the instances, then unload the modules -- is
         # exercised under ASan and nowhere else.
-        run: xvfb-run -a ctest --test-dir build --output-on-failure
+        run: xvfb-run -a ctest --test-dir build --output-on-failure -j "$(nproc)"
 
   # The WebAssembly build, held against the native one. wasm/compare.mjs
   # renders every seeded piece with scripts/genwav and with wasm/genwav.mjs:
@@ -910,7 +923,7 @@ jobs:
         run: ./build/src/thinksynth.app/Contents/MacOS/thinksynth -h
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -j "$(sysctl -n hw.ncpu)"
 
       - name: Package
         run: cpack --config build/CPackConfig.cmake -B build/package
@@ -1091,7 +1104,7 @@ jobs:
           ldd build/src/thinksynth.exe || true
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -j "$(nproc)"
 
       # The installed tree, not the build tree -- see the macOS job.
       - name: GTK runtime data
