@@ -43,6 +43,15 @@
  * one asked for with a request in flight is held for as long as the page
  * stays open, long after the requests are done.
  *
+ * A forced reload (Shift-Reload, Ctrl-F5) loads the page past the worker
+ * and from the network, but not the mirror: a worker the page starts is
+ * matched to the site's worker by its own URL, and gets the cached build
+ * while the page hands it the network's .wasm. Two builds' module and wasm
+ * disagree on every export's name, and the mirror stops at its first call.
+ * So a page loaded past an active worker loads again, normally, and runs
+ * the one build the worker has -- or the newer one it is holding, which
+ * the ordinary load then asks for as above.
+ *
  *   busy()     whether the page has something going a reload would lose
  *   offer(go)  a version is ready and not taken; go() asks, and resolves
  *              to whether the worker agreed
@@ -52,6 +61,10 @@
    to the front, and not more than hourly. The installed app is a window
    somebody may not reload for days. */
 const RECHECK = 60 * 60 * 1000;
+
+/* Set in sessionStorage across the reload a forced reload is answered
+   with, so that the answer is given once. */
+const BYPASSED = 'thinksynth-bypassed';
 
 export async function keepOffline ({ busy = () => false,
                                      offer = () => {} } = {})
@@ -63,10 +76,37 @@ export async function keepOffline ({ busy = () => false,
 
     const reg = await navigator.serviceWorker.register('sw.js');
 
-    /* A page with no worker yet is the first install, which claims it
-       and has nothing older to be updated from. */
     if (navigator.serviceWorker.controller === null)
+    {
+        /* A page with no worker yet is the first install, which claims it
+           and has nothing older to be updated from. */
+        if (reg.active === null)
+            return;
+
+        /* A worker is active and the page is not its: a forced reload.
+           Once per tab, in case the browser is loading past the worker
+           for good (DevTools' "Bypass for network") and the reload would
+           come back here. */
+        if (sessionStorage.getItem(BYPASSED) !== null)
+            return;
+
+        const go = () =>
+        {
+            sessionStorage.setItem(BYPASSED, '');
+            location.reload();
+
+            return Promise.resolve(true);
+        };
+
+        if (busy())
+            offer(go);
+        else
+            go();
+
         return;
+    }
+
+    sessionStorage.removeItem(BYPASSED);
 
     whenWaiting(reg, (next) =>
     {
