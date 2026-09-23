@@ -71,7 +71,7 @@
 #include <algorithm>
 #include <vector>
 
-#include "fftr.h"
+#include "thFFT.h"
 
 namespace thsound {
 

@@ -16,8 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef TH_VISUAL_FFTR_H
-#define TH_VISUAL_FFTR_H 1
+#ifndef TH_FFT_H
+#define TH_FFT_H 1
 
 /*
  * A radix-2 FFT for the visual modules, and the window that goes with it.
@@ -205,4 +205,4 @@ private:
 
 } /* namespace thv */
 
-#endif /* TH_VISUAL_FFTR_H */
+#endif /* TH_FFT_H */

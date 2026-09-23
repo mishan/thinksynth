@@ -154,7 +154,7 @@ xvfb-run -a ./build/scripts/canvasbench -P -V myvisual -o /tmp/canvas.png \
 
 ### A shared FFT, if you need one
 
-`plugins/visual/fftr.h` is a radix-2 with no global state, scaled so a
+`libthink/thFFT.h` is a radix-2 with no global state, scaled so a
 full-scale sine reads 1.0 in its bin. `spectrum` and `spectrogram` both use it,
 and `visualcheck` checks it numerically — the one place in this whole feature
 where "are the numbers right" has an answer.

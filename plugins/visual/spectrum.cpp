@@ -33,7 +33,7 @@
 #include <new>
 
 #include "thVisual.h"
-#include "fftr.h"
+#include "thFFT.h"
 
 namespace {
 
