@@ -195,7 +195,8 @@ int main (int argc, char **argv)
 
             if (out)
                 fwrite(synth.getOutput(), sizeof(float),
-                       synth.audioChannelCount() * synth.getWindowlen(), out);
+                       (size_t)synth.audioChannelCount() *
+                           synth.getWindowlen(), out);
         }
 
         if (out)
