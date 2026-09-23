@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -77,10 +78,11 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
  * spelling is 0/0.
  *
  * Measured against a swept response afterwards rather than trusted: asking
- * for 40, 250, 1000, 4000 and 20000 Hz puts the 3 dB point within a hertz of
- * each, which is what statecheck holds it to. Resonance moves the peak, as
- * it does in every filter here and in filt::svf's hertz cutoff too; this is
- * the design frequency, not a promise about the peak. */
+ * for 40, 250, 1000, 4000 and 20000 Hz puts the 3 dB point within about a
+ * per cent of each, and statecheck holds the gain at five frequencies to
+ * within half a dB of -3. Resonance moves the peak, as it does in every
+ * filter here and in filt::svf's hertz cutoff too; this is the design
+ * frequency, not a promise about the peak. */
 static float moogCutoffFromHz (float hz, unsigned int rate)
 {
     /* 2^(-1/4): one stage's |H|^2 where the four of them are 3 dB down. */
@@ -227,10 +229,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_cutoffhz = mod->getArg(node, args[IN_CUTOFFHZ]);
     in_res = mod->getArg(node, args[IN_RES]);
 
-    /* The hertz cutoff and what it converted to. A cos() and two sqrts a
-       sample would cost more than the filter does, and a cutoff usually does
-       not move; a NaN never compares equal to itself, so it takes the
-       recompute path, where moogCutoffFromHz answers for it. */
+    /* The hertz cutoff and what it converted to, so a cutoff that holds
+       still -- a sustained note with no key follow -- converts once a window
+       rather than once a sample. A moving one does not benefit: a filter
+       envelope, a glide or a tracked vibrato converts every sample, which
+       measured at about 5% of rendering a ladder.dsp line. A NaN fails
+       `hz > 0' and reads `cutoff' instead, as a 0 does. */
     float lastHz = 0, fromHz = 0;
     bool haveHz = false;
 
