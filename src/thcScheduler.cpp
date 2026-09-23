@@ -55,6 +55,10 @@ thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
     params_.get = cbGet;
     params_.get_string = cbGetString;
     params_.seed = seed;
+
+    /* No ear until the scheduler offers one, and never in a build
+       that has none. Left unset, a module read a stray pointer here. */
+    params_.audition = NULL;
 }
 
 double
