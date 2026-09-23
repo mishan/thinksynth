@@ -433,7 +433,8 @@ try
      * every check that asks the box. The sequence's first track is four on
      * the floor over `period = 0.25 beats', so the gap between its onsets
      * is one beat: 60/112 at the tempo the page writes, and twice that at
-     * half of it. Its onsets alone, on channel 1: the hat plays eighths.
+     * half of it. Its onsets alone, on channel 1: the hat plays between
+     * the beats.
      */
     check(await page.evaluate(
               () => document.getElementById('tempo').value === '112' &&

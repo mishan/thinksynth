@@ -997,7 +997,7 @@ const SEQ_ROWS = 6;
 const SEQ_VOICES = [
     { dsp: 'kit_kick.dsp',  cells: 'x...x...x...x...' },
     { dsp: 'kit_snare.dsp', cells: '....x.......x...' },
-    { dsp: 'kit_hat.dsp',   cells: 'x.x.x.x.x.x.x.x.' },
+    { dsp: 'kit_hat.dsp',   cells: '..x...x...x...x.' },
     { dsp: 'ebass.dsp' },
     { dsp: 'rhodes.dsp' },
 ];
