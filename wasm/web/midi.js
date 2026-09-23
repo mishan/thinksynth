@@ -36,7 +36,9 @@
  *
  * And the sustain pedal, controller 64, handed over as its 0..127 for the
  * page to put on the channel's SusPedal, as thSynth::handleMidiController
- * does natively. An input that goes away with its pedal down puts it up.
+ * does natively. The pedal is up only once every input's is: an input
+ * letting its pedal up while another's is still down is dropped, and one
+ * that goes away with its pedal down puts it up only if it was the last.
  *
  * Every other controller, pitch bend and program change are ignored. A
  * controller mapped to an arg has to reach every peer at the same transport
@@ -115,8 +117,9 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
  * input plugged in afterwards.
  *
  * `onNoteOn(note, velocity)' and `onNoteOff(note)' are called once per key,
- * `onPedal(value)' for every sustain pedal message, and `onChange(names)'
- * with the connected inputs' names whenever one comes or goes.
+ * `onPedal(value)' for every sustain pedal message but a let-up while
+ * another input's pedal is still down, and `onChange(names)' with the
+ * connected inputs' names whenever one comes or goes.
  *
  * Resolves to { names, forget, close }. `forget' drops what every input
  * holds, pedal included, without calling onNoteOff or onPedal, for a page
@@ -183,7 +186,7 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
         for (const note of [...down])
             noteOff(id, note);
 
-        if (pedaling.delete(id))
+        if (pedaling.delete(id) && pedaling.size === 0)
             onPedal(0);
     };
 
@@ -216,6 +219,10 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
                     pedaling.add(input.id);
                 else
                     pedaling.delete(input.id);
+
+                /* Another input's pedal still holds it down. */
+                if (data2 < PEDAL_DOWN && pedaling.size > 0)
+                    return;
 
                 onPedal(data2);
             }
