@@ -277,6 +277,28 @@ details { margin: 0.8em 0; }
    not read as a form, wide enough for a drawer's name and a patch's. */
 .trackpick { max-width: 18em; font-size: 0.9em; }
 
+/* Where there is the width, the heading goes beside the grid rather than
+   over it: a row saved per track, and a drum's one-row strip is no longer
+   shorter than the menu above it. Not on a phone, where the width is the
+   cells' -- sixteen of them across a finger's worth each. The tracks'
+   own width and not the window's, since tiled the pane can be narrow on
+   a wide screen. */
+#tracks { container-type: inline-size; }
+
+@container (min-width: 40em)
+{
+    .track
+    {
+        display: grid;
+        grid-template-columns: 13em 1fr;
+        gap: 0.6em;
+        align-items: start;
+    }
+
+    .trackhead { margin: 0; flex-wrap: nowrap; }
+    .trackpick { min-width: 0; flex: 1; }
+}
+
 .trackgrid
 {
     display: block;
@@ -394,6 +416,9 @@ details { margin: 0.8em 0; }
 
     #keys { height: 160px; }
 
+    /* The keyboard's hint is about a computer's keys and a MIDI cable. */
+    #keyboard .hint { display: none; }
+
     /* A slider a thumb can find, in the knob strip and in the parameter
        panel alike -- both are panel.js's rows now. */
     #knobs input[type="range"], #params input[type="range"] { height: 44px; }
@@ -401,9 +426,26 @@ details { margin: 0.8em 0; }
 
 /* ---- a narrow screen ---- */
 
+/* The fold for the speed and the clock, which only a phone has. */
+#more { display: none; }
+
 @media (max-width: 40em)
 {
     body { margin: 0.8em auto; padding: 0 0.6em; }
+
+    /* The strip, down to what a phone plays with: the speed and the
+       clock behind the fold, and the status line only when it has
+       something that must be seen (main.js, status). */
+    #more { display: inline-block; }
+    #transport:not(.more) #speedlabel,
+    #transport:not(.more) #clock { display: none; }
+    #chrome #status:not([data-alert]) { display: none; }
+    #tempo { width: 4em; }
+
+    /* The sequencer's tracks carry their own menus, so the channels list
+       under them would be the same five menus again; only where the keys
+       go is left of it. */
+    body[data-mode="seq"] #channels { display: none; }
 
     h1 { font-size: 1.3em; }
 

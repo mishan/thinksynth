@@ -132,8 +132,11 @@ export async function createNodeView ({ files, root = document,
         canvas: $('nodecanvas'),
         send: (m) => toModule(m),
 
-        /* At 1:1, and Fit for the whole graph: see canvasview.js. */
-        fitOnShow: false,
+        /* At 1:1, and Fit for the whole graph: see canvasview.js. On a
+           phone the other way round -- 1:1 there is a strip of one box at
+           a time out of a graph six screens wide, and the whole graph
+           small is at least a map of it. */
+        fitOnShow: matchMedia('(max-width: 40em)').matches,
     });
 
     /* The shell speaks messages so that the composer view's shell and this

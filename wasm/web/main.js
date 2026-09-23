@@ -291,6 +291,19 @@ function ms (seconds)
                                  : `${(seconds * 1000).toFixed(1)} ms`;
 }
 
+/* The status line. `alert' is for what somebody must see -- a file that
+   did not parse, a Start that failed -- and is the only kind a phone
+   shows: there the line is a row of the little height there is, and
+   "Loaded ladder.dsp. Play." is what the screen already says. */
+function status (text, alert = false)
+{
+    $('status').textContent = text;
+    $('status').toggleAttribute('data-alert', alert);
+}
+
+/* What a finger does to a control, in what the page says. */
+const TAP = matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click';
+
 function mode ()
 {
     return $('mode').value;
@@ -669,8 +682,8 @@ async function loadPatch ()
         placed.delete(PATCH_CHANNEL);
     }
 
-    $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
-                                 : 'That .dsp did not parse; see below.';
+    status(ok ? `Loaded ${$('patch').value}. Play.`
+              : 'That .dsp did not parse; see below.', !ok);
 
     showLiveIn();
 
@@ -902,21 +915,19 @@ async function loadPiece ()
 
     if (piece === null)
     {
-        $('status').textContent = 'That .gen did not parse; see below.';
+        status('That .gen did not parse; see below.', true);
         it.errors.forEach(log);
         seeBelow();
     }
     else if (aiming.failed.length > 0)
     {
-        $('status').textContent =
-            `Loaded ${piece.name || $('piece').value}, but not everything ` +
-            'it asked for; see below.';
+        status(`Loaded ${piece.name || $('piece').value}, but not ` +
+               'everything it asked for; see below.', true);
         aiming.failed.forEach(log);
         seeBelow();
     }
     else
-        $('status').textContent =
-            `Loaded ${piece.name || $('piece').value}. Press Play.`;
+        status(`Loaded ${piece.name || $('piece').value}. Press Play.`);
 
     $('about').textContent = piece === null ? '' : piece.description;
     showAbout();
@@ -1049,7 +1060,7 @@ function sequenceText ()
 #
 # A kit and two voices, one grid each on a channel of its own: rows are
 # degrees of the ladder below, columns are steps, and a drum that plays
-# the same sound at any pitch has one row. Click the cells; the menu on
+# the same sound at any pitch has one row. Fill in cells; the menu on
 # each track says what plays it. Save this file and it opens in the
 # Composer like any other.
 #
@@ -1060,7 +1071,7 @@ function sequenceText ()
 # turn that up and playing writes what it plays.
 
 name "A sequence";
-description "A beat, a bass and keys. Click the cells; pick what plays them.";
+description "A beat, a bass and keys. Fill in cells; pick what plays them.";
 
 tempo 112;
 
@@ -1085,19 +1096,12 @@ async function loadSequence ()
     holdText('seq');
 
     if (!$('gen').value.includes(SEQ_MARK))
-    {
         $('gen').value = sequenceText();
-
-        /* Once, with the text: after this the keys go wherever they are
-           sent, and coming back to the mode does not move them. */
-        $('keychan').value = String(SEQ_KEYS);
-    }
 
     await loadPiece();
 
     if (piece !== null)
-        $('status').textContent =
-            'Click cells to draw a pattern, then press Play.';
+        status(`${TAP} cells to draw a pattern, then press Play.`);
 }
 
 /* The .gen box is one box and two modes write in it: the sequence and the
@@ -1364,8 +1368,7 @@ async function savePatch (channel)
 
     if (text === '')
     {
-        $('status').textContent =
-            `Channel ${channel + 1}: nothing to save.`;
+        status(`Channel ${channel + 1}: nothing to save.`, true);
         return;
     }
 
@@ -1401,7 +1404,7 @@ async function savePatch (channel)
     synth.patchSaved(channel, name);
     await showEdited();
 
-    $('status').textContent = `Channel ${channel + 1} saved as ${name}.`;
+    status(`Channel ${channel + 1} saved as ${name}.`, true);
 }
 
 /* The `edited' marks, refreshed from the module.
@@ -1526,8 +1529,7 @@ async function aimByHand (channel, name)
            piece that names this channel for the rest of the session. */
         aimed.set(channel, name);
         placed.set(channel, what);
-        $('status').textContent =
-            `${what.title} on channel ${channel + 1}. Play.`;
+        status(`${what.title} on channel ${channel + 1}. Play.`);
 
         /* And every menu that says what is on a channel, since a choice
            made in one of them is a choice the others are showing too: the
@@ -1542,8 +1544,7 @@ async function aimByHand (channel, name)
     }
     catch (e)
     {
-        $('status').textContent =
-            `Channel ${channel + 1}: ${e.message}; see below.`;
+        status(`Channel ${channel + 1}: ${e.message}; see below.`, true);
         log(`channel ${channel + 1}: ${e.message}`);
         seeBelow();
 
@@ -1788,7 +1789,7 @@ function takeTapeNotes (m)
 async function start ()
 {
     $('start').disabled = true;
-    $('status').textContent = 'Starting...';
+    status('Starting...');
 
     try
     {
@@ -1826,7 +1827,7 @@ async function start ()
         ctx = null;
         synth = null;
 
-        $('status').textContent = `Could not start: ${e.message}`;
+        status(`Could not start: ${e.message}`, true);
         $('start').disabled = false;
         return;
     }
@@ -1895,7 +1896,7 @@ async function start ()
         ctx = null;
         synth = null;
 
-        $('status').textContent = `Could not start: ${e.message}`;
+        status(`Could not start: ${e.message}`, true);
         log(e.message);
         seeBelow();
         $('start').disabled = false;
@@ -2011,7 +2012,7 @@ async function start ()
     {
         nodes = await createNodeView({
             files: nodeFiles,
-            onStatus: (text) => { $('status').textContent = text; },
+            onStatus: (text) => status(text, true),
             sampleRate: ctx.sampleRate,
             probe: (channel, node, arg) => synth.probe(channel, node, arg),
             unprobe: (slot) => synth.unprobe(slot),
@@ -2128,8 +2129,7 @@ const nodeFiles = {
            play it -- and the piece picks it up at the next load. */
         dspTexts[name] = next;
         synth?.instrument(name, next);
-        $('status').textContent =
-            `${name} changed. Load the piece again to hear it.`;
+        status(`${name} changed. Load the piece again to hear it.`, true);
         nodeFileChanged(name);
     },
 
@@ -2461,6 +2461,25 @@ window.solo = {
     }),
 };
 
+/* Where the keys go, kept for each mode that composes. The sequence's
+   are on its Rhodes and a piece's on channel 1, where most pieces listen:
+   one selector for both sent a piece's keys to the sequence's channel 5,
+   which Ebb has nothing on. Whatever somebody picks in a mode is what
+   that mode comes back to. */
+const keyChans = { seq: SEQ_KEYS, piece: 0 };
+let keysMode = null;
+
+function keysFor (which)
+{
+    if (keysMode in keyChans)
+        keyChans[keysMode] = keyChannel();
+
+    if (which in keyChans)
+        $('keychan').value = String(keyChans[which]);
+
+    keysMode = which;
+}
+
 async function pickMode ()
 {
     const which = mode();
@@ -2470,6 +2489,11 @@ async function pickMode ()
        pane the mode does not have is unavailable rather than hidden --
        it leaves the layout without being forgotten by it, so coming back
        to a mode puts its panes where they were. */
+    /* For style.css, which has rules for one mode on a phone. */
+    document.body.dataset.mode = which;
+
+    keysFor(which);
+
     $('patchmode').hidden = which !== 'patch';
     $('piecemode').hidden = which !== 'piece';
     $('transport').hidden = which === 'patch';
@@ -2794,10 +2818,19 @@ async function init ()
     /* And the parameters the other way round. On a phone they are a
        screen and more of sliders between the chrome and the keys, so the
        keys were a scroll away in every mode; folded, the summary says
-       they are there. The same two shapes style.css calls small: narrow,
-       and a phone held sideways. */
+       they are there. The piece's picture too, whose stages are too small
+       to read at a phone's width. The same two shapes style.css calls
+       small: narrow, and a phone held sideways. */
     if (matchMedia('(max-width: 40em), (max-height: 30em)').matches)
-        $('paramview').open = false;
+        $('paramview').open = $('composerview').open = false;
+
+    /* The phone's fold over the speed and the clock (style.css). */
+    $('more').addEventListener('click', () =>
+    {
+        const open = $('transport').classList.toggle('more');
+
+        $('more').setAttribute('aria-expanded', String(open));
+    });
 
     /* And the layout, over what is in the document now.
      *

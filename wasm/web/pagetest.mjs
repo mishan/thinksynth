@@ -401,6 +401,11 @@ try
                   document.getElementById('status').textContent)),
           'entering a piece loads the one the menu names: ebb.gen');
 
+    /* And its keys go to channel 1, where Ebb listens, not to the
+       sequence's Rhodes on 5, which Ebb has nothing on. */
+    check(await page.inputValue('#keychan') === '0',
+          'a piece keeps its own keys channel: 1, not the sequence\'s 5');
+
     await page.selectOption('#piece', 'scratch.gen');
     await page.evaluate(() => window.solo.settled());
 
