@@ -433,14 +433,6 @@ details { margin: 0.8em 0; }
 {
     body { margin: 0.8em auto; padding: 0 0.6em; }
 
-    /* The strip, down to what a phone plays with: the speed and the
-       clock behind the fold, and the status line only when it has
-       something that must be seen (main.js, status). */
-    #more { display: inline-block; }
-    #transport:not(.more) #speedlabel,
-    #transport:not(.more) #clock { display: none; }
-    #chrome #status:not([data-alert]) { display: none; }
-    #tempo { width: 4em; }
 
     /* The sequencer's tracks carry their own menus, so the channels list
        under them would be the same five menus again; only where the keys
@@ -870,4 +862,58 @@ body.tiled .panelrows
 
     body.tiled .panelrow label { text-align: left; }
     body.tiled .panelrow > * { grid-column: 1; }
+}
+
+/* ---- a phone, tiled ----
+ *
+ * On a phone the page is tiled as an app is (main.js, PHONE_LAYOUTS): a
+ * tabbed area per mode and the keys under it. What the tiler draws for a
+ * desktop needs three things changed to fit a thumb.
+ */
+@media (max-width: 40em), (max-height: 30em)
+{
+    /* The status line only when it has something that must be seen
+       (main.js, status): on a phone it is a row of the little height
+       there is. */
+    #chrome #status:not([data-alert]) { display: none; }
+
+    /* The strip, down to what a phone plays with: the speed and the
+       clock behind the fold. */
+    #more { display: inline-block; }
+    #transport:not(.more) #speedlabel,
+    #transport:not(.more) #clock { display: none; }
+
+    #tempo { width: 4em; }
+
+    /* The tabs and the drawer of closed panes, each one line that scrolls
+       sideways rather than wrapping into two or truncating every name to
+       three letters. */
+    .panesroot .panetabs,
+    #panes .panedrawer
+    {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .panesroot .panetabwrap,
+    #panes .paneclosed { flex: 0 0 auto; }
+
+    /* The keys take the strip they are given: it is the one thing in it,
+       and a taller key is an easier one to hit. */
+    body.tiled .panebody #keys
+    {
+        flex: 1 1 auto;
+        height: auto;
+        min-height: 6rem;
+    }
+
+    .panesroot .panetab { font-size: 0.95em; padding: 0.5em 0.3em 0.5em 0.8em; }
+
+    /* A leaf with one tab is labelled by what is in it: the strip over it
+       is a row saying "Keys" above a keyboard. */
+    .paneleaf:has(> .panetabs > .panetabwrap:only-child) > .panetabs
+    {
+        display: none;
+    }
 }

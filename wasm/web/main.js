@@ -167,6 +167,47 @@ const PIECE_LAYOUT = {
             { tabs: ['keyboard'] }] }],
 };
 
+/* A phone: a finger, on a screen that is narrow or held sideways with no
+ * height -- the two shapes style.css calls small. The finger as well as
+ * the shape, because a desktop window dragged narrow is not a phone: it
+ * stays the document, and tiles as a desktop's once it is wide again.
+ * `?phone=1' asks for the phone's layout anywhere, for trying it on a
+ * desktop.
+ *
+ * On one of these the page is tiled too, but as a phone app rather than a
+ * desktop's split: one tabbed area per mode, with the keys in a strip of
+ * their own under it where a mode is for playing them. What a phone has
+ * no use for -- the piece's picture, the sources, the graph editor's
+ * canvas, the browser's numbers -- starts in the drawer, a tab away for
+ * whoever wants it, rather than stacked into a page six screens long.
+ */
+const PHONE = '(pointer: coarse) and (max-width: 40em), ' +
+              '(pointer: coarse) and (max-height: 30em)';
+
+const PHONE_LAYOUTS = {
+    patch: { dir: 'col', size: [0.5, 0.5], kids: [
+        { tabs: ['paramview', 'nodeview'] },
+        { tabs: ['keyboard'] }] },
+
+    /* The tracks are what the sequence is for; the keys are a tab. */
+    seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
+
+    piece: { dir: 'col', size: [0.6, 0.4], kids: [
+        { tabs: ['knobs', 'roll', 'seqview', 'channelbox', 'paramview'] },
+        { tabs: ['keyboard'] }] },
+};
+
+/* And held sideways, where there is no height to split: one tabbed area,
+   the keys in front where a mode is for playing them. */
+const SIDEWAYS = '(max-height: 30em)';
+
+const SIDEWAYS_LAYOUTS = {
+    patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
+    seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
+    piece: { tabs: ['keyboard', 'knobs', 'roll', 'seqview', 'channelbox',
+                    'paramview'] },
+};
+
 /* The layout. Made at the end of init(), because what it adopts has to be
    in the document and the folds the page opens by hand have to be set. */
 let panes = null;
@@ -2846,10 +2887,21 @@ async function init ()
     moveLayouts('panes:solo', 'thinksynth:panes:solo',
                 ['patch', 'piece', 'seq']);
 
+    /* Which of the three, decided at load: turning the phone over later
+       keeps the layout it opened with, which is still a phone's. */
+    const forced = new URLSearchParams(location.search).get('phone') === '1';
+    const phone = forced || matchMedia(PHONE).matches;
+    const sideways = phone && matchMedia(SIDEWAYS).matches;
+
     panes = createPanes({
-        root: $('panes'), catalog: PANES, store: 'thinksynth:panes:solo',
-        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
+        root: $('panes'), catalog: PANES,
+        store: sideways ? 'thinksynth:panes:sideways'
+             : phone ? 'thinksynth:panes:phone' : 'thinksynth:panes:solo',
+        layouts: sideways ? SIDEWAYS_LAYOUTS
+               : phone ? PHONE_LAYOUTS
+               : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
+        ...(phone ? { media: forced ? 'all' : PHONE } : {}),
         mode: mode(), on: true,
         onShow: (id, on) =>
         {
