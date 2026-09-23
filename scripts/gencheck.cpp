@@ -273,6 +273,8 @@ expectReject (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     /* A file that declares an instrument queues a SET_CHANNEL, and a
@@ -549,6 +551,8 @@ renderBody (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     drainSynth();
@@ -857,6 +861,8 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
             else
             {
                 thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
                 thcGenLoader loader(plugins);
 
                 drainSynth();
@@ -878,6 +884,8 @@ checkLiveEdits (const std::map<std::string, thcPlugin *> &plugins,
                 thSynth *synth, const std::string &genFile)
 {
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(genFile, &sched))
@@ -979,6 +987,8 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &genFile)
 {
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(genFile, &sched))
@@ -1147,6 +1157,8 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(tmp, &sched))
@@ -1298,6 +1310,8 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(tmp, &sched))
@@ -1843,6 +1857,8 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
 
             {
                 thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
                 thcGenLoader loader(plugins);
 
                 drainSynth();
@@ -2069,6 +2085,8 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(path, &sched))
@@ -2257,6 +2275,8 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(tmp, &sched))
@@ -2497,6 +2517,173 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     std::filesystem::remove(tmp);
+
+    /* --- the same GA, judged by ear --- */
+
+    /* `voice' and `goal' are one patch twice. The breed drives `voice',
+       hears `goal', and starts at a preset a long way from where `goal'
+       sits; if the host's ear works, the champion's cutoff and resonance
+       end nearer `goal' 's than they began. Judged as a direction rather
+       than a value: forty generations of eight is a coarse search, and
+       what is checked is that the ear points it the right way. aim,
+       drift and reach are zero, so the ear is the whole of the fitness.
+       The ear answers inside the tick here, so two renders must agree. */
+    tmp = thUtil::tempFile("gencheck-listen-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a listening scratch file");
+        return;
+    }
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "seed 7;\n"
+            "instrument goal  { dsp \"bass.dsp\"; cutoff = 220; res = 0.8; };\n"
+            "instrument voice { dsp \"bass.dsp\"; };\n"
+            "preset dull   { cutoff = 60;   res = 0.1;  };\n"
+            "preset bright { cutoff = 3000; res = 0.95; };\n"
+            "chain search {\n"
+            "    stage g gen::breed {\n"
+            "        from = dull; toward = bright;\n"
+            "        population = 8; mutation = 0.3; elites = 2; spread = 0;\n"
+            "        aim = 0; drift = 0; reach = 0;\n"
+            "        target = \"goal\"; listen = 1;\n"
+            "        period = 0.5 s;\n"
+            "    };\n"
+            "    sink { instrument = voice; chanarg = \"*\"; };\n"
+            "};\n";
+    }
+
+    {
+        thcScheduler lsched(synth);
+
+        lsched.setAuditionSynchronous(true);
+
+        thcGenLoader lloader(plugins);
+
+        if (!lloader.load(tmp, &lsched))
+        {
+            for (size_t i = 0; i < lloader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", lloader.errors()[i].c_str());
+
+            fail("the listening piece did not load");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        const std::string lfirst = render(lsched, 20.0, 0.02);
+
+        lsched.reset();
+
+        const std::string lsecond = render(lsched, 20.0, 0.02);
+
+        if (lfirst != lsecond)
+            fail("a breed that listens replayed differently with the ear "
+                 "answering inside the tick");
+
+        if (lsched.auditioner() == NULL)
+            fail("the scheduler offered no ear on a host that has one");
+        else if (lsched.auditioner()->answered() < 8 * 10)
+            fail("the ear answered " +
+                 std::to_string(lsched.auditioner()->answered()) +
+                 " times in forty generations of eight");
+
+        double firstCutoff = 0, lastCutoff = 0, firstRes = 0, lastRes = 0;
+        bool sawCutoff = false, sawRes = false;
+
+        std::istringstream lines(lfirst);
+        std::string line;
+
+        while (std::getline(lines, line))
+        {
+            if (line.empty() || line[0] != 'C')
+                continue;
+
+            std::istringstream f(line);
+            std::string kind, name;
+            double at = 0, value = 0;
+            int chan = 0;
+
+            f >> kind >> at >> chan >> name >> value;
+
+            if (name == "cutoff")
+            {
+                if (!sawCutoff) firstCutoff = value;
+                lastCutoff = value;
+                sawCutoff = true;
+            }
+            else if (name == "res")
+            {
+                if (!sawRes) firstRes = value;
+                lastRes = value;
+                sawRes = true;
+            }
+        }
+
+        if (!sawCutoff || !sawRes)
+            fail("the listening breed never emitted its components");
+        else
+        {
+            if (fabs(lastCutoff - 220) >= fabs(firstCutoff - 220))
+                fail("listening did not bring the cutoff nearer the target: " +
+                     std::to_string(firstCutoff) + " -> " +
+                     std::to_string(lastCutoff) + " against 220");
+
+            if (fabs(lastRes - 0.8) >= fabs(firstRes - 0.8))
+                fail("listening did not bring the resonance nearer the target: " +
+                     std::to_string(firstRes) + " -> " +
+                     std::to_string(lastRes) + " against 0.8");
+        }
+    }
+
+    std::filesystem::remove(tmp);
+
+    /* A target that is neither an instrument nor a file: the ear refuses
+       on the spot and the breed goes on, judged by its arithmetic. */
+    tmp = thUtil::tempFile("gencheck-deaf-");
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "seed 7;\n"
+            "instrument voice { dsp \"bass.dsp\"; };\n"
+            "preset dull   { cutoff = 60;   res = 0.1;  };\n"
+            "preset bright { cutoff = 3000; res = 0.95; };\n"
+            "chain search {\n"
+            "    stage g gen::breed {\n"
+            "        from = dull; toward = bright; population = 6;\n"
+            "        target = \"nosuchthing\"; period = 0.5 s;\n"
+            "    };\n"
+            "    sink { instrument = voice; chanarg = \"*\"; };\n"
+            "};\n";
+    }
+
+    {
+        thcScheduler dsched(synth);
+
+        dsched.setAuditionSynchronous(true);
+
+        thcGenLoader dloader(plugins);
+
+        if (!dloader.load(tmp, &dsched))
+            fail("the deaf piece did not load");
+        else
+        {
+            const std::string tape = render(dsched, 5.0, 0.02);
+
+            if (tape.find(" cutoff ") == std::string::npos)
+                fail("a breed whose target names nothing stopped emitting");
+
+            if (dsched.auditioner() != NULL && dsched.auditioner()->answered() != 0)
+                fail("the ear answered about a target that names nothing");
+        }
+    }
+
+    std::filesystem::remove(tmp);
 }
 
 /* ---- 6b. a picture that is also a control ------------------------------ */
@@ -2600,6 +2787,8 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
     /* --- untouched, the piece replays from itself --- */
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(tmp, &sched))
@@ -2632,6 +2821,8 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
     for (int pass = 0; pass < 2; pass++)
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(tmp, &sched))
@@ -2674,6 +2865,8 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
     /* --- and the clicks actually did something --- */
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         loader.load(tmp, &sched);
@@ -2687,6 +2880,8 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
     /* --- capture hands back what was clicked, as text --- */
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         loader.load(tmp, &sched);
@@ -3358,6 +3553,8 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(tmp, &sched))
@@ -3377,6 +3574,8 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(tmp, &sched))
@@ -3412,6 +3611,8 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(tmp, &sched))
@@ -3650,6 +3851,8 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         drainSynth();
@@ -3845,6 +4048,8 @@ checkEffectSide (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         drainSynth();
@@ -3989,6 +4194,8 @@ checkEffectChanargSink (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         drainSynth();
@@ -4132,6 +4339,8 @@ checkEffectChanargSink (const std::map<std::string, thcPlugin *> &plugins,
                above are in aid of. */
             {
                 thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
                 thcGenLoader loader(plugins);
 
                 drainSynth();
@@ -4249,6 +4458,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         drainSynth();
@@ -4331,6 +4542,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             }
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             clearChannels(synth);
@@ -4389,6 +4602,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             }
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             clearChannels(synth);
@@ -4577,6 +4792,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcInstrument inst;
         thcInstrumentArg a;
 
@@ -4711,6 +4928,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             }
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             clearChannels(synth);
@@ -4769,6 +4988,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
      * would be nothing to strand. */
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcInstrument inst;
 
         clearChannels(synth);
@@ -4866,6 +5087,8 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
     clearChannels(synth);
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(breath, &sched))
@@ -5097,6 +5320,8 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(breath, &sched))
@@ -5324,6 +5549,8 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(piece, &sched))
@@ -5511,6 +5738,8 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
         std::string tmp = thUtil::tempFile("gencheck-passrule-");
 
@@ -5642,6 +5871,8 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
         std::string tmp = thUtil::tempFile("gencheck-tieorder-");
 
@@ -5768,6 +5999,8 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(piece, &sched))
@@ -5838,6 +6071,8 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(piece, &sched))
@@ -5929,6 +6164,8 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         /* Said rather than skipped. A block of refusals inside an
@@ -6158,6 +6395,8 @@ notesFrom (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(path, &sched))
@@ -6267,6 +6506,8 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
                     drainSynth();
 
                     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
                     thcGenLoader loader(plugins);
 
                     if (!loader.load(pass ? sp : piece, &sched))
@@ -6402,6 +6643,8 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
             drainSynth();
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -6453,6 +6696,8 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
             clearChannels(synth);
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -6571,6 +6816,8 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
             drainSynth();
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -6694,6 +6941,8 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
             drainSynth();
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -6816,6 +7065,8 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(piece, &sched))
@@ -6905,6 +7156,8 @@ playBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
     drainSynth();
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(path, &sched))
@@ -7413,6 +7666,8 @@ playHand (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
     drainSynth();
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(path, &sched))
@@ -7845,6 +8100,8 @@ turnBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
     drainSynth();
 
     thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(path, &sched))
@@ -8119,6 +8376,8 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
             drainSynth();
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -8239,6 +8498,8 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
         drainSynth();
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(path, &sched))
@@ -8843,6 +9104,8 @@ checkMasterEffect (const std::map<std::string, thcPlugin *> &plugins,
         }
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(path, &sched))
@@ -8989,6 +9252,8 @@ checkMasterEffect (const std::map<std::string, thcPlugin *> &plugins,
 
         {
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -9305,6 +9570,8 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
             }
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             clearChannels(synth);
@@ -9354,6 +9621,8 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
             drainSynth();
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -9758,6 +10027,8 @@ checkVariation (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
         std::string tmp = thUtil::tempFile("gencheck-double-");
 
@@ -9923,6 +10194,8 @@ checkVariation (const std::map<std::string, thcPlugin *> &plugins,
             drainSynth();
 
             thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
             thcGenLoader loader(plugins);
 
             if (!loader.load(path, &sched))
@@ -10145,6 +10418,8 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
         const std::string leaf = files[i].filename().string();
 
         thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
         thcGenLoader loader(plugins);
 
         if (!loader.load(files[i].string(), &sched))

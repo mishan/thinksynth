@@ -412,6 +412,20 @@ by its `spread` param. A component neither preset mentions cannot be invented,
 and a component only one of them names has nowhere to travel — so the sentence
 above is arithmetic in that plugin rather than a rule someone has to remember.
 
+`gen::breed` can also be told what to sound like. `target = lead;` names
+another instrument of the piece; `target = "kick.wav";` names a sound file, as
+written or found under `dsp/samples`. The host renders each genome through the
+chain's instrument on a synth of its own, measures it against the target
+(`libthink/thSoundFeat.h`: log-mel spectrograms at several sizes, a bass
+layer, noisiness and envelope, in dB), and the distance enters the fitness
+with weight `listen`, a tenth per dB. The plugin never sees the patch: it
+hands over names and numbers and gets a number back (`thcAudition` in
+`libthink/thcomposer.h`). Rendering takes tens of milliseconds a genome, so
+live it happens on a worker thread and a generation is bred the cycle after it
+was played; `genwav` and `gencheck` have the host answer inside the tick, and
+that is the host on which a piece that listens replays exactly. In the
+browser there is no ear, and a `target` is ignored.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of

@@ -111,19 +111,15 @@ Engine
 Composition
 -----------
 
-- Fitness from the sound itself. `gen::breed' and `gen::evolve' both judge a
-  candidate by arithmetic over the genome -- distance from a target vector,
-  distance from the last champion, how much of the corridor got used. What
-  neither can do is listen: judging the rendered audio needs a shadow synth
-  to render candidates into, off the audio thread and without sounding, and
-  a feature or two pulled out of the result. `thSynth::setSilent' is most of
-  the machinery already, since the mirror needed the same thing. For `breed'
-  this is one function replaced and nothing else moved, which is most of the
-  argument for having built it the way it is.
-
-  It is the last step of the composer plan nobody has taken. Everything
-  above it landed: presets, the wildcard sink, morph, the GA over chanarg
-  vectors, the structure edits, `composer_input' and `composer_capture'.
+- Fitness from the sound itself, for `gen::evolve'. `gen::breed' listens now:
+  `target' names an instrument or a sound file, the host renders each genome
+  through the chain's instrument on a private synth (src/thcAudition.cpp) and
+  answers with the distance libthink/thSoundFeat.h measures, through
+  `thcAudition' in thcomposer.h. `evolve' breeds phrases, and a phrase's
+  sound is a rendered bar rather than a note; the ear would need a
+  `hear' that takes a note list, and the same asynchronous flow breed has.
+  Live, a piece that listens replays exactly only offline (genwav): the
+  wall clock decides which cycle a generation lands on.
 
 - A composer that changes the *shape* of an instrument's graph, not just a
   number in it. `gen::swap' replaces a channel's whole graph by name and
@@ -146,11 +142,13 @@ Composition
   touching the live synth, and `NodeEdit' is the one-writer splice seam a
   program edits text through.
 
-  Past that is the graph as a genome: `breed' and `evolve' over topologies
-  rather than over chanarg vectors, which needs a graph that serializes and
-  the audio-feature fitness above to judge what comes out. Research rather
-  than a next step, and the reason to keep the refusal honest in the
-  meantime.  (docs/UNIFICATION.md, "structural mutation")
+  Past that is the graph as a genome. scripts/dspmatch does it offline:
+  `grow' splices a node into a wire, puts an envelope or LFO on a constant,
+  or adds a voice, each edit raced with its own tuning against the graph as
+  it stands, and the genome is the .dsp text through NodeEdit::Text. What it
+  cannot do is edit an expression, which is where most shipped patches sum
+  their oscillators, and it is a tool rather than a composer: the third
+  structure edit above is what would let a piece do it live.
 
 - Meta chains: a chain that schedules or chooses among the sections rather
   than emitting notes, so the form of a piece is composed the way its notes

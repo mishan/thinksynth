@@ -282,6 +282,35 @@ typedef struct {
     void (*set_desc)      (void *host, const char *description);
 } thcComposerInfo;
 
+/* The host's ear, for a composer whose fitness is a sound.
+ *
+ * A composer knows nothing of its instrument: not the patch, not the
+ * channel, not the synth. That is the contract, and it is what lets a
+ * module run in a browser worklet as well as on a desktop. So a composer
+ * that wants to *listen* to a candidate asks the host to: `hear' renders
+ * the instrument the composer's chain sinks to, with the named chanargs
+ * set to the given values, and measures it against `target' -- another
+ * instrument of the piece, by name, or a sound file. The answer arrives
+ * later, since rendering is not something a tick waits for; `heard'
+ * collects it. Distance is in dB, zero for the same sound, and a
+ * candidate that will not render is reported as failed.
+ *
+ * NULL in thcParams where the host offers no ear -- the browser, a host
+ * with no instrument table -- and a composer falls back to whatever it
+ * judged by before. */
+typedef struct {
+    void *ctx;
+
+    /* A ticket >= 0, or -1 if the target or the instrument cannot be
+       resolved. */
+    int  (*hear) (void *ctx, const char *target,
+                  const char *const *names, const double *values, int n);
+
+    /* 1 and the distance once the render is in, 0 while it is not, -1
+       if it failed. A ticket is forgotten once answered. */
+    int  (*heard)(void *ctx, int ticket, double *distance);
+} thcAudition;
+
 /* Passed to composer_create; live for the instance's lifetime. Values
  * reflect GUI edits immediately, so a composer that reads its params
  * inside tick() picks up changes with no extra machinery. */
@@ -290,6 +319,10 @@ typedef struct {
     double      (*get)       (void *ctx, int index);
     const char *(*get_string)(void *ctx, int index);
     unsigned     seed;        /* per-instance; stable across a replay     */
+
+    /* NULL until the host has a chain to put the composer in, and
+       always where the host has no ear; read it at tick time. */
+    const thcAudition *audition;
 } thcParams;
 
 /* tick()'s "do not wake me again" -- sleep until composer_param_changed

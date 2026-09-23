@@ -30,6 +30,7 @@
 
 #include "libthink/thcomposer.h"
 
+#include "thcAudition.h"
 #include "thcNodeHost.h"
 
 class thSynth;
@@ -329,6 +330,8 @@ struct thcInstrument
 };
 
 /* One placement of a plugin in a chain. */
+class thcScheduler;
+
 struct thcStage
 {
     thcPlugin     *plugin;
@@ -337,6 +340,14 @@ struct thcStage
     void          *state;       /* from composer_create                  */
     thcParamStore  params;
     bool           sleeping;    /* tick returned THC_NEVER               */
+
+    /* The host's ear as this stage sees it (thcAudition in
+       thcomposer.h): its ctx is this stage, since what a stage may
+       listen to is its own chain's instrument. Pointed at by
+       params.params()->audition, which is why a stage must not move. */
+    thcAudition    ear;
+    thcScheduler  *sched;
+    size_t         chain;
 
     /* Whether THIS placement is clocked. A plugin that exports both
        entry points is a generator as a gen:: stage and only a
@@ -356,7 +367,13 @@ struct thcStage
 
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),
-          ticks(wantTick), awaitingStart(wantTick), stalled(0) {}
+          sched(NULL), chain(0), ticks(wantTick), awaitingStart(wantTick),
+          stalled(0)
+    {
+        ear.ctx = NULL;
+        ear.hear = NULL;
+        ear.heard = NULL;
+    }
 };
 
 /* Where a chain's events go when they fall off the end. A plain sink
@@ -479,6 +496,22 @@ public:
      * THC_NEVER sleeper when the knob moves. */
     thArg *addKnob (const std::string &name, float value);
     thArg *knob (const std::string &name);
+
+    /* thcAudition's two entry points, with a stage for ctx. */
+    static int cbHear (void *ctx, const char *target,
+                       const char *const *names, const double *values, int n);
+    static int cbHeard (void *ctx, int ticket, double *distance);
+
+    void ensureAuditioner (void);
+
+    int hear (thcStage *stage, const char *target,
+              const char *const *names, const double *values, int n);
+
+    /* An instrument as the ear renders it: its .dsp found the way
+       applyInstrument finds it, its args folded to the engine's terms
+       and read through their knobs. False if it has no .dsp. */
+    bool auditionInstrument (const thcInstrument &inst,
+                             thcAuditioner::Instrument &out);
     const std::map<std::string, thArg *> &knobs (void) const
     {
         return knobs_;
@@ -618,6 +651,15 @@ public:
                                 int side, std::string &why)> EffectLoader;
 
     void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
+
+    /* The ear renders inside a stage's tick rather than on a thread:
+       every answer is in by the next tick, so a piece that listens
+       replays exactly. For the harnesses and the offline renderer; a
+       live host leaves it off and takes the answers as they come. */
+    void setAuditionSynchronous (bool on);
+
+    /* NULL where there is no ear. A harness reads answered() off it. */
+    thcAuditioner *auditioner (void) const { return auditioner_; }
     void setInstrumentUnloader (const InstrumentUnloader &fn)
     {
         unloadDsp_ = fn;
@@ -994,6 +1036,11 @@ private:
        chain asks for nodes, so a piece without any pays nothing.
        Destroyed after the chains that borrow it. */
     thSynth *controlSynth_;
+
+    /* The ear behind every stage's thcAudition, made on the first stage
+       and shared: one private synth, one worker. NULL in a build with
+       no thread to render on, and then no stage is offered one. */
+    thcAuditioner *auditioner_;
 
     /* The piece's instruments, and the host's way of loading one. A
        vector rather than a map: declaration order is what the loader

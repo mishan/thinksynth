@@ -357,6 +357,10 @@ int main (int argc, char **argv)
        graphs and their nodes have to come from somewhere. */
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thcScheduler sched(&synth);
+
+    /* A piece that listens replays exactly only if the ear answers
+       inside the tick; offline, that costs nothing but time. */
+    sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
     if (!loader.load(genFile, &sched))
