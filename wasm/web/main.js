@@ -190,6 +190,9 @@ let keyfocus = null;             /* and who has it, the page or the keys  */
    which is the route its release has to take. */
 const sounding = new Map();
 
+/* The channel a MIDI sustain pedal is down on, or null. */
+let pedalChannel = null;
+
 /* The piece, as it stands: what the worklet said when it loaded, and the
    roll the mirror draws of it -- the past it has played and the future it
    has already decided (rollview.js). */
@@ -387,16 +390,44 @@ function release (note, midi = false)
     keyboard?.hold(note, false);
 }
 
-/* Everything, whoever is holding it: a mode change is about to make the
-   routes wrong. */
+/* Everything, whoever is holding it, and the pedal: a mode change is about
+   to make the routes wrong. */
 function releaseAll ()
 {
     midiIn?.forget();
+    pedal(0);
 
     for (const held of sounding.values())
         held.midi = 0;
 
     releaseKeys();
+}
+
+/* A MIDI sustain pedal, 0..127, onto SusPedal on the channel the keys play:
+ * thMidiChan holds a released note while it reads 64 or more, as
+ * thSynth::handleMidiController routes controller 64 natively.
+ *
+ * Solo page only. A chanarg command lands whenever it arrives, and a pedal
+ * in a room would have to land at the same transport time on every peer.
+ * The channel it went down on is the one it comes up on, whatever the page
+ * has switched to since.
+ */
+function pedal (value)
+{
+    if (synth === null)
+        return;
+
+    const channel = value >= 64 ? (composing() ? keyChannel() : PATCH_CHANNEL)
+                                : pedalChannel;
+
+    if (channel === null)
+        return;
+
+    if (pedalChannel !== null && pedalChannel !== channel)
+        synth.chanarg(pedalChannel, 'SusPedal', 0);
+
+    synth.chanarg(channel, 'SusPedal', value);
+    pedalChannel = value >= 64 ? channel : null;
 }
 
 /* Everything the pointer and the computer keyboard hold: a key released
@@ -2597,6 +2628,7 @@ async function init ()
         button: $('midi'), status: $('midistatus'),
         onNoteOn: (note, velocity) => press(note, velocity, true),
         onNoteOff: (note) => release(note, true),
+        onPedal: pedal,
     });
     $('mode').addEventListener('change', pickMode);
 

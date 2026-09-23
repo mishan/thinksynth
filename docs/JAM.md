@@ -605,7 +605,8 @@ room page and the solo page alike. A focus change or a blur lets go of the
 computer keys, whose keyups can be lost; it leaves MIDI keys down, since their
 note offs arrive regardless. An input unplugged lets go of what it held.
 Controllers are not read yet: a CC mapped to a knob has to be a stamped knob
-command to land at the same time on every peer.
+command to land at the same time on every peer. The sustain pedal (CC 64) is
+read on the solo page only, as a `SusPedal` chanarg, for the same reason.
 
 **Anyone edits the document.** That is what a CRDT is for. The subtle part
 is not the merge, it is *when an edit takes effect*, because two peers

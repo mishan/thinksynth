@@ -161,6 +161,21 @@ try
 
         fake.plug('k1', 'Fake Keys');
         window.fakeMidi = fake;
+
+        /* And the chanarg commands the page posts to the worklet, which is
+           where a sustain pedal goes. */
+        window.chanargs = [];
+
+        const post = MessagePort.prototype.postMessage;
+
+        MessagePort.prototype.postMessage = function (m, ...rest)
+        {
+            if (m?.type === 'chanarg')
+                window.chanargs.push(
+                    { channel: m.channel, name: m.name, value: m.values[0] });
+
+            return post.call(this, m, ...rest);
+        };
         navigator.requestMIDIAccess = async (options) =>
         {
             fake.asked = options;
@@ -981,13 +996,28 @@ try
     check((await sounding()).length === 0,
           'a note on at velocity 0 lets it go');
 
+    /* The sustain pedal, onto the key channel's SusPedal. */
+    const pedals = () => page.evaluate(() => window.chanargs
+        .filter((c) => c.name === 'SusPedal')
+        .map((c) => `${c.channel}:${c.value}`).join(' '));
+
+    await midiSend([0xb3, 64, 127]);
+    await midiSend([0xb3, 64, 0]);
+
+    check(await pedals() === `${keyChannel}:127 ${keyChannel}:0`,
+          'the sustain pedal goes down and up on the key channel\'s ' +
+          `SusPedal: ${await pedals()}`);
+
+    await midiSend([0xb3, 64, 127]);
+
     await midiSend([0x80, 60, 0]);
     await midiSend([0x90, 62, 100]);
     await page.evaluate(() => window.fakeMidi.unplug('k1'));
 
     check((await sounding()).length === 0 &&
+          (await pedals()).endsWith(`${keyChannel}:127 ${keyChannel}:0`) &&
           /no MIDI inputs/.test(await page.textContent('#midistatus')),
-          'an unplugged keyboard lets go of what it held: ' +
+          'an unplugged keyboard lets go of what it held, pedal included: ' +
           await page.textContent('#midistatus'));
 
     await page.evaluate(() => window.fakeMidi.plug('k2', 'Other Keys'));

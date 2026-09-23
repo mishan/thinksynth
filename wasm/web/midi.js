@@ -19,7 +19,7 @@
 /*
  * midi.js -- a MIDI keyboard, through Web MIDI, onto the page's keys.
  *
- * Note on and note off only, handed to the page's own press and release:
+ * Note on and note off, handed to the page's own press and release:
  * everything past those -- patch mode or a piece's `input midi', the key
  * channel on the solo page, the seat in a room -- is already decided there,
  * and a MIDI key is one more hand on the same keys.
@@ -34,13 +34,22 @@
  * that goes away lets go of everything it held -- the note offs of an
  * unplugged keyboard are never coming.
  *
- * Controllers, pitch bend and program change are ignored. A controller
- * mapped to an arg has to reach every peer at the same transport time,
- * which is a stamped knob command and not a write here.
+ * And the sustain pedal, controller 64, handed over as its 0..127 for the
+ * page to put on the channel's SusPedal, as thSynth::handleMidiController
+ * does natively. An input that goes away with its pedal down puts it up.
+ *
+ * Every other controller, pitch bend and program change are ignored. A
+ * controller mapped to an arg has to reach every peer at the same transport
+ * time, which is a stamped knob command and not a write here.
  *
  * Web MIDI hands over one complete message per event, running status
  * already expanded, so data[0] is always a status byte.
  */
+
+/* The sustain pedal's controller number, and the value from which it is
+   down (TH_MIDI_CC_SUSTAIN, thMidiChan). */
+const CC_SUSTAIN = 64;
+const PEDAL_DOWN = 64;
 
 /* True where the browser has Web MIDI at all: Chromium and Firefox, over
    https or on localhost. Safari has none. */
@@ -56,7 +65,8 @@ export function midiAvailable ()
  *
  * Returns { forget }, which is openMidi's forget on whatever is open.
  */
-export function midiToggle ({ button, status, onNoteOn, onNoteOff })
+export function midiToggle ({ button, status, onNoteOn, onNoteOff,
+                             onPedal })
 {
     const label = button.textContent;
     let open = null;
@@ -83,7 +93,8 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff })
 
         try
         {
-            open = await openMidi({ onNoteOn, onNoteOff, onChange: say });
+            open = await openMidi({ onNoteOn, onNoteOff, onPedal,
+                                    onChange: say });
         }
         catch (e)
         {
@@ -103,17 +114,19 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff })
 /* Asks for MIDI access and listens on every input there is, and on every
  * input plugged in afterwards.
  *
- * `onNoteOn(note, velocity)' and `onNoteOff(note)' are called once per key;
- * `onChange(names)' with the connected inputs' names whenever one comes or
- * goes.
+ * `onNoteOn(note, velocity)' and `onNoteOff(note)' are called once per key,
+ * `onPedal(value)' for every sustain pedal message, and `onChange(names)'
+ * with the connected inputs' names whenever one comes or goes.
  *
  * Resolves to { names, forget, close }. `forget' drops what every input
- * holds without calling onNoteOff, for a page that has just released
- * everything itself. `close' lets go of everything held and stops listening.
+ * holds, pedal included, without calling onNoteOff or onPedal, for a page
+ * that has just released everything itself. `close' lets go of everything
+ * held and stops listening.
  *
  * Rejects with a message fit to put on the page.
  */
-export async function openMidi ({ onNoteOn, onNoteOff, onChange = () => {} })
+export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
+                                  onChange = () => {} })
 {
     if (!midiAvailable())
         throw new Error('this browser has no Web MIDI here -- it needs ' +
@@ -135,6 +148,9 @@ export async function openMidi ({ onNoteOn, onNoteOff, onChange = () => {} })
 
     /* input id -> the notes it holds */
     const held = new Map();
+
+    /* The inputs whose pedal is down. */
+    const pedaling = new Set();
 
     const noteOn = (id, note, velocity) =>
     {
@@ -166,6 +182,9 @@ export async function openMidi ({ onNoteOn, onNoteOff, onChange = () => {} })
 
         for (const note of [...down])
             noteOff(id, note);
+
+        if (pedaling.delete(id))
+            onPedal(0);
     };
 
     const attach = (input) =>
@@ -182,15 +201,24 @@ export async function openMidi ({ onNoteOn, onNoteOff, onChange = () => {} })
                 return;
 
             const kind = data[0] & 0xf0;
-            const note = data[1] & 0x7f;
-            const velocity = data[2] & 0x7f;
+            const data1 = data[1] & 0x7f;
+            const data2 = data[2] & 0x7f;
 
             /* A note on at velocity 0 is a note off, which is how a
                keyboard using running status sends most of them. */
-            if (kind === 0x90 && velocity > 0)
-                noteOn(input.id, note, velocity);
+            if (kind === 0x90 && data2 > 0)
+                noteOn(input.id, data1, data2);
             else if (kind === 0x80 || kind === 0x90)
-                noteOff(input.id, note);
+                noteOff(input.id, data1);
+            else if (kind === 0xb0 && data1 === CC_SUSTAIN)
+            {
+                if (data2 >= PEDAL_DOWN)
+                    pedaling.add(input.id);
+                else
+                    pedaling.delete(input.id);
+
+                onPedal(data2);
+            }
         };
     };
 
@@ -235,6 +263,8 @@ export async function openMidi ({ onNoteOn, onNoteOff, onChange = () => {} })
         {
             for (const down of held.values())
                 down.clear();
+
+            pedaling.clear();
         },
 
         close ()
