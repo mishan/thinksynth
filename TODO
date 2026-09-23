@@ -62,6 +62,17 @@ The corpus
   up per note. Measure with a variant of wasm/web/bench.mjs that holds a
   chord on one .dsp, and keep the sound bit-identical.
 
+- grand.dsp's damper falls in one stage. filt::pianostring's damper is one
+  per-trip loss on every string and every partial, so a released note falls
+  in a straight line in dB. A real damped note drops fast and then leaves a
+  quiet tail of a few hundred ms -- the out-of-phase unison motion the felt
+  barely touches -- with the upper partials gone before the fundamental.
+  Either spare part of the out-of-phase motion from the damper's loss or
+  make that loss rise with frequency. There is no damper-felt noise either.
+  The damper times themselves are guesses: the Iowa recordings the rest was
+  fitted to hold every note to its end, so fitting them wants a recording
+  with key releases in it.
+
 
 Coverage
 --------

@@ -87,7 +87,11 @@
 # the engine holds at 2 while the sustain pedal keeps a released key up,
 # so the pedal needs nothing here. The top nineteen keys, F#6 up, have no
 # damper on a grand and ignore the key coming up. `Damper' is how long a
-# damped string takes to fall 60 dB.
+# damped middle C takes to fall 60 dB, doubling every eighteen keys down:
+# the felt takes about the same share of a string's energy each cycle, so
+# a bass string with its long period rings on for most of a second after
+# its key comes up, and a treble one stops almost at once. The same time on
+# every key is a gate, not a damper.
 #
 # `play' IS THE STRING'S. A voice ends when its string is quiet, not
 # when its key comes up, so there is no amp envelope at all.
@@ -151,7 +155,7 @@ category "Keys";
     @knock.max = 3;
     @knock.label = "Knock";
 
-    @damper = 0.12;
+    @damper = 0.3;
     @damper.widget = 1;
     @damper.min = 0.02;
     @damper.max = 2;
@@ -187,7 +191,7 @@ node string filt::pianostring {
         0.000085 * @stretch * exp2((33 - ionode->note) / 15);
     decay = @sustain * 40 * exp2((21 - ionode->note) / 28);
     hidecay = @tone;
-    damper = @damper;
+    damper = @damper * exp2((60 - ionode->note) / 18);
     gate = max(ionode->trigger, clamp((ionode->note - 89.5) * 100, 0, 1));
     strings = 1 + (clamp((ionode->note - 30.5) * 100, 0, 1) +
                    clamp((ionode->note - 48.5) * 100, 0, 1));
