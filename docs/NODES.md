@@ -437,7 +437,7 @@ Stiff String (a piano string)
 |---|---|---|---|---|---|---|
 | `in` | in | Excitation |  | -1 to 1 | full scale |  |
 | `freq` | in | The fundamental; read once per window |  |  | Hz |  |
-| `b` | in | Inharmonicity: partial n at n f0 sqrt(1 + b n^2); 0 is a harmonic string |  | 0 to 0.05 |  |  |
+| `b` | in | Inharmonicity: partial n at n f0 sqrt(1 + b n^2), f0 sqrt(1 + b) the fundamental; 0 is a harmonic string |  | 0 to 0.05 |  |  |
 | `decay` | in | How long the fundamental takes to fall sixty decibels | 10 | 0.01 to 200 | seconds |  |
 | `hidecay` | in | The same for the partials near 3 kHz; 0 is `decay' |  | 0.01 to 200 | seconds |  |
 | `damper` | in | How long the string takes to fall sixty decibels with the damper down | 0.15 | 0.01 to 200 | seconds |  |

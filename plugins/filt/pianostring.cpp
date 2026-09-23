@@ -28,11 +28,12 @@
  *     f_n = n f0 sqrt(1 + B n^2)          (Fletcher, Blackham, Stratton 1962)
  *
  * with the inharmonicity B from about 1e-4 in the tenor to 1e-2 at the
- * top. The loop rings at the frequencies where its total phase lag is a
- * whole number of turns, so stretching the partials means a loop whose
- * group delay falls with frequency: an allpass cascade inside it. That is
- * the dispersion filter, and it is why this is a plugin and not a graph --
- * a graph may not hold a loop.
+ * top. `freq' is the first partial, so f0 is freq / sqrt(1 + B). The loop
+ * rings at the frequencies where its total phase lag is a whole number of
+ * turns, so stretching the partials means a loop whose group delay falls
+ * with frequency: an allpass cascade inside it. That is the dispersion
+ * filter, and it is why this is a plugin and not a graph -- a graph may
+ * not hold a loop.
  *
  * THE DISPERSION FILTER is designed once per note, from `freq' and `b',
  * in one of two shapes:
@@ -133,10 +134,26 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define DAMPER_FADE 0.01
 
 /* The lowest note the line is sized for, in hertz, and the shortest line
-   left after the filters, in samples: the Thiran wants its fraction in
+   left after the filters, in samples: the Thiran wants its fraction near
    [0.5, 1.5) and the integer part at least one. */
 #define FREQ_MIN 16.0
 #define LINE_MIN 2.0
+
+/* The Thiran's fraction, at its extremes. Above a fraction of 0 it is
+   stable; these keep its pole off the unit circle. Between them the
+   Thiran reaches the lag a period needs at any fundamental up to a third
+   of the rate, with the line a sample longer where it must be. */
+#define THIRAN_MIN 0.1
+#define THIRAN_MAX 4.0
+
+/* The corner of the high-pass on `in', in hertz. The loss filter's gain
+   is highest at DC, at worst its clamp, so a pulse that is all one sign
+   would leave a DC mode ringing long after the partials. Two one-poles:
+   one leaves the string an input with no net DC but a tail that the
+   nearly lossless DC mode still sums to a residue; the second takes the
+   residue's first order away too. Far enough below FREQ_MIN that the
+   lowest string's excitation loses under a decibel. */
+#define DC_HZ 5.0
 
 /* `play': the hold after the note starts, the follower's release, and the
    level below which the string is over (-80 dBFS). */
@@ -161,6 +178,9 @@ enum {
     S_DAMP,                 /* the damper, 0 off to 1 down */
     S_THIRAN,               /* the Thiran's state */
     S_LOSS,                 /* the loss filter's last output */
+    S_DCX,                  /* the high-pass's last input */
+    S_DCY1,                 /* its first stage's last output */
+    S_DCY2,                 /* and its second's */
     S_FREQ,                 /* the inputs the design below is for */
     S_B,
     S_DECAY,
@@ -212,8 +232,9 @@ int module_init (thPlugin *plugin)
 
     args[IN_B] = plugin->regArg("b", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_B],
-                       "Inharmonicity: partial n at n f0 sqrt(1 + b n^2); "
-                       "0 is a harmonic string");
+                       "Inharmonicity: partial n at n f0 sqrt(1 + b n^2), "
+                       "f0 sqrt(1 + b) the fundamental; 0 is a harmonic "
+                       "string");
     plugin->setArgRange(args[IN_B], 0, B_MAX);
 
     args[IN_DECAY] = plugin->regArg("decay", thPlugin::ARG_IN);
@@ -526,12 +547,14 @@ static double designFirst (const Design *d, int m, double f0, double b,
     return 0.5 * (lo + hi);
 }
 
-/* The whole loop for one note. */
-static void design (Design *d, double f0, double b, double decay,
+/* The whole loop for one note. `freq' is the first partial, so the f0 in
+   the formula is a little under it. */
+static void design (Design *d, double freq, double b, double decay,
                     double hidecay, double damper, double rate)
 {
-    const double w1 = 2.0 * M_PI * partialHz(1, f0, b) / rate;
-    double total, frac, lo, hi;
+    const double f0 = freq / sqrt(1.0 + b);
+    const double w1 = 2.0 * M_PI * freq / rate;
+    double total, want, frac, lo, hi;
     int i;
 
     designLoss(d, f0, b, decay, hidecay, rate);
@@ -575,16 +598,26 @@ static void design (Design *d, double f0, double b, double decay,
 
     d->line = (int)floor(total - 0.5);
 
-    /* The fraction against the Thiran's own phase at the fundamental. */
-    lo = 0.4;
-    hi = 1.6;
+    /* The fraction against the Thiran's own phase at the fundamental. Near
+       the top of the range that phase is far from the fraction's, and the
+       lag wanted can be more than THIRAN_MAX gives; a sample more line
+       takes a turn of the fundamental off it. */
+    want = (total - d->line) * w1;
 
-    for (i = 0; i < 40; i++)
+    if (want > lagFirst((1.0 - THIRAN_MAX) / (1.0 + THIRAN_MAX), w1))
+    {
+        d->line++;
+        want -= w1;
+    }
+
+    lo = THIRAN_MIN;
+    hi = THIRAN_MAX;
+
+    for (i = 0; i < 50; i++)
     {
         const double mid = 0.5 * (lo + hi);
 
-        if (d->line * w1 + lagFirst((1.0 - mid) / (1.0 + mid), w1) <
-            total * w1)
+        if (lagFirst((1.0 - mid) / (1.0 + mid), w1) < want)
             lo = mid;
         else
             hi = mid;
@@ -593,7 +626,10 @@ static void design (Design *d, double f0, double b, double decay,
     frac = 0.5 * (lo + hi);
     d->eta = (1.0 - frac) / (1.0 + frac);
 
-    d->dgain = pow(10.0, -3.0 * total / (rate * damper));
+    /* Per trip, and a trip at the fundamental is the loop's group delay
+       there: the period and what the dispersion filter adds to it. */
+    d->dgain = pow(10.0, -3.0 * targetDelay(w1, f0, b, rate) /
+                         (rate * damper));
 }
 
 static void store (float *state, const Design *d)
@@ -631,10 +667,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const double fade = 1.0 - exp(-1.0 / (DAMPER_FADE * rate));
     const double release = exp(-1.0 / (PLAY_RELEASE * rate));
     const double hold = PLAY_HOLD * rate;
+    const double dcpole = exp(-2.0 * M_PI * DC_HZ / rate);
     double freq, b, decay, hidecay, damper;
     /* The state is float between samples as it is between windows, so a
        window boundary rounds nothing a sample boundary does not. */
-    float z1[DISP_MAX], z2[DISP_MAX], thz, lossz, damp, peak, age;
+    float z1[DISP_MAX], z2[DISP_MAX], thz, lossz, dcx, dcy1, dcy2;
+    float damp, peak, age;
     double c1[DISP_MAX], c2[DISP_MAX], eta, g, pole, dgain;
     unsigned int at, i;
     int kind, sections, line, k;
@@ -718,6 +756,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     damp = state[S_DAMP];
     thz = state[S_THIRAN];
     lossz = state[S_LOSS];
+    dcx = state[S_DCX];
+    dcy1 = state[S_DCY1];
+    dcy2 = state[S_DCY2];
 
     if (at >= len)
         at = 0;
@@ -727,7 +768,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const float raw = (*in_arg)[i];
         const double in = thIsFinite(raw) ? raw : 0;
         const double down = (*in_gate)[i] > 0 ? 0 : 1;
+        const float last = dcy1;
         double x, y;
+
+        dcy1 = (float)flush(in - dcx + dcpole * dcy1);
+        dcy2 = (float)flush(dcy1 - last + dcpole * dcy2);
+        dcx = (float)in;
 
         /* The line's output, and the Thiran's fraction on it. */
         x = buffer[(at + len - line) % len];
@@ -755,7 +801,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         damp = (float)(damp + (down - damp) * fade);
 
-        y = in + lossz * (1.0 - damp * (1.0 - dgain));
+        y = dcy2 + lossz * (1.0 - damp * (1.0 - dgain));
         y = flush(y);
 
         buffer[at] = (float)y;
@@ -783,6 +829,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     state[S_DAMP] = damp;
     state[S_THIRAN] = thz;
     state[S_LOSS] = lossz;
+    state[S_DCX] = dcx;
+    state[S_DCY1] = dcy1;
+    state[S_DCY2] = dcy2;
 
     return 0;
 }

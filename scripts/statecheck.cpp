@@ -5389,23 +5389,26 @@ static void checkPad (const string &pluginPath)
 /* What the node claims, and what each check is for:
  *
  *   - the fundamental is `freq' to within half a cent, from A0 to C7, with
- *     the dispersion filter's delay and the loss filter's in the loop;
+ *     the dispersion filter's delay and the loss filter's in the loop, and
+ *     within a cent up to the top of the MIDI range;
  *
- *   - the partials sit at n f0 sqrt(1 + b n^2), to within a few cents, for
- *     every partial the fit covers -- the stretch that is the reason the
- *     node exists, and which filt::comb cannot make;
+ *   - the partials sit at n f0 sqrt(1 + b n^2), f0 sqrt(1 + b) = `freq', to
+ *     within a few cents, for every partial the fit covers -- the stretch
+ *     that is the reason the node exists, and which filt::comb cannot make;
  *
  *   - the fundamental falls sixty decibels in `decay', and with `hidecay'
  *     shorter the partials near 3 kHz fall in that instead;
  *
- *   - `gate = 0' brings the string down in `damper', and `play' follows
- *     the string rather than the gate;
+ *   - `gate = 0' brings the string down in `damper', stiff or not, and
+ *     `play' follows the string rather than the gate, and ends even when
+ *     the excitation has a net DC;
  *
  *   - and a window boundary is not an event.
  */
 
 static vector<NodeSpec> pianoGraph (float freq, float b, float decay,
-                                    float hidecay, float damper, float gate)
+                                    float hidecay, float damper, float gate,
+                                    float pulse = 1)
 {
     vector<NodeSpec> spec;
     NodeSpec src, str;
@@ -5414,7 +5417,7 @@ static vector<NodeSpec> pianoGraph (float freq, float b, float decay,
     src.spelling = "env/ad";
 
     Value a = { "a", 0 };
-    Value d = { "d", 1 };
+    Value d = { "d", pulse };
     Value p = { "p", TH_MAX };
 
     src.values.push_back(a);
@@ -5523,15 +5526,16 @@ static void checkPianostring (const string &pluginPath)
 
     /* An impulse into a string that barely decays, and a second of it
        after the first twentieth. Every partial under 6 kHz up to the
-       eighth, against the stiff-string formula: the fundamental to half a
-       cent, the rest to two. */
+       eighth, against the stiff-string formula with its first partial at
+       `freq': the fundamental to half a cent, the rest to two. */
     {
         static const int keys[] = { 21, 33, 45, 60, 69, 81, 96 };
 
         for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
         {
-            const double f0 = 440 * pow(2.0, (keys[k] - 69) / 12.0);
+            const double hz = 440 * pow(2.0, (keys[k] - 69) / 12.0);
             const double b = pianoB(keys[k]);
+            const double f0 = hz / sqrt(1 + b);
             const size_t from = (size_t)(rate / 20);
             const size_t n = (size_t)rate;
             vector<float> out;
@@ -5540,7 +5544,7 @@ static void checkPianostring (const string &pluginPath)
             bool good = true;
 
             if (!render1(pluginPath,
-                         pianoGraph((float)f0, (float)b, 60, 0, 0, 1),
+                         pianoGraph((float)hz, (float)b, 60, 0, 0, 1),
                          "string", "out", 256, (unsigned)(from + n), out,
                          why))
             {
@@ -5550,7 +5554,8 @@ static void checkPianostring (const string &pluginPath)
 
             for (int p = 1; p <= 8; p++)
             {
-                const double want = p * f0 * sqrt(1 + b * p * p);
+                const double want = p == 1 ? hz
+                                           : p * f0 * sqrt(1 + b * p * p);
                 double got, off;
 
                 if (want > 6000)
@@ -5577,6 +5582,52 @@ static void checkPianostring (const string &pluginPath)
                            num(worst) + " cents)",
                      detail);
         }
+    }
+
+    /* The top of the MIDI range, where the fundamental is over a quarter of
+       the rate and the Thiran's phase delay there is far from its
+       fraction. */
+    {
+        static const int keys[] = { 108, 116, 120, 124, 127 };
+        string detail;
+        double worst = 0;
+        bool good = true;
+
+        for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
+        {
+            const double hz = 440 * pow(2.0, (keys[k] - 69) / 12.0);
+            const double b = pianoB(keys[k]) < 0.05 ? pianoB(keys[k]) : 0.05;
+            const size_t from = (size_t)(rate / 20);
+            const size_t n = (size_t)rate;
+            vector<float> out;
+            string why;
+            double off;
+
+            if (!render1(pluginPath,
+                         pianoGraph((float)hz, (float)b, 60, 0, 0, 1),
+                         "string", "out", 256, (unsigned)(from + n), out,
+                         why))
+            {
+                fail("filt::pianostring renders", why);
+                return;
+            }
+
+            off = cents(peakNear(out, from, n, hz, 60), hz);
+
+            if (fabs(off) > fabs(worst))
+                worst = off;
+
+            if (fabs(off) > 1 && good)
+            {
+                good = false;
+                detail = "key " + num(keys[k]) + " is " + num(off) +
+                         " cents out";
+            }
+        }
+
+        okOrFail(good, "filt::pianostring: keys 108 to 127 are `freq' to "
+                       "a cent (worst " + num(worst) + " cents)",
+                 detail);
     }
 
     /* ---- the two decays ---- */
@@ -5628,31 +5679,55 @@ static void checkPianostring (const string &pluginPath)
 
     /* ---- the damper, and `play' ---- */
 
-    /* `gate = 0' from the start: the free string's ten seconds and the
-       damper's 0.3 together are 1 / (1/10 + 1/0.3), 0.29 s. */
+    /* `gate = 0' from the start: a free string's `decay' and the damper's
+       together are 1 / (1 / decay + 1 / damper). A harmonic string, and
+       two stiff ones whose loops are longer than a period at the
+       fundamental by what the dispersion filter delays it: A0 on the
+       second-order cascade, F6 on the first-order one. */
     {
-        const double f0 = 220;
-        const size_t n = (size_t)(rate / 20);
-        const size_t t1 = (size_t)(rate / 20), t2 = (size_t)(rate / 5);
-        vector<float> out;
-        string why;
+        /* The key is 0 for no stiffness. Seconds, and each window long
+           enough to hold several periods. */
+        struct Damped {
+            double hz;
+            int key;
+            double decay, damper, t1, t2, n;
+        };
+        static const Damped cases[] = {
+            { 220, 0, 10, 0.3, 0.05, 0.2, 0.05 },
+            { 27.5, 21, 60, 1, 0.1, 0.6, 0.25 },
+            { 1396.9, 89, 60, 0.3, 0.05, 0.2, 0.05 },
+        };
 
-        if (!render1(pluginPath, pianoGraph((float)f0, 0, 10, 0, 0.3f, 0),
-                     "string", "out", 256, (unsigned)(t2 + n), out, why))
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
         {
-            fail("filt::pianostring renders", why);
-            return;
+            const Damped &k = cases[c];
+            const double b = k.key > 0 ? pianoB(k.key) : 0;
+            const size_t n = (size_t)(rate * k.n);
+            const size_t t1 = (size_t)(rate * k.t1);
+            const size_t t2 = (size_t)(rate * k.t2);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         pianoGraph((float)k.hz, (float)b, (float)k.decay, 0,
+                                    (float)k.damper, 0),
+                         "string", "out", 256, (unsigned)(t2 + n), out, why))
+            {
+                fail("filt::pianostring renders", why);
+                return;
+            }
+
+            const double fell = 20 * log10(windowedMag(out, t2, n, k.hz) /
+                                           windowedMag(out, t1, n, k.hz));
+            const double t60 = -60 * (double)(t2 - t1) / rate / fell;
+            const double want = 1 / (1 / k.decay + 1 / k.damper);
+
+            okOrFail(fabs(t60 / want - 1) < 0.1,
+                     "filt::pianostring: at " + num(k.hz) + " Hz, b " +
+                     num(b) + ", with the damper down the string falls 60 "
+                     "dB in `damper' and `decay' together",
+                     "it took " + num(t60) + " s for " + num(want));
         }
-
-        const double fell = 20 * log10(windowedMag(out, t2, n, f0) /
-                                       windowedMag(out, t1, n, f0));
-        const double t60 = -60 * (double)(t2 - t1) / rate / fell;
-        const double want = 1 / (1 / 10.0 + 1 / 0.3);
-
-        okOrFail(fabs(t60 / want - 1) < 0.1,
-                 "filt::pianostring: with the damper down the string falls "
-                 "60 dB in `damper' and `decay' together",
-                 "it took " + num(t60) + " s for " + num(want));
     }
 
     {
@@ -5686,6 +5761,29 @@ static void checkPianostring (const string &pluginPath)
                      "held ends " + num(held.back()) + ", damped starts " +
                      num(damped[0]) + " and ends " + num(damped.back()));
         }
+    }
+
+    /* A pulse that is all one sign has a net DC, and the loop's gain at DC
+       is its highest: with `hidecay' this much shorter than `decay' at
+       1.5 kHz the loss filter's gain there is at its clamp. Unless the
+       string keeps DC out, that mode outlasts the fundamental's two
+       seconds by hours and `play' never falls. */
+    {
+        vector<float> play;
+        string why;
+
+        if (!render1(pluginPath,
+                     pianoGraph(1500, 0, 2, 0.3f, 0, 1, (float)(rate / 100)),
+                     "string", "play", 256, (unsigned)(rate * 4), play, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        okOrFail(play.back() == 0,
+                 "filt::pianostring: a pulse with a net DC ends in the "
+                 "fundamental's time, not the DC's",
+                 "`play' is still " + num(play.back()) + " after 4 s");
     }
 
     /* The line, the Thiran, sixteen sections' states, the loss filter and
