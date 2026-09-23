@@ -103,6 +103,27 @@ jobs:
             build/package/*.dmg
           if-no-files-found: error
 
+  # The GTK runtime data checks, beside the linux job rather than at the end
+  # of it: each reconfigures with THINK_BUNDLE_GTK and rebuilds, which was
+  # five of that job's eleven minutes, and none of it needs the linux job's
+  # tree or its tests.
+  gtk-data:
+    name: linux GTK runtime data
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
+
       # The bundled GTK data -- schemas, pixbuf loaders, icon themes -- exists
       # for macOS and Windows, which are precisely the two platforms where it
       # cannot be tested: CI has no machine without GTK on it, so a package
@@ -120,8 +141,9 @@ jobs:
           # here because the dependency closure is otherwise code that only
           # runs where nobody can watch it, and the thing it most recently got
           # wrong was invisible on Linux for exactly that reason.
-          cmake -S . -B build -DTHINK_BUNDLE_GTK=ON -DTHINK_PKG_DEPS=ON \
-                              -DCMAKE_INSTALL_PREFIX="$PWD/stage"
+          cmake -S . -B build -G Ninja \
+                -DTHINK_BUNDLE_GTK=ON -DTHINK_PKG_DEPS=ON \
+                -DCMAKE_INSTALL_PREFIX="$PWD/stage"
           cmake --build build
           cmake --install build
 
