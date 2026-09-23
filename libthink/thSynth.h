@@ -143,6 +143,12 @@ public:
     void setSilent (bool silent);
     bool silent (void) const { return silent_; }
 
+    /* GUI thread. Whether a finished voice goes back to its channel to be
+       started over (see thMidiChan::recycle) or is deleted. On by default;
+       off empties every channel's pool, so from then on every note is a
+       fresh copy, which is what scripts/poolcheck compares against. */
+    void setVoicePool (bool on);
+
     /* Commands postCommand could not queue because the ring was full,
        since construction. Read on the GUI thread, which is the one that
        posts. The number a mirror watches: a rendering synth drains its
@@ -358,6 +364,7 @@ public:
        the top of every GUI-side entry point, so an idle GUI is the only way
        for retired objects to sit around. */
     void collectRetired (void);
+    void recycleNote (thMidiNote *note);
 
     /* ---- probes ----
      *
@@ -516,6 +523,7 @@ private:
     long sampleRate_; /* the number of samples per second*/
 
     bool silent_;               /* see setSilent()                     */
+    bool pool_;                 /* see setVoicePool()                  */
 
     /* One window of mono capture, zeroed at construction. See feedCapture. */
     float *capture_;

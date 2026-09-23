@@ -174,6 +174,7 @@ think_harness(fxcheck)
 # into thMidiChan, and writes its own .dsp files -- every shipped graph is
 # polyphonic, so the corpus cannot hold these cases.
 think_harness(voicecheck)
+think_harness(poolcheck)
 
 # The three stateful nodes -- misc::slew, filt::svf, osc::noise -- measured:
 # a step response, a frequency response, a spectral tilt, and for each of them
@@ -560,6 +561,17 @@ add_test(NAME genwav.meters
                  -DTAPE=${PROJECT_BINARY_DIR}/genwav-meters.tape
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMeters.cmake")
 
+# A voice started over from the channel's pool renders as a new copy would,
+# sample for sample, for every graph in the corpus.
+add_test(NAME poolcheck
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:poolcheck>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -P "${_runner}")
+
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dsplevel>
@@ -735,7 +747,7 @@ set_tests_properties(composercheck editorcheck PROPERTIES RUN_SERIAL TRUE)
 
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     exprcheck statecheck voicecheck fxcheck gencheck
+                     exprcheck statecheck voicecheck poolcheck fxcheck gencheck
                      panelcheck
                      dspsweep dspsweep.guard
                      genwav.nonfinite

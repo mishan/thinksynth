@@ -58,12 +58,35 @@ public:
     void describe (int channum, const string &graph,
                    std::atomic<unsigned long> *nonFinite);
 
-    /* Allocates the note, which means copy-constructing the whole synth tree.
-       Deliberately separate from installing it: this is far too expensive to
-       do in an audio callback, so the GUI thread builds and thSynth hands the
-       finished object over through the command queue. */
+    /* A voice for the note: a finished one from the pool, restarted, or
+       failing that a copy of the whole synth tree. Deliberately separate
+       from installing it: a copy is far too expensive to do in an audio
+       callback, so the GUI thread builds and thSynth hands the finished
+       object over through the command queue. */
     thMidiNote *buildNote (float note, float velocity, float level = 1,
                            const float *aux = NULL);
+
+    /* GUI thread. Keeps a voice the audio thread has finished with for
+     * buildNote() to start over, rather than have it deleted: restarting
+     * one is a reset of its args in the buffers it already has, where a
+     * copy is a few hundred allocations and string copies -- on the audio
+     * thread's side of the fence in the browser, where the worklet applies
+     * its own note-ons -- and a first window that allocates every output
+     * again.
+     *
+     * False if the voice is not this channel's, or the pool is full; the
+     * caller deletes it then. The pool holds as many voices as the channel
+     * can sound at once, `poly', up to TH_POOL_MAX. */
+    bool recycle (thMidiNote *note);
+
+    /* GUI thread. Deletes every pooled voice. */
+    void emptyPool (void);
+
+    /* GUI thread. How many voices wait in the pool. */
+    size_t pooled (void) const { return pool_.size(); }
+
+    /* GUI thread. How many voices buildNote() has taken from the pool. */
+    unsigned long restarts (void) const { return restarts_; }
 
     /* ---- audio thread ---- */
 
@@ -307,6 +330,12 @@ private:
     int triggerindex_;
 
     int polymax_;  /* maximum polyphony; see TH_DEFAULT_POLY */
+
+    /* GUI thread only: finished voices, and how many may wait. Reserved at
+       construction, so recycle() never grows it. */
+    std::vector<thMidiNote *> pool_;
+    size_t poolmax_;
+    unsigned long restarts_;
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
 

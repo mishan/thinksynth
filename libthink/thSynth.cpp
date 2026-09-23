@@ -92,6 +92,7 @@ thSynth::thSynth (int windowlen, int samples)
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
 
     silent_ = false;
+    pool_ = true;
     dropped_ = 0;
     nonFinite_ = 0;
 
@@ -149,6 +150,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
 
     silent_ = false;
+    pool_ = true;
     dropped_ = 0;
     nonFinite_ = 0;
 
@@ -328,13 +330,39 @@ void thSynth::collectRetired (void)
     {
         switch (item.kind)
         {
-            case thRetired::NOTE:    delete item.note;    break;
+            case thRetired::NOTE:    recycleNote(item.note); break;
             case thRetired::CHANNEL: delete item.channel; break;
             case thRetired::EFFECT:  delete item.effect;  break;
             case thRetired::ARG:     delete item.arg;     break;
             case thRetired::PROBE:   delete item.probe;   break;
         }
     }
+}
+
+/* GUI thread. See the header. */
+void thSynth::setVoicePool (bool on)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    pool_ = on;
+
+    for (int i = 0; !on && i < midiChannelCnt_; i++)
+        if (guiChannels_[i])
+            guiChannels_[i]->emptyPool();
+}
+
+/* GUI thread. A finished voice back to the channel that built it, if that
+   channel is still loaded and has room, and deleted otherwise. By serial and
+   not by pointer: a channel replaced since the voice was built may have been
+   freed, and its successor may sit at the same address. */
+void thSynth::recycleNote (thMidiNote *note)
+{
+    for (int i = 0; pool_ && i < midiChannelCnt_; i++)
+        if (guiChannels_[i] && guiChannels_[i]->recycle(note))
+            return;
+
+    delete note;
 }
 
 /* Audio thread. Retires whatever is in the slot and installs `probe', which

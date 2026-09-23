@@ -87,6 +87,12 @@ public:
     thPlugin *plugin (void) const { return plugin_; }
 
     void copyArgs (const thArgMap &args);
+
+    /* GUI thread. Every arg back to its counterpart on `proto', the node
+       this one was copied from; see thSynthTree::restore. False, with
+       some args restored and some not, if the two no longer have the same
+       args -- a name looked up on the copy and invented there, say. */
+    bool restore (const thNode &proto);
     void process (void);
 private:
     /* Makes `slots' a valid subscript count for argindex_, growing it in

@@ -256,6 +256,38 @@ which restarts the noise plugins' generators — `osc::static`'s and
 reseeds `rand()` for anything else; otherwise the fourteen DSPs built on one
 of the two would show up as false positives.)
 
+## Restarted voices — why a finished voice is kept
+
+A note used to be a fresh copy of the channel's prototype tree, every time:
+each node, each arg, and each arg's name, label, units and comment strings,
+into string-keyed maps. For `grand.dsp` that is about 720k instructions a
+note, mostly `malloc` and `std::string`. Natively the GUI thread pays it, but
+in the browser the worklet applies its own note-ons between windows, so there
+it is the audio thread's.
+
+A voice the audio thread has finished with now goes back, through the retire
+queue, to the channel that built it (`thMidiChan::recycle`), which keeps up to
+`poly` of them (at most `TH_POOL_MAX`). The next `buildNote` takes one and
+restarts it: `thSynthTree::restore` puts every arg back to what the copy
+constructor would have given it — length, values, chanarg pointer — in the
+buffer the arg already has, and marks every node for its first window. The
+structure (nodes, links, active list) and the strings stay as they are. It is
+matched to its channel by serial, not by pointer, so a voice from a channel
+since replaced is deleted rather than restarted.
+
+Two things make this exact rather than close:
+
+- `thArg` keeps a capacity apart from its length. A restored arg shrinks back
+  to the prototype's one value, and the first window's `allocate(windowlen)`
+  zero-fills the buffer it has instead of allocating one — the same zeros
+  `new float[]()` would give, with no allocation.
+- `restore` walks the copy's and the prototype's arg maps side by side, and
+  fails if they differ (an arg invented on the copy by name, say); the voice
+  is then deleted and the note gets a fresh copy.
+
+`poolcheck` plays every DSP twice, pooled and with `thSynth::setVoicePool(false)`,
+and requires the two renders to be bitwise equal.
+
 ## The harnesses
 
 | Harness | CTest gate | Covers |
@@ -263,6 +295,7 @@ of the two would show up as false positives.)
 | `dspcheck` | yes | loads every DSP and patch, plays a chord, overruns polyphony, releases, reloads onto the same channel, tears down; renders each note twice and compares bitwise |
 | `dsplevel` | yes | peak, proportion shaped, gain reduction; exit status is the number of measurements over `TH_MAX` |
 | `dspsweep` | yes | every control of every DSP at both ends of its range and three points between, at both ends of the keyboard; exit status is the number of cases the per-voice guard fired on. With `-g` it also gates the guard itself |
+| `poolcheck` | yes | every DSP played twice, with finished voices restarted and with every note a fresh copy, compared bitwise |
 | `dspstress` | no | a synthetic audio thread calling `process()` while the main thread does what the GUI thread does |
 | `dspab` | no | two renders compared for bitwise identity — used when a change is meant to be inaudible |
 | `dsplive` | no | the only check that tests the actual sound: renders a note twice, once with a control moved halfway through, and asserts the halves before the move are identical while the halves after differ |

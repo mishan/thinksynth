@@ -170,6 +170,13 @@ public:
 
     float *allocate (unsigned int elements);
 
+    /* GUI thread. Back to what `thArg(proto)' makes -- its length, its
+       values, its pointer -- in the buffer this arg already has, growing
+       it only if it is too small. How a pooled voice starts over; see
+       thSynthTree::restore. The strings are left alone: a voice's are the
+       prototype's already, and nothing on a voice changes them. */
+    void restore (const thArg *proto);
+
     const string &nodePtrName (void) const { return nodePtrName_; }
     const string &argPtrName (void) const { return argPtrName_; }
 
@@ -226,6 +233,7 @@ protected:
     int index_;          /* where in the arg index this arg is located */
     float *values_;      /* a pointer to an array of values */
     unsigned int len_;   /* number of elements in argValues */
+    unsigned int cap_;   /* and how many values_ has room for */
 
     /* Okay, a bit more info about the data */
     float min_, max_;        /* for knobs and stuff, I'm sure it will be useful
