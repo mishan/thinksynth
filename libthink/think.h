@@ -227,6 +227,11 @@ using namespace std;
  * is overriding. */
 #define TH_DEFAULT_POLY 10
 
+/* The most finished voices a channel keeps to start over; see
+ * thMidiChan::recycle. A channel keeps up to its `poly', so this bounds a
+ * channel with no limit, or a large one. */
+#define TH_POOL_MAX 64
+
 /* How long a stolen voice takes to get out of the way, in milliseconds.
  *
  * A channel over its `poly' budget used to hand the oldest voice straight to

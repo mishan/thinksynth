@@ -29,6 +29,26 @@ thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
     : synthTree_(*tree)
 {
     synthTree_.buildSynthTree();
+    channel_ = 0;
+    start(note, velocity, level, aux);
+}
+
+/* GUI thread. See the header. */
+bool thMidiNote::restart (const thSynthTree *tree, float note, float velocity,
+                          float level, const float *aux)
+{
+    if (tree == NULL || !synthTree_.restore(*tree))
+        return false;
+
+    start(note, velocity, level, aux);
+
+    return true;
+}
+
+/* What a new voice's io node is told, and what it starts out as. */
+void thMidiNote::start (float note, float velocity, float level,
+                        const float *aux)
+{
     thNode *ionode = synthTree_.IONode();
 
     ionode->setArg("note", note);
@@ -61,6 +81,8 @@ thMidiNote::thMidiNote (thSynthTree *tree)
 {
     synthTree_.buildSynthTree();
     thNode *ionode = synthTree_.IONode();
+
+    channel_ = 0;
 
     ionode->setArg("note", 0);     /* set these to 0, it may matter when */
     ionode->setArg("velocity", 0); /* the args are indexed as well */

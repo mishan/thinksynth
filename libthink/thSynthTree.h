@@ -245,6 +245,18 @@ public:
     void typeChanArgs (void);
 
     void buildSynthTree (void);
+
+    /* GUI thread. On a tree copy-constructed from `proto' and built: every
+     * node's args back to what the copy constructor gave them, and every
+     * node due for its first window, which is where buildSynthTree() leaves
+     * a fresh copy. What stays is the structure -- the nodes, their links,
+     * the active list -- and the buffers, which is the point: a voice
+     * started over this way costs no allocation and no string copies, and
+     * renders sample for sample as a new copy would.
+     *
+     * False if the two no longer match; the caller then copies afresh. */
+    bool restore (const thSynthTree &proto);
+
     void listNodes(void);
 
     /* The synth this tree belongs to. Carried by the copy constructor, so a

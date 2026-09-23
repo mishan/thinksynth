@@ -30,6 +30,7 @@ thArg::thArg(const string &name, float value)
     values_ = new float[1];
     values_[0] = value;
     len_ = 1;
+    cap_ = 1;
 
     type_ = ARG_VALUE;
     nodePtrId_ = -1;
@@ -48,7 +49,8 @@ thArg::thArg(const string &name, const float *value, int len)
 {
     name_ = name;
     len_ = (len > 0) ? len : 0;
-    values_ = new float[(len_ > 0) ? len_ : 1];
+    cap_ = (len_ > 0) ? len_ : 1;
+    values_ = new float[cap_];
 
     if (len_ > 0 && value != NULL) {
         memcpy(values_, value, len_*sizeof(float));
@@ -77,6 +79,7 @@ thArg::thArg(const string &name, const string &node, const string &value)
     name_ = name;
     values_ = NULL;
     len_ = 0;
+    cap_ = 0;
 
     nodePtrName_ = node;
     argPtrName_ = value;
@@ -99,6 +102,7 @@ thArg::thArg(const string &name, const string &chanarg)
     name_ = name;
     values_ = NULL;
     len_ = 0;
+    cap_ = 0;
 
     argPtrName_ = chanarg;
 
@@ -121,7 +125,8 @@ thArg::thArg (const thArg *copyArg)
     name_ = copyArg->name_;
 
     len_ = copyArg->len_;
-    values_ = new float[(len_ > 0) ? len_ : 1];
+    cap_ = (len_ > 0) ? len_ : 1;
+    values_ = new float[cap_];
 
     if (len_ > 0 && copyArg->values_ != NULL) {
         memcpy(values_, copyArg->values_, len_ * sizeof(float));
@@ -157,6 +162,7 @@ thArg::thArg (void)
 {
     values_ = NULL;
     len_ = 0;
+    cap_ = 0;
     type_ = ARG_VALUE;
     widgetType_ = HIDE;
     min_ = 0;
@@ -250,17 +256,49 @@ void thArg::setValueNames (const string &commaList, bool fromFile)
  */
 float *thArg::allocate (unsigned int elements)
 {
-    if (values_ == NULL) {
+    if (values_ == NULL || elements > cap_) {
+        delete[] values_;
         values_ = new float[elements]();   /* () -> value-initialised */
+        cap_ = elements;
         len_ = elements;
     }
     else if (len_ != elements) {
-        delete[] values_;
-        values_ = new float[elements]();
+        /* The buffer is big enough already: a reset voice's args shrink
+           back to what the prototype holds and grow again in the first
+           window, and that should not be an allocation. */
+        memset(values_, 0, elements * sizeof(float));
         len_ = elements;
     }
 
     return values_;
+}
+
+/* What `thArg(proto)' would have made, in this arg's own buffer. See the
+   header. */
+void thArg::restore (const thArg *proto)
+{
+    const unsigned int want = (proto->len_ > 0) ? proto->len_ : 1;
+
+    if (values_ == NULL || want > cap_) {
+        delete[] values_;
+        values_ = new float[want];
+        cap_ = want;
+    }
+
+    if (proto->len_ > 0 && proto->values_ != NULL) {
+        memcpy(values_, proto->values_, proto->len_ * sizeof(float));
+        len_ = proto->len_;
+    }
+    else {
+        values_[0] = 0;
+        len_ = (proto->values_ != NULL) ? proto->len_ : 0;
+    }
+
+    type_ = proto->type_;
+    nodePtrId_ = proto->nodePtrId_;
+    argPtrId_ = proto->argPtrId_;
+    argPtr_ = proto->argPtr_;
+    index_ = proto->index_;
 }
 
 void thArg::setArg (const string &name, float value)

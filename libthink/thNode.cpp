@@ -256,6 +256,35 @@ void thNode::copyArgs (const thArgMap &newargs)
     }
 }
 
+/* See the header. The copy has every arg copyArgs() gave it -- the
+   prototype's, less the NULLs and ARG_NOTEs -- so the two maps, both in
+   name order, are walked side by side. */
+bool thNode::restore (const thNode &proto)
+{
+    thArgMap::const_iterator mine = args_.begin();
+
+    if (argCount_ != proto.argCount_)
+        return false;
+
+    for (thArgMap::const_iterator i = proto.args_.begin();
+         i != proto.args_.end(); i++)
+    {
+        const thArg *from = i->second;
+
+        if (from == NULL || from->type() == thArg::ARG_NOTE)
+            continue;
+
+        if (mine == args_.end() || mine->first != i->first ||
+            mine->second == NULL)
+            return false;
+
+        mine->second->restore(from);
+        ++mine;
+    }
+
+    return mine == args_.end();
+}
+
 void thNode::process (void)
 {
 }

@@ -163,6 +163,11 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
                   chokearg->values()[0] != 0);
     }
 
+    poolmax_ = (polymax_ > 0 && polymax_ < TH_POOL_MAX) ? polymax_
+                                                          : TH_POOL_MAX;
+    pool_.reserve(poolmax_);
+    restarts_ = 0;
+
     output_ = new float[thOutputSamples(channels_, windowlength_)];
     memset(output_, 0,
            thOutputSamples(channels_, windowlength_) * sizeof(float));
@@ -218,6 +223,11 @@ thMidiChan::~thMidiChan (void)
 
     delete[] bufamp_;
     bufamp_ = NULL;
+
+    for (size_t i = 0; i < pool_.size(); i++)
+        delete pool_[i];
+
+    pool_.clear();
 }
 
 /* GUI thread, once, at construction.
@@ -425,8 +435,40 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
     if (modnode_ == NULL)
         return NULL;
 
-    return new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX,
-                          level, aux);
+    velocity = velocity * TH_MAX / MIDIVALMAX;
+
+    while (!pool_.empty())
+    {
+        thMidiNote *voice = pool_.back();
+
+        pool_.pop_back();
+
+        if (voice->restart(modnode_, note, velocity, level, aux))
+        {
+            restarts_++;
+            return voice;
+        }
+
+        delete voice;
+    }
+
+    thMidiNote *voice = new thMidiNote(modnode_, note, velocity, level, aux);
+
+    voice->setChannel(serial_);
+
+    return voice;
+}
+
+/* GUI thread. See the header. */
+bool thMidiChan::recycle (thMidiNote *note)
+{
+    if (note == NULL || note->channel() != serial_ ||
+        pool_.size() >= poolmax_)
+        return false;
+
+    pool_.push_back(note);
+
+    return true;
 }
 
 /* Audio thread. Takes a voice out of notes_ and leaves it sounding in

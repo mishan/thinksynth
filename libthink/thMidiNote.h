@@ -28,6 +28,18 @@ public:
                 const float *aux = NULL);
     thMidiNote (thSynthTree *tree);
     ~thMidiNote ();
+
+    /* GUI thread. This voice, done with, as the constructor would have made
+     * it from `tree' -- the prototype it was copied from -- without the
+     * copy: see thSynthTree::restore. False if the two no longer match, in
+     * which case the voice is only fit to be deleted. */
+    bool restart (const thSynthTree *tree, float note, float velocity,
+                  float level = 1, const float *aux = NULL);
+
+    /* The serial of the channel that built this voice, and so owns the
+       prototype it was copied from; 0 for none. See thMidiChan::recycle. */
+    unsigned long channel (void) const { return channel_; }
+    void setChannel (unsigned long serial) { channel_ = serial; }
     
     thSynthTree *synthTree (void) { return &synthTree_; }
     int id (void) const { return noteid_; }
@@ -84,7 +96,10 @@ public:
     void setArg (const string &name, const float *value, int len);
 
 private:
+    void start (float note, float velocity, float level, const float *aux);
+
     thSynthTree synthTree_;
+    unsigned long channel_;
     int noteid_;
     /* The pitch as it was asked for. noteid_ is its integer part, which is
        what the channel keys notes_ by; this is what a retune has to preserve

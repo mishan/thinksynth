@@ -1110,6 +1110,32 @@ void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
     }
 }
 
+/* See the header. A copy holds the nodes reachable from the io node, under
+   the prototype's ids; the prototype may hold more. */
+bool thSynthTree::restore (const thSynthTree &proto)
+{
+    if (ionode_ == NULL || nodecount_ != proto.nodeCount())
+        return false;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        thNode *node = i->second;
+
+        if (node == NULL)
+            continue;
+
+        const thNode *from = proto.nodeAt(node->id());
+
+        if (from == NULL || from->name() != i->first ||
+            !node->restore(*from))
+            return false;
+
+        node->setRecalc(true);
+    }
+
+    return true;
+}
+
 void thSynthTree::listNodes(void)
 {
     for (NodeMap::const_iterator i = nodes_.begin();
