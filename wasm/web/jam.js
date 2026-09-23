@@ -1255,4 +1255,24 @@ function init ()
 }
 
 init();
-keepOffline().catch((e) => console.warn('no offline copy:', e));
+
+/* A new version takes over by itself until somebody has joined or
+   started; after that it waits for the button (offline.js). */
+keepOffline({
+    busy: () => room !== null || synth !== null,
+    offer: (go) =>
+    {
+        $('updaterow').hidden = false;
+        $('update').onclick = async () =>
+        {
+            $('update').disabled = true;
+
+            if (!await go())
+            {
+                $('updatewhy').textContent =
+                    'Close thinksynth\'s other tabs and windows first.';
+                $('update').disabled = false;
+            }
+        };
+    },
+}).catch((e) => console.warn('no offline copy:', e));

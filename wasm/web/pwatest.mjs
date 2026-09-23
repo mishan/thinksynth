@@ -32,7 +32,9 @@
  *                loads a patch it never fetched online
  *   updated      a changed sw.js installs beside the running version and
  *                waits; the next load activates it, loads again from it,
- *                and the old version's cache is gone
+ *                and the old version's cache is gone. A deploy and one
+ *                ordinary refresh are enough; and a page with the synth
+ *                started offers Update rather than reloading under it
  *
  * And the room page is kept from the same cache, so that it runs the same
  * build as the worklet, mirror and wasm it shares with the solo page.
@@ -114,11 +116,15 @@ const caches = (page) => page.evaluate(() => caches.keys());
 
 /* What waitForFunction would be for an async predicate, which it does not
    await: the promise it gets back is truthy, and it returns at once. */
-async function until (page, pred, timeout = 60000)
+async function until (page, pred, timeout = 60000, arg = undefined)
 {
     const end = Date.now() + timeout;
 
-    while (!await page.evaluate(pred))
+    /* A page that is loading again has no context to ask for a moment,
+       and that is a no rather than a failure. */
+    while (!await page.evaluate(pred, arg).catch((e) =>
+               /context|navigat/i.test(e.message) ? false
+                                                  : Promise.reject(e)))
     {
         if (Date.now() > end)
             throw new Error(`timed out after ${timeout} ms: ${pred}`);
@@ -252,6 +258,15 @@ try
           (await caches(page)).includes(`thinksynth-${old}`),
           'with the room page open, a load leaves it waiting');
 
+    /* And says so: the worker refused, and the page offers the button
+       rather than leaving somebody to guess why they are on an old
+       build. */
+    await until(page, () => !document.getElementById('update').hidden,
+                30000).catch(() => {});
+
+    check(!await page.evaluate(() => document.getElementById('update').hidden),
+          'and offers Update, since the worker refused it');
+
     await open.close();
 
     /* The next load asks for it, is the one window, and so gets it --
@@ -273,6 +288,67 @@ try
               (await navigator.serviceWorker.getRegistration()).waiting
                   === null),
           'and nothing is left waiting');
+
+    /* ---- a deploy, and one refresh ----
+     *
+     * What somebody actually does. The refresh is what finds the new
+     * sw.js, and the new version then spends a few seconds fetching the
+     * site before it waits -- so a page that asked only at load found it
+     * still installing, and it took a second refresh to update. Now the
+     * page asks once it is waiting, and nothing has been started, so the
+     * one refresh is enough.
+     */
+    const version = (v) => fs.writeFileSync(path.join(site, 'sw.js'),
+        text.replace(`"${old}"`, `"${v}"`));
+    /* Handed its version rather than closing over it: a function goes to
+       the page as its source, without the variables around it. */
+    const only = (v) => until(page, async (want) =>
+    {
+        const keys = await caches.keys();
+
+        return keys.length === 1 && keys[0] === `thinksynth-${want}`;
+    }, 60000, v);
+
+    const third = 'e'.repeat(old.length);
+
+    version(third);
+    await page.reload();
+
+    check(await only(third).then(() => true, () => false),
+          'a deploy and one ordinary refresh are enough to update');
+
+    await loaded(page);
+
+    /* ---- and a deploy while it plays ----
+     *
+     * Taking over reloads the page, and under somebody who has started
+     * the synth that is what they were doing gone. So the new version
+     * waits for a button instead, and the button is what updates.
+     */
+    await page.click('#start');
+    await page.waitForFunction(
+        () => !document.getElementById('loadpiece').disabled,
+        null, { timeout: 60000 });
+
+    const fourth = 'd'.repeat(old.length);
+
+    version(fourth);
+    await page.evaluate(async () =>
+        (await navigator.serviceWorker.getRegistration()).update());
+
+    const offered = await until(page,
+        () => !document.getElementById('update').hidden)
+        .then(() => true, () => false);
+
+    check(offered && (await caches(page)).includes(`thinksynth-${third}`),
+          'started, a new version is offered as Update and not taken');
+
+    await page.click('#update');
+
+    check(await only(fourth).then(() => true, () => false),
+          'and Update takes it');
+
+    await loaded(page);
 
     /* Only now, since a console error is exactly what an offline load
        that fell through to the network would print. */

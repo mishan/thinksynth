@@ -25,10 +25,13 @@
 
   <!-- Where it comes from, and the browser's Install offered as a button:
        Chromium's own is an icon in the address bar that is easy to miss.
-       Shown only where the browser will install it (offline.js). -->
+       Shown only where the browser will install it (offline.js). And a
+       new version, when one is ready and was not taken at load because
+       something had been started. -->
   <span id="site" class="group">
     <a id="source" href="https://github.com/mishan/thinksynth">GitHub</a>
     <button id="install" hidden>Install</button>
+    <button id="update" hidden title="A new version is ready">Update</button>
   </span>
 
   <button id="start">Start</button>

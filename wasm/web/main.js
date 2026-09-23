@@ -3010,6 +3010,25 @@ async function init ()
 
 offerInstall($('install'));
 
-/* After init, whose fetches are done by then -- see offline.js. */
+/* After init, whose fetches are done by then -- see offline.js. A new
+   version takes over by itself until the synth has started; after that it
+   waits for the button. */
 init().finally(() =>
-    keepOffline().catch((e) => console.warn('no offline copy:', e)));
+    keepOffline({
+        busy: () => synth !== null,
+        offer: (go) =>
+        {
+            $('update').hidden = false;
+            $('update').onclick = async () =>
+            {
+                $('update').disabled = true;
+
+                if (!await go())
+                {
+                    status('Close thinksynth\'s other tabs and windows, ' +
+                           'then Update.', true);
+                    $('update').disabled = false;
+                }
+            };
+        },
+    }).catch((e) => console.warn('no offline copy:', e)));
