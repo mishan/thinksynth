@@ -71,7 +71,7 @@ void resample (vector<float> &x, double from, double to)
                 acc += h * x[k];
         }
 
-        y[i] = (float)(gain > 0 ? acc / gain * cutoff : 0);
+        y[i] = (float)(gain > 0 ? acc / gain : 0);
     }
 
     x.swap(y);
