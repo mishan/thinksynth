@@ -790,7 +790,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_gate, *in_strings, *in_unison, *in_prompt, *in_imbalance;
     thArg *out_arg, *out_play, *inout_buffer, *inout_state;
     float *out, *play, *buffer, *state;
-    const unsigned int len = (unsigned int)(samples / FREQ_MIN) + 8;
+    /* Room for the flattest string: FREQ_MIN's period, and the widest
+       unison's outer string a whole UNISON_MAX below it. */
+    const unsigned int len =
+        (unsigned int)(samples / FREQ_MIN * pow(2.0, UNISON_MAX / 1200.0)) +
+        8;
     const double rate = samples;
     const double fade = 1.0 - exp(-1.0 / (DAMPER_FADE * rate));
     const double release = exp(-1.0 / (PLAY_RELEASE * rate));
@@ -866,6 +870,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         (float)unison != state[S_UNISON] || (float)prompt != state[S_PROMPT])
     {
         Design d;
+
+        /* Strings joining the unison start at rest: what they held when
+           they last sounded is stale. */
+        for (s = (int)state[S_STRINGS]; s < strings; s++)
+        {
+            memset(state + S_STRING + s * P_COUNT, 0,
+                   P_COUNT * sizeof(float));
+            memset(buffer + s * len, 0, len * sizeof(float));
+        }
 
         memset(&d, 0, sizeof(d));
         design(&d, freq, b, decay, hidecay, damper, strings, unison, prompt,

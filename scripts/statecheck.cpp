@@ -5985,6 +5985,100 @@ static void checkPianoUnison (const string &pluginPath)
         }
     }
 
+    /* ---- the flattest string still fits its line ---- */
+
+    /* The lowest note with the widest unison puts the outer strings a
+       semitone either side of FREQ_MIN, the flat one below it. Uncoupled
+       and eight seconds long, so the window resolves the 0.9 Hz between
+       them. */
+    {
+        const double f0 = 16;
+        const size_t from = (size_t)(rate / 20), n = (size_t)(rate * 8);
+        vector<float> out;
+        string why, detail;
+        bool good = true;
+
+        if (!render1(pluginPath, unisonGraph((float)f0, 0, 60, 3, 100, 0),
+                     "string", "out", 256, (unsigned)(from + n), out, why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        for (int k = 0; k < 3 && good; k++)
+        {
+            const double want = f0 * pow(2.0, (k - 1) * 100 / 1200.0);
+            const double got = peakNear(out, from, n, want, 30);
+
+            if (fabs(cents(got, want)) > 2)
+            {
+                good = false;
+                detail = "string " + num(k) + " at " + num(got) + " Hz for " +
+                         num(want);
+            }
+        }
+
+        okOrFail(good, "filt::pianostring: the widest unison on the lowest "
+                       "note rings each string at its own pitch",
+                 detail);
+    }
+
+    /* ---- strings rejoin the unison at rest ---- */
+
+    /* Three strings struck, two of them dropped at 1.5 s and taken back at
+       3 s. Falling 60 dB in three seconds, the one left is 30 dB below
+       where the others stopped; had they kept what they held, taking
+       them back would bring the note up by that much. */
+    {
+        const unsigned windowlen = 256;
+        const unsigned drop = (unsigned)(rate * 1.5) / windowlen * windowlen;
+        const unsigned back = (unsigned)(rate * 3) / windowlen * windowlen;
+        const unsigned total = back + (unsigned)(rate / 2);
+        const size_t span = (size_t)(rate / 10);
+        thSynth synth(pluginPath, (int)windowlen, TH_DEFAULT_SAMPLES);
+        thSynthTree tree("statecheck", &synth);
+        vector<float> out;
+        string why;
+
+        if (!buildGraph(synth, tree, unisonGraph(262, 0, 3, 3, 0, 0), why))
+        {
+            fail("filt::pianostring renders", why);
+            return;
+        }
+
+        thNode *str = tree.findNode("string");
+        thArg *arg = str->getArg("out");
+
+        for (unsigned done = 0; done < total; done += windowlen)
+        {
+            if (done == drop)
+                str->setArg("strings", 1);
+            else if (done == back)
+                str->setArg("strings", 3);
+
+            tree.setActiveNodes();
+            tree.process(windowlen);
+
+            for (unsigned i = 0; i < windowlen; i++)
+                out.push_back((*arg)[i]);
+        }
+
+        double before = 0, after = 0;
+
+        for (size_t i = 0; i < span; i++)
+        {
+            before += (double)out[back - span + i] * out[back - span + i];
+            after += (double)out[back + i] * out[back + i];
+        }
+
+        const double rise = 10 * log10((after + 1e-30) / (before + 1e-30));
+
+        okOrFail(rise < 1,
+                 "filt::pianostring: strings taken back into the unison "
+                 "start at rest",
+                 "the note rose " + num(rise) + " dB");
+    }
+
     windowsAgree(pluginPath,
                  unisonGraph(110, (float)pianoB(45), 10, 3, 1.5f, 1),
                  "string", "out",
