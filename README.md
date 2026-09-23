@@ -215,8 +215,8 @@ no gtkmm, no cairo, no pkg-config:
 sudo apt install git cmake ninja-build bison flex python3 curl xz-utils
 ```
 
-Then build the site and serve it. The room page (below) has an editor
-and a CRDT in it, which come from npm and are bundled at build time, so
+Then build the site and serve it. Both pages' code editors, and the room
+page's CRDT (below), come from npm and are bundled at build time, so
 `npm ci` comes once before the configure:
 
 ```sh

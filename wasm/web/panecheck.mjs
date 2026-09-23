@@ -607,7 +607,8 @@ try
           'a .dsp that did not parse raises the box the status line ' +
           'points at, and not over the source it came from');
 
-    check(await page.evaluate(() => document.activeElement.id === 'dsp'),
+    check(await page.evaluate(
+              () => document.activeElement.closest('#dsp') !== null),
           'and leaves the caret where the reader left it');
 
     /* ---- and the room page, which is the same catalog again ---- */

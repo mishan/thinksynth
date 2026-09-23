@@ -35,7 +35,7 @@
  * when one changed under it. In a room that is the shared document -- the
  * write is a splice into a Y.Text, nobody's copy is authoritative and
  * there is no save, and the piece plays the new text at the next Apply.
- * On the solo page it is the patch in the textarea, or one of the pieces'
+ * On the solo page it is the patch in the source box, or one of the pieces'
  * instruments, and the write reloads what is playing. The canvas, the
  * graph and every edit are the same on both.
  *

@@ -289,22 +289,22 @@
 <details id="patchsource"
          data-pane data-pane-min="320">
   <summary>Patch source (.dsp)</summary>
-  <textarea id="dsp" spellcheck="false" autocomplete="off"
-            autocapitalize="off" autocorrect="off"></textarea>
+  <source-box id="dsp" syntax="dsp"></source-box>
   <div class="row">
     <button id="load" disabled>Load edits</button>
     <span class="hint">Plays the .dsp in the box above.</span>
+    <label class="numbered"><input type="checkbox"> Line numbers</label>
   </div>
 </details>
 
 <details id="piecesource" data-pane-off
          data-pane data-pane-min="320">
   <summary>Piece source (.gen)</summary>
-  <textarea id="gen" spellcheck="false" autocomplete="off"
-            autocapitalize="off" autocorrect="off"></textarea>
+  <source-box id="gen" syntax="gen"></source-box>
   <div class="row">
     <button id="loadpiece" disabled>Load edits</button>
     <span class="hint">Loads the .gen in the box above.</span>
+    <label class="numbered"><input type="checkbox"> Line numbers</label>
   </div>
 </details>
 

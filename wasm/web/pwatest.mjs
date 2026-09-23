@@ -193,7 +193,7 @@ try
     await page.selectOption('#patch', PATCH);
     await page.evaluate(() => window.solo.settled());
 
-    check(await page.inputValue('#dsp') ===
+    check(await page.$eval('#dsp', (e) => e.value) ===
               fs.readFileSync(path.join(site, 'dsp', PATCH), 'utf8'),
           `offline, a patch never fetched online loads: ${PATCH}`);
 

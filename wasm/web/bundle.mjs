@@ -19,7 +19,7 @@
 
 /*
  * bundle.mjs -- the room page's script and everything it imports, as one
- * file in the build directory.
+ * file in the build directory; and the solo page's code editor, as another.
  *
  *   node wasm/web/bundle.mjs BUILD_DIR
  *
@@ -29,6 +29,12 @@
  * browser could fetch them from, so they are bundled into jam.js with
  * everything they touch. The worklet imports only the module and tape.js
  * and is not bundled.
+ *
+ * The solo page stays a set of modules loaded as they are, except
+ * sourcebox.js: its editor is CodeMirror, from the same node_modules, so
+ * it is bundled under its own name and main.js imports it as a module
+ * like any other. Each output carries its own copy of CodeMirror; the two
+ * pages never load both.
  *
  * Four imports have to be pointed somewhere else. The tape reader, the
  * cairo stand-in's replayer and the tiler live outside this directory --
@@ -75,7 +81,7 @@ const copiedIn = {
 };
 
 await esbuild.build({
-    entryPoints: [path.join(here, 'jam.js')],
+    entryPoints: [path.join(here, 'jam.js'), path.join(here, 'sourcebox.js')],
     plugins: [copiedIn],
     bundle: true,
 
@@ -86,6 +92,6 @@ await esbuild.build({
     format: 'esm',
     target: ['es2022'],
     sourcemap: true,
-    outfile: path.join(out, 'jam.js'),
+    outdir: out,
     logLevel: 'warning',
 });

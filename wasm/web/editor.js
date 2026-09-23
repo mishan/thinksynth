@@ -23,10 +23,11 @@
  * editor, a tab per file, and everyone's cursors with their names on them.
  * The document is text and the editor is a view of it; the piece and its
  * .dsp files are the files in the map, and a tab appears when a file
- * does. No language mode yet.
+ * does. Each tab is highlighted as its file's language (thinklang.js).
  *
  * This is the first thing on the page with a dependency, and the reason
- * the room page is bundled (bundle.mjs) where the solo page is not.
+ * the room page is bundled whole (bundle.mjs) where the solo page bundles
+ * only its source boxes (sourcebox.js).
  */
 
 import { minimalSetup } from 'codemirror';
@@ -37,6 +38,7 @@ import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 
 import { fileNames, files } from './doc.js';
+import { languageFor, pageLook } from './thinklang.js';
 
 /* A colour per peer for the cursor, from the name, so the same person is
    the same colour on every screen. */
@@ -88,6 +90,8 @@ export class Editor
                 minimalSetup,
                 lineNumbers(),
                 EditorView.lineWrapping,
+                languageFor(name) ?? [],
+                pageLook,
                 keymap.of([...yUndoManagerKeymap, indentWithTab]),
                 yCollab(text, this.awareness, { undoManager: undo }),
             ],
