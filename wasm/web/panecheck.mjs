@@ -24,11 +24,11 @@
  *   node panecheck.mjs [BUILD_DIR]
  *
  * THESE TWO PAGES tiled, and nothing about tiling in general.
- * tilercheck.mjs is the other half: what a divider's arithmetic is, what
- * a chord does, what a drawer is for and that a split fills the box it
- * is in are claims about panes.js, are made over a fixture page, and
- * need nothing here compiled. When one of those fails the tiler broke;
- * when one of these fails, this application did.
+ * mullion's own suite is the other half: what a divider's arithmetic is,
+ * what a chord does, what a drawer is for and that a split fills the box
+ * it is in are claims about the tiler, made over its fixture page. When
+ * one of those fails the tiler broke; when one of these fails, this
+ * application did.
  *
  * So what is left here is what only these documents can say.
  *
@@ -245,8 +245,8 @@ try
 
     /* Back over the threshold, and from here on this harness is about
        this page rather than about the tiler: what a divider's arithmetic
-       is, what a chord does and what a drawer is for are tilercheck.mjs's
-       over a fixture, and none of them needed a synth to say. */
+       is, what a chord does and what a drawer is for are mullion's own
+       suite's, and none of them needed a synth to say. */
     await page.setViewportSize(WIDE);
     await page.waitForFunction(
         () => document.body.classList.contains('tiled'));
@@ -658,6 +658,31 @@ try
                           !== null) &&
               document.getElementById('panes').children.length === 0),
           'and a narrow window puts every one of them back in the room');
+
+    /* A layout left under the store's name before the site's was put in
+       front of it: the one that opens, and moved rather than left. */
+    await room.setViewportSize(WIDE);
+    await room.evaluate((panes) =>
+    {
+        localStorage.clear();
+        localStorage.setItem('panes:jam:room',
+                             JSON.stringify({ tabs: panes }));
+    }, await room.evaluate(() => window.jam.panes()));
+    await room.reload();
+    await room.waitForFunction(
+        () => document.body.classList.contains('tiled'));
+
+    const moved = await room.evaluate(() =>
+        ({ split: document.querySelector('#panes .panesplit') !== null,
+           keys: Object.keys(localStorage)
+                     .filter((k) => k.includes('panes')) }));
+
+    check(!moved.split,
+          'a layout saved under the old store name is the one that opens');
+
+    check(moved.keys.length === 1 &&
+          moved.keys[0] === 'thinksynth:panes:jam:room',
+          `and it moves to the new name: ${moved.keys.join(' ')}`);
 
     for (const e of errors)
         check(false, `page error: ${e}`);

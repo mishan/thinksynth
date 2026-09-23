@@ -116,6 +116,15 @@ if(NOT EXISTS "${CAIRO2D}/CMakeLists.txt")
       "node_modules before it can configure.")
 endif()
 
+# The tiler: mullion, from npm, and the same arrangement as the replayer
+# below -- copied in beside the pages under the names they load it by.
+set(MULLION "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/mullion/src")
+
+if(NOT EXISTS "${MULLION}/panes.js")
+  message(FATAL_ERROR
+      "mullion is not installed: run `npm ci` in wasm/web first.")
+endif()
+
 set(CAIRO2D_TESTS ON CACHE BOOL "" FORCE)
 add_subdirectory("${CAIRO2D}" cairo2d)
 
@@ -347,11 +356,11 @@ target_link_options(thinkweb PRIVATE
 # The page and its scripts, copied beside the module so the build directory
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
-set(SITE_SOURCES index.html jam.html style.css panes.css main.js keyboard.js
+set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js mirror.js canvasview.js composerview.js
-                seqview.js nodeview.js rollview.js panes.js popover.js
-                tapediff.js offline.js manifest.json)
+                seqview.js nodeview.js rollview.js tapediff.js offline.js
+                layouts.js manifest.json)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -383,6 +392,15 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
             "${PROJECT_BINARY_DIR}/replay.js"
     DEPENDS "${CAIRO2D}/replay.js")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
+
+# And the tiler, which is mullion's, under the names it has there.
+foreach(name panes.js panes.css popover.js)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${MULLION}/${name}" "${PROJECT_BINARY_DIR}/${name}"
+      DEPENDS "${MULLION}/${name}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${name}")
+endforeach()
 
 # The shipped DSPs -- dsp/*.dsp -- and the list the page's menu is filled
 # from. Patch mode plays one of these directly; a piece's instruments and a
@@ -535,7 +553,7 @@ else()
                   host.js keyboard.js panel.js patch.js mic.js
                   ../tape.mjs
                   canvasview.js composerview.js nodeview.js rollview.js
-                  panes.js popover.js tapediff.js offline.js bundle.mjs
+                  tapediff.js offline.js layouts.js bundle.mjs
                   package-lock.json)
   set(JAM_DEPENDS "")
 
@@ -650,6 +668,9 @@ endforeach()
 list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/tape.js"
     "${PROJECT_BINARY_DIR}/replay.js"
+    "${PROJECT_BINARY_DIR}/panes.js"
+    "${PROJECT_BINARY_DIR}/panes.css"
+    "${PROJECT_BINARY_DIR}/popover.js"
     ${JAM_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"

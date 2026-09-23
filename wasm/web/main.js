@@ -73,6 +73,7 @@ import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
 import { keepOffline } from './offline.js';
+import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 
@@ -2598,10 +2599,12 @@ async function init ()
      *
      * The store is named for the site: localStorage belongs to the whole
      * origin, and on GitHub Pages that is every repository's site.
-     * `was' is its name before that, so a layout left under it is kept. */
+     * A layout left under its name before that is moved to it first. */
+    moveLayouts('panes:solo', 'thinksynth:panes:solo',
+                ['patch', 'piece', 'seq']);
+
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:solo',
-        was: 'panes:solo',
         layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
         mode: mode(), on: true,

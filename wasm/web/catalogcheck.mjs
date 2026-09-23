@@ -26,7 +26,7 @@
  * A tiled layout is written down in two places on purpose: the markup says
  * what a pane is -- its element, its title, how narrow it may be made --
  * and the page's own script says which of them this page has and where
- * they go to begin with (panes.js). Neither can be derived from the
+ * they go to begin with. Neither can be derived from the
  * other, so both are written by hand, and what nothing catches by itself
  * is the two drifting apart: a pane marked in the HTML
  * and listed by nobody shows up nowhere, and a name listed by a page and
@@ -112,7 +112,7 @@ function declared (html)
  *
  * The catalog and the default layouts are data -- a list of ids, a tree of
  * fractions -- and they live in the page they belong to rather than in
- * panes.js, which ships no opinion about where the keyboard goes. So they
+ * mullion, which ships no opinion about where the keyboard goes. So they
  * are read out of the source here: the initializer is found by balancing
  * its brackets and evaluated with nothing at all in scope, which is safe
  * for a literal and fails loudly for anything that is not one.
@@ -143,7 +143,7 @@ function literal (source, name)
 
 /* ---- what a default layout comes to ---- */
 
-/* A divider's thickness and a leaf's floor, panes.js's numbers, and the
+/* A divider's thickness and a leaf's floor, mullion's numbers, and the
    width the tiler turns itself on at. A default that cannot be laid out
    at that width is a default nobody at the threshold can use. */
 const SPLIT = 6;
@@ -166,7 +166,7 @@ function named (node, into = [])
 /* How narrow it may be made: a pane's own minimum, a row's the sum of
    its children's with the dividers between them, a column's the widest
    of them -- and the same the other way up, where a leaf asks for a
-   header and a line. panes.js does this arithmetic to refuse a drag; it
+   header and a line. mullion does this arithmetic to refuse a drag; it
    is done here to refuse a default. */
 function narrowest (node, panes, row)
 {
@@ -264,77 +264,6 @@ for (const [id, p] of solo.panes)
 
     check(p.min === q.min,
           `both pages ask ${id} for at least ${p.min} pixels`);
-}
-
-/* ---- and what the stylesheet may name ---- */
-
-/*
- * panes.css draws the layout and nothing that is in it. That is a claim
- * about selectors and it is one a text file can be held to: a rule
- * naming `#roll' or `.panelrows' is this page's, belongs in style.css,
- * and is how a stylesheet ends up describing its one consumer.
- *
- * The boundary is the prefix. Everything the tiler draws is `pane...',
- * the one exception is the class it puts on the body, and an id selector
- * is a page's own name by definition -- so anything else in here is
- * something that drifted back.
- *
- * The prefix is not a word, though -- `.panelrows' opens with it as
- * surely as `.paneleaf' does -- so the name also has to be one panes.js
- * writes. A class the tiler never puts on an element is a class that
- * came from a page, whatever it starts with.
- */
-{
-    const css = fs.readFileSync(path.join(here, 'panes.css'), 'utf8')
-                  .replace(/\/\*[\s\S]*?\*\//g, '');
-    const js = fs.readFileSync(path.join(here, 'panes.js'), 'utf8');
-    /* A color is not a selector, and the fallbacks are written as hex. */
-    const ids = [...new Set(css.match(/#[a-zA-Z][-\w]*/g) ?? [])]
-        .filter((n) => !/^#[0-9a-f]{3,8}$/i.test(n));
-    /* The names panes.js hands to an element, which it writes as a
-       quoted word and nothing else. */
-    const own = new Set([...js.matchAll(/'([a-zA-Z][-\w]*)'/g)]
-        .map((m) => m[1]));
-    const classes = [...new Set(css.match(/\.[a-zA-Z][-\w]*/g) ?? [])]
-        .filter((c) => !own.has(c.slice(1)) ||
-                       !(c.startsWith('.pane') || c === '.tiled'));
-
-
-    check(ids.length === 0,
-          `panes.css names no page's ids${
-              ids.length > 0 ? `: ${ids.join(' ')}` : ''}`);
-    check(classes.length === 0,
-          `and no classes but its own${
-              classes.length > 0 ? `: ${classes.join(' ')}` : ''}`);
-
-    /* And the other way round: the colors it draws in are read under its
-       own names, so a page that has a `--line' of its own meaning
-       something else does not quietly repaint the layout with it. */
-    const bare = [...new Set(css.match(/var\(--(?!pane-)[-\w]+/g) ?? [])];
-
-    check(bare.length === 0,
-          `and reads only its own custom properties${
-              bare.length > 0 ? `: ${bare.join(' ')}` : ''}`);
-
-    /* And what the module is, which is one function. Anything else
-       exported from here is something that ended up in the tiler because
-       that is where its bug was found -- which is how `placePopover'
-       came to live in a file about dividing up a window.
-
-       Both spellings: a declaration carries its own `export', and a name
-       already declared leaves by the braces at the foot of the file --
-       which is the form the next thing to drift back would take. */
-    const carried = (js.match(/^export\s+(?:function\s+)?(\w+)/gm) ?? [])
-        .map((m) => m.split(/\s+/).pop());
-    const braced = [...js.matchAll(/^export\s*\{([^}]*)\}/gm)]
-        .flatMap((m) => m[1].split(','))
-        .map((n) => n.trim().split(/\s+as\s+/).pop())
-        .filter((n) => n !== '');
-    const exports = [...carried, ...braced];
-
-    check(exports.length === 1 && exports[0] === 'createPanes',
-          `panes.js exports createPanes and nothing else: ${
-              exports.join(' ') || 'nothing'}`);
 }
 
 process.stdout.write(`\n${failures === 0

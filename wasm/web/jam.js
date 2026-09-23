@@ -54,6 +54,7 @@ import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import { keepOffline } from './offline.js';
+import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 import { Room } from './room.js';
@@ -1013,10 +1014,12 @@ function init ()
      * background tab, folded away or zoomed off the screen is a pane
      * whose work can stop, and the two canvases here are what that is
      * worth stopping. The editor is where a key means editing rather
-     * than a command, as it is for the keys. */
+     * than a command, as it is for the keys. A layout left under the
+     * store's old name is moved to the new one first. */
+    moveLayouts('panes:jam', 'thinksynth:panes:jam', ['room']);
+
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
-        was: 'panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor',
         onShow: (id, on) =>

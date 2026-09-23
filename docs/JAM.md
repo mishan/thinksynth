@@ -309,7 +309,7 @@ On `jam-m6`. Where it stands:
   knob is where the two deliveries differ and can be seen to: the panel
   describes it and a stamped `knob` command moves it, so it lands at the
   same transport time on every peer.
-- Both pages tiled rather than stacked (`wasm/web/panes.js`): the panels a
+- Both pages tiled rather than stacked (mullion, from npm): the panels a
   person wants side by side -- the piece, the keys, the parameters, the
   graph -- in splits with a divider each, tabs, a drawer and a chord for
   every command. It adopts the markup and creates nothing, so a narrow
