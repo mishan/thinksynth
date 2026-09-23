@@ -414,6 +414,7 @@ static thPanelRow rowFor (const thcPlugin::ParamInfo *pi,
     /* A number, then, and the only kind of row a knob can be bound to. */
     row.kind = thPanelRow::NUMBER;
     row.bindable = anyKnobs;
+    row.bounded = false;
 
     if (pi->isDuration())
     {

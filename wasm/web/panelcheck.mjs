@@ -337,6 +337,17 @@ const edit = (row, text, b = INSTRUMENT) =>
           'and holds one inside the row it came from',
           [hold(row, ''), hold(row, '99999'), hold(row, '-1'),
            hold(row, '12345.678')].join(' '));
+
+    /* A composer's param is not held to its range, only rounded: the range
+       is advisory there, and a number typed past it is what was meant. */
+    const free = { lo: 0, hi: 8, step: 0.01, decimals: 2, value: 4,
+                   bounded: false };
+
+    check(hold(free, '12') === '12.00' && hold(free, '-3') === '-3.00' &&
+          hold(free, '0.3333') === '0.33' && hold(free, 'x') === null,
+          'and one that is not bounded is only rounded',
+          [hold(free, '12'), hold(free, '-3'), hold(free, '0.3333'),
+           hold(free, 'x')].join(' '));
 }
 
 /* ---- a piece's knobs --------------------------------------------------- */

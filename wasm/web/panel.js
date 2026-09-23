@@ -186,6 +186,9 @@ export function numberIn (text)
  * here and the write looks at. An empty box sent that path wrote 0, and a
  * number typed past the end of the range was applied unheld while the slider
  * beside it clamped.
+ *
+ * A row that is not `bounded' -- a composer's param -- is only rounded: its
+ * range is the slider's travel, and a number past it is what was meant.
  */
 export function hold (row, text)
 {
@@ -194,20 +197,47 @@ export function hold (row, text)
     if (v === null)
         return null;
 
+    const bounded = row.bounded !== false && row.hi >= row.lo;
     let inside = v;
 
-    if (row.hi >= row.lo)
+    if (bounded)
         inside = Math.min(Math.max(inside, row.lo), row.hi);
 
     const spelled = spell(inside, row.decimals);
     const rounded = numberIn(spelled);
 
-    if (rounded === null || row.hi < row.lo)
+    if (rounded === null || !bounded)
         return spelled;
 
     /* Rounding can carry a value past an end whose own spelling is finer
        than the step, so the travel is checked once more after it. */
     return spell(Math.min(Math.max(rounded, row.lo), row.hi), row.decimals);
+}
+
+/* A number box's min and max, where the row holds a number to them. On one
+   that does not, they would only mark a value past them invalid. */
+function limit (input, row)
+{
+    if (row.bounded === false)
+        return;
+
+    input.min = row.lo;
+    input.max = row.hi;
+}
+
+/* A slider's travel, out to `value' where the row lets a number past its
+   ends: a range input pins its value to min..max, and would draw a param set
+   to 12 as sitting at 8. */
+function widen (input, row, value)
+{
+    if (row.bounded !== false || !Number.isFinite(value))
+        return;
+
+    if (value < Number(input.min))
+        input.min = value;
+
+    if (value > Number(input.max))
+        input.max = value;
 }
 
 /* The control for one row, and how to put a value into it afterwards.
@@ -238,8 +268,7 @@ function makeSlider (row, emit, bound)
        is the width the widest value in this range needs. */
     shown.type = 'number';
     shown.className = 'value';
-    shown.min = row.lo;
-    shown.max = row.hi;
+    limit(shown, row);
     shown.step = row.step > 0 ? row.step : 'any';
     shown.value = spell(row.value, row.decimals);
     shown.disabled = !row.editable;
@@ -268,6 +297,7 @@ function makeSlider (row, emit, bound)
             return;
         }
 
+        widen(input, row, Number(taken));
         shown.value = taken;
         input.value = taken;
 
@@ -286,6 +316,7 @@ function makeSlider (row, emit, bound)
         if (held(input) || held(shown))
             return;
 
+        widen(input, row, value);
         input.value = value;
         shown.value = spell(value, row.decimals);
     });
@@ -299,8 +330,7 @@ function makeNumber (row, emit, bound)
 
     input.type = 'number';
     input.className = 'value';
-    input.min = row.lo;
-    input.max = row.hi;
+    limit(input, row);
     input.step = row.step > 0 ? row.step : 'any';
     input.value = spell(row.value, row.decimals);
     input.disabled = !row.editable;
