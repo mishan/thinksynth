@@ -65,8 +65,8 @@
 # hammer's force grows faster than the key's speed.
 #
 # WHERE IT STRIKES. A hammer an eighth of the way along the string cannot
-# excite the partials with a node there: the 8th, 16th, 24th. The pulse
-# minus itself an eighth of a period later has exactly those notches.
+# excite the partials with a node there: the 8th, 16th, 24th. The felted
+# board minus itself an eighth of a period later has exactly those notches.
 # It also takes out the board's lowest modes under a treble note, which
 # the short strings up there cannot take in either.
 #
@@ -185,7 +185,7 @@ node period misc::freq2samples {
     freq = freq->out;
 };
 
-# An eighth of a period, and the pulse minus it.
+# An eighth of a period, and the felted board minus it.
 node strike delay::echo {
     in = felt->out_low;
     size = 4096;
