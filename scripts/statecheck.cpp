@@ -7229,6 +7229,228 @@ static void checkCompressor (const string &pluginPath)
                  "and at five hundred");
 }
 
+/* ---- filt::moog --------------------------------------------------------- */
+
+/* The one filter in the tree whose cutoff was not in hertz, and what it
+ * costs: a .dsp cannot key-track it, because hertz of pitch is what there is
+ * to track with and the language has no rate-aware way to spell a fraction of
+ * the rate -- only `ms' and `%' fold against the real one, and `th_sample' is
+ * a literal 44100 that is wrong the moment anybody passes `-r 48000'.
+ *
+ * `cutoffhz' is that cutoff in the units filt::svf takes, and the claim it
+ * makes is a measurement: ask for a frequency and the four-pole response is
+ * 3 dB down there. Worth a harness rather than a reading of the conversion,
+ * because the conversion is the part that could be quietly wrong -- the fit's
+ * own `cutoff' is not a fraction of anything, so the mapping is two nested
+ * quadratics and a cosine and a plausible one would be off by the 1.55 that
+ * separates one stage's corner from four.
+ *
+ * Also that `cutoffhz' is inert at 0, which is what every graph that has ever
+ * used this node leaves it at, and that it wins when both are set.
+ *
+ * Frequencies that divide the rate exactly, so bin() sees a whole number of
+ * cycles and measures a gain rather than a gain plus leakage.
+ */
+static vector<NodeSpec> moogGraph (float srcHz, float amp, float cutoff,
+                                   float cutoffhz, float res, bool wireHz)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, filt;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", srcHz };
+    Value a = { "amp", amp };
+    Value w = { "waveform", 0 };
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    filt.name = "filt";
+    filt.spelling = "filt/moog";
+
+    Value c = { "cutoff", cutoff };
+    Value r = { "res", res };
+    Wire  in = { "in", "src", "out" };
+
+    filt.values.push_back(c);
+    filt.values.push_back(r);
+
+    /* Set at all, against left alone: the two have to be the same render. */
+    if (wireHz)
+    {
+        Value h = { "cutoffhz", cutoffhz };
+
+        filt.values.push_back(h);
+    }
+
+    filt.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(filt);
+
+    return spec;
+}
+
+static void checkMoog (const string &pluginPath)
+{
+    /* Well inside the small-signal part of the ladder's cubic soft clip,
+       which is the only nonlinearity between the input and out_low. */
+    const float amp = 0.1f;
+
+    /* A whole number of samples a cycle at 44100, and a whole number of
+       cycles in the window measured below. */
+    static const double hzs[] = { 220.5, 441, 2205, 4410, 11025 };
+
+    /* ---- asking in hertz puts the 3 dB point there ---- */
+    for (size_t k = 0; k < sizeof(hzs) / sizeof(hzs[0]); k++)
+    {
+        const double hz = hzs[k];
+
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "filt", "out_low" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath,
+                    moogGraph((float)hz, amp, 0, (float)hz, 0, true),
+                    watch, 512, 28672, got, why))
+        {
+            fail("filt::moog renders at " + num(hz) + " Hz", why);
+            continue;
+        }
+
+        /* From 8192, which is many time constants at the lowest of these. */
+        const double in  = bin(got[0], 8192, 20000, hz);
+        const double out = bin(got[1], 8192, 20000, hz);
+        const double at  = dB(out / in);
+
+        /* Half a dB. The conversion is exact in double and the filter is
+           single precision, so what is left is the soft clip and the last
+           bits; a mapping that read the fit as a fraction of anything would
+           miss by 3 or 4 dB here and not by a tenth. */
+        okOrFail(in > 0 && fabs(at + 3.0) < 0.5,
+                 "filt::moog: `cutoffhz' of " + num(hz) +
+                 " is 3 dB down at " + num(hz) + " Hz",
+                 num(at) + " dB");
+    }
+
+    /* ---- and it is a cutoff, not a shelf ---- */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "filt", "out_low" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        /* An octave and a half above a 441 Hz cutoff: four poles is 24 dB an
+           octave, so this is a long way down, and a filter that had merely
+           got the sign of the mapping right would not be. */
+        if (!render(pluginPath, moogGraph(2205, amp, 0, 441, 0, true),
+                    watch, 512, 28672, got, why))
+            fail("filt::moog renders above its cutoff", why);
+        else
+        {
+            const double at = dB(bin(got[1], 8192, 20000, 2205) /
+                                 bin(got[0], 8192, 20000, 2205));
+
+            okOrFail(at < -25,
+                     "filt::moog: a `cutoffhz' of 441 is well down by 2205",
+                     num(at) + " dB");
+        }
+    }
+
+    /* ---- 0 is what every graph that predates the arg leaves it at ---- */
+    {
+        vector<float> unset, zero;
+        string why;
+
+        if (!render1(pluginPath, moogGraph(441, amp, 0.18f, 0, 0.5f, false),
+                     "filt", "out_low", 512, 8192, unset, why) ||
+            !render1(pluginPath, moogGraph(441, amp, 0.18f, 0, 0.5f, true),
+                     "filt", "out_low", 512, 8192, zero, why))
+        {
+            fail("filt::moog renders with `cutoffhz' unset", why);
+        }
+        else
+        {
+            okOrFail(unset.size() == zero.size() &&
+                     memcmp(&unset[0], &zero[0],
+                            unset.size() * sizeof(float)) == 0,
+                     "filt::moog: `cutoffhz' at 0 renders what no `cutoffhz' "
+                     "at all does, sample for sample", "");
+        }
+    }
+
+    /* ---- and it wins when both are set ---- */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "filt", "out_low" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        /* `cutoff' wide open and `cutoffhz' shut: if the fraction were still
+           being read, or the two were summed, 2205 would come through. */
+        if (!render(pluginPath, moogGraph(2205, amp, 0.9f, 441, 0, true),
+                    watch, 512, 28672, got, why))
+            fail("filt::moog renders with both cutoffs set", why);
+        else
+        {
+            const double at = dB(bin(got[1], 8192, 20000, 2205) /
+                                 bin(got[0], 8192, 20000, 2205));
+
+            okOrFail(at < -25,
+                     "filt::moog: `cutoffhz' overrides `cutoff' rather than "
+                     "adding to it", num(at) + " dB");
+        }
+    }
+
+    /* ---- what a graph can write on a hertz arg ---- */
+    {
+        static const float silly[] = { -1000, 0.0001f, 1e9f, 44100, 22050 };
+
+        for (size_t k = 0; k < sizeof(silly) / sizeof(silly[0]); k++)
+        {
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         moogGraph(441, 0.5f, 0.3f, silly[k], 0.9f, true),
+                         "filt", "out_low", 512, 8192, out, why))
+            {
+                fail("filt::moog renders at " + num(silly[k]) + " Hz", why);
+                continue;
+            }
+
+            okOrFail(allFinite(out) && peak(out, 0) <= 1.0001,
+                     "filt::moog: a `cutoffhz' of " + num(silly[k]) +
+                     " stays finite and inside full scale",
+                     "peak " + num(peak(out, 0)));
+        }
+    }
+
+    windowsAgree(pluginPath, moogGraph(441, amp, 0, 1200, 0.7f, true), "filt",
+                 "out_low",
+                 "filt::moog: the same hertz cutoff at one sample a window "
+                 "and at five hundred");
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -7262,6 +7484,7 @@ int main (int argc, char **argv)
     checkVowel(pluginPath);
     checkPan(pluginPath);
     checkCompressor(pluginPath);
+    checkMoog(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 

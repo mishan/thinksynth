@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -41,11 +42,94 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define QMAX 1.0f
 #define BMAX 1.4142135f
 
+/* How near Nyquist `cutoffhz' may ask for, as a fraction of the rate. The
+   conversion below runs on cos(2*pi*hz/rate), which is flat at Nyquist and
+   where the arithmetic it feeds degenerates; filt::svf stops at the same
+   fraction, for the same kind of reason. What is past it is a filter that
+   passes everything, and FMAX is already that. */
+#define CUTOFF_CEIL 0.49f
+
+/* The 0 to 1 cutoff whose four-pole response is 3 dB down at `hz'.
+ *
+ * Why this is not a division. The fit's `cutoff' is not a fraction of
+ * anything measurable: each of the four stages is y = (x + x[-1])*p - y[-1]*f
+ * with p = 1.8c - 0.8c^2 and f = 2p - 1, and what a listener calls the cutoff
+ * is where all four together have lost 3 dB -- which is a long way below
+ * where one of them has. A `cutoff' of 0.18, which is what dsp/ladder.dsp
+ * shipped with, is 2564 Hz at 44.1k and not the 3969 Hz that reading it as a
+ * fraction of Nyquist would suggest. So the mapping is derived rather than
+ * assumed, and it is exact:
+ *
+ *   one stage is H(z) = p(1 + z^-1) / (1 + f z^-1), so with c = cos(w),
+ *
+ *       |H|^2 = 2p^2 (1 + c) / (1 + f^2 + 2 f c)
+ *
+ *   the cascade is 3 dB down where |H|^8 = 1/2, so where |H|^2 is K below.
+ *   Substituting f = 2p - 1 and u = 1 - c leaves a quadratic in p,
+ *
+ *       (2 - 2K - u) p^2 + 2K u p - K u = 0
+ *
+ *   and p = 1.8c - 0.8c^2 is a second one in the cutoff. Two roots to pick
+ *   and both are the smaller.
+ *
+ * The first is taken in the form that does not cancel: its leading
+ * coefficient passes through zero at about a fifth of the rate -- 5760 Hz at
+ * 44.1k, squarely inside the range anything asks for -- where the usual
+ * spelling is 0/0.
+ *
+ * Measured against a swept response afterwards rather than trusted: asking
+ * for 40, 250, 1000, 4000 and 20000 Hz puts the 3 dB point within about a
+ * per cent of each, and statecheck holds the gain at five frequencies to
+ * within half a dB of -3. Resonance moves the peak, as it does in every
+ * filter here and in filt::svf's hertz cutoff too; this is the design
+ * frequency, not a promise about the peak. */
+static float moogCutoffFromHz (float hz, unsigned int rate)
+{
+    /* 2^(-1/4): one stage's |H|^2 where the four of them are 3 dB down. */
+    static const double K = 0.8408964152537145;
+
+    const double top = (double)rate * (double)CUTOFF_CEIL;
+    double w, u, A, B, C, disc, p;
+
+    /* Written so a NaN takes this branch: it is `no cutoff in hertz', which
+       is what a 0 on this arg already means. */
+    if (!(hz > 0))
+        return 0;
+
+    if (!((double)hz < top))
+        hz = (float)top;
+
+    w = 2.0 * M_PI * (double)hz / (double)rate;
+    u = 1.0 - cos(w);
+
+    A = 2.0 - 2.0 * K - u;
+    B = 2.0 * K * u;
+    C = -K * u;
+
+    /* Positive for every w the ceiling allows, reaching zero only at
+       Nyquist itself. */
+    disc = B * B - 4.0 * A * C;
+
+    if (disc < 0)
+        disc = 0;
+
+    p = 2.0 * C / (-B - sqrt(disc));
+
+    /* p is 1 at Nyquist and the radicand below is 0.04 there. Clamped so
+       that a last ulp the other side of 1 cannot make it negative. */
+    if (p > 1.0)
+        p = 1.0;
+    else if (p < 0.0)
+        p = 0.0;
+
+    return (float)((1.8 - sqrt(3.24 - 3.2 * p)) / 1.6);
+}
+
 void module_cleanup (thPlugin *plugin)
 {
 }
 
-enum { INOUT_BUFFER,IN_ARG,IN_CUTOFF,IN_RES,
+enum { INOUT_BUFFER,IN_ARG,IN_CUTOFF,IN_CUTOFFHZ,IN_RES,
        OUT_LOW,OUT_HIGH,OUT_BANDPASS };
 
 int args[OUT_BANDPASS + 1];
@@ -61,12 +145,31 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
-    /* A fraction of the rate, against filt::res2pole2's hertz. */
+    /* Not a fraction of the rate, whatever this said before `cutoffhz'
+       existed to measure it against: 0.18 is 2564 Hz at 44.1k, which is a
+       seventeenth of the rate and not a fifth. It is the fit's own number and
+       there is no shorter true thing to call it. */
     plugin->setArgDesc(args[IN_CUTOFF],
-                       "Cutoff, 0 to 1 -- a fraction of the sample rate, "
-                       "not hertz. Clamped: the fit means nothing past 1");
+                       "Cutoff, 0 to 1 -- the fit's own scale, not hertz and "
+                       "not a fraction of the rate; see `cutoffhz'. Clamped: "
+                       "the fit means nothing past 1");
     plugin->setArgRange(args[IN_CUTOFF], 0, FMAX);
-    plugin->setArgUnits(args[IN_CUTOFF], "fraction of the rate");
+    plugin->setArgUnits(args[IN_CUTOFF], "0..1");
+    args[IN_CUTOFFHZ] = plugin->regArg("cutoffhz", thPlugin::ARG_IN);
+    /* The same cutoff the arg above sets, in the units filt::svf and
+       filt::res2pole2 take it in -- and the reason a graph can key-track this
+       filter at all, since hertz of pitch is what there is to track with and
+       the language has no rate-aware way to spell a fraction of the rate.
+
+       An override rather than a second cutoff summed with the first: two
+       spellings of one number, and 0 is "not this one", which is what a rate
+       fraction of 0 already meant. No numeric range, for the reason every
+       hertz arg in the tree gives. */
+    plugin->setArgDesc(args[IN_CUTOFFHZ],
+                       "Cutoff in hertz. Overrides `cutoff' when above 0, "
+                       "which is what it is unless a graph says otherwise");
+    plugin->setArgUnits(args[IN_CUTOFFHZ], "Hz");
+
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 self-oscillates. Clamped for "
@@ -94,7 +197,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
     float *buffer;
-    thArg *in_arg, *in_cutoff, *in_res;
+    thArg *in_arg, *in_cutoff, *in_cutoffhz, *in_res;
     thArg *inout_buffer;
     float b0, b1, b2, b3, b4;  //filter buffers (beware denormals!)
     float f, p, q;  /* feedback, cutoff, resonance */
@@ -123,10 +226,37 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_cutoffhz = mod->getArg(node, args[IN_CUTOFFHZ]);
     in_res = mod->getArg(node, args[IN_RES]);
 
+    /* The hertz cutoff and what it converted to, so a cutoff that holds
+       still -- a sustained note with no key follow -- converts once a window
+       rather than once a sample. A moving one does not benefit: a filter
+       envelope, a glide or a tracked vibrato converts every sample, which
+       measured at about 5% of rendering a ladder.dsp line. A NaN fails
+       `hz > 0' and reads `cutoff' instead, as a 0 does. */
+    float lastHz = 0, fromHz = 0;
+    bool haveHz = false;
+
     for(i = 0; i < windowlen; i++) {
-        float frequency = thClampArg((*in_cutoff)[i], 0.0f, FMAX);
+        const float hz = (*in_cutoffhz)[i];
+        float asked;
+
+        if (hz > 0)
+        {
+            if (!haveHz || hz != lastHz)
+            {
+                fromHz = moogCutoffFromHz(hz, samples);
+                lastHz = hz;
+                haveHz = true;
+            }
+
+            asked = fromHz;
+        }
+        else
+            asked = (*in_cutoff)[i];
+
+        float frequency = thClampArg(asked, 0.0f, FMAX);
         float res = thClampArg((*in_res)[i], 0.0f, QMAX);
         float in = (*in_arg)[i] / TH_MAX;
 
