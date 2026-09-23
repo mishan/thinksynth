@@ -885,20 +885,6 @@ body.tiled .panelrows
 
     #tempo { width: 4em; }
 
-    /* The tabs and the drawer of closed panes, each one line that scrolls
-       sideways rather than wrapping into two or truncating every name to
-       three letters. */
-    .panesroot .panetabs,
-    #panes .panedrawer
-    {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        scrollbar-width: none;
-    }
-
-    .panesroot .panetabwrap,
-    #panes .paneclosed { flex: 0 0 auto; }
-
     /* The keys take the strip they are given, up to a piano's shape
        (keyboard.js), and sit at the bottom of it, where the thumbs are. */
     body.tiled .panebody #keys
@@ -927,9 +913,3 @@ body.tiled .panelrows
         display: none;
     }
 }
-
-/* A drag on a divider is a drag, not a scroll. Without it a finger moved
-   the divider a few pixels and the browser took the rest of the gesture
-   as a scroll, cancelling the pointer -- tabs had this and dividers did
-   not (mullion's panes.css). */
-.panesplit { touch-action: none; }

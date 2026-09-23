@@ -230,8 +230,11 @@ function tile (phone, forced)
                : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
 
-        /* And a divider a finger can take hold of. */
-        ...(phone ? { media: forced ? 'all' : PHONE, split: 18 } : {}),
+        /* And a divider a finger can take hold of, tabs at their own
+           widths in a row that scrolls, no strip over a lone tab, and a
+           drawer that is where the rest are rather than what was shut. */
+        ...(phone ? { media: forced ? 'all' : PHONE, split: 18,
+                      strip: 'scroll', lone: false, closed: 'More:' } : {}),
         mode: mode(), on: true,
         onShow: (id, on) =>
         {
@@ -2969,13 +2972,11 @@ async function init ()
        document had it, and made again from the other set. Nothing is
        loaded again; the panes are the same elements. */
     if (phone)
-        matchMedia(SIDEWAYS).addEventListener('change', () =>
-        {
-            panes.destroy();
-            tile(phone, forced);
-            panesFor(mode());
-            panes.overlay().append(...popovers);
-        });
+        matchMedia(SIDEWAYS).addEventListener('change', (e) =>
+            panes.setLayouts(
+                e.matches ? SIDEWAYS_LAYOUTS : PHONE_LAYOUTS,
+                { store: e.matches ? 'thinksynth:panes:touch-sideways'
+                                   : 'thinksynth:panes:touch' }));
 }
 
 offerInstall($('install'));
