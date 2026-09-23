@@ -141,6 +141,10 @@ pre
    with rows under it. */
 #chrome h1 { margin: 0; }
 
+/* The link to the source: beside the title and quieter than it, since it
+   is not a control of the page's. */
+#source { color: var(--dim); font-size: 0.9em; }
+
 /* A mode's own controls, wrapping as a group rather than one at a time:
    a Rewind on a line of its own, away from the Play it belongs with, is
    not a row wrapping usefully. */
@@ -275,6 +279,28 @@ details { margin: 0.8em 0; }
    not read as a form, wide enough for a drawer's name and a patch's. */
 .trackpick { max-width: 18em; font-size: 0.9em; }
 
+/* Where there is the width, the heading goes beside the grid rather than
+   over it: a row saved per track, and a drum's one-row strip is no longer
+   shorter than the menu above it. Not on a phone, where the width is the
+   cells' -- sixteen of them across a finger's worth each. The tracks'
+   own width and not the window's, since tiled the pane can be narrow on
+   a wide screen. */
+#tracks { container-type: inline-size; }
+
+@container (min-width: 40em)
+{
+    .track
+    {
+        display: grid;
+        grid-template-columns: 13em 1fr;
+        gap: 0.6em;
+        align-items: start;
+    }
+
+    .trackhead { margin: 0; flex-wrap: nowrap; }
+    .trackpick { min-width: 0; flex: 1; }
+}
+
 .trackgrid
 {
     display: block;
@@ -392,6 +418,9 @@ details { margin: 0.8em 0; }
 
     #keys { height: 160px; }
 
+    /* The keyboard's hint is about a computer's keys and a MIDI cable. */
+    #keyboard .hint { display: none; }
+
     /* A slider a thumb can find, in the knob strip and in the parameter
        panel alike -- both are panel.js's rows now. */
     #knobs input[type="range"], #params input[type="range"] { height: 44px; }
@@ -399,9 +428,18 @@ details { margin: 0.8em 0; }
 
 /* ---- a narrow screen ---- */
 
+/* The fold for the speed and the clock, which only a phone has. */
+#more { display: none; }
+
 @media (max-width: 40em)
 {
     body { margin: 0.8em auto; padding: 0 0.6em; }
+
+
+    /* The sequencer's tracks carry their own menus, so the channels list
+       under them would be the same five menus again; only where the keys
+       go is left of it. */
+    body[data-mode="seq"] #channels { display: none; }
 
     h1 { font-size: 1.3em; }
 
@@ -843,4 +881,54 @@ body.tiled .panelrows
 
     body.tiled .panelrow label { text-align: left; }
     body.tiled .panelrow > * { grid-column: 1; }
+}
+
+/* ---- a phone, tiled ----
+ *
+ * On a phone the page is tiled as an app is (main.js, PHONE_LAYOUTS): a
+ * tabbed area per mode and the keys under it. What the tiler draws for a
+ * desktop needs three things changed to fit a thumb.
+ */
+@media (max-width: 40em), (max-height: 30em)
+{
+    /* The status line only when it has something that must be seen
+       (main.js, status): on a phone it is a row of the little height
+       there is. */
+    #chrome #status:not([data-alert]) { display: none; }
+
+    /* The strip, down to what a phone plays with: the speed and the
+       clock behind the fold. */
+    #more { display: inline-block; }
+    #transport:not(.more) #speedlabel,
+    #transport:not(.more) #clock { display: none; }
+
+    #tempo { width: 4em; }
+
+    /* The keys take the strip they are given, up to a piano's shape
+       (keyboard.js), and sit at the bottom of it, where the thumbs are. */
+    body.tiled .panebody #keys
+    {
+        flex: 1 1 auto;
+        height: auto;
+        min-height: 6rem;
+    }
+
+    body.tiled #keyboard { justify-content: flex-end; }
+
+    /* A divider a finger can find: thicker, drawn as a short handle
+       rather than a hairline, and not a scroll -- see .panesplit below. */
+    #panes .panebox[data-dir="col"] > .panesplit::after
+    {
+        inset: 6px 35%;
+        border-radius: 2px;
+    }
+
+    .panesroot .panetab { font-size: 0.95em; padding: 0.5em 0.3em 0.5em 0.8em; }
+
+    /* A leaf with one tab is labelled by what is in it: the strip over it
+       is a row saying "Keys" above a keyboard. */
+    .paneleaf:has(> .panetabs > .panetabwrap:only-child) > .panetabs
+    {
+        display: none;
+    }
 }

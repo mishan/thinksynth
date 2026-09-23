@@ -26,7 +26,7 @@
   "dependencies": {
     "cairo-canvas2d": "^0.1.0",
     "codemirror": "^6.0.2",
-    "mullion": "0.1.2",
+    "mullion": "0.2.0",
     "ws": "^8.21.3",
     "y-codemirror.next": "^0.3.6",
     "y-protocols": "^1.0.7",

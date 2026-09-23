@@ -23,6 +23,14 @@
 <div class="row" id="chrome">
   <h1>thinksynth</h1>
 
+  <!-- Where it comes from, and the browser's Install offered as a button:
+       Chromium's own is an icon in the address bar that is easy to miss.
+       Shown only where the browser will install it (offline.js). -->
+  <span id="site" class="group">
+    <a id="source" href="https://github.com/mishan/thinksynth">GitHub</a>
+    <button id="install" hidden>Install</button>
+  </span>
+
   <button id="start">Start</button>
 
   <label>Play <select id="mode">
@@ -35,9 +43,10 @@
        for it. The window is fixed once the synth exists, so it is chosen
        before Start -- 128 is the one to pick for a live input, because the
        worklet's quantum is 128 and a window that matches it quarters what a
-       live graph hears late. See wasm/web/mic.js. -->
-  <span id="livein" class="group">
-    <label>Window <select id="window">
+       live graph hears late. See wasm/web/mic.js. Hidden until what is
+       in play reads the live input: see showLiveIn in main.js. -->
+  <span id="livein" class="group" hidden>
+    <label id="windowlabel">Window <select id="window">
       <option value="256">256</option>
       <option value="128">128 (for live in)</option>
     </select></label>
@@ -91,6 +100,12 @@
       <span id="speedis">1.00&times;</span></label>
 
     <span id="clock">0:00.0</span>
+
+    <!-- On a phone the speed and the clock fold behind this, since the
+         strip is a row of the little height there is. Shown only there
+         (style.css). -->
+    <button id="more" aria-expanded="false" aria-label="Speed and clock"
+            title="Speed and clock">&hellip;</button>
   </span>
 
   <span id="status">Press Start, then play.</span>

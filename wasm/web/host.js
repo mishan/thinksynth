@@ -80,6 +80,14 @@ export async function createSynth (ctx, { windowlen = 256,
                                           onParamEdits = () => {},
                                           onMirror = null } = {})
 {
+    /* A browser offers the worklet only in a secure context: https, or
+       localhost. A page opened as http:// from another machine -- a phone
+       pointed at a laptop's serve.mjs -- has an AudioContext and no
+       audioWorklet, and said so as "reading 'addModule'". */
+    if (ctx.audioWorklet === undefined)
+        throw new Error('the browser allows audio here only over https or ' +
+                        'on localhost');
+
     const [bytes] = await Promise.all([
         wasmBytes(),
         ctx.audioWorklet.addModule(new URL('worklet.js', import.meta.url)),

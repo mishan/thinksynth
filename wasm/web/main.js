@@ -73,7 +73,7 @@ import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
-import { keepOffline } from './offline.js';
+import { keepOffline, offerInstall } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
@@ -166,6 +166,91 @@ const PIECE_LAYOUT = {
             { tabs: ['piecesource'] },
             { tabs: ['keyboard'] }] }],
 };
+
+/* A phone: a finger, on a screen that is narrow or held sideways with no
+ * height -- the two shapes style.css calls small. The finger as well as
+ * the shape, because a desktop window dragged narrow is not a phone: it
+ * stays the document, and tiles as a desktop's once it is wide again.
+ * `?phone=1' asks for the phone's layout anywhere, for trying it on a
+ * desktop.
+ *
+ * On one of these the page is tiled too, but as a phone app rather than a
+ * desktop's split: one tabbed area per mode, with the keys in a strip of
+ * their own under it where a mode is for playing them. What a phone has
+ * no use for -- the piece's picture, the sources, the graph editor's
+ * canvas, the browser's numbers -- starts in the drawer, a tab away for
+ * whoever wants it, rather than stacked into a page six screens long.
+ */
+const PHONE = '(pointer: coarse) and (max-width: 40em), ' +
+              '(pointer: coarse) and (max-height: 30em)';
+
+const PHONE_LAYOUTS = {
+    patch: { dir: 'col', size: [0.6, 0.4], kids: [
+        { tabs: ['paramview', 'nodeview'] },
+        { tabs: ['keyboard'] }] },
+
+    /* The tracks are what the sequence is for; the keys are a tab. */
+    seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
+
+    /* The roll in front: what the piece is doing is what a phone is
+       for watching; the knobs are a tab away. */
+    piece: { dir: 'col', size: [0.6, 0.4], kids: [
+        { tabs: ['roll', 'knobs', 'seqview', 'channelbox', 'paramview'] },
+        { tabs: ['keyboard'] }] },
+};
+
+/* And held sideways, where there is no height to split: one tabbed area,
+   the keys in front where a mode is for playing them. */
+const SIDEWAYS = '(max-height: 30em)';
+
+const SIDEWAYS_LAYOUTS = {
+    patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
+    seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
+    piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'channelbox',
+                    'paramview'] },
+};
+
+/* The two popovers, which live in the layout's overlay and are moved to
+   the new one when a phone turns over. */
+let popovers = [];
+
+/* The tiler, for a desktop, a phone, or a phone held sideways, each
+ * with its own layouts under its own store.
+ */
+function tile (phone, forced)
+{
+    const sideways = phone && matchMedia(SIDEWAYS).matches;
+
+    panes = createPanes({
+        root: $('panes'), catalog: PANES,
+        store: sideways ? 'thinksynth:panes:touch-sideways'
+             : phone ? 'thinksynth:panes:touch' : 'thinksynth:panes:solo',
+        layouts: sideways ? SIDEWAYS_LAYOUTS
+               : phone ? PHONE_LAYOUTS
+               : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
+                   seq: SEQ_LAYOUT },
+
+        /* And a divider a finger can take hold of, tabs at their own
+           widths in a row that scrolls, no strip over a lone tab, and a
+           drawer that is where the rest are rather than what was shut. */
+        ...(phone ? { media: forced ? 'all' : PHONE, split: 18,
+                      strip: 'scroll', lone: false, closed: 'More:' } : {}),
+        mode: mode(), on: true,
+        onShow: (id, on) =>
+        {
+            if (id === 'composerview')
+                showComposer(on && mode() === 'piece');
+            else if (id === 'seqview')
+                showSeq(on && composing());
+            else if (id === 'roll')
+                showRoll(on && composing());
+            else if (id === 'nodeview')
+                nodes?.show(on);
+            else if (id === 'paramview' && on)
+                pollParams();
+        },
+    });
+}
 
 /* The layout. Made at the end of init(), because what it adopts has to be
    in the document and the folds the page opens by hand have to be set. */
@@ -290,6 +375,19 @@ function ms (seconds)
     return seconds === undefined ? 'not reported'
                                  : `${(seconds * 1000).toFixed(1)} ms`;
 }
+
+/* The status line. `alert' is for what somebody must see -- a file that
+   did not parse, a Start that failed -- and is the only kind a phone
+   shows: there the line is a row of the little height there is, and
+   "Loaded ladder.dsp. Play." is what the screen already says. */
+function status (text, alert = false)
+{
+    $('status').textContent = text;
+    $('status').toggleAttribute('data-alert', alert);
+}
+
+/* What a finger does to a control, in what the page says. */
+const TAP = matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click';
 
 function mode ()
 {
@@ -535,6 +633,7 @@ async function toggleMic ()
         $('micstatus').textContent = '';
         $('miclevel').textContent = '';
         showLatency();
+        showLiveIn();
         return;
     }
 
@@ -565,6 +664,61 @@ async function toggleMic ()
         (warnings.length > 0 ? `; ${warnings.join('; ')}` : '');
 
     showLatency();
+}
+
+/* ---- whether anything is listening ----
+ *
+ * The window and Live in are for a graph that reads the live input, and
+ * one that does names it `ionode->live0' (docs/DSP_FORMAT.md). Only
+ * fx/vocoder-mic.dsp does today, so everywhere but Voice the two were
+ * controls that did nothing, on the strip a phone has least room in.
+ *
+ * So they are offered when what is in play listens: the patch box's text
+ * in patch mode, and in the other two the graphs on the piece's channels
+ * -- the ones it names, instrument and effect alike, and the ones the page
+ * aimed. Live in stays while the input is on, so it can be switched off.
+ * The window is chosen before Start and fixed by it, so it goes then.
+ */
+const LIVE = /\bionode->live\d/;
+
+async function listens ()
+{
+    if (mode() === 'patch')
+        return LIVE.test($('dsp').value);
+
+    const names = new Set();
+
+    for (const p of placed.values())
+        if (p?.dsp)
+            names.add(p.dsp);
+
+    /* The piece's own names, as doc.js reads them for the room: the
+       `dsp' of an instrument block and each `effect' in one. */
+    if (mode() === 'piece')
+        for (const m of $('gen').value.matchAll(
+                 /\b(?:dsp|effect)\s+"([^"]+)"/g))
+            names.add(m[1]);
+
+    const texts = await Promise.all([...names].map(
+        (n) => dspTexts[n] ?? patch.graphText(n).catch(() => '')));
+
+    return texts.some((t) => LIVE.test(t));
+}
+
+/* Asked after anything that changes what is in play; only the latest
+   answer is drawn. */
+let liveAsked = 0;
+
+async function showLiveIn ()
+{
+    const asked = ++liveAsked;
+    const on = mic !== null || await listens().catch(() => false);
+
+    if (asked !== liveAsked)
+        return;
+
+    $('livein').hidden = !on;
+    $('windowlabel').hidden = synth !== null;
 }
 
 /* ---- what the browser admits to ---- */
@@ -613,8 +767,10 @@ async function loadPatch ()
         placed.delete(PATCH_CHANNEL);
     }
 
-    $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
-                                 : 'That .dsp did not parse; see below.';
+    status(ok ? `Loaded ${$('patch').value}. Play.`
+              : 'That .dsp did not parse; see below.', !ok);
+
+    showLiveIn();
 
     if (!ok)
         seeBelow();
@@ -843,31 +999,33 @@ async function loadPiece ()
         const loaded = await synth.loadPiece($('gen').value);
 
         if (loaded.errors.length === 0)
-            aiming = await patch.aim(synth, loaded.sinks, aimed);
+            aiming = await patch.aim(
+                synth, loaded.sinks,
+                mode() === 'seq' ? new Map([...sequenceVoices(), ...aimed])
+                                 : aimed);
 
         return loaded;
     });
 
     piece = it.errors.length === 0 ? it : null;
     placed = aiming.placed;
+    showLiveIn();
 
     if (piece === null)
     {
-        $('status').textContent = 'That .gen did not parse; see below.';
+        status('That .gen did not parse; see below.', true);
         it.errors.forEach(log);
         seeBelow();
     }
     else if (aiming.failed.length > 0)
     {
-        $('status').textContent =
-            `Loaded ${piece.name || $('piece').value}, but not everything ` +
-            'it asked for; see below.';
+        status(`Loaded ${piece.name || $('piece').value}, but not ` +
+               'everything it asked for; see below.', true);
         aiming.failed.forEach(log);
         seeBelow();
     }
     else
-        $('status').textContent =
-            `Loaded ${piece.name || $('piece').value}. Press Play.`;
+        status(`Loaded ${piece.name || $('piece').value}. Press Play.`);
 
     $('about').textContent = piece === null ? '' : piece.description;
     showAbout();
@@ -916,11 +1074,35 @@ async function loadPiece ()
  * the menu on the track after that. That is what puts a menu on every
  * track here and none on a shipped piece's.
  */
-const SEQ_TRACKS = 4;
 const SEQ_STEPS = 16;
 /* Six: five degrees and the octave above them, which is a range to
-   write a line in and still leaves four tracks visible at once. */
+   write a line in and still leaves the tracks visible at once. */
 const SEQ_ROWS = 6;
+
+/* The tracks, in channel order, and what each opens playing: a kit on the
+ * first three and two voices over it, the newer instruments rather than
+ * the desktop's first-run four -- which are four tonal patches, six rows
+ * each, and made the opening screen on a phone four tall grids of one
+ * kind of sound.
+ *
+ * A drum that ignores the note gets a grid one row tall (see fitTracks),
+ * so the kit costs a strip each. The beat is there so that Play makes
+ * something straight away; the voices start empty, for somebody to draw
+ * on. These are the page's defaults for its own sequence, handed to the
+ * aiming ahead of the first-run ones, and a track's menu still replaces
+ * any of them.
+ */
+const SEQ_VOICES = [
+    { dsp: 'kit_kick.dsp',  cells: 'x...x...x...x...' },
+    { dsp: 'kit_snare.dsp', cells: '....x.......x...' },
+    { dsp: 'kit_hat.dsp',   cells: '..x...x...x...x.' },
+    { dsp: 'ebass.dsp' },
+    { dsp: 'rhodes.dsp' },
+];
+
+/* Where the keys go in the sequence: the last voice, the Rhodes, rather
+   than channel 1 -- which is the kick. */
+const SEQ_KEYS = SEQ_VOICES.length - 1;
 
 /* The first line of what this writes, and what tells the box's contents
  * apart from any other piece.
@@ -936,22 +1118,33 @@ const SEQ_MARK = '# A sequence, written by the page.';
 
 function sequenceText ()
 {
-    const empty = Array(SEQ_ROWS).fill('.'.repeat(SEQ_STEPS)).join('/');
+    /* A drum's pattern on its one row; a voice's on the bottom row of its
+       ladder, the root, where a single line of cells reads as a line. */
+    const cells = ({ dsp, cells = '' }) =>
+    {
+        const line = cells.padEnd(SEQ_STEPS, '.');
 
-    /* One track with something on it, because a sequencer that makes no
-       sound when it is started reads as broken rather than as empty.
-       Four on the floor on the bottom row of the first track. */
-    const first = empty.replace(new RegExp(`\\.{${SEQ_STEPS}}$`),
-                                'x...'.repeat(SEQ_STEPS / 4));
+        if (!readsNote(dsp))
+            return { rows: 1, cells: line };
 
-    const track = (n) => `chain track${n} {
+        const empty = '.'.repeat(SEQ_STEPS);
+
+        return { rows: SEQ_ROWS,
+                 cells: [...Array(SEQ_ROWS - 1).fill(empty), line].join('/') };
+    };
+
+    const track = (voice, n) =>
+    {
+        const { rows, cells: grid } = cells(voice);
+
+        return `chain track${n} {
     input midi;
 
     stage seq gen::grid {
         notes  = pent;
         steps  = ${SEQ_STEPS};
-        rows   = ${SEQ_ROWS};
-        cells  = "${n === 1 ? first : empty}";
+        rows   = ${rows};
+        cells  = "${grid}";
         period = 0.25 beats;
         hold   = 0.2 beats;
         vel    = 96;
@@ -959,17 +1152,15 @@ function sequenceText ()
     };
     sink { channel = ${n}; };
 };`;
-
-    const tracks = [];
-
-    for (let n = 1; n <= SEQ_TRACKS; n++)
-        tracks.push(track(n));
+    };
 
     return `${SEQ_MARK}
 #
-# Four grids on four channels: rows are degrees of the ladder below,
-# columns are steps. Click the cells; the menu on each track says what
-# plays it. Save this file and it opens in the Composer like any other.
+# A kit and two voices, one grid each on a channel of its own: rows are
+# degrees of the ladder below, columns are steps, and a drum that plays
+# the same sound at any pitch has one row. Fill in cells; the menu on
+# each track says what plays it. Save this file and it opens in the
+# Composer like any other.
 #
 # \`input midi' on each of them is what makes the keys play a track: a
 # note aimed at a channel goes through that channel's chain and out its
@@ -978,14 +1169,21 @@ function sequenceText ()
 # turn that up and playing writes what it plays.
 
 name "A sequence";
-description "Four tracks. Click the cells; pick what plays them.";
+description "A beat, a bass and keys. Fill in cells; pick what plays them.";
 
 tempo 112;
 
 scale pent "C3 D3 E3 G3 A3";
 
-${tracks.join('\n\n')}
+${SEQ_VOICES.map((v, i) => track(v, i + 1)).join('\n\n')}
 `;
+}
+
+/* The sequence's own defaults, as channel -> the .dsp: what the aiming
+   uses on a track nobody has chosen for. */
+function sequenceVoices ()
+{
+    return new Map(SEQ_VOICES.map((v, i) => [i, v.dsp]));
 }
 
 /* The mode, entered. The text is written once a session: coming back to
@@ -1001,8 +1199,7 @@ async function loadSequence ()
     await loadPiece();
 
     if (piece !== null)
-        $('status').textContent =
-            'Click cells to draw a pattern, then press Play.';
+        status(`${TAP} cells to draw a pattern, then press Play.`);
 }
 
 /* The .gen box is one box and two modes write in it: the sequence and the
@@ -1055,6 +1252,7 @@ async function pickPiece ()
             await (await fetch(`gen/${$('piece').value}`)).text();
 
         await loadPiece();
+        showLiveIn();
     })();
 
     picking = run.catch(() => {});
@@ -1268,8 +1466,7 @@ async function savePatch (channel)
 
     if (text === '')
     {
-        $('status').textContent =
-            `Channel ${channel + 1}: nothing to save.`;
+        status(`Channel ${channel + 1}: nothing to save.`, true);
         return;
     }
 
@@ -1305,7 +1502,7 @@ async function savePatch (channel)
     synth.patchSaved(channel, name);
     await showEdited();
 
-    $('status').textContent = `Channel ${channel + 1} saved as ${name}.`;
+    status(`Channel ${channel + 1} saved as ${name}.`, true);
 }
 
 /* The `edited' marks, refreshed from the module.
@@ -1430,8 +1627,7 @@ async function aimByHand (channel, name)
            piece that names this channel for the rest of the session. */
         aimed.set(channel, name);
         placed.set(channel, what);
-        $('status').textContent =
-            `${what.title} on channel ${channel + 1}. Play.`;
+        status(`${what.title} on channel ${channel + 1}. Play.`);
 
         /* And every menu that says what is on a channel, since a choice
            made in one of them is a choice the others are showing too: the
@@ -1446,8 +1642,7 @@ async function aimByHand (channel, name)
     }
     catch (e)
     {
-        $('status').textContent =
-            `Channel ${channel + 1}: ${e.message}; see below.`;
+        status(`Channel ${channel + 1}: ${e.message}; see below.`, true);
         log(`channel ${channel + 1}: ${e.message}`);
         seeBelow();
 
@@ -1692,7 +1887,7 @@ function takeTapeNotes (m)
 async function start ()
 {
     $('start').disabled = true;
-    $('status').textContent = 'Starting...';
+    status('Starting...');
 
     try
     {
@@ -1731,7 +1926,7 @@ async function start ()
         ctx = null;
         synth = null;
 
-        $('status').textContent = `Could not start: ${e.message}`;
+        status(`Could not start: ${e.message}`, true);
         $('start').disabled = false;
         return;
     }
@@ -1742,6 +1937,7 @@ async function start ()
        asking for one needs a gesture besides. */
     $('window').disabled = true;
     $('mic').disabled = !micAvailable();
+    showLiveIn();
 
     if (!micAvailable())
         $('micstatus').textContent = 'needs https, or localhost';
@@ -1799,7 +1995,7 @@ async function start ()
         ctx = null;
         synth = null;
 
-        $('status').textContent = `Could not start: ${e.message}`;
+        status(`Could not start: ${e.message}`, true);
         log(e.message);
         seeBelow();
         $('start').disabled = false;
@@ -1915,7 +2111,7 @@ async function start ()
     {
         nodes = await createNodeView({
             files: nodeFiles,
-            onStatus: (text) => { $('status').textContent = text; },
+            onStatus: (text) => status(text, true),
             sampleRate: ctx.sampleRate,
             probe: (channel, node, arg) => synth.probe(channel, node, arg),
             unprobe: (slot) => synth.unprobe(slot),
@@ -2032,8 +2228,7 @@ const nodeFiles = {
            play it -- and the piece picks it up at the next load. */
         dspTexts[name] = next;
         synth?.instrument(name, next);
-        $('status').textContent =
-            `${name} changed. Load the piece again to hear it.`;
+        status(`${name} changed. Load the piece again to hear it.`, true);
         nodeFileChanged(name);
     },
 
@@ -2274,7 +2469,8 @@ window.solo = {
        harness about the tempo has to read: a control that moved a number
        in a box and nothing else would pass every check that asks the
        box. */
-    notes: () => tapeNotes.map((e) => ({ at: e.at, note: e.note })),
+    notes: () => tapeNotes.map((e) => ({ at: e.at, note: e.note,
+                                        channel: e.channel })),
 
     /* What is held down, and by how many hands and MIDI keys: the route
        and velocity each note went out with. */
@@ -2373,26 +2569,58 @@ window.solo = {
     }),
 };
 
-async function pickMode ()
+/* Where the keys go, kept for each mode that composes. The sequence's
+   are on its Rhodes and a piece's on channel 1, where most pieces listen:
+   one selector for both sent a piece's keys to the sequence's channel 5,
+   which Ebb has nothing on. Whatever somebody picks in a mode is what
+   that mode comes back to. */
+const keyChans = { seq: SEQ_KEYS, piece: 0 };
+let keysMode = null;
+
+function keysFor (which)
 {
-    const which = mode();
+    if (keysMode in keyChans)
+        keyChans[keysMode] = keyChannel();
 
-    /* The chrome each mode has: what to play, and the transport. What
-       the piece section used to wrap are panes of their own now, and a
-       pane the mode does not have is unavailable rather than hidden --
-       it leaves the layout without being forgotten by it, so coming back
-       to a mode puts its panes where they were. */
-    $('patchmode').hidden = which !== 'patch';
-    $('piecemode').hidden = which !== 'piece';
-    $('transport').hidden = which === 'patch';
-    showAbout();
+    if (which in keyChans)
+        $('keychan').value = String(keyChans[which]);
 
+    keysMode = which;
+}
+
+/* The panes a mode has, and its layout. A pane the mode does not have is
+   unavailable rather than hidden: it leaves the layout without being
+   forgotten by it, so coming back to a mode puts its panes where they
+   were. */
+function panesFor (which)
+{
     const mine = new Set(modePanes[which] ?? []);
 
     for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
         panes.available(id, mine.has(id));
 
     panes.mode(which);
+}
+
+async function pickMode ()
+{
+    const which = mode();
+
+    /* For style.css, which has rules for one mode on a phone. */
+    document.body.dataset.mode = which;
+
+    keysFor(which);
+
+    /* The chrome each mode has: what to play, and the transport. What
+       the piece section used to wrap are panes of their own now, and
+       panesFor's. */
+    $('patchmode').hidden = which !== 'patch';
+    $('piecemode').hidden = which !== 'piece';
+    $('transport').hidden = which === 'patch';
+    showAbout();
+
+    panesFor(which);
+    showLiveIn();
 
     if (synth === null)
         return;
@@ -2612,7 +2840,11 @@ async function init ()
     dspNames = dsps;
     genNames = gens;
     patchNames = patchList;
-    fill($('patch'), playableDsps(), 'ts1.dsp');
+    /* Patch mode opens on the ladder: one of the newer graphs, a sound
+       that holds for as long as the key does, and cheap to start a note
+       on. Not the grand, whose note-on costs about half a 128-frame
+       quantum on a desktop, which is a whole one on a phone. */
+    fill($('patch'), playableDsps(), 'ladder.dsp');
     fill($('piece'), gens, 'ebb.gen');
 
     [$('dsp').value, $('gen').value] = await Promise.all([
@@ -2704,6 +2936,23 @@ async function init ()
     if (matchMedia('(min-width: 60em)').matches)
         $('patchsource').open = $('piecesource').open = true;
 
+    /* And the parameters the other way round. On a phone they are a
+       screen and more of sliders between the chrome and the keys, so the
+       keys were a scroll away in every mode; folded, the summary says
+       they are there. The piece's picture too, whose stages are too small
+       to read at a phone's width. The same two shapes style.css calls
+       small: narrow, and a phone held sideways. */
+    if (matchMedia('(max-width: 40em), (max-height: 30em)').matches)
+        $('paramview').open = $('composerview').open = false;
+
+    /* The phone's fold over the speed and the clock (style.css). */
+    $('more').addEventListener('click', () =>
+    {
+        const open = $('transport').classList.toggle('more');
+
+        $('more').setAttribute('aria-expanded', String(open));
+    });
+
     /* And the layout, over what is in the document now.
      *
      * onShow is the whole of what tiling asks of this page: a pane in a
@@ -2718,25 +2967,12 @@ async function init ()
     moveLayouts('panes:solo', 'thinksynth:panes:solo',
                 ['patch', 'piece', 'seq']);
 
-    panes = createPanes({
-        root: $('panes'), catalog: PANES, store: 'thinksynth:panes:solo',
-        layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
-                   seq: SEQ_LAYOUT },
-        mode: mode(), on: true,
-        onShow: (id, on) =>
-        {
-            if (id === 'composerview')
-                showComposer(on && mode() === 'piece');
-            else if (id === 'seqview')
-                showSeq(on && composing());
-            else if (id === 'roll')
-                showRoll(on && composing());
-            else if (id === 'nodeview')
-                nodes?.show(on);
-            else if (id === 'paramview' && on)
-                pollParams();
-        },
-    });
+    /* A phone or not is decided at load; which way up it is, whenever it
+       turns (below). */
+    const forced = new URLSearchParams(location.search).get('phone') === '1';
+    const phone = forced || matchMedia(PHONE).matches;
+
+    tile(phone, forced);
 
     /* And the mode the select is showing, applied to what has just been
        built. The markup cannot be the answer: it is one arrangement and
@@ -2757,8 +2993,22 @@ async function init ()
        beside the box on a canvas that asked for it, in page coordinates,
        and a pane is a box that scrolls -- so a popover left inside one
        would be clipped by it the moment it reached the edge. */
-    panes.overlay().append($('composerparams'), $('nodemenu'));
+    popovers = [$('composerparams'), $('nodemenu')];
+    panes.overlay().append(...popovers);
+
+    /* A phone turned over gets the other shape's layout for the mode it
+       is in: the tiler is taken down, which puts every pane back where the
+       document had it, and made again from the other set. Nothing is
+       loaded again; the panes are the same elements. */
+    if (phone)
+        matchMedia(SIDEWAYS).addEventListener('change', (e) =>
+            panes.setLayouts(
+                e.matches ? SIDEWAYS_LAYOUTS : PHONE_LAYOUTS,
+                { store: e.matches ? 'thinksynth:panes:touch-sideways'
+                                   : 'thinksynth:panes:touch' }));
 }
+
+offerInstall($('install'));
 
 /* After init, whose fetches are done by then -- see offline.js. */
 init().finally(() =>

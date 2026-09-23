@@ -187,18 +187,24 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             describeChannel(track.channel) || track.name;
     };
 
+    /* A finger taps and has no other button to erase with. */
+    const touch = matchMedia('(pointer: coarse)').matches;
+    const tap = touch ? 'Tap' : 'Click';
+
     const say = () =>
     {
         hint.textContent = tracks.length === 0
             ? 'This piece has no grid tracks. Open a piece with ' +
               'gen::grid stages in it -- Scratch is five of them -- and ' +
               'they appear here.'
-            : 'Click a cell for a note, again to accent it, again to ' +
+            : `${tap} a cell for a note, again to accent it, again to ` +
               'clear it. Drag from a note to the right to hold it over ' +
               'the steps you cover, and back to shorten it. Drag across ' +
-              'empty cells to draw a run of notes, and use the other ' +
-              'button to erase. What you click goes out as a command and ' +
-              'arrives at its time, here as on every peer.';
+              'empty cells to draw a run of notes' +
+              (touch ? '. '
+                     : ', and use the other button to erase. ') +
+              'What you draw goes out as a command and arrives at its ' +
+              'time, here as on every peer.';
     };
 
     /* ---- the pointer ---- */
