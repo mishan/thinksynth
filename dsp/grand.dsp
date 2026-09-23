@@ -1,4 +1,4 @@
-# Grand -- a piano's unison strings, struck through its soundboard.
+# Grand -- felt hammers on a piano's unison strings.
 #
 # `filt::pianostring' is the strings: waveguides whose partials sit at
 # n f0 sqrt(1 + b n^2) rather than on the harmonic series, and whose
@@ -53,28 +53,35 @@
 # `Unison Tilt' is how much, and it is what keeps a note ringing even
 # with `Unison' at 0.
 #
-# THE SOUNDBOARD IS THE EXCITATION. Hammer, strings and board are in
-# series, and as far as the strings are linear the order does not
-# matter, so the board's impulse response can be what the strings are
-# struck with rather than a filter after them (Smith and Van Duyne,
-# "Commuted piano synthesis", 1995). `piano_board.wav' is that response
-# -- a plate's worth of decaying modes, written by scripts/makeboard.py
-# -- and `osc::sample' plays it, unpitched, at the top of every note. The
-# body of the instrument costs one sample read a voice. It is also where
-# the knock at the front of a note comes from: the excitation passes
-# through the strings once before they have rung at all.
+# THE HAMMER is a real one: `filt::pianostring' strikes its strings with
+# a mass on a felt spring, F = K d^2.3 for a compression d, and the blow's
+# shape and length come out of the felt, the hammer and the string pushing
+# on each other rather than out of a filter. A harder blow squeezes stiffer
+# felt, so it is shorter and brighter; the waves it launches come back and
+# throw the hammer off; it strikes an eighth of the way along, which
+# leaves out every 8th partial. From middle C, fitted to a recorded grand
+# (University of Iowa's, pianissimo to fortissimo, B0 to C6):
 #
-# THE HAMMER is a low-pass on it, and where its corner sits is most of
-# what the instrument sounds like. It is fitted to a recorded grand
-# (University of Iowa's, mezzo-forte), by the energy in five bands over
-# the first 400 ms of B0, A1, C2, A2, C4 and C6: four poles, a corner
-# that falls an octave every sixty keys up from 800 Hz at middle C and
-# another every eight below A1, where the hammers are big and soft --
-# and never below the note itself, where a treble note would only be
-# made quieter. `Brightness' is the corner at middle C at mezzo-forte; it
-# rises two octaves from pianissimo to fortissimo, since felt stiffens
-# the harder it is squeezed. The level is velocity squared, since a
-# hammer's force grows faster than the key's speed.
+# - the hammer weighs 1.7 strings, doubling every thirteen keys up, where
+#   the strings are short and light, and halving every eight down to a
+#   seventh of one: bass strings are heavy wound ones and a light hammer
+#   leaves them quickly, which is why the bass is bright;
+#
+# - the felt's K is `Hardness' million at middle C, doubling every five
+#   keys up, where the hammers are small and very hard: a treble hammer
+#   softer than that stays on its short string longer than one period,
+#   cancels its own fundamental, and a soft treble note all but vanishes
+#   -- C6 at pianissimo came out 31 dB under mezzo-forte, against the
+#   recording's 15;
+#
+# - the hammer's speed is 2^(5 (velocity - 1)): a real one spans about ten
+#   to one from pianissimo to fortissimo, and at that the recorded middle
+#   C's 26 dB between the two, and its partials' climb from a fundamental
+#   alone to half an octave brighter, both come out of the felt.
+#
+# THE SOUNDBOARD is heard twice: as a gentle knee at 2.5 kHz on the
+# strings, the smooth part of its response at the bridge, and as the
+# knock below, its modes rung by the blow.
 #
 # THE DAMPERS are the string's own: `gate' is `ionode->trigger', which
 # the engine holds at 2 while the sustain pedal keeps a released key up,
@@ -90,7 +97,7 @@
 
 name "Grand";
 author "Misha Nasledov";
-description "Unison stiff strings struck through a soundboard: a physically modeled grand.";
+description "Felt hammers on unison stiff strings: a physically modeled grand.";
 category "Keys";
 
     @stretch = 1;
@@ -113,11 +120,11 @@ category "Keys";
     @tone.max = 20;
     @tone.label = "Tone (s)";
 
-    @bright = 800;
-    @bright.widget = 1;
-    @bright.min = 200;
-    @bright.max = 3000;
-    @bright.label = "Brightness (Hz)";
+    @hardness = 600;
+    @hardness.widget = 1;
+    @hardness.min = 100;
+    @hardness.max = 3000;
+    @hardness.label = "Hardness";
 
     @unison = 2.5;
     @unison.widget = 1;
@@ -174,52 +181,7 @@ node freq misc::midi2freq {
     note = ionode->note;
 };
 
-# The board, unpitched: `root' and `freq' the same.
-node board osc::sample {
-    file = "piano_board.wav";
-    root = 1;
-    freq = 1;
-    trigger = ionode->trigger;
-};
-
-# The corner, never below the note itself: see THE HAMMER above.
-node corner math::max {
-    in0 = freq->out;
-    in1 = @bright * exp2(((ionode->velocity - 0.63) * 2) +
-                         (60 - ionode->note) / 60 -
-                         clamp((33 - ionode->note) / 8, 0, 3));
-};
-
-# The low-pass is two pairs of poles at a Q of a half, so it takes the
-# fundamental down by (1 + (f0 / corner)^2)^2; that much back keeps a dark
-# note as loud as a bright one, and the corner decides the timbre and not
-# the level. Below middle C they rise again, 7 dB by A1, against what
-# the board cannot radiate there. Above
-# C5 the notes then ease off, 12 dB by C6, as the recording's do: a treble
-# note is nearly all fundamental, and at the bass's level it rings out
-# over everything.
-node felt filt::svf {
-    in = board->out * ionode->velocity * ionode->velocity * 0.9 *
-         (1 + (freq->out / corner->out) * (freq->out / corner->out)) *
-         (1 + (freq->out / corner->out) * (freq->out / corner->out)) *
-         exp2(clamp((60 - ionode->note) / 16, 0, 1.3) -
-              clamp((ionode->note - 72) / 6, 0, 2.2));
-    cutoff = corner->out;
-    res = 0;
-};
-
-# Two of them: four poles, 24 dB an octave. At twelve a bass note keeps
-# its upper partials 15 to 30 dB louder than a recorded one's, and hears
-# them die away over the first second -- a filter sweeping shut, the
-# `bowww' of a physical model's bass.
-node felt2 filt::svf {
-    in = felt->out_low;
-    cutoff = corner->out;
-    res = 0;
-};
-
 node string filt::pianostring {
-    in = felt2->out_low;
     freq = freq->out;
     b = 0.000275 * @stretch * exp2((ionode->note - 60) / 9.5) +
         0.000085 * @stretch * exp2((33 - ionode->note) / 15);
@@ -232,35 +194,93 @@ node string filt::pianostring {
     unison = @unison;
     prompt = @prompt * exp2((60 - ionode->note) / 24);
     imbalance = @tilt;
+    strike = ionode->trigger;
+    velocity = exp2(5 * (ionode->velocity - 1));
+    mass = max(0.15, 1.7 * exp2(min(ionode->note - 60, 0) / 8 +
+                                max(ionode->note - 60, 0) / 13));
+    felt = @hardness * exp2(max(ionode->note - 60, 0) / 5);
+    exponent = 2.3;
+    position = 0.125;
 };
 
-# THE KNOCK: the board struck by the hammer, heard directly and not through
-# the strings. A recorded grand's first 60 ms has about a fiftieth of its
-# energy between the partials -- 17 dB under the tone in the middle, 13 at
-# C6 -- and a note without it is clean the way an electric piano is. The
-# strings cannot supply it: in the treble the hammer's corner is at the
-# note, so all that reaches them is the note. It is loudest at the ends,
-# the bass's thump and the treble's knock where the tone is thin, and
-# least around G3, where the tone covers it: doubling every ten keys
-# down from G3 and every hundred up, which lands within 3 dB of the
-# recording at A1, A2, C4 and C6. It is darker down the keyboard, 800 Hz
-# at middle C and an octave lower every twelve keys down to 500 Hz, with
-# the board's lowest modes taken off it: a bass knock is a thump and not
-# a boom.
-# `Knock' scales it.
-node knockhp filt::svf {
-    in = board->out;
-    cutoff = 150;
+# The board's knee, and the registers' balance against the recording:
+# up to 3 dB more from middle C down, and 7 dB less by C6.
+node voice filt::svf {
+    in = string->out * 2 * exp2(clamp((60 - ionode->note) / 32, 0, 0.5) -
+                                clamp((ionode->note - 72) / 10, 0, 2.2));
+    cutoff = 2500;
     res = 0;
 };
 
-node knock filt::svf {
-    in = knockhp->out_high * ionode->velocity * ionode->velocity * @knock *
-         0.6 *
-         exp2(clamp((55 - ionode->note) / 10, 0, 5) +
-              clamp((ionode->note - 55) / 100, 0, 5));
-    cutoff = clamp(800 * exp2((ionode->note - 60) / 12), 500, 3000);
-    res = 0;
+# THE KNOCK: the soundboard's own modes, rung by the blow. A recorded
+# grand's first 60 ms has about a fiftieth of its energy between the
+# partials -- 17 dB under the tone in the middle, 13 at C6 -- and a note
+# without it is clean the way an electric piano is. It is not the hammer
+# heard: felt makes no click, and the blow reaches the board through the
+# string and the bridge. So what drives these is the hammer's force on
+# the string, a pulse a few milliseconds long with almost nothing above a
+# few kilohertz, and what rings is the board -- eight modes from 110 Hz to
+# 1.15 kHz at a Q of about thirty, a thump and not a click. Heard straight
+# from a recording of a board, the same knock had twenty times the
+# recording's energy above 2 kHz in its first 10 ms.
+#
+# It is loudest in the bass, doubling every ten keys down from G3, and
+# falls away above it, halving every sixteen keys, where the strings' own
+# tone is thin and a little knock is a lot; that lands within 2 dB of the
+# recording at A1, A2, C4 and C6. `Knock' scales it.
+# The blow, scaled for the register.
+node blow mixer::mul {
+    in0 = string->force;
+    in1 = 1.2 * @knock * exp2(clamp((55 - ionode->note) / 10, 0, 5) -
+                              clamp((ionode->note - 55) / 16, 0, 5));
+};
+
+node mode0 filt::svf {
+    in = blow->out;
+    cutoff = 110;
+    res = 0.985;
+};
+
+node mode1 filt::svf {
+    in = blow->out;
+    cutoff = 170;
+    res = 0.985;
+};
+
+node mode2 filt::svf {
+    in = blow->out;
+    cutoff = 240;
+    res = 0.985;
+};
+
+node mode3 filt::svf {
+    in = blow->out;
+    cutoff = 330;
+    res = 0.985;
+};
+
+node mode4 filt::svf {
+    in = blow->out;
+    cutoff = 450;
+    res = 0.985;
+};
+
+node mode5 filt::svf {
+    in = blow->out;
+    cutoff = 620;
+    res = 0.985;
+};
+
+node mode6 filt::svf {
+    in = blow->out;
+    cutoff = 850;
+    res = 0.985;
+};
+
+node mode7 filt::svf {
+    in = blow->out;
+    cutoff = 1150;
+    res = 0.985;
 };
 
 # THE BOARD CANNOT RADIATE THE BASS. A soundboard is small against the
@@ -270,7 +290,9 @@ node knock filt::svf {
 # A2's 13. Without this every bass note is a round boom under its
 # partials.
 node radiate filt::svf {
-    in = string->out + knock->out_low;
+    in = voice->out_low +
+         (mode0->out_band + mode1->out_band + mode2->out_band + mode3->out_band +
+          mode4->out_band + mode5->out_band + mode6->out_band + mode7->out_band);
     cutoff = 180;
     res = 0;
 };

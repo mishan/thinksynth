@@ -432,10 +432,9 @@ endforeach()
 # through tw_sample rather than tw_instrument, and everything that treats
 # the list as playable patches skips them along with the `fx/' entries.
 #
-# The wavs in dsp/samples/ are committed. The `kit' and `board' targets
-# rewrite them (scripts/makekit.sh renders the tree's own drum graphs,
-# scripts/makeboard.py the piano's soundboard) only when asked, so the
-# glob sees whatever the tree holds.
+# The wavs in dsp/samples/ are committed. The `kit' target rewrites them
+# (scripts/makekit.sh renders the tree's own drum graphs) only when asked,
+# so the glob sees whatever the tree holds.
 file(GLOB SHIPPED_SAMPLES "${THINK_TOP}/dsp/samples/*.wav")
 list(SORT SHIPPED_SAMPLES)
 
