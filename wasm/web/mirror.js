@@ -600,9 +600,11 @@ function receive (m)
             for (let p = 0;
                  p < M._tw_stage_param_count(m.chain, m.stage); p++)
                 params.push({
-                    name: string('tw_stage_param_name', m.chain, m.stage, p),
+                    name: M.UTF8ToString(
+                        M._tw_stage_param_name(m.chain, m.stage, p)),
                     value: M._tw_stage_param_value(m.chain, m.stage, p),
-                    text: string('tw_stage_param_text', m.chain, m.stage, p),
+                    text: M.UTF8ToString(
+                        M._tw_stage_param_text(m.chain, m.stage, p)),
                 });
 
             post({ type: 'stageparams', chain: m.chain, stage: m.stage,

@@ -3096,7 +3096,63 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
  * set a stage's params now, because what a typed value becomes -- the unit,
  * the knob binding, the note names, the preset's spelling -- is one function
  * both shells call rather than a rule welded to a Gtk::SpinButton.
+ *
+ * Four of them stay, for a reader that is not a popover: the sequencer's
+ * grid finds `rows' by its index in the plugin's own order, because the
+ * index is what a `stageparam' command carries, and wants the value the
+ * stage is playing rather than the text the file holds.
  */
+
+static const thcPlugin::ParamInfo *paramAt (int chain, int stage, int p)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->paramInfo(p) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_stage_param_count (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->paramCount() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_name (int chain, int stage,
+                                                      int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->name.c_str() : "";
+}
+
+/* The value as the stage is playing it now -- read through the knob when
+   one is bound, which is what the plugin itself sees. */
+EMSCRIPTEN_KEEPALIVE double tw_stage_param_value (int chain, int stage, int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return 0.0;
+
+    return s->params.get(p);
+}
+
+/* And as text, for the types that are text: a note set is "C3 E3 G3" and
+   an axiom is an axiom. Empty for the numeric ones. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_text (int chain, int stage,
+                                                      int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return "";
+
+    const char *text = s->params.getString(p);
+
+    return text != NULL ? text : "";
+}
 
 /* Whether a stage's picture is a control -- its module exports
    composer_input. The canvas asks before it enlarges one. */
