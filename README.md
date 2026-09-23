@@ -193,7 +193,12 @@ static file server are the whole of what it takes to hear it.
 each browser rendering it locally.
 
 Try it at <https://mishan.github.io/thinksynth/> — master's build, which CI
-publishes once the wasm gates pass on it.
+publishes once the wasm gates pass on it. The solo page installs as an app
+(the browser's Install item, or Add to Home Screen) and keeps itself for
+offline use: once loaded over https it plays with no network, every shipped
+patch and piece included. A new build takes over on the first load after
+it has downloaded, when no other window of the site is open. The room
+page loads from the same copy, so its code always matches the synth's.
 
 Emscripten builds it, at a pinned version — the comparison against the
 native build is only as repeatable as the compiler on the wasm side:
@@ -322,7 +327,8 @@ audible, and a piece that is silent under the page's defaults fails the
 build.
 `wasm/web/browsertest.mjs` runs both of those through the worklet in
 Chromium and Firefox, `wasm/web/pagetest.mjs` drives the solo page's own
-keys and knobs in Chromium, and `wasm/web/bench.mjs` reports what one
+keys and knobs in Chromium, `wasm/web/pwatest.mjs` installs it, plays it
+offline and updates it, and `wasm/web/bench.mjs` reports what one
 128-frame quantum costs with a piece running and a chord held down. For
 the room:
 `wasm/web/protocoltest.mjs` runs two peers in one process at different

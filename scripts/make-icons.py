@@ -25,8 +25,9 @@ file into the containers they want:
 
     src/thinksynth.ico    embedded in the executable by src/thinksynth.rc.in
     src/thinksynth.icns   copied into thinksynth.app/Contents/Resources
+    wasm/web/icons/       the browser build's install icons, 192px and 512px
 
-One source, three platforms.
+One source, four platforms.
 
     python3 scripts/make-icons.py
 
@@ -77,6 +78,7 @@ SVG = os.path.join("data", "org.thinksynth.thinksynth.svg")
 ICO = os.path.join("src", "thinksynth.ico")
 ICNS = os.path.join("src", "thinksynth.icns")
 STAMP = os.path.join("src", "thinksynth-icon.stamp")
+WEB = os.path.join("wasm", "web", "icons")
 
 # What Windows picks between: 16 and 32 in lists and the taskbar, 48 in
 # Explorer, 256 for the large-icon view.  The sizes in between cost a few
@@ -92,6 +94,11 @@ ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 # slot on a non-Retina display macOS reduces the 32px ic11 itself, which is the
 # same reduction this script would have done.
 ICNS_SIZES = [32, 64, 128, 256, 512, 1024]
+
+# The two a web app manifest has to offer for Chrome to install the page.
+# The manifest also names the SVG itself, which a browser that can scale
+# one prefers; these are for the ones that cannot.
+WEB_SIZES = [192, 512]
 
 # Big enough that every size above is an integer-friendly reduction of it, and
 # big enough that the reduction is doing the antialiasing rather than librsvg.
@@ -217,6 +224,11 @@ def write_icns(big):
     f[-1].save(ICNS, format="ICNS", append_images=f[:-1])
 
 
+def write_web(big):
+    for s, img in zip(WEB_SIZES, frames(big, WEB_SIZES)):
+        img.save(os.path.join(WEB, "icon-%d.png" % s), format="PNG")
+
+
 def main():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir)
     os.chdir(os.path.normpath(root))
@@ -230,6 +242,7 @@ def main():
 
     write_ico(big)
     write_icns(big)
+    write_web(big)
 
     digest = svg_digest(SVG)
 
@@ -238,19 +251,23 @@ def main():
                 "#\n"
                 "#     %s\n"
                 "#     %s\n"
+                "#     %s/icon-{%s}.png\n"
                 "#\n"
                 "# If ctest reports this as stale, they have not been\n"
                 "# regenerated since the SVG changed:\n"
                 "#\n"
                 "#     python3 scripts/make-icons.py\n"
                 "#\n"
-                "# and commit all three files together.\n"
-                "%s\n" % (SVG, ICO, ICNS, digest))
+                "# and commit them together.\n"
+                "%s\n" % (SVG, ICO, ICNS, WEB,
+                           ",".join(str(s) for s in WEB_SIZES), digest))
 
     print("wrote %s (%s)"
           % (ICO, ", ".join("%dx%d" % (s, s) for s in ICO_SIZES)))
     print("wrote %s (%s)"
           % (ICNS, ", ".join("%dx%d" % (s, s) for s in ICNS_SIZES)))
+    print("wrote %s/icon-{%s}.png"
+          % (WEB, ",".join(str(s) for s in WEB_SIZES)))
     print("wrote %s (%s)" % (STAMP, digest))
 
 

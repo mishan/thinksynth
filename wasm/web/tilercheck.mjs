@@ -662,6 +662,53 @@ try
     check(told.saved.length > 0 &&
           told.saved.every((k) => k.startsWith('panes:')),
           `and what it saves goes where it was told: ${told.saved.join(' ')}`);
+
+    /* A store renamed: the layout under the old name is the one that
+     * opens, and it moves to the new name rather than being left behind.
+     */
+    const renamed = await page.evaluate(async () =>
+    {
+        const { createPanes } = await import('./panes.js');
+        const root = document.createElement('div');
+        const kept = new Map([['old:only', JSON.stringify(
+            { dir: 'col', size: [0.5, 0.5],
+              kids: [{ tabs: ['was-a'] }, { tabs: ['was-b'] }] })]]);
+
+        const box = (id) =>
+        {
+            const el = document.createElement('section');
+
+            el.id = id;
+            el.dataset.pane = '';
+            el.dataset.paneTitle = id;
+
+            return el;
+        };
+
+        document.body.append(root, box('was-a'), box('was-b'));
+
+        createPanes({
+            root,
+            catalog: ['was-a', 'was-b'],
+            mode: 'only',
+            layouts: { only: { tabs: ['was-a', 'was-b'] } },
+            on: true,
+            store: 'new',
+            was: 'old',
+            storage: { getItem: (k) => kept.get(k) ?? null,
+                       setItem: (k, v) => kept.set(k, v),
+                       removeItem: (k) => kept.delete(k) },
+        });
+
+        return { split: root.querySelector('.panesplit') !== null,
+                 keys: [...kept.keys()] };
+    });
+
+    check(renamed.split,
+          'a layout saved under a store\'s old name is the one that opens');
+
+    check(renamed.keys.length === 1 && renamed.keys[0] === 'new:only',
+          `and it moves to the new name: ${renamed.keys.join(' ')}`);
 }
 catch (e)
 {

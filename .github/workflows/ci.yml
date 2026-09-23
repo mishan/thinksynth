@@ -414,6 +414,7 @@ jobs:
             build-web/dsp
             build-web/gen
             build-web/patches
+            build-web/icons
             build-web/cairo2d/cairo2dtest.js
             build-web/cairo2d/cairo2dtest.wasm
 
@@ -732,6 +733,15 @@ jobs:
       - name: Who has the keyboard
         working-directory: wasm/web
         run: node keycheck.mjs
+
+      # The page as an installed app. Everything above serves http, where
+      # the page does not register its service worker, so this is the one
+      # run with it: Chromium's installability check, the page loaded and
+      # the synth started with the network gone, and a new sw.js installed,
+      # waiting, and activated on the next load.
+      - name: Installed, offline, and updated
+        working-directory: wasm/web
+        run: node pwatest.mjs ../../build-web
 
   # Two peers agreeing on one piece: the mirror, the protocol, the relay,
   # and two real browsers in one room.

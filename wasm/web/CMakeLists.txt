@@ -19,7 +19,9 @@
 # main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp, .gen and
 # .patch files the page offers, each directory with an index.json listing
 # it, and jam.html with its bundled jam.js -- the room page, which is the
-# one thing here with dependencies (`npm ci' in this directory, once).
+# one thing here with dependencies (`npm ci' in this directory, once). And
+# manifest.json and sw.js, which make the solo page an installable app
+# that plays offline, and keep both pages on one build.
 #
 # The build directory can be served as it is, and `serve.mjs' does. For
 # putting it somewhere else there is
@@ -349,7 +351,7 @@ set(SITE_SOURCES index.html jam.html style.css panes.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js mirror.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js panes.js popover.js
-                tapediff.js)
+                tapediff.js offline.js manifest.json)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -533,7 +535,7 @@ else()
                   host.js keyboard.js panel.js patch.js mic.js
                   ../tape.mjs
                   canvasview.js composerview.js nodeview.js rollview.js
-                  panes.js popover.js tapediff.js bundle.mjs
+                  panes.js popover.js tapediff.js offline.js bundle.mjs
                   package-lock.json)
   set(JAM_DEPENDS "")
 
@@ -560,6 +562,62 @@ endif()
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/config.json")
   file(WRITE "${PROJECT_BINARY_DIR}/config.json" "{ \"relay\": null }\n")
 endif()
+
+# The install icons: the application's SVG, and the PNGs scripts/make-icons.py
+# renders from it for the browsers that want a bitmap. manifest.json names
+# all three.
+set(SITE_ICONS "${THINK_TOP}/data/org.thinksynth.thinksynth.svg=icon.svg"
+               "${CMAKE_CURRENT_SOURCE_DIR}/icons/icon-192.png=icon-192.png"
+               "${CMAKE_CURRENT_SOURCE_DIR}/icons/icon-512.png=icon-512.png")
+set(DIST_ICON_FILES "")
+
+foreach(pair IN LISTS SITE_ICONS)
+  string(REPLACE "=" ";" pair "${pair}")
+  list(GET pair 0 from)
+  list(GET pair 1 name)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/icons/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${from}" "${PROJECT_BINARY_DIR}/icons/${name}"
+      DEPENDS "${from}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/icons/${name}")
+  list(APPEND DIST_ICON_FILES "${PROJECT_BINARY_DIR}/icons/${name}")
+endforeach()
+
+# The service worker, which keeps the site for offline use
+# (serviceworker.js). What it keeps is every file here either page can
+# load: everything above, the room page's two included, plus the module
+# and the indexes, which are not custom command outputs. precache.mjs
+# hashes them into sw.js, so a build that changes one is a new version to
+# a browser.
+set(PRECACHE_FILES ${SITE_OUTPUTS})
+list(APPEND PRECACHE_FILES
+    "${PROJECT_BINARY_DIR}/thinkweb.js"
+    "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+    "${PROJECT_BINARY_DIR}/dsp/index.json"
+    "${PROJECT_BINARY_DIR}/gen/index.json"
+    "${PROJECT_BINARY_DIR}/patches/index.json")
+list(JOIN PRECACHE_FILES "\n" precache_list)
+
+# What sw.js is rebuilt on is the same list less the .wasm, which the link
+# writes beside thinkweb.js without Ninja knowing it has a rule: named
+# here, a fresh tree stops with "no known rule to make it". thinkweb.js is
+# written by the same link, so depending on it covers both.
+set(PRECACHE_DEPENDS ${PRECACHE_FILES})
+list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm")
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
+     CONTENT "${precache_list}\n")
+
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
+            "${PROJECT_BINARY_DIR}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
+            "${PROJECT_BINARY_DIR}/precache.list"
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb
+            "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
+            "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
+            "${PROJECT_BINARY_DIR}/precache.list"
+    COMMENT "Writing the service worker")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/sw.js")
 
 add_custom_target(site ALL DEPENDS ${SITE_OUTPUTS})
 
@@ -594,10 +652,12 @@ list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/replay.js"
     ${JAM_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
+    "${PROJECT_BINARY_DIR}/sw.js"
     "$<TARGET_FILE:thinkweb>"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm")
 
 install(FILES ${DIST_ROOT_FILES} DESTINATION . PERMISSIONS ${SITE_FILE_MODE})
+install(FILES ${DIST_ICON_FILES} DESTINATION icons PERMISSIONS ${SITE_FILE_MODE})
 
 # The shipped patches and pieces, from the build directory's copies, with
 # their index.json: what the page's menus are filled from.

@@ -53,6 +53,7 @@ import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
+import { keepOffline } from './offline.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 import { Room } from './room.js';
@@ -1014,7 +1015,8 @@ function init ()
      * worth stopping. The editor is where a key means editing rather
      * than a command, as it is for the keys. */
     panes = createPanes({
-        root: $('panes'), catalog: PANES, store: 'panes:jam',
+        root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
+        was: 'panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor',
         onShow: (id, on) =>
@@ -1112,3 +1114,4 @@ function init ()
 }
 
 init();
+keepOffline().catch((e) => console.warn('no offline copy:', e));

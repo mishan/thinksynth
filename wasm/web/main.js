@@ -72,6 +72,7 @@ import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
+import { keepOffline } from './offline.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 
@@ -2593,9 +2594,14 @@ async function init ()
      * background tab, folded away, or belonging to the mode that is not
      * up is a pane whose work can stop, and these are the three places
      * this page has work to stop. They are the same calls the folds and
-     * the mode switch made before, asked for in one place. */
+     * the mode switch made before, asked for in one place.
+     *
+     * The store is named for the site: localStorage belongs to the whole
+     * origin, and on GitHub Pages that is every repository's site.
+     * `was' is its name before that, so a layout left under it is kept. */
     panes = createPanes({
-        root: $('panes'), catalog: PANES, store: 'panes:solo',
+        root: $('panes'), catalog: PANES, store: 'thinksynth:panes:solo',
+        was: 'panes:solo',
         layouts: { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
         mode: mode(), on: true,
@@ -2636,4 +2642,6 @@ async function init ()
     panes.overlay().append($('composerparams'), $('nodemenu'));
 }
 
-init();
+/* After init, whose fetches are done by then -- see offline.js. */
+init().finally(() =>
+    keepOffline().catch((e) => console.warn('no offline copy:', e)));
