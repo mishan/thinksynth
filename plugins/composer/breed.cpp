@@ -400,12 +400,9 @@ fitness (State *st, const Genome &g,
 
     double score = 0;
 
-    /* listen: nearer the target sound is better. `heard' is dB, or
-       negative for a genome the host could not judge, which scores as
-       far as anything can be: a patch that will not render is not a
-       timbre. */
+    /* listen: nearer the target sound is better. `heard' is dB. */
     if (listen > 0 && !std::isnan(heard))
-        score -= listen * (heard < 0 ? 6.0 : heard / 10.0);
+        score -= listen * heard / 10.0;
 
     /* aim: closer to the target is better, so the distance is subtracted. */
     if (aim > 0)
@@ -526,11 +523,27 @@ generation (State *st, const std::vector<double> &heard)
 
     targetOf(st, target, hasTarget);
 
+    /* A genome the host could not judge -- negative -- is farther than
+       the farthest it could: a patch that will not render, or renders
+       silence, is not a timbre, and no fixed number is sure to be worse
+       than every real distance. */
+    double worst = 0;
+
+    for (size_t i = 0; i < heard.size(); i++)
+        if (heard[i] > worst)
+            worst = heard[i];
+
     std::vector<double> fit(st->pop.size());
 
     for (size_t i = 0; i < st->pop.size(); i++)
-        fit[i] = fitness(st, st->pop[i], target, hasTarget,
-                         i < heard.size() ? heard[i] : std::nan(""));
+    {
+        double h = i < heard.size() ? heard[i] : std::nan("");
+
+        if (h < 0)
+            h = worst + 60.0;
+
+        fit[i] = fitness(st, st->pop[i], target, hasTarget, h);
+    }
 
     std::vector<size_t> order(st->pop.size());
 
