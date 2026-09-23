@@ -40,7 +40,8 @@
  *
  * A new version waits. Activating it under a page that is running would
  * hand that page's next .dsp fetch to a different build from the wasm it
- * already loaded. Either page asks for it at load instead (offline.js),
+ * already loaded. Either page asks for it once it is waiting, if the page
+ * has nothing going that a reload would lose (offline.js),
  * and it is granted only if that page is the one window of the site open,
  * since then nothing has been loaded from the old cache that the new one
  * could disagree with.
@@ -102,7 +103,13 @@ self.addEventListener('message', (e) =>
             { type: 'window', includeUncontrolled: true });
         const ours = all.filter((c) => c.url.startsWith(ROOT));
 
-        if (ours.length <= 1)
+        /* Said either way, so a page can tell somebody who pressed Update
+           why nothing happened. */
+        const granted = ours.length <= 1;
+
+        e.source?.postMessage(granted ? 'granted' : 'refused');
+
+        if (granted)
             await self.skipWaiting();
     })());
 });
