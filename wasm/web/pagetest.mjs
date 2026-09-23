@@ -490,7 +490,8 @@ try
        left the document saying something else would come back at the
        document's the moment anything reloaded -- a mode switch is
        enough. */
-    check(/tempo\s+56\s*;/.test(await page.inputValue('#gen')),
+    check(/tempo\s+56\s*;/.test(
+              await page.$eval('#gen', (e) => e.value)),
           'and the piece\'s own text says so');
 
     await page.selectOption('#mode', 'patch');
@@ -520,7 +521,8 @@ try
               () => document.getElementById('tempo').value === '300'),
           'a tempo past the top of the range is taken to the top');
 
-    check(/tempo\s+300\s*;/.test(await page.inputValue('#gen')),
+    check(/tempo\s+300\s*;/.test(
+              await page.$eval('#gen', (e) => e.value)),
           'and that is what the text says too');
 
     /* And a box somebody emptied is not an instruction. */
@@ -819,7 +821,7 @@ try
        by replacing every element in the knobs row: the mode switch loads
        what piece mode is about to play, choosing a piece loads that, and
        Load loads it again -- deliberately, since Load re-reads the .gen
-       in the textarea, which is editable.
+       in the source box, which is editable.
 
        This used to wait for "a slider that is not the one the first load
        drew", on the reasoning that there were two. There are three, and
@@ -1246,7 +1248,7 @@ try
                 (e) => e.closest('.panelrow').dataset.row);
             const was = await box2.inputValue();
             const want = String(Number(was) + 1);
-            const genWas = await page.inputValue('#gen');
+            const genWas = await page.$eval('#gen', (e) => e.value);
 
             await box2.fill(want);
             await box2.press('Enter');
@@ -1269,7 +1271,8 @@ try
             const genNow = await page.waitForFunction(
                 (was) => document.getElementById('gen').value !== was,
                 genWas, { timeout: 15000 })
-                .then(() => page.inputValue('#gen'), () => genWas);
+                .then(() => page.$eval('#gen', (e) => e.value),
+                      () => genWas);
             const wasLines = genWas.split('\n');
             const changed = genNow.split('\n')
                 .filter((l, i) => l !== wasLines[i]);
@@ -1715,7 +1718,7 @@ try
         await page.waitForFunction(() => window.solo.node().selected >= 0,
                                    null, { timeout: 15000 });
 
-        const was = await page.inputValue('#dsp');
+        const was = await page.$eval('#dsp', (e) => e.value);
         const field = await page.$('#nodeparams input');
 
         if (field === null)
@@ -1735,7 +1738,7 @@ try
                     document.getElementById('dsp').value !== before,
                 was, { timeout: 15000 }).catch(() => {});
 
-            const now = await page.inputValue('#dsp');
+            const now = await page.$eval('#dsp', (e) => e.value);
             const line = now.split('\n').find(
                 (l, i) => l !== was.split('\n')[i]);
 

@@ -18,8 +18,9 @@
 # What comes out, in the build directory, is the whole site: index.html,
 # main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp, .gen and
 # .patch files the page offers, each directory with an index.json listing
-# it, and jam.html with its bundled jam.js -- the room page, which is the
-# one thing here with dependencies (`npm ci' in this directory, once). And
+# it, and jam.html with its bundled jam.js -- the room page -- and the solo
+# page's bundled editor, sourcebox.js: the two things here with npm
+# dependencies (`npm ci' in this directory, once). And
 # manifest.json and sw.js, which make the solo page an installable app
 # that plays offline, and keep both pages on one build.
 #
@@ -537,45 +538,45 @@ file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/patches/index.json"
 
 # The room page's script is bundled: it has an editor, a CRDT and a
 # provider, which come from node_modules and go nowhere a browser could
-# fetch them from. So the room page wants `npm ci' run in this directory
-# first, once; the solo page does not -- and a tree without node_modules
-# configures and builds the solo page rather than refusing to configure at
-# all.
+# fetch them from. The solo page's code editor, sourcebox.js, is bundled
+# the same way by the same run. Both pages need it, so esbuild is as
+# required as the packages above.
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
-  message(STATUS
-    "wasm/web: no node_modules, so no room page. Run `npm ci' in "
-    "${CMAKE_CURRENT_SOURCE_DIR} and configure again to build it; the "
-    "solo page does not need it.")
-  set(JAM_DIST_FILES "")
-else()
-  # package-lock.json among the dependencies because the bundle contains
-  # what it pins: a dependency bumped without it here would rebuild
-  # nothing and serve the old editor.
-  set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
-                  host.js keyboard.js panel.js patch.js mic.js midi.js
-                  ../tape.mjs
-                  canvasview.js composerview.js nodeview.js rollview.js
-                  tapediff.js offline.js layouts.js bundle.mjs
-                  package-lock.json)
-  set(JAM_DEPENDS "")
-
-  foreach(f IN LISTS JAM_SOURCES)
-    list(APPEND JAM_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
-  endforeach()
-
-  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/jam.js"
-      COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
-              "${PROJECT_BINARY_DIR}"
-      DEPENDS ${JAM_DEPENDS}
-      COMMENT "Bundling the room page")
-  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js")
-
-  # For dist below, which must not install what was never built. The map
-  # goes too: it is fetched only when somebody opens the devtools, and a
-  # phone is where that somebody most wants it.
-  set(JAM_DIST_FILES "${PROJECT_BINARY_DIR}/jam.js"
-                     "${PROJECT_BINARY_DIR}/jam.js.map")
+  message(FATAL_ERROR
+      "The pages' editors are bundled with esbuild, from npm: run `npm ci' "
+      "in ${CMAKE_CURRENT_SOURCE_DIR} and configure again.")
 endif()
+
+# package-lock.json among the dependencies because the bundles contain
+# what it pins: a dependency bumped without it here would rebuild nothing
+# and serve the old editor.
+set(BUNDLE_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js
+                   commands.js host.js keyboard.js panel.js patch.js mic.js
+                   midi.js ../tape.mjs
+                   canvasview.js composerview.js nodeview.js rollview.js
+                   tapediff.js offline.js layouts.js sourcebox.js
+                   thinklang.js bundle.mjs package-lock.json)
+set(BUNDLE_DEPENDS "")
+
+foreach(f IN LISTS BUNDLE_SOURCES)
+  list(APPEND BUNDLE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
+endforeach()
+
+add_custom_command(
+    OUTPUT "${PROJECT_BINARY_DIR}/jam.js" "${PROJECT_BINARY_DIR}/sourcebox.js"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
+            "${PROJECT_BINARY_DIR}"
+    DEPENDS ${BUNDLE_DEPENDS}
+    COMMENT "Bundling the room page and the solo page's editor")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js"
+                         "${PROJECT_BINARY_DIR}/sourcebox.js")
+
+# For dist below. The maps go too: they are fetched only when somebody
+# opens the devtools, and a phone is where that somebody most wants them.
+set(BUNDLE_DIST_FILES "${PROJECT_BINARY_DIR}/jam.js"
+                      "${PROJECT_BINARY_DIR}/jam.js.map"
+                      "${PROJECT_BINARY_DIR}/sourcebox.js"
+                      "${PROJECT_BINARY_DIR}/sourcebox.js.map")
 
 # Where the relay is, for a site served from anywhere. serve.mjs --relay
 # answers this itself; a static host edits the file.
@@ -659,9 +660,7 @@ set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
     WORLD_READ WORLD_EXECUTE)
 
 # The pages, their scripts and the bundle, from the build directory, since
-# that is where the copies and the bundle are. The room page's two are in
-# JAM_DIST_FILES, which is empty when there was no node_modules to bundle
-# it from: dist installs what was built and nothing else.
+# that is where the copies and the bundles are.
 set(DIST_ROOT_FILES "")
 foreach(f IN LISTS SITE_SOURCES)
   get_filename_component(name "${f}" NAME)
@@ -673,7 +672,7 @@ list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/panes.js"
     "${PROJECT_BINARY_DIR}/panes.css"
     "${PROJECT_BINARY_DIR}/popover.js"
-    ${JAM_DIST_FILES}
+    ${BUNDLE_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"
     "$<TARGET_FILE:thinkweb>"

@@ -77,8 +77,47 @@ import { keepOffline, offerInstall } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
+import './sourcebox.js';
 
 const $ = (id) => document.getElementById(id);
+
+/* Line numbers in the two source boxes: one setting for both, kept across
+   visits, with a checkbox under each. */
+const LINE_NUMBERS = 'thinksynth:linenumbers';
+
+function showLineNumbers (on)
+{
+    for (const id of ['dsp', 'gen'])
+        $(id).toggleAttribute('numbered', on);
+
+    for (const box of document.querySelectorAll('.numbered input'))
+        box.checked = on;
+}
+
+/* Storage can be refused outright (all cookies blocked, a sandboxed
+   frame), and then the setting just is not kept. */
+function savedLineNumbers ()
+{
+    try
+    {
+        return localStorage.getItem(LINE_NUMBERS) === '1';
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+function saveLineNumbers (on)
+{
+    try
+    {
+        localStorage.setItem(LINE_NUMBERS, on ? '1' : '0');
+    }
+    catch
+    {
+    }
+}
 
 const VELOCITY = 100;
 
@@ -2869,7 +2908,8 @@ async function init ()
     /* Who has the keyboard, and the one line on the page that says so.
        Escape hands it back, and lets go of anything it was holding on
        the way -- a note whose key-up is about to land somewhere else. */
-    keyfocus = createKeyFocus({ indicator: $('keysstate'),
+    keyfocus = createKeyFocus({ editing: 'source-box',
+                                indicator: $('keysstate'),
                                 onRelease: releaseKeys });
     keys = new TypingKeys({ press, release, shifted, focus: keyfocus,
                             playable: () => synth !== null });
@@ -2892,6 +2932,15 @@ async function init ()
 
     $('loadpiece').addEventListener('click', loadPiece);
     $('piece').addEventListener('change', pickPiece);
+
+    showLineNumbers(savedLineNumbers());
+
+    for (const box of document.querySelectorAll('.numbered input'))
+        box.addEventListener('change', () =>
+        {
+            showLineNumbers(box.checked);
+            saveLineNumbers(box.checked);
+        });
 
     /* The key channel is one of the channels the row shows, so moving the
        keys moves which line is there. Nothing is loaded by it: where the

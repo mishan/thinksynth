@@ -1,7 +1,7 @@
 {
   "name": "thinksynth-web-tests",
   "private": true,
-  "description": "The relay's dependencies, the tests' browsers, and later the page's bundle; the solo page itself has no dependencies.",
+  "description": "The relay's dependencies, the tests' browsers, and what the pages' bundles are built from.",
   "type": "module",
   "scripts": {
     "check": "node check.mjs",

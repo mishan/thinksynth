@@ -53,6 +53,15 @@
        edited and not written. Not the red an error gets. */
     --warn:      #a05000;
     --key-c:     #eaf7fa;
+
+    /* The source boxes' syntax colors (thinklang.js). */
+    --tok-keyword: #7a3e9d;
+    --tok-string:  #2e7d32;
+    --tok-number:  #b35900;
+    --tok-plugin:  #1f5fa8;
+    --tok-knob:    #a0306a;
+    --tok-field:   #00838f;
+    --tok-invalid: #c62828;
 }
 
 /* What the tiler is drawn in. panes.css reads these names and no others,
@@ -87,6 +96,14 @@
         --held:      #6a6aff;
         --warn:      #d09040;
         --key-c:     #2b3a3d;
+
+        --tok-keyword: #c792ea;
+        --tok-string:  #9ccc65;
+        --tok-number:  #f0a060;
+        --tok-plugin:  #6cb6ff;
+        --tok-knob:    #f08dbd;
+        --tok-field:   #56c7d6;
+        --tok-invalid: #ff6b6b;
     }
 }
 
@@ -102,21 +119,40 @@ body
 
 h1 { font-size: 1.6em; margin: 0 0 0.4em; }
 
-textarea, pre
+pre, source-box .cm-editor
 {
     font: 13px/1.35 ui-monospace, monospace;
 }
 
-textarea
+source-box { display: block; }
+
+source-box .cm-editor
 {
-    width: 100%;
     height: 26em;
-    box-sizing: border-box;
     background: var(--panel);
     color: var(--fg);
     border: 1px solid var(--line);
-    padding: 0.5em;
 }
+
+source-box .cm-scroller { overflow: auto; }
+
+/* The syntax colors, for both pages' editors (thinklang.js). */
+.tok-comment      { color: var(--dim); font-style: italic; }
+.tok-keyword      { color: var(--tok-keyword); font-weight: 600; }
+.tok-string       { color: var(--tok-string); }
+.tok-number,
+.tok-atom         { color: var(--tok-number); }
+.tok-typeName     { color: var(--tok-plugin); }
+.tok-variableName2 { color: var(--tok-knob); }
+.tok-propertyName { color: var(--tok-field); }
+.tok-definition   { font-weight: 600; }
+.tok-invalid
+{
+    color: var(--tok-invalid);
+    text-decoration: underline wavy var(--tok-invalid);
+}
+
+.numbered { color: var(--dim); font-size: 0.9em; }
 
 pre
 {
@@ -414,7 +450,7 @@ details { margin: 0.8em 0; }
 
     /* 16px or iOS zooms the page in when the box takes focus, and then
        the page is the wrong size and stays that way. */
-    textarea, input { font-size: 16px; }
+    input, source-box .cm-editor { font-size: 16px; }
 
     #keys { height: 160px; }
 
@@ -443,7 +479,7 @@ details { margin: 0.8em 0; }
 
     h1 { font-size: 1.3em; }
 
-    textarea { height: 14em; }
+    source-box .cm-editor { height: 14em; }
 
     #roll { height: 120px; }
 
@@ -809,12 +845,14 @@ body.tiled .panebody .canvasview
     max-height: none;
 }
 
-body.tiled .panebody textarea
+body.tiled .panebody source-box
 {
     flex: 1 1 8rem;
     height: auto;
     min-height: 4em;
 }
+
+body.tiled .panebody source-box .cm-editor { height: 100%; }
 
 body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
 
