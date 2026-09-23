@@ -542,6 +542,24 @@ State-variable filter: low, band and high
 | `out_high` | out | High pass; the three outputs sum to the input |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
 
+### filt::sympathetic
+
+Sympathetic strings (a piano's, with a pedal)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | What the bridge carries: the channel |  | -1 to 1 | full scale |  |
+| `pedal` | in | The sustain pedal: 0 up, 1 down, between is a half pedal |  | 0 to 1 |  |  |
+| `low` | in | The lowest string; read once per window | 21 | 21 to 108 | MIDI note |  |
+| `high` | in | The highest string; read once per window | 108 | 21 to 108 | MIDI note |  |
+| `undamped` | in | The lowest string with no damper; read once per window | 90 | 21 to 109 | MIDI note |  |
+| `decay` | in | A free string's T60 at middle C, doubling every seventeen keys down | 8 | 0.01 to 200 | seconds |  |
+| `damper` | in | A damped string's T60 | 0.1 | 0.01 to 200 | seconds |  |
+| `damp` | in | How much darker each trip is; 0 rings every partial as long as the fundamental |  | 0 to 0.95 |  |  |
+| `out` | out | Every string, summed |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### filt::vowel
 
 Vowel (five formants, a to u)

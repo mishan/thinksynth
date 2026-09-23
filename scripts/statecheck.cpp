@@ -6086,6 +6086,204 @@ static void checkPianoUnison (const string &pluginPath)
                  "sample a window and at five hundred");
 }
 
+/* ---- filt::sympathetic -------------------------------------------------- */
+
+/* What the node claims:
+ *
+ *   - a free string passes a sine at its own pitch at unity, whatever its
+ *     decay, and a damped one next to nothing;
+ *   - `pedal' is what frees them, and the keys from `undamped' up are free
+ *     without it;
+ *   - a free string rings at its key's pitch and falls in `decay' at middle
+ *     C, shorter above;
+ *   - and a window boundary is not an event.
+ */
+
+static vector<NodeSpec> sympatheticGraph (const NodeSpec &src, float low,
+                                          float high, float pedal,
+                                          float undamped, float decay,
+                                          float damp)
+{
+    vector<NodeSpec> spec;
+    NodeSpec bank;
+
+    bank.name = "bank";
+    bank.spelling = "filt/sympathetic";
+
+    Value l = { "low", low };
+    Value h = { "high", high };
+    Value p = { "pedal", pedal };
+    Value u = { "undamped", undamped };
+    Value d = { "decay", decay };
+    Value dp = { "damp", damp };
+    Wire  in = { "in", "src", "out" };
+
+    bank.values.push_back(l);
+    bank.values.push_back(h);
+    bank.values.push_back(p);
+    bank.values.push_back(u);
+    bank.values.push_back(d);
+    bank.values.push_back(dp);
+    bank.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(bank);
+
+    return spec;
+}
+
+static NodeSpec sineSource (float hz)
+{
+    NodeSpec osc;
+
+    osc.name = "src";
+    osc.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value w = { "waveform", 0 };
+    Value a = { "amp", 0.5f };
+
+    osc.values.push_back(f);
+    osc.values.push_back(w);
+    osc.values.push_back(a);
+
+    return osc;
+}
+
+static NodeSpec clickSource (void)
+{
+    NodeSpec src;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", 1 };
+    Value p = { "p", TH_MAX };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    return src;
+}
+
+static void checkSympathetic (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- a free string at unity, a damped one near nothing ---- */
+
+    /* One string, A4, fed a sine at 440 for two seconds -- long past a
+       two-second string's rise -- and the last tenth measured. The input
+       peaks at 0.5, so unity is 0.5 out. Four cases: pedal down, pedal up,
+       pedal up on a key above `undamped', and pedal up with nothing
+       undamped. */
+    {
+        struct Case { float key, pedal, undamped; bool free; const char *what; };
+        static const Case cases[] = {
+            { 69, 1, 109, true,  "with the pedal down a string at its own "
+                                 "pitch passes it at unity" },
+            { 69, 0, 109, false, "with the pedal up it is damped" },
+            { 96, 0, 90,  true,  "and a key above `undamped' is free with "
+                                 "the pedal up" },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            const double hz = 440 * pow(2.0, (cases[c].key - 69) / 12.0);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         sympatheticGraph(sineSource((float)hz), cases[c].key,
+                                          cases[c].key, cases[c].pedal,
+                                          cases[c].undamped, 2, 0),
+                         "bank", "out", 256, (unsigned)(rate * 2), out, why))
+            {
+                fail("filt::sympathetic renders", why);
+                return;
+            }
+
+            const double got = peak(out, out.size() - (size_t)(rate / 10));
+
+            okOrFail(cases[c].free ? fabs(got / 0.5 - 1) < 0.02 : got < 0.05,
+                     string("filt::sympathetic: ") + cases[c].what,
+                     "peak " + num(got) + " for a 0.5 input");
+        }
+    }
+
+    /* ---- at its pitch, and in `decay' ---- */
+
+    /* A click into one free string: it rings at its key's pitch to a cent
+       with `damp' in the loop, and falls 60 dB in `decay' at middle C and
+       in 2^(-12/17) of it an octave up. */
+    {
+        static const int keys[] = { 60, 72 };
+
+        for (size_t k = 0; k < 2; k++)
+        {
+            const double hz = 440 * pow(2.0, (keys[k] - 69) / 12.0);
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath,
+                         sympatheticGraph(clickSource(), keys[k], keys[k], 1,
+                                          109, 2, 0.3f),
+                         "bank", "out", 256, (unsigned)(rate * 1.2), out,
+                         why))
+            {
+                fail("filt::sympathetic renders", why);
+                return;
+            }
+
+            const double pitch = peakNear(out, (size_t)(rate / 10),
+                                          (size_t)rate, hz, 20);
+            const double fell = levelAt(out, hz, 0.8, 0.1) -
+                                levelAt(out, hz, 0.1, 0.1);
+            const double t60 = -60 * 0.7 / fell;
+            const double want = 2 * pow(2.0, (60 - keys[k]) / 17.0);
+
+            okOrFail(fabs(cents(pitch, hz)) < 1 && fabs(t60 / want - 1) < 0.1,
+                     "filt::sympathetic: key " + num(keys[k]) + " rings at "
+                     "its pitch and falls 60 dB in " + num(want) + " s",
+                     num(cents(pitch, hz)) + " cents, " + num(t60) + " s");
+        }
+    }
+
+    /* The worst corner: every string free for two hundred seconds and as
+       dark as `damp' goes. Compensating the low-pass at a high key's pitch
+       would lift that loop's gain at DC past one; it must stay bounded. */
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     sympatheticGraph(clickSource(), 21, 108, 1, 109, 200,
+                                      0.95f),
+                     "bank", "out", 256, (unsigned)(rate * 5), out, why))
+            fail("filt::sympathetic renders", why);
+        else
+            okOrFail(allFinite(out) && peak(out, (size_t)(rate * 4)) <
+                                       peak(out, 0) + 1,
+                     "filt::sympathetic: at `damp' 0.95 and `decay' 200 "
+                     "every string stays bounded",
+                     "peak " + num(peak(out, 0)) + ", last second " +
+                     num(peak(out, (size_t)(rate * 4))));
+    }
+
+    /* Eighty-eight lines, their low-passes and the pedal's follower all
+       cross a window boundary. */
+    {
+        vector<NodeSpec> spec = sympatheticGraph(clickSource(), 21, 108, 1,
+                                                 90, 8, 0.3f);
+
+        windowsAgree(pluginPath, spec, "bank", "out",
+                     "filt::sympathetic: the same bank at one sample a "
+                     "window and at five hundred");
+    }
+}
+
 /* ---- filt::vowel -------------------------------------------------------- */
 
 /* The gain of a sine through the formants, RMS out over RMS in over a
@@ -6773,6 +6971,7 @@ int main (int argc, char **argv)
     checkComb(pluginPath);
     checkPianostring(pluginPath);
     checkPianoUnison(pluginPath);
+    checkSympathetic(pluginPath);
     checkPitchshift(pluginPath);
     checkFdn(pluginPath);
     checkFmop(pluginPath);

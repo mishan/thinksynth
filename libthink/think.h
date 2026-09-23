@@ -178,6 +178,20 @@ using namespace std;
  * channels are still in the mix at full level. */
 #define SENDPREFIX "send"
 
+/* And the channel's sustain pedal, on a channel effect.
+ *
+ * A channel effect whose io node declares `pedal' (`pedal = 0;') is handed
+ * the channel's SusPedal there every window, as 0 for up to 1 for down --
+ * the controller's 0..127 over 127, so a half-pedal is a half. What a voice
+ * learns of the pedal is only whether a released note is held (thMidiChan
+ * keeps its trigger at 2); an effect sees the pedal itself, which is what a
+ * piano's sympathetic strings need: with the dampers off every string on
+ * the instrument is free, not only the ones that were played.
+ *
+ * Invented for nobody, like live<N>. The master effect has no one channel's
+ * pedal to hear and reads zeros. */
+#define PEDALARG "pedal"
+
 /* The channel's own send, addressed as TH_EFFECT_PREFIX TH_SEND_ARG.
  *
  * It lives on the channel rather than in its effect's map, because a channel

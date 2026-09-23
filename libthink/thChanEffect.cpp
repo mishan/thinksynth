@@ -32,6 +32,7 @@ thChanEffect::thChanEffect (thSynthTree *tree, int channels, int windowlen,
     scratch_ = NULL;
     sideChan_ = sideChan;
     fadelen_ = faderemaining_ = 0;
+    pedalindex_ = -1;
 
     for (int i = 0; i < TH_MAX_CHANNELS; i++)
     {
@@ -284,14 +285,28 @@ void thChanEffect::indexIOArgs (int windowlen)
         arg->allocate(windowlen);
         sendindex_[i] = arg->index();
     }
+
+    /* And the pedal: one arg and not one per channel, since a channel has
+       one pedal. A window of it rather than a single value, so that a graph
+       reading it per sample reads the same number all the way along. */
+    if (io->getArg(PEDALARG) != NULL)
+    {
+        thArg *arg = io->setArg(PEDALARG, 0);
+
+        if (arg != NULL)
+        {
+            arg->allocate(windowlen);
+            pedalindex_ = arg->index();
+        }
+    }
 }
 
 /* Audio thread. */
 bool thChanEffect::process (float *buf, int channels, int windowlen,
-                            const float *side, int sidechannels)
+                            const float *side, int sidechannels, float pedal)
 {
     return run(buf, channels, windowlen, channels, 1, side, sidechannels,
-               NULL);
+               NULL, pedal);
 }
 
 /* Audio thread. */
@@ -300,13 +315,13 @@ bool thChanEffect::processPlanar (float *buf, int channels, int windowlen,
 {
     /* No side on the mix: there is no second channel to name once every
        channel is already in `buf'. */
-    return run(buf, channels, windowlen, 1, windowlen, NULL, 0, send);
+    return run(buf, channels, windowlen, 1, windowlen, NULL, 0, send, 0);
 }
 
 /* Audio thread. */
 bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
                         int hop, const float *side, int sidechannels,
-                        const float *send)
+                        const float *send, float pedal)
 {
     if (tree_ == NULL || buf == NULL || scratch_ == NULL || channels_ <= 0 ||
         channels <= 0 || windowlen <= 0)
@@ -456,6 +471,23 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
 
         for (int j = 0; j < windowlen; j++)
             dst[j] = send[j * step + from * hop];
+    }
+
+    /* And the pedal, clamped: the chanarg is whatever a controller or a
+       piece last wrote into it. */
+    if (pedalindex_ >= 0)
+    {
+        thArg *arg = tree_->resolveIOArg(pedalindex_);
+
+        if (arg != NULL && arg->values() != NULL &&
+            (int)arg->len() == windowlen)
+        {
+            const float p = thClampArg(pedal, 0, 1);
+            float *dst = arg->values();
+
+            for (int j = 0; j < windowlen; j++)
+                dst[j] = p;
+        }
     }
 
     /* Every node, not setActiveNodes(): an effect is entitled to be nothing
