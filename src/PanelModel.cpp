@@ -271,6 +271,8 @@ string thPanelToJson (const thPanel &panel)
         out += row.editable ? "true" : "false";
         out += ",\"bindable\":";
         out += row.bindable ? "true" : "false";
+        out += ",\"bounded\":";
+        out += row.bounded ? "true" : "false";
 
         out += ",\"unitChoices\":[";
 
@@ -439,6 +441,7 @@ void thPanelBuilder::finish (thPanel &panel) const
         hashInto(h, row.units);
         hashInto(h, row.editable ? 1 : 0);
         hashInto(h, row.bindable ? 1 : 0);
+        hashInto(h, row.bounded ? 1 : 0);
         hashInto(h, row.knob);
         hashInto(h, row.lo);
         hashInto(h, row.hi);

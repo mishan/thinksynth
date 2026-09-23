@@ -179,9 +179,18 @@ struct thPanelRow
      * file. */
     bool bindable;
 
+    /* True where lo..hi is a bound a typed number is held to, false where
+     * it is only the slider's travel.
+     *
+     * A channel's arg is held to its range. A composer's param is not: a
+     * plugin's min and max are advisory there and shipped pieces set values
+     * outside them on purpose, so a number typed past an end is taken as
+     * typed and the travel widens to reach it. */
+    bool bounded;
+
     thPanelRow (void)
         : kind(SLIDER), value(0), lo(0), hi(0), step(0), decimals(0),
-          valueChars(0), editable(true), bindable(false) {}
+          valueChars(0), editable(true), bindable(false), bounded(true) {}
 };
 
 /* A button the panel carries: "Capture to file", "Remove stage". Named

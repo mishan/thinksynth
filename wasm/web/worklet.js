@@ -281,6 +281,23 @@ class ThinkProcessor extends AudioWorkletProcessor
          *
          * "" when the edit was refused, which the page reads as "leave the
          * box alone". */
+        /* One stage's param set in a text that is not this instance's
+         * piece: the edit a room page's own peer made, applied to the
+         * document as it now stands. "" when the writer refused it. */
+        if (m.type === 'genparam')
+        {
+            this.port.postMessage({
+                type: 'genparam', id: m.id,
+                text: this.M.ccall('tw_gen_set_param', 'string',
+                                   ['string', 'string', 'number', 'string',
+                                    'string'],
+                                   [m.text, m.chain, m.stage, m.param,
+                                    m.valueText]),
+            });
+
+            return;
+        }
+
         if (m.type === 'settempo')
         {
             this.port.postMessage({
@@ -571,11 +588,32 @@ class ThinkProcessor extends AudioWorkletProcessor
            for. */
         drain(this.M, this.events);
         this.drainProbes();
+        this.postParamEdits();
 
         if (++this.quanta >= TAPE_EVERY)
             this.postTape();
 
         return true;
+    }
+
+    /* The stage params this quantum wrote to the piece, and the piece as
+     * they left it.
+     *
+     * The file is this instance's, and what the next load reads is the
+     * page's -- its box, or a room's document -- so the page is told and
+     * writes it there. Posted as they land rather than with the tape: an
+     * edit is one keystroke, and the page would otherwise sit on a
+     * document it knows is stale for up to a batch. */
+    postParamEdits ()
+    {
+        if (this.M._tw_param_edit_count() === 0)
+            return;
+
+        this.port.postMessage({
+            type: 'paramedits',
+            edits: JSON.parse(this.M.ccall('tw_param_edits_json', 'string')),
+            piece: this.M.ccall('tw_piece_text', 'string'),
+        });
     }
 
     /* This quantum's capture into the heap, summed to mono, and handed over

@@ -38,6 +38,44 @@ static const int MAXCOLS = 3;
    nub. */
 static const int SLIDERMIN = 140;
 
+/* An adjustment's travel, out to `value'. An adjustment pins its value to
+   lower..upper, so a row that lets a number past its ends has to move the
+   ends first or have the number pulled back in. */
+static void widen (const Glib::RefPtr<Gtk::Adjustment> &adjust, double value)
+{
+    if (!isfinite(value))
+        return;
+
+    if (value < adjust->get_lower())
+        adjust->set_lower(value);
+
+    if (value > adjust->get_upper())
+        adjust->set_upper(value);
+}
+
+/* The box's own reading of what was typed, where the row is not held to its
+   range: the default one parses the text and clamps it to the adjustment,
+   which is the one thing a composer's param must not have done to it. So
+   the travel is widened to the number before the number is set. */
+static void takeTyped (Gtk::SpinButton *box,
+                       const Glib::RefPtr<Gtk::Adjustment> &adjust)
+{
+    box->signal_input().connect([box, adjust] (double &out) -> int
+    {
+        double v;
+
+        /* Not a number: the default reading, which puts back what the box
+           held. */
+        if (!thPanelNumberIn(box->get_text(), v))
+            return false;
+
+        widen(adjust, v);
+        out = v;
+
+        return true;
+    }, false);
+}
+
 PanelView::PanelView (void)
     : Gtk::Box(Gtk::Orientation::VERTICAL), settingValue_(false)
 {
@@ -429,6 +467,9 @@ Gtk::Widget *PanelView::makeSlider (size_t at)
        long. Sized to its content now, so the width goes to the slider. */
     valEntry->set_width_chars(row.valueChars);
 
+    if (!row.bounded)
+        takeTyped(valEntry, bound.adjust);
+
     valueWidth_->add_widget(*valEntry);
 
     slider->set_sensitive(row.editable);
@@ -468,6 +509,9 @@ Gtk::Widget *PanelView::makeNumber (size_t at)
     valEntry->set_width_chars(row.valueChars);
     valEntry->set_sensitive(row.editable);
     valEntry->set_hexpand(true);
+
+    if (!row.bounded)
+        takeTyped(valEntry, bound.adjust);
 
     valueWidth_->add_widget(*valEntry);
 
@@ -579,7 +623,12 @@ void PanelView::setValue (const string &row, double display)
     settingValue_ = true;
 
     if (b.adjust)
+    {
+        if (!b.row.bounded)
+            widen(b.adjust, display);
+
         b.adjust->set_value(display);
+    }
     else if (b.choice)
     {
         const int sel = thPanelChoiceIndex(b.row.choices, display);
@@ -634,9 +683,21 @@ void PanelView::emitEdit (const string &row, const string &valueText)
  * value, whichever of the two the control was moved by. */
 void PanelView::onAdjust (size_t at)
 {
-    const Bound &b = bound_[at];
+    Bound &b = bound_[at];
 
-    emitEdit(b.row.id, thPanelSpell(b.adjust->get_value(), b.row.decimals));
+    const double now = b.adjust->get_value();
+    const string spelled = thPanelSpell(now, b.row.decimals);
+
+    /* The box rounding what it was given, and not an edit. A value finer
+       than the row shows -- 0.3333 in a box of two places -- is read back as
+       0.33 when the box loses the focus, and writing that would change the
+       file for somebody who only tabbed past it. */
+    if (spelled == thPanelSpell(b.row.value, b.row.decimals))
+        return;
+
+    b.row.value = now;
+
+    emitEdit(b.row.id, spelled);
 }
 
 void PanelView::onChoice (size_t at)

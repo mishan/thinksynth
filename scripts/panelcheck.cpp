@@ -962,6 +962,8 @@ static void checkStageRows (const thPanel &panel)
               "and offers the three the format has");
         check(period->bindable && period->knob.empty() && period->editable,
               "a plain number is offered, and so is binding it to a knob");
+        check(!period->bounded,
+              "and is not held to the plugin's range, which is advisory");
     }
 
     const thPanelRow *jitter = panel.find("jitter");
@@ -1834,6 +1836,13 @@ static void checkShape (ArgPanel &argPanel, thSynth &synth)
 
     check(first.shape == again.shape,
           "the same channel describes the same shape twice");
+
+    bool bounded = true;
+
+    for (size_t i = 0; i < first.rows.size(); i++)
+        bounded = bounded && first.rows[i].bounded;
+
+    check(bounded, "a channel's args are held to their ranges");
 
     thArg *cutoff = synth.getChanArg(0, "cutoff");
 

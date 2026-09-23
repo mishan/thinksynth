@@ -422,6 +422,7 @@ async function loadFromDoc (seed = -1)
     }
 
     tapeText = '';
+    ownParams = [];
     piece = it.errors.length === 0 ? it : null;
 
     if (piece === null)
@@ -758,6 +759,64 @@ function showNodeChannel ()
         (i) => i.dsp === $('nodefile').value)?.channel ?? -1);
 }
 
+/* This peer's param edits that have gone out and not yet been written.
+ *
+ * Every peer applies an edit to its own copy of the piece, and the next
+ * Start reloads from the document, so the edit has to reach the document
+ * too -- once. Two peers splicing the same change insert it twice, so it is
+ * the peer who made it that writes it, and this is how that peer knows the
+ * edit the worklet reports is its own. */
+let ownParams = [];
+
+const paramKey = (e) =>
+    JSON.stringify([e.at, e.chain, e.stage, e.row, e.text]);
+
+/* What the worklet wrote, and of it, what this peer made: into the document.
+ *
+ * Applied to the document as it now stands rather than copied from the
+ * worklet's file, which is the piece as it was loaded plus whatever edits
+ * have been applied here -- a document that has moved on since is given this
+ * edit, not reverted to that file. */
+async function paramsEdited ({ edits })
+{
+    for (const e of edits)
+    {
+        const at = ownParams.indexOf(paramKey(e));
+
+        if (at < 0)
+            continue;
+
+        ownParams.splice(at, 1);
+
+        const name = pieceName(doc);
+
+        /* The document may move while the worklet works: a splice is made
+           against the text it was worked out from, or it would undo what
+           arrived in between. */
+        for (let tries = 0; name !== null && tries < 4; tries++)
+        {
+            const was = readFile(doc, name);
+
+            if (was === null)
+                break;
+
+            const { text } = await synth.genSetParam(was, e);
+
+            if (text === '')
+            {
+                log(`${e.param}: not written to ${name}`);
+                break;
+            }
+
+            if (readFile(doc, name) === was)
+            {
+                spliceFile(doc, name, text);
+                break;
+            }
+        }
+    }
+}
+
 function showComposer (on)
 {
     /* Made when it is first wanted and never for a pane nobody has
@@ -779,7 +838,12 @@ function showComposer (on)
            peer as to every other, which is what keeps one piece one
            piece. */
         onParamEdit: (chain, stage, row, text) =>
-            send(maker.param(chain, stage, row, text)),
+        {
+            const cmd = maker.param(chain, stage, row, text);
+
+            ownParams.push(paramKey(cmd));
+            send(cmd);
+        },
     });
 
     composer.show(on);
@@ -893,6 +957,7 @@ async function start ()
         ctx = new AudioContext({ latencyHint: 'interactive' });
         synth = await createSynth(ctx, { windowlen: 256, onLog: log,
                                          onTape: tape,
+                                         onParamEdits: paramsEdited,
                                          onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
@@ -1137,6 +1202,7 @@ function init ()
            edit against, and what one page holds the other's document
            against. */
         file: (name) => readFile(doc, name),
+        piece: () => pieceName(doc),
 
         /* The composer canvas's params popover: where a stage's handle is,
            so a harness can press one rather than aim at a guess, and what

@@ -434,6 +434,11 @@ function receive (m)
         {
             M._tw_step(m.frame);
 
+            /* The worklet tells the page what its param edits wrote; the
+               same edits here are only forgotten, or they would pile up. */
+            if (M._tw_param_edit_count() > 0)
+                M._tw_param_edits_json();
+
             const now = M._tw_epoch();
 
             if (now !== epoch)
