@@ -157,7 +157,8 @@ function asked (param, fallback)
 }
 
 export function createPanes ({ root, catalog, layouts, mode,
-                               store = 'panes', editing = '',
+                               store = 'panes', was = null,
+                               editing = '',
                                onShow = () => {}, on = false,
                                media = MEDIA, split = SPLIT,
                                /* `least' here and `leaf' outside: a leaf
@@ -468,6 +469,27 @@ export function createPanes ({ root, catalog, layouts, mode,
 
     const key = () => `${store}:${where}`;
 
+    /* A layout still under the store's old name, `was', moved to the new
+       one: renaming a store would otherwise cost everybody the layout
+       they left, and leave it behind in localStorage for good. Read only
+       when the new name has nothing, so it happens once per mode. */
+    const moved = () =>
+    {
+        if (was === null)
+            return null;
+
+        const old = `${was}:${where}`;
+        const text = storage.getItem(old);
+
+        if (text !== null)
+        {
+            storage.setItem(key(), text);
+            storage.removeItem(old);
+        }
+
+        return text;
+    };
+
     const save = () =>
     {
         try
@@ -490,7 +512,7 @@ export function createPanes ({ root, catalog, layouts, mode,
 
         try
         {
-            saved = JSON.parse(storage.getItem(key()));
+            saved = JSON.parse(storage.getItem(key()) ?? moved());
         }
         catch
         {

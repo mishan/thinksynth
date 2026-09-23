@@ -1015,6 +1015,7 @@ function init ()
      * than a command, as it is for the keys. */
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
+        was: 'panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor',
         onShow: (id, on) =>
