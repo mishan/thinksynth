@@ -67,7 +67,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out;
     thArg *in_index, *in_wavelength, *in_amp;
     thArg *out_arg;
-    unsigned int i;
+    unsigned int i, n;
     float amp, wavelength;
 
     in_index = mod->getArg(node, args[IN_INDEX]);
@@ -75,9 +75,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_amp = mod->getArg(node, args[IN_AMP]);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
+    n = thOutLen(windowlen, in_index, in_wavelength, in_amp);
+    out = out_arg->allocate(n);
 
-    for(i = 0; i < windowlen; i++)
+    for(i = 0; i < n; i++)
     {
         amp = (*in_amp)[i];
         wavelength = (*in_wavelength)[i];

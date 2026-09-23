@@ -63,15 +63,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out;
     thArg *in_base, *in_exp;
     thArg *out_arg;
-    unsigned int i;
+    unsigned int i, n;
 
     in_base = mod->getArg(node, args[IN_BASE]);
     in_exp = mod->getArg(node, args[IN_EXP]);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
+    n = thOutLen(windowlen, in_base, in_exp);
+    out = out_arg->allocate(n);
 
-    for(i = 0; i < windowlen; i++) {
+    for(i = 0; i < n; i++) {
         out[i] = powf((*in_base)[i], (*in_exp)[i]);
     }
 

@@ -360,6 +360,13 @@ void thArg::getBuffer (float *buffer, unsigned int size)
         return;
     }
 
+    /* A node's output is a whole window, and that is the usual case. */
+    if (len_ >= size)
+    {
+        memcpy(buffer, values_, size * sizeof(float));
+        return;
+    }
+
     j = 0; /* depth into the arg float array (for the loop) */
     for (i = 0; i < size; i++)
     {

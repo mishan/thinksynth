@@ -63,16 +63,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out;
     thArg *in_arg, *in_lo, *in_hi;
     thArg *out_arg;
-    unsigned int i;
+    unsigned int i, n;
 
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_lo = mod->getArg(node, args[IN_LO]);
     in_hi = mod->getArg(node, args[IN_HI]);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
+    n = thOutLen(windowlen, in_arg, in_lo, in_hi);
+    out = out_arg->allocate(n);
 
-    for(i = 0; i < windowlen; i++) {
+    for(i = 0; i < n; i++) {
         const float x = (*in_arg)[i], lo = (*in_lo)[i], hi = (*in_hi)[i];
 
         out[i] = (x < lo) ? lo : ((x > hi) ? hi : x);

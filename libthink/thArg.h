@@ -250,4 +250,18 @@ protected:
     type_signal_arg_changed m_signal_arg_changed;
 };
 
+/* How much of a window a pure function of these args needs to write: one
+ * value when every one of them is one value, a window otherwise. Readers
+ * take an arg modulo its length, so a node over constants -- `exp2((note -
+ * 60) / 12)' is four of them -- costs a float a window rather than a
+ * window's worth, and hands the next node a constant too. */
+static inline unsigned int thOutLen (unsigned int windowlen, thArg *a,
+                                     thArg *b = NULL, thArg *c = NULL)
+{
+    if (a->len() > 1 || (b && b->len() > 1) || (c && c->len() > 1))
+        return windowlen;
+
+    return 1;
+}
+
 #endif /* TH_ARG_H */
