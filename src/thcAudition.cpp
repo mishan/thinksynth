@@ -17,10 +17,10 @@
 #include "think.h"
 #include "thSoundFile.h"
 
-thcAuditioner::thcAuditioner (const std::string &pluginPath)
-    : pluginPath_(pluginPath), synchronous_(false), quit_(false),
-      nextTicket_(0), answered_(0), synth_(NULL),
-      extractor_(TH_DEFAULT_SAMPLES)
+thcAuditioner::thcAuditioner (const std::string &pluginPath, double rate)
+    : pluginPath_(pluginPath), rate_(rate), synchronous_(false), quit_(false),
+      busy_(-1), busyForgotten_(false), nextTicket_(0), answered_(0),
+      synth_(NULL), extractor_(rate)
 {
 }
 
@@ -107,11 +107,34 @@ thcAuditioner::heard (int ticket, double *distance)
 }
 
 void
+thcAuditioner::forget (int ticket)
+{
+    std::lock_guard<std::mutex> hold(lock_);
+
+    if (ticket == busy_)
+    {
+        busyForgotten_ = true;
+        return;
+    }
+
+    for (size_t i = 0; i < queue_.size(); i++)
+        if (queue_[i].ticket == ticket)
+        {
+            queue_.erase(queue_.begin() + i);
+            return;
+        }
+
+    answers_.erase(ticket);
+}
+
+void
 thcAuditioner::drain (void)
 {
     std::unique_lock<std::mutex> hold(lock_);
 
-    wake_.wait(hold, [this] { return queue_.empty() || quit_; });
+    wake_.wait(hold, [this] {
+        return (queue_.empty() && busy_ < 0) || quit_;
+    });
 }
 
 void
@@ -126,7 +149,13 @@ thcAuditioner::run (void)
         if (quit_)
             return;
 
+        /* Off the queue before it renders, so forget() can take any
+           job still on it without touching this one. */
         const Job job = queue_.front();
+
+        queue_.erase(queue_.begin());
+        busy_ = job.ticket;
+        busyForgotten_ = false;
 
         hold.unlock();
 
@@ -134,8 +163,10 @@ thcAuditioner::run (void)
 
         hold.lock();
 
-        answers_[job.ticket] = answer;
-        queue_.erase(queue_.begin());
+        if (!busyForgotten_)
+            answers_[job.ticket] = answer;
+
+        busy_ = -1;
 
         /* drain() waits on the same variable. */
         wake_.notify_all();
@@ -147,11 +178,11 @@ thcAuditioner::render (const Instrument &inst, int note, std::vector<float> &mon
 {
     if (synth_ == NULL)
         synth_ = new thSynth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH,
-                             TH_DEFAULT_SAMPLES);
+                             (int)rate_);
 
     return thsound::renderNote(*synth_, inst.dsp, inst.chanargs, note,
                                thsound::HOLD_WINDOWS, thsound::TAIL_WINDOWS,
-                               mono);
+                               mono, inst.effect);
 }
 
 /* A target's features, rendered or read the first time it is asked for
@@ -173,9 +204,9 @@ thcAuditioner::targetOf (const Job &job, int &note)
 
         if (job.targetIsFile)
         {
-            if (thsound::readWav(job.targetFile, mono, why))
+            if (thsound::readWav(job.targetFile, mono, why, rate_))
             {
-                const int heard = thsound::detectNote(mono);
+                const int heard = thsound::detectNote(mono, rate_);
 
                 if (heard >= 0)
                     target.note = heard;

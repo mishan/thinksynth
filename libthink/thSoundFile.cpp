@@ -311,7 +311,7 @@ bool writeWav (const string &path, const vector<float> &mono, double rate)
 bool renderNote (thSynth &synth, const string &dspPath,
                  const vector<std::pair<string, float> > &chanargs,
                  int note, int holdWindows, int tailWindows,
-                 vector<float> &mono)
+                 vector<float> &mono, const string &effectPath)
 {
     /* Every render from the same place: a patch with a noise source in
        it renders the same twice, which a comparison of two renders needs
@@ -321,6 +321,11 @@ bool renderNote (thSynth &synth, const string &dspPath,
     thSynthTree *tree = synth.loadTree(dspPath, 0, 100);
 
     if (tree == NULL)
+        return false;
+
+    /* After the patch, which builds a new channel and takes any effect
+       with it. */
+    if (!effectPath.empty() && synth.loadEffect(effectPath, 0) == NULL)
         return false;
 
     for (size_t i = 0; i < chanargs.size(); i++)

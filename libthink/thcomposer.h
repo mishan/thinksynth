@@ -309,6 +309,12 @@ typedef struct {
     /* 1 and the distance once the render is in, 0 while it is not, -1
        if it failed. A ticket is forgotten once answered. */
     int  (*heard)(void *ctx, int ticket, double *distance);
+
+    /* Gives up on a ticket that will not be collected: a job still queued
+       is not rendered, and an answer already in is dropped. A composer
+       that stops asking -- a new population, the ear switched off, the
+       instance going away -- hands back what it holds. */
+    void (*forget)(void *ctx, int ticket);
 } thcAudition;
 
 /* Passed to composer_create; live for the instance's lifetime. Values

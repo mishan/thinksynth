@@ -58,11 +58,15 @@ THINK_API int detectNote (const std::vector<float> &x, double rate = TH_DEFAULT_
    caller folds units), the note is held `holdWindows' windows and left
    to ring for `tailWindows' more. The synth's process() is driven here,
    so this is for a private synth on whatever thread owns it, never the
-   one the audio thread is running. */
+   one the audio thread is running.
+
+   `effectPath', if not empty, is put on channel 0 after the patch, so
+   `fx.' chanargs reach it; it hears only its own channel. */
 THINK_API bool renderNote (thSynth &synth, const std::string &dspPath,
                            const std::vector<std::pair<std::string, float> > &chanargs,
                            int note, int holdWindows, int tailWindows,
-                           std::vector<float> &mono);
+                           std::vector<float> &mono,
+                           const std::string &effectPath = std::string());
 
 /* How long a note is auditioned, in windows: a second held and half a
    second of release. The release is half of what an envelope is, and a

@@ -373,6 +373,7 @@ struct thcStage
         ear.ctx = NULL;
         ear.hear = NULL;
         ear.heard = NULL;
+        ear.forget = NULL;
     }
 };
 
@@ -497,10 +498,11 @@ public:
     thArg *addKnob (const std::string &name, float value);
     thArg *knob (const std::string &name);
 
-    /* thcAudition's two entry points, with a stage for ctx. */
+    /* thcAudition's entry points, with a stage for ctx. */
     static int cbHear (void *ctx, const char *target,
                        const char *const *names, const double *values, int n);
     static int cbHeard (void *ctx, int ticket, double *distance);
+    static void cbForget (void *ctx, int ticket);
 
     void ensureAuditioner (void);
 

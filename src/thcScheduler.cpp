@@ -544,6 +544,7 @@ thcScheduler::addStage (size_t chain, thcPlugin *plugin, bool asGenerator)
         s->ear.ctx = s;
         s->ear.hear = cbHear;
         s->ear.heard = cbHeard;
+        s->ear.forget = cbForget;
         s->params.params_.audition = &s->ear;
     }
 
@@ -784,7 +785,8 @@ thcScheduler::ensureAuditioner (void)
 #ifndef __EMSCRIPTEN__
     if (auditioner_ == NULL && synth_ != NULL &&
         synth_->getPluginManager() != NULL)
-        auditioner_ = new thcAuditioner(synth_->getPluginManager()->pluginPath());
+        auditioner_ = new thcAuditioner(synth_->getPluginManager()->pluginPath(),
+                                        (double)synth_->getSampleRate());
 #endif
 }
 
@@ -823,6 +825,20 @@ thcScheduler::cbHeard (void *ctx, int ticket, double *distance)
 #endif
 }
 
+void
+thcScheduler::cbForget (void *ctx, int ticket)
+{
+#ifndef __EMSCRIPTEN__
+    thcStage *s = static_cast<thcStage *>(ctx);
+
+    if (s != NULL && s->sched != NULL && s->sched->auditioner_ != NULL)
+        s->sched->auditioner_->forget(ticket);
+#else
+    (void)ctx;
+    (void)ticket;
+#endif
+}
+
 bool
 thcScheduler::auditionInstrument (const thcInstrument &inst,
                                   thcAuditioner::Instrument &out)
@@ -834,7 +850,18 @@ thcScheduler::auditionInstrument (const thcInstrument &inst,
         thUtil::findDataFile(inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
 
     out.dsp = path.empty() ? inst.dsp : path;
+    out.effect.clear();
     out.chanargs.clear();
+
+    /* Its side, if it names one, is another channel's sound, and the
+       private synth has only this one: the effect is heard on its own. */
+    if (!inst.effect.empty())
+    {
+        const std::string fx =
+            thUtil::findDataFile(inst.effect, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        out.effect = fx.empty() ? inst.effect : fx;
+    }
 
     for (size_t i = 0; i < inst.args.size(); i++)
     {
@@ -876,31 +903,46 @@ thcScheduler::hear (thcStage *stage, const char *target,
 
     const thcChain &c = chains_[stage->chain];
     const thcInstrument *mine = NULL;
+    int channel = -1;
 
     for (size_t i = 0; i < c.sinks.size() && mine == NULL; i++)
         if (c.sinks[i].isChanarg())
-            mine = channelOf(c.sinks[i].channel);
+        {
+            channel = c.sinks[i].channel;
+            mine = channelOf(channel);
+        }
 
     thcAuditioner::Instrument candidate;
 
     if (mine == NULL || !auditionInstrument(*mine, candidate))
         return -1;
 
+    /* Where each value lands live: every chanarg sink on that channel
+       takes it, under the sink's name unless the sink is `*' -- the
+       rename propagate() does, in the order it does it. */
     for (int i = 0; i < n; i++)
-    {
-        bool found = false;
+        for (size_t j = 0; j < c.sinks.size(); j++)
+        {
+            const thcSink &sink = c.sinks[j];
 
-        for (size_t k = 0; k < candidate.chanargs.size(); k++)
-            if (candidate.chanargs[k].first == names[i])
-            {
-                candidate.chanargs[k].second = (float)values[i];
-                found = true;
-            }
+            if (!sink.isChanarg() || sink.channel != channel)
+                continue;
 
-        if (!found)
-            candidate.chanargs.push_back(
-                std::make_pair(std::string(names[i]), (float)values[i]));
-    }
+            const std::string name =
+                sink.namesItsOwn() ? std::string(names[i]) : sink.chanarg;
+            bool found = false;
+
+            for (size_t k = 0; k < candidate.chanargs.size(); k++)
+                if (candidate.chanargs[k].first == name)
+                {
+                    candidate.chanargs[k].second = (float)values[i];
+                    found = true;
+                }
+
+            if (!found)
+                candidate.chanargs.push_back(
+                    std::make_pair(name, (float)values[i]));
+        }
 
     const thcInstrument *other = instrument(target);
     thcAuditioner::Instrument targetInstrument;

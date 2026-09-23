@@ -64,6 +64,8 @@
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
 #include "thcNodeHost.h"
+#include "thcAudition.h"
+#include "libthink/thSoundFile.h"
 #include "GenCatalog.h"
 
 static int failures = 0;
@@ -2684,6 +2686,126 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     std::filesystem::remove(tmp);
+
+    /* A chanarg sink that names its knob: the gene is `x', and live it
+       lands on `cutoff'. The ear has to hear it there too, or every
+       genome sounds like the patch's default and listening points the
+       search nowhere. */
+    tmp = thUtil::tempFile("gencheck-rename-");
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "seed 7;\n"
+            "instrument goal  { dsp \"bass.dsp\"; cutoff = 220; };\n"
+            "instrument voice { dsp \"bass.dsp\"; };\n"
+            "preset dull   { x = 60;   };\n"
+            "preset bright { x = 3000; };\n"
+            "chain search {\n"
+            "    stage g gen::breed {\n"
+            "        from = dull; toward = bright;\n"
+            "        population = 8; mutation = 0.3; elites = 2; spread = 0;\n"
+            "        aim = 0; drift = 0; reach = 0;\n"
+            "        target = \"goal\"; listen = 1;\n"
+            "        period = 0.5 s;\n"
+            "    };\n"
+            "    sink { instrument = voice; chanarg = \"cutoff\"; };\n"
+            "};\n";
+    }
+
+    {
+        thcScheduler rsched(synth);
+
+        rsched.setAuditionSynchronous(true);
+
+        thcGenLoader rloader(plugins);
+
+        if (!rloader.load(tmp, &rsched))
+            fail("the renaming piece did not load");
+        else
+        {
+            std::istringstream lines(render(rsched, 20.0, 0.02));
+            std::string line;
+            double first = 0, last = 0;
+            bool saw = false;
+
+            while (std::getline(lines, line))
+            {
+                if (line.empty() || line[0] != 'C')
+                    continue;
+
+                std::istringstream f(line);
+                std::string kind, name;
+                double at = 0, value = 0;
+                int chan = 0;
+
+                f >> kind >> at >> chan >> name >> value;
+
+                if (name != "cutoff")
+                    continue;
+
+                if (!saw)
+                    first = value;
+
+                last = value;
+                saw = true;
+            }
+
+            if (!saw)
+                fail("the renaming sink never delivered a cutoff");
+            else if (fabs(last - 220) >= fabs(first - 220))
+                fail("listening through a renaming sink did not bring the "
+                     "cutoff nearer the target: " + std::to_string(first) +
+                     " -> " + std::to_string(last) + " against 220");
+        }
+    }
+
+    std::filesystem::remove(tmp);
+
+    /* A forgotten ticket is neither rendered for nobody nor kept: after
+       a drain the one still wanted has its answer and the rest have
+       none to collect. */
+    if (synth->getPluginManager() != NULL)
+    {
+        thcAuditioner ear(synth->getPluginManager()->pluginPath(),
+                          (double)synth->getSampleRate());
+        thcAuditioner::Instrument bass;
+
+        bass.dsp = thUtil::findDataFile("bass.dsp", "dsp", "THINK_DSP_PATH",
+                                        DSP_PATH);
+
+        const int kept = ear.hear(bass, "instrument:bass", &bass, "");
+        int dropped[4];
+
+        for (int i = 0; i < 4; i++)
+            dropped[i] = ear.hear(bass, "instrument:bass", &bass, "");
+
+        for (int i = 0; i < 4; i++)
+            ear.forget(dropped[i]);
+
+        ear.drain();
+
+        double d = 0;
+
+        if (ear.heard(kept, &d) != 1)
+            fail("the ticket nobody forgot has no answer after a drain");
+
+        for (int i = 0; i < 4; i++)
+            if (ear.heard(dropped[i], &d) != 0)
+                fail("a forgotten ticket still had an answer to collect");
+    }
+
+    /* Resampling keeps the level: a constant stays the constant. */
+    {
+        std::vector<float> dc(48000, 0.5f);
+
+        thsound::resample(dc, 48000, 44100);
+
+        if (dc.empty() || fabs(dc[dc.size() / 2] - 0.5) > 1e-3)
+            fail("resampling 48 kHz to 44.1 kHz changed a constant's level: "
+                 "0.5 -> " + std::to_string(dc.empty() ? 0.0 : dc[dc.size() / 2]));
+    }
 }
 
 /* ---- 6b. a picture that is also a control ------------------------------ */

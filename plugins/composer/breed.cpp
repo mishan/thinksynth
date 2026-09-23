@@ -211,6 +211,21 @@ struct State {
     std::vector<char>   answered;
 };
 
+/* Every ticket still out handed back to the host, which would otherwise
+   render it for nobody and keep its answer. */
+static void
+dropTickets (State *st)
+{
+    const thcAudition *ear = st->params->audition;
+
+    if (ear != NULL && ear->forget != NULL)
+        for (size_t i = 0; i < st->tickets.size(); i++)
+            if (!st->answered[i] && st->tickets[i] >= 0)
+                ear->forget(ear->ctx, st->tickets[i]);
+
+    st->tickets.clear();
+}
+
 extern "C" THINK_PLUGIN_API void *
 composer_create (const thcParams *params)
 {
@@ -227,7 +242,10 @@ composer_create (const thcParams *params)
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)
 {
-    delete static_cast<State *>(state);
+    State *st = static_cast<State *>(state);
+
+    dropTickets(st);
+    delete st;
 }
 
 static double
@@ -474,7 +492,7 @@ scatter (State *st)
     st->seeded = true;
     st->generation = 0;
     st->fitHistory.clear();
-    st->tickets.clear();
+    dropTickets(st);
 }
 
 static const Genome &
@@ -692,7 +710,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
     if (!listening(st))
     {
-        st->tickets.clear();
+        dropTickets(st);
         generation(st, std::vector<double>());
         return t->now + period;
     }

@@ -415,7 +415,9 @@ above is arithmetic in that plugin rather than a rule someone has to remember.
 `gen::breed` can also be told what to sound like. `target = lead;` names
 another instrument of the piece; `target = "kick.wav";` names a sound file, as
 written or found under `dsp/samples`. The host renders each genome through the
-chain's instrument on a synth of its own, measures it against the target
+chain's instrument and its effect on a synth of its own, each value on the
+chanarg the sink delivers it to (an effect's `side` is not heard there),
+measures it against the target
 (`libthink/thSoundFeat.h`: log-mel spectrograms at several sizes, a bass
 layer, noisiness and envelope, in dB), and the distance enters the fitness
 with weight `listen`, a tenth per dB. The plugin never sees the patch: it

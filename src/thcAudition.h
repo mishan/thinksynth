@@ -56,15 +56,19 @@ class thSynth;
 class thcAuditioner
 {
 public:
-    /* A patch and the values that make it an instrument. */
+    /* A patch, its effect or empty, and the values that make it an
+       instrument -- the effect's under `fx.'. */
     struct Instrument
     {
         std::string dsp;
+        std::string effect;
         std::vector<std::pair<std::string, float> > chanargs;
     };
 
-    /* `pluginPath' is where the audio synth's modules came from. */
-    explicit thcAuditioner (const std::string &pluginPath);
+    /* `pluginPath' is where the audio synth's modules came from and
+       `rate' the rate it runs at: chanargs come folded in its terms, so
+       the private synth runs at the same one. */
+    thcAuditioner (const std::string &pluginPath, double rate);
     ~thcAuditioner (void);
 
     /* Render inside hear(), on the caller's thread: slower ticks and an
@@ -81,6 +85,10 @@ public:
 
     /* 1 with the distance, 0 while pending, -1 if the render failed. */
     int heard (int ticket, double *distance);
+
+    /* A ticket nobody will collect: unqueued if it has not started, its
+       answer dropped when it has or once it arrives. */
+    void forget (int ticket);
 
     /* Blocks until every queued job has an answer. */
     void drain (void);
@@ -114,6 +122,7 @@ private:
     const thsound::Features *targetOf (const Job &job, int &note);
 
     std::string pluginPath_;
+    double rate_;
     bool synchronous_;
 
     std::thread worker_;
@@ -123,6 +132,11 @@ private:
 
     std::vector<Job> queue_;
     std::map<int, Answer> answers_;
+
+    /* The job the worker is rendering, off the queue, or -1; and whether
+       it was forgotten while it rendered. */
+    int busy_;
+    bool busyForgotten_;
     int nextTicket_;
     int answered_;
 
