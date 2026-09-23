@@ -112,6 +112,21 @@ const loaded = (page) => page.waitForFunction(
 
 const caches = (page) => page.evaluate(() => caches.keys());
 
+/* What waitForFunction would be for an async predicate, which it does not
+   await: the promise it gets back is truthy, and it returns at once. */
+async function until (page, pred, timeout = 60000)
+{
+    const end = Date.now() + timeout;
+
+    while (!await page.evaluate(pred))
+    {
+        if (Date.now() > end)
+            throw new Error(`timed out after ${timeout} ms: ${pred}`);
+
+        await new Promise((r) => setTimeout(r, 250));
+    }
+}
+
 try
 {
     const context = await browser.newContext();
@@ -211,12 +226,33 @@ try
         await reg.update();
     });
 
-    await page.waitForFunction(async () =>
-        (await navigator.serviceWorker.getRegistration()).waiting !== null,
-        null, { timeout: 60000, polling: 250 });
+    await until(page, async () =>
+        (await navigator.serviceWorker.getRegistration()).waiting !== null);
 
     check((await caches(page)).includes(`thinksynth-${old}`),
           'a new version installs and waits, the running one untouched');
+
+    /* Not while a room page is open: it runs from the old cache too.
+       Opened without `?sw', so that the one window asking is this one. */
+    const open = await context.newPage();
+
+    await open.goto(`${origin}/jam.html`);
+    await open.waitForSelector('#joinrow');
+
+    check(await open.evaluate(() =>
+              navigator.serviceWorker.controller !== null),
+          'the room page is the worker\'s too');
+
+    await page.reload();
+    await loaded(page);
+
+    check(await page.evaluate(async () =>
+              (await navigator.serviceWorker.getRegistration()).waiting
+                  !== null) &&
+          (await caches(page)).includes(`thinksynth-${old}`),
+          'with the room page open, a load leaves it waiting');
+
+    await open.close();
 
     /* The next load asks for it, is the one window, and so gets it --
        and loads a second time from it. */

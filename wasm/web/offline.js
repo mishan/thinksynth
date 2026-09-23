@@ -29,6 +29,11 @@
  * asked for here, at load, before anything has been played -- see the
  * worker for why not later. If it takes over, the page loads again from
  * it.
+ *
+ * Called once the page has no fetch of its own in flight. Chromium holds
+ * the new version back while the running one has requests in flight, and
+ * one asked for with a request in flight is held for as long as the page
+ * stays open, long after the requests are done.
  */
 
 export async function keepOffline ()

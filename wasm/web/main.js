@@ -2642,5 +2642,6 @@ async function init ()
     panes.overlay().append($('composerparams'), $('nodemenu'));
 }
 
-init();
-keepOffline().catch((e) => console.warn('no offline copy:', e));
+/* After init, whose fetches are done by then -- see offline.js. */
+init().finally(() =>
+    keepOffline().catch((e) => console.warn('no offline copy:', e)));
