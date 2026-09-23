@@ -312,7 +312,8 @@ enum {
     S_HPREV,                /* `strike' last sample, for its rising edge */
     S_APOS,                 /* the near ends' write position */
     S_YS,                   /* STRINGS_MAX displacements at the strike point */
-    S_COUNT = S_YS + STRINGS_MAX
+    S_HF = S_YS + STRINGS_MAX, /* STRINGS_MAX forces last sample */
+    S_COUNT = S_HF + STRINGS_MAX
 };
 
 /* Everything the design produces, in double until it is stored. */
@@ -890,31 +891,52 @@ static inline double flush (double x)
 
 /* One string's force for a felt squeezed `a' before the string gives:
    F = K (a - F h)^p, h the string's give per unit force this sample. The
-   right side falls as F rises and is concave, so Newton from 0 climbs to
-   the root from below and never past it. */
-static double feltForce (double a, double k, double p, double h)
+   right side falls as F rises and is convex, so the residual is concave:
+   Newton from below climbs to the root without passing it, and from above
+   one step lands below it. It starts from `f', the force a moment ago,
+   which is usually a step or two from this one. `dfda' gets dF/da at the
+   root, which the hammer's own Newton wants. */
+static double feltForce (double a, double k, double p, double h, double f,
+                         double *dfda)
 {
-    double f = 0;
+    bool below = false;
     int i;
+
+    *dfda = 0;
 
     if (!(a > 0) || k <= 0)
         return 0;
 
+    if (!(f > 0) || !(f < a / h))
+    {
+        f = 0;
+        below = true;
+    }
+
     for (i = 0; i < HAMMER_ITERATIONS; i++)
     {
         const double u = a - f * h;
-        double up, phi, slope, next;
+        double up, phi, c, next;
 
         if (!(u > 0))
             break;
 
         up = pow(u, p - 1);
         phi = f - k * up * u;
-        slope = 1 + k * p * up * h;
-        next = f - phi / slope;
+        c = k * p * up;
+        *dfda = c / (1 + c * h);
+        next = f - phi / (1 + c * h);
 
         if (next > a / h)
             next = a / h;
+
+        if (!below)
+        {
+            /* The guess was above the root; now it is under it. */
+            f = next > 0 ? next : 0;
+            below = true;
+            continue;
+        }
 
         if (!(next > f) || next - f <= 1e-12 * next)
         {
@@ -935,17 +957,28 @@ static double feltForce (double a, double k, double p, double h)
        Y = hy + (hv - sum F(Y) dt / m) dt
    which rises through zero once, so Newton inside a bracket that bisects
    whenever a step would leave it. `base' is where each string would be
-   with no hammer on it, and `weight' the tilt across the unison. */
+   with no hammer on it, and `weight' the tilt across the unison. `f'
+   comes in holding last sample's forces, and the first guess is where
+   they would take the hammer. */
 static double hammerSolve (double hy, double hv, const double *base,
                            const double *weight, int strings, double k,
                            double p, double m, double dt, double *f)
 {
-    double hi = hy + hv * dt, lo = hi, y = hi;
+    double hi = hy + hv * dt, lo = hi, y, last = 0;
     int i, s;
 
     for (s = 0; s < strings; s++)
+    {
         if (base[s] < lo)
             lo = base[s];
+
+        last += f[s];
+    }
+
+    y = hi - last * dt * dt / m;
+
+    if (!(y > lo && y < hi))
+        y = hi;
 
     for (i = 0; i < HAMMER_ITERATIONS; i++)
     {
@@ -953,19 +986,12 @@ static double hammerSolve (double hy, double hv, const double *base,
 
         for (s = 0; s < strings; s++)
         {
-            const double ks = k * weight[s];
-            const double fs = feltForce(y - base[s], ks, p, dt / 2);
+            double dfda;
 
-            f[s] = fs;
-            sum += fs;
-
-            if (fs > 0)
-            {
-                const double u = y - base[s] - fs * dt / 2;
-                const double c = ks * p * pow(u, p - 1);
-
-                dsum += c / (1 + c * dt / 2);
-            }
+            f[s] = feltForce(y - base[s], k * weight[s], p, dt / 2, f[s],
+                             &dfda);
+            sum += f[s];
+            dsum += dfda;
         }
 
         g = y - (hy + hv * dt) + sum * dt * dt / m;
@@ -981,10 +1007,48 @@ static double hammerSolve (double hy, double hv, const double *base,
         dg = 1 + dsum * dt * dt / m;
         next = y - g / dg;
 
+        /* Close enough that another round would only confirm it: keep the
+           y the forces were worked out at. */
+        if (fabs(next - y) <= 1e-13 * fabs(y))
+            break;
+
         y = (next > lo && next < hi) ? next : 0.5 * (lo + hi);
     }
 
     return y;
+}
+
+/* The dispersion filter on each of N strings. Section by section across
+   the strings rather than string by string: each string's cascade is one
+   long dependent chain, and side by side they run in each other's shadow. */
+template <int N>
+static inline void cascade (int kind, int sections, const double *c1,
+                            const double *c2, float z1[][DISP_MAX],
+                            float z2[][DISP_MAX], double *xs)
+{
+    int k, s;
+
+    if (kind == 1)
+        for (k = 0; k < sections; k++)
+            for (s = 0; s < N; s++)
+            {
+                const double x = xs[s];
+                const double y = c1[k] * x + z1[s][k];
+
+                z1[s][k] = (float)flush(x - c1[k] * y);
+                xs[s] = y;
+            }
+    else if (kind == 2)
+        for (k = 0; k < sections; k++)
+            for (s = 0; s < N; s++)
+            {
+                const double x = xs[s];
+                const double y = c2[k] * x + z1[s][k];
+
+                z1[s][k] = (float)flush(c1[k] * x - c1[k] * y + z2[s][k]);
+                z2[s][k] = (float)flush(x - c2[k] * y);
+                xs[s] = y;
+            }
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
@@ -1019,7 +1083,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     double strike[STRINGS_MAX], imbalance;
     float *line[STRINGS_MAX], *near[STRINGS_MAX];
     int lines[STRINGS_MAX];
-    float ys[STRINGS_MAX], hy, hv, htime, hprev;
+    float ys[STRINGS_MAX], hf[STRINGS_MAX], hy, hv, htime, hprev;
     double mass, hmass = 1, felt, exponent, position;
     unsigned int apos = 0;
     int da = 0;
@@ -1152,6 +1216,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         line[s] = buffer + s * len;
         near[s] = buffer + STRINGS_MAX * len + s * lenA;
         ys[s] = state[S_YS + s];
+        hf[s] = state[S_HF + s];
         lines[s] = (int)str[P_LINE];
         eta[s] = str[P_ETA];
         g[s] = str[P_G];
@@ -1218,7 +1283,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const double in = thIsFinite(raw) ? raw : 0;
         const double down = (*in_gate)[i] > 0 ? 0 : 1;
         const float last = dcy1;
-        double x, y, sum = 0, bridge, kept, mean = 0;
+        double x, y, xs[STRINGS_MAX], sum = 0, bridge, kept, mean = 0;
 
         dcy1 = (float)flush(in - dcx + dcpole * dcy1);
         dcy2 = (float)flush(dcy1 - last + dcpole * dcy2);
@@ -1227,29 +1292,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         for (s = 0; s < strings; s++)
         {
             /* The line's output, and the Thiran's fraction on it. */
-            x = line[s][(at + len - (lines[s] - da)) % len];
+            const unsigned int back = (unsigned int)(lines[s] - da);
+
+            x = line[s][at >= back ? at - back : at + len - back];
             y = eta[s] * x + thz[s];
             thz[s] = (float)flush(x - eta[s] * y);
-            x = y;
+            xs[s] = y;
+        }
 
-            if (kind == 1)
-                for (k = 0; k < sections; k++)
-                {
-                    y = c1[k] * x + z1[s][k];
-                    z1[s][k] = (float)flush(x - c1[k] * y);
-                    x = y;
-                }
-            else if (kind == 2)
-                for (k = 0; k < sections; k++)
-                {
-                    y = c2[k] * x + z1[s][k];
-                    z1[s][k] = (float)flush(c1[k] * x - c1[k] * y +
-                                            z2[s][k]);
-                    z2[s][k] = (float)flush(x - c2[k] * y);
-                    x = y;
-                }
+        if (strings == 3)
+            cascade<3>(kind, sections, c1, c2, z1, z2, xs);
+        else if (strings == 2)
+            cascade<2>(kind, sections, c1, c2, z1, z2, xs);
+        else
+            cascade<1>(kind, sections, c1, c2, z1, z2, xs);
 
-            lossz[s] = (float)flush(g[s] * (1.0 + pole[s]) * x -
+        for (s = 0; s < strings; s++)
+        {
+            lossz[s] = (float)flush(g[s] * (1.0 + pole[s]) * xs[s] -
                                     pole[s] * lossz[s]);
             sum += lossz[s];
         }
@@ -1293,6 +1353,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
                 hv = (float)thClampArg((*in_velocity)[i], 0, 1);
                 htime = 0;
+
+                for (s = 0; s < strings; s++)
+                    hf[s] = 0;
             }
 
             hprev = struck;
@@ -1300,22 +1363,29 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             for (s = 0; s < strings; s++)
             {
                 fromBridge[s] = -(lossz[s] - bridge) * kept;
-                fromNear[s] = -near[s][(apos + lenA - da) % lenA];
+                fromNear[s] = -near[s][apos >= (unsigned int)da
+                                       ? apos - da : apos + lenA - da];
 
                 /* Where the string would be with no hammer on it. */
                 base[s] = ys[s] + (fromBridge[s] + fromNear[s] +
                                    dcy2 * strike[s]) / rate;
-                f[s] = 0;
+                f[s] = hf[s];
             }
 
-            if (htime < HAMMER_TIME * rate)
+            if (!(htime < HAMMER_TIME * rate))
+                for (s = 0; s < strings; s++)
+                    f[s] = 0;
+            else
             {
                 const double yh = hammerSolve(hy, hv, base, strike, strings,
                                               felt, exponent, hmass,
                                               1.0 / rate, f);
 
                 for (s = 0; s < strings; s++)
+                {
                     total += f[s];
+                    hf[s] = (float)f[s];
+                }
 
                 hv = (float)(hv - total / rate / hmass);
                 hy = (float)yh;
@@ -1339,7 +1409,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
 
             force[i] = (float)total;
-            apos = (apos + 1) % lenA;
+            if (++apos == lenA)
+                apos = 0;
         }
 
         mean /= strings;
@@ -1353,7 +1424,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         play[i] = (age < hold || peak > PLAY_FLOOR) ? 1 : 0;
 
-        at = (at + 1) % len;
+        if (++at == len)
+            at = 0;
     }
 
     for (s = 0; s < strings; s++)
@@ -1371,7 +1443,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     }
 
     for (s = 0; s < strings; s++)
+    {
         state[S_YS + s] = ys[s];
+        state[S_HF + s] = hf[s];
+    }
 
     state[S_HY] = hy;
     state[S_HV] = hv;

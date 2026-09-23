@@ -153,6 +153,7 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(dspab)
+think_harness(dspbench)
 
 # Arithmetic over signals: that a constant expression still folds, that one
 # with a signal in it renders as the nodes it stands for, and that the six
