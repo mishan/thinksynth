@@ -39,7 +39,8 @@
  *
  * Small on purpose: the octave, the sliders, the channel's parameter panel,
  * a key down and up, and a key typed into a text box, which must play
- * nothing. Then the two canvases this page has: the composer view, and the
+ * nothing. A MIDI keyboard, through a stand-in for Web MIDI. Then the two
+ * canvases this page has: the composer view, and the
  * instrument's graph. What sounds is browsertest.mjs's business and
  * jamtest.mjs's; this is about the page.
  *
@@ -123,6 +124,50 @@ try
             errors.push(m.text());
     });
 
+    /* Web MIDI, faked: headless Chromium has no devices to offer. One input
+       at load, and window.fakeMidi to send from it, pull it out and plug
+       another in. Ports stay in the map when disconnected, as a browser's
+       do. */
+    await page.addInitScript(() =>
+    {
+        const access = { inputs: new Map(), outputs: new Map(),
+                         onstatechange: null };
+        const fake = {
+            asked: null,
+
+            plug (id, name)
+            {
+                const port = { id, name, type: 'input', state: 'connected',
+                               onmidimessage: null, close: async () => {} };
+
+                access.inputs.set(id, port);
+                access.onstatechange?.({ port });
+            },
+
+            unplug (id)
+            {
+                const port = access.inputs.get(id);
+
+                port.state = 'disconnected';
+                access.onstatechange?.({ port });
+            },
+
+            send (id, bytes)
+            {
+                access.inputs.get(id).onmidimessage?.(
+                    { data: new Uint8Array(bytes) });
+            },
+        };
+
+        fake.plug('k1', 'Fake Keys');
+        window.fakeMidi = fake;
+        navigator.requestMIDIAccess = async (options) =>
+        {
+            fake.asked = options;
+            return access;
+        };
+    });
+
     await page.goto(url);
     await page.waitForFunction(
         () => document.getElementById('range').textContent !== '');
@@ -146,8 +191,10 @@ try
        choice until the synth takes one, and the microphone cannot be asked for
        until there is a node to connect it to. */
     check(await page.isDisabled('#mic') &&
+          await page.isDisabled('#midi') &&
           !(await page.isDisabled('#window')),
-          'the microphone waits for a synth and the window is still a choice');
+          'the microphone and MIDI wait for a synth and the window is still '
+          + 'a choice');
 
     /* Start, then a piece, and the knobs it declared. */
     await page.click('#start');
@@ -162,7 +209,8 @@ try
        launched with a fake device to answer with; here the claim is only that
        the page put the two controls in the right state. */
     check(await page.isDisabled('#window') &&
-          !(await page.isDisabled('#mic')),
+          !(await page.isDisabled('#mic')) &&
+          !(await page.isDisabled('#midi')),
           'the window is fixed once the synth has one, and the microphone is '
           + 'offered');
 
@@ -891,6 +939,69 @@ try
     check(afterList.held === 1,
           'and a key after the piece list is a note, with the list still ' +
           `focused (${afterList.focused || 'nothing'})`);
+
+    /* ---- a MIDI keyboard ---- */
+
+    await page.click('#midi');
+    await page.waitForFunction(
+        () => document.getElementById('midistatus').textContent !== 'asking...');
+
+    check(await page.textContent('#midistatus') === 'Fake Keys' &&
+          await page.evaluate(() => window.fakeMidi.asked?.sysex === false),
+          'MIDI in asks without sysex and names the input: ' +
+          await page.textContent('#midistatus'));
+
+    const midiSend = (bytes) =>
+        page.evaluate((b) => window.fakeMidi.send('k1', b), bytes);
+    const sounding = () => page.evaluate(() => window.solo.sounding());
+    const keyChannel = Number(await page.inputValue('#keychan'));
+
+    /* Channel 4 on the wire, and the page's channel in the synth. */
+    await midiSend([0x93, 60, 37]);
+    await midiSend([0x93, 60, 90]);
+
+    const midiDown = await sounding();
+
+    check(midiDown.length === 1 && midiDown[0].note === 60 &&
+          midiDown[0].velocity === 37 && midiDown[0].count === 1 &&
+          midiDown[0].channel === keyChannel,
+          'a MIDI note on plays its note at its velocity on the page\'s ' +
+          'channel, and a repeat is dropped: ' + JSON.stringify(midiDown));
+
+    /* The focus moving is the computer keys' loss and not the MIDI
+       keyboard's: its note off arrives wherever the focus is. */
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await page.keyboard.press('Escape');
+
+    check((await sounding()).length === 1,
+          'and it stays down across a blur and an Escape');
+
+    await midiSend([0x93, 60, 0]);
+
+    check((await sounding()).length === 0,
+          'a note on at velocity 0 lets it go');
+
+    await midiSend([0x80, 60, 0]);
+    await midiSend([0x90, 62, 100]);
+    await page.evaluate(() => window.fakeMidi.unplug('k1'));
+
+    check((await sounding()).length === 0 &&
+          /no MIDI inputs/.test(await page.textContent('#midistatus')),
+          'an unplugged keyboard lets go of what it held: ' +
+          await page.textContent('#midistatus'));
+
+    await page.evaluate(() => window.fakeMidi.plug('k2', 'Other Keys'));
+    await page.evaluate(() => window.fakeMidi.send('k2', [0x90, 64, 100]));
+
+    check((await sounding()).length === 1 &&
+          await page.textContent('#midistatus') === 'Other Keys',
+          'one plugged in later is listened to');
+
+    await page.click('#midi');
+
+    check((await sounding()).length === 0 &&
+          await page.textContent('#midi') === 'MIDI in',
+          'and closing MIDI in lets go of it');
 
     /* ---- the composer view ---- */
 

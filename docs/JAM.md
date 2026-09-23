@@ -597,6 +597,16 @@ rather than assumed.
 into a chain whose `inputMidi` is set, which is how the quantised mode works.
 Piece knobs are shared and latest-wins.
 
+**A MIDI keyboard plays the seat.** *MIDI in* (`wasm/web/midi.js`) listens on
+every Web MIDI input, note on and note off only, and hands each key to the
+same press and release as the on-screen and computer keys, with its
+velocity. The device's channel is ignored: the seat is the channel, on the
+room page and the solo page alike. A focus change or a blur lets go of the
+computer keys, whose keyups can be lost; it leaves MIDI keys down, since their
+note offs arrive regardless. An input unplugged lets go of what it held.
+Controllers are not read yet: a CC mapped to a knob has to be a stamped knob
+command to land at the same time on every peer.
+
 **Anyone edits the document.** That is what a CRDT is for. The subtle part
 is not the merge, it is *when an edit takes effect*, because two peers
 applying a structural change at different beats have different stage state
@@ -689,7 +699,8 @@ posted from the worklet. *Done when* a Life board in a shipped piece can be
 clicked on one peer and the other peer's tape follows, and a `.dsp` edited
 on the canvas plays the same on both.
 
-**M7 — later, if wanted.** Web MIDI input. Recording the tape and the mix.
+**M7 — later, if wanted.** Web MIDI controllers mapped to knobs (notes are
+in, section 5). Recording the tape and the mix.
 Voice chat as an ordinary WebRTC audio track, which is independent of
 everything above and can be dropped in at any point.
 
