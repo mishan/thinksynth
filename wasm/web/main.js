@@ -280,7 +280,7 @@ function tile (phone, forced)
            shut. Only the keys: a pane somebody moves into a leaf of its
            own keeps its tab, or there is nothing to drag or close it
            by. */
-        ...(phone ? { media: forced ? 'all' : PHONE, split: 18,
+        ...(phone ? { media: forced ? 'all' : PHONE, split: 10,
                       strip: 'scroll', lone: ['keyboard'],
                       closed: 'More:' } : {}),
         mode: mode(), on: true,

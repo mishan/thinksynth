@@ -979,13 +979,39 @@ body.tiled .panelrows
 
     body.tiled #keyboard { justify-content: flex-end; }
 
-    /* A divider a finger can find: thicker, drawn as a short handle
-       rather than a hairline, and not a scroll -- see .panesplit below. */
+    /* A divider a finger can find without spending the height on it:
+       10px of gap drawn as a short handle, and 6px more each side that
+       take a press but draw nothing, over the edges of the panes. */
+    #panes .panebox[data-dir="col"] > .panesplit { z-index: 1; }
+
+    #panes .panebox[data-dir="col"] > .panesplit::before
+    {
+        content: "";
+        position: absolute;
+        inset: -6px 0;
+    }
+
     #panes .panebox[data-dir="col"] > .panesplit::after
     {
-        inset: 6px 35%;
+        inset: 3px 35%;
         border-radius: 2px;
     }
 
-    .panesroot .panetab { font-size: 0.95em; padding: 0.5em 0.3em 0.5em 0.8em; }
+    /* The tabs and the drawer are rows of names, not controls a thumb
+       hunts for: 34px rather than the 44px the page's buttons get, which
+       over a strip per pane and the drawer is most of a pane's worth of
+       height given back. */
+    .panesroot .panetab
+    {
+        min-height: 34px;
+        font-size: 0.95em;
+        padding: 0.35em 0.3em 0.35em 0.8em;
+    }
+
+    .panesroot .paneshut,
+    .panesroot .paneclosed,
+    .panesroot .panereset
+    {
+        min-height: 30px;
+    }
 }
