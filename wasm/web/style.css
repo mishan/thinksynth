@@ -177,9 +177,12 @@ pre
    with rows under it. */
 #chrome h1 { margin: 0; }
 
-/* The link to the source: beside the title and quieter than it, since it
-   is not a control of the page's. */
-#source { color: var(--dim); font-size: 0.9em; }
+/* The link to the source: GitHub's mark beside the title, and quieter
+   than it, since it is not a control of the page's. A mark rather than
+   the word, which on a phone was a menu's worth of the one row. */
+#source { color: var(--dim); display: inline-flex; padding: 0.2em; }
+#source:hover { color: var(--fg); }
+#source svg { width: 1.25em; height: 1.25em; }
 
 /* A mode's own controls, wrapping as a group rather than one at a time:
    a Rewind on a line of its own, away from the Play it belongs with, is
