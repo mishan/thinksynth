@@ -176,7 +176,10 @@ way:
 The three build jobs run `thinksynth -h` (exits 0; links, loads, prints) and
 then `ctest`; the sanitizer job runs `ctest` only. On Linux both run under
 `xvfb-run`, because one gate — `editorcheck` — builds real widgets. macOS and
-Windows run `ctest` directly.
+Windows run `ctest` directly. On Linux each test also runs under
+`scripts/headless.sh` (`THINK_TEST_HEADLESS`, on wherever Xvfb is found), which
+gives it an Xvfb of its own inside `xvfb-run`'s; on a runner with no PipeWire
+it runs with no audio server.
 
 All four jobs are real gates. What CI cannot cover is the backends themselves:
 hosted runners have no audio device, so RtAudio's device-open path is only ever

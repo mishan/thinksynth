@@ -50,7 +50,13 @@ came from the system or from source.
 
 The rest are runtime or test-time. `adwaita-icon-theme` and `librsvg2-common`
 give the icons their intended look, and `xvfb` is needed by `ctest` because one
-gate builds real widgets.
+gate builds real widgets. On Linux `ctest` runs every test under
+`scripts/headless.sh`, which gives it a private Xvfb and a private PipeWire
+whose only sink is a null one, so a test run opens no windows on the desktop
+and plays nothing aloud. `pipewire` and `wireplumber` complete that; without
+them tests get no audio server at all. `-DTHINK_TEST_HEADLESS=OFF` turns it
+off. The browser tests are run by hand, so prefix them yourself:
+`scripts/headless.sh node wasm/web/pagetest.mjs build-web`.
 
 Useful options:
 
