@@ -1151,7 +1151,7 @@ function init ()
     panes = createPanes({
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
-        editing: '.cm-editor',
+        editing: '.cm-editor', reset: 'Reset layout',
         onShow: (id, on) =>
         {
             if (id === 'composerview')

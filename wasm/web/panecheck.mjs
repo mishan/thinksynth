@@ -46,7 +46,8 @@
  *
  * And the rest of what this page does with a layout: the chrome that
  * became one strip, the popovers beside a node graph, the box the status
- * line means by "see below", and the room page's own catalog.
+ * line means by "see below", the room page's own catalog, and a phone's
+ * layout, where a pane has to keep its tab and there is no Alt 0.
  *
  * What it does not do is open a synth for longer than it has to.
  * pagetest.mjs is the harness for what the page plays; this one is about
@@ -684,6 +685,58 @@ try
     check(moved.keys.length === 1 &&
           moved.keys[0] === 'thinksynth:panes:jam:room',
           `and it moves to the new name: ${moved.keys.join(' ')}`);
+
+    /* ---- a phone ----
+     *
+     * Only the keys go without a tab strip. A phone tiled with every lone
+     * leaf stripless left a pane somebody had moved into a leaf of its
+     * own with nothing to drag or close it by, and no Alt 0 to start
+     * over with: this is that layout, as it was kept, and the button that
+     * takes the place of the chord. */
+    const touch = await browser.newContext({
+        viewport: { width: 412, height: 915 }, isMobile: true,
+        hasTouch: true });
+    const phone = await touch.newPage();
+
+    phone.on('pageerror', (e) => errors.push(`phone: ${e.message}`));
+
+    await phone.goto(`${base}?phone=1`);
+    await phone.waitForFunction(() => window.solo?.settled !== undefined);
+    await phone.evaluate(() => localStorage.setItem(
+        'thinksynth:panes:touch:patch', JSON.stringify(
+            { dir: 'col', size: [0.2, 0.3, 0.2, 0.3], kids: [
+                { tabs: ['detail'] }, { tabs: ['patchsource'] },
+                { tabs: ['paramview', 'nodeview'] },
+                { tabs: ['keyboard'] }] })));
+    await phone.reload();
+    await phone.waitForFunction(() => window.solo?.settled !== undefined);
+    await phone.selectOption('#mode', 'patch');
+    await phone.evaluate(() => window.solo.settled());
+
+    const strips = () => phone.evaluate(() => Object.fromEntries(
+        [...document.querySelectorAll('#panes .paneleaf')].map((l) => [
+            [...l.querySelectorAll('.panetab')]
+                .map((t) => t.id.replace(/^panetab-/, '')).join('+'),
+            getComputedStyle(l.querySelector('.panetabs')).display !==
+                'none'])));
+    const stuck = await strips();
+
+    check(stuck.detail === true && stuck.patchsource === true &&
+          stuck.keyboard === false,
+          'a phone draws a strip over a pane alone in its leaf, and none ' +
+          `over the keys: ${JSON.stringify(stuck)}`);
+
+    await phone.click('#panes .panereset');
+    await phone.waitForTimeout(200);
+
+    const reset = await strips();
+
+    check(JSON.stringify(Object.keys(reset)) ===
+          JSON.stringify(['paramview+nodeview', 'keyboard']),
+          'and Reset layout puts the mode\'s own layout back: ' +
+          Object.keys(reset).join(', '));
+
+    await touch.close();
 
     for (const e of errors)
         check(false, `page error: ${e}`);

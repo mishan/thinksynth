@@ -269,11 +269,20 @@ function tile (phone, forced)
                : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
 
+        /* A way back to the mode's layout that needs no Alt 0: a phone
+           has no keys to press it with, and on a desktop it is a chord
+           nobody finds. */
+        reset: 'Reset layout',
+
         /* And a divider a finger can take hold of, tabs at their own
-           widths in a row that scrolls, no strip over a lone tab, and a
-           drawer that is where the rest are rather than what was shut. */
+           widths in a row that scrolls, no strip over the keys alone,
+           and a drawer that is where the rest are rather than what was
+           shut. Only the keys: a pane somebody moves into a leaf of its
+           own keeps its tab, or there is nothing to drag or close it
+           by. */
         ...(phone ? { media: forced ? 'all' : PHONE, split: 18,
-                      strip: 'scroll', lone: false, closed: 'More:' } : {}),
+                      strip: 'scroll', lone: ['keyboard'],
+                      closed: 'More:' } : {}),
         mode: mode(), on: true,
         onShow: (id, on) =>
         {

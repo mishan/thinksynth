@@ -36,7 +36,7 @@
 
   <button id="start">Start</button>
 
-  <label>Play <select id="mode">
+  <label><span class="say">Play</span> <select id="mode">
     <option value="seq">a sequence</option>
     <option value="patch">a patch</option>
     <option value="piece">a piece</option>
@@ -60,7 +60,7 @@
 
   <!-- Patch mode: one .dsp, played from the keyboard. -->
   <span id="patchmode" class="group">
-    <label>Patch <select id="patch"></select></label>
+    <label><span class="say">Patch</span> <select id="patch"></select></label>
   </span>
 
   <!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
@@ -71,7 +71,7 @@
        hidden by its own `hidden' in the other mode rather than by this
        going away, and the transport is its own strip beside it. -->
   <span id="piecemode" class="group" hidden>
-    <label>Piece <select id="piece"></select></label>
+    <label><span class="say">Piece</span> <select id="piece"></select></label>
   </span>
 
   <!-- The transport, which belongs to neither of those and to both: a

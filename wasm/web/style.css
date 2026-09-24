@@ -942,6 +942,32 @@ body.tiled .panelrows
 
     #tempo { width: 4em; }
 
+    /* The chrome in one row where it can be: the menus' own words are
+       left to a screen reader, since a menu showing "a patch" beside one
+       showing "Ladder" says what each is, and the patch or piece menu
+       takes whatever the row has left rather than a row of its own. A
+       long name is cut short in the menu and whole in its list. */
+    #chrome label > .say
+    {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    #patchmode, #piecemode { flex: 1 1 6em; min-width: 0; }
+
+    #patchmode label, #piecemode label
+    {
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    #patch, #piece { flex: 1 1 auto; min-width: 0; width: 100%; }
+
     /* The keys take the strip they are given, up to a piano's shape
        (keyboard.js), and sit at the bottom of it, where the thumbs are. */
     body.tiled .panebody #keys
@@ -962,11 +988,4 @@ body.tiled .panelrows
     }
 
     .panesroot .panetab { font-size: 0.95em; padding: 0.5em 0.3em 0.5em 0.8em; }
-
-    /* A leaf with one tab is labelled by what is in it: the strip over it
-       is a row saying "Keys" above a keyboard. */
-    .paneleaf:has(> .panetabs > .panetabwrap:only-child) > .panetabs
-    {
-        display: none;
-    }
 }
