@@ -89,6 +89,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -264,9 +265,8 @@ static int runLevel (const string &pluginPath, const char *file, int level,
     }
 
     /* The chanargs the graph declares, for the level that replaces them.
-       Read here, before the audio thread starts: the channel's map is the
-       audio thread's to write once it runs. `amp' is the slider below, which
-       is only ever one value, and a two-value SusPedal means nothing. */
+       `amp' is the slider below, which is only ever one value, and a
+       two-value SusPedal means nothing. */
     vector<string> swappable;
 
     {
@@ -355,11 +355,20 @@ static int runLevel (const string &pluginPath, const char *file, int level,
         }
         else if (level >= LVL_CHANARG && pick < 94)
         {
-            /* A slider drag: the GUI writes an arg the graph is reading. */
-            thArg *amp = synth.getChanArg(chan, "amp");
+            /* A slider drag: the GUI writes an arg the graph is reading.
+               Half of them on the channel's amp, which the mix loads
+               through getBuffer, and half on a chanarg a node reads, which
+               a plugin loads through thArg::operator[] -- while an arg
+               panel lists the channel's map as the swaps below land. */
+            thArg *knob = ((r >> 27) & 1) || swappable.empty()
+                ? synth.getChanArg(chan, "amp")
+                : synth.getChanArg(chan, swappable[(r >> 20) %
+                                                   swappable.size()]);
 
-            if (amp)
-                amp->setValue((float)((r >> 16) % 128));
+            if (knob && knob->type() == thArg::ARG_VALUE && knob->len() == 1)
+                knob->setValue((float)((r >> 16) % 128));
+
+            (void)synth.getChanArgs(chan);
         }
         else if (level >= LVL_CHANARG && pick < 95)
         {
@@ -372,8 +381,8 @@ static int runLevel (const string &pluginPath, const char *file, int level,
             /* And one that changes length, which cannot be done in place:
                this thread points the prototype at the replacement and the
                audio thread swaps it in and re-points the voices reading it.
-               Any chanarg the graph declares, always two values long, so
-               the next one is a swap as well and not the slider path. */
+               Any chanarg the graph declares, one or two values long, so
+               the next one is as likely a swap as the slider path. */
             if (!swappable.empty())
             {
                 const float v[2] = { (float)((r >> 20) % 128), 0.5f };
@@ -381,8 +390,18 @@ static int runLevel (const string &pluginPath, const char *file, int level,
                 synth.setChanArg(chan,
                                  new thArg(swappable[(r >> 16) %
                                                      swappable.size()],
-                                           v, 2));
+                                           v, 1 + ((r >> 27) & 1)));
             }
+
+            /* A name the graph never declared, as a patch sets: an insert
+               into the channel's map rather than a replacement. Four of
+               them, so the map stops growing. */
+            const float w[2] = { 1, 2 };
+
+            synth.setChanArg(chan,
+                             new thArg("stress" +
+                                       std::to_string((r >> 24) & 3),
+                                       w, 2));
         }
         else if (level >= LVL_RELOAD && pick < 99)
         {

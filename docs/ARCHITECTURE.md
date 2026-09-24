@@ -307,15 +307,26 @@ command queue, *not* a sample FIFO):
 So `removeChan`, `loadTree` and `setChanArg` are all "build the replacement,
 enqueue the swap, free what comes back". No locks on either side.
 
+A channel's chanarg map is the one exception to the audio thread doing the
+swapping, and it is the GUI thread's alone. `setChanArg` points the prototype
+at the replacement, queues `SET_CHAN_ARG` carrying both the new arg and the
+one it displaces, and then puts the new one in the map; the audio thread only
+re-points the live voices and retires the old arg. It never reads the map —
+the channel keeps `amp` and `SusPedal` in pointers of their own for it — so
+an arg panel listing it, or a new name inserted into it, races nothing.
+
 ### What this deliberately does not solve
 
 Slider moves. `ArgPanel::deliver` calls `setValue()` from the GUI thread while the audio
 thread reads the same arg — that is the whole point of a parameter control, and
 routing every drag through the queue would be silly. For a single float where
-`len_` is already 1, `setValue` does not reallocate, so the worst case is a torn
-read of one float. That is what most synths live with; the honest fix is an
-atomic or a smoothed parameter rather than a queue. The `setValue(float*, int)`
-overload *can* reallocate and does go through the queue.
+`len_` is already 1, `setValue` does not reallocate and is one relaxed atomic
+store, and both ways a plugin reads a one-value arg — `getBuffer` and
+`operator[]` — are relaxed atomic loads, so a read cannot tear. What this does
+not give is smoothing: a knob still moves in steps, and a smoothed parameter
+is the fix for the zipper noise that makes. The
+`setValue(float*, int)` overload *can* reallocate and does go through the
+queue.
 
 ### It is not hard-RT-safe yet
 

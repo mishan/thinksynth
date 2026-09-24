@@ -134,25 +134,6 @@ Engine
     * insertNote and releaseNote reach `trigger' by name. Per key press.
     * buildSynthTree's recursive recalc walk, above.  (docs/ARCHITECTURE.md)
 
-- Slider values can be torn-read. Deliberate -- routing every drag through the
-  queue would be silly -- but the honest fix is an atomic or a smoothed
-  parameter. ThreadSanitizer reports it as soon as a slider moves a chanarg
-  a node reads: thArg::setValue(float) stores with __atomic_store, and
-  plugins read the same float through thArg::operator[] with a plain load.
-  getBuffer already loads atomically; operator[] doing so for a one-value
-  arg (a relaxed load, a plain mov on x86 and ARM) would close it, if the
-  plugins' inner loops do not mind.
-
-- A channel's chanarg map is written on the audio thread and read on the GUI
-  thread. thMidiChan::setArg, applying a queued swap, does `args_[name] =
-  arg' -- inserting for a new name -- while thSynth::setChanArg's getArg and
-  thSynth::getChanArgs read args_ on the GUI thread, and nothing orders the
-  two. A swap is rare (an array from a patch, or a new name; a single
-  value is written in place), which is why nothing has shown it, but it is a
-  race on a std::map. The prototype's references to the swapped arg moved to
-  the GUI thread for the same reason (thMidiChan::pointPrototype); the map
-  wants the same treatment, or a copy per thread.
-
 - Performance left on the table, measured on grand.dsp and not yet done:
 
     * No flush-to-zero on the audio thread. Every plugin with feedback state
