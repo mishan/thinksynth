@@ -287,9 +287,10 @@ function tile (phone, forced)
 
         /* A way back to the mode's layout that needs no Alt 0: a phone
            has no keys to press it with, and on a desktop it is a chord
-           nobody finds. At the end of the top strip, as a glyph on a
-           phone, where the width is the menus'. */
-        reset: phone ? '\u21ba' : 'Reset layout',
+           nobody finds. At the end of the top strip on a desktop; on a
+           phone it is in the menu, with the closed panes (showMenu). */
+        reset: phone ? null : 'Reset layout',
+        drawer: phone ? $('menupanes') : null,
 
         /* And a divider a finger can take hold of, tabs at their own
            widths in a row that scrolls, no strip over the keys alone,
@@ -315,6 +316,67 @@ function tile (phone, forced)
                 pollParams();
         },
     });
+}
+
+/* A phone's menu, from the ☰ in the header: the panes the tiler has put
+ * away, the reset, and the header's source link and Install and Update
+ * buttons, moved in -- what took a row of the header and a row over the
+ * layout, in height a phone does not have. The ☰ carries a dot while
+ * Install or Update is on offer, since a new version behind a menu is
+ * one nobody takes.
+ */
+function showMenu ()
+{
+    const menu = $('menu');
+    const button = $('menubutton');
+
+    button.hidden = false;
+    $('menusite').append($('site'));
+
+    const open = (on) =>
+    {
+        if (on && !menu.open)
+            menu.showModal();
+        else if (!on && menu.open)
+            menu.close();
+    };
+
+    button.addEventListener('click', () => open(true));
+    $('menuclose').addEventListener('click', () => open(false));
+
+    /* A pane brought back, or the layout reset, is somebody done with
+       the menu: it closes, and they see what they did. */
+    $('menupanes').addEventListener('click', (e) =>
+    {
+        if (e.target instanceof Element && e.target.closest('button'))
+            open(false);
+    });
+
+    $('menureset').addEventListener('click', () =>
+    {
+        panes.reset();
+        open(false);
+    });
+
+    /* A tap on the backdrop, which is the dialog's own box outside the
+       sheet's. */
+    menu.addEventListener('click', (e) =>
+    {
+        const r = menu.getBoundingClientRect();
+
+        if (e.target === menu &&
+            (e.clientX > r.right || e.clientX < r.left ||
+             e.clientY > r.bottom || e.clientY < r.top))
+            open(false);
+    });
+
+    const dot = () =>
+        button.classList.toggle('offer',
+                                !$('install').hidden || !$('update').hidden);
+
+    new MutationObserver(dot).observe($('site'),
+        { attributes: true, attributeFilter: ['hidden'], subtree: true });
+    dot();
 }
 
 /* The layout. Made at the end of init(), because what it adopts has to be
@@ -3048,6 +3110,9 @@ async function init ()
     const phone = forced || matchMedia(PHONE).matches;
 
     tile(phone, forced);
+
+    if (phone)
+        showMenu();
 
     /* And the mode the select is showing, applied to what has just been
        built. The markup cannot be the answer: it is one arrangement and

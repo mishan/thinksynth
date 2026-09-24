@@ -21,6 +21,12 @@
      Start goes once there is a synth to have started. It is what a
      Gtk::HeaderBar is on the desktop. -->
 <div class="row" id="chrome">
+  <!-- A phone's menu: what the header and the row of closed panes over
+       the layout would take height for, a tap away (the dialog below).
+       Shown only on a phone (main.js). -->
+  <button id="menubutton" hidden aria-label="Menu" aria-haspopup="dialog"
+          aria-controls="menu">&#9776;</button>
+
   <h1>thinksynth</h1>
 
   <!-- Where it comes from, and the browser's Install offered as a button:
@@ -32,7 +38,7 @@
     <a id="source" href="https://github.com/mishan/thinksynth"
        title="The source, on GitHub" aria-label="GitHub"><svg
        viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor"
-       d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+       d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="sourceword">The source, on GitHub</span></a>
     <button id="install" hidden>Install</button>
     <button id="update" hidden title="A new version is ready">Update</button>
   </span>
@@ -121,6 +127,25 @@
      and it says anything. Out of the piece section and into a line of its
      own, which is a line it takes only when it has something in it. -->
 <p id="about" hidden></p>
+
+<!-- The phone's menu, from the left. What the tiler has put away is listed
+     in #menupanes (mullion's `drawer'); the source link and the Install
+     and Update buttons are moved in from the header when there is a
+     menu. -->
+<dialog id="menu" aria-label="Menu">
+  <div class="menuhead">
+    <span class="menutitle">thinksynth</span>
+    <button id="menuclose" aria-label="Close menu">&times;</button>
+  </div>
+
+  <h2>Closed panes</h2>
+  <div id="menupanes">
+    <p class="hint menunone">None: every pane is open.</p>
+  </div>
+  <button id="menureset">Reset layout</button>
+
+  <div id="menusite"></div>
+</dialog>
 
 <!-- Where the tiler puts the panes below, when there is a tiler. Empty
      and invisible otherwise, and the page is the document it has always
