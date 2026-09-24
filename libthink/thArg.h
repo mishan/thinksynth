@@ -211,7 +211,14 @@ public:
         
         else if (len_ == 1)
         {
-            return values_[0];
+            /* A knob, which setValue(float) stores to from the GUI thread
+               while a plugin reads it here: the same relaxed load getBuffer
+               does, and a plain mov on x86 and ARM. */
+            float held;
+
+            __atomic_load(&values_[0], &held, __ATOMIC_RELAXED);
+
+            return held;
         }
         else if (i < len_) {
             return values_[i];
