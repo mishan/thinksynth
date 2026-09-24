@@ -463,6 +463,40 @@ include(Layout)
 
 enable_testing()
 
+# Every test on Linux runs under scripts/headless.sh: its own Xvfb and its
+# own PipeWire with nothing behind it but a null sink. editorcheck and
+# composercheck build real windows, and on a desktop they would open them
+# there, over whatever is being worked on; anything that opens an audio
+# stream would play it through the speakers. Each test gets its own
+# servers, so `ctest -j' is as safe as a serial run.
+#
+# The default follows whether Xvfb is installed, since without it the
+# script only hides the display. Set before the first add_test, because
+# CMAKE_TEST_LAUNCHER only reaches the tests created after it -- and only
+# on CMake 3.29 or later, which is when the TEST_LAUNCHER property came in.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+  find_program(THINK_XVFB Xvfb)
+  if(THINK_XVFB)
+    set(_think_headless_default ON)
+  else()
+    set(_think_headless_default OFF)
+  endif()
+  option(THINK_TEST_HEADLESS
+         "Run tests on a private Xvfb and a silent private PipeWire"
+         ${_think_headless_default})
+  if(THINK_TEST_HEADLESS)
+    if(CMAKE_VERSION VERSION_LESS 3.29)
+      message(WARNING
+          "THINK_TEST_HEADLESS needs CMake 3.29 or later; tests will open "
+          "windows on the desktop and play through its audio. Run ctest "
+          "under scripts/headless.sh instead.")
+    else()
+      list(PREPEND CMAKE_TEST_LAUNCHER
+           "${PROJECT_SOURCE_DIR}/scripts/headless.sh")
+    endif()
+  endif()
+endif()
+
 # Outside the THINK_BUILD_HARNESSES gate below, and outside any platform test,
 # because it guards two committed files that every checkout contains whichever
 # platform it is on: src/thinksynth.ico for Windows and src/thinksynth.icns for

@@ -7,7 +7,9 @@
 #
 # editorcheck and composercheck are the exceptions to "no display": they build
 # real widgets and skip themselves loudly without one, which is why CI runs the
-# Linux suite under xvfb-run.
+# Linux suite under xvfb-run. On Linux every test here runs under
+# scripts/headless.sh as well (THINK_TEST_HEADLESS), so on a desktop those
+# widgets go to a private Xvfb rather than onto the screen.
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
