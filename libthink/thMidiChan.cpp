@@ -65,6 +65,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
     choke_ = false;
     monoCount_ = 0;
     argSustain_ = NULL;
+    amp_ = NULL;
 
     /* See describe(). Until then the guard still drops the voice; it just
        has nothing to say and nowhere to count. */
@@ -96,6 +97,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
         a->setWidgetType(thArg::SLIDER);
 
         args_[string("amp")] = a;
+        amp_ = a;
     }
 
     /* The send, described like amp so a panel can draw it. */
@@ -342,27 +344,20 @@ void thMidiChan::retireNote (thMidiNote *note, RetireQueue *retire)
         delete note;
 }
 
-void thMidiChan::setArg (thArg *arg, RetireQueue *retire)
+void thMidiChan::setArg (thArg *arg, thArg *old, RetireQueue *retire)
 {
-    if (arg == NULL)
+    if (arg == NULL || arg == old)
     {
         return;
     }
-
-    thArg *oldArg = args_[arg->name()];
-
-    /* Guard self-assignment: deleting and then storing the same pointer back
-       would leave the map holding freed memory. */
-    if (oldArg == arg)
-    {
-        return;
-    }
-
-    args_[arg->name()] = arg;
 
     if (arg->name() == "SusPedal")
     {
         argSustain_ = arg;
+    }
+    else if (arg->name() == "amp")
+    {
+        amp_ = arg;
     }
 
     /* Node args hold raw thArg* into this map (see assignChanArgPointers),
@@ -374,24 +369,24 @@ void thMidiChan::setArg (thArg *arg, RetireQueue *retire)
        this one already. Only the old pointers move: a pointer compare an arg,
        and no lookups. */
     for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
-        repoint(i->second, oldArg, arg);
+        repoint(i->second, old, arg);
 
     for (NoteList::iterator i = decaying_.begin(); i != decaying_.end(); ++i)
-        repoint(*i, oldArg, arg);
+        repoint(*i, old, arg);
 
     for (NoteList::iterator i = fading_.begin(); i != fading_.end(); ++i)
-        repoint(*i, oldArg, arg);
+        repoint(*i, old, arg);
 
     /* Only now is nothing left pointing at it. */
-    if (oldArg)
+    if (old)
     {
         thRetired item;
 
         item.kind = thRetired::ARG;
-        item.arg = oldArg;
+        item.arg = old;
 
         if (retire == NULL || !retire->push(item))
-            delete oldArg;
+            delete old;
     }
 }
 
@@ -963,7 +958,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
     int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
 
-    amp = getArg("amp");
+    amp = amp_;
 
     if (amp == NULL)
     {

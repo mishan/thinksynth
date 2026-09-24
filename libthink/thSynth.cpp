@@ -194,7 +194,9 @@ thSynth::~thSynth (void)
     while (commands_.pop(cmd))
     {
         delete cmd.note;
-        delete cmd.arg;
+
+        /* The channel's map holds `arg' already; see thSynthCommand. */
+        delete cmd.replaced;
 
         if (cmd.channel)
             doomed.push_back(cmd.channel);
@@ -443,7 +445,7 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
                            retired_.push(item); }
         if (cmd.channel) { item.kind = thRetired::CHANNEL; item.channel = cmd.channel;
                            retired_.push(item); }
-        if (cmd.arg)     { item.kind = thRetired::ARG;     item.arg = cmd.arg;
+        if (cmd.replaced) { item.kind = thRetired::ARG;    item.arg = cmd.replaced;
                            retired_.push(item); }
         return;
     }
@@ -542,14 +544,14 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         case thSynthCommand::SET_CHAN_ARG:
             if (chan)
             {
-                chan->setArg(cmd.arg, &retired_);
+                chan->setArg(cmd.arg, cmd.replaced, &retired_);
             }
-            else if (cmd.arg)
+            else if (cmd.replaced)
             {
                 item.kind = thRetired::ARG;
-                item.arg = cmd.arg;
+                item.arg = cmd.replaced;
                 if (!retired_.push(item))
-                    delete cmd.arg;
+                    delete cmd.replaced;
             }
             break;
     }
@@ -1159,6 +1161,11 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
     thArg *existing = guiChannels_[channum]->getArg(arg->name());
 
+    /* The arg that is there already, handed back: nothing to replace, and
+       deleting it would free the channel's own. */
+    if (arg == existing)
+        return;
+
     /* Fast path: changing the value of an arg that is already a single float.
      *
      * thArg::setValue does not reallocate in that case, so it is one relaxed
@@ -1205,9 +1212,18 @@ void thSynth::setChanArg (int channum, thArg *arg)
     cmd.type = thSynthCommand::SET_CHAN_ARG;
     cmd.chan = channum;
     cmd.arg = arg;
+    cmd.replaced = existing;
 
     if (!postCommand(cmd))
+    {
         guiChannels_[channum]->pointPrototype(name, existing);
+        return;
+    }
+
+    /* And the map, which only this thread reads, so the next getChanArg
+       finds the replacement whether or not the audio thread has installed
+       it yet. `existing' stays alive until the audio thread retires it. */
+    guiChannels_[channum]->putArg(arg);
 
 }
 

@@ -130,9 +130,13 @@ public:
     int setNoteArg (int note, const string &name, float value);
     int setNoteArg (int note, const string &name, const float *value, int len);
 
-    /* NB: deliberately not args_[argName] -- map::operator[] inserts a NULL on
-       every miss, which allocates on the audio thread and leaves NULLs behind
-       for every iteration site to trip over. */
+    /* GUI thread, like everything else that reads args_: the audio thread
+       reaches `amp' and `SusPedal' through its own pointers and never looks
+       in the map, which the GUI thread changes (see putArg).
+
+       NB: deliberately not args_[argName] -- map::operator[] inserts a NULL on
+       every miss and leaves NULLs behind for every iteration site to trip
+       over. */
     thArg *getArg (const string &argName) const {
         const thArgMap::const_iterator i = args_.find(argName);
         if (i != args_.end()) return i->second;
@@ -144,9 +148,15 @@ public:
        it; the audio thread never reads it. */
     void pointPrototype (const string &name, thArg *arg);
 
-    /* Audio thread: replaces the arg of the same name and retires the old one
-       rather than deleting it under the GUI thread's feet. */
-    void setArg (thArg *arg, RetireQueue *retire);
+    /* GUI thread, once a SET_CHAN_ARG is queued: `arg' replaces the one of
+       its name in the map, or joins it. The one it displaces is the
+       command's to retire, so it is not deleted here. */
+    void putArg (thArg *arg) { args_[arg->name()] = arg; }
+
+    /* Audio thread: `arg' replaces `old' -- NULL for a new name -- in every
+       voice, and `old' is retired rather than deleted under the GUI thread's
+       feet. The map was swapped by putArg already. */
+    void setArg (thArg *arg, thArg *old, RetireQueue *retire);
 
     /* Audio thread: installs the graph that runs on this channel's summed
      * voices, or NULL to take one off, and retires whatever was there.
@@ -159,6 +169,7 @@ public:
        reads it to reach the effect's chanargs; the audio thread runs it. */
     thChanEffect *effect (void) const { return effect_; }
 
+    /* GUI thread. See getArg. */
     const thArgMap &args (void) const { return args_; }
 
     /* The fraction of this channel's output, after its effect, that goes to
@@ -362,7 +373,10 @@ private:
     float monoStack_[TH_MONO_STACK];
     float monoLevels_[TH_MONO_STACK];
     int monoCount_;
+    /* The map's `SusPedal' and `amp', held apart from it for the audio
+       thread, which may not read args_. */
     thArg *argSustain_; /* for the sustain pedal */
+    thArg *amp_;
 
     unsigned long serial_;
 

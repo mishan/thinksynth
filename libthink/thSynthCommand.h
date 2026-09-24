@@ -58,9 +58,18 @@ struct thSynthCommand {
     thArg *arg;
     thProbe *probe;
 
+    /* SET_CHAN_ARG's other half: the arg of that name `arg' displaces, or
+       NULL. The GUI thread swaps the channel's map once the command is
+       queued, so from then on the map owns `arg' and the command owns this
+       -- the audio thread retires it once no voice points at it, and a
+       command never applied deletes it. A command that could not be queued
+       owns `arg' instead, and the map was never touched. */
+    thArg *replaced;
+
     thSynthCommand (void)
         : type(NOTE_OFF), chan(0), noteId(0), probeSlot(-1),
-          note(NULL), channel(NULL), effect(NULL), arg(NULL), probe(NULL) { }
+          note(NULL), channel(NULL), effect(NULL), arg(NULL), probe(NULL),
+          replaced(NULL) { }
 };
 
 /* Audio thread -> GUI thread.
@@ -85,6 +94,14 @@ struct thRetired {
     thChanEffect *effect;
     thArg *arg;
     thProbe *probe;
+
+    /* SET_CHAN_ARG's other half: the arg of that name `arg' displaces, or
+       NULL. The GUI thread swaps the channel's map once the command is
+       queued, so from then on the map owns `arg' and the command owns this
+       -- the audio thread retires it once no voice points at it, and a
+       command never applied deletes it. A command that could not be queued
+       owns `arg' instead, and the map was never touched. */
+    thArg *replaced;
 
     thRetired (void)
         : kind(NOTE), note(NULL), channel(NULL), effect(NULL), arg(NULL),
