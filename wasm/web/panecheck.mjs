@@ -551,18 +551,18 @@ try
        a tab before that one moves everything after it up. Three tabs with
        the middle one in front, and the first closed: what was in front is
        still in front, one place to its left. */
-    await page.evaluate(() =>
+    /* Put up as one leaf rather than closed and presented: a pane
+       presented goes back where it was, which is three leaves. */
+    const was = await page.evaluate(() =>
     {
-        const three = ['keyboard', 'paramview', 'detail'];
+        const before = window.solo.pane('layout');
 
-        for (const id of three)
-            window.solo.pane('close', id);
-
-        for (const id of three)
-            window.solo.pane('present', id);
-
-        window.solo.pane('present', 'paramview');
+        window.solo.pane('setLayout',
+                         { tabs: ['keyboard', 'paramview', 'detail'],
+                           active: 1 });
         window.solo.pane('close', 'keyboard');
+
+        return before;
     });
     await page.waitForTimeout(150);
 
@@ -570,6 +570,10 @@ try
               document.getElementById('pane-paramview').checkVisibility() &&
               !document.getElementById('pane-detail').checkVisibility()),
           'closing the tab before the one in front leaves it in front');
+
+    await page.evaluate((before) => window.solo.pane('setLayout', before),
+                        was);
+    await page.waitForTimeout(150);
 
     /* ---- and the box a message points at ---- */
 
@@ -726,15 +730,40 @@ try
           'a phone draws a strip over a pane alone in its leaf, and none ' +
           `over the keys: ${JSON.stringify(stuck)}`);
 
-    await phone.click('#panes .panereset > button');
+    await phone.tap('#menubutton');
+    await phone.tap('#menureset');
     await phone.waitForTimeout(200);
 
     const reset = await strips();
 
     check(JSON.stringify(Object.keys(reset)) ===
           JSON.stringify(['paramview+nodeview', 'keyboard']),
-          'and Reset layout puts the mode\'s own layout back: ' +
-          Object.keys(reset).join(', '));
+          'and Reset layout, in the menu, puts the mode\'s own layout ' +
+          `back: ${Object.keys(reset).join(', ')}`);
+
+    /* And the panes put away are in the menu, not a row over the
+       layout: one tap brings one back and closes the menu over it. */
+    const menu = await phone.evaluate(() => ({
+        open: document.getElementById('menu').open,
+        row: document.querySelector('#panes .panedrawer') !== null,
+        listed: [...document.querySelectorAll('#menupanes .paneclosed')]
+            .map((b) => b.id.replace(/^panereopen-/, '')).join(' '),
+        site: document.getElementById('site').closest('#menu') !== null,
+    }));
+
+    check(!menu.open && !menu.row && menu.listed === 'patchsource detail' &&
+          menu.site,
+          'a phone lists the closed panes in its menu and not over the ' +
+          `layout, with the source link: ${menu.listed}`);
+
+    await phone.tap('#menubutton');
+    await phone.tap('#panereopen-detail');
+    await phone.waitForTimeout(200);
+
+    check(await phone.evaluate(() =>
+              !document.getElementById('menu').open &&
+              document.getElementById('panetab-detail') !== null),
+          'and a pane tapped there is back, with the menu closed');
 
     await touch.close();
 
