@@ -968,6 +968,12 @@ body.tiled .panelrows
 
     #patch, #piece { flex: 1 1 auto; min-width: 0; width: 100%; }
 
+    /* And until Start, which is the one thing to press first, the menu
+       is not in the row: Start has the room it would have taken, and the
+       menu is where it was once Start has gone. */
+    #chrome:has(> #start:not([hidden])) > #patchmode,
+    #chrome:has(> #start:not([hidden])) > #piecemode { display: none; }
+
     /* The keys take the strip they are given, up to a piano's shape
        (keyboard.js), and sit at the bottom of it, where the thumbs are. */
     body.tiled .panebody #keys
@@ -1010,7 +1016,7 @@ body.tiled .panelrows
 
     .panesroot .paneshut,
     .panesroot .paneclosed,
-    .panesroot .panereset
+    .panesroot .panereset > button
     {
         min-height: 30px;
     }

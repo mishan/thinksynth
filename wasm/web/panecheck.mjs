@@ -726,7 +726,7 @@ try
           'a phone draws a strip over a pane alone in its leaf, and none ' +
           `over the keys: ${JSON.stringify(stuck)}`);
 
-    await phone.click('#panes .panereset');
+    await phone.click('#panes .panereset > button');
     await phone.waitForTimeout(200);
 
     const reset = await strips();
