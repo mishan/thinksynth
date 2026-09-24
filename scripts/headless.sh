@@ -15,8 +15,10 @@
 #   scripts/headless.sh node wasm/web/pagetest.mjs build-web
 #
 # ctest does this by itself on Linux (THINK_TEST_HEADLESS in the top-level
-# CMakeLists.txt); calling it by hand is for the web tests, and for anything
-# else that opens a window or an AudioContext.
+# CMakeLists.txt), and so do the browser tests in wasm/web, which run
+# themselves again under it (wasm/web/headless.mjs) unless
+# THINK_TEST_HEADLESS=0. Calling it by hand is for anything else that opens
+# a window or an AudioContext.
 #
 # What the command gets:
 #

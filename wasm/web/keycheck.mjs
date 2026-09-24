@@ -36,6 +36,9 @@
  * Exit status is the number of failures.
  */
 
+/* Under scripts/headless.sh unless THINK_TEST_HEADLESS=0: see headless.mjs. */
+import './headless.mjs';
+
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';

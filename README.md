@@ -55,8 +55,10 @@ gate builds real widgets. On Linux `ctest` runs every test under
 whose only sink is a null one, so a test run opens no windows on the desktop
 and plays nothing aloud. `pipewire` and `wireplumber` complete that; without
 them tests get no audio server at all. `-DTHINK_TEST_HEADLESS=OFF` turns it
-off. The browser tests are run by hand, so prefix them yourself:
-`scripts/headless.sh node wasm/web/pagetest.mjs build-web`.
+off. The browser tests in `wasm/web` are run by hand with `node`, and put
+themselves under `scripts/headless.sh` the same way (`wasm/web/headless.mjs`);
+`THINK_TEST_HEADLESS=0 node wasm/web/pagetest.mjs build-web` runs one on the
+desktop instead, to watch or hear it.
 
 Useful options:
 
