@@ -223,8 +223,24 @@ const PIECE_LAYOUT = {
 const PHONE = '(pointer: coarse) and (max-width: 40em), ' +
               '(pointer: coarse) and (max-height: 30em)';
 
-const PHONE_LAYOUTS = {
-    patch: { dir: 'col', size: [0.6, 0.4], kids: [
+/* The keys' strip in pixels rather than as a share: what a piano's shape
+   lets the keys use at a phone's width (keyboard.js, fit) plus the octave
+   row is about 250px, and a share that fits one screen does not fit the
+   next -- 0.4 left 70px empty above the keys at 412x915, and 0.32 took a
+   quarter of them away at 360x780. Made a share of the room there is when
+   the tiler is made, and no more than 0.4. */
+const KEYS_STRIP = 250;
+
+const keysShare = () =>
+{
+    const room = $('panes').getBoundingClientRect();
+    const tall = window.innerHeight - Math.max(0, room.top);
+
+    return Math.min(0.4, KEYS_STRIP / Math.max(tall, KEYS_STRIP));
+};
+
+const phoneLayouts = (keys = keysShare()) => ({
+    patch: { dir: 'col', size: [1 - keys, keys], kids: [
         { tabs: ['paramview', 'nodeview'] },
         { tabs: ['keyboard'] }] },
 
@@ -233,10 +249,10 @@ const PHONE_LAYOUTS = {
 
     /* The roll in front: what the piece is doing is what a phone is
        for watching; the knobs are a tab away. */
-    piece: { dir: 'col', size: [0.6, 0.4], kids: [
+    piece: { dir: 'col', size: [1 - keys, keys], kids: [
         { tabs: ['roll', 'knobs', 'seqview', 'channelbox', 'paramview'] },
         { tabs: ['keyboard'] }] },
-};
+});
 
 /* And held sideways, where there is no height to split: one tabbed area,
    the keys in front where a mode is for playing them. */
@@ -265,15 +281,26 @@ function tile (phone, forced)
         store: sideways ? 'thinksynth:panes:touch-sideways'
              : phone ? 'thinksynth:panes:touch' : 'thinksynth:panes:solo',
         layouts: sideways ? SIDEWAYS_LAYOUTS
-               : phone ? PHONE_LAYOUTS
+               : phone ? phoneLayouts()
                : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
                    seq: SEQ_LAYOUT },
 
+        /* A way back to the mode's layout that needs no Alt 0: a phone
+           has no keys to press it with, and on a desktop it is a chord
+           nobody finds. At the end of the top strip on a desktop; on a
+           phone it is in the menu, with the closed panes (showMenu). */
+        reset: phone ? null : 'Reset layout',
+        drawer: phone ? $('menupanes') : null,
+
         /* And a divider a finger can take hold of, tabs at their own
-           widths in a row that scrolls, no strip over a lone tab, and a
-           drawer that is where the rest are rather than what was shut. */
-        ...(phone ? { media: forced ? 'all' : PHONE, split: 18,
-                      strip: 'scroll', lone: false, closed: 'More:' } : {}),
+           widths in a row that scrolls, no strip over the keys alone,
+           and a drawer that is where the rest are rather than what was
+           shut. Only the keys: a pane somebody moves into a leaf of its
+           own keeps its tab, or there is nothing to drag or close it
+           by. */
+        ...(phone ? { media: forced ? 'all' : PHONE, split: 10,
+                      strip: 'scroll', lone: ['keyboard'],
+                      closed: 'More:' } : {}),
         mode: mode(), on: true,
         onShow: (id, on) =>
         {
@@ -289,6 +316,67 @@ function tile (phone, forced)
                 pollParams();
         },
     });
+}
+
+/* A phone's menu, from the ☰ in the header: the panes the tiler has put
+ * away, the reset, and the header's source link and Install and Update
+ * buttons, moved in -- what took a row of the header and a row over the
+ * layout, in height a phone does not have. The ☰ carries a dot while
+ * Install or Update is on offer, since a new version behind a menu is
+ * one nobody takes.
+ */
+function showMenu ()
+{
+    const menu = $('menu');
+    const button = $('menubutton');
+
+    button.hidden = false;
+    $('menusite').append($('site'));
+
+    const open = (on) =>
+    {
+        if (on && !menu.open)
+            menu.showModal();
+        else if (!on && menu.open)
+            menu.close();
+    };
+
+    button.addEventListener('click', () => open(true));
+    $('menuclose').addEventListener('click', () => open(false));
+
+    /* A pane brought back, or the layout reset, is somebody done with
+       the menu: it closes, and they see what they did. */
+    $('menupanes').addEventListener('click', (e) =>
+    {
+        if (e.target instanceof Element && e.target.closest('button'))
+            open(false);
+    });
+
+    $('menureset').addEventListener('click', () =>
+    {
+        panes.reset();
+        open(false);
+    });
+
+    /* A tap on the backdrop, which is the dialog's own box outside the
+       sheet's. */
+    menu.addEventListener('click', (e) =>
+    {
+        const r = menu.getBoundingClientRect();
+
+        if (e.target === menu &&
+            (e.clientX > r.right || e.clientX < r.left ||
+             e.clientY > r.bottom || e.clientY < r.top))
+            open(false);
+    });
+
+    const dot = () =>
+        button.classList.toggle('offer',
+                                !$('install').hidden || !$('update').hidden);
+
+    new MutationObserver(dot).observe($('site'),
+        { attributes: true, attributeFilter: ['hidden'], subtree: true });
+    dot();
 }
 
 /* The layout. Made at the end of init(), because what it adopts has to be
@@ -3023,6 +3111,9 @@ async function init ()
 
     tile(phone, forced);
 
+    if (phone)
+        showMenu();
+
     /* And the mode the select is showing, applied to what has just been
        built. The markup cannot be the answer: it is one arrangement and
        there are three modes, and the page opens on whichever one the
@@ -3052,7 +3143,7 @@ async function init ()
     if (phone)
         matchMedia(SIDEWAYS).addEventListener('change', (e) =>
             panes.setLayouts(
-                e.matches ? SIDEWAYS_LAYOUTS : PHONE_LAYOUTS,
+                e.matches ? SIDEWAYS_LAYOUTS : phoneLayouts(),
                 { store: e.matches ? 'thinksynth:panes:touch-sideways'
                                    : 'thinksynth:panes:touch' }));
 }
