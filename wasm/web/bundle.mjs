@@ -91,6 +91,12 @@ await esbuild.build({
     external: ['./thinkweb.js'],
     format: 'esm',
     target: ['es2022'],
+
+    /* Minified: about half the bytes, and so half the precache and half
+       the parse on a phone. Gzip already takes most of the transfer, so
+       the download saves less -- 172 KB to 107 KB for sourcebox.js. The
+       source maps give devtools the original names back. */
+    minify: true,
     sourcemap: true,
     outdir: out,
     logLevel: 'warning',
