@@ -66,7 +66,7 @@ MidiMap::MidiMap (thSynth *argsynth)
     buttonsHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
     buttonsHBox_->set_homogeneous(true);
 
-    channelLbl_ = manage(new Gtk::Label("Midi Channel"));
+    channelLbl_ = manage(new Gtk::Label("MIDI Channel"));
     channelAdj_ = Gtk::Adjustment::create(1, 1, 16);
     channelSpinBtn_ = manage(new Gtk::SpinButton(channelAdj_, 1, 0));
     channelSpinBtn_->signal_value_changed().connect(
@@ -91,12 +91,17 @@ MidiMap::MidiMap (thSynth *argsynth)
     maxSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onMaxChanged));
 
+    /* Room for a range's top end at four decimals: "127.0000" was cut to
+       "127.000" in the width GTK gives a spin button by default. */
+    minSpinBtn_->set_width_chars(9);
+    maxSpinBtn_->set_width_chars(9);
+
     expLbl_ = manage(new Gtk::Label("Exponential"));
     expCheckBtn_ = manage(new Gtk::CheckButton);
     expCheckBtn_->signal_toggled().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onExpToggled));
 
-    addBtn_ = manage(new Gtk::Button("Add/Modify  Connection"));
+    addBtn_ = manage(new Gtk::Button("Add/Modify Connection"));
     addBtn_->signal_clicked().connect(sigc::mem_fun(*this,
                                                    &MidiMap::onAddButton));
     delBtn_ = manage(new Gtk::Button("Remove Connection"));
@@ -158,7 +163,16 @@ MidiMap::MidiMap (thSynth *argsynth)
     connectScroll_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     connectScroll_.set_size_request(700, 128);
 
-    connectFrame_->set_child(connectScroll_);
+    /* A column view with no rows is a header over a blank box, which
+       reads as broken rather than as empty; this says what it is for. */
+    connectEmpty_.set_text("No controllers routed yet. Pick a source and a "
+                           "parameter below, then Add.");
+    connectEmpty_.add_css_class("dim-label");
+    connectEmpty_.set_can_target(false);
+    connectOverlay_.set_child(connectScroll_);
+    connectOverlay_.add_overlay(connectEmpty_);
+
+    connectFrame_->set_child(connectOverlay_);
 
     connectModel_ = Gio::ListStore<MidiMapRow>::create();
     connectSelection_ = Gtk::SingleSelection::create(connectModel_);
@@ -275,8 +289,19 @@ void MidiMap::fillDestChanCombo (void)
         chanStr << i + 1 << ": ";
         idStr << i;
 
-        destChanCombo_->append(idStr.str(), chanStr.str() +
-                thUtil::basename(patch->doc.dsp.c_str()));
+        /* The patch, as the channel tabs name it; the DSP when the channel
+           has no patch file. The list of connections above names the
+           same thing. */
+        string name = patch->filename.empty()
+            ? thUtil::basename(patch->doc.dsp.c_str())
+            : thUtil::basename(patch->filename.c_str());
+        const string ext = ".patch";
+
+        if (name.size() > ext.size() &&
+            name.compare(name.size() - ext.size(), ext.size(), ext) == 0)
+            name.erase(name.size() - ext.size());
+
+        destChanCombo_->append(idStr.str(), chanStr.str() + name);
 
         if (first)
         {
@@ -356,10 +381,13 @@ void MidiMap::fillDestArgCombo (int chan)
 
     rebuilding_ = false;
 
+    /* Through the same path as a pick from the combo, so the spinners
+       take the arg's range too. Setting only selectedMin_ and selectedMax_
+       left them at the 0..0 they were built with: the window opened with
+       Minimum and Maximum both 0 and neither able to move. */
     if (selectedArg_)
     {
-        selectedMin_ = selectedArg_->min();
-        selectedMax_ = selectedArg_->max();
+        onDestArgComboChanged(selectedArg_);
         setDestArgCombo(chan);
     }
 
@@ -428,6 +456,8 @@ void MidiMap::populateConnections (void)
                                                 instrument,
                                                 connection->argName()));
     }
+
+    connectEmpty_.set_visible(connectModel_->get_n_items() == 0);
 }
 
 

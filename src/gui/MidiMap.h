@@ -121,6 +121,8 @@ protected:
 
     Gtk::Frame *connectFrame_;
     Gtk::ScrolledWindow connectScroll_;
+    Gtk::Overlay connectOverlay_;
+    Gtk::Label connectEmpty_;
     Gtk::ColumnView connectView_;
     Glib::RefPtr<Gio::ListStore<MidiMapRow> > connectModel_;
     Glib::RefPtr<Gtk::SingleSelection> connectSelection_;
