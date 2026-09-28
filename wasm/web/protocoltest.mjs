@@ -48,6 +48,14 @@
  * see both -- the count, and which command. A hazard that is hidden is
  * worse than one that is shown.
  *
+ * Then a third peer that joins late: ninety seconds into a two-minute run,
+ * with knobs moving and the tempo changing on either side of its arrival.
+ * It asks the relay for the run -- the start and the stamped commands since
+ * -- steps its transport from the room's origin up to the present without a
+ * sound, and plays on from there, moving a knob of its own once it has. Its
+ * tape, the whole of it and not only the part after the join, must be the
+ * room's.
+ *
  * Exit status is the number of failures.
  */
 
@@ -58,8 +66,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { drain, tapeBefore, tapeLine } from '../tape.mjs';
 import { AudioClock, RelayClock, TransportClock, frameOfRelayMs }
     from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
-    from './commands.js';
+import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp, isLate,
+         replayable } from './commands.js';
 import { firstDifference, instruments, pieces, reference }
     from './piececheck.mjs';
 import { loadPiece, schedule } from './render.mjs';
@@ -91,6 +99,23 @@ const PEERS = [
     { name: 'B', rate: 44100, windowlen: 1024, block: 1024, phase: 7.3,
       perfOffset: 250000, startFrame: 52224 },
 ];
+
+/* The late joiner: a third rate and a block of its own, and a context that
+   starts counting when it arrives. */
+const JOINER = { name: 'C', rate: 44100, windowlen: 256, block: 128,
+                 phase: 3.1, perfOffset: 77777, startFrame: 0 };
+
+/* When it arrives, in transport seconds, and how long the run is. */
+const JOIN_AT = 90;
+const LATE_SECONDS = 120;
+
+/* How long, from Start, it may take to catch up, in milliseconds. */
+const CATCH_UP_WITHIN = 3000;
+
+/* The pieces it joins: the busiest, since the catching up is stepping
+   through everything they composed. */
+const LATE_PIECES = ['tide.gen', 'warehouse.gen', 'orrery.gen',
+                     'airports.gen'];
 
 /* The relay's clock against the simulation's, in milliseconds: nothing a
    peer can see except through a ping. */
@@ -210,6 +235,12 @@ class Peer
         this.maker = new Maker(spec.name, () => this.transportNow());
         this.late = [];                 /* commands the page saw were late */
         this.listens = new Set();
+        this.relay = null;
+
+        /* False for a late joiner until it has caught up: what arrives is
+           kept, as the page keeps it before Start (jam.js). */
+        this.live = true;
+        this.early = [];
 
         for (let c = 0; c < 16; c++)
             if (M._tw_listens(c))
@@ -219,7 +250,13 @@ class Peer
            ops go through render.mjs's schedule(), which is the one place
            the op numbers are written down on this side. */
         this.synth = {
-            begin: (frame, from = 0) => M._tw_begin(frame, from),
+            begin: (frame, from = 0, catchUp = false) =>
+                M._tw_begin(frame, from, catchUp ? 1 : 0),
+
+            /* host.js posts a batch as one message so that it lands
+               between two renders; here every call is already between
+               two renders. */
+            batch: (fn) => fn(),
             transportAt: (op, at, value = 0) =>
                 schedule(M, { op, at, value }),
             knob: (knob, value, at) =>
@@ -338,10 +375,23 @@ class Peer
         if (!this.dedupe.accept(cmd))
             return;
 
+        if (!this.live)
+        {
+            if (replayable(cmd))
+                this.early.push(cmd);
+
+            return;
+        }
+
         if (isLate(cmd, this.transportNow()))
             this.late.push(cmd);
 
-        return apply(cmd, {
+        return apply(cmd, this.applying());
+    }
+
+    applying ()
+    {
+        return {
             synth: this.synth,
             frameOfOrigin: (ms) => this.frameOfOrigin(ms),
             listens: this.listens,
@@ -352,16 +402,46 @@ class Peer
                 this.M.ccall('tw_piece_load', 'number', ['string', 'number'],
                              [this.gen, c.seed]);
             },
-        });
+        };
     }
 
-    /* A command of this peer's own: applied here, sent to everyone else. */
+    /* A command of this peer's own: applied here, sent to everyone else,
+       and a copy to the relay for whoever joins later (jam.js, send). */
     async send (cmd, reliable = false)
     {
         await this.receive(cmd);
 
         for (const other of this.others)
             this.net.send(() => other.receive(cmd), reliable);
+
+        if (this.relay !== null)
+            this.relay.record(cmd);
+    }
+
+    /* A late joiner's Start: the run from the relay, merged with what the
+       mesh brought meanwhile, stepped through (jam.js, joinRun). */
+    joinRun ()
+    {
+        return new Promise((resolve) =>
+        {
+            this.relay.catchUp(async (run) =>
+            {
+                const byKey = new Map();
+
+                for (const c of [...run.log, ...this.early])
+                    byKey.set(`${c.from}#${c.seq}`, c);
+
+                this.early = [];
+
+                for (const c of [run.start, ...byKey.values()])
+                    this.dedupe.accept(c);
+
+                await catchUp(run.start, [...byKey.values()],
+                              this.applying());
+                this.live = true;
+                resolve(run);
+            });
+        });
     }
 }
 
@@ -371,6 +451,36 @@ class Relay
     {
         this.sim = sim;
         this.net = net;
+        this.run = null;
+    }
+
+    /* A peer's copy of a command it sent, as the relay keeps it
+       (relay.mjs): a start begins a run, a stop ends it, anything else
+       stamped is logged. Over the room socket, so delayed and never
+       lost. */
+    record (cmd)
+    {
+        this.net.send(() =>
+        {
+            if (cmd.type === 'transport' && cmd.op === 'start')
+                this.run = { start: cmd, log: [] };
+            else if (cmd.type === 'transport' && cmd.op === 'stop')
+                this.run = null;
+            else if (this.run !== null && replayable(cmd))
+                this.run.log.push(cmd);
+        }, true);
+    }
+
+    /* A late joiner's request, and the run as it stands when it lands. */
+    catchUp (answer)
+    {
+        this.net.send(() =>
+        {
+            const run = this.run === null
+                ? null : { start: this.run.start, log: [...this.run.log] };
+
+            this.net.send(() => answer(run), true);
+        }, true);
     }
 
     now ()
@@ -512,17 +622,7 @@ async function session (createThinkWeb, piece, dsps, network, seed)
        piece's KNOB panel, which is where what a knob is now lives
        (src/KnobPanel.cpp). A hidden knob has no row, so the first row is
        the first knob anyone can move. */
-    const { M } = peers[0];
-    let knob = null;
-
-    if (M._tw_panel_open(1 /* thPanel::KNOB */, 0, 0) !== 0)
-    {
-        const [row] = JSON.parse(M.UTF8ToString(M._tw_panel_json())).rows;
-
-        if (row !== undefined)
-            knob = { knob: Number(row.id), name: row.knob,
-                     min: row.lo, max: row.hi };
-    }
+    const knob = firstKnob(peers[0].M);
 
     peers[0].startRendering();
     peers[1].startRendering();
@@ -532,6 +632,168 @@ async function session (createThinkWeb, piece, dsps, network, seed)
     const { stamped, stopAt } = await play(sim, relay, peers, knob, 4242);
 
     return { ok: true, peers, knob, stamped, stopAt, net, relay };
+}
+
+/* The first shown knob, as the page reads it (see session). */
+function firstKnob (M)
+{
+    if (M._tw_panel_open(1 /* thPanel::KNOB */, 0, 0) === 0)
+        return null;
+
+    const [row] = JSON.parse(M.UTF8ToString(M._tw_panel_json())).rows;
+
+    return row === undefined ? null
+                             : { knob: Number(row.id), name: row.knob,
+                                 min: row.lo, max: row.hi };
+}
+
+/* Two peers playing, and a third arriving JOIN_AT seconds in. Knobs move
+ * from both sides before and after it arrives, the tempo changes once
+ * either side of it, and once it has caught up it moves the knob too --
+ * the joiner as a musician rather than a listener.
+ */
+async function lateSession (createThinkWeb, piece, dsps, seed)
+{
+    const sim = new Sim();
+    const net = new Net(sim, NETWORKS.lan, seed);
+    const relay = new Relay(sim, net);
+    const peers = [];
+
+    for (const spec of [...PEERS, JOINER])
+    {
+        const { M, ok, errors } = await loadPiece(createThinkWeb, {
+            rate: spec.rate, windowlen: spec.windowlen, block: spec.block,
+            gen: piece.text, instruments: dsps,
+        });
+
+        if (!ok)
+            return { ok: false, errors };
+
+        const peer = new Peer(sim, net, spec, M);
+
+        peer.gen = piece.text;
+        peer.relay = relay;
+        peers.push(peer);
+    }
+
+    const [A, B, C] = peers;
+
+    A.others = [B];
+    B.others = [A];
+
+    const knob = firstKnob(A.M);
+    const stamped = [];
+    const note = (cmd) => stamped.push(cmd);
+    const origin = 3000 + TRANSPORT_LEAD * 1000;
+    const joinMs = origin + JOIN_AT * 1000;
+    let stopAt = null;
+    let caughtUp = null;          /* sim ms from Start to caught up */
+
+    A.startRendering();
+    B.startRendering();
+    A.startPinging(relay, 1000, 0);
+    B.startPinging(relay, 1000, 333);
+
+    sim.at(3000, async () =>
+    {
+        const cmd = A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
+                                  'no-document-here', seed);
+
+        await A.send(cmd, true);
+        note(cmd);
+    });
+
+    if (knob !== null)
+    {
+        const moves = [];
+
+        /* Every seven seconds or so, alternating, to the end. */
+        for (let t = 6000, k = 0; t < origin + LATE_SECONDS * 1000 - 2000;
+             t += 6700 + (k % 3) * 900, k++)
+            moves.push([k % 2 === 0 ? A : B, t, ((k * 0.37) % 1)]);
+
+        /* And the joiner's own, once it is playing. */
+        moves.push([C, joinMs + 15000, 0.12], [C, joinMs + 22000, 0.81]);
+
+        for (const [who, t, frac] of moves)
+            sim.at(t, async () =>
+            {
+                if (!who.live)
+                    return;
+
+                const value = knob.min + (knob.max - knob.min) * frac;
+                const cmd = who.maker.knob(knob.knob, value);
+
+                await who.send(cmd);
+                note(cmd);
+            });
+    }
+
+    for (const [who, t, bpm] of [[A, origin + 40000, 100],
+                                 [B, joinMs + 10000, 140]])
+        sim.at(t, async () =>
+        {
+            const cmd = who.maker.tempo(bpm);
+
+            await who.send(cmd);
+            note(cmd);
+        });
+
+    /* The arrival: a context that starts counting now, pings, and the
+       mesh to the other two. */
+    sim.at(joinMs, () =>
+    {
+        C.live = false;
+        A.others.push(C);
+        B.others.push(C);
+        C.others = [A, B];
+        C.startRendering();
+        C.startPinging(relay, 1000, 0);
+    });
+
+    /* Start, once its clocks have enough samples (jam.js). */
+    sim.at(joinMs + 4500, () =>
+    {
+        const pressed = sim.t;
+
+        /* Not awaited: the answer is an event of its own on this clock,
+           and the clock does not move while an event is awaited. */
+        C.joinRun().then(() =>
+        {
+            const watch = () =>
+            {
+                if (C.M._tw_catching() === 0)
+                    caughtUp = sim.t - pressed;
+                else
+                    sim.at(5, watch);
+            };
+
+            sim.at(5, watch);
+        });
+    });
+
+    sim.at(origin + LATE_SECONDS * 1000, async () =>
+    {
+        const cmd = A.maker.stop();
+
+        await A.send(cmd, true);
+        note(cmd);
+        stopAt = cmd.at;
+    });
+
+    let settle = null;
+
+    await sim.run(() =>
+    {
+        if (stopAt === null || !peers.every((p) => !p.transport.running))
+            return false;
+
+        settle ??= sim.t + 2000;
+
+        return sim.t >= settle;
+    });
+
+    return { ok: true, peers, knob, stamped, stopAt, caughtUp };
 }
 
 /* How far each peer's origin frame is from where the origin truly fell on
@@ -695,10 +957,79 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             process.stdout.write('ok    two peers\' Plays are both played\n');
     }
 
+    /* The late joiner. */
+    process.stdout.write(
+        `\na third peer, ${JOINER.rate / 1000}k/${JOINER.windowlen}, ` +
+        `joining ${JOIN_AT} s into ${LATE_SECONDS} s\n\n`);
+
+    for (const piece of all.filter((p) => LATE_PIECES.includes(p.name)))
+    {
+        const r = await lateSession(createThinkWeb, piece, dsps, 3);
+
+        if (!r.ok)
+        {
+            failures++;
+            process.stdout.write(`FAIL  ${piece.name.padEnd(14)} did not ` +
+                                 `load: ${r.errors.join('; ')}\n`);
+            continue;
+        }
+
+        const [A, B, C] = r.peers;
+        const [a, b, c] = [A, B, C].map((p) => tapeBefore(p.tape, r.stopAt));
+        const complaints = [];
+
+        if (a !== b)
+            complaints.push(`A and B differ: ${firstDifference(a, b)}`);
+
+        if (c !== a)
+            complaints.push(`the joiner differs: ${firstDifference(a, c)}`);
+
+        const want = reference(piece.name, nodeBuild, {
+            commands: r.stamped, stopAt: r.stopAt,
+            knobs: r.knob === null ? {} : { [r.knob.knob]: r.knob.name },
+        });
+
+        if (a !== want)
+            complaints.push(`A differs from genwav: ` +
+                            `${firstDifference(want, a)}`);
+
+        for (const p of r.peers)
+            if (p.M._tw_late() !== 0)
+                complaints.push(`${p.name} applied ${p.M._tw_late()} ` +
+                                'command(s) late');
+
+        /* Stepping a silent synth through a minute and a half is tens of
+           milliseconds of work, a slice of each window at a time; seconds
+           of silence would be a joiner stuck behind the room. */
+        if (r.caughtUp === null)
+            complaints.push('the joiner never caught up');
+        else if (r.caughtUp > CATCH_UP_WITHIN)
+            complaints.push(`the joiner took ${r.caughtUp.toFixed(0)} ms ` +
+                            'to catch up');
+
+        const after = c.split('\n').filter(
+            (l) => parseFloat(l.split(' ')[1]) >= JOIN_AT).length;
+
+        if (complaints.length > 0)
+        {
+            failures++;
+            process.stdout.write(`FAIL  ${piece.name.padEnd(14)} ` +
+                                 `${complaints.join('; ')}\n`);
+        }
+        else
+            process.stdout.write(
+                `ok    ${piece.name.padEnd(14)} ` +
+                `${String(c.split('\n').length - 1).padStart(5)} events, ` +
+                `${after} after the join; caught up ` +
+                `${r.caughtUp.toFixed(0)} ms after Start, ` +
+                `${r.stamped.length} commands\n`);
+    }
+
     process.stdout.write(
         `\n${failures === 0
              ? 'two peers at different windows and rates compose one tape ' +
-               'from stamped commands, and a late command is seen\n'
+               'from stamped commands, a late command is seen, and a peer ' +
+               'joining late composes the same tape\n'
              : `${failures} failed\n`}`);
     process.exitCode = failures;
 }

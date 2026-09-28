@@ -187,6 +187,38 @@ export function instrumentTexts (doc)
     return out;
 }
 
+/* Every file and which one is the piece, as plain text: what the relay
+   keeps of the revision a start named, for whoever joins while it plays.
+   The document itself moves on -- a param edit is spliced into it by the
+   peer that made it -- and a late joiner has to load what the others
+   loaded, not what is there now. */
+export function snapshot (doc)
+{
+    const out = { piece: pieceName(doc), files: {} };
+
+    for (const name of fileNames(doc))
+        out.files[name] = readFile(doc, name);
+
+    return out;
+}
+
+/* And back: a document of its own holding a snapshot, for the functions
+   above to read. */
+export function docOf ({ piece, files: texts })
+{
+    const doc = new Y.Doc();
+
+    doc.transact(() =>
+    {
+        for (const [name, text] of Object.entries(texts))
+            putFile(doc, name, text);
+
+        meta(doc).set('piece', piece);
+    });
+
+    return doc;
+}
+
 /* The revision Apply names: SHA-256 over every file, in name order, each
    as its name, a NUL, its text, a NUL. A Yjs document has no revision
    number, and a load must load the same text on every peer. Hex. */

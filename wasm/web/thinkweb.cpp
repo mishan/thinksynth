@@ -60,6 +60,7 @@
 
 #include "config.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -273,8 +274,10 @@ double                rate_;
 std::vector<Scheduled> scheduled_;
 int                    late_;
 
-/* Where the transport clock is pinned to the output, or -1 on originFrame_
- * while the transport has never been started: transport time originAt_ is
+/* Where the transport clock is pinned to the output, when pinned_ says it
+ * is -- it is not while the transport has never been started. A frame can
+ * be below zero: a peer that joins a room already playing has its
+ * transport zero before its own context existed. Transport time originAt_ is
  * frame originFrame_, and a second of transport takes rate_/speed_ frames
  * from there.
  *
@@ -296,7 +299,8 @@ int                    late_;
  * and where that time came from is the host's business. The desktop's own
  * timer would scale its dt instead; it has no such control today.
  */
-double originFrame_ = -1;
+bool   pinned_;
+double originFrame_;
 double originAt_ = 0;
 double speed_ = 1;
 
@@ -323,6 +327,38 @@ bool   armed_;
    frame (thcScheduler::seek). */
 double armFrom_ = 0;
 double armFrame_;
+
+/* A late joiner's begin: transport zero at a frame already gone by, and the
+ * transport brought up to the present rather than started now and counted.
+ *
+ * The run from zero to here is stepped as it was stepped on the peers that
+ * were playing it -- window by window, the room's logged commands applied at
+ * their stamps inside the step -- with the synth silent, so a note composed
+ * in the first minute reaches the tape and never reaches addNote. Nothing
+ * of the past is heard: a drone that started before the join is not
+ * sounding here, and every note from the join on is.
+ *
+ * In the worklet the catching up is spread over windows, a slice of CPU
+ * each, and the windows it spans are silent. All of it in one process()
+ * would stall the audio thread for as long as the piece has been playing
+ * takes to step, and a context that stalls falls behind the relay's clock
+ * for good. The mirror has no audio thread to stall and takes it in one. */
+bool   catchUp_;            /* the armed begin may lie in the past */
+bool   catching_;           /* the transport is behind the output */
+double catchFrame_;         /* how far the stepping has got */
+bool   mirror_;             /* silent for good (tw_silent) */
+
+/* Milliseconds of stepping a window may spend catching up. A window is
+   5.3 ms at 256 and 48 kHz; this leaves the render itself most of it. */
+double catchBudget_ = 2.0;
+
+/* performance.now() where there is one. An AudioWorkletGlobalScope need
+   not have it; Date.now() is a millisecond coarse, which a budget of two
+   of them can live with. */
+EM_JS(double, tw_clock_ms, (), {
+    return typeof performance !== 'undefined' && performance.now
+        ? performance.now() : Date.now();
+});
 
 /* The piece as thcGenEdit reads it back: the authored spellings, the chains
  * and their stages in order.
@@ -483,6 +519,7 @@ void applyDue (double start, int len)
                         sched_->start();
                         originAt_ = sched_->now();
                         originFrame_ = start;
+                        pinned_ = true;
                         break;
 
                     /* The page's Stop: everything down in a few tens of
@@ -554,8 +591,19 @@ void beginDue (double start, int len)
     /* A begin whose frame has already gone by -- it arrived late, or was
        stamped for a frame this synth had already rendered -- starts now,
        and is counted: the peers that started on time are ahead of this
-       one by the difference, for good. */
-    if (armFrame_ < start)
+       one by the difference, for good. Unless it was asked to catch up,
+       which is a late joiner's begin: then zero stays where the room put
+       it and the stepping from there is catchUp's. */
+    pinned_ = true;
+
+    if (armFrame_ < start && catchUp_)
+    {
+        originFrame_ = armFrame_;
+        catching_ = true;
+        catchFrame_ = armFrame_;
+        synth_->setSilent(true);
+    }
+    else if (armFrame_ < start)
     {
         originFrame_ = start;
         late_++;
@@ -564,6 +612,16 @@ void beginDue (double start, int len)
         originFrame_ = armFrame_;
 
     sched_->start();
+}
+
+/* Not behind any more, or never was: the synth sounds again, unless it is
+   a mirror's, which never does. */
+void endCatching (void)
+{
+    if (catching_ && !mirror_)
+        synth_->setSilent(false);
+
+    catching_ = false;
 }
 
 /* A stage by chain and stage index, or NULL. The index pair is the
@@ -751,7 +809,7 @@ void applyScheduled (const Scheduled &c)
             if (c.value <= 0)
                 break;
 
-            if (originFrame_ >= 0)
+            if (pinned_)
             {
                 const double at = c.at < 0 ? sched_->now() : c.at;
 
@@ -997,7 +1055,7 @@ void applyScheduled (const Scheduled &c)
 
 /* The transport across the window whose first frame is `start', with the
    scheduler's commands applied where they fall in it. */
-void step (double start, int len)
+void step (double start, double len)
 {
     /* The ones for the top of this window, in arrival order: they sort
        ahead of everything stamped, they are what "now" means to a solo
@@ -1054,6 +1112,42 @@ void step (double start, int len)
     }
 
     sched_->stepTransportTo(target);
+}
+
+/* A late joiner's transport, stepped from where it has got to toward
+ * `start', the first frame of the window about to be rendered: the room's
+ * windows as they were, the commands in them applied at their stamps, and
+ * the silent synth given its process() after each so its command ring is
+ * drained as a rendering one's would be. Stops after `budgetMs' of it, or
+ * never for a budget below zero.
+ *
+ * True once there -- the window at `start' is then stepped as any other --
+ * or once there is nothing to catch up to: a stop in the log ends the run
+ * wherever it said. */
+bool catchUp (double start, int len, double budgetMs)
+{
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+
+    while (catchFrame_ < start && sched_->running())
+    {
+        /* Not rounded: the origin is wherever the room's clock put it,
+           a fraction of a frame and all, and a last slice rounded down
+           to nothing would never arrive. */
+        const double n = std::min<double>(len, start - catchFrame_);
+
+        step(catchFrame_, n);
+        synth_->process();
+        catchFrame_ += n;
+
+        if (budgetMs >= 0 && tw_clock_ms() - t0 >= budgetMs)
+            break;
+    }
+
+    if (catchFrame_ < start && sched_->running())
+        return false;
+
+    endCatching();
+    return true;
 }
 
 /* In order of `at', arrival order within one, like push(). An `at' below
@@ -1592,6 +1686,9 @@ public:
 
     void clock (int kind, int position, gint64 when) override
     {
+        if (catching_)
+            return;
+
         twMidiMsg r = {};
 
         r.len = thcMidiRouter::clockBytes(kind, position, r.bytes);
@@ -1690,8 +1787,14 @@ public:
     std::vector<twMidiMsg> out;
 
 private:
+    /* Nothing while a late joiner catches up: the run's past is as
+       silent on a device as on the synth (catchUp), where it would
+       otherwise go out all at once, stamped long gone. */
     void emit (const thcMidiRouter::Msg &m)
     {
+        if (catching_)
+            return;
+
         twMidiMsg r = {};
 
         r.when = (double)m.when;
@@ -2051,8 +2154,9 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
        alone: it is what the listener asked for, not what the last piece
        was, and a load that quietly put it back to 1 would be a control
        that forgot itself every time somebody chose a piece. */
-    originFrame_ = -1;
+    pinned_ = false;
     originAt_ = 0;
+    endCatching();
 
     tape_.clear();
     knobs_.clear();
@@ -4038,8 +4142,11 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
 }
 
 /* A start from the top, with transport zero at `originFrame' exactly. A
-   frame already rendered, or below zero, starts at the next window and
-   counts as late.
+   frame already rendered starts at the next window and counts as late --
+   unless `catchUp' is set, which is a late joiner's begin: zero stays at
+   that frame, however long ago, and the transport is stepped silently up
+   to the output before anything sounds (catchUp above). The room's logged
+   commands go in after this call, not before: it empties the queue.
  *
  * The queue is emptied here and not when the frame comes round, because
  * between the two a peer whose transport is already running goes on
@@ -4049,12 +4156,28 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
  * away with the old run's and counted as nothing. What is in the queue
  * now is the old run's, and the load that a start always comes with has
  * dropped it already. */
-EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from)
+EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from,
+                                    int catchUp)
 {
     dropStamped();
+    endCatching();
     armed_ = true;
     armFrame_ = originFrame;
     armFrom_ = from > 0 ? from : 0;
+    catchUp_ = catchUp != 0;
+}
+
+/* Whether a late joiner's transport is still being brought up to the
+   output (catchUp above): its windows are silent until it is. */
+EMSCRIPTEN_KEEPALIVE int tw_catching (void)
+{
+    return catching_ ? 1 : 0;
+}
+
+/* The milliseconds of stepping a window may spend catching up. */
+EMSCRIPTEN_KEEPALIVE void tw_catch_budget (double ms)
+{
+    catchBudget_ = ms;
 }
 
 /* A stop or a tempo, at transport time `at', inside the step. TW_START and
@@ -4707,7 +4830,7 @@ EMSCRIPTEN_KEEPALIVE int tw_late (void)
  * subtraction from the other end. */
 EMSCRIPTEN_KEEPALIVE double tw_origin (void)
 {
-    return originFrame_ < 0 ? -1 : frameOf(0);
+    return pinned_ ? frameOf(0) : NAN;
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
@@ -4815,7 +4938,10 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
         {
             applyDue(rendered_, len);
             beginDue(rendered_, len);
-            step(rendered_, len);
+
+            if (!catching_ || catchUp(rendered_, len, catchBudget_))
+                step(rendered_, len);
+
             held = (unsigned)len;
         }
 
@@ -4923,6 +5049,7 @@ EMSCRIPTEN_KEEPALIVE const float *tw_probe_samples (void)
    running one flips. */
 EMSCRIPTEN_KEEPALIVE void tw_silent (void)
 {
+    mirror_ = true;
     synth_->setSilent(true);
 }
 
@@ -4949,6 +5076,10 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
     {
         applyDue(rendered_, len);
         beginDue(rendered_, len);
+
+        if (catching_)
+            catchUp(rendered_, len, -1);
+
         step(rendered_, len);
         synth_->process();
 

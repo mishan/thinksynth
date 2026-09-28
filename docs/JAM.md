@@ -243,7 +243,48 @@ On `jam-m3`, which starts where `jam-m2` ends. Where it stands:
   stale by fifty milliseconds in headless Firefox, which makes a stamp
   earlier than it means to be and eats the lead; the page takes the
   fresher of two readings.
-- Not yet: gate 8.3, two machines on a LAN, by hand.
+- Gate 8.3 passes, by hand: two machines on a LAN, one wired and one on
+  Wi-Fi, the relay on the wired one, playing a piece together at a
+  latency of 3 to 15 ms.
+
+### M4, so far
+
+On `latejoin`, the first of M4's three parts. Where it stands:
+
+- **Late join by fast-forward.** A page that presses Start in a room
+  already playing asks the relay for the run: the start, the document as
+  that start named it, and every stamped command since. It loads that
+  revision, puts transport zero at the start's origin -- a frame its own
+  output went past before the page existed, so a frame below zero is now
+  a frame and not "never started" -- and hands the worklet the begin and
+  the commands in one message. The worklet steps the transport from zero
+  to the present window by window, each command applied at its stamp,
+  with the synth silent: the tape is the room's from the top, and nothing
+  of the past reaches `addNote`.
+- The stepping is spread over windows, two milliseconds of each, and the
+  windows it spans are silent. Stepping ninety seconds of `tide` on a
+  silent synth is under ten milliseconds of work, so it is caught up in
+  a few windows; a single long process() would stall the context, and a
+  stalled context falls behind the relay's clock for good. The mirror
+  takes it in one step.
+- The relay keeps the run. A start begins one, a stop ends it, and every
+  page sends a copy of each stamped command beside its mesh broadcast.
+  The document is snapshotted at the revision the start names, waiting
+  for the starter's edit to arrive on the other socket if it has to: the
+  document moves on during a run -- a param edit is spliced into it by the
+  peer that made it -- and a joiner has to load what the others loaded.
+  Keys in direct mode are not replayed; they were played where they
+  arrived, and no two peers heard them at the same point in the piece.
+- **The gate passes.** `protocoltest.mjs` adds a third peer, at 44.1 kHz
+  and a window of 256, joining ninety seconds into a two-minute run of
+  the four busiest seeded pieces, with knobs and a tempo change on either
+  side of its arrival and knobs of its own once it has caught up. Its
+  whole tape is the other two's and genwav's, nothing late, caught up
+  about 100 ms after its Start. `jamtest.mjs` puts a third page into the
+  room eighteen seconds in; it catches up once its clocks have their
+  samples and its tape is the room's.
+- Not yet: the apply-at-bar rule and its harness, and the quantised and
+  play-ahead modes.
 
 ### M6, so far
 

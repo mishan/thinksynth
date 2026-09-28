@@ -22,7 +22,8 @@
  * the mesh could not carry.
  *
  * One object, events out, a few calls in. It knows nothing about music:
- * `transport' and `relayed' carry whatever they are given.
+ * `transport', `relayed', `log' and `catchup' carry whatever they are
+ * given.
  */
 
 import { RelayClock } from './clock.js';
@@ -53,6 +54,7 @@ export class Room
         this.handlers = new Map();
         this.pinger = null;
         this.ws = null;
+        this.catchups = [];             /* resolvers for catchUp() */
     }
 
     on (type, fn)
@@ -187,6 +189,11 @@ export class Room
                         this.emit('transport', m.from, m.data);
                         break;
 
+                    case 'catchup':
+                        for (const resolve of this.catchups.splice(0))
+                            resolve(m);
+                        break;
+
                     case 'error':
                         refused = m.text;
                         this.emit('error', m.text);
@@ -235,6 +242,26 @@ export class Room
     transport (data)
     {
         this.send({ type: 'transport', data });
+    }
+
+    /* A copy of a stamped command the mesh carried, for the relay to keep
+       for whoever joins while this run plays. */
+    log (data)
+    {
+        this.send({ type: 'log', data });
+    }
+
+    /* What a peer joining a playing room needs: resolves to `{ start,
+       files, log, overflowed }' -- the run's start, the document as that
+       start named it, and the stamped commands since -- or `{ start: null
+       }' when nothing is playing. */
+    catchUp ()
+    {
+        return new Promise((resolve) =>
+        {
+            this.catchups.push(resolve);
+            this.send({ type: 'catchup' });
+        });
     }
 
     /* Relay time now, from the offset: NaN until a pong has come. */

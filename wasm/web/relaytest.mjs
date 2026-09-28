@@ -365,6 +365,67 @@ try
     check(ha === hb && ha !== before,
           'both hash the document to the same revision, and it moved');
 
+    /* The run a late joiner catches up with: the start, the document as
+       the start named it, and the stamped commands since. The start names
+       a revision the relay has not seen yet -- the starter's edit is still
+       on its way over the other socket -- and the relay waits for it
+       rather than keeping what it has. */
+    {
+        const ahead = new Y.Doc();
+
+        Y.applyUpdate(ahead, Y.encodeStateAsUpdate(docA));
+        ahead.getMap('files').get('airports.gen').insert(0, '# at Play\n');
+
+        const hash = await hashOf(ahead);
+        const f = new Client(`${base}/room/test`, 'F');
+        const g = new Client(`${base}/room/test`, 'G');
+
+        await Promise.all([f.open(), g.open()]);
+        f.send({ type: 'hello', name: 'Fay', protocol: PROTOCOL });
+        g.send({ type: 'hello', name: 'Gil', protocol: PROTOCOL });
+
+        const wf = await f.next('welcome');
+
+        await g.next('welcome');
+
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 777,
+                         piece: { hash }, seed: 5, from: wf.peer,
+                         seq: 0, at: -1 } });
+        f.send({ type: 'log', data: { type: 'knob', at: 1.5, knob: 0,
+                                      value: 0.3, from: wf.peer, seq: 1 } });
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'tempo', bpm: 90, at: 2,
+                         from: wf.peer, seq: 2 } });
+
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+        docA.getMap('files').get('airports.gen').insert(0, '# at Play\n');
+
+        const run = await g.next('catchup');
+
+        check(run.start?.origin === 777 && run.files?.matched === true &&
+              run.files.files['airports.gen']?.startsWith('# at Play\n') &&
+              run.files.piece === 'airports.gen',
+              'a late joiner is handed the document at the revision the ' +
+              'start named, once the relay has it');
+        check(run.log?.map((c) => c.seq).join() === '1,2',
+              'and the stamped commands since, a copied knob and a tempo');
+
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop', at: 3,
+                         from: wf.peer, seq: 3 } });
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+
+        const none = await g.next('catchup');
+
+        check(none.start === null, 'and nothing once the run has stopped');
+
+        f.close();
+        g.close();
+    }
+
     /* Awareness: a cursor set on one is seen on the other. */
     provA.awareness.setLocalStateField('user', { name: 'Ann' });
 

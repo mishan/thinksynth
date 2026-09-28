@@ -130,8 +130,17 @@ export async function createSynth (ctx, { windowlen = 256,
         mirror.onmessage = (e) => onMirror(e.data);
 
     /* One message, both ports. See the top of this file. */
+    /* Collecting, inside batch() below. */
+    let batching = null;
+
     const post = (m) =>
     {
+        if (batching !== null)
+        {
+            batching.push(m);
+            return;
+        }
+
         node.port.postMessage(m);
         mirror?.postMessage(m);
     };
@@ -361,8 +370,31 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* From the top, with transport zero at `frame' exactly: what a
            room's Play is, on every peer, at the frame its origin falls
-           on. */
-        begin: (frame, from = 0) => post({ type: 'begin', frame, from }),
+           on. `catchUp' for a peer joining a room already playing: a
+           frame gone by is kept, and the transport stepped up to the
+           output silently from there (thinkweb.cpp, tw_begin). */
+        begin: (frame, from = 0, catchUp = false) =>
+            post({ type: 'begin', frame, from, catchUp }),
+
+        /* Everything `fn' posts, as one message: applied together, between
+           two renders, in the order posted (engine.js). A late joiner's
+           begin and the commands it catches up through are the reason. */
+        batch: (fn) =>
+        {
+            batching = [];
+
+            try
+            {
+                fn();
+            }
+            finally
+            {
+                const messages = batching;
+
+                batching = null;
+                post({ type: 'batch', messages });
+            }
+        },
 
         /* 'stop' or 'tempo' at a transport time, applied inside the step
            at that time; -1 is the next window. */

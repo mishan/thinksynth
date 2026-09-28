@@ -32,6 +32,11 @@
  * other and to genwav.mjs's for the same piece and the same command stream,
  * and the late count on both is zero.
  *
+ * Partway through, a third page -- another Chromium -- joins the room that
+ * is already playing and presses Start. It catches up from the relay's log
+ * of the run, moves the knob itself once it has, and its tape, from the
+ * top and not only from its arrival, has to be the other two's.
+ *
  * Then a second room on a piece whose picture is a control: one page
  * plays, the other enlarges gen::life's board and paints a line across it
  * with a pointer, and the two tapes have to be one tape -- and not the
@@ -79,6 +84,11 @@ const nativeBuild = path.resolve(process.argv[4] ?? path.join(top, 'build'));
 
 const PIECE = 'airports.gen';
 const SECONDS = 30;
+
+/* When the third page arrives, and when it moves the knob, in seconds
+   from Play. */
+const JOIN_AT = 18;
+const JOINER_KNOB_AT = 26;
 
 /* The second half: a piece whose picture is a control, painted on from one
    page while the other listens. Shorter, because what is under test is
@@ -807,6 +817,51 @@ try
     await B.page.evaluate(() => window.jam.tempo(100));
     await at(16000);
     await A.page.evaluate(() => window.jam.knob(0, 0.05));
+
+    /* The late joiner. */
+    await at(JOIN_AT * 1000);
+
+    let C = null;
+
+    {
+        const label = 'joiner';
+        const page = await browsers[0].newPage();
+
+        page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+        page.on('console', (m) =>
+        {
+            if (m.type() === 'error')
+                errors.push(`${label} console: ${m.text()}`);
+        });
+
+        await page.goto(`${url}&room=jamtest&name=${label}&piece=${PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+
+        try
+        {
+            await page.waitForFunction(
+                () => window.jam.ready() && !window.jam.catching() &&
+                      window.jam.probe().running,
+                null, { timeout: (JOINER_KNOB_AT - JOIN_AT) * 1000 });
+            ok(`a third page joined ${((Date.now() - t0) / 1000 - JOIN_AT)
+                .toFixed(1)} s after arriving, caught up with the room`);
+            C = { label, page };
+        }
+        catch
+        {
+            fail(`the late joiner never caught up -- ${await why(page)}`);
+            await page.close();
+        }
+    }
+
+    await at(JOINER_KNOB_AT * 1000);
+
+    if (C !== null)
+        await C.page.evaluate(() => window.jam.knob(0, 0.6));
+
     await at(SECONDS * 1000);
     await A.page.evaluate(() => window.jam.stop());
     await at(SECONDS * 1000 + 3000);
@@ -814,7 +869,7 @@ try
     /* What each delivered, and what each saw. */
     const results = [];
 
-    for (const { label, page } of pages)
+    for (const { label, page } of C === null ? pages : [...pages, C])
         results.push({ label, ...(await page.evaluate(() => ({
             tape: window.jam.tape(),
             late: window.jam.late(),
@@ -857,6 +912,12 @@ try
                `${tapes[0].split('\n').length - 1} events`);
         else
             fail(`the tapes differ: ${firstDifference(tapes[0], tapes[1])}`);
+
+        if (C !== null && tapes[2] === tapes[0])
+            ok('and the late joiner\'s is the same tape, from the top');
+        else if (C !== null)
+            fail(`the late joiner's tape differs: ` +
+                 `${firstDifference(tapes[0], tapes[2])}`);
 
         /* The knob names, for genwav, by the index a command names one
            by -- which is the module's numbering over every knob the piece
@@ -907,6 +968,8 @@ try
         else
             fail(`${r.label}: tape against mirror is "${line}"`);
     }
+
+    await C?.page.close();
 
     /* ---- and now somebody paints on a Life board ---- */
 

@@ -40,11 +40,10 @@ import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, commandTag,
-         isLate }
-    from './commands.js';
-import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
-         readFile, spliceFile } from './doc.js';
+import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
+         commandTag, isLate, replayable } from './commands.js';
+import { docOf, fileNames, files, hashOf, instrumentTexts, pieceName,
+         pieceText, readFile, spliceFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
@@ -185,6 +184,16 @@ let sentCount = 0;
 let lateSeen = 0;
 let lateCount = 0;              /* the worklet's count */
 let tapeText = '';              /* the tape since the last epoch, as text */
+/* The frame a late joiner's transport zero was put on, until the worklet
+   reports it has caught up with the room from there; null otherwise. */
+let catchingFrom = null;
+
+/* Stamped commands that came while there was no worklet to apply them to:
+   a room joined, Start not yet pressed. The relay keeps the same ones for a
+   late joiner, but a command can reach this page by the mesh before its
+   copy reaches the relay, so these are merged with what it hands over. */
+const early = [];
+const EARLY_MAX = 10000;
 let tapeEpoch = -1;
 let numbersDirty = false;       /* the panel is behind; the frame repaints */
 
@@ -258,9 +267,13 @@ async function send (cmd)
     mesh.broadcast(cmd);
 
     /* A start goes by the room socket too: the one command a peer must
-       not miss, and what a joiner is told. */
+       not miss, and what a joiner is told. Every other stamped command
+       goes as a copy, which the relay keeps for whoever joins while this
+       run plays. */
     if (cmd.type === 'transport')
         room.transport(cmd);
+    else if (replayable(cmd))
+        room.log(cmd);
 
     await receive(room.peer, cmd);
 }
@@ -295,9 +308,20 @@ async function applyOne (from, cmd)
     if (synth === null)
     {
         /* Nothing to apply it to yet: a room joined before Start. A
-           start is remembered so Start can catch up. */
+           start is remembered so Start can catch up, and what came after
+           it kept for the catching up. */
         if (cmd.type === 'transport' && cmd.op === 'start')
+        {
             room.playing = cmd;
+            early.length = 0;
+        }
+        else if (cmd.type === 'transport' && cmd.op === 'stop')
+        {
+            room.playing = null;
+            early.length = 0;
+        }
+        else if (replayable(cmd) && early.length < EARLY_MAX)
+            early.push(cmd);
 
         return;
     }
@@ -383,12 +407,90 @@ async function loadFor (cmd)
    with, so it is the same piece from there. */
 let runSeed = null;
 
+/* A room already playing when this page pressed Start: the run as the
+ * relay kept it, stepped through from its origin to now (commands.js,
+ * catchUp). Queued behind whatever is being applied, and ahead of whatever
+ * arrives while the relay answers, so a command the mesh brings in the
+ * meantime is applied after the catching up rather than lost under it --
+ * or dropped as a duplicate of the copy the relay had.
+ */
+function joinRun ()
+{
+    const done = applying.then(async () =>
+    {
+        /* The origin is a relay-clock time, and turning it into a frame of
+           this output needs both clocks: the same samples Play waits for. */
+        if (!clocksReady())
+        {
+            status('The room is playing; waiting for the clocks...');
+
+            while (!clocksReady())
+                await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
+        const run = await room.catchUp();
+
+        if (run.start === null)
+            return;
+
+        if (run.overflowed)
+        {
+            status('The room has been playing too long to catch up with; ' +
+                   'you will hear the next Play.');
+            return;
+        }
+
+        if (!run.files.matched)
+            log('the relay never saw the document the room is playing; ' +
+                'catching up with what it has');
+
+        /* The relay's log and what the mesh brought before Start, once
+           each. Every one is marked seen, so a copy still in flight on the
+           mesh is a duplicate when it lands. */
+        const byKey = new Map();
+
+        for (const c of [...run.log, ...early])
+            byKey.set(`${c.from}#${c.seq}`, c);
+
+        early.length = 0;
+
+        for (const c of [run.start, ...byKey.values()])
+            dedupe.accept(c);
+
+        status(`Catching up with ${room.peers.get(run.start.from)?.name ??
+                                   run.start.from}'s Play...`);
+        await catchUp(run.start, [...byKey.values()], {
+            synth, listens,
+            /* Where transport zero is, which is what the worklet reports:
+               a start from a time has its origin at that time, not zero. */
+            frameOfOrigin: (ms) =>
+            {
+                const frame = frameOfOrigin(ms);
+
+                catchingFrom = frame - (run.start.seek ?? 0) * ctx.sampleRate;
+                return frame;
+            },
+            load: (start) =>
+            {
+                runSeed = start.seed;
+                return loadFromDoc(start.seed, docOf(run.files));
+            },
+        });
+    });
+
+    applying = done.catch((e) => log(`catching up: ${e.message}`));
+
+    return done;
+}
+
 /* The piece from the document into the worklet, and what the page shows
    of it: the knobs, the seats, the channels it listens on. `seed' is
-   the master seed, or -1 to draw one. */
-async function loadFromDoc (seed = -1)
+   the master seed, or -1 to draw one. `from' is the document to read, the
+   room's own unless a late joiner is loading the revision a run started
+   from. */
+async function loadFromDoc (seed = -1, from = doc)
 {
-    const gen = pieceText(doc);
+    const gen = pieceText(from);
 
     if (gen === null)
     {
@@ -396,7 +498,7 @@ async function loadFromDoc (seed = -1)
         return false;
     }
 
-    for (const [name, text] of Object.entries(instrumentTexts(doc)))
+    for (const [name, text] of Object.entries(instrumentTexts(from)))
         synth.instrument(name, text);
 
     /* Not suspended around the load, as the solo page does it. Every
@@ -436,7 +538,7 @@ async function loadFromDoc (seed = -1)
 
     if (piece === null)
     {
-        status(`${pieceName(doc)} did not parse; see the numbers.`);
+        status(`${pieceName(from)} did not parse; see the numbers.`);
         it.errors.forEach(log);
 
         /* The fold, for the document, and the pane, for the layout: a
@@ -863,6 +965,16 @@ function tape (m)
     transport.report(m, performance.now());
     lateCount = m.late;
 
+    /* Caught up: the begin has landed -- the origin is the one it was
+       given, which a report from before it cannot have -- and the
+       stepping is done. */
+    if (catchingFrom !== null && m.running && !m.catching &&
+        Math.abs(m.origin - catchingFrom) < 1)
+    {
+        catchingFrom = null;
+        status('Caught up with the room.');
+    }
+
     if (m.epoch !== tapeEpoch)
     {
         tapeEpoch = m.epoch;
@@ -1179,7 +1291,7 @@ async function join ()
 
     status(`In ${roomName} as ${name}. Press Start.` +
            (room.playing !== null
-                ? ' The room is playing; you will hear the next Play.'
+                ? ' The room is playing; Start joins it where it is.'
                 : ''));
 
     history.replaceState(null, '', `?${new URLSearchParams(
@@ -1325,6 +1437,9 @@ async function start ()
 
     await loadFromDoc();
     status(`Started. Claim a seat and press Play.`);
+
+    if (room.playing !== null)
+        await joinRun();
 }
 
 function init ()
@@ -1449,6 +1564,9 @@ function init ()
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
         ready: () => synth !== null && piece !== null && clocksReady(),
+
+        /* A late joiner still stepping up to the room (joinRun). */
+        catching: () => catchingFrom !== null,
 
         /* A file as the document has it now. What a harness checks an
            edit against, and what one page holds the other's document

@@ -267,11 +267,11 @@ export function isLate (cmd, transportNow)
 /* One command into this peer's worklet, the same way whoever sent it.
  *
  * `synth' is host.js's object, or anything with its begin, transportAt,
- * knob, noteOn, noteOff, midiOn and midiOff. `frameOfOrigin' turns a
- * relay-clock origin into a frame of this peer's output (clock.js's
- * frameOfRelayMs, bound). `listens' is the set of channels the piece takes
- * `input midi' on, from the load: a key on one of those goes into the
- * piece, on any other straight onto the channel.
+ * knob, noteOn, noteOff, midiOn and midiOff, and batch for catchUp below.
+ * `frameOfOrigin' turns a relay-clock origin into a frame of this peer's
+ * output (clock.js's frameOfRelayMs, bound). `listens' is the set of
+ * channels the piece takes `input midi' on, from the load: a key on one of
+ * those goes into the piece, on any other straight onto the channel.
  *
  * A start is the one command with something to do before the worklet: the
  * piece has to be loaded, from the document at the named hash, with the
@@ -280,22 +280,64 @@ export function isLate (cmd, transportNow)
  * document. Everything else goes straight through. */
 export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 {
+    if (cmd.type === 'transport' && cmd.op === 'start')
+    {
+        if (load !== undefined)
+            await load(cmd);
+
+        /* From the top, or from `seek': a room's seek is a start from a
+           time, so every peer plays up to it at the same frame, and a peer
+           joining later hears the start the relay kept, `seek' and all. */
+        synth.begin(frameOfOrigin(cmd.origin), cmd.seek ?? 0);
+        return;
+    }
+
+    applyNow(cmd, { synth, listens });
+}
+
+/* The commands a late joiner steps through, of those the room logged since
+ * its start: the stamped ones. A key in direct mode is played where it
+ * arrives rather than at its stamp, so no two peers heard it at the same
+ * point in the piece and there is no one point to replay it at.
+ */
+export function replayable (cmd)
+{
+    return cmd.type !== 'note' && cmd.type !== 'noteoff' &&
+           !(cmd.type === 'transport' && cmd.op === 'start');
+}
+
+/* Joining a room that is already playing: the start's piece loaded, then
+ * transport zero, or the start's `seek', put at the start's origin -- a
+ * frame this peer's output went past before it was here -- and the room's
+ * commands since, all in one batch, so the worklet steps through the run
+ * from there with each applied at its stamp and arrives at the present
+ * composing what the room is (thinkweb.cpp, catchUp). The same `load' a start is applied through;
+ * `log' is what the relay kept, in any order.
+ */
+export async function catchUp (start, log, { synth, frameOfOrigin, listens,
+                                             load })
+{
+    await load(start);
+
+    const later = log.filter(replayable).sort((a, b) => a.at - b.at);
+
+    synth.batch(() =>
+    {
+        synth.begin(frameOfOrigin(start.origin), start.seek ?? 0, true);
+
+        for (const cmd of later)
+            applyNow(cmd, { synth, listens });
+    });
+}
+
+/* Everything but a start, which is the one with something to wait for. */
+function applyNow (cmd, { synth, listens })
+{
     switch (cmd.type)
     {
         case 'transport':
             switch (cmd.op)
             {
-                case 'start':
-                    if (load !== undefined)
-                        await load(cmd);
-
-                    /* From the top, or from `seek': a room's seek is a
-                       start from a time, so every peer plays up to it at
-                       the same frame, and a peer joining later hears the
-                       start the relay kept, `seek' and all. */
-                    synth.begin(frameOfOrigin(cmd.origin), cmd.seek ?? 0);
-                    break;
-
                 case 'stop':
                     synth.transportAt('stop', cmd.at);
                     break;

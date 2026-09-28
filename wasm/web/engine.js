@@ -20,11 +20,11 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
- * `transport', `begin', `at', `knob', `paneledit', `stageparam', `param',
- * `mute', `solo', `section', `knobwrite', `input', `midion', `midioff',
- * `on', `off' or `alloff' message, turned into the tw_ call that applies
- * it. It used to live in worklet.js, and moved here when there were two
- * instances to apply it to.
+ * `transport', `begin', `batch', `at', `knob', `paneledit', `stageparam',
+ * `param', `mute', `solo', `section', `knobwrite', `input', `midion',
+ * `midioff', `on', `off' or `alloff' message, turned into the tw_ call that
+ * applies it. It used to live in worklet.js, and moved here when there were
+ * two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -138,8 +138,21 @@ export function apply (M, m, host = NOWHERE)
 
         case 'begin':
             /* From the top, with transport zero at this frame exactly
-               (thinkweb.cpp, tw_begin). */
-            M._tw_begin(m.frame, m.from ?? 0);
+               (thinkweb.cpp, tw_begin). `catchUp' is a late joiner's: a
+               frame gone by stays where it is and the transport is
+               stepped up to the output from there. */
+            M._tw_begin(m.frame, m.from ?? 0, m.catchUp ? 1 : 0);
+            return true;
+
+        case 'batch':
+            /* Several messages that must land together, between two
+               renders: a late joiner's begin and the room's commands since
+               the start, which the begin would drop if it came after them
+               and the catching up would miss if they came a render late. */
+            for (const each of m.messages)
+                if (!apply(M, each, host))
+                    log(`no message '${each.type}' in a batch`);
+
             return true;
 
         case 'at':

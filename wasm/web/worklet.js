@@ -882,6 +882,10 @@ class ThinkProcessor extends AudioWorkletProcessor
             speed: this.M._tw_speed_now(),
             late: this.M._tw_late(),
 
+            /* A late joiner's transport, still being stepped up to the
+               output: silent until it is (thinkweb.cpp, catchUp). */
+            catching: this.M._tw_catching() !== 0,
+
             /* The loudest capture frame since the last batch, and what the
                accumulator had to throw away. A peak held over a batch rather
                than an instantaneous reading, because what somebody setting a
