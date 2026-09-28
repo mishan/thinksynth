@@ -791,12 +791,18 @@ export async function createNodeView ({ files, root = document,
         }
 
         /* Nothing to edit is said, rather than shown as a menu with
-           nothing in it over a canvas with nothing on it. */
+           nothing in it over a canvas with nothing on it. Only where the
+           page has the words for it: the room page has no #nodeempty,
+           and its graph is whatever the room is playing. */
         const none = select.options.length === 0;
+        const empty = $('nodeempty');
 
-        select.closest('.row').hidden = none;
-        $('nodescroll').hidden = none;
-        $('nodeempty').hidden = !none;
+        if (empty !== null)
+        {
+            select.closest('.row').hidden = none;
+            $('nodescroll').hidden = none;
+            empty.hidden = !none;
+        }
 
         if (none)
             return;
