@@ -53,6 +53,7 @@
        edited and not written. Not the red an error gets. */
     --warn:      #a05000;
     --key-c:     #eaf7fa;
+    --key-label: #202020;
 
     /* The source boxes' syntax colors (thinklang.js). */
     --tok-keyword: #7a3e9d;
@@ -95,7 +96,10 @@
         --key-black: #101010;
         --held:      #6a6aff;
         --warn:      #d09040;
-        --key-c:     #2b3a3d;
+        /* A white key tinted, as in light: dark here read as a gap in
+           the keyboard rather than a C. */
+        --key-c:     #c2d9de;
+        --key-label: #101010;
 
         --tok-keyword: #c792ea;
         --tok-string:  #9ccc65;
@@ -530,7 +534,7 @@ details { margin: 0.8em 0; }
 #keys text
 {
     font-family: system-ui, sans-serif;
-    fill: var(--fg);
+    fill: var(--key-label);
     stroke: var(--key);
     stroke-width: 0.05;
     paint-order: stroke;
