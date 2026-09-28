@@ -106,7 +106,7 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     status_->set_ellipsize(Pango::EllipsizeMode::END);
 
     kbdBtn_ = manage(new Gtk::ToggleButton("Kbd input"));
-    kbdBtn_->set_tooltip_text("Feed the on-screen Keyboard window into "
+    kbdBtn_->set_tooltip_text("Feed the on-screen keyboard into "
                               "chains with MIDI input, alongside "
                               "hardware MIDI");
     kbdBtn_->signal_toggled().connect(
@@ -1342,7 +1342,7 @@ ComposerWindow::injectOff (int chan, float note)
 }
 
 /* The on-screen keyboard as a performance input, if wished for: the
- * same two handlers, fed from the pair the Keyboard window emits. A
+ * same two handlers, fed from the pair the on-screen keyboard emits. A
  * toggle rather than always-on because the keyboard is also the tool
  * for auditioning patches, and auditioning through an arpeggiator you
  * forgot about is a confusing five minutes. */

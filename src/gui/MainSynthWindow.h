@@ -29,6 +29,7 @@ class MidiMap;
 class NodeEditor;
 class SaveButton;
 class ComposerWindow;
+class KeyboardPanel;
 
 using namespace std;
 
@@ -190,6 +191,11 @@ protected:
     Glib::RefPtr<Gio::SimpleActionGroup> actions_;
 
     Glib::RefPtr<Gio::SimpleAction> themeAction_;
+
+    /* View > Keyboard: whether the keys are along the bottom. Stateful, so
+       the menu shows a check and the state is the preference. */
+    Glib::RefPtr<Gio::SimpleAction> keyboardAction_;
+    void showKeyboard (bool on);
     Gtk::PopoverMenuBar *menuBar_;
 
     std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;
@@ -208,7 +214,7 @@ protected:
     Gtk::Scale masterScale_{Gtk::Orientation::HORIZONTAL};
 
     PatchSelWindow *patchSel_;
-    KeyboardWindow *kbWin_;
+    KeyboardPanel *kbPanel_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
     ComposerWindow *compWin_;

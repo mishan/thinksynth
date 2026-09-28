@@ -16,16 +16,24 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef KEYBOARD_WINDOW_H
-#define KEYBOARD_WINDOW_H
+#ifndef KEYBOARD_PANEL_H
+#define KEYBOARD_PANEL_H
 
 #include <mutex>
 
-class KeyboardWindow : public Gtk::Window
+/* The on-screen keyboard and its channel and transpose controls, as a
+   strip along the bottom of the main window (MainSynthWindow). It was a
+   window of its own, which put the keys a window away from the channel
+   they played and let them sit behind it. */
+class KeyboardPanel : public Gtk::Box
 {
 public:
-    KeyboardWindow (thSynth *synth);
-    ~KeyboardWindow (void);
+    KeyboardPanel (thSynth *synth);
+    ~KeyboardPanel (void);
+
+    /* Aims the keys at `chan' (0-based), as picking it in the spinner
+       does. The main window calls this when a channel's tab is chosen. */
+    void setChannel (int chan);
 
 protected:
     void eventNoteOn (int chan, int note, float veloc);
@@ -41,7 +49,7 @@ protected:
     void keyboardReset (void);
     void keyboardResetKeys (void);
 
-    /* Scrolling the window changes channel. A controller now, and one that
+    /* Scrolling over the controls changes channel. A controller now, and one that
        has to be asked for the kinds of scroll it wants -- there is no event
        mask to widen. */
     bool onScroll (double dx, double dy);
@@ -55,8 +63,6 @@ private:
     Keyboard *keyboard_;
 
     /* widgets */
-    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
-    Gtk::Frame *ctrlFrame_;
     Gtk::Grid *ctrlTable_;
 
     Gtk::Label *chanLbl_;
@@ -70,4 +76,4 @@ private:
     Gtk::Button *resetBtn_;
 };
 
-#endif /* KEYBOARD_WINDOW_H */
+#endif /* KEYBOARD_PANEL_H */

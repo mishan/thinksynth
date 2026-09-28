@@ -28,35 +28,39 @@
 #include "think.h"
 
 #include "Keyboard.h"
-#include "KeyboardWindow.h"
+#include "KeyboardPanel.h"
 #include "gthSignal.h"
 
-KeyboardWindow::KeyboardWindow (thSynth *synth)
+KeyboardPanel::KeyboardPanel (thSynth *synth)
+    : Gtk::Box(Gtk::Orientation::HORIZONTAL)
 {
     synth_ = synth;
 
-    set_title("thinksynth - Keyboard");
-
-    set_child(vbox_);
-
-    scroll_ = Gtk::EventControllerScroll::create();
-    scroll_->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
-    scroll_->signal_scroll().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::onScroll), false);
-    add_controller(scroll_);
-
     ctrlTable_ = manage(new Gtk::Grid);
     keyboard_ = manage(new Keyboard);
-    ctrlFrame_ = manage(new Gtk::Frame("Keyboard Control"));
     chanLbl_ = manage(new Gtk::Label("Channel"));
     transLbl_ = manage(new Gtk::Label("Transpose"));
     resetBtn_ = manage(new Gtk::Button("Reset"));
 
-    vbox_.append(*ctrlFrame_);
-    keyboard_->set_vexpand(true);
-    vbox_.append(*keyboard_);
+    /* The controls in a column at the left and the keys across the rest,
+       so the strip costs the window the keys' height and no more. */
+    ctrlTable_->set_valign(Gtk::Align::CENTER);
+    append(*ctrlTable_);
 
-    ctrlFrame_->set_child(*ctrlTable_);
+    /* The keys scale to what they are given (Keyboard::onDraw); what they
+       asked for as a window of their own, 825px, would widen the main
+       window past its default. */
+    keyboard_->set_size_request(400, 88);
+    keyboard_->set_hexpand(true);
+    append(*keyboard_);
+
+    /* Over the controls only: over the keys a wheel is a scroll of the
+       window, not a change of channel. */
+    scroll_ = Gtk::EventControllerScroll::create();
+    scroll_->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
+    scroll_->signal_scroll().connect(
+        sigc::mem_fun(*this, &KeyboardPanel::onScroll), false);
+    ctrlTable_->add_controller(scroll_);
 
     /* gtkmm-3: Adjustment is refcounted with a protected constructor, so it is
        created through the factory and held by RefPtr rather than manage()d.
@@ -83,110 +87,109 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
     transLbl_->set_margin_end(5);
     transLbl_->set_margin_top(5);
     transLbl_->set_margin_bottom(5);
-    ctrlTable_->attach(*transLbl_, 2, 0, 1, 1);
+    transLbl_->set_xalign(0.0);
+    chanLbl_->set_xalign(0.0);
+    ctrlTable_->attach(*transLbl_, 0, 1, 1, 1);
     transBtn_->set_margin_start(5);
     transBtn_->set_margin_end(5);
     transBtn_->set_margin_top(5);
     transBtn_->set_margin_bottom(5);
-    ctrlTable_->attach(*transBtn_, 3, 0, 1, 1);
+    ctrlTable_->attach(*transBtn_, 1, 1, 1, 1);
 
     resetBtn_->set_margin_start(5);
     resetBtn_->set_margin_end(5);
     resetBtn_->set_margin_top(5);
     resetBtn_->set_margin_bottom(5);
-    ctrlTable_->attach(*resetBtn_, 4, 0, 1, 1);
+    ctrlTable_->attach(*resetBtn_, 0, 2, 2, 1);
 
     chanVal_->signal_value_changed().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::changeChannel));
+        sigc::mem_fun(*this, &KeyboardPanel::changeChannel));
 
     transVal_->signal_value_changed().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::changeTranspose));
+        sigc::mem_fun(*this, &KeyboardPanel::changeTranspose));
 
     keyboard_->signal_note_on().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::eventNoteOn));
+        sigc::mem_fun(*this, &KeyboardPanel::eventNoteOn));
 
     keyboard_->signal_note_off().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::eventNoteOff));
+        sigc::mem_fun(*this, &KeyboardPanel::eventNoteOff));
 
     keyboard_->signal_channel_changed().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::eventChannelChanged));
+        sigc::mem_fun(*this, &KeyboardPanel::eventChannelChanged));
 
     keyboard_->signal_transpose_changed().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::eventTransposeChanged));
+        sigc::mem_fun(*this, &KeyboardPanel::eventTransposeChanged));
 
     chanBtn_->set_can_focus(false);
     transBtn_->set_can_focus(false);
     resetBtn_->set_can_focus(false);
 
     resetBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::keyboardReset));
+        sigc::mem_fun(*this, &KeyboardPanel::keyboardReset));
 
     m_sigNoteOn.connect(sigc::mem_fun(*this,
-                                      &KeyboardWindow::synthEventNoteOn));
+                                      &KeyboardPanel::synthEventNoteOn));
 
     m_sigNoteOff.connect(
-        sigc::mem_fun(*this, &KeyboardWindow::synthEventNoteOff));
+        sigc::mem_fun(*this, &KeyboardPanel::synthEventNoteOff));
 
     m_sigNoteClear.connect(
-        sigc::mem_fun(*this, &KeyboardWindow::keyboardResetKeys));
+        sigc::mem_fun(*this, &KeyboardPanel::keyboardResetKeys));
 
 /*  This has the undesired effect of also cutting off MIDI notes!
     signal_focus_out_event().connect(
-        sigc::mem_fun(*this, &KeyboardWindow::keyboardReset)); */
+        sigc::mem_fun(*this, &KeyboardPanel::keyboardReset)); */
 }
 
-void KeyboardWindow::keyboardReset (void)
+void KeyboardPanel::keyboardReset (void)
 {
     synth_->clearAll();
     /* keyboardResetKeys is called somewhere along the way */
 }
 
-void KeyboardWindow::keyboardResetKeys (void)
+void KeyboardPanel::keyboardResetKeys (void)
 {
     keyboard_->resetKeys();
 }
 
-KeyboardWindow::~KeyboardWindow (void)
+void KeyboardPanel::setChannel (int chan)
 {
-    /* Nothing to free here.
-     *
-     * chanVal_ and transVal_ are created with Gtk::manage(), which hands
-     * ownership to the SpinButtons that hold them; those die with the window.
-     * Deleting them again was a double free. MainSynthWindow destroys this
-     * window every time the keyboard is closed (onKeyboardHide) and builds a
-     * fresh one when it is reopened, so the heap got corrupted on the first
-     * close -- which is what left the channel spinner reading back nonsense
-     * like -733809408, the new adjustment having been handed memory the
-     * previous window already freed twice.
-     */
+    if (chan >= 0 && chan < synth_->midiChanCount())
+        chanVal_->set_value(chan + 1);
+}
+
+KeyboardPanel::~KeyboardPanel (void)
+{
+    /* Nothing to free here: chanVal_ and transVal_ are refcounted and held
+       by the spin buttons, which die with the panel. */
 }
 
 /* these are Keyboard widget-originated events */
-void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
+void KeyboardPanel::eventNoteOn (int chan, int note, float veloc)
 {
     synth_->addNote(chan, note, veloc);
     m_sigKbdNoteOn(chan, note, veloc);
 }
 
-void KeyboardWindow::eventNoteOff (int chan, int note)
+void KeyboardPanel::eventNoteOff (int chan, int note)
 {
     synth_->delNote(chan, note);
     m_sigKbdNoteOff(chan, note);
 }
 
-void KeyboardWindow::eventChannelChanged (int chan)
+void KeyboardPanel::eventChannelChanged (int chan)
 {
     chanVal_->set_value(chan+1);
 }
 
-void KeyboardWindow::eventTransposeChanged (int trans)
+void KeyboardPanel::eventTransposeChanged (int trans)
 {
     transVal_->set_value(trans);
 }
 
 /* these are synthesizer engine thread-originated events, so the appropriate
    multi-threaded precautions must be taken here .. */
-void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
+void KeyboardPanel::synthEventNoteOn (int chan, float note, float veloc)
 {
     if (chan != keyboard_->GetChannel())
          return;
@@ -196,7 +199,7 @@ void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
     kbMutex_.unlock();
 }
 
-void KeyboardWindow::synthEventNoteOff (int chan, float note)
+void KeyboardPanel::synthEventNoteOff (int chan, float note)
 {
     if (chan != keyboard_->GetChannel())
         return;
@@ -206,7 +209,7 @@ void KeyboardWindow::synthEventNoteOff (int chan, float note)
     kbMutex_.unlock();
 }
 
-void KeyboardWindow::changeChannel (void)
+void KeyboardPanel::changeChannel (void)
 {
     kbMutex_.lock();
     /* the keyboard widget takes the real channel value */
@@ -214,7 +217,7 @@ void KeyboardWindow::changeChannel (void)
     kbMutex_.unlock();
 }
 
-void KeyboardWindow::changeTranspose (void)
+void KeyboardPanel::changeTranspose (void)
 {
     kbMutex_.lock();
     keyboard_->SetTranspose((int)transVal_->get_value());
@@ -223,7 +226,7 @@ void KeyboardWindow::changeTranspose (void)
 
 /* dy is negative upwards, and a smooth device reports fractions of a step.
    Only the sign is wanted here: one channel per notch, as before. */
-bool KeyboardWindow::onScroll (double dx, double dy)
+bool KeyboardPanel::onScroll (double dx, double dy)
 {
     (void)dx;
 

@@ -333,7 +333,7 @@ void Keyboard::SetTranspose (int transpose)
 /* Called from the synthesizer engine thread, not the GUI one -- which is why
  * it ends in a dispatcher rather than a direct redraw.
  *
- * KeyboardWindow wraps its two callers in kbMutex_, but that is a different
+ * KeyboardPanel wraps its two callers in kbMutex_, but that is a different
  * mutex from the one drawKeyboard() holds, so it only serialised the two
  * callbacks against each other and did nothing at all about drawing. The one
  * that matters is drawMutex_, taken here. */
