@@ -1009,10 +1009,13 @@ void MainSynthWindow::populateMenu (void)
     accels_.push_back(std::make_pair(Glib::ustring("win.mode::piece"),
                                      Glib::ustring("<Control>2")));
 
+    /* No mnemonics: every letter either name has is taken by an item
+       below, and a shared one makes the key cycle between them rather
+       than choose. Ctrl+1 and Ctrl+2 are the keys for these. */
     Glib::RefPtr<Gio::Menu> modes = Gio::Menu::create();
 
-    modes->append("P_atch Mode", "win.mode::patch");
-    modes->append("Pi_ece Mode", "win.mode::piece");
+    modes->append("Patch Mode", "win.mode::patch");
+    modes->append("Piece Mode", "win.mode::piece");
 
     Glib::RefPtr<Gio::Menu> layout = Gio::Menu::create();
 
