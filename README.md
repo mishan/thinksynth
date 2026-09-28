@@ -10,6 +10,34 @@ Every node is a plugin, and the set that ships covers subtractive and
 FM synthesis, resonators, waveshaping and a range of filters. New ones
 are ordinary shared libraries dropped into the plugin directory.
 
+Screenshots
+-----------
+
+A piece playing on the desktop: `gen/mirrorball.gen`'s chains on the
+canvas, its knobs and scale beside them, and what it has played on the
+roll underneath.
+
+![The desktop in piece mode, playing mirrorball.gen](docs/screenshots/desktop-piece.png)
+
+A patch: SuperRes's graph, which can be edited live, and the parameters
+it exposes.
+
+![The desktop in patch mode, with SuperRes's graph](docs/screenshots/desktop-patch.png)
+
+The same engine in a browser, [on the web](https://mishan.github.io/thinksynth/),
+playing the same piece, and on a phone.
+
+<p>
+<img src="docs/screenshots/web-piece.png" alt="The web page playing mirrorball.gen" width="74%">
+<img src="docs/screenshots/web-phone.png" alt="The web page on a phone, the roll in front" width="24%">
+</p>
+
+The pictures are taken by `scripts/screenshots.py` (the desktop) and
+`wasm/web/screenshots.mjs` (the browser), with
+[shotbox](https://github.com/mishan/shotbox) in a sealed session: a
+first run's window, GTK's and Chromium's own defaults, and nothing of the
+desktop they run on.
+
 Building
 --------
 
@@ -160,6 +188,12 @@ chain loop_ab3 {
     sink { instrument = pad; };
 };
 ```
+
+The main window has two modes, switched by the **Patch** and **Piece**
+buttons at the left of its title bar (Ctrl+1 and Ctrl+2): patch mode is a
+channel's graph, its parameters and the keys, and piece mode is the
+composer's canvas, the piece's settings and the piano roll. Each keeps its
+own layout.
 
 A piece carries its own instruments, so one file is the whole thing: open
 `gen/airports.gen` from the main window's menu (**☰ → Open Piece...**), press **Play**,

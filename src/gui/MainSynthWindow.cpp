@@ -61,6 +61,11 @@
 
 bool chosen = false;
 
+/* The window's two modes, spelled as the web page spells them and as
+   thinkrc and panes.ini keep them. */
+static const char *PATCH_MODE = "patch";
+static const char *PIECE_MODE = "piece";
+
 MainSynthWindow::MainSynthWindow (gthAudio *audio)
 {
     audio_ = audio;
@@ -140,6 +145,24 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
     composer_->transport().set_visible(false);
     header_.set_title_widget(titleBox_);
+    /* The mode first, at the start of the bar: it decides what the rest
+       of the window is. */
+    patchModeBtn_.set_label("Patch");
+    patchModeBtn_.set_tooltip_text("Patch mode: a channel's graph and "
+                                   "parameters (Ctrl+1)");
+    patchModeBtn_.set_action_name("win.mode");
+    patchModeBtn_.set_action_target_value(
+        Glib::Variant<Glib::ustring>::create(PATCH_MODE));
+    pieceModeBtn_.set_label("Piece");
+    pieceModeBtn_.set_tooltip_text("Piece mode: the composer, its "
+                                   "settings and the roll (Ctrl+2)");
+    pieceModeBtn_.set_action_name("win.mode");
+    pieceModeBtn_.set_action_target_value(
+        Glib::Variant<Glib::ustring>::create(PIECE_MODE));
+    modeBox_.add_css_class("linked");
+    modeBox_.append(patchModeBtn_);
+    modeBox_.append(pieceModeBtn_);
+    header_.pack_start(modeBox_);
     header_.pack_start(composer_->transport());
     header_.pack_end(menuBtn_);
     set_titlebar(header_);
@@ -247,27 +270,44 @@ MainSynthWindow::~MainSynthWindow (void)
     set_visible(false);
 }
 
-/* The first layout, for a first run and for Reset Layout: the channels down
- * the left, the graph of the one picked in the middle and its parameters on
- * the right, and the keys along the bottom. The piece's canvas and its roll
- * are tabs behind the graph, and the selection and the piece's settings
- * tabs behind the parameters: a patch is what the window opens on, and a
- * piece is a tab away. The patch list and the MIDI routing start in the
- * drawer, a Ctrl+P and a Ctrl+M away: Channels picks a channel, and the
- * list is for loading and saving whole patches.
+/* The first layouts, for a first run and for Reset Layout, one for each
+ * of the window's two modes. The web page has the same two and uses the
+ * same ids, so a layout means the same on both.
  *
- * Ids the web page uses for the same thing are the ones used here, so a
- * layout means the same on both. */
-static const char *DESKTOP_LAYOUT =
+ * Patch: the channels down the left, the graph of the one picked in the
+ * middle and its parameters on the right, and the keys along the bottom.
+ * The patch list and the MIDI routing start in the drawer, a Ctrl+P and a
+ * Ctrl+M away: Channels picks a channel, and the list is for loading and
+ * saving whole patches.
+ *
+ * Piece: the canvas, with the piece's settings and the selection beside
+ * it and the roll under both, the keys a tab behind the roll. The patch's
+ * panes are in the drawer rather than gone: a piece is played on
+ * channels, and looking at one is a click away.
+ */
+static const char *PATCH_LAYOUT =
     "{\"dir\":\"col\",\"size\":[0.76,0.24],\"kids\":["
       "{\"dir\":\"row\",\"size\":[0.12,0.53,0.35],\"kids\":["
         "{\"tabs\":[\"channelbox\"]},"
-        "{\"tabs\":[\"nodeview\",\"composerview\",\"roll\"]},"
-        "{\"tabs\":[\"paramview\",\"selection\",\"pieceedit\"]}]},"
+        "{\"tabs\":[\"nodeview\"]},"
+        "{\"tabs\":[\"paramview\"]}]},"
       "{\"tabs\":[\"keyboard\"]}]}";
 
-/* The window's one mode, until it has more than one. */
-static const char *DESKTOP_MODE = "desktop";
+static const char *PIECE_LAYOUT =
+    "{\"dir\":\"col\",\"size\":[0.66,0.34],\"kids\":["
+      "{\"dir\":\"row\",\"size\":[0.58,0.42],\"kids\":["
+        "{\"tabs\":[\"composerview\"]},"
+        "{\"tabs\":[\"pieceedit\",\"selection\"]}]},"
+      "{\"tabs\":[\"roll\",\"keyboard\"]}]}";
+
+/* The key the window's one layout was kept under before there were two
+   modes: read as the patch mode's, which is what it mostly was. */
+static const char *OLD_LAYOUT_KEY = "desktop";
+
+/* The panes only a piece has. Everything else is in both modes. */
+static const char *const PIECE_PANES[] = {
+    "composerview", "roll", "pieceedit", "selection",
+};
 
 /* `content' in a scrolled window, sideways and, if `down', downward too.
  *
@@ -299,6 +339,15 @@ void MainSynthWindow::buildPanes (void)
                            Gtk::PolicyType::AUTOMATIC);
     chanScroll_.set_vexpand(true);
 
+    addChanBtn_.set_label("Add channel...");
+    addChanBtn_.set_tooltip_text("Load a graph onto the lowest channel "
+                                 "with nothing on it");
+    addChanBtn_.set_margin(6);
+    addChanBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onAddChannel));
+    chanBox_.append(chanScroll_);
+    chanBox_.append(addChanBtn_);
+
     paramBox_.append(dspEntryBox_);
     paramBox_.append(*manage(new Gtk::Separator(
                                  Gtk::Orientation::HORIZONTAL)));
@@ -318,7 +367,7 @@ void MainSynthWindow::buildPanes (void)
        narrowest the window can be, so they are kept low enough for a
        1280-pixel screen. A pane narrower than its content would clip it,
        so the ones that cannot wrap scroll instead. */
-    panes_->add("channelbox", "Channels", chanScroll_, 160);
+    panes_->add("channelbox", "Channels", chanBox_, 160);
     panes_->add("paramview", "Patch params", scrolled(paramBox_, false), 400);
     panes_->add("nodeview", "Patch graph", nodeStack_, 480);
     panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
@@ -353,7 +402,14 @@ void MainSynthWindow::buildPanes (void)
        comes into view, which starts it, and the command acts on what it
        shows. */
     composer_->signal_wanted().connect(
-        [this] { if (panes_ != NULL) panes_->present("composerview", true); });
+        [this]
+        {
+            if (panes_ == NULL)
+                return;
+
+            setDesktopMode(PIECE_MODE);
+            panes_->present("composerview", true);
+        });
 
     /* However it was started, the transport comes up with it. */
     composer_->signal_started().connect(
@@ -363,8 +419,8 @@ void MainSynthWindow::buildPanes (void)
             composer_->status().set_visible(true);
         });
 
-    panes_->setDefault(DESKTOP_MODE, DESKTOP_LAYOUT);
-    panes_->setMode(DESKTOP_MODE);
+    panes_->setDefault(PATCH_MODE, PATCH_LAYOUT);
+    panes_->setDefault(PIECE_MODE, PIECE_LAYOUT);
 
     panes_->signal_pane_shown().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onPaneShown));
@@ -373,13 +429,59 @@ void MainSynthWindow::buildPanes (void)
     panes_->signal_layout_kept().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onLayoutKept));
 
-    keptLayout_ = readLayout();
-    hadLayout_ = !keptLayout_.empty();
-    panes_->load(keptLayout_);
+    keptLayouts_[PATCH_MODE] = readLayout(PATCH_MODE);
+    keptLayouts_[PIECE_MODE] = readLayout(PIECE_MODE);
+    hadLayout_ = !keptLayouts_[PATCH_MODE].empty() ||
+                 !keptLayouts_[PIECE_MODE].empty();
+
+    /* Patch to begin with; applyPrefs puts the one last used back. */
+    setDesktopMode(PATCH_MODE, false);
 
     set_child(panes_->widget());
+}
+
+bool MainSynthWindow::isPiecePane (const string &id)
+{
+    for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
+        if (id == PIECE_PANES[i])
+            return true;
+
+    return false;
+}
+
+/* A pane the mode does not have is unavailable rather than closed: it
+   leaves the layout without the layout forgetting where it was, so coming
+   back to the mode puts it back there. */
+void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
+{
+    if (panes_ == NULL || (mode != PATCH_MODE && mode != PIECE_MODE))
+        return;
+
+    if (mode == mode_)
+        return;
+
+    mode_ = mode;
+
+    for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
+        panes_->setAvailable(PIECE_PANES[i], mode == PIECE_MODE);
+
+    panes_->setMode(mode);
+    panes_->load(keptLayouts_[mode]);
+
+    if (modeAction_)
+        modeAction_->set_state(Glib::Variant<Glib::ustring>::create(mode));
+
+    if (keep)
+    {
+        string **vals = new string *[2];
+
+        vals[0] = new string(mode);
+        vals[1] = NULL;
+        gthPrefs::instance()->Set("mode", vals);
+    }
 
     syncPaneActions();
+    syncComposer();
 }
 
 void MainSynthWindow::onPaneShown (const string &id, bool visible)
@@ -434,7 +536,12 @@ void MainSynthWindow::togglePane (const string &id)
     if (panes_ == NULL)
         return;
 
-    if (panes_->isVisible(id))
+    if (isPiecePane(id) && mode_ != PIECE_MODE)
+    {
+        setDesktopMode(PIECE_MODE);
+        panes_->present(id, true);
+    }
+    else if (panes_->isVisible(id))
         panes_->close(id);
     else
         panes_->present(id, true);
@@ -451,29 +558,50 @@ string MainSynthWindow::layoutPath (void)
             PACKAGE_NAME / "panes.ini").string();
 }
 
-string MainSynthWindow::readLayout (void)
+string MainSynthWindow::readLayout (const string &mode)
 {
     Glib::RefPtr<Glib::KeyFile> file = Glib::KeyFile::create();
 
     try
     {
         file->load_from_file(layoutPath());
-
-        return file->get_string("layouts", DESKTOP_MODE);
     }
     catch (const Glib::Error &)
     {
-        /* No file, or nothing kept in it: the first layout. */
+        /* No file: the first layout. */
         return string();
     }
+
+    try
+    {
+        return file->get_string("layouts", mode);
+    }
+    catch (const Glib::Error &)
+    {
+    }
+
+    /* Nothing kept for the mode. The patch mode takes the one layout
+       there was before there were modes, if that is what there is. */
+    if (mode == PATCH_MODE)
+    {
+        try
+        {
+            return file->get_string("layouts", OLD_LAYOUT_KEY);
+        }
+        catch (const Glib::Error &)
+        {
+        }
+    }
+
+    return string();
 }
 
 void MainSynthWindow::onLayoutKept (const string &mode, const string &text)
 {
-    if (mode != DESKTOP_MODE)
+    if (mode != PATCH_MODE && mode != PIECE_MODE)
         return;
 
-    keptLayout_ = text;
+    keptLayouts_[mode] = text;
 
     /* After the last change of a burst -- a divider's drag is a change on
        every step of it. */
@@ -501,18 +629,31 @@ void MainSynthWindow::writeLayout (void)
         /* A first write: nothing to keep. */
     }
 
-    if (keptLayout_.empty())
+    for (std::map<string, string>::const_iterator i = keptLayouts_.begin();
+         i != keptLayouts_.end(); ++i)
     {
-        try
+        if (i->second.empty())
         {
-            file->remove_key("layouts", DESKTOP_MODE);
+            try
+            {
+                file->remove_key("layouts", i->first);
+            }
+            catch (const Glib::Error &)
+            {
+            }
         }
-        catch (const Glib::Error &)
-        {
-        }
+        else
+            file->set_string("layouts", i->first, i->second);
     }
-    else
-        file->set_string("layouts", DESKTOP_MODE, keptLayout_);
+
+    /* Kept under the modes' own keys now. */
+    try
+    {
+        file->remove_key("layouts", OLD_LAYOUT_KEY);
+    }
+    catch (const Glib::Error &)
+    {
+    }
 
     std::error_code ec;
 
@@ -640,6 +781,14 @@ void MainSynthWindow::applyPrefs (void)
             sigc::mem_fun(*this, &MainSynthWindow::onSystemThemeChanged));
 
         gthTheme::startWatching();
+    }
+
+    /* The mode last used. */
+    {
+        string **mvals = prefs->Get("mode");
+
+        if (mvals != NULL && mvals[0] != NULL)
+            setDesktopMode(*(mvals[0]), false);
     }
 
     /* The directory the DSP browser opens in. This was read in the
@@ -848,6 +997,29 @@ void MainSynthWindow::populateMenu (void)
         sigc::mem_fun(*this, &MainSynthWindow::menuTheme),
         gthTheme::toString(gthTheme::current()));
 
+    /* The mode, the same way: the title bar's two toggles and the menu's
+       two items are views of one stateful action. */
+    modeAction_ = actions_->add_action_radio_string(
+        "mode",
+        [this] (const Glib::ustring &target)
+        {
+            setDesktopMode(target.raw());
+        },
+        PATCH_MODE);
+
+    accels_.push_back(std::make_pair(Glib::ustring("win.mode::patch"),
+                                     Glib::ustring("<Control>1")));
+    accels_.push_back(std::make_pair(Glib::ustring("win.mode::piece"),
+                                     Glib::ustring("<Control>2")));
+
+    /* No mnemonics: every letter either name has is taken by an item
+       below, and a shared one makes the key cycle between them rather
+       than choose. Ctrl+1 and Ctrl+2 are the keys for these. */
+    Glib::RefPtr<Gio::Menu> modes = Gio::Menu::create();
+
+    modes->append("Patch Mode", "win.mode::patch");
+    modes->append("Piece Mode", "win.mode::piece");
+
     Glib::RefPtr<Gio::Menu> layout = Gio::Menu::create();
 
     layout->append("Reset La_yout", "win.reset-layout");
@@ -874,6 +1046,7 @@ void MainSynthWindow::populateMenu (void)
        boundary in a menu model rather than an item of its own. */
     Glib::RefPtr<Gio::Menu> menu = Gio::Menu::create();
 
+    menu->append_section(modes);
     menu->append_section(view);
     menu->append_section(layout);
     menu->append_section(composer_->menu());
@@ -941,14 +1114,11 @@ void MainSynthWindow::appendChannel (const string &tabName, const string &tip,
 {
     const string name = "ch" + std::to_string(num);
 
-    Gtk::Widget *row = makeChannelLabel(tabName, tip);
-
-    /* An empty channel's row dimmed, so the four with something on them
-       stand out of the sixteen. */
-    if (!is_real)
-        row->add_css_class("dim-label");
-
-    chanList_.append(*row);
+    if (is_real)
+    {
+        chanList_.append(*makeChannelLabel(tabName, tip));
+        rowChans_.push_back(num);
+    }
 
     /* The graph's holder, filled when it is first looked at. */
     Gtk::Box *holder = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
@@ -1666,12 +1836,11 @@ void MainSynthWindow::populate (void)
         
         if (patch == NULL)
         {
-            /* Nothing on this channel at all. Distinct from a channel with
-               a DSP loaded but no patch file saved for it yet, which keeps
-               "(Untitled)" below -- the two used to read the same, so an
-               empty channel and unsaved work looked alike. */
-            tabName = chanStr.str() + "(empty)";
-            appendChannel(tabName, "", i, false);
+            /* Nothing on this channel at all: its pages, and no row. A
+               list of sixteen with twelve of them "(empty)" said less than
+               a list of the four there are, and Add channel... is where
+               another comes from. */
+            appendChannel("", "", i, false);
             continue;
         }
 
@@ -1696,9 +1865,21 @@ void MainSynthWindow::populate (void)
                                 ext) == 0)
                 tabName.erase(tabName.size() - ext.size());
         }
+        else if (!patch->doc.dsp.empty())
+        {
+            /* A DSP is loaded; no patch file has been saved for it -- which
+               is every instrument a piece carries. The graph's name, with
+               its ".dsp" left on, which is what tells it from a saved
+               patch: a piece's channels all read "(Untitled)" before, so
+               nothing said which was the kick and which the pad. */
+            tabName = chanStr.str() +
+                      thUtil::basename(patch->doc.dsp.c_str());
+            appendChannel(tabName, patch->doc.dsp, i, true);
+            continue;
+        }
         else
         {
-            /* A DSP is loaded; no patch file has been saved for it. */
+            /* Neither a patch file nor a graph's name to show. */
             tabName = chanStr.str() + "(Untitled)";
         }
 
@@ -1719,6 +1900,7 @@ void MainSynthWindow::clearPages (void)
     while (Gtk::Widget *w = chanList_.get_first_child())
         chanList_.remove(*w);
 
+    rowChans_.clear();
     selecting_ = false;
 
     while (Gtk::Widget *w = paramStack_.get_first_child())
@@ -1897,12 +2079,26 @@ void MainSynthWindow::selectChannel (int chan)
     if (nodeStack_.get_child_by_name(name) != NULL)
         nodeStack_.set_visible_child(name);
 
-    if (Gtk::ListBoxRow *row = chanList_.get_row_at_index(chan))
+    /* Its row, if it has one: a channel with nothing on it has none, and
+       the list then has nothing selected rather than the wrong one. */
     {
+        Gtk::ListBoxRow *row = NULL;
+
+        for (size_t i = 0; i < rowChans_.size(); i++)
+            if (rowChans_[i] == chan)
+                row = chanList_.get_row_at_index((int)i);
+
         selecting_ = true;
-        chanList_.select_row(*row);
+
+        if (row != NULL)
+            chanList_.select_row(*row);
+        else
+            chanList_.unselect_all();
+
         selecting_ = false;
     }
+
+    addChanBtn_.set_sensitive(firstFreeChannel() >= 0);
 
     /* And the keys play the channel being looked at. */
     if (kbPanel_ != NULL)
@@ -1932,7 +2128,29 @@ void MainSynthWindow::onChannelRow (Gtk::ListBoxRow *row)
     if (selecting_ || row == NULL)
         return;
 
-    selectChannel(row->get_index());
+    const int idx = row->get_index();
+
+    if (idx >= 0 && idx < (int)rowChans_.size())
+        selectChannel(rowChans_[idx]);
+}
+
+int MainSynthWindow::firstFreeChannel (void)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+
+    for (int i = 0; i < patchMgr->numPatches(); i++)
+        if (patchMgr->getPatch(i) == NULL)
+            return i;
+
+    return -1;
+}
+
+void MainSynthWindow::onAddChannel (void)
+{
+    const int chan = firstFreeChannel();
+
+    if (chan >= 0)
+        openDspBrowser(false, chan);
 }
 
 void MainSynthWindow::onDspEntryActivate (void)

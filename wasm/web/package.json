@@ -17,11 +17,13 @@
     "gencatalogcheck": "node gencatalogcheck.mjs",
     "jamtest": "node jamtest.mjs",
     "pwatest": "node pwatest.mjs",
-    "bench": "node bench.mjs"
+    "bench": "node bench.mjs",
+    "screenshots": "node screenshots.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "shotbox": "0.3.0"
   },
   "dependencies": {
     "cairo-canvas2d": "^0.1.0",
