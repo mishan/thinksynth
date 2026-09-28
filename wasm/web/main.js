@@ -2210,6 +2210,7 @@ async function start ()
        above leave it where it is and enabled again, since those are the
        ones somebody retries. */
     $('start').hidden = true;
+    document.body.dataset.started = '';
     $('load').disabled = false;
     $('loadpiece').disabled = false;
 

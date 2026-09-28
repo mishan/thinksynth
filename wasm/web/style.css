@@ -44,6 +44,8 @@
     --dim:       #666666;
     --panel:     #f4f4f4;
     --line:      #dcdcdc;
+    --ctl:       #f6f6f6;
+    --ctl-edge:  #c4c4c4;
     --key:       #ffffff;
     --key-edge:  #b0b0b0;
     --key-black: #202020;
@@ -90,6 +92,8 @@
         --dim:       #999999;
         --panel:     #262626;
         --line:      #3a3a3a;
+        --ctl:       #2e2e2e;
+        --ctl-edge:  #4a4a4a;
         --key:       #d8d8d8;
         --key-edge:  #555555;
         --key-black: #101010;
@@ -324,6 +328,109 @@ kbd
 
 [hidden] { display: none !important; }
 
+/* ---- the controls ----
+ *
+ * One look for the buttons, menus and boxes the page makes, drawn from the
+ * palette, where the browser's own were a different shape in each engine
+ * and beside the tiler's drawn ones. Under :where(), so any rule naming a
+ * control by id or class still wins without having to outrank this; and
+ * not the tiler's, which draws its tabs and chips itself.
+ */
+:where(button:not([class^="pane"]), select,
+       input:is([type="number"], [type="text"], :not([type])))
+{
+    font: inherit;
+    color: var(--fg);
+    background: var(--ctl);
+    border: 1px solid var(--ctl-edge);
+    border-radius: 4px;
+    padding: 0.05em 0.4em;
+}
+
+:where(input:is([type="number"], [type="text"], :not([type])))
+{
+    background: var(--bg);
+}
+
+:where(button:not([class^="pane"])) { cursor: pointer; }
+
+:where(button:not([class^="pane"]), select):hover:not(:disabled)
+{
+    border-color: var(--dim);
+}
+
+:where(button, select, input):disabled { opacity: 0.45; cursor: default; }
+
+:where(button, select, input, summary, canvas):focus-visible
+{
+    outline: 2px solid AccentColor;
+    outline-offset: 1px;
+}
+
+/* The one thing to press first, as the thing to press: Start here, and
+   Join on the room page. */
+#start, #join
+{
+    background: AccentColor;
+    color: AccentColorText;
+    border-color: transparent;
+    font-weight: 600;
+    padding: 0.05em 0.9em;
+}
+
+#start:hover:not(:disabled), #join:hover:not(:disabled)
+{
+    filter: brightness(1.1);
+}
+
+/* Until Start, the panes a synth fills have nothing in them, and a page
+   of empty boxes reads as one that failed to load. Each says what it
+   will hold instead; main.js marks the body once there is a synth. */
+body:not([data-started]) :is(#tracks, #params, #channels):empty::before,
+body:not([data-started]) :is(#roll, #nodescroll)::after
+{
+    display: block;
+    padding: 1.5em 0.5em;
+    color: var(--dim);
+    text-align: center;
+}
+
+body:not([data-started]) #tracks:empty::before
+{
+    content: "Press Start: the sequence's tracks go here.";
+}
+
+body:not([data-started]) #params:empty::before
+{
+    content: "Press Start: the instrument's controls go here.";
+}
+
+body:not([data-started]) #channels:empty::before
+{
+    content: "Press Start: each channel's instrument goes here.";
+}
+
+body:not([data-started]) :is(#roll, #nodescroll) { position: relative; }
+
+body:not([data-started]) #nodescroll::after
+{
+    content: "Press Start: the instrument's graph goes here.";
+}
+
+body:not([data-started]) #roll::after
+{
+    content: "Press Start: what plays is drawn here.";
+}
+
+body:not([data-started]) :is(#roll, #nodescroll)::after
+{
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+
 summary
 {
     cursor: pointer;
@@ -470,7 +577,7 @@ details { margin: 0.8em 0; }
 /* Four digits and the spinner, which is all a bpm ever needs: left to
    itself a number input takes the width of a text one and pushes the
    clock off the end of a narrow strip. */
-#tempo { width: 5em; }
+#tempo { width: 4em; }
 
 /* A control that cannot reach this piece still says what it would be.
    Dimmed rather than gone, because a tempo box that appears and
