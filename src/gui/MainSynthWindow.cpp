@@ -115,7 +115,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     
     set_child(vbox_);
 
-    dspEntryLbl_.set_label("DSP File: ");
+    dspEntryLbl_.set_label("Channel 1 DSP:");
     dspBrowseBtn_.set_label("Browse");
     dspEntryBox_.append(dspEntryLbl_);
     dspEntry_.set_hexpand(true);
@@ -184,6 +184,10 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
     populate();
 
+    /* Focus on the channel tabs to begin with. Left to GTK it goes to the
+       first focusable widget, the DSP entry, with its text selected -- so
+       the first key typed replaced the channel's DSP. */
+    set_focus(notebook_);
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     patchMgr->signal_patches_changed().connect(
@@ -643,7 +647,13 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     {
         Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
         lbl->set_justify(Gtk::Justification::CENTER);
-        notebook_.append_page(*lbl, *makeTabLabel(tabName, tip));
+
+        /* An empty channel's tab dimmed, so the four with something on
+           them stand out of the sixteen. */
+        Gtk::Widget *tab = makeTabLabel(tabName, tip);
+
+        tab->add_css_class("dim-label");
+        notebook_.append_page(*lbl, *tab);
         return;
     }
 
@@ -1378,6 +1388,15 @@ void MainSynthWindow::populate (void)
                tooltip. */
             tabName = chanStr.str() +
                       thUtil::basename(patch->filename.c_str());
+
+            /* And without ".patch": every tab has it, so it says nothing,
+               and it is what the strip's width cut to "FunkMachine.p...". */
+            const string ext = ".patch";
+
+            if (tabName.size() > ext.size() &&
+                tabName.compare(tabName.size() - ext.size(), ext.size(),
+                                ext) == 0)
+                tabName.erase(tabName.size() - ext.size());
         }
         else
         {
@@ -1566,6 +1585,11 @@ void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(pagenum);
+
+    /* The entry is the current channel's DSP, and sits over all sixteen
+       tabs; the label says which one it is. */
+    dspEntryLbl_.set_label("Channel " + std::to_string(pagenum + 1) +
+                           " DSP:");
 
     if (patch == NULL)
     {
