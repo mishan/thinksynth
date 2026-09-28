@@ -84,6 +84,12 @@ protected:
     void selectChannel (int chan);
     void onChannelRow (Gtk::ListBoxRow *row);
 
+    /* Channels lists only the channels with something on them; Add
+       channel... loads a graph onto the lowest one without, which is -1
+       when all sixteen are taken. */
+    int firstFreeChannel (void);
+    void onAddChannel (void);
+
     /* The strip across the top of a patch's parameters: which patch it is,
        its amplitude, and what can be done with it. Over the parameters
        rather than among them, because it is about the patch and not about
@@ -252,9 +258,13 @@ protected:
        down. */
     Panes *panes_;
 
-    /* Channels: a row for each of the sixteen. */
+    /* Channels: a row for each channel with something on it, the channel
+       each row is, and the button that loads a graph onto a new one. */
+    Gtk::Box chanBox_{Gtk::Orientation::VERTICAL};
     Gtk::ScrolledWindow chanScroll_;
     Gtk::ListBox chanList_;
+    std::vector<int> rowChans_;
+    Gtk::Button addChanBtn_;
 
     /* Patch params: the DSP entry over a page for each channel. */
     Gtk::Box paramBox_{Gtk::Orientation::VERTICAL};

@@ -339,6 +339,15 @@ void MainSynthWindow::buildPanes (void)
                            Gtk::PolicyType::AUTOMATIC);
     chanScroll_.set_vexpand(true);
 
+    addChanBtn_.set_label("Add channel...");
+    addChanBtn_.set_tooltip_text("Load a graph onto the lowest channel "
+                                 "with nothing on it");
+    addChanBtn_.set_margin(6);
+    addChanBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onAddChannel));
+    chanBox_.append(chanScroll_);
+    chanBox_.append(addChanBtn_);
+
     paramBox_.append(dspEntryBox_);
     paramBox_.append(*manage(new Gtk::Separator(
                                  Gtk::Orientation::HORIZONTAL)));
@@ -358,7 +367,7 @@ void MainSynthWindow::buildPanes (void)
        narrowest the window can be, so they are kept low enough for a
        1280-pixel screen. A pane narrower than its content would clip it,
        so the ones that cannot wrap scroll instead. */
-    panes_->add("channelbox", "Channels", chanScroll_, 160);
+    panes_->add("channelbox", "Channels", chanBox_, 160);
     panes_->add("paramview", "Patch params", scrolled(paramBox_, false), 400);
     panes_->add("nodeview", "Patch graph", nodeStack_, 480);
     panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
@@ -1099,14 +1108,11 @@ void MainSynthWindow::appendChannel (const string &tabName, const string &tip,
 {
     const string name = "ch" + std::to_string(num);
 
-    Gtk::Widget *row = makeChannelLabel(tabName, tip);
-
-    /* An empty channel's row dimmed, so the four with something on them
-       stand out of the sixteen. */
-    if (!is_real)
-        row->add_css_class("dim-label");
-
-    chanList_.append(*row);
+    if (is_real)
+    {
+        chanList_.append(*makeChannelLabel(tabName, tip));
+        rowChans_.push_back(num);
+    }
 
     /* The graph's holder, filled when it is first looked at. */
     Gtk::Box *holder = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
@@ -1824,12 +1830,11 @@ void MainSynthWindow::populate (void)
         
         if (patch == NULL)
         {
-            /* Nothing on this channel at all. Distinct from a channel with
-               a DSP loaded but no patch file saved for it yet, which keeps
-               "(Untitled)" below -- the two used to read the same, so an
-               empty channel and unsaved work looked alike. */
-            tabName = chanStr.str() + "(empty)";
-            appendChannel(tabName, "", i, false);
+            /* Nothing on this channel at all: its pages, and no row. A
+               list of sixteen with twelve of them "(empty)" said less than
+               a list of the four there are, and Add channel... is where
+               another comes from. */
+            appendChannel("", "", i, false);
             continue;
         }
 
@@ -1854,9 +1859,21 @@ void MainSynthWindow::populate (void)
                                 ext) == 0)
                 tabName.erase(tabName.size() - ext.size());
         }
+        else if (!patch->doc.dsp.empty())
+        {
+            /* A DSP is loaded; no patch file has been saved for it -- which
+               is every instrument a piece carries. The graph's name, with
+               its ".dsp" left on, which is what tells it from a saved
+               patch: a piece's channels all read "(Untitled)" before, so
+               nothing said which was the kick and which the pad. */
+            tabName = chanStr.str() +
+                      thUtil::basename(patch->doc.dsp.c_str());
+            appendChannel(tabName, patch->doc.dsp, i, true);
+            continue;
+        }
         else
         {
-            /* A DSP is loaded; no patch file has been saved for it. */
+            /* Neither a patch file nor a graph's name to show. */
             tabName = chanStr.str() + "(Untitled)";
         }
 
@@ -1877,6 +1894,7 @@ void MainSynthWindow::clearPages (void)
     while (Gtk::Widget *w = chanList_.get_first_child())
         chanList_.remove(*w);
 
+    rowChans_.clear();
     selecting_ = false;
 
     while (Gtk::Widget *w = paramStack_.get_first_child())
@@ -2055,12 +2073,26 @@ void MainSynthWindow::selectChannel (int chan)
     if (nodeStack_.get_child_by_name(name) != NULL)
         nodeStack_.set_visible_child(name);
 
-    if (Gtk::ListBoxRow *row = chanList_.get_row_at_index(chan))
+    /* Its row, if it has one: a channel with nothing on it has none, and
+       the list then has nothing selected rather than the wrong one. */
     {
+        Gtk::ListBoxRow *row = NULL;
+
+        for (size_t i = 0; i < rowChans_.size(); i++)
+            if (rowChans_[i] == chan)
+                row = chanList_.get_row_at_index((int)i);
+
         selecting_ = true;
-        chanList_.select_row(*row);
+
+        if (row != NULL)
+            chanList_.select_row(*row);
+        else
+            chanList_.unselect_all();
+
         selecting_ = false;
     }
+
+    addChanBtn_.set_sensitive(firstFreeChannel() >= 0);
 
     /* And the keys play the channel being looked at. */
     if (kbPanel_ != NULL)
@@ -2090,7 +2122,29 @@ void MainSynthWindow::onChannelRow (Gtk::ListBoxRow *row)
     if (selecting_ || row == NULL)
         return;
 
-    selectChannel(row->get_index());
+    const int idx = row->get_index();
+
+    if (idx >= 0 && idx < (int)rowChans_.size())
+        selectChannel(rowChans_[idx]);
+}
+
+int MainSynthWindow::firstFreeChannel (void)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+
+    for (int i = 0; i < patchMgr->numPatches(); i++)
+        if (patchMgr->getPatch(i) == NULL)
+            return i;
+
+    return -1;
+}
+
+void MainSynthWindow::onAddChannel (void)
+{
+    const int chan = firstFreeChannel();
+
+    if (chan >= 0)
+        openDspBrowser(false, chan);
 }
 
 void MainSynthWindow::onDspEntryActivate (void)

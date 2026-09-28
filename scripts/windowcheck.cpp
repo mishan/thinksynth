@@ -87,6 +87,10 @@ public:
     using MainSynthWindow::layoutPath;
     using MainSynthWindow::setDesktopMode;
     using MainSynthWindow::mode_;
+    using MainSynthWindow::rowChans_;
+    using MainSynthWindow::addChanBtn_;
+    using MainSynthWindow::firstFreeChannel;
+    using MainSynthWindow::onBrowseChosen;
 };
 
 static int checks = 0;
@@ -181,6 +185,18 @@ pickMode (TestWindow *win, const char *mode)
     pump(4);
 }
 
+/* The row Channels has for `chan', or NULL: only a channel with something
+   on it has one. */
+static Gtk::ListBoxRow *
+rowFor (TestWindow *win, int chan)
+{
+    for (size_t i = 0; i < win->rowChans_.size(); i++)
+        if (win->rowChans_[i] == chan)
+            return win->chanList_.get_row_at_index((int)i);
+
+    return NULL;
+}
+
 static std::string
 readAll (const std::string &path)
 {
@@ -271,7 +287,10 @@ run (const std::string &pluginPath, const std::string &dsp)
         while (win->chanList_.get_row_at_index(rows) != NULL)
             rows++;
 
-        check(rows == NUM_PATCHES, "Channels has a row for every channel");
+        check(rows == 2 && win->rowChans_.size() == 2 &&
+              win->rowChans_[0] == 0 && win->rowChans_[1] == 2,
+              "Channels has a row for each channel with a patch on it, and "
+              "none for the empty ones");
     }
 
     check(win->chan_ == 0 && win->editors_.count(0) == 1,
@@ -281,7 +300,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->editors_.size() == 1,
           "...and only its: a graph nobody has looked at is not built");
 
-    win->chanList_.select_row(*win->chanList_.get_row_at_index(2));
+    win->chanList_.select_row(*rowFor(win, 2));
     pump(4);
 
     check(win->chan_ == 2, "picking a row in Channels picks the channel");
@@ -296,12 +315,42 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     check(win->chan_ == 2, "loading a patch elsewhere keeps the channel");
 
+    /* A graph with no patch file saved for it -- as every instrument a
+       piece carries is -- goes by the graph's name. */
+    {
+        Gtk::ListBoxRow *row = rowFor(win, 5);
+        Gtk::Label *lbl = row != NULL
+            ? dynamic_cast<Gtk::Label *>(row->get_child()) : NULL;
+        const std::string want =
+            "6: " + std::filesystem::path(dsp).filename().string();
+
+        check(lbl != NULL && lbl->get_text() == want,
+              "a channel with a graph and no patch file is named for the "
+              "graph");
+    }
+
+    /* Add channel...: the lowest channel with nothing on it, and a row
+       for it once something is. */
+    check(win->firstFreeChannel() == 1 && win->addChanBtn_.get_sensitive(),
+          "Add channel... is offered, for the lowest empty channel");
+
+    win->onBrowseChosen(dsp, win->firstFreeChannel());
+    pump(4);
+
+    check(rowFor(win, 1) != NULL && win->chan_ == 1 &&
+          win->chanList_.get_selected_row() == rowFor(win, 1) &&
+          win->rowChans_.size() == 4 && win->rowChans_[1] == 1,
+          "...and what it loads gets a row, in channel order, and is "
+          "picked");
+
+    win->selectChannel(2);
+    pump(4);
 
 
     {
         Gtk::ListBoxRow *row = win->chanList_.get_selected_row();
 
-        check(row != NULL && row->get_index() == 2,
+        check(row != NULL && row == rowFor(win, 2),
               "...and its row selected");
     }
 
