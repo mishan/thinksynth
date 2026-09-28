@@ -30,7 +30,7 @@
  * few seconds, and a piece that would clip does so in a file rather than
  * in your ears.
  *
- * What it is for: hearing a piece without opening the Composer window,
+ * What it is for: hearing a piece without opening it in the program,
  * checking a new instrument block's level against the others before
  * pressing Play, and reading the tape -- `-t' -- to see what a chain
  * actually delivered when the piano roll is not to hand. The summary
@@ -39,9 +39,10 @@
  *
  * The clock steps one audio window at a time -- 1024 samples, about
  * twenty-three milliseconds at the default rate -- so an event lands on the
- * window boundary after its scheduled time. The Composer window delivers on
- * a twenty-millisecond timer and has the same granularity; the file sounds
- * the way the window does, and the tape's times are the scheduled ones.
+ * window boundary after its scheduled time. The program's composer delivers
+ * on a twenty-millisecond timer and has the same granularity; the file
+ * sounds the way the program does, and the tape's times are the scheduled
+ * ones.
  *
  * Instruments load the way they do everywhere else: the `dsp' name is
  * searched for under THINK_DSP_PATH, the current directory's dsp/, and the

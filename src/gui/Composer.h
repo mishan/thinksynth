@@ -110,6 +110,13 @@ public:
         return showSelection_;
     }
 
+    /* A menu command wants the piece before anything has shown it: the
+       host puts the canvas in view. start() follows either way. */
+    sigc::signal<void ()> &signal_wanted (void) { return wanted_; }
+
+    /* start() has run: the transport has something to play. */
+    sigc::signal<void ()> &signal_started (void) { return startedSig_; }
+
 protected:
     /* Scan <pluginroot>/composer/ exactly as NodeEditor scans visual/. */
     void loadComposers (void);
@@ -322,9 +329,13 @@ protected:
 
     thcGenEdit::Doc doc_;           /* what the work file says           */
 
-    /* Held as well as parented: the host's panes parent it, and it has to
-       outlive being taken off them. */
+    /* The roll, made in start() with the scheduler it reads, and the box
+       that is its pane's content until then and its parent after. */
     PianoRoll *roll_;
+    Gtk::Box rollBox_{Gtk::Orientation::VERTICAL};
+
+    /* A menu command's way in before start(). */
+    void wake (void);
 
     /* The file actions, and Save's own, because it is not fire-and-forget:
        it goes insensitive when there is nothing to save. */
@@ -336,18 +347,21 @@ protected:
     bool editing_ = false;
     bool canvasShown_ = false;
     sigc::signal<void ()> showSelection_;
+    sigc::signal<void ()> wanted_;
+    sigc::signal<void ()> startedSig_;
+    bool stale_ = false;
 
     Gtk::ScrolledWindow editorScroll_;
     Gtk::Box editorBox_{Gtk::Orientation::VERTICAL};
     Gtk::ScrolledWindow selScroll_;
     Gtk::Box selOuter_{Gtk::Orientation::VERTICAL};
 
-    /* The selection panel's home inside editorBox_, refilled in place
-       so the sections above it keep their state. */
+    /* The selection's home inside selOuter_, refilled in place when the
+       canvas selection changes. */
     Gtk::Box *selBox_;
 
-    /* The node view, above the roll; inline composer_draw replaced the
-       old draw strip. */
+    /* The node canvas; inline composer_draw replaced the old draw
+       strip. */
     ComposerCanvasWidget *canvas_;
     Gtk::ScrolledWindow canvasScroll_;
 

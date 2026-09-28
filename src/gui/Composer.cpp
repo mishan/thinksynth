@@ -62,18 +62,11 @@ Composer::Composer (thSynth *synth)
     selBox_ = NULL;
     kbdBtn_ = NULL;
 
-    sched_ = new thcScheduler(synth_);
-    sched_->setInstrumentLoader(
-        [this](const thcInstrument &inst, std::string &why)
-        { return loadInstrument(inst, why); });
-    sched_->setInstrumentUnloader(
-        [this](const thcInstrument &inst) { return unloadInstrument(inst); });
-    sched_->setEffectLoader(
-        [this](int channel, const std::string &effect, int side,
-               std::string &why)
-        { return loadEffect(channel, effect, side, why); });
-    sched_->setChannelTaken(
-        [this](int channel) { return channelTaken(channel); });
+    /* No scheduler until start(): it runs a clock of its own from the
+       moment it exists, and a program that never opens a piece has no use
+       for one. */
+    sched_ = NULL;
+    roll_ = NULL;
 
     playBtn_ = manage(new Gtk::Button("Play"));
     pauseBtn_ = manage(new Gtk::Button("Pause"));
@@ -125,9 +118,10 @@ Composer::Composer (thSynth *synth)
     canvasScroll_.set_propagate_natural_height(true);
     canvasScroll_.set_propagate_natural_width(true);
 
-    /* Not managed: the panes that parent it are the host's, and it is
-       this that decides when it goes -- before the scheduler it reads. */
-    roll_ = new PianoRoll(sched_);
+    /* The roll's place: the roll itself reads the scheduler, so it is made
+       with it, in start(). */
+    rollBox_.set_hexpand(true);
+    rollBox_.set_vexpand(true);
 
     /* Both directions, and that is deliberate.
      *
@@ -167,7 +161,7 @@ Composer::Composer (thSynth *synth)
 Gtk::Widget &
 Composer::rollView (void)
 {
-    return *roll_;
+    return rollBox_;
 }
 
 void
@@ -178,18 +172,57 @@ Composer::start (void)
 
     started_ = true;
 
+    sched_ = new thcScheduler(synth_);
+    sched_->setInstrumentLoader(
+        [this](const thcInstrument &inst, std::string &why)
+        { return loadInstrument(inst, why); });
+    sched_->setInstrumentUnloader(
+        [this](const thcInstrument &inst) { return unloadInstrument(inst); });
+    sched_->setEffectLoader(
+        [this](int channel, const std::string &effect, int side,
+               std::string &why)
+        { return loadEffect(channel, effect, side, why); });
+    sched_->setChannelTaken(
+        [this](int channel) { return channelTaken(channel); });
+
+    /* Managed, and in rollBox_, which is this's: taken out of it in the
+       destructor, which is what frees it, before the scheduler it reads
+       goes. */
+    roll_ = manage(new PianoRoll(sched_));
+    roll_->set_hexpand(true);
+    roll_->set_vexpand(true);
+    rollBox_.append(*roll_);
+
     loadComposers();
 
     drawTimer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &Composer::onDrawTimer), 50);
 
     loadPiece();
+
+    startedSig_.emit();
 }
 
-/* The piece's settings and the selection are built only while one of them
-   is in view, and torn down when neither is: the rows hold widgets bound
-   to the piece, and building them for nobody is a reload's worth of work
-   on every edit. */
+/* A file command from the menu, before anything has started: the piece is
+   what it acts on, so the piece comes up first -- in view, which is where
+   what the command did can be seen. */
+void
+Composer::wake (void)
+{
+    if (started_)
+        return;
+
+    wanted_.emit();
+    start();
+}
+
+/* The piece's settings and the selection are built the first time one of
+   them is in view, and kept while neither is, so a look at another tab and
+   back finds them as they were left. What changes while they are out of
+   view -- a reload, a new selection -- tears them down and leaves them
+   stale, and they are built again when next looked at: the rows hold
+   widgets bound to the piece, and rebuilding them for nobody is a
+   reload's worth of work on every edit. */
 void
 Composer::setEditing (bool on)
 {
@@ -197,7 +230,9 @@ Composer::setEditing (bool on)
         return;
 
     editing_ = on;
-    rebuildEditor();
+
+    if (on && (stale_ || editorBox_.get_first_child() == NULL))
+        rebuildEditor();
 }
 
 Composer::~Composer (void)
@@ -209,8 +244,11 @@ Composer::~Composer (void)
     kbdOnConn_.disconnect();
     kbdOffConn_.disconnect();
 
-    /* The roll reads the scheduler, so it goes first. */
-    delete roll_;
+    /* The roll reads the scheduler, so it goes first: out of its box,
+       which frees it. */
+    if (roll_ != NULL)
+        rollBox_.remove(*roll_);
+
     roll_ = NULL;
 
     /* Order matters: the scheduler's destructor flushes note-offs and
@@ -1068,12 +1106,13 @@ Composer::setDirty (bool dirty)
 void
 Composer::updateTransportButtons (void)
 {
-    bool have = sched_->chainCount() > 0;
+    const bool have = sched_ != NULL && sched_->chainCount() > 0;
+    const bool running = sched_ != NULL && sched_->running();
 
-    shownRunning_ = sched_->running();
+    shownRunning_ = running;
 
-    playBtn_->set_sensitive(have && !sched_->running());
-    pauseBtn_->set_sensitive(have && sched_->running());
+    playBtn_->set_sensitive(have && !running);
+    pauseBtn_->set_sensitive(have && running);
     rewindBtn_->set_sensitive(have);
 
     std::string text = pieceLabel_;
@@ -1083,7 +1122,7 @@ Composer::updateTransportButtons (void)
 
     if (!have && composers_.empty())
         text = "no composer modules found in " + composerRoot_;
-    else if (sched_->running())
+    else if (running)
         text += " — playing";
 
     status_->set_text(text);
@@ -1101,21 +1140,26 @@ Composer::buildActions (void)
     Glib::RefPtr<Gio::SimpleActionGroup> acts = acts_ =
         Gio::SimpleActionGroup::create();
 
-    acts->add_action("new", sigc::mem_fun(*this, &Composer::onNew));
-    acts->add_action("open", sigc::mem_fun(*this, &Composer::onOpen));
+    /* Each wakes the composer first: before start() there is no piece for
+       it to act on, and New done then was undone by the load that
+       followed. */
+    acts->add_action("new", [this] { wake(); onNew(); });
+    acts->add_action("open", [this] { wake(); onOpen(); });
     saveAct_ = acts->add_action("save",
                                 sigc::mem_fun(*this, &Composer::onSave));
-    acts->add_action("saveas",
-                     sigc::mem_fun(*this, &Composer::onSaveAs));
-    acts->add_action("revert",
-                     sigc::mem_fun(*this, &Composer::onReload));
+    acts->add_action("saveas", [this] { wake(); onSaveAs(); });
+    acts->add_action("revert", [this] { wake(); onReload(); });
+
+    /* Nothing to save until there is a piece; the load says whether there
+       is anything then. */
+    saveAct_->set_enabled(false);
 
     menu_ = Gio::Menu::create();
-    menu_->append("_New Piece", "composer.new");
+    menu_->append("Ne_w Piece", "composer.new");
     menu_->append("_Open Piece...", "composer.open");
-    menu_->append("_Save Piece", "composer.save");
+    menu_->append("Sa_ve Piece", "composer.save");
     menu_->append("Save Piece _As...", "composer.saveas");
-    menu_->append("Re_vert Piece", "composer.revert");
+    menu_->append("Revert Pie_ce", "composer.revert");
 
     transport_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 4));
     transport_->append(*playBtn_);
@@ -1150,6 +1194,9 @@ Composer::onDrawTimer (void)
 void
 Composer::injectOn (int chan, float note, float veloc)
 {
+    if (sched_ == NULL)
+        return;
+
     thcEvent ev = {};
 
     ev.type = THC_EV_NOTE;
@@ -1166,6 +1213,9 @@ Composer::injectOn (int chan, float note, float veloc)
 void
 Composer::injectOff (int chan, float note)
 {
+    if (sched_ == NULL)
+        return;
+
     thcEvent ev = {};
 
     ev.type = THC_EV_NOTEOFF;
@@ -1210,10 +1260,11 @@ Composer::onCanvasSelection (const ComposerCanvas::Selection &sel)
 {
     rebuildSelection();
 
-    /* Raise Selection, but not for a click that deselected: clearing the
-       canvas and being thrown into an empty pane reads as the window
-       losing its place. */
-    if (sel.kind != ComposerCanvas::Selection::NONE && editing_)
+    /* Ask for Selection, whether or not it is in view -- a stage picked
+       is a stage to edit, and nothing else says where that is done -- but
+       not for a click that deselected: clearing the canvas and being
+       thrown into an empty pane reads as the window losing its place. */
+    if (sel.kind != ComposerCanvas::Selection::NONE)
         showSelection_.emit();
 }
 
@@ -1634,7 +1685,7 @@ Composer::makeStageParams (size_t ci, size_t si)
 /* The params handle on a stage box, pressed.
  *
  * The rows are the Selection pane's rows -- makeStageParams, the same call the
- * Selection tab makes -- in a popover pointed at the box. That is the
+ * Selection pane makes -- in a popover pointed at the box. That is the
  * whole of why this is a popover and not a drawing: boxes that take typed
  * numbers, unit menus that say `ms' or `beats', and the knob binding
  * dropdown are what a parameter is, and a canvas would have had to grow its
@@ -1829,14 +1880,19 @@ Composer::rebuildEditor (void)
         selOuter_.remove(*child);
 
     if (!editing_)
+    {
+        stale_ = true;
         return;
+    }
+
+    stale_ = false;
 
     editorBox_.append(*buildPieceSection());
     editorBox_.append(*buildKnobsSection());
     editorBox_.append(*buildScalesSection());
     editorBox_.append(*buildPresetsSection());
 
-    /* The Selection tab follows the canvas: whatever is selected up
+    /* The Selection pane follows the canvas: whatever is selected up
        there is editable in here. */
     selBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 4));
     selOuter_.append(*selBox_);
@@ -1854,7 +1910,10 @@ Composer::rebuildSelection (void)
         selBox_->remove(*child);
 
     if (!editing_)
+    {
+        stale_ = true;
         return;
+    }
 
     const ComposerCanvas::Selection &sel = canvas_->selection();
 

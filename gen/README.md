@@ -6,7 +6,7 @@ the `.gen` language has, each built around a single idea rather than around
 being impressive; the other eighteen are pieces first and lessons second. The
 comment at the top of each file is the lesson; this is the index.
 
-Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
+Open one from the main window's menu (**☰ → Open Piece...**) and press **Play**.
 
 **The sections below are in the files.** Each piece declares
 `category "Game music";` beside its `name`, and that is what the Composer's

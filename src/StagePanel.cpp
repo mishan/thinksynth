@@ -46,7 +46,7 @@ static const size_t UNITCOUNT = sizeof UNITS / sizeof UNITS[0];
 
 /* ---- what an authored right-hand side is ------------------------------ */
 
-/* The `shapeOf' that used to sit at the top of Composer.cpp, over the
+/* The `shapeOf' that used to sit at the top of ComposerWindow.cpp, over the
  * loader's own tokenizer rather than over the characters.
  *
  * Reading it by hand was wrong in a way that only showed up once .gen grew

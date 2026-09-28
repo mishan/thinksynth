@@ -511,7 +511,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                tempo scales beat-valued durations and nothing else, so a
                piece written in seconds is one the control cannot move.
                The page offers it where it means something, which is the
-               rule ComposerWindow follows with the same question. */
+               rule the desktop Composer follows with the same question. */
             tempo: this.M._tw_tempo(),
             beats: this.M._tw_uses_beats() !== 0,
 

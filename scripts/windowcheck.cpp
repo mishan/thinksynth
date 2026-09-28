@@ -124,6 +124,20 @@ pump (int rounds)
             ctx->iteration(false);
 }
 
+/* How many widgets are under `w', to tell a pane that has been built from
+   one that has not. */
+static int
+descendants (Gtk::Widget *w)
+{
+    int n = 0;
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        n += 1 + descendants(c);
+
+    return n;
+}
+
 static bool
 isClosed (TestWindow *win, const std::string &id)
 {
@@ -285,13 +299,21 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     /* ---- the piece ---- */
 
-    activate(win, "pane-composerview");
+    /* A menu command for the piece before anything has shown it: the canvas
+       comes up and the composer starts, and then the command acts -- New
+       was undone by the load that followed when it ran first. */
+    win->activate_action("composer.new");
+    pump(8);
 
-    check(win->panes_->isVisible("composerview") &&
-          win->composer_->started() &&
+    check(win->composer_->started() &&
+          win->panes_->isVisible("composerview") &&
           win->composer_->transport().get_visible(),
-          "Ctrl+G brings the piece to the front, and starts the composer "
-          "and its transport");
+          "New Piece before the piece is up brings the canvas up, starts "
+          "the composer and puts its transport up");
+
+    check(win->composer_->status().get_text().find("Untitled") !=
+              Glib::ustring::npos,
+          "...and the new piece is what is left, not the one loaded after");
 
     activate(win, "pane-selection");
 
@@ -299,11 +321,20 @@ run (const std::string &pluginPath, const std::string &dsp)
           win->panes_->isVisible("composerview"),
           "the selection comes up beside the canvas");
 
+    check(descendants(&win->composer_->selectionView()) > 3 &&
+          descendants(&win->composer_->settingsView()) > 3,
+          "...built, now that it is in view");
+
     activate(win, "pane-nodeview");
 
     check(win->panes_->isVisible("nodeview") &&
           !win->panes_->isVisible("composerview"),
-          "and the graph goes back in front of it");
+          "and the graph goes back in front of the canvas");
+
+    activate(win, "pane-composerview");
+
+    check(win->panes_->isVisible("composerview"),
+          "the piece's tick brings the canvas back to the front");
 
     /* ---- View's ticks ---- */
 
@@ -323,9 +354,8 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->panes_->isVisible("patches") && ticked(win, "patches"),
           "ticking Patch Selector brings the patch list up");
 
-    /* Behind a tab is not in view: its key brings it to the front, as
-       Ctrl+G opened the Composer's window, and a second press puts it
-       away. */
+    /* Behind a tab is not in view: its tick brings it to the front, and a
+       second one puts it away. */
     activate(win, "pane-roll");
 
     check(win->panes_->isVisible("roll") && ticked(win, "roll"),

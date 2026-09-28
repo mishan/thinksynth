@@ -26,16 +26,16 @@
  *
  * That gap had a crash in it. `rebuildEditor' nulls the pointers to the
  * widgets it is about to destroy, and someone had added `kbdBtn_' to
- * that list -- but Kbd input lives in the *toolbar*, which rebuildEditor
+ * that list -- but Kbd input lives in the *transport*, which rebuildEditor
  * never touches. So opening the Edit panel left a live, still-connected
  * button behind a null pointer, and the next click on it went through
  * `onKbdToggle' straight into a null dereference. Every part of that is
  * ordinary; what made it survive is that nothing ever pressed the
  * buttons.
  *
- * So this presses them. Build the window, toggle Edit on and off,
- * toggle Kbd input, toggle it back, pump the main loop between each so
- * the handlers actually run. It asserts almost nothing about what the
+ * So this presses them. Build the composer, bring its settings into view
+ * and out again, toggle Kbd input, toggle it back, pump the main loop
+ * between each so the handlers actually run. It asserts almost nothing about what the
  * widgets *say* -- that is what a screenshot would be for. What it
  * asserts is that the program is still alive afterwards, which for this
  * class of bug is the whole of the question.
@@ -95,7 +95,7 @@ sigNoteOff   m_sigKbdNoteOff;
  * first looked at, and with the canvas counted as in view. */
 class TestComposer : public Composer {
 public:
-    TestComposer (thSynth *synth) : Composer(synth)
+    TestComposer (thSynth *synth, bool startNow = true) : Composer(synth)
     {
         Gtk::Box *box = Gtk::manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
@@ -115,7 +115,9 @@ public:
         signal_show_selection().connect([this] { selectionShown_++; });
 
         setCanvasShown(true);
-        start();
+
+        if (startNow)
+            start();
     }
 
     /* The window first: it lets go of the widgets that are the
@@ -149,6 +151,7 @@ public:
     using Composer::saveAct_;
     using Composer::roll_;
     using Composer::sched_;
+    using Composer::selBox_;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -327,6 +330,25 @@ run (const std::string &pluginPath, const char *genFile)
         }
     }
 
+    /* Before start(): no scheduler ticking for a piece nobody opened, and
+       nothing to save. */
+    {
+        TestComposer *idle = new TestComposer(&synth, false);
+
+        pump(2);
+
+        if (idle->sched_ != NULL || idle->started())
+            fail("the composer started a scheduler before it was started");
+        else if (idle->saveAct_->get_enabled())
+            fail("Save was offered before there was a piece");
+        else
+            ok("a composer not yet started has no scheduler and nothing "
+               "to save");
+
+        delete idle;
+        pump(2);
+    }
+
     TestComposer *win = new TestComposer(&synth);
 
     win->set_visible(true);
@@ -386,7 +408,7 @@ run (const std::string &pluginPath, const char *genFile)
 
     if (win->kbdBtn_ == NULL)
     {
-        fail("the toolbar's toggle exists");
+        fail("the transport's toggle exists");
         delete win;
         return failures;
     }
@@ -906,9 +928,7 @@ run (const std::string &pluginPath, const char *genFile)
         }
     }
 
-    /* The window's own furniture: the menu that replaced the file row,
-       the two tabs that replaced one long column, and the roll that can
-       now be got out of the way.
+    /* The composer's own furniture: the menu that replaced the file row.
      *
        New and Open used to be buttons inside the Edit panel, which meant
        the two things you do before there is anything to edit were behind
@@ -978,17 +998,40 @@ run (const std::string &pluginPath, const char *genFile)
         else
             ok("...and deselecting leaves the panes where they were");
 
-        /* Nor does a selection while neither the settings nor the
-           selection is in view: nobody is editing. */
+        /* And a selection while neither the settings nor the selection is
+           in view asks too -- nothing else says where a stage is edited --
+           and what it selected is there when Selection comes into view. */
         win->setEditing(false);
         pump(4);
         win->canvas_->select(sel);
         pump(4);
 
-        if (win->selectionShown_ != before + 1)
-            fail("a selection asked for Selection with nobody editing");
+        if (win->selectionShown_ != before + 2)
+            fail("a selection with nobody editing did not ask for Selection");
         else
-            ok("...and nothing is asked for while nobody is editing");
+            ok("...and asks while nobody is editing, too");
+
+        win->setEditing(true);
+        pump(4);
+
+        if (win->selBox_ == NULL || win->selBox_->get_first_child() == NULL)
+            fail("Selection came into view without the stage in it");
+        else
+            ok("...which is in it when it comes into view");
+
+        /* Out of view and back, with nothing changed: the same widgets,
+           not a rebuild that loses what was open and scrolled. */
+        Gtk::Widget *kept = win->selBox_->get_first_child();
+
+        win->setEditing(false);
+        pump(4);
+        win->setEditing(true);
+        pump(4);
+
+        if (win->selBox_ == NULL || win->selBox_->get_first_child() != kept)
+            fail("Selection was rebuilt for being looked away from");
+        else
+            ok("...and is kept as it was while looked away from");
     }
 
     delete win;
@@ -1013,15 +1056,13 @@ run (const std::string &pluginPath, const char *genFile)
     return failures;
 }
 
-/* A window closed with its idles still queued.
+/* A composer destroyed with its idle still queued.
  *
- * The window schedules work at idle -- the first split of the canvas
- * against the roll, the Edit panel's width, and every structural reload
- * -- and an idle capturing
- * `this' is held by the main loop, not by the window. So a window closed
+ * Every structural reload is scheduled at idle, and an idle capturing
+ * `this' is held by the main loop, not by the composer. So one destroyed
  * before the loop comes round again used to leave a callback pointing at
- * freed memory, which then set a paned position through a destroyed
- * widget or reloaded the piece through a deleted scheduler.
+ * freed memory, which then reloaded the piece through a deleted
+ * scheduler.
  *
  * Built, shown, given just enough of the loop to map and queue, deleted,
  * and then the loop is run properly. Nothing is asserted: on a plain
@@ -1029,10 +1070,8 @@ run (const std::string &pluginPath, const char *genFile)
  * carries on regardless. Under -DTHINK_SANITIZE=address, which is what
  * this is for, it is a heap-use-after-free and the process says so.
  *
- * A reload is queued as well as the map, because the map's idle fires at
- * default priority and a pump generous enough to show the window may
- * well have drained it; scheduleReload's is queued from inside the
- * handler and is reliably still there. */
+ * The reload is queued from inside the handler, after the pump, so it is
+ * reliably still there when the composer goes. */
 static void
 closeWithIdlesPending (const std::string &pluginPath)
 {
@@ -1043,8 +1082,8 @@ closeWithIdlesPending (const std::string &pluginPath)
     win->set_visible(true);
     pump(1);
 
-    /* Idles queued as late as possible: the editor built as it comes into
-       view, and a structural reload. */
+    /* The settings built, and a structural reload queued as late as
+       possible. */
     win->setEditing(true);
     win->structuralReload();
 

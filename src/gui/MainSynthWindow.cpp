@@ -330,9 +330,35 @@ void MainSynthWindow::buildPanes (void)
     panes_->add("selection", "Selection", composer_->selectionView(), 300);
 
     /* A stage picked on the canvas is edited in Selection, so it comes to
-       the front -- without the focus, which stays on the canvas. */
+       the front -- without the focus, which stays on the canvas. Unless it
+       was closed: that is somebody saying they do not want it, and a click
+       on the canvas is not them changing their mind. */
     composer_->signal_show_selection().connect(
-        [this] { if (panes_ != NULL) panes_->present("selection", false); });
+        [this]
+        {
+            if (panes_ == NULL)
+                return;
+
+            const std::vector<string> closed = panes_->closed();
+
+            if (std::find(closed.begin(), closed.end(), "selection") ==
+                closed.end())
+                panes_->present("selection", false);
+        });
+
+    /* A menu command for the piece before the piece is up: the canvas
+       comes into view, which starts it, and the command acts on what it
+       shows. */
+    composer_->signal_wanted().connect(
+        [this] { if (panes_ != NULL) panes_->present("composerview", true); });
+
+    /* However it was started, the transport comes up with it. */
+    composer_->signal_started().connect(
+        [this]
+        {
+            composer_->transport().set_visible(true);
+            composer_->status().set_visible(true);
+        });
 
     panes_->setDefault(DESKTOP_MODE, DESKTOP_LAYOUT);
     panes_->setMode(DESKTOP_MODE);
@@ -379,11 +405,7 @@ void MainSynthWindow::syncComposer (void)
        loads the piece, and the piece's instruments go onto channels. */
     if (!composer_->started() &&
         (canvas || editing || panes_->isVisible("roll")))
-    {
         composer_->start();
-        composer_->transport().set_visible(true);
-        composer_->status().set_visible(true);
-    }
 
     composer_->setCanvasShown(canvas);
     composer_->setEditing(editing && composer_->started());
@@ -777,7 +799,7 @@ void MainSynthWindow::populateMenu (void)
         const char *label;
         const char *accel;
     } panes[] = {
-        { "channelbox", "_Channels",       NULL },
+        { "channelbox", "C_hannels",       NULL },
         { "paramview",  "Patch _Params",   NULL },
         { "nodeview",   "Patch _Graph",    NULL },
         { "keyboard",   "_Keys",           "<Control>k" },
@@ -825,7 +847,7 @@ void MainSynthWindow::populateMenu (void)
 
     Glib::RefPtr<Gio::Menu> layout = Gio::Menu::create();
 
-    layout->append("_Reset Layout", "win.reset-layout");
+    layout->append("Reset La_yout", "win.reset-layout");
 
     Glib::RefPtr<Gio::Menu> appearance = Gio::Menu::create();
 
@@ -838,7 +860,7 @@ void MainSynthWindow::populateMenu (void)
 
     Glib::RefPtr<Gio::Menu> look = Gio::Menu::create();
 
-    look->append_submenu("_Appearance", appearance);
+    look->append_submenu("Appeara_nce", appearance);
 
     Glib::RefPtr<Gio::Menu> end = Gio::Menu::create();
 
