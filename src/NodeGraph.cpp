@@ -2289,9 +2289,9 @@ bool NodeGraph::sliderGeometry (int box, double &x0, double &x1, double &y,
     {
         /* The strip is label, track, number on one line. The track takes the
            middle, leaving room either side for the two pieces of text; the
-           number is at most five characters (NodeCanvas.cpp, compactValue). */
+           number is five or six characters (NodeCanvas.cpp, compactValue). */
         x0 = b.x + ATTACH_W * stripLabelShare();
-        x1 = b.x + ATTACH_W - 30.0;
+        x1 = b.x + ATTACH_W - 34.0;
         y = b.y + ATTACH_H * 0.5;
     }
     else
