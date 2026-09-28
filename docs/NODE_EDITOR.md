@@ -1,8 +1,9 @@
 # The node editor
 
 A visual editor for `.dsp` files: nodes, typed ports, wires, and the controls
-that drive them. Reachable from **File → Node View** (Ctrl+N), and as a tab on
-the patch page.
+that drive them. It is the main window's **Patch graph** pane, showing the
+channel picked in Channels. Its palette and parameter panel start collapsed;
+the two toggles at the start of its toolbar open them.
 
 The format rules a writer has to obey — the grammar's constraints, what the
 parser discards, why edits are spliced rather than re-emitted — are in
@@ -328,9 +329,9 @@ audible on notes already sounding — the same `thArg::setValue(float)` the
 keyboard's sliders have always used: a single atomic store, no reallocation, safe
 to call from the GUI thread while the audio thread reads.
 
-The window has to be attached to a channel for this, so File → Node View opens on
-the channel of the tab you are looking at, and the status bar says `live on
-channel 3` or `not attached to a channel`.
+The editor has to be attached to a channel for this, so Patch graph opens on
+the channel picked in Channels, and the status bar says `live on channel 3` or
+`not attached to a channel`.
 
 Three kinds of edit, and they behave differently:
 

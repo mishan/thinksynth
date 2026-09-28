@@ -75,7 +75,7 @@ protected:
     void appendChannel (const string &name, const string &tip, int num,
                         bool is_real);
 
-    /* A row in Channels: left-aligned, and ellipsised rather than widening
+    /* A row in Channels: left-aligned, and ellipsized rather than widening
        the pane to fit the longest name. */
     Gtk::Widget *makeChannelLabel (const string &text, const string &tip);
 
@@ -196,8 +196,8 @@ protected:
     /* Names an action, gives it something to do, and optionally a key.
      *
      * GTK4 menus are a model plus a set of actions: the item carries a name
-     * like "win.keyboard" and the behaviour hangs off the window under that
-     * name, rather than a callback hanging off the item. Accelerators bind to
+     * like "win.pane-keyboard" and the behaviour hangs off the window under
+     * that name, rather than a callback hanging off the item. Accelerators bind to
      * the action too, so they work whether or not the menu was ever opened.
      */
     void addAction (const Glib::ustring &name,
@@ -285,6 +285,10 @@ protected:
 
     /* The layout last kept, and the write that is waiting to happen. */
     string keptLayout_;
+
+    /* Whether panes.ini had a layout when the window was built: if not,
+       this is the first run with panes. */
+    bool hadLayout_ = false;
     sigc::connection layoutWrite_;
 private:
     gthAudio *audio_;

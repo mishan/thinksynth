@@ -47,7 +47,7 @@ The main window's tiled panes are **mullion-gtk**
 (<https://github.com/mishan/mullion-gtk>), fetched the same way: no
 distribution packages it yet, so it is built from source at a pinned commit and
 linked in statically unless pkg-config finds `mullion-gtk-0`. It needs GTK 4.10
-or newer, and building it from source needs CMake 3.21.
+and GLib 2.74 or newer, and building it from source needs CMake 3.21.
 
 Which is also why the JACK and PulseAudio ones are optional: CMake probes for
 them and compiles those backends in only if they are there. ALSA is always on.

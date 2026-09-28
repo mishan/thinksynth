@@ -107,7 +107,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
        They start out the same. */
     prevDir_ = dspDir_;
 
-    /* "win.keyboard" and the rest resolve against this. */
+    /* "win.pane-keyboard" and the rest resolve against this. */
     actions_ = Gio::SimpleActionGroup::create();
     insert_action_group("win", actions_);
 
@@ -201,11 +201,15 @@ MainSynthWindow::~MainSynthWindow (void)
     writeLayout();
 
     /* The panes first, and everything in them with them -- the patch list,
-       the MIDI map, the keys, the editors -- before the synth, which they
-       all reach into. The lists and stacks that are members here are only
-       taken off them, and go with the window. */
+       the MIDI map, the keys -- before the synth, which they all reach
+       into. The lists and stacks that are members here are only taken off
+       them, and go with the window: the node editors with them, which
+       tearingDown_ keeps anything from building more of. */
     delete panes_;
     panes_ = NULL;
+    patchSel_ = NULL;
+    midiMap_ = NULL;
+    kbPanel_ = NULL;
 
     /* These are kept rather than destroyed when they close, so this is where
        they go. */
@@ -213,11 +217,7 @@ MainSynthWindow::~MainSynthWindow (void)
     delete compWin_;
 
     aboutBox_ = NULL;
-    patchSel_ = NULL;
-    midiMap_ = NULL;
-    kbPanel_ = NULL;
     compWin_ = NULL;
-    editors_.clear();
 
     /* Not shutdown(): the loop has already ended by the time this runs, and
        asking a torn-down application to quit again is not a thing to do in a
@@ -289,14 +289,16 @@ void MainSynthWindow::buildPanes (void)
     midiMap_ = manage(new MidiMap(thSynth::instance()));
 
     /* Minimum widths: what each can be read at, which is what the layout
-       gives up before it gives up a pane. A pane narrower than its content
-       would clip it, so the ones that cannot wrap scroll instead. */
+       gives up before it gives up a pane -- and, added across a row, the
+       narrowest the window can be, so they are kept low enough for a
+       1280-pixel screen. A pane narrower than its content would clip it,
+       so the ones that cannot wrap scroll instead. */
     panes_->add("channelbox", "Channels", chanScroll_, 160);
-    panes_->add("paramview", "Patch params", scrolled(paramBox_, false), 500);
+    panes_->add("paramview", "Patch params", scrolled(paramBox_, false), 400);
     panes_->add("nodeview", "Patch graph", nodeStack_, 480);
-    panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 600);
-    panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 460);
-    panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 500);
+    panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
+    panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 400);
+    panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 400);
 
     panes_->setDefault(DESKTOP_MODE, DESKTOP_LAYOUT);
     panes_->setMode(DESKTOP_MODE);
@@ -309,6 +311,7 @@ void MainSynthWindow::buildPanes (void)
         sigc::mem_fun(*this, &MainSynthWindow::onLayoutKept));
 
     keptLayout_ = readLayout();
+    hadLayout_ = !keptLayout_.empty();
     panes_->load(keptLayout_);
 
     set_child(panes_->widget());
@@ -318,6 +321,9 @@ void MainSynthWindow::buildPanes (void)
 
 void MainSynthWindow::onPaneShown (const string &id, bool visible)
 {
+    if (paneActs_.count(id))
+        paneActs_[id]->set_state(Glib::Variant<bool>::create(visible));
+
     if (id == "nodeview" && visible)
         ensureEditor(chan_);
 }
@@ -327,31 +333,25 @@ void MainSynthWindow::syncPaneActions (void)
     if (panes_ == NULL)
         return;
 
-    const std::vector<string> closed = panes_->closed();
-
     for (std::map<string, Glib::RefPtr<Gio::SimpleAction> >::iterator i =
              paneActs_.begin(); i != paneActs_.end(); ++i)
-    {
-        const bool up = std::find(closed.begin(), closed.end(), i->first)
-                        == closed.end();
-
-        i->second->set_state(Glib::Variant<bool>::create(up));
-    }
+        i->second->set_state(
+            Glib::Variant<bool>::create(panes_->isVisible(i->first)));
 }
 
-/* A tick in View: an open pane closes to the drawer, and a closed one comes
-   back where it was, in front. */
+/* A tick in the menu, or its key: a pane in view closes to the drawer, and
+   one that is not -- closed, or behind another tab -- comes to the front,
+   where it was. So Ctrl+M shows the MIDI routing, as it did when that was
+   a window, and a second Ctrl+M puts it away. */
 void MainSynthWindow::togglePane (const string &id)
 {
     if (panes_ == NULL)
         return;
 
-    const std::vector<string> closed = panes_->closed();
-
-    if (std::find(closed.begin(), closed.end(), id) != closed.end())
-        panes_->present(id, true);
-    else
+    if (panes_->isVisible(id))
         panes_->close(id);
+    else
+        panes_->present(id, true);
 
     syncPaneActions();
 }
@@ -565,15 +565,18 @@ void MainSynthWindow::applyPrefs (void)
     if (vals != NULL && vals[0] != NULL)
         prevDir_ = *(vals[0]);
 
-    vals = prefs->Get("window");
+    /* Whether the keys were left hidden, from when that was a preference
+       of its own, for a first run with panes: after that the layout says
+       where they are, and the preference is not asked again. */
+    if (!hadLayout_)
+    {
+        string **kvals = prefs->Get("keyboard");
 
-    if (vals == NULL || vals[0] == NULL || vals[1] == NULL)
-        return;
+        if (kvals != NULL && kvals[0] != NULL && *(kvals[0]) == "0")
+            panes_->close("keyboard");
+    }
 
-    const int w = atoi(vals[0]->c_str());
-    const int h = atoi(vals[1]->c_str());
-
-    /* A saved size is only worth honouring if it can be seen. A window
+    /* A saved size is only worth honoring if it can be seen. A window
        restored to 12x4 -- or to something larger than the screen it is now
        being opened on, which is what moving between a desktop and a laptop
        does -- is worse than one that ignores the file. */
@@ -607,6 +610,29 @@ void MainSynthWindow::applyPrefs (void)
             }
         }
     }
+
+    /* The first run's size, cut down to a screen smaller than it. */
+    {
+        int dw = 0, dh = 0;
+
+        get_default_size(dw, dh);
+
+        if (maxw > 0 && dw > maxw)
+            dw = maxw;
+
+        if (maxh > 0 && dh > maxh)
+            dh = maxh;
+
+        set_default_size(dw, dh);
+    }
+
+    vals = prefs->Get("window");
+
+    if (vals == NULL || vals[0] == NULL || vals[1] == NULL)
+        return;
+
+    const int w = atoi(vals[0]->c_str());
+    const int h = atoi(vals[1]->c_str());
 
     if (w < 320 || h < 240)
         return;
@@ -650,9 +676,9 @@ void MainSynthWindow::addAction (const Glib::ustring &name,
     actions_->add_action(name, handler);
 
     /* Recorded rather than bound. An accelerator belongs to the application
-       -- it is what makes "win.keyboard" answer to Ctrl+K from any window the
-       application owns -- and the window is built before it has been given
-       one, so this waits for onApplicationSet. */
+       -- it is what makes "win.pane-keyboard" answer to Ctrl+K from any
+       window the application owns -- and the window is built before it has
+       been given one, so this waits for onApplicationSet. */
     if (accel != NULL)
         accels_.push_back(std::make_pair("win." + name, Glib::ustring(accel)));
 }
@@ -672,18 +698,18 @@ void MainSynthWindow::onApplicationSet (void)
  *
  * Gtk::MenuBar, Gtk::Menu and Gtk::MenuItem are all gone. What replaces them
  * is a Gio::Menu -- a description of the menu with no widgets in it -- shown
- * by a Gtk::PopoverMenuBar, with the behaviour attached separately as named
- * actions on the window.
+ * by the title bar's menu button, with the behaviour attached separately as
+ * named actions on the window.
  *
- * The indirection earns its keep: an accelerator now binds to "win.keyboard"
- * rather than to a widget, so it works before the menu has ever been opened
- * and keeps working if the item moves. */
+ * The indirection earns its keep: an accelerator binds to an action rather
+ * than to a widget, so it works before the menu has ever been opened and
+ * keeps working if the item moves. */
 void MainSynthWindow::populateMenu (void)
 {
-    /* The panes, each a tick: on puts it up where it was last, off closes it
-       to the drawer. The keys keep Ctrl+K from when they were a window of
-       their own, and the patch list and the MIDI map their Ctrl+P and
-       Ctrl+M. */
+    /* The panes, each a tick that says whether it is in view: see
+       togglePane. The keys keep the Ctrl+K they were toggled with, and the
+       patch list and the MIDI map the Ctrl+P and Ctrl+M that opened their
+       windows. */
     static const struct
     {
         const char *id;
@@ -1085,9 +1111,17 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
 
     none->set_use_underline(true);
     none->set_sensitive(!name.empty());
+    /* Out of the click, as a save is: taking the effect off rebuilds every
+       page, this button's with it, while its handler would still be on the
+       stack. */
     none->signal_clicked().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onEffectRemove),
-                   chan));
+        [this, chan]
+        {
+            Glib::signal_idle().connect_once(
+                sigc::bind(sigc::mem_fun(*this,
+                                         &MainSynthWindow::onEffectRemove),
+                           chan));
+        });
     bar->append(*none);
 
     /* Nothing to load one onto. An effect belongs to a channel and the
@@ -1126,17 +1160,13 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
     return frame;
 }
 
-/* Everything a change of effect has to do to this window.
- *
- * Every page, for the reason onBrowseChosen rebuilds them: a page
- * holds widgets bound to args on a channel, and the channel's second arg map
- * has just been replaced. Rebuilding one page is what this looks like it
- * should do and is not what the window is built to offer. */
+/* Everything a change of effect has to do to this window, beyond what the
+ * patch manager's patches_changed has already done: every page is rebuilt
+ * there, because a page holds widgets bound to args on a channel and the
+ * channel's second arg map has just been replaced. What is left is which
+ * channel is looked at. */
 void MainSynthWindow::reloadPages (int chan)
 {
-    clearPages();
-    populate();
-
     if (chan >= 0)
         selectChannel(chan);
 }
@@ -1669,8 +1699,8 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
  *
  * A key controller rather than an application accelerator, which is how
  * Ctrl+K and the rest are done. Those work because the main window is added
- * to the application and "win.keyboard" resolves against it; these windows
- * are deliberately not added -- the application quits when the last of its
+ * to the application and "win.pane-keyboard" resolves against it; these
+ * windows are deliberately not added -- the application quits when the last of its
  * windows goes, and the shutdown ordering wants exactly one window deciding
  * that. So an accelerator registered on the application would never reach
  * them.
@@ -1807,10 +1837,7 @@ void MainSynthWindow::onDspEntryActivate (void)
         return;
     }
 
-    clearPages();
-
-    populate();
-
+    /* The pages are rebuilt already: loading says the patches changed. */
     selectChannel(pagenum);
 }
 
@@ -1968,9 +1995,6 @@ void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
         gthPrefs::instance()->Set("dspdir", vals);
     }
 
-    /* load up the patch file */
-    clearPages();
-
-    populate();
+    /* The pages are rebuilt already: loading says the patches changed. */
     selectChannel(pagenum);
 }

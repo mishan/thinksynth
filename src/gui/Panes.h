@@ -35,8 +35,9 @@
  * dozen calls, so this holds the widget and widget() is what gets packed.
  *
  * The content of a pane is parented by MlnPanes for as long as it is a
- * pane, and a moved pane is never unparented -- so hand it managed widgets,
- * which go when the panes do.
+ * pane, and a moved pane is never unparented. A managed widget goes when
+ * the panes do; one that is a member of something has to outlive them, so
+ * whatever holds both destroys this first.
  */
 class Panes : public sigc::trackable
 {

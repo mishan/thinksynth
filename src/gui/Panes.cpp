@@ -46,9 +46,10 @@ Panes::~Panes (void)
 {
     g_signal_handlers_disconnect_by_data(panes_, this);
 
-    /* Off whatever it was packed into, so that the last reference is this
-       one and the panes' content goes now rather than whenever the parent
-       does. */
+    /* Off the box or window it was packed into, so that the last
+       reference is this one and the panes' content goes now rather than
+       whenever the parent does. Those are the two it is packed into; a
+       parent of another kind keeps it until that parent goes. */
     if (Gtk::Widget *parent = widget_->get_parent())
     {
         if (Gtk::Box *box = dynamic_cast<Gtk::Box *>(parent))

@@ -76,6 +76,8 @@ public:
     using MainSynthWindow::chan_;
     using MainSynthWindow::actions_;
     using MainSynthWindow::dspEntryLbl_;
+    using MainSynthWindow::dspEntry_;
+    using MainSynthWindow::onDspEntryActivate;
     using MainSynthWindow::selectChannel;
     using MainSynthWindow::writeLayout;
     using MainSynthWindow::layoutPath;
@@ -198,9 +200,20 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(!win->panes_->isVisible("midimap"),
           "...with the MIDI routing a tab behind the parameters");
 
-    check(ticked(win, "keyboard") && ticked(win, "midimap") &&
+    check(ticked(win, "keyboard") && !ticked(win, "midimap") &&
           !ticked(win, "patches"),
-          "View ticks what the layout holds, behind a tab or not");
+          "the menu ticks what is in view, and not what is behind a tab");
+
+    /* Every pane's minimum, added across the widest row: the narrowest the
+       window can be. A laptop's 1280 pixels have to hold it. */
+    {
+        int min = 0, nat = 0, a = 0, b = 0;
+
+        win->panes_->widget().measure(Gtk::Orientation::HORIZONTAL, -1,
+                                      min, nat, a, b);
+        check(min > 0 && min <= 1200,
+              "the first layout fits a 1280-pixel screen");
+    }
 
     /* ---- the channel ---- */
 
@@ -235,12 +248,22 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     check(win->chan_ == 2, "loading a patch elsewhere keeps the channel");
 
+
     {
         Gtk::ListBoxRow *row = win->chanList_.get_selected_row();
 
         check(row != NULL && row->get_index() == 2,
               "...and its row selected");
     }
+
+    /* And one loaded on this channel through the DSP entry: the pages are
+       rebuilt under the entry, and the channel stays. */
+    win->dspEntry_.set_text(dsp);
+    win->onDspEntryActivate();
+    pump(4);
+
+    check(win->chan_ == 2 && win->editors_.count(2) == 1,
+          "the DSP entry reloads the channel and keeps it, graph and all");
 
     /* ---- View's ticks ---- */
 
@@ -260,10 +283,18 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->panes_->isVisible("patches") && ticked(win, "patches"),
           "ticking Patch Selector brings the patch list up");
 
+    /* Behind a tab is not in view: its key brings it to the front, as
+       Ctrl+M opened the MIDI map's window, and a second press puts it
+       away. */
     activate(win, "pane-midimap");
 
-    check(isClosed(win, "midimap"),
-          "unticking a pane behind a tab closes it too");
+    check(win->panes_->isVisible("midimap") && ticked(win, "midimap"),
+          "a pane behind a tab comes to the front on its tick");
+
+    activate(win, "pane-midimap");
+
+    check(isClosed(win, "midimap") && !ticked(win, "midimap"),
+          "...and a second one closes it");
 
     activate(win, "reset-layout");
 
@@ -271,7 +302,7 @@ run (const std::string &pluginPath, const std::string &dsp)
         const std::vector<std::string> closed = win->panes_->closed();
 
         check(closed.size() == 1 && closed[0] == "patches" &&
-              ticked(win, "midimap") && !ticked(win, "patches"),
+              !isClosed(win, "midimap") && !ticked(win, "patches"),
               "Reset Layout puts the first layout back, and the ticks with "
               "it");
     }
@@ -325,6 +356,31 @@ run (const std::string &pluginPath, const std::string &dsp)
         check(closed.size() == 1 && closed[0] == "patches",
               "a kept layout that does not parse gives the first layout");
     }
+
+    delete win;
+    pump(4);
+
+    /* A first run with panes, by someone who had hidden the keys when that
+       was a preference: they stay hidden. */
+    {
+        std::error_code ec;
+
+        std::filesystem::remove(path, ec);
+
+        string **vals = new string *[2];
+
+        vals[0] = new string("0");
+        vals[1] = NULL;
+        gthPrefs::instance()->Set("keyboard", vals);
+    }
+
+    win = new TestWindow;
+    win->applyPrefs();
+    win->set_visible(true);
+    pump(8);
+
+    check(isClosed(win, "keyboard"),
+          "keys hidden by the old preference stay hidden on the first run");
 
     delete win;
     pump(4);

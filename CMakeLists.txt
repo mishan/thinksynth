@@ -332,7 +332,10 @@ if(NOT THINK_FETCH_MULLION)
   pkg_check_modules(MULLION IMPORTED_TARGET "mullion-gtk-0>=${THINK_MULLION_VERSION}")
 endif()
 
-if(MULLION_FOUND)
+# Asked again rather than trusting MULLION_FOUND alone: pkg-config's answer
+# is cached, so a build directory that once found a system copy would go on
+# using it after the fetch was asked for.
+if(MULLION_FOUND AND NOT THINK_FETCH_MULLION)
   set(THINK_MULLION_LIB PkgConfig::MULLION)
   set(THINK_MULLION_ORIGIN "system ${MULLION_VERSION}")
 else()
@@ -349,18 +352,18 @@ else()
   set(MLN_TESTS OFF CACHE BOOL "" FORCE)
   set(MLN_INSTALL OFF CACHE BOOL "" FORCE)
 
+  if(CMAKE_VERSION VERSION_LESS 3.21)
+    message(FATAL_ERROR
+        "Building mullion-gtk from source needs CMake 3.21 or newer. "
+        "Upgrade CMake, or install mullion-gtk and point PKG_CONFIG_PATH at it.")
+  endif()
+
   # No GIT_SHALLOW: a shallow clone can only name a branch or a tag, and
   # this names a commit.
   FetchContent_Declare(mullion_gtk
       GIT_REPOSITORY https://github.com/mishan/mullion-gtk.git
       GIT_TAG ${THINK_MULLION_VERSION_TAG}
       EXCLUDE_FROM_ALL)
-
-  if(CMAKE_VERSION VERSION_LESS 3.21)
-    message(FATAL_ERROR
-        "Building mullion-gtk from source needs CMake 3.21 or newer. "
-        "Upgrade CMake, or install mullion-gtk and point PKG_CONFIG_PATH at it.")
-  endif()
 
   FetchContent_MakeAvailable(mullion_gtk)
 
