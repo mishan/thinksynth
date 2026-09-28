@@ -496,6 +496,11 @@ think_harness(dspcatalog DSPCATALOG)
 # through its virtual clock, no Glib loop and no audio.
 think_harness(gencheck COMPOSERHOST GENCATALOG)
 
+# A piece's text replaced while it plays: two peers stepped differently, the
+# same edits at the same transport times, one tape; the chains no edit touched
+# play on as if nothing happened; a rewind afterwards is a load of the text.
+think_harness(editcheck COMPOSERHOST)
+
 # A piece, rendered: the same virtual clock gencheck drives, with the synth
 # rendering a window after every step and the windows written out as a WAV,
 # the delivered events as a tape. For hearing a .gen without the window and
@@ -877,6 +882,15 @@ add_test(NAME gencheck
                  "${PROJECT_SOURCE_DIR}/gen/airports.gen")
 
 set_tests_properties(gencheck PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+
+# Every seeded piece in gen/, edited four times while it plays. THINK_DSP_PATH
+# for gencheck's reason: the pieces carry their own instruments.
+add_test(NAME editcheck
+         COMMAND editcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/gen")
+
+set_tests_properties(editcheck PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 # Needs the plugins and nothing else: it writes its own .dsp files, and the

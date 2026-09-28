@@ -571,7 +571,9 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
             error(0, "the master effect: " + why);
     }
 
-    if (errors_.empty())
+    /* Not for a staged edit: its instruments are not on their channels
+       yet, so the graph a sink would be checked against is the old one. */
+    if (errors_.empty() && !sched->staging())
         checkSinkArgs(sched);
 
     if (errors_.empty())

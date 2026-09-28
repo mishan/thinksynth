@@ -283,8 +283,37 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   about 100 ms after its Start. `jamtest.mjs` puts a third page into the
   room eighteen seconds in; it catches up once its clocks have their
   samples and its tape is the room's.
-- Not yet: the apply-at-bar rule and its harness, and the quantised and
-  play-ahead modes.
+- **The edit harness**, on `editbar`, which starts where `latejoin` ends.
+  An edit is a new text applied at one transport time. It is read into a
+  staged scheduler first, so a text that does not load changes nothing,
+  and the live one adopts it (`thcScheduler::adopt`, `src/thcGenDiff.h`
+  for the rule): a stage whose chain, name and text are the same in both
+  keeps its instance, its next wake and its bindings; everything else is
+  built from the new text, with the seed its place there gives it. The
+  knobs are the live ones, by name, so a moved knob stays where it was
+  moved unless its declaration changed. An instrument whose declaration
+  or files changed is loaded again; one that did not keeps sounding.
+  Queued notes and the offs of sounding ones are delivered as composed.
+- `scripts/editcheck` holds it: every seeded piece, two peers -- windows
+  of 1024 against jittered steps of 2 to 60 ms -- given a comment, a
+  changed param, a chain added and the chain taken away, at times on no
+  grid. One tape through every edit; the channels no edited chain plays
+  on deliver exactly the unedited run's tape, which is what "kept its
+  state" means; the added chain is heard only between its edits; and a
+  rewind afterwards plays what a fresh load of the final text plays.
+- Found on the way, both in the scheduler and both invisible until two
+  chains ticked out of phase. `beat_` was added up a step at a time, so
+  its last bits depended on the steps, and a stage an edit created
+  inherited them (`mirrorball`); it is now read off the last tempo
+  change. And every delivery waited for the end of the step, so a note
+  `xform::humanize` moved to before the tick that made it landed on the
+  tape before or after another chain's notes depending on where the step
+  ended (`loosen`); what is due is now delivered before each tick. Over
+  two minutes of every seeded piece, 24 tapes are unchanged and 9 have
+  lines in a different order; no event is added, lost or moved.
+- Not yet: the edit as a command -- stamped for the next bar, carried with
+  the document's revision, applied by the worklet and the mirror, and
+  logged for a late joiner -- and the quantised and play-ahead modes.
 
 ### M6, so far
 
