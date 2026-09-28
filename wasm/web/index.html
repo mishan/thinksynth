@@ -277,6 +277,11 @@
     <button id="nodefit">Fit</button>
     <span id="nodeselected"></span>
   </div>
+  <!-- Said instead of an empty menu over a blank canvas when what is
+       playing has no graph of its own here (nodeview.js, offer). -->
+  <p id="nodeempty" class="hint" hidden>No graph to edit: what is playing
+    uses only the shipped patches. Play a patch, or a piece with
+    instruments of its own, to edit one here.</p>
   <div id="nodescroll" class="canvasview">
     <canvas id="nodecanvas" tabindex="0"></canvas>
   </div>

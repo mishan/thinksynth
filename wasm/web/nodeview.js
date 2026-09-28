@@ -790,7 +790,15 @@ export async function createNodeView ({ files, root = document,
             select.append(option);
         }
 
-        if (select.options.length === 0)
+        /* Nothing to edit is said, rather than shown as a menu with
+           nothing in it over a canvas with nothing on it. */
+        const none = select.options.length === 0;
+
+        select.closest('.row').hidden = none;
+        $('nodescroll').hidden = none;
+        $('nodeempty').hidden = !none;
+
+        if (none)
             return;
 
         select.value = names.includes(was) ? was : select.options[0].value;
