@@ -26,6 +26,7 @@
 #include "think.h"
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>   /* onDraw times itself; see drawCount() in the header */
 
 #include "NodeCanvas.h"
@@ -62,6 +63,92 @@
 #define COL_PROBE     0.20, 0.26, 0.30
 
 #define PORT_R  3.5
+
+/* A value in as few characters as say it: a strip has about five of them
+   to the right of its track, and "%.4g" spends nine on 11470 as
+   "1.147e+04", which runs off the strip and into the node beside it.
+   The unit is chosen by the value after rounding, so 999999 is "1M" and
+   not "1e+03k". Below 1, three figures: "0.4372" is a character too many. */
+static string compactValue (double v)
+{
+    char buf[32];
+    const double a = fabs(v);
+
+    if (!std::isfinite(v))
+        snprintf(buf, sizeof(buf), "%g", v);
+    else if (a < 1.0)
+        snprintf(buf, sizeof(buf), "%.3g", v);
+    else if (a < 9999.5)
+        snprintf(buf, sizeof(buf), "%.4g", v);
+    else if (a < 999.5e3)
+        snprintf(buf, sizeof(buf), "%.3gk", v / 1e3);
+    else if (a < 999.5e6)
+        snprintf(buf, sizeof(buf), "%.3gM", v / 1e6);
+    else
+        snprintf(buf, sizeof(buf), "%.3g", v);
+
+    return buf;
+}
+
+/* `text' cut to fit `width' in the current font, with an ellipsis where it
+   was cut. A hard clip left "Filter Envel" looking like a name rather than
+   part of one. Cuts on a character boundary, never inside a UTF-8
+   sequence. */
+static string fitText (const Cairo::RefPtr<Cairo::Context> &cr,
+                       const string &text, double width)
+{
+    Cairo::TextExtents te;
+
+    cr->get_text_extents(text, te);
+
+    if (te.x_advance <= width)
+        return text;
+
+    static const string ELLIPSIS = "\xe2\x80\xa6";
+
+    /* Where a cut may go: before each character, never inside a UTF-8
+       sequence. The longest prefix that fits with the ellipsis is found by
+       bisection, since this runs for every box on every frame and a
+       measure in the browser is a call out to Canvas2D. */
+    vector<size_t> cuts;
+
+    for (size_t i = 1; i < text.size(); i++)
+        if (((unsigned char)text[i] & 0xc0) != 0x80)
+            cuts.push_back(i);
+
+    /* No space before the ellipsis: "Filter …" wastes the one character
+       there is room for. */
+    auto candidate = [&] (size_t k)
+    {
+        string cut = text.substr(0, cuts[k]);
+
+        while (!cut.empty() && cut.back() == ' ')
+            cut.pop_back();
+
+        return cut + ELLIPSIS;
+    };
+
+    string best = ELLIPSIS;
+    size_t lo = 0, hi = cuts.size();
+
+    while (lo < hi)
+    {
+        const size_t mid = (lo + hi) / 2;
+        const string c = candidate(mid);
+
+        cr->get_text_extents(c, te);
+
+        if (te.x_advance <= width)
+        {
+            best = c;
+            lo = mid + 1;
+        }
+        else
+            hi = mid;
+    }
+
+    return best;
+}
 
 
 NodeCanvas::NodeCanvas (void)
@@ -583,14 +670,11 @@ void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->set_font_size(9.0);
     cr->set_source_rgb(COL_TEXT);
 
-    /* The label, clipped to its share of the strip so a long one cannot run
+    /* The label, cut to its share of the strip so a long one cannot run
        under the track. */
-    cr->save();
-    cr->rectangle(b.x + 4.0, b.y, b.w * 0.42 - 8.0, b.h);
-    cr->clip();
     cr->move_to(b.x + 5.0, b.y + b.h * 0.5 + 3.0);
-    cr->show_text(b.ctlLabel);
-    cr->restore();
+    cr->show_text(fitText(cr, b.ctlLabel,
+                         b.w * NodeGraph::stripLabelShare() - 9.0));
 
     drawSlider(cr, b);
 }
@@ -742,6 +826,43 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
         cr->set_source_rgb(COL_HEAD);
     cr->fill();
 
+    string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;
+
+    /* A control still drawn as a box is one that several nodes share -- the
+       rest are strips against the thing they drive. Saying how many says why
+       this one is different, instead of leaving it looking like a control
+       that failed to attach. */
+    if (b.isControl)
+    {
+        int consumers = 0;
+
+        for (size_t e = 0; e < graph_->edges().size(); e++)
+            if (graph_->edges()[e].fromBox == (int)(&b - &graph_->boxes()[0]))
+                consumers++;
+
+        if (consumers > 1)
+        {
+            char buf[32];
+
+            snprintf(buf, sizeof(buf), "  shared x%d", consumers);
+            corner += buf;
+        }
+    }
+
+    /* The title and the corner share the bar. The title is what the box
+       is and has the first claim, up to two thirds of it; the corner gets
+       what is left, and both are cut to their share rather than drawn over
+       each other. */
+    const double bar = b.w - 12.0;
+    Cairo::TextExtents te;
+
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::ITALIC,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(8.0);
+    cr->get_text_extents(corner, te);
+
+    const double cornerW = corner.empty() ? 0.0 : te.x_advance + 6.0;
+
     cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
                          Cairo::ToyFontFace::Weight::BOLD);
     cr->set_font_size(10.0);
@@ -753,7 +874,30 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
        name goes in the right-hand corner where a node shows its plugin, so
        the box still says which `@name' it is: the label is for reading, the
        name is what the rest of the file refers to. */
-    cr->show_text(b.isControl ? b.ctlLabel : b.name);
+    const string title = fitText(cr, b.isControl ? b.ctlLabel : b.name,
+                                 std::max(bar - cornerW, bar * 2.0 / 3.0));
+
+    cr->get_text_extents(title, te);
+    cr->show_text(title);
+
+    const double titleW = te.x_advance;
+
+    if (!corner.empty())
+    {
+        cr->select_font_face("sans", Cairo::ToyFontFace::Slant::ITALIC,
+                             Cairo::ToyFontFace::Weight::NORMAL);
+        cr->set_font_size(8.0);
+        cr->set_source_rgb(COL_DIM);
+
+        const string shown = fitText(cr, corner, bar - titleW - 6.0);
+
+        if (shown != "\xe2\x80\xa6")
+        {
+            cr->get_text_extents(shown, te);
+            cr->move_to(b.x + b.w - te.x_advance - 6, b.y + 14);
+            cr->show_text(shown);
+        }
+    }
 
     if (b.isControl)
     {
@@ -783,42 +927,6 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
         cr->show_text(b.exprText);
 
         cr->restore();
-    }
-
-    string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;
-
-    /* A control still drawn as a box is one that several nodes share -- the
-       rest are strips against the thing they drive. Saying how many says why
-       this one is different, instead of leaving it looking like a control
-       that failed to attach. */
-    if (b.isControl)
-    {
-        int consumers = 0;
-
-        for (size_t e = 0; e < graph_->edges().size(); e++)
-            if (graph_->edges()[e].fromBox == (int)(&b - &graph_->boxes()[0]))
-                consumers++;
-
-        if (consumers > 1)
-        {
-            char buf[32];
-
-            snprintf(buf, sizeof(buf), "  shared x%d", consumers);
-            corner += buf;
-        }
-    }
-
-    if (!corner.empty())
-    {
-        cr->select_font_face("sans", Cairo::ToyFontFace::Slant::ITALIC,
-                             Cairo::ToyFontFace::Weight::NORMAL);
-        cr->set_font_size(8.0);
-        cr->set_source_rgb(COL_DIM);
-
-        Cairo::TextExtents te;
-        cr->get_text_extents(corner, te);
-        cr->move_to(b.x + b.w - te.width - 6, b.y + 14);
-        cr->show_text(corner);
     }
 
     /* ports */
@@ -958,9 +1066,10 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
     if (!named.empty())
         snprintf(buf, sizeof(buf), "%s", named.c_str());
     else if (b.ctlStep == 1)
-        snprintf(buf, sizeof(buf), "%d", (int)b.ctlValue);
+        snprintf(buf, sizeof(buf), "%s",
+                 compactValue((double)(long long)b.ctlValue).c_str());
     else
-        snprintf(buf, sizeof(buf), "%.4g", (double)b.ctlValue);
+        snprintf(buf, sizeof(buf), "%s", compactValue(b.ctlValue).c_str());
 
     cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
                          Cairo::ToyFontFace::Weight::NORMAL);
@@ -975,7 +1084,10 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
            strip has room, and the range is dropped. A strip is for reading at
            a glance and adjusting; the range is in the panel when wanted. */
         cr->move_to(x1 + 6.0, y + 3.0);
-        cr->show_text(buf);
+
+        /* Cut to what is left before the tab on the right edge: a value's
+           name ("Triangle") can still be longer than a number is. */
+        cr->show_text(fitText(cr, buf, b.x + b.w - 3.0 - (x1 + 6.0)));
 
         return;
     }
@@ -993,11 +1105,13 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
         snprintf(buf, sizeof(buf), "%d of %d", (int)b.ctlValue + 1,
                  (int)b.ctlValueNames.size());
     else if (b.ctlStep == 1)
-        snprintf(buf, sizeof(buf), "%d-%d", (int)b.ctlDrawMin(),
+        snprintf(buf, sizeof(buf), "%d\xe2\x80\x93%d", (int)b.ctlDrawMin(),
                  (int)b.ctlDrawMax());
     else
-        snprintf(buf, sizeof(buf), "%.3g-%.3g", (double)b.ctlMin,
-                 (double)b.ctlMax);
+        /* An en dash, since a hyphen made -1..1 read "-1-1". */
+        snprintf(buf, sizeof(buf), "%s\xe2\x80\x93%s",
+                 compactValue(b.ctlMin).c_str(),
+                 compactValue(b.ctlMax).c_str());
 
     cr->move_to(b.x + 6, b.y + b.h - 3);
     cr->show_text(buf);

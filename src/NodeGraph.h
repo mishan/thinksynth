@@ -391,6 +391,12 @@ public:
        if the two disagreed the arithmetic would land on a port name. */
     static double exprTextRow (void);
 
+    /* A control strip's label, as a share of the strip's width: the track
+       starts here and the label is cut to fit before it. Public for the
+       same reason again: the hit test and the drawing both split the strip
+       at this point. */
+    static double stripLabelShare (void) { return 0.48; }
+
     /* Wrap the layer sequence into stacked bands once the drawing would be
        wider than this. 0 leaves it in one row, which is the default.
     
