@@ -335,7 +335,29 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   `mute`, `solo`, `section`, `knobwrite`, `param`, `input` -- carries the
   number of edits its maker had seen, and is dropped where another edit
   has applied since: an edit that adds a stage above it moves the index.
-- Not yet: the quantised and play-ahead modes.
+- **The three ways to play**, on `playmodes`, which starts where
+  `editcmd` ends: a mode beside the seat, with the relay round trip and
+  what the mode costs at the tempo playing. Direct is unchanged. A
+  quantised key is stamped for the first sixteenth at least the knob
+  lead away, its release at least a sixteenth after that; a key a bar
+  ahead is stamped exactly one bar on. Both are applied at their stamp on
+  every peer, the player included, through a key command the worklet
+  applies inside the step (`TW_NOTE`) -- so a key into a piece's
+  `input midi` composes the same thing everywhere, and is logged for a
+  late joiner. A key a bar ahead onto a plain channel is heard by its
+  player at once and by everyone else a bar later.
+- Keys stamped for one time are applied in an order made from the
+  sender's id and counter, not in the order they arrived: two quantised
+  seats meet on grid lines all the time, and a quantizer passes on what
+  it is handed in the order it is handed it. `protocoltest.mjs` holds two
+  peers' chords on one channel of `hands.gen`, eleven grid lines where
+  they meet, to one tape and genwav's -- and fails with the tie taken
+  out. `jamtest.mjs` plays `hands.gen` from two pages, one quantised and
+  one a bar ahead.
+- A seat is any channel the piece plays -- its instruments, the channels
+  it takes `input midi` on, and the ones its sinks name -- where it was
+  the instruments alone, which gave a piece like `hands.gen` no seats.
+- Not yet: by hand across two machines.
 
 ### M6, so far
 
@@ -487,12 +509,10 @@ Then three ways to play, chosen per seat, with the measured round trip shown
 next to the choice so nobody has to guess:
 
 - **Direct.** Notes are scheduled on arrival. Right for peers in one city.
-- **Quantised.** The seat's live input feeds a chain with an
-  `xform::quantize` stage before its sink. A note lands on the grid slot it
-  was played into, on every peer, and jitter shorter than the grid vanishes.
-  With a 16th at 120 bpm that is 125 ms of tolerance. This is free: a live
-  note is an event with a time entering a chain, which `arp` already
-  consumes, and `thcChain::inputMidi` already exists.
+- **Quantised.** The key is stamped for the next grid line at least the
+  knob lead away and applied there on every peer. A note lands on the
+  grid, on every peer, and jitter shorter than the lead vanishes. With a
+  16th at 120 bpm the player hears it up to the lead plus 125 ms late.
 - **Play-ahead.** Every seat hears every *other* seat one beat or one bar
   late, NINJAM's trick. Coherent against the grid, useless for
   call-and-response, and the only thing that works across an ocean.

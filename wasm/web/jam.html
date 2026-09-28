@@ -34,10 +34,18 @@
     <span id="peers" class="peers"></span>
   </div>
 
-  <!-- A seat is an instrument the piece declares, on the channel it was
-       given; keys play into it, on every peer. -->
+  <!-- A seat is a channel the piece plays: an instrument it declares, a
+       channel it takes `input midi' on, or one its sinks name. Keys play
+       into it, on every peer, in one of three ways -- see commands.js's
+       keyAt -- with the relay's round trip beside the choice. -->
   <div class="row">
     <label>Seat <select id="seat"><option value="">none</option></select></label>
+    <label>Play <select id="playmode">
+      <option value="direct">direct</option>
+      <option value="quantised">quantised</option>
+      <option value="ahead">a bar ahead</option>
+    </select></label>
+    <span id="modenote"></span>
     <button id="start">Start</button>
     <button id="play" disabled>Play</button>
     <button id="stop" disabled>Stop</button>

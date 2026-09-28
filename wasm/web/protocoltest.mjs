@@ -52,6 +52,9 @@
  * last chain moved: an edit, stamped for the next bar, which every peer and
  * genwav apply at that time.
  *
+ * Then keys into hands.gen from both peers, quantised on one channel -- so
+ * their keys meet on the grid -- and a bar ahead on another.
+ *
  * Then a third peer that joins late: ninety seconds into a two-minute run,
  * with knobs moving, the tempo changing and the piece edited on either side
  * of its arrival.
@@ -71,8 +74,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { drain, tapeBefore, tapeLine } from '../tape.mjs';
 import { AudioClock, RelayClock, TransportClock, frameOfRelayMs }
     from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp, isLate,
-         nextBar, replayable } from './commands.js';
+import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
+         isLate, keyAt, nextBar, replayable } from './commands.js';
 import { firstDifference, instruments, pieces, reference }
     from './piececheck.mjs';
 import { loadPiece, schedule } from './render.mjs';
@@ -294,6 +297,9 @@ class Peer
                 M._tw_midi_on(frame, channel, note, velocity),
             midiOff: (note, frame, channel) =>
                 M._tw_midi_off(frame, channel, note),
+            noteAt: (at, channel, note, velocity, on, midi, tie) =>
+                M._tw_note_at(at, channel, note, velocity, on ? 1 : 0,
+                              midi ? 1 : 0, tie),
         };
 
         this.gen = null;                /* set by the script, for a reload */
@@ -414,12 +420,46 @@ class Peer
         return apply(cmd, this.applying());
     }
 
+    /* Where the transport is, as a tape message says it: what keyAt and
+       nextBar work from. */
+    report ()
+    {
+        const { M } = this;
+
+        return { now: M._tw_now(), beat: M._tw_beat(), tempo: M._tw_tempo(),
+                 meter: M._tw_meter() };
+    }
+
+    /* A key pressed or let go of in `mode', as the page's press and release
+       stamp one (jam.js). `held' is what the press returned. */
+    press (seat, note, velocity, mode)
+    {
+        const at = keyAt(mode, this.transportNow(), this.report(),
+                         this.maker.knobLead);
+
+        return { at, mode, cmd: this.maker.note(seat, note, velocity,
+                                                at < 0 ? 'direct' : mode,
+                                                at < 0 ? null : at) };
+    }
+
+    release (seat, note, held)
+    {
+        const grid = GRID * 60 / this.M._tw_tempo();
+        const at = keyAt(held.mode, this.transportNow(), this.report(),
+                         this.maker.knobLead,
+                         held.mode === 'quantised' ? held.at + grid : held.at);
+
+        return this.maker.noteoff(seat, note, at < 0 ? 'direct' : held.mode,
+                                  at < 0 ? null : at);
+    }
+
     applying ()
     {
         return {
             synth: this.synth,
             frameOfOrigin: (ms) => this.frameOfOrigin(ms),
             listens: this.listens,
+            self: this.name,
             load: (c) =>
             {
                 /* The page's load: the piece from the document, with the
@@ -963,6 +1003,126 @@ function editNote (r)
            (bars.size < edits.length ? ' on one bar' : '');
 }
 
+/* Two peers playing into hands.gen: keys into a piece, which is the case
+ * direct mode cannot serve. Both quantised on one channel, so their keys
+ * meet on the same grid lines and the tie decides their order; one of them
+ * a bar ahead on another. Returns what session() does.
+ */
+async function handsSession (createThinkWeb, piece, dsps)
+{
+    const sim = new Sim();
+    const net = new Net(sim, NETWORKS.still, 5);
+    const relay = new Relay(sim, net);
+    const peers = [];
+
+    for (const spec of PEERS)
+    {
+        const { M, ok, errors } = await loadPiece(createThinkWeb, {
+            rate: spec.rate, windowlen: spec.windowlen, block: spec.block,
+            gen: piece.text, instruments: dsps,
+        });
+
+        if (!ok)
+            return { ok: false, errors };
+
+        const peer = new Peer(sim, net, spec, M);
+
+        peer.gen = piece.text;
+        peers.push(peer);
+    }
+
+    const [A, B] = peers;
+
+    A.others = [B];
+    B.others = [A];
+
+    /* hands.gen's chains in order: an arpeggiator, a quantizer, and
+       another arpeggiator. The keys that meet go to the quantizer, which
+       passes them on in the order they reach it; an arpeggiator sorts what
+       it holds, and would hide the order. */
+    const [arp, corrected] = [...A.listens].sort((x, y) => x - y);
+    const stamped = [];
+    const ahead = [];               /* [pressed at, stamped for] */
+    const origin = 3000 + TRANSPORT_LEAD * 1000;
+    let stopAt = null;
+
+    A.startRendering();
+    B.startRendering();
+    A.startPinging(relay, 1000, 0);
+    B.startPinging(relay, 1000, 333);
+
+    sim.at(3000, async () =>
+    {
+        const cmd = A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
+                                  'no-document-here', 4242);
+
+        await A.send(cmd, true);
+        stamped.push(cmd);
+    });
+
+    /* A key down at `t', up at `t + length', from `who' in `mode'. */
+    const key = (who, t, seat, note, length, mode) =>
+    {
+        let held = null;
+
+        sim.at(t, async () =>
+        {
+            const pressedAt = who.transportNow();
+
+            held = who.press(seat, note, 90, mode);
+            await who.send(held.cmd);
+            stamped.push(held.cmd);
+
+            if (mode === 'ahead')
+                ahead.push([pressedAt, held.at]);
+        });
+
+        sim.at(t + length, async () =>
+        {
+            const cmd = who.release(seat, note, held);
+
+            await who.send(cmd);
+            stamped.push(cmd);
+        });
+    };
+
+    for (let k = 0; k < 12; k++)
+    {
+        const t = origin + 2500 + k * 1300;
+
+        for (const n of [53, 56, 60])
+            key(A, t, corrected, n + (k % 3), 600 + k * 37, 'quantised');
+
+        for (const n of [58, 61])
+            key(B, t + 3, corrected, n, 450, 'quantised');
+
+        key(B, t + 200, arp, 65 + (k % 4), 900, 'ahead');
+    }
+
+    sim.at(origin + SECONDS * 1000, async () =>
+    {
+        const cmd = A.maker.stop();
+
+        await A.send(cmd, true);
+        stamped.push(cmd);
+        stopAt = cmd.at;
+    });
+
+    let settle = null;
+
+    await sim.run(() =>
+    {
+        if (stopAt === null || !peers.every((p) => !p.transport.running))
+            return false;
+
+        settle ??= sim.t + 2000;
+
+        return sim.t >= settle;
+    });
+
+    return { ok: true, peers, stamped, stopAt, ahead };
+}
+
 /* Every edit that was sent, applied whole on every peer. */
 function editComplaints (r)
 {
@@ -1174,6 +1334,89 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             process.stdout.write(`ok    ${piece.name.padEnd(14)} a mute ` +
                                  'made before an edit and stamped after it ' +
                                  'is dropped\n');
+    }
+
+    /* Keys into a piece. */
+    {
+        const piece = pieces(build).find((p) => p.name === 'hands.gen');
+        const r = await handsSession(createThinkWeb, piece, dsps);
+
+        process.stdout.write('\nkeys into hands.gen, quantised from both ' +
+                             'peers on one channel and a bar ahead on ' +
+                             'another\n\n');
+
+        if (!r.ok)
+        {
+            failures++;
+            process.stdout.write(`FAIL  hands.gen did not load: ` +
+                                 `${r.errors.join('; ')}\n`);
+        }
+        else
+        {
+            const [A, B] = r.peers;
+            const a = tapeBefore(A.tape, r.stopAt);
+            const b = tapeBefore(B.tape, r.stopAt);
+            const complaints = [];
+
+            if (a !== b)
+                complaints.push(`the two tapes differ: ` +
+                                `${firstDifference(a, b)}`);
+
+            const want = reference('hands.gen', nodeBuild, {
+                commands: r.stamped, stopAt: r.stopAt,
+            });
+
+            if (a !== want)
+                complaints.push(`A differs from genwav: ` +
+                                `${firstDifference(want, a)}`);
+
+            for (const p of r.peers)
+                if (p.M._tw_late() !== 0)
+                    complaints.push(`${p.name} applied ${p.M._tw_late()} ` +
+                                    'command(s) late');
+
+            /* Keys from the two peers that met on one grid line, which is
+               what the tie is there for. */
+            const lines = new Map();
+
+            for (const c of r.stamped)
+                if (c.type === 'note' && c.mode === 'quantised')
+                {
+                    const from = lines.get(c.at) ?? new Set();
+
+                    from.add(c.from);
+                    lines.set(c.at, from);
+                }
+
+            const met = [...lines.values()].filter((s) => s.size > 1).length;
+
+            if (met === 0)
+                complaints.push('no two peers\' keys met on a grid line');
+
+            /* A bar ahead is a bar: two seconds at 120 and four beats. */
+            const bar = 4 * 60 / 120;
+
+            for (const [pressed, at] of r.ahead)
+                if (Math.abs(at - pressed - bar) > 1e-6)
+                    complaints.push(`a key a bar ahead was stamped ` +
+                                    `${(at - pressed).toFixed(3)} s on`);
+
+            if (a.split('\n').length < 20)
+                complaints.push('the piece hardly played');
+
+            if (complaints.length > 0)
+            {
+                failures++;
+                process.stdout.write(`FAIL  hands.gen      ` +
+                                     `${complaints.join('; ')}\n`);
+            }
+            else
+                process.stdout.write(
+                    `ok    hands.gen      ${String(a.split('\n').length - 1)
+                                             .padStart(5)} events from ` +
+                    `${r.stamped.filter((c) => c.type === 'note').length} ` +
+                    `keys; ${met} grid lines where the peers' keys met\n`);
+        }
     }
 
     /* The late joiner. */

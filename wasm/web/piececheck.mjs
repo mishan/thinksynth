@@ -248,10 +248,11 @@ function genwavCall (name, nodeBuildDir,
        directory of this call's own. */
     let dir = null;
 
-    /* In the order a worklet applies them: by time, and among edits
-       stamped for one time by their tie (thinkweb.cpp, Scheduled). genwav
-       keeps the order it is given within one time. */
-    const tied = (c) => c.type === 'edit';
+    /* In the order a worklet applies them: by time, and among edits and
+       keys stamped for one time by their tie (thinkweb.cpp, Scheduled).
+       genwav keeps the order it is given within one time. */
+    const keyed = (c) => c.type === 'note' || c.type === 'noteoff';
+    const tied = (c) => c.type === 'edit' || keyed(c);
     const ordered = [...commands].sort((a, b) =>
         a.at !== b.at ? a.at - b.at
                       : (tied(a) ? tieOf(a) : 0) - (tied(b) ? tieOf(b) : 0));
@@ -277,6 +278,17 @@ function genwavCall (name, nodeBuildDir,
 
             fs.writeFileSync(file, c.text);
             args.push('-c', `${c.at} edit ${file}`);
+        }
+        else if (keyed(c) && (c.mode ?? 'direct') !== 'direct')
+        {
+            /* A stamped key. Into the piece is all a tape can see; genwav
+               hands it to whatever takes `input midi' on the channel, and
+               a channel nothing listens on takes it nowhere. */
+            if (c.type === 'note')
+                args.push('-c', `${c.at} midi ${c.seat} ${c.note} ` +
+                                `${c.velocity}`);
+            else
+                args.push('-c', `${c.at} midioff ${c.seat} ${c.note}`);
         }
         else if (c.op === 'tempo')
             args.push('-c', `${c.at} tempo ${c.bpm}`);

@@ -182,6 +182,7 @@ enum TransportOp
     TW_KNOBWRITE,
     TW_SEEK,
     TW_EDIT,
+    TW_NOTE,
 };
 
 struct Command
@@ -247,6 +248,11 @@ struct Scheduled
        would be, and a peer a revision behind would then set its
        neighbour.
 
+       TW_NOTE: a key, at a transport time -- a quantised or a play-ahead
+       seat's, which lands where it is stamped on every peer. `midi' says
+       it goes into the piece through `input midi' rather than straight
+       onto the channel; `value' is the velocity.
+
        TW_KNOB: `row' is the knob's name, when the command named one.
        TW_EDIT: `text' is the piece's new text; `files' below are the other
        files it changed. */
@@ -256,11 +262,16 @@ struct Scheduled
        once its text has loaded (applyEdit). */
     std::vector<std::pair<std::string, std::string> > files;
 
+    int    channel, note;       /* TW_NOTE                             */
+    bool   on, midi;            /* TW_NOTE                             */
+
     /* The order among commands stamped for one time: lower first, and
-       arrival order within one. Zero but for an edit, whose sender makes
-       it from its own id and counter: two Applies land on one bar line,
-       and which is applied last is which text plays -- so it cannot be
-       whichever happened to reach this peer last. */
+       arrival order within one. Zero but for an edit and a key, whose
+       sender makes it from its own id and counter. Two Applies land on
+       one bar line, and which is applied last is which text plays; two
+       quantised seats put keys on one grid line all the time, and the
+       order they reach the piece in is what it composes from. Neither can
+       be the order they happened to reach this peer in. */
     double tie;
 
     /* The edit count (edits_) of the piece its maker was looking at, or -1
@@ -973,6 +984,32 @@ void applyScheduled (const Scheduled &c)
 
         case TW_EDIT:
             applyEdit(c);
+            break;
+
+        case TW_NOTE:
+            if (c.midi)
+            {
+                /* CMD_MIDI_ON's event, at the time it was stamped for
+                   rather than the top of whichever window it arrived
+                   in -- which is what makes a key into the piece compose
+                   the same thing on every peer. */
+                thcEvent ev = {};
+
+                ev.type = c.on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+                ev.at = sched_->now();
+                ev.channel = c.channel;
+                ev.u.note.note = c.note;
+                ev.u.note.velocity = (int)c.value;
+                ev.u.note.duration = 0;
+                ev.u.note.level = 1;
+
+                sched_->injectMidiEvent(ev);
+            }
+            else if (c.on)
+                synth_->addNote(c.channel, (float)c.note, (float)c.value);
+            else
+                synth_->delNote(c.channel, (float)c.note);
+
             break;
 
         case TW_STAGEPARAM:
@@ -4421,6 +4458,30 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_named (double at, const char *name,
     c.knob = -1;
     c.row = name ? name : "";
     c.value = value;
+
+    schedule(c);
+}
+
+/* A key at transport time `at': pressed when `on', released when not, into
+ * the piece through `input midi' when `midi' and straight onto the channel
+ * when not. `tie' orders it among commands stamped for the same time.
+ * What a quantised or play-ahead seat sends; a direct seat's key is
+ * frame-stamped and goes by tw_note_on and tw_midi_on.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_note_at (double at, int channel, int note,
+                                      double velocity, int on, int midi,
+                                      double tie)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_NOTE;
+    c.channel = channel;
+    c.note = note;
+    c.value = velocity;
+    c.on = on != 0;
+    c.midi = midi != 0;
+    c.tie = tie;
 
     schedule(c);
 }

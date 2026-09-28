@@ -44,8 +44,9 @@
  *   mute       { at, chain, on }
  *   solo       { at, chain, on }
  *   section    { at, section, chain, level }
- *   note       { at, seat, note, velocity }
- *   noteoff    { at, seat, note }
+ *   note       { at, seat, note, velocity, mode }
+ *   noteoff    { at, seat, note, mode }        mode: direct | quantised |
+ *                                              ahead
  *
  * Nothing here reads a clock or touches a socket: the page and the
  * harness hand in what to stamp with and what to send through.
@@ -212,16 +213,29 @@ export class Maker
                          this.knobLead);
     }
 
-    /* A key. Stamped with now and no lead: direct mode plays it on
-       arrival, wherever that falls. */
-    note (seat, note, velocity)
+    /* A key, in the seat's mode (docs/JAM.md, the three ways to play).
+     *
+     * Direct: stamped with now and no lead, and played on arrival,
+     * wherever that falls -- the least latency, and the one a note into a
+     * piece cannot use, since no two peers hand it to the piece at the same
+     * point.
+     *
+     * Quantised and ahead: stamped with `at', which the caller works out
+     * (keyAt below), and applied there on every peer, the sender included
+     * -- so a key into a piece composes the same thing everywhere, and is
+     * logged for a late joiner like any other stamped command. */
+    note (seat, note, velocity, mode = 'direct', at = null)
     {
-        return this.make('note', { seat, note, velocity }, 0);
+        const cmd = this.make('note', { seat, note, velocity, mode }, 0);
+
+        return at === null ? cmd : { ...cmd, at };
     }
 
-    noteoff (seat, note)
+    noteoff (seat, note, mode = 'direct', at = null)
     {
-        return this.make('noteoff', { seat, note }, 0);
+        const cmd = this.make('noteoff', { seat, note, mode }, 0);
+
+        return at === null ? cmd : { ...cmd, at };
     }
 }
 
@@ -317,7 +331,9 @@ export function nextBar (now, report, lead)
 /* The order among commands stamped for one time (thinkweb.cpp, Scheduled's
    `tie'): made from the sender's id and counter, so it is the same number on
    every peer and different for every command. Two Applies land on one bar
-   line, and the one applied last is the text that plays. */
+   line, and the one applied last is the text that plays; two quantised
+   seats land keys on one grid line, and a piece composes from the order
+   they reach it in. */
 export function tieOf (cmd)
 {
     let h = 0x811c9dc5;
@@ -353,7 +369,8 @@ export function isLate (cmd, transportNow)
  * named seed. That is the caller's -- `load' is called with the command and
  * resolves once the piece is in -- because only the caller has the
  * document. Everything else goes straight through. */
-export async function apply (cmd, { synth, frameOfOrigin, listens, load })
+export async function apply (cmd, { synth, frameOfOrigin, listens, load,
+                                    self = null })
 {
     if (cmd.type === 'transport' && cmd.op === 'start')
     {
@@ -367,7 +384,7 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
         return;
     }
 
-    applyNow(cmd, { synth, listens });
+    applyNow(cmd, { synth, listens, self });
 }
 
 /* The commands a late joiner steps through, of those the room logged since
@@ -377,8 +394,44 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
  */
 export function replayable (cmd)
 {
-    return cmd.type !== 'note' && cmd.type !== 'noteoff' &&
-           !(cmd.type === 'transport' && cmd.op === 'start');
+    if (cmd.type === 'note' || cmd.type === 'noteoff')
+        return (cmd.mode ?? 'direct') !== 'direct';
+
+    return !(cmd.type === 'transport' && cmd.op === 'start');
+}
+
+/* The grid a quantised key lands on, in beats: a sixteenth. */
+export const GRID = 0.25;
+
+/* Where a key pressed or let go of now lands, by mode. -1 for direct, and
+ * for any mode while the transport is stopped -- there is no grid and no
+ * bar then, and the key plays on arrival.
+ *
+ * Quantised: the first grid line at least `lead' seconds on, so that it
+ * reaches every peer before its time; `after' is a floor, which is how a
+ * release is kept a grid line behind its own press however quickly it came.
+ * Ahead: exactly one bar on, which is where every other seat hears it --
+ * NINJAM's trick, coherent against the grid and no use for call and
+ * response.
+ *
+ * `report' is a worklet tape message: the transport time it reported, the
+ * beat that falls on, the tempo and the meter (nextBar's).
+ */
+export function keyAt (mode, now, report, lead, after = -1)
+{
+    const { beat, tempo, meter } = report ?? {};
+
+    if (mode === 'direct' || now < 0 || !(tempo > 0) || !(meter > 0))
+        return -1;
+
+    if (mode === 'ahead')
+        return Math.max(after, now + meter * 60 / tempo);
+
+    const floor = Math.max(now + lead, after);
+    const from = beat + (floor - report.now) * tempo / 60;
+    const line = Math.ceil(from / GRID - 1e-9) * GRID;
+
+    return floor + (line - from) * 60 / tempo;
 }
 
 /* Joining a room that is already playing: the start's piece loaded, then
@@ -405,9 +458,30 @@ export async function catchUp (start, log, { synth, frameOfOrigin, listens,
     });
 }
 
-/* Everything but a start, which is the one with something to wait for. */
-function applyNow (cmd, { synth, listens })
+/* Everything but a start, which is the one with something to wait for.
+   `self' is this peer's id, which a play-ahead key of its own is told
+   apart by. */
+function applyNow (cmd, { synth, listens, self = null })
 {
+    /* A stamped key: at its time, on every peer. Except a play-ahead key
+       of this peer's own onto a channel, which it played the moment it
+       was pressed (jam.js) -- the bar is for everybody else's ears. One
+       into the piece is applied here like anyone's, or this peer's piece
+       would compose from it a bar before the others' did. */
+    if ((cmd.type === 'note' || cmd.type === 'noteoff') &&
+        (cmd.mode ?? 'direct') !== 'direct')
+    {
+        const midi = listens.has(cmd.seat);
+
+        if (cmd.mode === 'ahead' && !midi && cmd.from === self)
+            return;
+
+        synth.noteAt(cmd.at, cmd.seat, cmd.note,
+                     cmd.type === 'note' ? cmd.velocity : 0,
+                     cmd.type === 'note', midi, tieOf(cmd));
+        return;
+    }
+
     switch (cmd.type)
     {
         case 'transport':
@@ -459,9 +533,7 @@ function applyNow (cmd, { synth, listens })
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.
-           The stamp is on the wire for the record and for the quantised
-           mode still to come, which is where it starts to mean
-           something. */
+           The stamp is on the wire for the record. */
         case 'note':
             if (listens.has(cmd.seat))
                 synth.midiOn(cmd.note, cmd.velocity, -1, cmd.seat);

@@ -40,8 +40,9 @@ import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
-         commandTag, isLate, nextBar, replayable, tieOf } from './commands.js';
+import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
+         commandTag, isLate, keyAt, nextBar, replayable, tieOf }
+    from './commands.js';
 import { docOf, fileNames, files, hashOf, instrumentTexts, pieceName,
          pieceText, readFile, snapshot, spliceFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
@@ -194,8 +195,13 @@ const knobIds = new Map();
 const knobNames = new Map();
 let listens = new Set();        /* channels the piece takes input on */
 
-/* note -> { count, midi, seat }: how many hands are on it, how many of
-   those are MIDI keys, and the seat it went out on. */
+/* How this page's keys reach the room: 'direct', 'quantised' or 'ahead'
+   (commands.js, keyAt). */
+let playMode = 'direct';
+
+/* note -> { count, midi, seat, mode, at }: how many hands are on it, how
+   many of those are MIDI keys, the seat it went out on, and the mode and
+   time it was stamped with -- a release goes the way its press went. */
 const sounding = new Map();
 
 /* What the numbers panel and the harness read back. Bounded, the way
@@ -385,7 +391,7 @@ async function applyOne (from, cmd)
         catching = false;
 
     await apply(cmd, { synth: roomSynth, frameOfOrigin, listens,
-                       load: loadFor });
+                       load: loadFor, self: room.peer });
 
     /* And what the page shows follows. */
     /* Ours moved its own slider as it was dragged. */
@@ -862,8 +868,18 @@ function press (note, velocity = VELOCITY, midi = false)
         return;
     }
 
-    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat: room.seat });
-    send(maker.note(room.seat, note, velocity));
+    const seat = room.seat;
+    const at = keyAt(playMode, transportNow(), lastTape, maker.knobLead);
+    const mode = at < 0 ? 'direct' : playMode;
+
+    /* A bar ahead onto a channel: heard here now, and by everyone else a
+       bar from now. Into the piece it waits for its time here too, or
+       this page's piece would compose from it a bar early. */
+    if (mode === 'ahead' && !listens.has(seat))
+        synth.noteOn(note, velocity, -1, seat);
+
+    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat, mode, at });
+    send(maker.note(seat, note, velocity, mode, at < 0 ? null : at));
     keyboard.hold(note, true);
 }
 
@@ -886,7 +902,20 @@ function release (note, midi = false)
         return;
 
     sounding.delete(note);
-    send(maker.noteoff(held.seat, note));
+
+    /* A quantised release a grid line after its press at the least, so
+       a quick tap is a sixteenth and not a note let go before it began. */
+    const grid = lastTape?.tempo > 0 ? GRID * 60 / lastTape.tempo : 0;
+    const at = held.mode === 'direct'
+        ? -1
+        : keyAt(held.mode, transportNow(), lastTape, maker.knobLead,
+                held.mode === 'quantised' ? held.at + grid : held.at);
+
+    if (held.mode === 'ahead' && !listens.has(held.seat))
+        synth.noteOff(note, -1, held.seat);
+
+    send(maker.noteoff(held.seat, note, at < 0 ? 'direct' : held.mode,
+                       at < 0 ? null : at));
     keyboard.hold(note, false);
 }
 
@@ -999,9 +1028,28 @@ function showSeats ()
 
     sel.replaceChildren(new Option('none', ''));
 
+    /* Every channel the piece plays, each once: its instruments by name,
+       then the channels it takes input on, then the rest its sinks name.
+       A piece built on `input midi' declares no instruments and would
+       otherwise offer nobody a seat. */
+    const offered = new Set();
+    const offer = (channel, label) =>
+    {
+        if (offered.has(channel))
+            return;
+
+        offered.add(channel);
+        sel.add(new Option(`${label} (channel ${channel})`, String(channel)));
+    };
+
     for (const inst of piece?.instruments ?? [])
-        sel.add(new Option(`${inst.name} (channel ${inst.channel})`,
-                           String(inst.channel)));
+        offer(inst.channel, inst.name);
+
+    for (const channel of piece?.listens ?? [])
+        offer(channel, 'input');
+
+    for (const channel of piece?.sinks ?? [])
+        offer(channel, 'part');
 
     sel.value = was;
 
@@ -1063,10 +1111,34 @@ async function drawKnobs ()
                              });
 }
 
+/* Beside the choice, what it costs: the round trip to the relay, which is
+   about what a direct key takes to reach the others, and what the other two
+   add at the tempo playing. */
+function showModeNote ()
+{
+    const rtt = room?.clock.rtt;
+    const tempo = lastTape?.tempo > 0 ? lastTape.tempo : 0;
+    const said = [Number.isNaN(rtt) || rtt === undefined
+                      ? 'round trip not yet'
+                      : `round trip ${rtt.toFixed(0)} ms`];
+
+    if (tempo > 0 && playMode === 'quantised')
+        said.push(`a key lands on the next sixteenth, up to ` +
+                  `${(maker.knobLead * 1000 +
+                      GRID * 60000 / tempo).toFixed(0)} ms on`);
+    else if (tempo > 0 && playMode === 'ahead')
+        said.push(`the others hear a key ` +
+                  `${(lastTape.meter * 60 / tempo).toFixed(2)} s later`);
+
+    $('modenote').textContent = said.join('; ');
+}
+
 function showNumbers ()
 {
     if (room === null)
         return;
+
+    showModeNote();
 
     const ms = (x) => Number.isNaN(x) ? 'not yet' : `${x.toFixed(2)} ms`;
     const lines = [
@@ -1656,6 +1728,14 @@ function init ()
         releaseAll();
         room.claim($('seat').value === '' ? null : Number($('seat').value));
     });
+    $('playmode').addEventListener('change', () =>
+    {
+        /* Whatever is held was stamped the old way and is let go that
+           way; the next key goes the new one. */
+        releaseAll();
+        playMode = $('playmode').value;
+        showModeNote();
+    });
     $('knoblead').addEventListener('change', () =>
     {
         maker.knobLead = Number($('knoblead').value);
@@ -1718,6 +1798,15 @@ function init ()
        nothing here that a person could not do with the page. */
     window.jam = {
         join, start, play, stop,
+
+        /* A key, as the on-screen keys press one, and the way keys go. */
+        press: (note, velocity) => press(note, velocity),
+        release: (note) => release(note),
+        mode: (m) =>
+        {
+            $('playmode').value = m;
+            $('playmode').dispatchEvent(new Event('change'));
+        },
         /* A knob by name, or by its row's id as the panel numbers it. */
         knob: (knob, value) => send(maker.knob(
             typeof knob === 'string' ? knob
@@ -1732,6 +1821,7 @@ function init ()
         edits: () => lastTape?.edits ?? 0,
         tempo: (bpm) => send(maker.tempo(bpm)),
         seat: (seat) => room.claim(seat),
+        seatNow: () => room.seat,
         tape: () => tapeText,
 
         /* The panes this page has and the layout they are in, for

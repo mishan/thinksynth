@@ -20,7 +20,7 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
- * `transport', `begin', `batch', `edit', `at', `knob', `paneledit',
+ * `transport', `begin', `batch', `edit', `noteat', `at', `knob', `paneledit',
  * `stageparam', `param', `mute', `solo', `section', `knobwrite', `input',
  * `midion', `midioff', `on', `off' or `alloff' message, turned into the tw_
  * call that applies it. It used to live in worklet.js, and moved here when
@@ -297,6 +297,12 @@ export function apply (M, m, host = NOWHERE)
 
             M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
                         m.button ?? 1);
+            return true;
+
+        case 'noteat':
+            /* A key at a transport time (thinkweb.cpp, TW_NOTE). */
+            M._tw_note_at(m.at, m.channel, m.note, m.velocity, m.on ? 1 : 0,
+                          m.midi ? 1 : 0, m.tie);
             return true;
 
         case 'midion':

@@ -77,7 +77,9 @@ function usage (argv0)
         '      --sections          mix RMS by arrangement section\n' +
         '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
         '                          time AT: "AT knob NAME VALUE", "AT tempo BPM",\n' +
-        '                          "AT edit FILE.gen" or "AT stop"; repeatable\n' +
+        '                          "AT edit FILE.gen", "AT midi CH NOTE VEL",\n' +
+        '                          "AT midioff CH NOTE" or "AT stop";\n' +
+        '                          repeatable\n' +
         '  -q, --quiet             no summary\n');
 }
 
@@ -171,6 +173,8 @@ async function main (argv0, args)
                 !((op === 'knob' && rest.length === 2) ||
                   (op === 'tempo' && rest.length === 1) ||
                   (op === 'edit' && rest.length === 1) ||
+                  (op === 'midi' && rest.length === 3) ||
+                  (op === 'midioff' && rest.length === 2) ||
                   (op === 'stop' && rest.length === 0)))
             {
                 process.stderr.write(`${argv0}: cannot read command ` +
@@ -449,6 +453,10 @@ async function main (argv0, args)
                     return 1;
                 }
             }
+            else if (c.op === 'midi' || c.op === 'midioff')
+                M._tw_midi(parseInt(c.rest[0], 10), parseInt(c.rest[1], 10),
+                           c.op === 'midi' ? parseInt(c.rest[2], 10) : 0,
+                           c.op === 'midi' ? 1 : 0);
             else if (c.op === 'tempo')
                 M._tw_tempo(parseFloat(c.rest[0]));
             else

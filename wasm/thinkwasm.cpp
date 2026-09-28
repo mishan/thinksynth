@@ -300,6 +300,24 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (int k, double value)
     }
 }
 
+/* A key into the piece, now: what the browser host's TW_NOTE does at its
+   stamp for a key on a channel the piece listens on. */
+EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
+                                   int on)
+{
+    thcEvent ev = {};
+
+    ev.type = on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+    ev.at = sched_->now();
+    ev.channel = channel;
+    ev.u.note.note = note;
+    ev.u.note.velocity = velocity;
+    ev.u.note.duration = 0;
+    ev.u.note.level = 1;
+
+    sched_->injectMidiEvent(ev);
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_tempo (double bpm)
 {
     sched_->setTempo(bpm);

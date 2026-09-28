@@ -467,6 +467,14 @@ export async function createSynth (ctx, { windowlen = 256,
         edit: (at, text, files = {}, tie = 0) =>
             post({ type: 'edit', at, text, files, tie }),
 
+        /* A key at a transport time: pressed when `on', into the piece
+           when `midi', ordered among keys stamped for the same time by
+           `tie' (commands.js, tieOf). What a quantised or play-ahead
+           seat's key is. */
+        noteAt: (at, channel, note, velocity, on, midi, tie) =>
+            post({ type: 'noteat', at, channel, note, velocity, on, midi,
+                   tie }),
+
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a
          * channel with nothing on it. `kind' is thPanel::Kind, `a' the
