@@ -32,7 +32,7 @@
 
 #include "think.h"
 
-#include "PatchSelWindow.h"
+#include "PatchSelPanel.h"
 
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
@@ -40,8 +40,9 @@
 #include "ColumnUtil.h"
 
 
-PatchSelWindow::PatchSelWindow (thSynth *argsynth)
-     : dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
+PatchSelPanel::PatchSelPanel (thSynth *argsynth)
+    : Gtk::Box(Gtk::Orientation::VERTICAL),
+      dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
               Gtk::Orientation::HORIZONTAL),
       browseButton("Browse"),
       unloadButton("Unload"),
@@ -60,12 +61,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     loading_ = false;
 
     synth = argsynth;
-
-    /* 475x400 cut the Amplitude column off the list and left the form below
-       it with no room to be a form. */
-    set_default_size(720, 620);
-
-    set_title("thinksynth - Patch Selector");
 
     patchInfoExpander.set_child(patchInfoTable);
 
@@ -160,9 +155,9 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
        button-press once, a signal that never saw a row selected with the
        arrow keys; the ColumnView spelling is the selection model saying so. */
     patchSelection->property_selected().signal_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::patchSelected));
+        sigc::mem_fun(*this, &PatchSelPanel::patchSelected));
     patchSelection->property_selected().signal_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::CursorChanged));
+        sigc::mem_fun(*this, &PatchSelPanel::CursorChanged));
 
     /* +1 for display: the row counts channels the way the engine does. */
     patchView.append_column(gthTextColumn("Channel",
@@ -215,21 +210,21 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
         }, Gtk::Align::END));
 
     dspAmp.signal_value_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
+        sigc::mem_fun(*this, &PatchSelPanel::SetChannelAmp));
 
     fileEntry.signal_activate().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::fileEntryActivate));
+        sigc::mem_fun(*this, &PatchSelPanel::fileEntryActivate));
 
     browseButton.signal_clicked().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::BrowsePatch));
+        sigc::mem_fun(*this, &PatchSelPanel::BrowsePatch));
 
     saveButton.signal_save().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::SaveOverPatch));
+        sigc::mem_fun(*this, &PatchSelPanel::SaveOverPatch));
     saveButton.signal_save_as().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::SavePatch));
+        sigc::mem_fun(*this, &PatchSelPanel::SavePatch));
 
     unloadButton.signal_clicked().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
+        sigc::mem_fun(*this, &PatchSelPanel::UnloadDSP));
 
     /* Typing in the information form is editing the patch as much as moving a
        slider is; it is what Save writes out. */
@@ -238,14 +233,14 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
         for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
             fields[i]->signal_changed().connect(
-                sigc::mem_fun(*this, &PatchSelWindow::onInfoEdited));
+                sigc::mem_fun(*this, &PatchSelPanel::onInfoEdited));
     }
 
     patchComments.get_buffer()->signal_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::onInfoEdited));
+        sigc::mem_fun(*this, &PatchSelPanel::onInfoEdited));
 
     gthPatchManager::instance()->signal_patch_dirty().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::onPatchDirty));
+        sigc::mem_fun(*this, &PatchSelPanel::onPatchDirty));
 
     /* The three things you can do to the selected patch, together and in the
        order they happen to it: find one, write it somewhere, take it off the
@@ -296,14 +291,15 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     vbox.append(*Gtk::manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
     vbox.append(controlTable);
 
-    set_child(vbox);
+    vbox.set_vexpand(true);
+    append(vbox);
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     patchMgr->signal_patches_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::onPatchesChanged));
+        sigc::mem_fun(*this, &PatchSelPanel::onPatchesChanged));
 }
 
-PatchSelWindow::~PatchSelWindow (void)
+PatchSelPanel::~PatchSelPanel (void)
 {
 }
 
@@ -312,7 +308,7 @@ PatchSelWindow::~PatchSelWindow (void)
  * Every caller wanted the same three lines -- is there a selection, is there
  * an iterator in it, what is in the iterator -- and got them slightly
  * differently each time. */
-Glib::RefPtr<PatchSelRow> PatchSelWindow::selectedRow (void) const
+Glib::RefPtr<PatchSelRow> PatchSelPanel::selectedRow (void) const
 {
     if (!patchSelection)
         return Glib::RefPtr<PatchSelRow>();
@@ -321,7 +317,7 @@ Glib::RefPtr<PatchSelRow> PatchSelWindow::selectedRow (void) const
         patchSelection->get_selected_item());
 }
 
-void PatchSelWindow::UnloadDSP (void)
+void PatchSelPanel::UnloadDSP (void)
 {
     {
         Glib::RefPtr<PatchSelRow> row = selectedRow();
@@ -365,7 +361,7 @@ void PatchSelWindow::UnloadDSP (void)
     }
 }
 
-bool PatchSelWindow::LoadPatch (void)
+bool PatchSelPanel::LoadPatch (void)
 {
     {
         Glib::RefPtr<PatchSelRow> row = selectedRow();
@@ -376,7 +372,7 @@ bool PatchSelWindow::LoadPatch (void)
             gthPatchManager *patchMgr = gthPatchManager::instance();
 
             /* the patchMgr should subsequently emit a signal that will cause
-               PatchSelWindow to correct its own contents */
+               PatchSelPanel to correct its own contents */
              if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
             {
                 /* focus the new channel */
@@ -404,15 +400,18 @@ bool PatchSelWindow::LoadPatch (void)
     return false;
 }
 
-void PatchSelWindow::BrowsePatch (void)
+void PatchSelPanel::BrowsePatch (void)
 {
     /* gtkmm-3 removed Gtk::FileSelection. FileChooserDialog has no buttons of
        its own, so the action area has to be populated explicitly; GTK4 then
        removed run(), so the dialog is shown here and answered in
        onBrowseResponse. */
     Gtk::FileChooserDialog *fileSel =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Load Patch",
+        new Gtk::FileChooserDialog("thinksynth - Load Patch",
                                    Gtk::FileChooser::Action::OPEN);
+
+    if (Gtk::Window *win = windowOf(this))
+        fileSel->set_transient_for(*win);
 
     fileSel->set_modal(true);
     fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
@@ -422,13 +421,13 @@ void PatchSelWindow::BrowsePatch (void)
         fileSel->set_current_folder(Gio::File::create_for_path(prevDir));
 
     fileSel->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &PatchSelWindow::onBrowseResponse),
+        sigc::bind(sigc::mem_fun(*this, &PatchSelPanel::onBrowseResponse),
                    fileSel));
 
     fileSel->present();
 }
 
-void PatchSelWindow::onBrowseResponse (int response,
+void PatchSelPanel::onBrowseResponse (int response,
                                        Gtk::FileChooserDialog *fileSel)
 {
     const string picked = response == Gtk::ResponseType::OK
@@ -452,7 +451,8 @@ void PatchSelWindow::onBrowseResponse (int response,
 
     if (!std::filesystem::is_regular_file(picked, ec))
     {
-        showError(this, "That is not a file that can be loaded", picked);
+        showError(windowOf(this), "That is not a file that can be loaded",
+                  picked);
         return;
     }
 
@@ -472,7 +472,7 @@ void PatchSelWindow::onBrowseResponse (int response,
 }
 
 
-void PatchSelWindow::SavePatch (void)
+void PatchSelPanel::SavePatch (void)
 {
     Glib::RefPtr<PatchSelRow> row = selectedRow();
 
@@ -485,8 +485,11 @@ void PatchSelWindow::SavePatch (void)
     const int chan = row->chan();
 
     Gtk::FileChooserDialog *fileSel =
-        new Gtk::FileChooserDialog(*this, "thinksynth - Save Patch",
+        new Gtk::FileChooserDialog("thinksynth - Save Patch",
                                    Gtk::FileChooser::Action::SAVE);
+
+    if (Gtk::Window *win = windowOf(this))
+        fileSel->set_transient_for(*win);
 
     fileSel->set_modal(true);
     fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
@@ -496,7 +499,7 @@ void PatchSelWindow::SavePatch (void)
         fileSel->set_current_folder(Gio::File::create_for_path(prevDir));
 
     fileSel->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &PatchSelWindow::onSaveResponse),
+        sigc::bind(sigc::mem_fun(*this, &PatchSelPanel::onSaveResponse),
                    fileSel, chan));
 
     fileSel->present();
@@ -508,7 +511,7 @@ void PatchSelWindow::SavePatch (void)
  * window doing the filling -- which is what loading_ is for: selecting a row
  * writes all five fields, and every one of them would otherwise report the
  * patch as edited the moment it was looked at. */
-void PatchSelWindow::onInfoEdited (void)
+void PatchSelPanel::onInfoEdited (void)
 {
     if (loading_ || currchan < 0)
         return;
@@ -517,13 +520,13 @@ void PatchSelWindow::onInfoEdited (void)
 }
 
 /* The selected patch was edited or saved. */
-void PatchSelWindow::onPatchDirty (int chan)
+void PatchSelPanel::onPatchDirty (int chan)
 {
     if (chan == currchan)
         saveButton.setModified(gthPatchManager::instance()->isDirty(chan));
 }
 
-void PatchSelWindow::SaveOverPatch (void)
+void PatchSelPanel::SaveOverPatch (void)
 {
     if (currchan < 0)
         return;
@@ -542,13 +545,13 @@ void PatchSelWindow::SaveOverPatch (void)
  * An entry scrolls to wherever the cursor is, and putting the cursor past the
  * last character puts the end of the text in view. Left alone it shows the
  * beginning, which for these is a run of directories every patch shares. */
-void PatchSelWindow::showPath (const string &path)
+void PatchSelPanel::showPath (const string &path)
 {
     fileEntry.set_text(path);
     fileEntry.set_position(-1);
 }
 
-void PatchSelWindow::onSaveResponse (int response,
+void PatchSelPanel::onSaveResponse (int response,
                                      Gtk::FileChooserDialog *fileSel, int chan)
 {
     const string file = response == Gtk::ResponseType::OK
@@ -561,12 +564,12 @@ void PatchSelWindow::onSaveResponse (int response,
 
     /* GTK3's chooser asked before replacing a file; GTK4's does not, so it is
        asked here. */
-    confirmOverwrite(this, file,
-        sigc::bind(sigc::mem_fun(*this, &PatchSelWindow::writePatch),
+    confirmOverwrite(windowOf(this), file,
+        sigc::bind(sigc::mem_fun(*this, &PatchSelPanel::writePatch),
                    file, chan));
 }
 
-void PatchSelWindow::writePatch (string file, int chan)
+void PatchSelPanel::writePatch (string file, int chan)
 {
     gthPatchManager *patchManager = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchManager->getPatch(chan);
@@ -595,12 +598,12 @@ void PatchSelWindow::writePatch (string file, int chan)
     gthPrefs::instance()->Set("patchdir", vals);
 }
 
-void PatchSelWindow::fileEntryActivate (void)
+void PatchSelPanel::fileEntryActivate (void)
 {
     LoadPatch ();
 }
 
-void PatchSelWindow::SetChannelAmp (void)
+void PatchSelPanel::SetChannelAmp (void)
 {
     {
         Glib::RefPtr<PatchSelRow> row = selectedRow();
@@ -634,14 +637,14 @@ void PatchSelWindow::SetChannelAmp (void)
     }
 }
 
-void PatchSelWindow::patchSelected (void)
+void PatchSelPanel::patchSelected (void)
 {
     /* Nothing to hit-test: the selection has already moved to the row, which
        is what this hears about. The old button-press binding had to work out
        which row had been hit for itself. */
 }
 
-void PatchSelWindow::CursorChanged (void)
+void PatchSelPanel::CursorChanged (void)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     /* This is the OLD patch from the previously selected channel */
@@ -734,7 +737,7 @@ void PatchSelWindow::CursorChanged (void)
  * on every patch load -- so leaving the form alone meant the previous
  * channel's name, author and comments sat there describing nothing, over
  * buttons that were still willing to act on it. */
-void PatchSelWindow::showNoChannel (void)
+void PatchSelPanel::showNoChannel (void)
 {
     currchan = -1;
 
@@ -764,7 +767,7 @@ void PatchSelWindow::showNoChannel (void)
     saveButton.setModified(false);
 }
 
-void PatchSelWindow::populate (void)
+void PatchSelPanel::populate (void)
 {
 //    std::map<int, string> *patchlist = synth->getPatchlist();
 //    int channelcount = synth->midiChanCount();
@@ -831,9 +834,9 @@ void PatchSelWindow::populate (void)
         patchSelection->set_selected(selectedChan);
 }
 
-void PatchSelWindow::on_realize(void)
+void PatchSelPanel::on_realize(void)
 {
-    Gtk::Window::on_realize();
+    Gtk::Box::on_realize();
 
     gthPrefs *prefs = gthPrefs::instance();
     
@@ -867,7 +870,7 @@ void PatchSelWindow::on_realize(void)
     populate();
 }
 
-void PatchSelWindow::onPatchesChanged (void)
+void PatchSelPanel::onPatchesChanged (void)
 {
     populate();
 }

@@ -38,6 +38,11 @@
  * response handler. They are written out where they are used.
  */
 
+/* The window `w' is in, for a dialog to be transient for: a pane is a widget
+   in the main window rather than a window of its own. NULL for a widget not
+   in a window yet. */
+Gtk::Window *windowOf (Gtk::Widget *w);
+
 /* Shows `text' as an error, over `parent' if there is one, and takes care of
    the dialog's own lifetime. Returns immediately. */
 void showError (Gtk::Window *parent, const Glib::ustring &text,

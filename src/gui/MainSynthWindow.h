@@ -30,6 +30,8 @@ class NodeEditor;
 class SaveButton;
 class ComposerWindow;
 class KeyboardPanel;
+class PatchSelPanel;
+class Panes;
 
 using namespace std;
 
@@ -57,26 +59,35 @@ public:
 
 protected:
     void populateMenu (void);
-    void menuKeyboard (void);
-    void menuPatchSel (void);
-    void menuMidiMap (void);
     void menuComposer (void);
     void menuQuit (void);
     void menuAbout (void);
 
-    /* `tip' is the full path, shown on hover. The tab itself carries only the
-       basename -- see the comment where it is built. */
-    void append_tab (const string &tabName, const string &tip, int num,
-                     bool is_real);
+    /* The panes, their places the first time, and the layout kept from
+       the last run. */
+    void buildPanes (void);
+    Gtk::Widget &scrolled (Gtk::Widget &content, bool down);
 
-    /* A tab label that behaves in a vertical strip: left-aligned, and
-       ellipsised rather than widening the strip to fit the longest name. */
-    Gtk::Widget *makeTabLabel (const string &text, const string &tip);
+    /* One channel's row in Channels, its page in Patch params and its
+       holder in Patch graph. `tip' is the full path, shown on hover; the
+       row carries only the basename -- see the comment where it is
+       built. */
+    void appendChannel (const string &name, const string &tip, int num,
+                        bool is_real);
 
-    /* The strip across the top of a patch page: which patch it is, its
-       amplitude, and what can be done with it. Above the Overview/Nodes
-       notebook rather than inside either, because it is about the patch and
-       not about one view of it. */
+    /* A row in Channels: left-aligned, and ellipsised rather than widening
+       the pane to fit the longest name. */
+    Gtk::Widget *makeChannelLabel (const string &text, const string &tip);
+
+    /* The channel the panes are about: its row, its parameters, its graph
+       and the keys. */
+    void selectChannel (int chan);
+    void onChannelRow (Gtk::ListBoxRow *row);
+
+    /* The strip across the top of a patch's parameters: which patch it is,
+       its amplitude, and what can be done with it. Over the parameters
+       rather than among them, because it is about the patch and not about
+       one of its parameters. */
     Gtk::Widget *makePatchBar (int chan);
 
     /* The channel effect's block on a patch page: which graph is on the
@@ -129,15 +140,28 @@ protected:
        actually be opened. */
     string resolveDspPath (const string &named);
 
-    /* Builds the node editor for a page the first time its tab is shown. */
-    void onSubTab (Gtk::Widget *page, guint num, Gtk::Widget *holder,
-                   string dspFile, int chan);
+    /* Builds the channel's node editor, the first time its graph is in
+       view. */
+    void ensureEditor (int chan);
     void populate (void);
 
-    /* Empties the notebook. Not inline at the three call sites any more,
-       because removing pages has a consequence worth naming once -- see the
-       definition. */
+    /* Empties Channels and the two pages per channel. */
     void clearPages (void);
+
+    void onPaneShown (const string &id, bool visible);
+
+    /* The View menu's ticks: a pane is ticked while the layout holds it,
+       in front or behind a tab, and not while it is in the drawer. */
+    void syncPaneActions (void);
+    void togglePane (const string &id);
+
+    /* The layout, kept in panes.ini beside thinkrc: written a moment after
+       the last change rather than on every step of a divider's drag, and
+       at the end. */
+    static string layoutPath (void);
+    string readLayout (void);
+    void onLayoutKept (const string &mode, const string &text);
+    void writeLayout (void);
 
     /* The size the window had while it was on screen, and the two ends of
        remembering it. */
@@ -152,8 +176,9 @@ protected:
 
     void onPatchesChanged (void);
 
-    /* Hides a secondary window instead of letting it be destroyed, so it can
-       be presented again. Returns true: the close is handled. */
+    /* Hides a secondary window -- the composer's, and About -- instead of
+       letting it be destroyed, so it can be presented again. Returns true:
+       the close is handled. */
     bool onSubWindowClose (Gtk::Window *window);
 
     /* Gives a secondary window Ctrl+W. See the definition for why it is a
@@ -161,16 +186,12 @@ protected:
     void addCloseAccel (Gtk::Window *window);
     bool onSubWindowKey (guint keyval, guint keycode, Gdk::ModifierType state,
                          Gtk::Window *window);
-    void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onMasterGain (void);
 
-    /* Bolds the current tab's label and unbolds the rest. */
-    void highlightTab (int pagenum);
     void onDspEntryActivate (void);
     void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
 
-    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
 
     /* Names an action, gives it something to do, and optionally a key.
      *
@@ -192,11 +213,11 @@ protected:
 
     Glib::RefPtr<Gio::SimpleAction> themeAction_;
 
-    /* View > Keyboard: whether the keys are along the bottom. Stateful, so
-       the menu shows a check and the state is the preference. */
-    Glib::RefPtr<Gio::SimpleAction> keyboardAction_;
-    void showKeyboard (bool on);
-    Gtk::PopoverMenuBar *menuBar_;
+    /* View's panes, by id: stateful, so the menu shows which are up. */
+    std::map<string, Glib::RefPtr<Gio::SimpleAction> > paneActs_;
+
+    Gtk::HeaderBar header_;
+    Gtk::MenuButton menuBtn_;
 
     std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;
 
@@ -205,7 +226,28 @@ protected:
     Gtk::Button dspBrowseBtn_;
     Gtk::Box dspEntryBox_{Gtk::Orientation::HORIZONTAL};
 
-    Gtk::Notebook notebook_;
+    /* Owned here and destroyed first, in the destructor: a pane going out
+       of view says so, and nothing it says should reach a window half torn
+       down. */
+    Panes *panes_;
+
+    /* Channels: a row for each of the sixteen. */
+    Gtk::ScrolledWindow chanScroll_;
+    Gtk::ListBox chanList_;
+
+    /* Patch params: the DSP entry over a page for each channel. */
+    Gtk::Box paramBox_{Gtk::Orientation::VERTICAL};
+    Gtk::Stack paramStack_;
+
+    /* Patch graph: a holder for each channel, filled with its editor the
+       first time the graph is looked at. */
+    Gtk::Stack nodeStack_;
+    std::vector<Gtk::Box *> holders_;
+
+    /* The channel the panes are about, and true while selectChannel is
+       moving the list's selection to match. */
+    int chan_;
+    bool selecting_;
 
     /* Master output level, for the whole synth rather than one channel. The
        engine has had setMasterGain since the gain-staging work; this is the
@@ -213,16 +255,16 @@ protected:
     Gtk::Label masterLbl_;
     Gtk::Scale masterScale_{Gtk::Orientation::HORIZONTAL};
 
-    PatchSelWindow *patchSel_;
+    PatchSelPanel *patchSel_;
     KeyboardPanel *kbPanel_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
     ComposerWindow *compWin_;
-    /* The node editor on each page, built the first time its tab is looked
-       at. Building one scans the whole plugin directory for the palette, so
-       sixteen of them up front would be sixteen scans for the one you
-       wanted. */
-    std::map<Gtk::Widget *, NodeEditor *> editors_;
+    /* Each channel's node editor, built the first time its graph is
+       looked at. Building one scans the whole plugin directory for the
+       palette, so sixteen of them up front would be sixteen scans for the
+       one you wanted. */
+    std::map<int, NodeEditor *> editors_;
 
     /* The amplitude slider on each patch page, and its subscription to the
        arg behind it.
@@ -237,14 +279,13 @@ protected:
     std::vector<sigc::connection> ampConns_;
     std::vector<sigc::connection> saveConns_;
 
-    /* True while the notebook's pages are being taken away, and for good
-       once the window is being destroyed.
-     *
-     * Removing a page destroys the Overview/Nodes notebook on it, and a
-     * notebook losing pages switches to whichever is left -- which arrives
-     * here as a request to build a node editor into a page that is on its way
-     * out. */
+    /* True while the pages are being taken away, and for good once the
+       window is being destroyed: nothing is worth building then. */
     bool tearingDown_;
+
+    /* The layout last kept, and the write that is waiting to happen. */
+    string keptLayout_;
+    sigc::connection layoutWrite_;
 private:
     gthAudio *audio_;
 

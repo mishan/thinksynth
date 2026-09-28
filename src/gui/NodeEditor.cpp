@@ -108,6 +108,12 @@ NodeEditor::NodeEditor (thSynth *synth)
     scroller_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     scroller_.set_child(canvas_);
 
+    /* A floor for the graph. The panels either side keep their widths as
+       the editor narrows -- the paned gives the canvas what is left -- and
+       with nothing under it the graph went to a sliver long before the
+       editor stopped getting narrower. */
+    scroller_.set_size_request(160, -1);
+
     /* Palette on the left, canvas in the middle, parameters on the right --
        the order things are used in: pick, place, adjust. */
     /* pack1/pack2 with their resize and shrink flags are gone; a GTK4 paned
@@ -153,7 +159,10 @@ NodeEditor::NodeEditor (thSynth *synth)
     status_.set_margin_top(2);
     status_.set_margin_bottom(2);
 
-    append(toolbar_);
+    toolbarScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
+                              Gtk::PolicyType::NEVER);
+    toolbarScroll_.set_child(toolbar_);
+    append(toolbarScroll_);
     outer_.set_vexpand(true);
     append(outer_);
     append(status_);

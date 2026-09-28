@@ -29,7 +29,7 @@
 #include "MidiMap.h"
 #include "ColumnUtil.h"
 
-/* A channel's instrument as the channel tabs name it: its patch file
+/* A channel's instrument as Channels names it: its patch file
    without ".patch", or its .dsp when no patch file has been saved. Both
    the destination combo and the connection list use it. */
 static string instrumentName (gthPatchManager::PatchFile *patch)
@@ -51,6 +51,7 @@ static string instrumentName (gthPatchManager::PatchFile *patch)
 }
 
 MidiMap::MidiMap (thSynth *argsynth)
+    : Gtk::Box(Gtk::Orientation::VERTICAL)
 {
     rebuilding_ = false;
     settingDetails_ = false;
@@ -69,22 +70,23 @@ MidiMap::MidiMap (thSynth *argsynth)
 
     synth_ = argsynth;
 
-    set_title("thinksynth - MIDI Controller Routing");
-
     mainVBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
     inputVBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 0));
-    inputVBox_->set_size_request(700, 140);
+    inputVBox_->set_size_request(-1, 140);
     newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
     destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
     detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
     connectFrame_ = manage(new Gtk::Frame("Connections"));
-    srcDestHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 3));
-    srcDestHBox_->set_homogeneous(true);
+    /* Source over destination rather than beside it: this is a pane, and
+       side by side the two made it the widest thing in the window. */
+    srcDestHBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 3));
     newConnectionHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
     destinationHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 4));
     destinationHBox_->set_homogeneous(true);
-    detailsHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
-    detailsHBox_->set_homogeneous(true);
+    /* The range on one row and the curve under it. Six equal cells in
+       one row, each as wide as a spin button, made this alone the width
+       of a window. */
+    detailsHBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 3));
     buttonsHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
     buttonsHBox_->set_homogeneous(true);
 
@@ -149,7 +151,8 @@ MidiMap::MidiMap (thSynth *argsynth)
         sigc::mem_fun(*this, &MidiMap::onDestArgSelected));
     fillDestArgCombo(selectedDestChan_);
 
-    set_child(*mainVBox_);
+    mainVBox_->set_vexpand(true);
+    append(*mainVBox_);
 
     channelLbl_->set_hexpand(true);
     newConnectionHBox_->append(*channelLbl_);
@@ -170,26 +173,35 @@ MidiMap::MidiMap (thSynth *argsynth)
     destinationFrame_->set_hexpand(true);
     srcDestHBox_->append(*destinationFrame_);
 
+    Gtk::Box *rangeRow = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+    Gtk::Box *curveRow = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+
     minLbl_->set_hexpand(true);
-    detailsHBox_->append(*minLbl_);
-    detailsHBox_->append(*minSpinBtn_);
+    rangeRow->append(*minLbl_);
+    rangeRow->append(*minSpinBtn_);
     maxLbl_->set_hexpand(true);
-    detailsHBox_->append(*maxLbl_);
-    detailsHBox_->append(*maxSpinBtn_);
+    rangeRow->append(*maxLbl_);
+    rangeRow->append(*maxSpinBtn_);
     expLbl_->set_hexpand(true);
-    detailsHBox_->append(*expLbl_);
-    detailsHBox_->append(*expCheckBtn_);
+    expLbl_->set_xalign(1.0);
+    curveRow->append(*expLbl_);
+    curveRow->append(*expCheckBtn_);
+    detailsHBox_->append(*rangeRow);
+    detailsHBox_->append(*curveRow);
     detailsFrame_->set_child(*detailsHBox_);
 
     connectScroll_.set_child(connectView_);
     connectScroll_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
-    connectScroll_.set_size_request(700, 128);
+    connectScroll_.set_size_request(-1, 128);
 
     /* A column view with no rows is a header over a blank box, which
        reads as broken rather than as empty; this says what it is for. */
     connectEmpty_.set_text("No controllers routed yet. Pick a source and a "
                            "parameter below, then Add.");
     connectEmpty_.add_css_class("dim-label");
+    connectEmpty_.set_wrap(true);
+    connectEmpty_.set_justify(Gtk::Justification::CENTER);
+    connectEmpty_.set_margin(12);
     connectEmpty_.set_can_target(false);
     connectOverlay_.set_child(connectScroll_);
     connectOverlay_.add_overlay(connectEmpty_);

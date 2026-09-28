@@ -30,6 +30,11 @@ static void freeDialog (Gtk::Dialog *dlg)
     delete dlg;
 }
 
+Gtk::Window *windowOf (Gtk::Widget *w)
+{
+    return w != NULL ? dynamic_cast<Gtk::Window *>(w->get_root()) : NULL;
+}
+
 void closeDialog (Gtk::Dialog *dlg)
 {
     if (dlg == NULL)
