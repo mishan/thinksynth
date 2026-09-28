@@ -22,12 +22,14 @@
  *   windowcheck -p PLUGIN_DIR DSP_FILE
  *
  * The window is the channels, a patch's parameters and its graph, the keys,
- * the patch list and the MIDI routing, as panes (src/gui/Panes.h). This
- * builds it the way main() does, with a patch on a channel, and asks what a
- * person would see: which panes are up the first time, which channel they
- * are about, that the View menu's ticks put panes up and take them down,
- * that the layout is kept in panes.ini and read back, and that the window
- * comes down cleanly with an editor built in it.
+ * the patch list, the MIDI routing and the piece's four, as panes
+ * (src/gui/Panes.h), in two modes: patch and piece. This builds it the way
+ * main() does, with a patch on a channel, and asks what a person would
+ * see: which panes are up the first time, which channel they are about,
+ * that each mode has its own panes and its own layout, that the View
+ * menu's ticks put panes up and take them down, that the layouts are kept
+ * in panes.ini and read back, and that the window comes down cleanly with
+ * an editor built in it.
  *
  * Needs a display, and skips itself without one, as editorcheck does.
  */
@@ -83,6 +85,8 @@ public:
     using MainSynthWindow::selectChannel;
     using MainSynthWindow::writeLayout;
     using MainSynthWindow::layoutPath;
+    using MainSynthWindow::setDesktopMode;
+    using MainSynthWindow::mode_;
 };
 
 static int checks = 0;
@@ -167,6 +171,16 @@ activate (TestWindow *win, const std::string &name)
     pump(4);
 }
 
+/* The title bar's toggles and the menu's two items, which are one
+   action with the mode as its target. */
+static void
+pickMode (TestWindow *win, const char *mode)
+{
+    win->actions_->activate_action("mode",
+                                   Glib::Variant<Glib::ustring>::create(mode));
+    pump(4);
+}
+
 static std::string
 readAll (const std::string &path)
 {
@@ -218,12 +232,14 @@ run (const std::string &pluginPath, const std::string &dsp)
           "...and the channels, the graph, the parameters and the keys in "
           "view");
 
-    check(!win->panes_->isVisible("composerview") &&
+    check(win->mode_ == "patch" &&
+          !win->panes_->isVisible("composerview") &&
           !win->panes_->isVisible("roll") &&
           !win->panes_->isVisible("selection") &&
-          !win->panes_->isVisible("pieceedit"),
-          "...with the piece's panes tabs behind the graph and the "
-          "parameters");
+          !win->panes_->isVisible("pieceedit") &&
+          !isClosed(win, "composerview") && !isClosed(win, "roll"),
+          "...in patch mode, where the piece's panes are neither up nor "
+          "in the drawer");
 
     check(ticked(win, "keyboard") && !ticked(win, "composerview") &&
           !ticked(win, "patches"),
@@ -281,6 +297,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->chan_ == 2, "loading a patch elsewhere keeps the channel");
 
 
+
     {
         Gtk::ListBoxRow *row = win->chanList_.get_selected_row();
 
@@ -299,21 +316,37 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     /* ---- the piece ---- */
 
-    /* A menu command for the piece before anything has shown it: the canvas
-       comes up and the composer starts, and then the command acts -- New
-       was undone by the load that followed when it ran first. */
+    /* A menu command for the piece before anything has shown it: piece
+       mode comes up with the canvas, the composer starts, and then the
+       command acts -- New was undone by the load that followed when it ran
+       first. */
     win->activate_action("composer.new");
     pump(8);
 
-    check(win->composer_->started() &&
+    check(win->mode_ == "piece" && win->composer_->started() &&
           win->panes_->isVisible("composerview") &&
           win->composer_->transport().get_visible(),
-          "New Piece before the piece is up brings the canvas up, starts "
-          "the composer and puts its transport up");
+          "New Piece in patch mode goes to piece mode, brings the canvas "
+          "up, starts the composer and puts its transport up");
 
     check(win->composer_->status().get_text().find("Untitled") !=
               Glib::ustring::npos,
           "...and the new piece is what is left, not the one loaded after");
+
+    {
+        const std::vector<std::string> closed = win->panes_->closed();
+
+        check(win->panes_->isVisible("pieceedit") &&
+              win->panes_->isVisible("roll") &&
+              isClosed(win, "channelbox") && isClosed(win, "nodeview") &&
+              isClosed(win, "paramview") && isClosed(win, "patches") &&
+              isClosed(win, "midimap") && closed.size() == 5,
+              "piece mode's first layout has the canvas, the settings and "
+              "the roll up, and the patch's panes in the drawer");
+    }
+
+    check(!win->panes_->isVisible("keyboard") && !isClosed(win, "keyboard"),
+          "...and the keys a tab behind the roll");
 
     activate(win, "pane-selection");
 
@@ -325,16 +358,38 @@ run (const std::string &pluginPath, const std::string &dsp)
           descendants(&win->composer_->settingsView()) > 3,
           "...built, now that it is in view");
 
-    activate(win, "pane-nodeview");
+    pickMode(win, "patch");
 
-    check(win->panes_->isVisible("nodeview") &&
-          !win->panes_->isVisible("composerview"),
-          "and the graph goes back in front of the canvas");
+    check(win->mode_ == "patch" && win->panes_->isVisible("nodeview") &&
+          !win->panes_->isVisible("composerview") &&
+          win->composer_->transport().get_visible(),
+          "patch mode puts the graph back and the canvas away, and a "
+          "piece that is up keeps its transport");
 
     activate(win, "pane-composerview");
 
-    check(win->panes_->isVisible("composerview"),
-          "the piece's tick brings the canvas back to the front");
+    check(win->mode_ == "piece" && win->panes_->isVisible("composerview"),
+          "the piece's tick in patch mode goes to piece mode");
+
+    /* Each mode's layout is its own: a change in one is not in the other. */
+    activate(win, "pane-roll");
+
+    check(isClosed(win, "roll") && !ticked(win, "roll"),
+          "a second tick on the roll closes it");
+
+    pickMode(win, "patch");
+    pickMode(win, "piece");
+
+    check(isClosed(win, "roll"),
+          "...and it is still closed after a trip through patch mode");
+
+    activate(win, "reset-layout");
+
+    check(win->mode_ == "piece" && win->panes_->isVisible("roll") &&
+          win->panes_->closed().size() == 5,
+          "Reset Layout in piece mode puts piece mode's first layout back");
+
+    pickMode(win, "patch");
 
     /* ---- View's ticks ---- */
 
@@ -354,18 +409,6 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->panes_->isVisible("patches") && ticked(win, "patches"),
           "ticking Patch Selector brings the patch list up");
 
-    /* Behind a tab is not in view: its tick brings it to the front, and a
-       second one puts it away. */
-    activate(win, "pane-roll");
-
-    check(win->panes_->isVisible("roll") && ticked(win, "roll"),
-          "a pane behind a tab comes to the front on its tick");
-
-    activate(win, "pane-roll");
-
-    check(isClosed(win, "roll") && !ticked(win, "roll"),
-          "...and a second one closes it");
-
     activate(win, "pane-midimap");
 
     check(win->panes_->isVisible("midimap") && ticked(win, "midimap"),
@@ -376,12 +419,14 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(closed.size() == 2 && isClosed(win, "patches") &&
-              isClosed(win, "midimap") && !isClosed(win, "roll") &&
+        check(win->mode_ == "patch" && closed.size() == 2 &&
+              isClosed(win, "patches") && isClosed(win, "midimap") &&
               !ticked(win, "patches"),
               "Reset Layout puts the first layout back, and the ticks with "
               "it");
     }
+
+    pickMode(win, "piece");
 
     /* ---- a pane in a window of its own ---- */
 
@@ -399,11 +444,20 @@ run (const std::string &pluginPath, const std::string &dsp)
 
         /* What is in it reaches the main window's actions: the roll's
            toggle, twice, from the keys' own widget. */
-        check(keys != NULL &&
-              gtk_widget_activate_action(keys, "win.pane-roll", NULL) &&
-              win->panes_->isVisible("roll") &&
+        bool away = false;
+
+        if (keys != NULL &&
+            gtk_widget_activate_action(keys, "win.pane-roll", NULL))
+        {
+            pump(4);
+            away = !win->panes_->isVisible("roll");
+        }
+
+        check(away &&
               gtk_widget_activate_action(keys, "win.pane-roll", NULL),
               "...where its pane still reaches the main window's actions");
+
+        pump(4);
     }
 
     mln_panes_dock(win->panes_->gobj(), "keyboard");
@@ -417,17 +471,24 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     const std::string path = win->layoutPath();
 
+    pickMode(win, "patch");
     activate(win, "pane-keyboard");
     win->writeLayout();
 
     {
         const std::string text = readAll(path);
+        const size_t patch = text.find("patch=");
+        const size_t piece = text.find("piece=");
+        const std::string patchLine =
+            patch == std::string::npos ? std::string()
+                : text.substr(patch, text.find('\n', patch) - patch);
 
         check(text.find("[layouts]") != std::string::npos &&
-              text.find("desktop=") != std::string::npos &&
-              text.find("\"keyboard\"") == std::string::npos &&
-              text.find("\"nodeview\"") != std::string::npos,
-              "the layout is kept in panes.ini, without the closed keys");
+              patch != std::string::npos && piece != std::string::npos &&
+              patchLine.find("\"keyboard\"") == std::string::npos &&
+              patchLine.find("\"nodeview\"") != std::string::npos,
+              "each mode's layout is kept in panes.ini, patch mode's "
+              "without the closed keys");
     }
 
     delete win;
@@ -439,8 +500,30 @@ run (const std::string &pluginPath, const std::string &dsp)
     win->set_visible(true);
     pump(8);
 
-    check(isClosed(win, "keyboard") && !ticked(win, "keyboard"),
+    check(win->mode_ == "patch" && isClosed(win, "keyboard") &&
+          !ticked(win, "keyboard"),
           "a new window reads the kept layout back");
+
+    win->setDesktopMode("piece");
+    pump(4);
+
+    check(!isClosed(win, "keyboard"),
+          "...and piece mode's, where the keys were not closed");
+
+    delete win;
+    pump(4);
+
+    /* The mode last used is where the next window starts. */
+    win = new TestWindow;
+    win->applyPrefs();
+    win->set_visible(true);
+    pump(8);
+
+    check(win->mode_ == "piece",
+          "the mode last used is the one a new window starts in");
+
+    win->setDesktopMode("patch");
+    pump(4);
 
     /* ...and a kept layout that is no layout is the first one. */
     delete win;
@@ -449,7 +532,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         std::ofstream out(path.c_str(), std::ios::trunc);
 
-        out << "[layouts]\ndesktop={\"tabs\":\n";
+        out << "[layouts]\npatch={\"tabs\":\n";
     }
 
     win = new TestWindow;
@@ -463,6 +546,26 @@ run (const std::string &pluginPath, const std::string &dsp)
               isClosed(win, "midimap"),
               "a kept layout that does not parse gives the first layout");
     }
+
+    delete win;
+    pump(4);
+
+    /* A panes.ini from before the modes: its one layout is patch mode's. */
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "[layouts]\ndesktop={\"dir\":\"row\",\"size\":[0.5,0.5],"
+               "\"kids\":[{\"tabs\":[\"nodeview\"]},"
+               "{\"tabs\":[\"paramview\"]}]}\n";
+    }
+
+    win = new TestWindow;
+    win->set_visible(true);
+    pump(8);
+
+    check(win->mode_ == "patch" && win->panes_->isVisible("nodeview") &&
+          isClosed(win, "channelbox") && isClosed(win, "keyboard"),
+          "a layout kept before there were modes is patch mode's");
 
     delete win;
     pump(4);

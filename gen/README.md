@@ -55,11 +55,11 @@ they drive. Everything is reachable from there:
 - **Drag a stage box** sideways to reorder its chain.
 - **Ctrl+wheel** zooms.
 
-**Edit** opens a panel with two tabs: *Piece* for the things the whole file
-declares — name, seed, tempo, knobs, scales, presets — and *Selection* for
-whatever is selected on the canvas, which clicking raises for you. New, Open,
-Save and Revert are in the menu; **☰ → Piano roll** puts the roll away when
-the canvas wants the whole window.
+Beside the canvas, in piece mode, are two tabs: *Piece settings* for the
+things the whole file declares — name, seed, tempo, knobs, scales, presets —
+and *Selection* for whatever is selected on the canvas, which clicking raises
+for you. New, Open, Save and Revert are in the menu; **☰ → Piano Roll** puts
+the roll away when the canvas wants the whole window.
 
 Every piece is gated: `scripts/gencheck` loads all of them on every build, and
 requires each one with a generator in it to deliver something inside a minute

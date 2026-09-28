@@ -159,11 +159,18 @@ protected:
     void syncPaneActions (void);
     void togglePane (const string &id);
 
+    /* Patch or piece: which panes the window has and the layout it has
+       them in, each mode's kept apart. A piece's pane asked for in patch
+       mode switches to piece mode first. `keep': remember it in thinkrc
+       as the mode to start in. */
+    void setDesktopMode (const string &mode, bool keep = true);
+    static bool isPiecePane (const string &id);
+
     /* The layout, kept in panes.ini beside thinkrc: written a moment after
        the last change rather than on every step of a divider's drag, and
        at the end. */
     static string layoutPath (void);
-    string readLayout (void);
+    string readLayout (const string &mode);
     void onLayoutKept (const string &mode, const string &text);
     void writeLayout (void);
 
@@ -220,12 +227,18 @@ protected:
     Glib::RefPtr<Gio::SimpleActionGroup> actions_;
 
     Glib::RefPtr<Gio::SimpleAction> themeAction_;
+    Glib::RefPtr<Gio::SimpleAction> modeAction_;
 
     /* View's panes, by id: stateful, so the menu shows which are up. */
     std::map<string, Glib::RefPtr<Gio::SimpleAction> > paneActs_;
 
     Gtk::HeaderBar header_;
     Gtk::MenuButton menuBtn_;
+
+    /* The two modes, as a pair of linked toggles bound to "win.mode". */
+    Gtk::Box modeBox_{Gtk::Orientation::HORIZONTAL};
+    Gtk::ToggleButton patchModeBtn_;
+    Gtk::ToggleButton pieceModeBtn_;
 
     std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;
 
@@ -294,8 +307,10 @@ protected:
        window is being destroyed: nothing is worth building then. */
     bool tearingDown_;
 
-    /* The layout last kept, and the write that is waiting to happen. */
-    string keptLayout_;
+    /* The mode that is up, each mode's layout as last kept, and the write
+       that is waiting to happen. */
+    string mode_;
+    std::map<string, string> keptLayouts_;
 
     /* Whether panes.ini had a layout when the window was built: if not,
        this is the first run with panes. */
