@@ -329,6 +329,9 @@ void MainSynthWindow::buildPanes (void)
     panes_->add("pieceedit", "Piece settings", composer_->settingsView(), 300);
     panes_->add("selection", "Selection", composer_->selectionView(), 300);
 
+    mln_panes_set_window_func(panes_->gobj(), &MainSynthWindow::makePaneWindow,
+                              this, NULL);
+
     /* A stage picked on the canvas is edited in Selection, so it comes to
        the front -- without the focus, which stays on the canvas. Unless it
        was closed: that is somebody saying they do not want it, and a click
@@ -1789,6 +1792,54 @@ void MainSynthWindow::addCloseAccel (Gtk::Window *window)
         false);
 
     window->add_controller(keys);
+}
+
+/* A window for panes moved out of the main one, by a tab's menu or a tab
+ * dragged out of it.
+ *
+ * What is in a pane asks the window for "win." and "composer." -- the
+ * piece's Save, the pane toggles -- so this one has the same two groups,
+ * and the main window's keys as shortcuts of its own: an accelerator is
+ * the application's, and reaches a window only through its action groups.
+ * Not added to the application, as no secondary window is (see
+ * addCloseAccel), and gone with the main window. Closing it puts its
+ * panes back.
+ */
+GtkWindow *MainSynthWindow::makePaneWindow (MlnPanes *panes, gpointer data)
+{
+    MainSynthWindow *self = static_cast<MainSynthWindow *>(data);
+    GtkWidget *win = gtk_window_new();
+    GtkEventController *keys = gtk_shortcut_controller_new();
+
+    (void)panes;
+
+    gtk_window_set_transient_for(GTK_WINDOW(win), self->gobj());
+    gtk_window_set_destroy_with_parent(GTK_WINDOW(win), TRUE);
+    gtk_widget_insert_action_group(win, "win",
+                                   G_ACTION_GROUP(self->actions_->gobj()));
+    gtk_widget_insert_action_group(win, "composer",
+                                   G_ACTION_GROUP(self->composer_->actions()->gobj()));
+
+    gtk_shortcut_controller_set_scope(GTK_SHORTCUT_CONTROLLER(keys),
+                                      GTK_SHORTCUT_SCOPE_GLOBAL);
+
+    for (size_t i = 0; i < self->accels_.size(); i++)
+    {
+        GtkShortcutTrigger *trigger =
+            gtk_shortcut_trigger_parse_string(self->accels_[i].second.c_str());
+
+        if (trigger == NULL)
+            continue;
+
+        gtk_shortcut_controller_add_shortcut(
+            GTK_SHORTCUT_CONTROLLER(keys),
+            gtk_shortcut_new(trigger,
+                             gtk_named_action_new(self->accels_[i].first.c_str())));
+    }
+
+    gtk_widget_add_controller(win, keys);
+
+    return GTK_WINDOW(win);
 }
 
 /* True to say the key has been dealt with; false for everything that is not

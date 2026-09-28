@@ -383,6 +383,36 @@ run (const std::string &pluginPath, const std::string &dsp)
               "it");
     }
 
+    /* ---- a pane in a window of its own ---- */
+
+    mln_panes_undock(win->panes_->gobj(), "keyboard");
+    pump(20);
+
+    {
+        GtkWindow *own = mln_panes_get_window(win->panes_->gobj(), "keyboard");
+        GtkWidget *keys = mln_panes_get_content(win->panes_->gobj(), "keyboard");
+
+        check(own != NULL && gtk_window_get_transient_for(own) == win->gobj() &&
+              gtk_window_get_application(own) == NULL,
+              "a pane moved out goes into a window over this one, not the "
+              "application's");
+
+        /* What is in it reaches the main window's actions: the roll's
+           toggle, twice, from the keys' own widget. */
+        check(keys != NULL &&
+              gtk_widget_activate_action(keys, "win.pane-roll", NULL) &&
+              win->panes_->isVisible("roll") &&
+              gtk_widget_activate_action(keys, "win.pane-roll", NULL),
+              "...where its pane still reaches the main window's actions");
+    }
+
+    mln_panes_dock(win->panes_->gobj(), "keyboard");
+    pump(20);
+
+    check(mln_panes_get_window(win->panes_->gobj(), "keyboard") == NULL &&
+          win->panes_->isVisible("keyboard"),
+          "...and moved back, it is back in the main window");
+
     /* ---- the layout, kept ---- */
 
     const std::string path = win->layoutPath();

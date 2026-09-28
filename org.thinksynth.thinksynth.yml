@@ -255,7 +255,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/mishan/mullion-gtk.git
-        commit: 23ff8405aca0b9f5101be697b2de2b54cfa1961a
+        commit: 5f1e814084675f5cfddab1506a422eedc45d4ec7
 
   - name: thinksynth
     buildsystem: cmake-ninja
