@@ -324,7 +324,7 @@ run (const std::string &pluginPath, const std::string &dsp)
         const std::string want =
             "6: " + std::filesystem::path(dsp).filename().string();
 
-        check(lbl != NULL && lbl->get_text() == want,
+        check(lbl != NULL && std::string(lbl->get_text()) == want,
               "a channel with a graph and no patch file is named for the "
               "graph");
     }

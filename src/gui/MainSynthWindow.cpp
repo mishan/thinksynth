@@ -1001,7 +1001,10 @@ void MainSynthWindow::populateMenu (void)
        two items are views of one stateful action. */
     modeAction_ = actions_->add_action_radio_string(
         "mode",
-        [this] (const Glib::ustring &target) { setDesktopMode(target); },
+        [this] (const Glib::ustring &target)
+        {
+            setDesktopMode(target.raw());
+        },
         PATCH_MODE);
 
     accels_.push_back(std::make_pair(Glib::ustring("win.mode::patch"),
