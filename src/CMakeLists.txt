@@ -203,6 +203,7 @@ set(THINKSYNTH_SOURCES
     gui/StageParamsView.cpp
     gui/NodeEditor.cpp
     gui/PanelView.cpp
+    gui/Panes.cpp
     gui/SaveButton.cpp
     gui/PatchSelWindow.cpp
     gui/PianoRoll.cpp
