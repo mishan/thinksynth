@@ -38,7 +38,7 @@
 
 #include "PatchSelWindow.h"
 #include "Keyboard.h"
-#include "KeyboardWindow.h"
+#include "KeyboardPanel.h"
 #include "ComposerWindow.h"
 #include "MainSynthWindow.h"
 
@@ -90,7 +90,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     midiMap_ = NULL;
     patchSel_ = NULL;
     aboutBox_ = NULL;
-    kbWin_ = NULL;
+    kbPanel_ = NULL;
     compWin_ = NULL;
 
     /* Likewise the DSP browser: DSP_PATH is the *build* machine's install
@@ -167,6 +167,13 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     notebook_.set_vexpand(true);
     vbox_.append(notebook_);
 
+    /* The keys along the bottom, under the channel they play (onSwitchPage
+       aims them). Built before populate(), which switches to the first
+       page. */
+    kbPanel_ = manage(new KeyboardPanel(thSynth::instance()));
+    vbox_.append(*manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
+    vbox_.append(*kbPanel_);
+
     /* Tabs down the left rather than across the top.
      *
      * There is one per MIDI channel, so sixteen of them, and across the top
@@ -209,13 +216,12 @@ MainSynthWindow::~MainSynthWindow (void)
     delete aboutBox_;
     delete patchSel_;
     delete midiMap_;
-    delete kbWin_;
     delete compWin_;
 
     aboutBox_ = NULL;
     patchSel_ = NULL;
     midiMap_ = NULL;
-    kbWin_ = NULL;
+    kbPanel_ = NULL;
     compWin_ = NULL;
 
     /* Not shutdown(): the loop has already ended by the time this runs, and
@@ -333,6 +339,13 @@ void MainSynthWindow::applyPrefs (void)
             sigc::mem_fun(*this, &MainSynthWindow::onSystemThemeChanged));
 
         gthTheme::startWatching();
+    }
+
+    /* Whether the keys were left showing. */
+    {
+        string **kvals = prefs->Get("keyboard");
+
+        showKeyboard(kvals == NULL || kvals[0] == NULL || *(kvals[0]) != "0");
     }
 
     /* The directory the DSP browser opens in. This was read in the
@@ -464,8 +477,12 @@ void MainSynthWindow::populateMenu (void)
     Glib::RefPtr<Gio::Menu> quitItem = Gio::Menu::create();
     Glib::RefPtr<Gio::Menu> help = Gio::Menu::create();
 
-    addAction("keyboard",
-              sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard), "<Control>k");
+    /* A toggle now the keys are part of this window rather than one of
+       their own. Shown to begin with; applyPrefs puts back what was left. */
+    keyboardAction_ = actions_->add_action_bool(
+        "keyboard", sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard), true);
+    accels_.push_back(std::make_pair(Glib::ustring("win.keyboard"),
+                                     Glib::ustring("<Control>k")));
     addAction("patchsel",
               sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel), "<Control>p");
     addAction("midimap",
@@ -489,7 +506,6 @@ void MainSynthWindow::populateMenu (void)
        own; now that it is a tab on the patch page, the menu could only do
        what clicking the tab does -- and it had to explain itself with a
        dialog when the current channel had no patch on it. */
-    fileItems->append("_Keyboard", "win.keyboard");
     fileItems->append("_Patch Selector", "win.patchsel");
     fileItems->append("_MIDI Controllers", "win.midimap");
     fileItems->append("_Composer", "win.composer");
@@ -514,6 +530,7 @@ void MainSynthWindow::populateMenu (void)
 
     Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
 
+    view->append("_Keyboard", "win.keyboard");
     view->append_submenu("_Appearance", appearance);
 
     Glib::RefPtr<Gio::Menu> bar = Gio::Menu::create();
@@ -530,17 +547,23 @@ void MainSynthWindow::populateMenu (void)
 
 void MainSynthWindow::menuKeyboard (void)
 {
-    if (kbWin_ == NULL)
-    {
-        kbWin_ = new KeyboardWindow (thSynth::instance());
-        kbWin_->signal_close_request().connect(
-            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
-                       (Gtk::Window *)kbWin_), false);
+    bool on = true;
 
-        addCloseAccel(kbWin_);
-    }
+    keyboardAction_->get_state(on);
+    showKeyboard(!on);
+}
 
-    kbWin_->present();
+void MainSynthWindow::showKeyboard (bool on)
+{
+    keyboardAction_->set_state(Glib::Variant<bool>::create(on));
+    kbPanel_->set_visible(on);
+
+    string **vals = new string *[2];
+
+    vals[0] = new string(on ? "1" : "0");
+    vals[1] = NULL;
+
+    gthPrefs::instance()->Set("keyboard", vals);
 }
 
 void MainSynthWindow::menuComposer (void)
@@ -1563,6 +1586,10 @@ void MainSynthWindow::onMasterGain (void)
 void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
 {
     highlightTab((int)pagenum);
+
+    /* And the keys play the channel being looked at. */
+    if (kbPanel_ != NULL)
+        kbPanel_->setChannel((int)pagenum);
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(pagenum);

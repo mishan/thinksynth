@@ -51,7 +51,7 @@ typedef void (*sighandler_t)(int);
 #include "gthPatchfile.h"
 
 #include "gui/Keyboard.h"
-#include "gui/KeyboardWindow.h"
+#include "gui/KeyboardPanel.h"
 #include "gui/PatchSelWindow.h"
 #include "gui/MainSynthWindow.h"
 

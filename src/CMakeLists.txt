@@ -193,7 +193,7 @@ set(THINKSYNTH_SOURCES
     gui/Dialogs.cpp
     gui/ItemBrowser.cpp
     gui/Keyboard.cpp
-    gui/KeyboardWindow.cpp
+    gui/KeyboardPanel.cpp
     gui/MainSynthWindow.cpp
     gui/MidiMap.cpp
     gui/GraphCanvas.cpp

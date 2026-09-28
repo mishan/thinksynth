@@ -493,7 +493,7 @@ stays in the language for the case it was always really for: driving a patch
 this piece does not own and did not load.
 
 **Channels are 1–16.** That is the number on the main window's patch tab and
-in the Keyboard window's spinner, and it is what every sequencer shows; the
+in the keyboard's channel spinner, and it is what every sequencer shows; the
 wire and the engine count from zero, and the conversion happens here at the
 file boundary the way note names are resolved here rather than in a plugin.
 `channel = 0` is an error rather than channel 1, and says why — it is the one
