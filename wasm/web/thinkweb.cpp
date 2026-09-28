@@ -248,9 +248,20 @@ struct Scheduled
        neighbour.
 
        TW_KNOB: `row' is the knob's name, when the command named one.
-       TW_EDIT: `text' is the piece's new text, and `row' the other files
-       it changed, one name to a line. */
+       TW_EDIT: `text' is the piece's new text; `files' below are the other
+       files it changed. */
     std::string row, text;
+
+    /* TW_EDIT: the other files it carries, as name and text, written only
+       once its text has loaded (applyEdit). */
+    std::vector<std::pair<std::string, std::string> > files;
+
+    /* The order among commands stamped for one time: lower first, and
+       arrival order within one. Zero but for an edit, whose sender makes
+       it from its own id and counter: two Applies land on one bar line,
+       and which is applied last is which text plays -- so it cannot be
+       whichever happened to reach this peer last. */
+    double tie;
 };
 
 /* A chain's mute or solo the canvas has asked for and the command has not
@@ -1201,7 +1212,11 @@ void schedule (const Scheduled &c)
                                        c,
                                        [](const Scheduled &a,
                                           const Scheduled &b)
-                                       { return a.at < b.at; }),
+                                       {
+                                           return a.at != b.at
+                                               ? a.at < b.at
+                                               : a.tie < b.tie;
+                                       }),
                       c);
 }
 
@@ -1942,6 +1957,26 @@ int reroute (const std::string &pattern)
 int                      edits_;
 std::vector<std::string> editErrors_;
 
+/* Each edit applied since the page last asked, by its tie, and whether it
+   went in: what the page keeps its idea of the playing text by (jam.js). */
+std::vector<std::pair<double, int> > editResults_;
+
+/* A .dsp into the module's files, where an instrument is looked up. */
+bool installDsp (const std::string &name, const std::string &text)
+{
+    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
+
+    /* An effect graph is `fx/echo.dsp': a name with a directory in it,
+       looked up under dsp/ the way a piece's `effect' clause spells it.
+       MEMFS does not make parents on a write, so each one is made here,
+       and one that already exists is not an error. */
+    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
+         slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+
+    return writeFile(path.c_str(), text.c_str());
+}
+
 /* A new text for the piece, at the time the command was stamped for
  * (thcGenDiff): what it keeps and what it builds is the same answer on
  * every instance handed the same two texts at the same time. The piece's
@@ -1955,36 +1990,37 @@ std::vector<std::string> editErrors_;
 void applyEdit (const Scheduled &c)
 {
     std::set<std::string> changed;
-    size_t from = 0;
 
-    while (from < c.row.size())
-    {
-        size_t to = c.row.find('\n', from);
-
-        if (to == std::string::npos)
-            to = c.row.size();
-
-        if (to > from)
-            changed.insert(c.row.substr(from, to - from));
-
-        from = to + 1;
-    }
+    for (const auto &f : c.files)
+        changed.insert(f.first);
 
     editErrors_.clear();
 
     if (!writeFile(TW_EDIT_FILE, c.text.c_str()))
     {
         editErrors_.push_back("the edit could not be written down");
+        editResults_.push_back(std::make_pair(c.tie, 0));
         edits_++;
         return;
     }
 
+    /* The files it carries go in only once its text has loaded: a refused
+       edit leaves every instrument's .dsp as it was, so the next Apply
+       still finds them changed. */
     if (!thcGenDiff::apply(*sched_, plugins_, TW_PIECE_FILE, TW_EDIT_FILE,
-                           changed, editErrors_))
+                           changed, editErrors_,
+                           [&c]
+                           {
+                               for (const auto &f : c.files)
+                                   installDsp(f.first, f.second);
+                           }))
     {
+        editResults_.push_back(std::make_pair(c.tie, 0));
         edits_++;
         return;
     }
+
+    editResults_.push_back(std::make_pair(c.tie, 1));
 
     writeFile(TW_PIECE_FILE, c.text.c_str());
 
@@ -2124,17 +2160,7 @@ EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
    over before the first piece is loaded; a worklet cannot fetch. */
 EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
 {
-    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
-
-    /* An effect graph is `fx/echo.dsp': a name with a directory in it,
-       looked up under dsp/ the way a piece's `effect' clause spells it.
-       MEMFS does not make parents on a write, so each one is made here,
-       and one that already exists is not an error. */
-    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
-         slash != std::string::npos; slash = path.find('/', slash + 1))
-        mkdir(path.substr(0, slash).c_str(), 0777);
-
-    return writeFile(path.c_str(), text) ? 1 : 0;
+    return name != NULL && text != NULL && installDsp(name, text) ? 1 : 0;
 }
 
 /* What the page's menus are drawn from: every .dsp this module has been
@@ -2294,6 +2320,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     applied_.clear();
     edits_ = 0;
     editErrors_.clear();
+    editResults_.clear();
 
     sched_->stop();
 
@@ -4364,25 +4391,67 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_named (double at, const char *name,
     schedule(c);
 }
 
-/* A new text for the piece at transport time `at', and the other files the
- * edit changed, one name to a line -- their new texts already handed over
- * through tw_instrument. Applied inside the step, like any stamped command
- * (applyEdit). `at' below zero is the next window, as for a knob.
+/* A new text for the piece at transport time `at', carrying the files
+ * handed over through tw_edit_file since the last one. Applied inside the
+ * step, like any stamped command (applyEdit), and ordered by `tie' among
+ * commands stamped for the same time. `at' below zero is the next window,
+ * as for a knob.
+ *
+ * A file the next tw_edit carries is handed over one at a time, since a
+ * list of strings is not something ccall passes, and taken by that edit
+ * whole.
  */
-EMSCRIPTEN_KEEPALIVE void tw_edit (double at, const char *text,
-                                   const char *changed)
+static std::vector<std::pair<std::string, std::string> > editFiles_;
+
+EMSCRIPTEN_KEEPALIVE void tw_edit_file (const char *name, const char *text)
+{
+    if (name != NULL && text != NULL)
+        editFiles_.push_back(std::make_pair(std::string(name),
+                                            std::string(text)));
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_edit (double at, const char *text, double tie)
 {
     if (text == NULL)
+    {
+        editFiles_.clear();
         return;
+    }
 
     Scheduled c = {};
 
     c.at = at;
     c.op = TW_EDIT;
     c.text = text;
-    c.row = changed ? changed : "";
+    c.files.swap(editFiles_);
+    c.tie = tie;
 
     schedule(c);
+}
+
+/* Whether each edit applied since the last clear went in, in the order
+   they were applied: 1 for one that is the piece now, 0 for one refused. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_result_count (void)
+{
+    return (int)editResults_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_result (int k)
+{
+    return k >= 0 && k < (int)editResults_.size() ? editResults_[k].second
+                                                    : 0;
+}
+
+/* And which edit it was: the tie it was sent with. */
+EMSCRIPTEN_KEEPALIVE double tw_edit_result_tie (int k)
+{
+    return k >= 0 && k < (int)editResults_.size() ? editResults_[k].first
+                                                    : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_edit_results_clear (void)
+{
+    editResults_.clear();
 }
 
 /* How many edits have been applied since the load, and what the last one

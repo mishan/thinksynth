@@ -169,7 +169,8 @@ thcGenDiff::apply (thcScheduler &live,
                    const std::map<std::string, thcPlugin *> &plugins,
                    const std::string &oldPath, const std::string &newPath,
                    const std::set<std::string> &changedFiles,
-                   std::vector<std::string> &errors)
+                   std::vector<std::string> &errors,
+                   const std::function<void (void)> &beforeAdopt)
 {
     errors.clear();
 
@@ -193,6 +194,9 @@ thcGenDiff::apply (thcScheduler &live,
         errors = loader.errors();
         return false;
     }
+
+    if (beforeAdopt)
+        beforeAdopt();
 
     if (!live.adopt(next, edit, why))
         errors.push_back(why);

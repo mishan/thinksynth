@@ -73,6 +73,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { seeded, tapeBefore } from '../tape.mjs';
+import { tieOf } from './commands.js';
 import { playAimed, playAt, playPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -247,7 +248,15 @@ function genwavCall (name, nodeBuildDir,
        directory of this call's own. */
     let dir = null;
 
-    for (const c of commands)
+    /* In the order a worklet applies them: by time, and among edits
+       stamped for one time by their tie (thinkweb.cpp, Scheduled). genwav
+       keeps the order it is given within one time. */
+    const tied = (c) => c.type === 'edit';
+    const ordered = [...commands].sort((a, b) =>
+        a.at !== b.at ? a.at - b.at
+                      : (tied(a) ? tieOf(a) : 0) - (tied(b) ? tieOf(b) : 0));
+
+    for (const c of ordered)
     {
         if (c.type === 'knob')
         {

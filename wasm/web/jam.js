@@ -41,7 +41,7 @@ import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
-         commandTag, isLate, nextBar, replayable } from './commands.js';
+         commandTag, isLate, nextBar, replayable, tieOf } from './commands.js';
 import { docOf, fileNames, files, hashOf, instrumentTexts, pieceName,
          pieceText, readFile, snapshot, spliceFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
@@ -169,6 +169,16 @@ let piece = null;               /* the worklet's word on the loaded piece */
    loaded, with every edit applied since. What Apply sends the difference
    from -- a .dsp the document has changed since then goes with the edit. */
 let playing = null;
+
+/* The edits handed to the worklet and not yet answered for, by their tie.
+   Its `edited' message says which went in, and only those change
+   `playing'. */
+const pendingEdits = new Map();
+
+/* The synth as the room's commands reach it: what edits it is handed is
+   noted on the way through, from wherever the edit came -- a peer's, this
+   page's own, or one a late joiner steps through. */
+let roomSynth = null;
 
 /* The last tape message: where the transport was, in seconds and beats,
    which is what Apply picks the next bar from. */
@@ -358,22 +368,16 @@ async function applyOne (from, cmd)
     if (startOrStop)
         catching = false;
 
-    await apply(cmd, { synth, frameOfOrigin, listens, load: loadFor });
+    await apply(cmd, { synth: roomSynth, frameOfOrigin, listens,
+                       load: loadFor });
 
     /* And what the page shows follows. */
     /* Ours moved its own slider as it was dragged. */
     if (cmd.type === 'knob' && from !== room.peer)
         setKnobValue(String(knobIds.get(cmd.knob) ?? cmd.knob), cmd.value);
     else if (cmd.type === 'edit')
-    {
-        playing = { piece: playing?.piece ?? pieceName(doc),
-                    files: { ...playing?.files, ...cmd.files } };
-        playing.files[playing.piece] = cmd.text;
-        loadedGen = cmd.text;
-
         status(`${room.peers.get(from)?.name ?? from}'s edit` +
                (cmd.at >= 0 ? ` applies at ${cmd.at.toFixed(2)} s.` : '.'));
-    }
     else if (cmd.type === 'transport')
     {
         if (cmd.op === 'start')
@@ -509,7 +513,7 @@ function joinRun ()
         status(`Catching up with ${room.peers.get(run.start.from)?.name ??
                                    run.start.from}'s Play...`);
         await catchUp(run.start, [...byKey.values()], {
-            synth, listens,
+            synth: roomSynth, listens,
             frameOfOrigin: (ms) =>
             {
                 catching = true;
@@ -522,15 +526,6 @@ function joinRun ()
             },
         });
 
-        /* And the edits it stepped through, as the page's idea of what its
-           worklet is playing, which Apply sends the difference from. */
-        for (const c of [...byKey.values()].filter((c) => c.type === 'edit')
-                                           .sort((a, b) => a.at - b.at))
-        {
-            playing.files = { ...playing.files, ...c.files };
-            playing.files[playing.piece] = c.text;
-            loadedGen = c.text;
-        }
     });
 
     applying = done.catch((e) => log(`catching up: ${e.message}`));
@@ -738,9 +733,26 @@ async function applyEdit ()
 }
 
 /* An edit has been applied here: the piece is what it now says, and the
-   knobs, the seats and the channels it listens on follow. */
+   knobs, the seats and the channels it listens on follow. The text this
+   page believes is playing moves by the edits that went in, and not by one
+   that was refused -- whose files then still count as changed at the next
+   Apply. */
 async function edited (m)
 {
+    for (const { tie, went } of m.results ?? [])
+    {
+        const e = pendingEdits.get(tie);
+
+        pendingEdits.delete(tie);
+
+        if (e === undefined || !went || playing === null)
+            continue;
+
+        playing.files = { ...playing.files, ...e.files };
+        playing.files[playing.piece] = e.text;
+        loadedGen = e.text;
+    }
+
     m.errors.forEach((e) => log(`edit: ${e}`));
 
     if (m.errors.length > 0)
@@ -1438,6 +1450,14 @@ async function start ()
                                              midiOutUI.state(list),
                                          onEdited: edited,
                                          onMirror: fromMirror });
+        roomSynth = {
+            ...synth,
+            edit: (at, text, files, tie) =>
+            {
+                pendingEdits.set(tie, { text, files });
+                synth.edit(at, text, files, tie);
+            },
+        };
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }

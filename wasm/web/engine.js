@@ -182,14 +182,14 @@ export function apply (M, m, host = NOWHERE)
 
         case 'edit':
             /* A new text for the piece at a transport time, and the other
-               files the edit changed: those into the module's files now,
-               the piece at its stamp (thinkweb.cpp, applyEdit). */
+               files the edit changed, which go in with it at its stamp and
+               only if it loads (thinkweb.cpp, applyEdit). */
             for (const [name, text] of Object.entries(m.files ?? {}))
-                M.ccall('tw_instrument', 'number', ['string', 'string'],
+                M.ccall('tw_edit_file', null, ['string', 'string'],
                         [name, text]);
 
-            M.ccall('tw_edit', null, ['number', 'string', 'string'],
-                    [m.at, m.text, Object.keys(m.files ?? {}).join('\n')]);
+            M.ccall('tw_edit', null, ['number', 'string', 'number'],
+                    [m.at, m.text, m.tie ?? 0]);
             return true;
 
         case 'speed':

@@ -271,14 +271,14 @@ class Peer
             batch: (fn) => fn(),
 
             /* engine.js's `edit', over the module directly. */
-            edit: (at, text, files = {}) =>
+            edit: (at, text, files = {}, tie = 0) =>
             {
                 for (const [name, t] of Object.entries(files))
-                    M.ccall('tw_instrument', 'number', ['string', 'string'],
+                    M.ccall('tw_edit_file', null, ['string', 'string'],
                             [name, t]);
 
-                M.ccall('tw_edit', null, ['number', 'string', 'string'],
-                        [at, text, Object.keys(files).join('\n')]);
+                M.ccall('tw_edit', null, ['number', 'string', 'number'],
+                        [at, text, tie]);
             },
             transportAt: (op, at, value = 0) =>
                 schedule(M, { op, at, value }),
@@ -619,8 +619,11 @@ async function play (sim, relay, peers, knob, seed, editText = null)
 
     /* An Apply from B, ten seconds in: the edit lands at the next bar,
        on both peers, and the knobs on either side of it go on landing on
-       the knob they name. */
+       the knob they name. And one from A a moment later, putting the piece
+       back, which lands on the same bar: which of the two plays is
+       decided by their tie and not by which reached a peer last. */
     if (editText !== null)
+    {
         sim.at(10000, async () =>
         {
             const cmd = B.edit(editText);
@@ -628,6 +631,15 @@ async function play (sim, relay, peers, knob, seed, editText = null)
             await B.send(cmd);
             note(cmd);
         });
+
+        sim.at(10005, async () =>
+        {
+            const cmd = A.edit(A.gen);
+
+            await A.send(cmd);
+            note(cmd);
+        });
+    }
 
     sim.at(18000, async () =>
     {
@@ -902,6 +914,20 @@ async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0,
     return { ok: true, peers, knob, stamped, stopAt, caughtUp };
 }
 
+/* What the edits of a session were, for its line. */
+function editNote (r)
+{
+    const edits = r.stamped.filter((c) => c.type === 'edit');
+
+    if (edits.length === 0)
+        return '';
+
+    const bars = new Set(edits.map((c) => c.at));
+
+    return ` with ${edits.length} edits` +
+           (bars.size < edits.length ? ' on one bar' : '');
+}
+
 /* Every edit that was sent, applied whole on every peer. */
 function editComplaints (r)
 {
@@ -1041,8 +1067,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                 `ok    ${piece.name.padEnd(14)} ` +
                 `${String(a.split('\n').length - 1).padStart(5)} events   ` +
                 `${r.stamped.length} commands` +
-                `${r.stamped.some((c) => c.type === 'edit') ? ' with an edit'
-                                                             : ''}, ` +
+                `${editNote(r)}, ` +
                 `${r.net.dropped} lost, ` +
                 `origins ${r.peers.map((p) => originError(p, r.stamped[0])
                                                   .toFixed(2) + ' ms')

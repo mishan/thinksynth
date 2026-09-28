@@ -19,6 +19,7 @@
 #ifndef THCGENDIFF_H
 #define THCGENDIFF_H
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -80,12 +81,18 @@ public:
        False with `errors' when the new text does not load, and then
        nothing has changed. True once it is the piece -- with `errors'
        still saying so if an instrument would not load, which leaves that
-       channel as the edit found it or silent. */
+       channel as the edit found it or silent.
+
+       `beforeAdopt' runs once the new text has loaded and before anything
+       changes: where a host puts the edit's other files, which a text
+       that does not load must not leave behind. */
     static bool apply (thcScheduler &live,
                        const std::map<std::string, thcPlugin *> &plugins,
                        const std::string &oldPath, const std::string &newPath,
                        const std::set<std::string> &changedFiles,
-                       std::vector<std::string> &errors);
+                       std::vector<std::string> &errors,
+                       const std::function<void (void)> &beforeAdopt =
+                           nullptr);
 };
 
 #endif /* THCGENDIFF_H */

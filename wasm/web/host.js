@@ -464,7 +464,8 @@ export async function createSynth (ctx, { windowlen = 256,
            files the edit changed, as { name: text }. What it keeps of the
            piece playing is thcGenDiff's rule; `onEdited' hears what the
            piece is afterwards. */
-        edit: (at, text, files = {}) => post({ type: 'edit', at, text, files }),
+        edit: (at, text, files = {}, tie = 0) =>
+            post({ type: 'edit', at, text, files, tie }),
 
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a

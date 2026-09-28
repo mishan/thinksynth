@@ -299,6 +299,23 @@ export function nextBar (now, report, lead)
     return now + lead + (bar - from) * 60 / tempo;
 }
 
+/* The order among commands stamped for one time (thinkweb.cpp, Scheduled's
+   `tie'): made from the sender's id and counter, so it is the same number on
+   every peer and different for every command. Two Applies land on one bar
+   line, and the one applied last is the text that plays. */
+export function tieOf (cmd)
+{
+    let h = 0x811c9dc5;
+
+    for (const ch of String(cmd.from))
+    {
+        h ^= ch.codePointAt(0);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+
+    return 1 + (h & 0xfffff) * 0x100000 + (cmd.seq & 0xfffff);
+}
+
 /* Has this command's time already gone by, by the page's own reckoning?
    The worklet counts a late command when it applies it; this is how the
    page can say which one it was. `at' below zero is "now", never late. */
@@ -423,7 +440,7 @@ function applyNow (cmd, { synth, listens })
             break;
 
         case 'edit':
-            synth.edit(cmd.at, cmd.text, cmd.files);
+            synth.edit(cmd.at, cmd.text, cmd.files, tieOf(cmd));
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.

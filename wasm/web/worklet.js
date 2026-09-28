@@ -696,12 +696,22 @@ class ThinkProcessor extends AudioWorkletProcessor
             if (edits > 0)
             {
                 const errors = [];
+                const results = [];
 
                 for (let k = 0; k < this.M._tw_edit_error_count(); k++)
                     errors.push(this.M.UTF8ToString(this.M._tw_edit_error(k)));
 
+                /* Which of the edits since the last word went in, in the
+                   order they were applied. */
+                for (let k = 0; k < this.M._tw_edit_result_count(); k++)
+                    results.push({ tie: this.M._tw_edit_result_tie(k),
+                                   went: this.M._tw_edit_result(k) !== 0 });
+
+                this.M._tw_edit_results_clear();
+
                 this.port.postMessage({ type: 'edited', count: edits,
-                                        ...this.piece(true), errors });
+                                        ...this.piece(true), errors,
+                                        results });
             }
         }
 
