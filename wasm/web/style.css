@@ -336,7 +336,7 @@ kbd
  * control by id or class still wins without having to outrank this; and
  * not the tiler's, which draws its tabs and chips itself.
  */
-:where(button:not([class^="pane"]), select,
+:where(button:not([class^="pane"], .panereset > button), select,
        input:is([type="number"], [type="text"], :not([type])))
 {
     font: inherit;
@@ -352,16 +352,26 @@ kbd
     background: var(--bg);
 }
 
-:where(button:not([class^="pane"])) { cursor: pointer; }
+:where(button:not([class^="pane"], .panereset > button))
+{
+    cursor: pointer;
+}
 
-:where(button:not([class^="pane"]), select):hover:not(:disabled)
+:where(button:not([class^="pane"], .panereset > button),
+       select):where(:hover:not(:disabled))
 {
     border-color: var(--dim);
 }
 
-:where(button, select, input):disabled { opacity: 0.45; cursor: default; }
+:where(button:not([class^="pane"], .panereset > button), select,
+       input:is([type="number"], [type="text"], :not([type]))):where(:disabled)
+{
+    opacity: 0.45;
+    cursor: default;
+}
 
-:where(button, select, input, summary, canvas):focus-visible
+:where(button:not([class^="pane"], .panereset > button), select, input,
+       summary, canvas):where(:focus-visible)
 {
     outline: 2px solid AccentColor;
     outline-offset: 1px;
@@ -385,9 +395,11 @@ kbd
 
 /* Until Start, the panes a synth fills have nothing in them, and a page
    of empty boxes reads as one that failed to load. Each says what it
-   will hold instead; main.js marks the body once there is a synth. */
-body:not([data-started]) :is(#tracks, #params, #channels):empty::before,
-body:not([data-started]) :is(#roll, #nodescroll)::after
+   will hold instead. index.html's body starts data-unstarted and main.js
+   takes it off once there is a synth; the room page, which shares these
+   panes and never starts this way, has no such attribute. */
+body[data-unstarted] :is(#tracks, #params, #channels):empty::before,
+body[data-unstarted] :is(#roll, #nodescroll)::after
 {
     display: block;
     padding: 1.5em 0.5em;
@@ -395,34 +407,38 @@ body:not([data-started]) :is(#roll, #nodescroll)::after
     text-align: center;
 }
 
-body:not([data-started]) #tracks:empty::before
+body[data-unstarted] #tracks:empty::before
 {
     content: "Press Start: the sequence's tracks go here.";
 }
 
-body:not([data-started]) #params:empty::before
+body[data-unstarted] #params:empty::before
 {
     content: "Press Start: the instrument's controls go here.";
 }
 
-body:not([data-started]) #channels:empty::before
+body[data-unstarted] #channels:empty::before
 {
     content: "Press Start: each channel's instrument goes here.";
 }
 
-body:not([data-started]) :is(#roll, #nodescroll) { position: relative; }
+body[data-unstarted] :is(#roll, #nodescroll) { position: relative; }
 
-body:not([data-started]) #nodescroll::after
+body[data-unstarted] #nodescroll::after
 {
     content: "Press Start: the instrument's graph goes here.";
+
+    /* On the canvas's own dark ground in either scheme (.canvasview),
+       where --dim is too dark to read. */
+    color: #a0a4ab;
 }
 
-body:not([data-started]) #roll::after
+body[data-unstarted] #roll::after
 {
     content: "Press Start: what plays is drawn here.";
 }
 
-body:not([data-started]) :is(#roll, #nodescroll)::after
+body[data-unstarted] :is(#roll, #nodescroll)::after
 {
     position: absolute;
     inset: 0;
