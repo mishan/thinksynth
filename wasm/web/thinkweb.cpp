@@ -1548,7 +1548,7 @@ EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
  * It scales beat-valued durations and nothing else, so a piece written
  * entirely in seconds is one the control cannot reach -- which is most of
  * the corpus, and the reason the desktop offers the spinner only where it
- * does something and says so where it does not (ComposerWindow.cpp). The
+ * does something and says so where it does not (Composer.cpp). The
  * page asks the same question of the same scheduler. */
 EMSCRIPTEN_KEEPALIVE int tw_uses_beats (void)
 {

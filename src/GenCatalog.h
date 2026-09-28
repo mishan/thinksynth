@@ -38,7 +38,7 @@
  * anything, or nothing, and lands accordingly.
  *
  * NAMED BY PATH, unlike DspCatalog. A piece is opened by copying a file, not
- * by resolving a name against a search path -- ComposerWindow::onOpen takes a
+ * by resolving a name against a search path -- Composer::onOpen takes a
  * path and there is no thUtil::findDataFile in the way -- so an entry carries
  * the path it was found at.
  */

@@ -1298,7 +1298,7 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
        could mean: it sits inside the box's title bar, so a selection or
        a drag would otherwise swallow it.
      *
-       The stage is selected on the way, so the Edit panel and the
+       The stage is selected on the way, so the Selection pane and the
        popover are talking about the same thing -- opening a stage's
        params while the panel still shows the previous one would be two
        answers to the same question on screen at once. */

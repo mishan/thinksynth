@@ -16,8 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef COMPOSER_WINDOW_H
-#define COMPOSER_WINDOW_H
+#ifndef COMPOSER_H
+#define COMPOSER_H
 
 #include <map>
 #include <string>
@@ -39,16 +39,17 @@ class thcScheduler;
 struct thcStage;
 class PianoRoll;
 
-/* The composer's home: transport over the piece's knobs, the node
- * canvas, and the piano roll -- with, behind the Edit toggle, a panel
- * whose lower half follows the canvas selection.
+/* The composer: a piece, its scheduler, and the widgets that show it --
+ * the node canvas, the piano roll, the piece's settings and a panel that
+ * follows the canvas selection, each a pane of the main window, and the
+ * transport for its title bar.
  *
  * The canvas is the structure editor: click a stage, a sink, a chain
- * name or one of the ghost "+" slots and the panel grows the controls
- * for exactly that -- params with their units and knob bindings for a
- * stage, channel and target for a sink, the add forms for the ghosts.
- * Dragging a stage sideways reorders it. The canvas itself never
- * touches the file; it asks, and this window performs the edit through
+ * name or one of the ghost "+" slots and the Selection pane grows the
+ * controls for exactly that -- params with their units and knob bindings
+ * for a stage, channel and target for a sink, the add forms for the
+ * ghosts. Dragging a stage sideways reorders it. The canvas itself never
+ * touches the file; it asks, and this performs the edit through
  * thcGenEdit and reloads -- one writer, as everywhere else.
  *
  * The editing model is NodeEditor's: edits go to a work copy, Save
@@ -57,13 +58,64 @@ class PianoRoll;
  * splice and reload, which rewinds to zero -- the honest reading of
  * "same file, same seed, same piece" when the piece changed shape.
  *
- * Closing the window hides it; the scheduler and the music keep going.
+ * Nothing is loaded until start(): the piece's instruments go onto
+ * channels, and a program that did that because it was opened would be
+ * taking channels from whoever had them. The window starts it the first
+ * time one of the panes comes into view. Closing the panes leaves the
+ * scheduler and the music going.
  */
-class ComposerWindow : public Gtk::Window
+class Composer : public sigc::trackable
 {
 public:
-    explicit ComposerWindow (thSynth *synth);
-    ~ComposerWindow (void);
+    explicit Composer (thSynth *synth);
+    ~Composer (void);
+
+    Composer (const Composer &) = delete;
+    Composer &operator= (const Composer &) = delete;
+
+    /* Loads the composer modules and the piece, and starts the canvas's
+       clock. Once; after that, it does nothing. */
+    void start (void);
+    bool started (void) const { return started_; }
+
+    /* The panes' content. The host parents them, and has to let them go
+       before this is destroyed. */
+    Gtk::Widget &canvasView (void) { return canvasScroll_; }
+    Gtk::Widget &rollView (void);
+    Gtk::Widget &settingsView (void) { return editorScroll_; }
+    Gtk::Widget &selectionView (void) { return selScroll_; }
+
+    /* The transport and the Kbd input toggle, and the line that says what
+       is playing: for a title bar. Managed, so the host's packing owns
+       them -- they are the host's to pack, or they are never freed. */
+    Gtk::Widget &transport (void) { return *transport_; }
+    Gtk::Label &status (void) { return *status_; }
+
+    /* New, Open, Save, Save As and Revert, as the "composer" actions, and
+       a menu section naming them. */
+    Glib::RefPtr<Gio::ActionGroup> actions (void) { return acts_; }
+    Glib::RefPtr<Gio::MenuModel> menu (void) { return menu_; }
+
+    /* Whether the piece's settings or the selection are in view: what is
+       not is not built. */
+    void setEditing (bool on);
+
+    /* Whether the canvas is in view: a hidden one is not redrawn. */
+    void setCanvasShown (bool on) { canvasShown_ = on; }
+
+    /* Something was selected on the canvas, and the Selection pane is
+       where it can be edited. */
+    sigc::signal<void ()> &signal_show_selection (void)
+    {
+        return showSelection_;
+    }
+
+    /* A menu command wants the piece before anything has shown it: the
+       host puts the canvas in view. start() follows either way. */
+    sigc::signal<void ()> &signal_wanted (void) { return wanted_; }
+
+    /* start() has run: the transport has something to play. */
+    sigc::signal<void ()> &signal_started (void) { return startedSig_; }
 
 protected:
     /* Scan <pluginroot>/composer/ exactly as NodeEditor scans visual/. */
@@ -124,7 +176,6 @@ protected:
     void onRewind (void);
     void onReload (void);
     void onTempo (void);
-    void onEditToggle (void);
     void onSave (void);
     void onSaveAs (void);
     void onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog);
@@ -217,13 +268,13 @@ protected:
     thSynth      *synth_;
     thcScheduler *sched_;
 
-    /* Loaded modules, keyed by name; the window owns them. Chains hold
+    /* Loaded modules, keyed by name; this owns them. Chains hold
        bare pointers into this map, so it outlives them (clearChains runs
        in the scheduler's destructor, which runs first). */
     std::map<std::string, thcPlugin *> composers_;
     std::string composerRoot_;      /* where loadComposers looked        */
 
-    /* A channel this window filled, and *which* patch it put there.
+    /* A channel this filled, and *which* patch it put there.
      *
      * The number alone is not ownership. Somebody who loads their own
      * patch onto one of the piece's channels has taken it, and a
@@ -249,7 +300,7 @@ protected:
         std::string dsp;
     };
 
-    /* What this window filled for the piece currently open, so a piece
+    /* What this filled for the piece currently open, so a piece
        that loses an instrument gives its channel back. prevOwned_ is the
        same list for the piece being replaced, live only while a parse is
        in flight: allocation consults it (those channels are the piece's
@@ -267,7 +318,7 @@ protected:
        instrument whose whole declaration is unchanged keeps the graph
        it already has instead of having it rebuilt underneath a
        sounding voice, and a channel is only given back if what is on
-       it is still the graph this window put there. */
+       it is still the graph this put there. */
     std::vector<thcInstrument> prevInstruments_;
 
     std::string genPath_;           /* the source file; may be empty     */
@@ -278,45 +329,41 @@ protected:
 
     thcGenEdit::Doc doc_;           /* what the work file says           */
 
+    /* The roll, made in start() with the scheduler it reads, and the box
+       that is its pane's content until then and its parent after. */
     PianoRoll *roll_;
+    Gtk::Box rollBox_{Gtk::Orientation::VERTICAL};
 
-    Gtk::HeaderBar header_;
-    Gtk::Box titleBox_{Gtk::Orientation::VERTICAL};
-    Gtk::Label titleLbl_;
+    /* A menu command's way in before start(). */
+    void wake (void);
 
-    /* The file and view menu's actions, for the two that are not
-       fire-and-forget: Save goes insensitive when there is nothing to
-       save, and the roll's item carries a tick. */
+    /* The file actions, and Save's own, because it is not fire-and-forget:
+       it goes insensitive when there is nothing to save. */
     Glib::RefPtr<Gio::SimpleActionGroup> acts_;
     Glib::RefPtr<Gio::SimpleAction> saveAct_;
-    Glib::RefPtr<Gio::SimpleAction> rollAct_;
+    Glib::RefPtr<Gio::Menu> menu_;
 
-    /* Editor on the left of the paned when Edit is on. */
-    Gtk::Paned paned_{Gtk::Orientation::HORIZONTAL};
-    Gtk::Box playSide_{Gtk::Orientation::VERTICAL};
-    Gtk::Notebook tabs_;
+    bool started_ = false;
+    bool editing_ = false;
+    bool canvasShown_ = false;
+    sigc::signal<void ()> showSelection_;
+    sigc::signal<void ()> wanted_;
+    sigc::signal<void ()> startedSig_;
+    bool stale_ = false;
 
-    /* How wide the Edit panel was when it was last hidden, so reopening
-       it does not throw away a drag. Zero until it has been shown. */
-    int panelW_ = 0;
     Gtk::ScrolledWindow editorScroll_;
     Gtk::Box editorBox_{Gtk::Orientation::VERTICAL};
     Gtk::ScrolledWindow selScroll_;
     Gtk::Box selOuter_{Gtk::Orientation::VERTICAL};
 
-    /* The selection panel's home inside editorBox_, refilled in place
-       so the sections above it keep their state. */
+    /* The selection's home inside selOuter_, refilled in place when the
+       canvas selection changes. */
     Gtk::Box *selBox_;
 
-    /* The node view, above the roll; inline composer_draw replaced the
-       old draw strip. */
+    /* The node canvas; inline composer_draw replaced the old draw
+       strip. */
     ComposerCanvasWidget *canvas_;
     Gtk::ScrolledWindow canvasScroll_;
-
-    /* The canvas over the roll, with the split where the user left it.
-       paneSet_ is false until the first split has been made. */
-    Gtk::Paned rollPane_;
-    bool paneSet_ = false;
 
     /* A stage's params, while one is showing. Owned by hand rather than
        managed: a popover parented to the canvas is not the canvas's
@@ -324,11 +371,9 @@ protected:
     Gtk::Popover *paramPop_ = NULL;
     sigc::connection drawTimer_;
 
-    /* The two idles this window queues, kept so the destructor can take
-       them back. The main loop holds a slot, not the window, so an idle
-       that captured `this' and outlived it is a call into freed
-       memory. */
-    sigc::connection paneIdle_;
+    /* The idle a reload is deferred to, kept so the destructor can take
+       it back. The main loop holds a slot, not this, so an idle that
+       captured `this' and outlived it is a call into freed memory. */
     sigc::connection reloadIdle_;
 
     /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
@@ -339,7 +384,7 @@ protected:
     sigc::connection kbdOffConn_;
     Gtk::ToggleButton *kbdBtn_;
 
-    void buildHeader (void);
+    void buildActions (void);
     void onKbdToggle (void);
     void injectOn (int chan, float note, float veloc);
     void injectOff (int chan, float note);
@@ -348,12 +393,12 @@ protected:
     Gtk::Button *pauseBtn_;
     Gtk::Button *rewindBtn_;
 
-    /* What the toolbar is currently drawn as. A piece whose arrangement
+    /* What the transport is currently drawn as. A piece whose arrangement
        closes with `section end;' stops its own transport when the last
        section is over, and nothing pressed a button to make that
        happen, so the draw timer watches for the change. */
     bool shownRunning_;
-    Gtk::ToggleButton *editBtn_;
+    Gtk::Box *transport_;
 
     Gtk::Label *tempoLbl_;
     Gtk::SpinButton *tempoBtn_;
@@ -363,4 +408,4 @@ protected:
     Gtk::Label *status_;
 };
 
-#endif /* COMPOSER_WINDOW_H */
+#endif /* COMPOSER_H */

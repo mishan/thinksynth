@@ -53,6 +53,7 @@
 #include "gthPatchfile.h"
 #include "gthPrefs.h"
 #include "gthSignal.h"
+#include "gui/Composer.h"
 #include "gui/MainSynthWindow.h"
 #include "gui/Panes.h"
 
@@ -76,6 +77,7 @@ public:
     using MainSynthWindow::chan_;
     using MainSynthWindow::actions_;
     using MainSynthWindow::dspEntryLbl_;
+    using MainSynthWindow::composer_;
     using MainSynthWindow::dspEntry_;
     using MainSynthWindow::onDspEntryActivate;
     using MainSynthWindow::selectChannel;
@@ -120,6 +122,20 @@ pump (int rounds)
     for (int i = 0; i < rounds; i++)
         while (ctx->pending())
             ctx->iteration(false);
+}
+
+/* How many widgets are under `w', to tell a pane that has been built from
+   one that has not. */
+static int
+descendants (Gtk::Widget *w)
+{
+    int n = 0;
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        n += 1 + descendants(c);
+
+    return n;
 }
 
 static bool
@@ -186,8 +202,13 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(closed.size() == 1 && closed[0] == "patches",
-              "the first layout has every pane up but the patch list");
+        check(closed.size() == 2 &&
+              std::find(closed.begin(), closed.end(), "patches") !=
+                  closed.end() &&
+              std::find(closed.begin(), closed.end(), "midimap") !=
+                  closed.end(),
+              "the first layout has every pane up but the patch list and "
+              "the MIDI routing");
     }
 
     check(win->panes_->isVisible("channelbox") &&
@@ -197,12 +218,23 @@ run (const std::string &pluginPath, const std::string &dsp)
           "...and the channels, the graph, the parameters and the keys in "
           "view");
 
-    check(!win->panes_->isVisible("midimap"),
-          "...with the MIDI routing a tab behind the parameters");
+    check(!win->panes_->isVisible("composerview") &&
+          !win->panes_->isVisible("roll") &&
+          !win->panes_->isVisible("selection") &&
+          !win->panes_->isVisible("pieceedit"),
+          "...with the piece's panes tabs behind the graph and the "
+          "parameters");
 
-    check(ticked(win, "keyboard") && !ticked(win, "midimap") &&
+    check(ticked(win, "keyboard") && !ticked(win, "composerview") &&
           !ticked(win, "patches"),
           "the menu ticks what is in view, and not what is behind a tab");
+
+    /* Nothing loads a piece until it is looked at: a piece's instruments
+       go onto channels. */
+    check(!win->composer_->started() &&
+          !win->composer_->transport().get_visible(),
+          "the composer waits, and its transport with it, until the piece "
+          "is looked at");
 
     /* Every pane's minimum, added across the widest row: the narrowest the
        window can be. A laptop's 1280 pixels have to hold it. */
@@ -265,6 +297,45 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->chan_ == 2 && win->editors_.count(2) == 1,
           "the DSP entry reloads the channel and keeps it, graph and all");
 
+    /* ---- the piece ---- */
+
+    /* A menu command for the piece before anything has shown it: the canvas
+       comes up and the composer starts, and then the command acts -- New
+       was undone by the load that followed when it ran first. */
+    win->activate_action("composer.new");
+    pump(8);
+
+    check(win->composer_->started() &&
+          win->panes_->isVisible("composerview") &&
+          win->composer_->transport().get_visible(),
+          "New Piece before the piece is up brings the canvas up, starts "
+          "the composer and puts its transport up");
+
+    check(win->composer_->status().get_text().find("Untitled") !=
+              Glib::ustring::npos,
+          "...and the new piece is what is left, not the one loaded after");
+
+    activate(win, "pane-selection");
+
+    check(win->panes_->isVisible("selection") &&
+          win->panes_->isVisible("composerview"),
+          "the selection comes up beside the canvas");
+
+    check(descendants(&win->composer_->selectionView()) > 3 &&
+          descendants(&win->composer_->settingsView()) > 3,
+          "...built, now that it is in view");
+
+    activate(win, "pane-nodeview");
+
+    check(win->panes_->isVisible("nodeview") &&
+          !win->panes_->isVisible("composerview"),
+          "and the graph goes back in front of the canvas");
+
+    activate(win, "pane-composerview");
+
+    check(win->panes_->isVisible("composerview"),
+          "the piece's tick brings the canvas back to the front");
+
     /* ---- View's ticks ---- */
 
     activate(win, "pane-keyboard");
@@ -283,26 +354,31 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->panes_->isVisible("patches") && ticked(win, "patches"),
           "ticking Patch Selector brings the patch list up");
 
-    /* Behind a tab is not in view: its key brings it to the front, as
-       Ctrl+M opened the MIDI map's window, and a second press puts it
-       away. */
+    /* Behind a tab is not in view: its tick brings it to the front, and a
+       second one puts it away. */
+    activate(win, "pane-roll");
+
+    check(win->panes_->isVisible("roll") && ticked(win, "roll"),
+          "a pane behind a tab comes to the front on its tick");
+
+    activate(win, "pane-roll");
+
+    check(isClosed(win, "roll") && !ticked(win, "roll"),
+          "...and a second one closes it");
+
     activate(win, "pane-midimap");
 
     check(win->panes_->isVisible("midimap") && ticked(win, "midimap"),
-          "a pane behind a tab comes to the front on its tick");
-
-    activate(win, "pane-midimap");
-
-    check(isClosed(win, "midimap") && !ticked(win, "midimap"),
-          "...and a second one closes it");
+          "Ctrl+M brings the MIDI routing up from the drawer");
 
     activate(win, "reset-layout");
 
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(closed.size() == 1 && closed[0] == "patches" &&
-              !isClosed(win, "midimap") && !ticked(win, "patches"),
+        check(closed.size() == 2 && isClosed(win, "patches") &&
+              isClosed(win, "midimap") && !isClosed(win, "roll") &&
+              !ticked(win, "patches"),
               "Reset Layout puts the first layout back, and the ticks with "
               "it");
     }
@@ -353,7 +429,8 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(closed.size() == 1 && closed[0] == "patches",
+        check(closed.size() == 2 && isClosed(win, "patches") &&
+              isClosed(win, "midimap"),
               "a kept layout that does not parse gives the first layout");
     }
 

@@ -28,7 +28,7 @@ class AboutBox;
 class MidiMap;
 class NodeEditor;
 class SaveButton;
-class ComposerWindow;
+class Composer;
 class KeyboardPanel;
 class PatchSelPanel;
 class Panes;
@@ -59,7 +59,6 @@ public:
 
 protected:
     void populateMenu (void);
-    void menuComposer (void);
     void menuQuit (void);
     void menuAbout (void);
 
@@ -150,6 +149,10 @@ protected:
 
     void onPaneShown (const string &id, bool visible);
 
+    /* The composer's panes: which of them are in view decides whether it
+       is started, drawn and editing. */
+    void syncComposer (void);
+
     /* The View menu's ticks: a pane is ticked while the layout holds it,
        in front or behind a tab, and not while it is in the drawer. */
     void syncPaneActions (void);
@@ -176,7 +179,7 @@ protected:
 
     void onPatchesChanged (void);
 
-    /* Hides a secondary window -- the composer's, and About -- instead of
+    /* Hides a secondary window -- About -- instead of
        letting it be destroyed, so it can be presented again. Returns true:
        the close is handled. */
     bool onSubWindowClose (Gtk::Window *window);
@@ -259,7 +262,10 @@ protected:
     KeyboardPanel *kbPanel_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
-    ComposerWindow *compWin_;
+    /* The piece: its canvas, roll, settings and selection are panes, and
+       its transport is in the title bar. */
+    Composer *composer_;
+    Gtk::Box titleBox_{Gtk::Orientation::VERTICAL};
     /* Each channel's node editor, built the first time its graph is
        looked at. Building one scans the whole plugin directory for the
        palette, so sixteen of them up front would be sixteen scans for the

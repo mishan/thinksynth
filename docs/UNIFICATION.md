@@ -93,7 +93,7 @@ isn't self-contained."
 >   loaded nothing. Headless is where that matters most: the application
 >   has a window keeping a second copy, and nothing else does.
 > - **The window gives channels back, and does not take ones that are
->   not free.** `ComposerWindow` remembers which channels it filled for
+>   not free.** `Composer` remembers which channels it filled for
 >   the piece that is open, so a piece that drops an instrument does not
 >   leave a patch tab behind that nothing plays. The same list answers
 >   the other half: a second hook, `channelTaken`, tells the loader which

@@ -162,7 +162,7 @@ chain loop_ab3 {
 ```
 
 A piece carries its own instruments, so one file is the whole thing: open
-`gen/airports.gen` from the Composer window (**☰ → Open**), press **Play**,
+`gen/airports.gen` from the main window's menu (**☰ → Open Piece...**), press **Play**,
 and seven loops whose periods share no factor start and never repeat. A
 `@knob` declared in the piece is a live slider, and one slider can drive a
 stage's density and the instrument's own filter at once.

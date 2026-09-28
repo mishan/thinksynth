@@ -510,7 +510,7 @@ showDivergence (const std::string &a, const std::string &b,
 /* A rewind replays the load -- and the edits made since.
  *
  * The desktop's editor pokes the live store so a change to the work file
- * is audible without a reload (ComposerWindow::applyParam): `prob = 0.5'
+ * is audible without a reload (Composer::applyParam): `prob = 0.5'
  * typed while the piece is playing sets the param there and then. What a
  * rewind owes that is the file as it now stands, because that is what a
  * reload would read. Recording only what happened before the first
@@ -6258,7 +6258,7 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
             {
                 const int idx = swap->plugin->paramIndex("instruments");
 
-                /* Exactly what ComposerWindow::applyParam does to a live
+                /* Exactly what Composer::applyParam does to a live
                    stage: the typed text, stored as typed, then the
                    changed notification the panel sends after it. */
                 if (idx < 0 ||

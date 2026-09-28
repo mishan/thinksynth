@@ -942,7 +942,7 @@ let loadedText = '';
  * durations and nothing else, so on a piece written entirely in seconds it
  * is a control that does nothing -- which is most of the corpus, and which
  * the desktop's spinner has said for as long as it has been dimmed
- * (ComposerWindow.cpp). The sequence this page writes is in beats
+ * (src/gui/Composer.cpp). The sequence this page writes is in beats
  * throughout, which is what makes it the one mode where this is the
  * control somebody reaches for first.
  */

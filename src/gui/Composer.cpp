@@ -38,7 +38,7 @@
 #include "ItemBrowser.h"
 #include "gthPatchfile.h"
 #include "gthSignal.h"
-#include "ComposerWindow.h"
+#include "Composer.h"
 
 /* ---- little local helpers --------------------------------------------- */
 
@@ -55,54 +55,37 @@ copyOver (const std::string &from, const std::string &to)
 
 /* ---- construction ----------------------------------------------------- */
 
-ComposerWindow::ComposerWindow (thSynth *synth)
+Composer::Composer (thSynth *synth)
     : synth_(synth), dirty_(false), reloadPending_(false),
       shownRunning_(false), tempoGuard_(false)
 {
     selBox_ = NULL;
     kbdBtn_ = NULL;
 
-    set_title("thinksynth - Composer");
-    set_default_size(1060, 640);
-
-    sched_ = new thcScheduler(synth_);
-    sched_->setInstrumentLoader(
-        [this](const thcInstrument &inst, std::string &why)
-        { return loadInstrument(inst, why); });
-    sched_->setInstrumentUnloader(
-        [this](const thcInstrument &inst) { return unloadInstrument(inst); });
-    sched_->setEffectLoader(
-        [this](int channel, const std::string &effect, int side,
-               std::string &why)
-        { return loadEffect(channel, effect, side, why); });
-    sched_->setChannelTaken(
-        [this](int channel) { return channelTaken(channel); });
-
-    loadComposers();
+    /* No scheduler until start(): it runs a clock of its own from the
+       moment it exists, and a program that never opens a piece has no use
+       for one. */
+    sched_ = NULL;
+    roll_ = NULL;
 
     playBtn_ = manage(new Gtk::Button("Play"));
     pauseBtn_ = manage(new Gtk::Button("Pause"));
     rewindBtn_ = manage(new Gtk::Button("Rewind"));
-    editBtn_ = manage(new Gtk::ToggleButton("Edit"));
 
     playBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onPlay));
+        sigc::mem_fun(*this, &Composer::onPlay));
     pauseBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onPause));
+        sigc::mem_fun(*this, &Composer::onPause));
     rewindBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onRewind));
-    editBtn_->signal_toggled().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onEditToggle));
+        sigc::mem_fun(*this, &Composer::onRewind));
 
     tempoLbl_ = manage(new Gtk::Label("Tempo"));
     tempoVal_ = Gtk::Adjustment::create(120, 20, 300, 1, 10);
     tempoBtn_ = manage(new Gtk::SpinButton(tempoVal_));
     tempoVal_->signal_value_changed().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onTempo));
+        sigc::mem_fun(*this, &Composer::onTempo));
 
     status_ = manage(new Gtk::Label(""));
-    status_->set_hexpand(true);
-    status_->set_xalign(1.0);
     status_->set_ellipsize(Pango::EllipsizeMode::END);
 
     kbdBtn_ = manage(new Gtk::ToggleButton("Kbd input"));
@@ -110,25 +93,24 @@ ComposerWindow::ComposerWindow (thSynth *synth)
                               "chains with MIDI input, alongside "
                               "hardware MIDI");
     kbdBtn_->signal_toggled().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onKbdToggle));
+        sigc::mem_fun(*this, &Composer::onKbdToggle));
 
-    buildHeader();
+    buildActions();
 
-    /* Playing side: knobs, the node canvas, the roll. The canvas is the
-       piece's face whether or not the Edit panel is open -- the tier-two
-       visualizers live inside its stage boxes now, where the old draw
-       strip used to be a row of orphans. */
+    /* The node canvas: the piece's face. The tier-two visualizers live
+       inside its stage boxes, where the old draw strip used to be a row
+       of orphans. */
     canvas_ = manage(new ComposerCanvasWidget());
     canvas_->sigSelection.connect(
-        sigc::mem_fun(*this, &ComposerWindow::onCanvasSelection));
+        sigc::mem_fun(*this, &Composer::onCanvasSelection));
     canvas_->sigMoveStage.connect(
-        sigc::mem_fun(*this, &ComposerWindow::onCanvasMoveStage));
+        sigc::mem_fun(*this, &Composer::onCanvasMoveStage));
     canvas_->sigParams.connect(
-        sigc::mem_fun(*this, &ComposerWindow::onCanvasParams));
+        sigc::mem_fun(*this, &Composer::onCanvasParams));
     canvas_->sigKnob.connect(
-        sigc::mem_fun(*this, &ComposerWindow::onCanvasKnob));
+        sigc::mem_fun(*this, &Composer::onCanvasKnob));
     canvas_->sigBindKnob.connect(
-        sigc::mem_fun(*this, &ComposerWindow::onCanvasBindKnob));
+        sigc::mem_fun(*this, &Composer::onCanvasBindKnob));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
@@ -136,85 +118,19 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     canvasScroll_.set_propagate_natural_height(true);
     canvasScroll_.set_propagate_natural_width(true);
 
-    roll_ = manage(new PianoRoll(sched_));
+    /* The roll's place: the roll itself reads the scheduler, so it is made
+       with it, in start(). */
+    rollBox_.set_hexpand(true);
+    rollBox_.set_vexpand(true);
 
-    /* The canvas is the piece and the roll is what the piece is doing,
-       so the canvas gets the room. It used to be the other way round --
-       the canvas capped at 300 pixels and the roll taking everything
-       left over -- which put the thing being edited in a letterbox above
-       the thing being watched.
-     *
-       A paned rather than a fixed split: how much roll is worth looking
-       at depends on the piece, and the position below is a starting
-       point, not a ruling. */
-    rollPane_.set_orientation(Gtk::Orientation::VERTICAL);
-    rollPane_.set_start_child(canvasScroll_);
-    rollPane_.set_end_child(*roll_);
-    rollPane_.set_resize_start_child(true);
-    rollPane_.set_resize_end_child(true);
-    rollPane_.set_shrink_start_child(false);
-    rollPane_.set_shrink_end_child(false);
-    rollPane_.set_vexpand(true);
-    playSide_.append(rollPane_);
-
-    /* A first split, once there is a window to split.
-     *
-       Not at construction, where nothing has been allocated and the
-       fraction would be a fraction of zero, and only once: after that
-       the position is wherever the person dragged it to, and a window
-       that reset the split on every reload would be arguing with them.
-
-       The floor is so that a piece with one short chain still leaves the
-       roll something to draw in -- 65% of a tall window is generous, but
-       65% of a short one is not. */
-    signal_map().connect(
-        [this]
-        {
-            if (paneSet_)
-                return;
-
-            paneSet_ = true;
-
-            /* Kept, so it can be disconnected.
-             *
-               An idle capturing `this' outlives nothing by itself: the
-               main loop holds the slot, not the window, so a window
-               closed between the map and the next idle turn leaves a
-               callback pointing at freed memory. drawTimer_ has been
-               stored and disconnected for exactly this reason since the
-               beginning; these are the same thing arriving once instead
-               of every fifty milliseconds, and were not. */
-            paneIdle_ = Glib::signal_idle().connect(
-                [this]
-                {
-                    const int h = rollPane_.get_height();
-
-                    if (h >= 200)
-                        rollPane_.set_position(
-                            std::max(h * 65 / 100, h - 320));
-
-                    return false;
-                });
-        });
-
-    /* The editor rides in a paned so the roll stays visible while
-       editing -- watching the piece change is the point.
-     *
-       Two tabs rather than one long column. The piece's own settings and
-       whatever is selected on the canvas are different questions, and
-       stacking them meant the answer to the second was always below the
-       fold: selecting a stage scrolled nothing, so the panel went on
-       showing the piece's name while the thing you had just clicked sat
-       off the bottom. Clicking the canvas now raises Selection. */
     /* Both directions, and that is deliberate.
      *
        With horizontal scrolling off, a scrolled window hands its child's
        full width up as a minimum -- and a Selection row is a label, a
        spin button, a unit menu and a binding menu, which comes to about
-       seven hundred pixels. The paned then could not be dragged
-       narrower than that, so the panel ate half the window whatever the
-       position said. Letting it scroll sideways is what makes the panel
-       a panel instead of the other half of the window. */
+       seven hundred pixels. The pane could then not be narrower than
+       that. Letting it scroll sideways is what makes the panel a panel
+       instead of the other half of the window. */
     editorScroll_.set_child(editorBox_);
     editorScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
                              Gtk::PolicyType::AUTOMATIC);
@@ -229,54 +145,111 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     selOuter_.set_margin(6);
     selOuter_.set_spacing(6);
 
-    tabs_.append_page(editorScroll_, "Piece");
-    tabs_.append_page(selScroll_, "Selection");
-    tabs_.set_visible(false);
-    tabs_.set_size_request(260, -1);
-
-    /* The canvas on the left, the panel on the right.
-     *
-       It used to be the other way round, which put a column of spin
-       buttons where the eye starts and pushed the piece off to one side.
-       The chains read left to right from x = 0, so the canvas wants the
-       left edge; an inspector is a thing you glance at after clicking
-       something, which is the right-hand side's job in every editor that
-       has one. */
-    paned_.set_start_child(playSide_);
-    paned_.set_end_child(tabs_);
-    paned_.set_resize_start_child(true);
-    paned_.set_resize_end_child(false);
-    paned_.set_shrink_start_child(false);
-    paned_.set_shrink_end_child(false);
-    paned_.set_vexpand(true);
-
-    set_child(paned_);
-
-    drawTimer_ = Glib::signal_timeout().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onDrawTimer), 50);
-
     /* Live MIDI into the chains: the same m_sigNoteOn/Off hop that
        lights the on-screen keyboard, already on the GUI thread. A press
        has no known length, so it goes in held (duration 0) and the
        release follows as a NOTEOFF; every chain that declared `input
        midi' on that channel hears both. */
     midiOnConn_ = m_sigNoteOn.connect(
-        sigc::mem_fun(*this, &ComposerWindow::injectOn));
+        sigc::mem_fun(*this, &Composer::injectOn));
     midiOffConn_ = m_sigNoteOff.connect(
-        sigc::mem_fun(*this, &ComposerWindow::injectOff));
+        sigc::mem_fun(*this, &Composer::injectOff));
 
-    loadPiece();
+    updateTransportButtons();
 }
 
-ComposerWindow::~ComposerWindow (void)
+Gtk::Widget &
+Composer::rollView (void)
+{
+    return rollBox_;
+}
+
+void
+Composer::start (void)
+{
+    if (started_)
+        return;
+
+    started_ = true;
+
+    sched_ = new thcScheduler(synth_);
+    sched_->setInstrumentLoader(
+        [this](const thcInstrument &inst, std::string &why)
+        { return loadInstrument(inst, why); });
+    sched_->setInstrumentUnloader(
+        [this](const thcInstrument &inst) { return unloadInstrument(inst); });
+    sched_->setEffectLoader(
+        [this](int channel, const std::string &effect, int side,
+               std::string &why)
+        { return loadEffect(channel, effect, side, why); });
+    sched_->setChannelTaken(
+        [this](int channel) { return channelTaken(channel); });
+
+    /* Managed, and in rollBox_, which is this's: taken out of it in the
+       destructor, which is what frees it, before the scheduler it reads
+       goes. */
+    roll_ = manage(new PianoRoll(sched_));
+    roll_->set_hexpand(true);
+    roll_->set_vexpand(true);
+    rollBox_.append(*roll_);
+
+    loadComposers();
+
+    drawTimer_ = Glib::signal_timeout().connect(
+        sigc::mem_fun(*this, &Composer::onDrawTimer), 50);
+
+    loadPiece();
+
+    startedSig_.emit();
+}
+
+/* A file command from the menu, before anything has started: the piece is
+   what it acts on, so the piece comes up first -- in view, which is where
+   what the command did can be seen. */
+void
+Composer::wake (void)
+{
+    if (started_)
+        return;
+
+    wanted_.emit();
+    start();
+}
+
+/* The piece's settings and the selection are built the first time one of
+   them is in view, and kept while neither is, so a look at another tab and
+   back finds them as they were left. What changes while they are out of
+   view -- a reload, a new selection -- tears them down and leaves them
+   stale, and they are built again when next looked at: the rows hold
+   widgets bound to the piece, and rebuilding them for nobody is a
+   reload's worth of work on every edit. */
+void
+Composer::setEditing (bool on)
+{
+    if (on == editing_)
+        return;
+
+    editing_ = on;
+
+    if (on && (stale_ || editorBox_.get_first_child() == NULL))
+        rebuildEditor();
+}
+
+Composer::~Composer (void)
 {
     drawTimer_.disconnect();
-    paneIdle_.disconnect();
     reloadIdle_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
     kbdOnConn_.disconnect();
     kbdOffConn_.disconnect();
+
+    /* The roll reads the scheduler, so it goes first: out of its box,
+       which frees it. */
+    if (roll_ != NULL)
+        rollBox_.remove(*roll_);
+
+    roll_ = NULL;
 
     /* Order matters: the scheduler's destructor flushes note-offs and
        destroys chain instances, which calls back into the plugins -- so
@@ -295,7 +268,7 @@ ComposerWindow::~ComposerWindow (void)
 
 /* Same walk NodeEditor does over visual/, one directory over. */
 void
-ComposerWindow::loadComposers (void)
+Composer::loadComposers (void)
 {
     thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
     string root = pm ? pm->pluginPath() : string(PLUGIN_PATH);
@@ -332,7 +305,7 @@ ComposerWindow::loadComposers (void)
 
         if (have != composers_.end())
         {
-            fprintf(stderr, "ComposerWindow: two composer modules both "
+            fprintf(stderr, "Composer: two composer modules both "
                     "called '%s'; keeping %s\n", p->name().c_str(),
                     have->second->path().c_str());
             delete p;
@@ -346,7 +319,7 @@ ComposerWindow::loadComposers (void)
 /* ---- source and work files -------------------------------------------- */
 
 bool
-ComposerWindow::ensureWork (void)
+Composer::ensureWork (void)
 {
     if (!workPath_.empty())
         return true;
@@ -357,7 +330,7 @@ ComposerWindow::ensureWork (void)
 }
 
 void
-ComposerWindow::loadPiece (void)
+Composer::loadPiece (void)
 {
     if (genPath_.empty())
         genPath_ = thUtil::findDataFile("airports.gen", "gen",
@@ -427,7 +400,7 @@ sameInstrument (const thcInstrument &a, const thcInstrument &b)
 }
 
 bool
-ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
+Composer::loadInstrument (const thcInstrument &inst, std::string &why)
 {
     gthPatchManager *pm = gthPatchManager::instance();
 
@@ -514,7 +487,7 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
 }
 
 bool
-ComposerWindow::loadEffect (int channel, const std::string &effect, int side,
+Composer::loadEffect (int channel, const std::string &effect, int side,
                             std::string &why)
 {
     gthPatchManager *pm = gthPatchManager::instance();
@@ -528,7 +501,7 @@ ComposerWindow::loadEffect (int channel, const std::string &effect, int side,
     /* setEffect answers both halves of this: it declines to rebuild an
        effect the channel already has under the same name, and it takes one
        off when the name is empty -- which is what a piece that dropped its
-       `effect' clause means for a channel this window loaded one onto. */
+       `effect' clause means for a channel this loaded one onto. */
     if (pm->setEffect(channel, effect, side))
         return true;
 
@@ -541,14 +514,14 @@ ComposerWindow::loadEffect (int channel, const std::string &effect, int side,
 }
 
 bool
-ComposerWindow::unloadInstrument (const thcInstrument &inst)
+Composer::unloadInstrument (const thcInstrument &inst)
 {
     gthPatchManager *pm = gthPatchManager::instance();
 
     /* Still ours if it would not go. unloadPatch fails when the audio
        thread could not be told to drop the channel, and the channel is
        then still loaded and still sounding -- so forgetting it here
-       would leave a graph playing that this window no longer believes
+       would leave a graph playing that this no longer believes
        it owns and will never try to unload again. */
     if (pm == NULL || !pm->unloadPatch(inst.channel))
         return false;
@@ -564,7 +537,7 @@ ComposerWindow::unloadInstrument (const thcInstrument &inst)
 }
 
 bool
-ComposerWindow::stillOurs (int channel) const
+Composer::stillOurs (int channel) const
 {
     gthPatchManager *pm = gthPatchManager::instance();
     gthPatchManager::PatchFile *have =
@@ -582,7 +555,7 @@ ComposerWindow::stillOurs (int channel) const
 }
 
 bool
-ComposerWindow::channelTaken (int channel)
+Composer::channelTaken (int channel)
 {
     gthPatchManager *pm = gthPatchManager::instance();
 
@@ -596,7 +569,7 @@ ComposerWindow::channelTaken (int channel)
     return !stillOurs(channel);
 }
 
-/* Give back the channels this window filled for the piece that was open
+/* Give back the channels this filled for the piece that was open
  * a moment ago and the new one no longer wants.
  *
  * A patch outlives the file that asked for it -- that is why the
@@ -607,7 +580,7 @@ ComposerWindow::channelTaken (int channel)
  * loaded by hand is never taken away.
  */
 void
-ComposerWindow::releaseInstruments (void)
+Composer::releaseInstruments (void)
 {
     gthPatchManager *pm = gthPatchManager::instance();
 
@@ -624,7 +597,7 @@ ComposerWindow::releaseInstruments (void)
             if (wanted)
                 continue;
 
-            /* Only if what is on it is still the exact patch this window
+            /* Only if what is on it is still the exact patch this
                put there. Somebody who loaded their own onto one of the
                piece's channels has made it theirs -- and their patch may
                well be built on the same .dsp, which is why this is a
@@ -647,7 +620,7 @@ ComposerWindow::releaseInstruments (void)
 }
 
 void
-ComposerWindow::parseWork (void)
+Composer::parseWork (void)
 {
     /* Every ParamInfo behind an open popover is about to be replaced, so
        the popover goes with them. Not "hidden": the widgets in it hold
@@ -752,22 +725,21 @@ ComposerWindow::parseWork (void)
 }
 
 void
-ComposerWindow::structuralReload (void)
+Composer::structuralReload (void)
 {
     scheduleReload(true);
 }
 
 void
-ComposerWindow::scheduleReload (bool markDirty)
+Composer::scheduleReload (bool markDirty)
 {
     if (reloadPending_)
         return;
 
     reloadPending_ = true;
 
-    /* Stored for the same reason as paneIdle_ above, and this one
-       predates it: a reload queued at idle and a window closed before
-       the loop comes round again is a callback into a freed window that
+    /* Stored: a reload queued at idle and a composer destroyed before
+       the loop comes round again is a callback into freed memory that
        then reloads the piece through a deleted scheduler. The
        reloadPending_ flag makes sure there is only ever one. */
     reloadIdle_ = Glib::signal_idle().connect(
@@ -796,7 +768,7 @@ ComposerWindow::scheduleReload (bool markDirty)
 }
 
 bool
-ComposerWindow::editOk (thcGenEdit::Result r, const std::string &why)
+Composer::editOk (thcGenEdit::Result r, const std::string &why)
 {
     if (r == thcGenEdit::OK)
         return true;
@@ -809,21 +781,21 @@ ComposerWindow::editOk (thcGenEdit::Result r, const std::string &why)
 /* ---- transport & top-bar actions -------------------------------------- */
 
 void
-ComposerWindow::onPlay (void)
+Composer::onPlay (void)
 {
     sched_->start();
     updateTransportButtons();
 }
 
 void
-ComposerWindow::onPause (void)
+Composer::onPause (void)
 {
     sched_->halt();
     updateTransportButtons();
 }
 
 void
-ComposerWindow::onRewind (void)
+Composer::onRewind (void)
 {
     /* Back to the top, and nothing from where it was left still ringing
        into the start. */
@@ -833,7 +805,7 @@ ComposerWindow::onRewind (void)
 }
 
 void
-ComposerWindow::onReload (void)
+Composer::onReload (void)
 {
     /* Revert: recopy the source over the work file and reload. Through
        the idle path like everything else, so the editor panel is not
@@ -854,7 +826,7 @@ ComposerWindow::onReload (void)
 }
 
 void
-ComposerWindow::onTempo (void)
+Composer::onTempo (void)
 {
     if (tempoGuard_)
         return;
@@ -881,62 +853,7 @@ ComposerWindow::onTempo (void)
 }
 
 void
-ComposerWindow::onEditToggle (void)
-{
-    const bool on = editBtn_->get_active();
-
-    /* Remember how wide the panel was before hiding it, so that closing
-       and reopening Edit is not a way to lose the width you dragged it
-       to. Read before the hide, because a hidden child has no width. */
-    if (!on && tabs_.get_visible() && paned_.get_width() > 0)
-        panelW_ = paned_.get_width() - paned_.get_position();
-
-    tabs_.set_visible(on);
-
-    if (!on)
-        return;
-
-    rebuildEditor();
-
-    /* And put it back where it was, or at a third of the window the
-       first time.
-     *
-       In an idle, because the panel has just been made visible and the
-       paned has not been allocated with it in yet -- asking now gives
-       the width from before the show. A third rather than the panel's
-       natural width: a Selection row of spin buttons and menus is about
-       seven hundred pixels wide, which is half the window and not a
-       panel. */
-    /* Kept and replaced rather than piled up: Edit can be toggled faster
-       than the loop turns, and the same connection also means the
-       destructor can take back whatever is outstanding. An idle that
-       captured `this' and outlived the window is a call into freed
-       memory -- the same hazard as paneIdle_ and reloadIdle_, which is
-       why it borrows paneIdle_ rather than adding a third name for it:
-       both put a paned where it belongs, and only one can be wanted at
-       a time. */
-    paneIdle_.disconnect();
-    paneIdle_ = Glib::signal_idle().connect(
-        [this]
-        {
-            const int w = paned_.get_width();
-
-            if (w >= 400)
-            {
-                int want = panelW_ > 0 ? panelW_ : std::min(w / 3, 380);
-
-                if (want > w - 240)
-                    want = w - 240;
-
-                paned_.set_position(w - want);
-            }
-
-            return false;
-        });
-}
-
-void
-ComposerWindow::onSave (void)
+Composer::onSave (void)
 {
     if (genPath_.empty())
     {
@@ -951,10 +868,13 @@ ComposerWindow::onSave (void)
 }
 
 void
-ComposerWindow::onSaveAs (void)
+Composer::onSaveAs (void)
 {
     Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(
-        *this, "Save piece as", Gtk::FileChooser::Action::SAVE);
+        "Save piece as", Gtk::FileChooser::Action::SAVE);
+
+    if (Gtk::Window *win = windowOf(&canvasScroll_))
+        dialog->set_transient_for(*win);
 
     dialog->add_button("_Cancel", Gtk::ResponseType::CANCEL);
     dialog->add_button("_Save", Gtk::ResponseType::OK);
@@ -963,14 +883,14 @@ ComposerWindow::onSaveAs (void)
                                                : doc_.name + ".gen");
 
     dialog->signal_response().connect(
-        sigc::bind(sigc::mem_fun(*this, &ComposerWindow::onSaveAsResponse),
+        sigc::bind(sigc::mem_fun(*this, &Composer::onSaveAsResponse),
                    dialog));
 
     dialog->set_visible(true);
 }
 
 void
-ComposerWindow::onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog)
+Composer::onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog)
 {
     std::string path;
 
@@ -988,7 +908,7 @@ ComposerWindow::onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog)
     /* GTK4's Save chooser hands back the path and says nothing about a
        file already being there -- the question is asked here, the same
        way every other save in the app asks it. */
-    confirmOverwrite(this, path,
+    confirmOverwrite(windowOf(&canvasScroll_), path,
         [this, path]
         {
             if (copyOver(workPath_, path))
@@ -1003,7 +923,7 @@ ComposerWindow::onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog)
 }
 
 void
-ComposerWindow::confirmDiscard (const sigc::slot<void ()> &done)
+Composer::confirmDiscard (const sigc::slot<void ()> &done)
 {
     if (!dirty_)
     {
@@ -1012,8 +932,11 @@ ComposerWindow::confirmDiscard (const sigc::slot<void ()> &done)
     }
 
     Gtk::MessageDialog *dlg = new Gtk::MessageDialog(
-        *this, "Throw away unsaved edits?", false,
+        "Throw away unsaved edits?", false,
         Gtk::MessageType::QUESTION, Gtk::ButtonsType::YES_NO, true);
+
+    if (Gtk::Window *win = windowOf(&canvasScroll_))
+        dlg->set_transient_for(*win);
 
     dlg->set_secondary_text("The piece has edits that were never saved; "
                             "opening another one loses them.");
@@ -1031,9 +954,9 @@ ComposerWindow::confirmDiscard (const sigc::slot<void ()> &done)
 }
 
 void
-ComposerWindow::onOpen (void)
+Composer::onOpen (void)
 {
-    confirmDiscard(sigc::mem_fun(*this, &ComposerWindow::onOpenConfirmed));
+    confirmDiscard(sigc::mem_fun(*this, &Composer::onOpenConfirmed));
 }
 
 /* The rows the piece browser shows, given what is in its filter box. The
@@ -1094,7 +1017,7 @@ static std::vector<BrowserGroup> genRows (GenCatalog *catalog,
  * and a paragraph saying what it teaches. Other File... is still there for a
  * piece that lives somewhere else. */
 void
-ComposerWindow::onOpenConfirmed (void)
+Composer::onOpenConfirmed (void)
 {
     /* Where the pieces live: beside the one that is open, or in the gen/
        data directory the default piece came from. */
@@ -1106,8 +1029,15 @@ ComposerWindow::onOpenConfirmed (void)
 
     catalog->scan(folder);
 
+    /* A browser has to belong to a window, and the actions that open one
+       are the window's: there is always one to belong to. */
+    Gtk::Window *win = windowOf(&canvasScroll_);
+
+    if (win == NULL)
+        return;
+
     ItemBrowser *browser = new ItemBrowser(
-        *this, "Open piece",
+        *win, "Open piece",
         [catalog](const std::string &needle)
         {
             return genRows(catalog.get(), needle);
@@ -1120,13 +1050,13 @@ ComposerWindow::onOpenConfirmed (void)
                           "File...</small>");
 
     browser->signal_chosen().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onOpenChosen));
+        sigc::mem_fun(*this, &Composer::onOpenChosen));
 
     browser->present();
 }
 
 void
-ComposerWindow::onOpenChosen (std::string path)
+Composer::onOpenChosen (std::string path)
 {
     if (path.empty())
         return;
@@ -1142,7 +1072,7 @@ ComposerWindow::onOpenChosen (std::string path)
 }
 
 void
-ComposerWindow::onNew (void)
+Composer::onNew (void)
 {
     confirmDiscard(
         [this]
@@ -1163,7 +1093,7 @@ ComposerWindow::onNew (void)
 }
 
 void
-ComposerWindow::setDirty (bool dirty)
+Composer::setDirty (bool dirty)
 {
     dirty_ = dirty;
 
@@ -1174,14 +1104,15 @@ ComposerWindow::setDirty (bool dirty)
 }
 
 void
-ComposerWindow::updateTransportButtons (void)
+Composer::updateTransportButtons (void)
 {
-    bool have = sched_->chainCount() > 0;
+    const bool have = sched_ != NULL && sched_->chainCount() > 0;
+    const bool running = sched_ != NULL && sched_->running();
 
-    shownRunning_ = sched_->running();
+    shownRunning_ = running;
 
-    playBtn_->set_sensitive(have && !sched_->running());
-    pauseBtn_->set_sensitive(have && sched_->running());
+    playBtn_->set_sensitive(have && !running);
+    pauseBtn_->set_sensitive(have && running);
     rewindBtn_->set_sensitive(have);
 
     std::string text = pieceLabel_;
@@ -1191,104 +1122,52 @@ ComposerWindow::updateTransportButtons (void)
 
     if (!have && composers_.empty())
         text = "no composer modules found in " + composerRoot_;
-    else if (sched_->running())
+    else if (running)
         text += " — playing";
 
     status_->set_text(text);
 }
 
-/* The title bar, which is also the toolbar.
+/* The file commands, as actions and a menu section for the host's menu,
+ * and the transport for its title bar.
  *
- * New and Open used to live inside the Edit panel, which meant the two
- * things a person does before there is anything to edit were behind a
- * toggle that only makes sense once there is. They are menu items now,
- * where every other program keeps them.
- *
- * The transport stays on the bar because it is pressed constantly and a
- * menu is not for that. Everything pressed rarely -- the file commands,
- * Revert, whether the roll is showing -- is behind the button, and the
- * two toggles that change what the window *is* stay out where their
- * state can be seen without opening anything. */
+ * The transport is on the bar because it is pressed constantly and a menu
+ * is not for that. Everything pressed rarely -- the file commands and
+ * Revert -- is in the menu. */
 void
-ComposerWindow::buildHeader (void)
+Composer::buildActions (void)
 {
     Glib::RefPtr<Gio::SimpleActionGroup> acts = acts_ =
         Gio::SimpleActionGroup::create();
 
-    acts->add_action("new", sigc::mem_fun(*this, &ComposerWindow::onNew));
-    acts->add_action("open", sigc::mem_fun(*this, &ComposerWindow::onOpen));
+    /* Each wakes the composer first: before start() there is no piece for
+       it to act on, and New done then was undone by the load that
+       followed. */
+    acts->add_action("new", [this] { wake(); onNew(); });
+    acts->add_action("open", [this] { wake(); onOpen(); });
     saveAct_ = acts->add_action("save",
-                                sigc::mem_fun(*this, &ComposerWindow::onSave));
-    acts->add_action("saveas",
-                     sigc::mem_fun(*this, &ComposerWindow::onSaveAs));
-    acts->add_action("revert",
-                     sigc::mem_fun(*this, &ComposerWindow::onReload));
+                                sigc::mem_fun(*this, &Composer::onSave));
+    acts->add_action("saveas", [this] { wake(); onSaveAs(); });
+    acts->add_action("revert", [this] { wake(); onReload(); });
 
-    /* The roll is a strip, not a fixture: a piece being wired up wants
-       the whole window for the canvas, and one being listened to wants
-       the roll. Stateful rather than a plain action so the menu shows a
-       tick, which is the only way to tell a hidden roll from a piece
-       playing nothing. */
-    rollAct_ = acts->add_action_bool("roll", true);
-    rollAct_->signal_change_state().connect(
-        [this](const Glib::VariantBase &v)
-        {
-            const bool on =
-                Glib::VariantBase::cast_dynamic<Glib::Variant<bool> >(v)
-                    .get();
+    /* Nothing to save until there is a piece; the load says whether there
+       is anything then. */
+    saveAct_->set_enabled(false);
 
-            rollAct_->set_state(Glib::Variant<bool>::create(on));
-            roll_->set_visible(on);
-        });
+    menu_ = Gio::Menu::create();
+    menu_->append("Ne_w Piece", "composer.new");
+    menu_->append("_Open Piece...", "composer.open");
+    menu_->append("Sa_ve Piece", "composer.save");
+    menu_->append("Save Piece _As...", "composer.saveas");
+    menu_->append("Revert Pie_ce", "composer.revert");
 
-    insert_action_group("composer", acts);
-
-    Glib::RefPtr<Gio::Menu> menu = Gio::Menu::create();
-    Glib::RefPtr<Gio::Menu> file = Gio::Menu::create();
-    Glib::RefPtr<Gio::Menu> save = Gio::Menu::create();
-    Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
-
-    file->append("New", "composer.new");
-    file->append("Open...", "composer.open");
-    save->append("Save", "composer.save");
-    save->append("Save As...", "composer.saveas");
-    save->append("Revert", "composer.revert");
-    view->append("Piano roll", "composer.roll");
-
-    menu->append_section(file);
-    menu->append_section(save);
-    menu->append_section(view);
-
-    Gtk::MenuButton *mb = manage(new Gtk::MenuButton());
-
-    mb->set_icon_name("open-menu-symbolic");
-    mb->set_tooltip_text("File and view");
-    mb->set_menu_model(menu);
-
-    /* Title and status in one column, because GTK4 took the subtitle
-       away and the status line has nowhere else to be that is not
-       another row of chrome. */
-    titleLbl_.set_text("Composer");
-    titleLbl_.add_css_class("title");
-    status_->add_css_class("subtitle");
-    status_->set_hexpand(false);
-    status_->set_xalign(0.5);
-
-    titleBox_.set_valign(Gtk::Align::CENTER);
-    titleBox_.append(titleLbl_);
-    titleBox_.append(*status_);
-
-    header_.set_title_widget(titleBox_);
-    header_.pack_start(*playBtn_);
-    header_.pack_start(*pauseBtn_);
-    header_.pack_start(*rewindBtn_);
-    header_.pack_start(*tempoLbl_);
-    header_.pack_start(*tempoBtn_);
-    header_.pack_end(*mb);
-    header_.pack_end(*editBtn_);
-    header_.pack_end(*kbdBtn_);
-
-    set_titlebar(header_);
+    transport_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 4));
+    transport_->append(*playBtn_);
+    transport_->append(*pauseBtn_);
+    transport_->append(*rewindBtn_);
+    transport_->append(*tempoLbl_);
+    transport_->append(*tempoBtn_);
+    transport_->append(*kbdBtn_);
 }
 
 /* ---- the playing side ------------------------------------------------- */
@@ -1297,14 +1176,14 @@ ComposerWindow::buildHeader (void)
  * live; 50ms is plenty for a euclid ring, and the piano roll keeps its
  * own frame clock. */
 bool
-ComposerWindow::onDrawTimer (void)
+Composer::onDrawTimer (void)
 {
-    if (canvas_ != NULL)
+    if (canvas_ != NULL && canvasShown_)
         canvas_->queue_draw();
 
     /* The transport can stop without anyone pressing Pause: a piece
        whose arrangement ends (`section end;') stops itself when its last
-       section is over. The toolbar has to say so, and this is the only
+       section is over. The transport has to say so, and this is the only
        thing here that runs on its own. */
     if (sched_->running() != shownRunning_)
         updateTransportButtons();
@@ -1313,8 +1192,11 @@ ComposerWindow::onDrawTimer (void)
 }
 
 void
-ComposerWindow::injectOn (int chan, float note, float veloc)
+Composer::injectOn (int chan, float note, float veloc)
 {
+    if (sched_ == NULL)
+        return;
+
     thcEvent ev = {};
 
     ev.type = THC_EV_NOTE;
@@ -1329,8 +1211,11 @@ ComposerWindow::injectOn (int chan, float note, float veloc)
 }
 
 void
-ComposerWindow::injectOff (int chan, float note)
+Composer::injectOff (int chan, float note)
 {
+    if (sched_ == NULL)
+        return;
+
     thcEvent ev = {};
 
     ev.type = THC_EV_NOTEOFF;
@@ -1347,7 +1232,7 @@ ComposerWindow::injectOff (int chan, float note)
  * for auditioning patches, and auditioning through an arpeggiator you
  * forgot about is a confusing five minutes. */
 void
-ComposerWindow::onKbdToggle (void)
+Composer::onKbdToggle (void)
 {
     /* Guarded as well as fixed. This is a signal handler on a member
        pointer, so it can be reached from anywhere the toolkit decides to
@@ -1359,9 +1244,9 @@ ComposerWindow::onKbdToggle (void)
     if (kbdBtn_->get_active())
     {
         kbdOnConn_ = m_sigKbdNoteOn.connect(
-            sigc::mem_fun(*this, &ComposerWindow::injectOn));
+            sigc::mem_fun(*this, &Composer::injectOn));
         kbdOffConn_ = m_sigKbdNoteOff.connect(
-            sigc::mem_fun(*this, &ComposerWindow::injectOff));
+            sigc::mem_fun(*this, &Composer::injectOff));
     }
     else
     {
@@ -1371,16 +1256,16 @@ ComposerWindow::onKbdToggle (void)
 }
 
 void
-ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &sel)
+Composer::onCanvasSelection (const ComposerCanvas::Selection &sel)
 {
     rebuildSelection();
 
-    /* Raise Selection, but not for a click that deselected: clearing the
-       canvas and being thrown into an empty tab reads as the window
-       losing its place. */
-    if (sel.kind != ComposerCanvas::Selection::NONE &&
-        tabs_.get_visible())
-        tabs_.set_current_page(1);
+    /* Ask for Selection, whether or not it is in view -- a stage picked
+       is a stage to edit, and nothing else says where that is done -- but
+       not for a click that deselected: clearing the canvas and being
+       thrown into an empty pane reads as the window losing its place. */
+    if (sel.kind != ComposerCanvas::Selection::NONE)
+        showSelection_.emit();
 }
 
 /* A knob, selected on the canvas: its shape, and what it drives.
@@ -1392,7 +1277,7 @@ ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &sel)
  * goes, which is the only answer that does not change what is playing:
  * removeKnob makes the same promise for the same reason. */
 void
-ComposerWindow::buildKnobSelection (size_t ki)
+Composer::buildKnobSelection (size_t ki)
 {
     const thcGenEdit::Knob &k = doc_.knobs[ki];
     const std::string name = k.name;
@@ -1607,7 +1492,7 @@ ComposerWindow::buildKnobSelection (size_t ki)
  * reading through, so the poke is one assignment however many params
  * that is -- which is the whole point of a knob. */
 void
-ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
+Composer::onCanvasKnob (std::string name, double value, bool commit)
 {
     thArg *arg = sched_->knob(name);
 
@@ -1634,7 +1519,7 @@ ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
     /* The Knobs section's own slider is now stale. Only when the panel
        is up: rebuildEditor on a hidden panel is work nobody sees, and
        the panel is rebuilt on the way to being shown anyway. */
-    if (editBtn_ != NULL && editBtn_->get_active())
+    if (editing_)
         rebuildEditor();
 }
 
@@ -1650,7 +1535,7 @@ ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
  * a note set or a Life board is not a thing a wire could ever reach, and
  * a list of things you cannot have is not help. */
 void
-ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
+Composer::onCanvasBindKnob (std::string knob, size_t chain,
                                   size_t stage, CanvasRect at)
 {
     closeParams();
@@ -1737,7 +1622,7 @@ ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
 
 /* One stage's parameters, drawn and bound.
  *
- * Both places the window shows them are this call: the Selection tab and the
+ * Both places the window shows them are this call: the Selection pane and the
  * popover the canvas's params handle brings up. What they are is StagePanel
  * through PanelView, which is the same description the browser draws from
  * -- so the two pages of this program stopped guessing separately at what a
@@ -1751,7 +1636,7 @@ ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
  * `si' is the document's stage index, which is what the window counts in;
  * the panel names one by the scheduler's, so the two meet here. */
 StageParamsView *
-ComposerWindow::makeStageParams (size_t ci, size_t si)
+Composer::makeStageParams (size_t ci, size_t si)
 {
     StageParamsView *view = manage(new StageParamsView());
 
@@ -1799,15 +1684,15 @@ ComposerWindow::makeStageParams (size_t ci, size_t si)
 
 /* The params handle on a stage box, pressed.
  *
- * The rows are the Edit panel's rows -- makeStageParams, the same call the
- * Selection tab makes -- in a popover pointed at the box. That is the
+ * The rows are the Selection pane's rows -- makeStageParams, the same call the
+ * Selection pane makes -- in a popover pointed at the box. That is the
  * whole of why this is a popover and not a drawing: boxes that take typed
  * numbers, unit menus that say `ms' or `beats', and the knob binding
  * dropdown are what a parameter is, and a canvas would have had to grow its
  * own versions of the three, in eight-pixel text, and would still not have
  * let anyone type. */
 void
-ComposerWindow::closeParams (void)
+Composer::closeParams (void)
 {
     if (paramPop_ == NULL)
         return;
@@ -1818,7 +1703,7 @@ ComposerWindow::closeParams (void)
 }
 
 void
-ComposerWindow::onCanvasParams (size_t chain, size_t stage,
+Composer::onCanvasParams (size_t chain, size_t stage,
                                 CanvasRect at)
 {
     closeParams();
@@ -1850,7 +1735,7 @@ ComposerWindow::onCanvasParams (size_t chain, size_t stage,
 }
 
 void
-ComposerWindow::onCanvasMoveStage (size_t chain, int from, int to)
+Composer::onCanvasMoveStage (size_t chain, int from, int to)
 {
     if (chain >= doc_.chains.size())
         return;
@@ -1875,7 +1760,7 @@ ComposerWindow::onCanvasMoveStage (size_t chain, int from, int to)
 /* ---- the editor panel ------------------------------------------------- */
 
 thcStage *
-ComposerWindow::liveStage (size_t ci, size_t si)
+Composer::liveStage (size_t ci, size_t si)
 {
     thcChain *c = sched_->chain(ci);
 
@@ -1896,7 +1781,7 @@ ComposerWindow::liveStage (size_t ci, size_t si)
 }
 
 std::vector<std::pair<std::string, std::string> >
-ComposerWindow::defaultParams (const thcPlugin *plugin)
+Composer::defaultParams (const thcPlugin *plugin)
 {
     /* Every registered param, spelled out -- a .gen should survive a
        plugin's defaults changing; this is the lesson of noargs/.
@@ -1915,7 +1800,7 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
 }
 
 void
-ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
+Composer::applyParam (size_t ci, size_t si, const std::string &param,
                             const std::string &valueText)
 {
     if (ci >= doc_.chains.size())
@@ -1975,13 +1860,13 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
 }
 
 void
-ComposerWindow::rebuildEditor (void)
+Composer::rebuildEditor (void)
 {
     /* The buttons below die with their row; forgetting that here left
        setDirty poking freed widgets whenever the panel was hidden.
      *
      * kbdBtn_ is deliberately *not* in this list, and used to be. It
-       lives in the toolbar, which nothing here clears, so nulling it
+       lives in the transport, which nothing here clears, so nulling it
        forgot a widget that was still on screen and still connected --
        and the next click on Kbd input reached onKbdToggle, which
        dereferenced the null and took the program with it. A pointer
@@ -1994,15 +1879,20 @@ ComposerWindow::rebuildEditor (void)
     while (Gtk::Widget *child = selOuter_.get_first_child())
         selOuter_.remove(*child);
 
-    if (!editBtn_->get_active())
+    if (!editing_)
+    {
+        stale_ = true;
         return;
+    }
+
+    stale_ = false;
 
     editorBox_.append(*buildPieceSection());
     editorBox_.append(*buildKnobsSection());
     editorBox_.append(*buildScalesSection());
     editorBox_.append(*buildPresetsSection());
 
-    /* The Selection tab follows the canvas: whatever is selected up
+    /* The Selection pane follows the canvas: whatever is selected up
        there is editable in here. */
     selBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 4));
     selOuter_.append(*selBox_);
@@ -2011,7 +1901,7 @@ ComposerWindow::rebuildEditor (void)
 }
 
 void
-ComposerWindow::rebuildSelection (void)
+Composer::rebuildSelection (void)
 {
     if (selBox_ == NULL)
         return;
@@ -2019,8 +1909,11 @@ ComposerWindow::rebuildSelection (void)
     while (Gtk::Widget *child = selBox_->get_first_child())
         selBox_->remove(*child);
 
-    if (!editBtn_->get_active())
+    if (!editing_)
+    {
+        stale_ = true;
         return;
+    }
 
     const ComposerCanvas::Selection &sel = canvas_->selection();
 
@@ -2070,7 +1963,7 @@ ComposerWindow::rebuildSelection (void)
 }
 
 Gtk::Widget *
-ComposerWindow::buildPieceSection (void)
+Composer::buildPieceSection (void)
 {
     Gtk::Expander *exp = manage(new Gtk::Expander("Piece"));
     Gtk::Grid *grid = manage(new Gtk::Grid());
@@ -2171,7 +2064,7 @@ ComposerWindow::buildPieceSection (void)
 }
 
 Gtk::Widget *
-ComposerWindow::buildKnobsSection (void)
+Composer::buildKnobsSection (void)
 {
     Gtk::Expander *exp = manage(new Gtk::Expander("Knobs"));
     Gtk::Grid *grid = manage(new Gtk::Grid());
@@ -2285,7 +2178,7 @@ ComposerWindow::buildKnobsSection (void)
 }
 
 Gtk::Widget *
-ComposerWindow::buildScalesSection (void)
+Composer::buildScalesSection (void)
 {
     Gtk::Expander *exp = manage(new Gtk::Expander("Scales"));
     Gtk::Grid *grid = manage(new Gtk::Grid());
@@ -2374,7 +2267,7 @@ ComposerWindow::buildScalesSection (void)
  * Every edit is a splice *and* a poke, so the sweep between two presets
  * changes under the transport rather than at the next load. */
 Gtk::Widget *
-ComposerWindow::buildPresetsSection (void)
+Composer::buildPresetsSection (void)
 {
     Gtk::Expander *exp = manage(new Gtk::Expander("Presets"));
     Gtk::Grid *grid = manage(new Gtk::Grid());
@@ -2518,7 +2411,7 @@ ComposerWindow::buildPresetsSection (void)
  * which is what makes dragging a component while a morph is sweeping
  * behave the way dragging a knob does. */
 void
-ComposerWindow::presetChanged (const std::string &preset)
+Composer::presetChanged (const std::string &preset)
 {
     setDirty(true);
 
@@ -2597,7 +2490,7 @@ ComposerWindow::presetChanged (const std::string &preset)
  * all happen the way they do for a value typed by hand. Writing the file
  * behind thcGenEdit's back would be a second writer, and there is one. */
 void
-ComposerWindow::captureStage (size_t ci, size_t si)
+Composer::captureStage (size_t ci, size_t si)
 {
     thcStage *s = liveStage(ci, si);
 
@@ -2654,7 +2547,7 @@ ComposerWindow::captureStage (size_t ci, size_t si)
 }
 
 void
-ComposerWindow::buildChainSelection (size_t ci)
+Composer::buildChainSelection (size_t ci)
 {
     const thcGenEdit::Chain &chain = doc_.chains[ci];
     std::string chainName = chain.name;
@@ -2742,7 +2635,7 @@ ComposerWindow::buildChainSelection (size_t ci)
 }
 
 void
-ComposerWindow::buildStageSelection (size_t ci, size_t si)
+Composer::buildStageSelection (size_t ci, size_t si)
 {
     const thcGenEdit::Stage &stage = doc_.chains[ci].stages[si];
     std::string chainName = doc_.chains[ci].name;
@@ -2868,7 +2761,7 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
  * drop-down at all. One choice is not a choice.
  */
 Gtk::DropDown *
-ComposerWindow::buildSinkTarget (Gtk::Box *row, Gtk::SpinButton *chan,
+Composer::buildSinkTarget (Gtk::Box *row, Gtk::SpinButton *chan,
                                  const std::string &selected,
                                  std::vector<std::string> &targets)
 {
@@ -2909,7 +2802,7 @@ ComposerWindow::buildSinkTarget (Gtk::Box *row, Gtk::SpinButton *chan,
 }
 
 void
-ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
+Composer::buildSinkSelection (size_t ci, size_t ki)
 {
     const thcGenEdit::Chain &chain = doc_.chains[ci];
     std::string chainName = chain.name;
@@ -2975,7 +2868,7 @@ ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
 }
 
 void
-ComposerWindow::buildAddStage (size_t ci)
+Composer::buildAddStage (size_t ci)
 {
     std::string chainName = doc_.chains[ci].name;
     size_t nStages = doc_.chains[ci].stages.size();
@@ -3028,7 +2921,7 @@ ComposerWindow::buildAddStage (size_t ci)
 }
 
 void
-ComposerWindow::buildAddSink (size_t ci)
+Composer::buildAddSink (size_t ci)
 {
     std::string chainName = doc_.chains[ci].name;
 
@@ -3086,7 +2979,7 @@ ComposerWindow::buildAddSink (size_t ci)
 }
 
 void
-ComposerWindow::buildAddChain (void)
+Composer::buildAddChain (void)
 {
     selBox_->append(*manage(new Gtk::Label("add a chain")));
 

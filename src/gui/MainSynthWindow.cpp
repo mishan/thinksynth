@@ -41,7 +41,7 @@
 #include "Panes.h"
 #include "Keyboard.h"
 #include "KeyboardPanel.h"
-#include "ComposerWindow.h"
+#include "Composer.h"
 #include "MainSynthWindow.h"
 
 #include "../gthTheme.h"
@@ -95,7 +95,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     patchSel_ = NULL;
     aboutBox_ = NULL;
     kbPanel_ = NULL;
-    compWin_ = NULL;
+    composer_ = NULL;
 
     /* Likewise the DSP browser: DSP_PATH is the *build* machine's install
        prefix, so on a relocatable package it names a directory the user has
@@ -111,15 +111,36 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     actions_ = Gio::SimpleActionGroup::create();
     insert_action_group("win", actions_);
 
+    /* Before the menu, which carries its file commands. Built, not
+       started: see Composer::start. */
+    composer_ = new Composer(thSynth::instance());
+    insert_action_group("composer", composer_->actions());
+
     populateMenu();
 
     property_application().signal_changed().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onApplicationSet));
 
     
-    /* The title bar carries what is about the whole window: the master
-       level and the menu. What is about one channel is in its panes. */
-    header_.set_title_widget(*manage(new Gtk::Label("thinksynth")));
+    /* The title bar carries what is about the whole window: the piece's
+       transport and what it is doing, the master level and the menu. What
+       is about one channel is in its panes. The piece's half waits until
+       there is a piece. */
+    {
+        Gtk::Label *title = manage(new Gtk::Label("thinksynth"));
+
+        title->add_css_class("title");
+        composer_->status().add_css_class("subtitle");
+        composer_->status().set_visible(false);
+
+        titleBox_.set_valign(Gtk::Align::CENTER);
+        titleBox_.append(*title);
+        titleBox_.append(composer_->status());
+    }
+
+    composer_->transport().set_visible(false);
+    header_.set_title_widget(titleBox_);
+    header_.pack_start(composer_->transport());
     header_.pack_end(menuBtn_);
     set_titlebar(header_);
 
@@ -211,13 +232,14 @@ MainSynthWindow::~MainSynthWindow (void)
     midiMap_ = NULL;
     kbPanel_ = NULL;
 
-    /* These are kept rather than destroyed when they close, so this is where
-       they go. */
+    /* About is kept rather than destroyed when it closes, so this is where
+       it goes; and the composer after the panes, which were holding its
+       widgets, and before the synth its scheduler plays into. */
     delete aboutBox_;
-    delete compWin_;
+    delete composer_;
 
     aboutBox_ = NULL;
-    compWin_ = NULL;
+    composer_ = NULL;
 
     /* Not shutdown(): the loop has already ended by the time this runs, and
        asking a torn-down application to quit again is not a thing to do in a
@@ -227,9 +249,12 @@ MainSynthWindow::~MainSynthWindow (void)
 
 /* The first layout, for a first run and for Reset Layout: the channels down
  * the left, the graph of the one picked in the middle and its parameters on
- * the right, with the MIDI routing a tab behind them, and the keys along the
- * bottom. The patch list starts in the drawer: Channels picks a channel, and
- * the list is for loading and saving whole patches.
+ * the right, and the keys along the bottom. The piece's canvas and its roll
+ * are tabs behind the graph, and the selection and the piece's settings
+ * tabs behind the parameters: a patch is what the window opens on, and a
+ * piece is a tab away. The patch list and the MIDI routing start in the
+ * drawer, a Ctrl+P and a Ctrl+M away: Channels picks a channel, and the
+ * list is for loading and saving whole patches.
  *
  * Ids the web page uses for the same thing are the ones used here, so a
  * layout means the same on both. */
@@ -237,8 +262,8 @@ static const char *DESKTOP_LAYOUT =
     "{\"dir\":\"col\",\"size\":[0.76,0.24],\"kids\":["
       "{\"dir\":\"row\",\"size\":[0.12,0.53,0.35],\"kids\":["
         "{\"tabs\":[\"channelbox\"]},"
-        "{\"tabs\":[\"nodeview\"]},"
-        "{\"tabs\":[\"paramview\",\"midimap\"]}]},"
+        "{\"tabs\":[\"nodeview\",\"composerview\",\"roll\"]},"
+        "{\"tabs\":[\"paramview\",\"selection\",\"pieceedit\"]}]},"
       "{\"tabs\":[\"keyboard\"]}]}";
 
 /* The window's one mode, until it has more than one. */
@@ -299,6 +324,41 @@ void MainSynthWindow::buildPanes (void)
     panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
     panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 400);
     panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 400);
+    panes_->add("composerview", "Piece", composer_->canvasView(), 360);
+    panes_->add("roll", "Piano roll", composer_->rollView(), 320);
+    panes_->add("pieceedit", "Piece settings", composer_->settingsView(), 300);
+    panes_->add("selection", "Selection", composer_->selectionView(), 300);
+
+    /* A stage picked on the canvas is edited in Selection, so it comes to
+       the front -- without the focus, which stays on the canvas. Unless it
+       was closed: that is somebody saying they do not want it, and a click
+       on the canvas is not them changing their mind. */
+    composer_->signal_show_selection().connect(
+        [this]
+        {
+            if (panes_ == NULL)
+                return;
+
+            const std::vector<string> closed = panes_->closed();
+
+            if (std::find(closed.begin(), closed.end(), "selection") ==
+                closed.end())
+                panes_->present("selection", false);
+        });
+
+    /* A menu command for the piece before the piece is up: the canvas
+       comes into view, which starts it, and the command acts on what it
+       shows. */
+    composer_->signal_wanted().connect(
+        [this] { if (panes_ != NULL) panes_->present("composerview", true); });
+
+    /* However it was started, the transport comes up with it. */
+    composer_->signal_started().connect(
+        [this]
+        {
+            composer_->transport().set_visible(true);
+            composer_->status().set_visible(true);
+        });
 
     panes_->setDefault(DESKTOP_MODE, DESKTOP_LAYOUT);
     panes_->setMode(DESKTOP_MODE);
@@ -326,6 +386,29 @@ void MainSynthWindow::onPaneShown (const string &id, bool visible)
 
     if (id == "nodeview" && visible)
         ensureEditor(chan_);
+
+    if (id == "composerview" || id == "roll" || id == "pieceedit" ||
+        id == "selection")
+        syncComposer();
+}
+
+void MainSynthWindow::syncComposer (void)
+{
+    if (panes_ == NULL || composer_ == NULL || tearingDown_)
+        return;
+
+    const bool canvas = panes_->isVisible("composerview");
+    const bool editing = panes_->isVisible("pieceedit") ||
+                         panes_->isVisible("selection");
+
+    /* The first time any of them is looked at, and not before: starting
+       loads the piece, and the piece's instruments go onto channels. */
+    if (!composer_->started() &&
+        (canvas || editing || panes_->isVisible("roll")))
+        composer_->start();
+
+    composer_->setCanvasShown(canvas);
+    composer_->setEditing(editing && composer_->started());
 }
 
 void MainSynthWindow::syncPaneActions (void)
@@ -707,21 +790,25 @@ void MainSynthWindow::onApplicationSet (void)
 void MainSynthWindow::populateMenu (void)
 {
     /* The panes, each a tick that says whether it is in view: see
-       togglePane. The keys keep the Ctrl+K they were toggled with, and the
+       togglePane. The keys keep the Ctrl+K they were toggled with, the
        patch list and the MIDI map the Ctrl+P and Ctrl+M that opened their
-       windows. */
+       windows, and the piece the Ctrl+G that opened the Composer's. */
     static const struct
     {
         const char *id;
         const char *label;
         const char *accel;
     } panes[] = {
-        { "channelbox", "_Channels",       NULL },
+        { "channelbox", "C_hannels",       NULL },
         { "paramview",  "Patch _Params",   NULL },
         { "nodeview",   "Patch _Graph",    NULL },
         { "keyboard",   "_Keys",           "<Control>k" },
         { "patches",    "Patch _Selector", "<Control>p" },
         { "midimap",    "_MIDI Routing",   "<Control>m" },
+        { "composerview", "P_iece",        "<Control>g" },
+        { "roll",       "Piano _Roll",     NULL },
+        { "pieceedit",  "Piece Se_ttings", NULL },
+        { "selection",  "S_election",      NULL },
     };
 
     Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
@@ -746,9 +833,6 @@ void MainSynthWindow::populateMenu (void)
        this menu hangs off the title bar, which is not. */
     addAction("reset-layout",
               [this] { if (panes_ != NULL) panes_->reset(); });
-    addAction("composer",
-              sigc::mem_fun(*this, &MainSynthWindow::menuComposer),
-              "<Control>g");
     addAction("quit",
               sigc::mem_fun(*this, &MainSynthWindow::menuQuit), "<Control>q");
     addAction("about", sigc::mem_fun(*this, &MainSynthWindow::menuAbout));
@@ -763,11 +847,7 @@ void MainSynthWindow::populateMenu (void)
 
     Glib::RefPtr<Gio::Menu> layout = Gio::Menu::create();
 
-    layout->append("_Reset Layout", "win.reset-layout");
-
-    Glib::RefPtr<Gio::Menu> windows = Gio::Menu::create();
-
-    windows->append("C_omposer", "win.composer");
+    layout->append("Reset La_yout", "win.reset-layout");
 
     Glib::RefPtr<Gio::Menu> appearance = Gio::Menu::create();
 
@@ -780,7 +860,7 @@ void MainSynthWindow::populateMenu (void)
 
     Glib::RefPtr<Gio::Menu> look = Gio::Menu::create();
 
-    look->append_submenu("_Appearance", appearance);
+    look->append_submenu("Appeara_nce", appearance);
 
     Glib::RefPtr<Gio::Menu> end = Gio::Menu::create();
 
@@ -793,7 +873,7 @@ void MainSynthWindow::populateMenu (void)
 
     menu->append_section(view);
     menu->append_section(layout);
-    menu->append_section(windows);
+    menu->append_section(composer_->menu());
     menu->append_section(look);
     menu->append_section(end);
 
@@ -805,21 +885,6 @@ void MainSynthWindow::populateMenu (void)
     menuBtn_.set_primary(true);
 }
 
-
-void MainSynthWindow::menuComposer (void)
-{
-    if (compWin_ == NULL)
-    {
-        compWin_ = new ComposerWindow (thSynth::instance());
-        compWin_->signal_close_request().connect(
-            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
-                       (Gtk::Window *)compWin_), false);
-
-        addCloseAccel(compWin_);
-    }
-
-    compWin_->present();
-}
 
 void MainSynthWindow::menuQuit (void)
 {
