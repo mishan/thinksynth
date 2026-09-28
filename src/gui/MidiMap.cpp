@@ -29,9 +29,31 @@
 #include "MidiMap.h"
 #include "ColumnUtil.h"
 
+/* A channel's instrument as the channel tabs name it: its patch file
+   without ".patch", or its .dsp when no patch file has been saved. Both
+   the destination combo and the connection list use it. */
+static string instrumentName (gthPatchManager::PatchFile *patch)
+{
+    if (patch == NULL)
+        return "Untitled";
+
+    string name = patch->filename.empty()
+        ? thUtil::basename(patch->doc.dsp.c_str())
+        : thUtil::basename(patch->filename.c_str());
+
+    const string ext = ".patch";
+
+    if (name.size() > ext.size() &&
+        name.compare(name.size() - ext.size(), ext.size(), ext) == 0)
+        name.erase(name.size() - ext.size());
+
+    return name.empty() ? "Untitled" : name;
+}
+
 MidiMap::MidiMap (thSynth *argsynth)
 {
     rebuilding_ = false;
+    settingDetails_ = false;
 
     /* All of these are read before anything necessarily sets them -- with no
        patch loaded, fillDestArgCombo() finds no args and leaves selectedArg_
@@ -66,7 +88,7 @@ MidiMap::MidiMap (thSynth *argsynth)
     buttonsHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
     buttonsHBox_->set_homogeneous(true);
 
-    channelLbl_ = manage(new Gtk::Label("Midi Channel"));
+    channelLbl_ = manage(new Gtk::Label("MIDI Channel"));
     channelAdj_ = Gtk::Adjustment::create(1, 1, 16);
     channelSpinBtn_ = manage(new Gtk::SpinButton(channelAdj_, 1, 0));
     channelSpinBtn_->signal_value_changed().connect(
@@ -91,12 +113,17 @@ MidiMap::MidiMap (thSynth *argsynth)
     maxSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onMaxChanged));
 
+    /* Room for a range's top end at four decimals: "127.0000" was cut to
+       "127.000" in the width GTK gives a spin button by default. */
+    minSpinBtn_->set_width_chars(9);
+    maxSpinBtn_->set_width_chars(9);
+
     expLbl_ = manage(new Gtk::Label("Exponential"));
     expCheckBtn_ = manage(new Gtk::CheckButton);
     expCheckBtn_->signal_toggled().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onExpToggled));
 
-    addBtn_ = manage(new Gtk::Button("Add/Modify  Connection"));
+    addBtn_ = manage(new Gtk::Button("Add/Modify Connection"));
     addBtn_->signal_clicked().connect(sigc::mem_fun(*this,
                                                    &MidiMap::onAddButton));
     delBtn_ = manage(new Gtk::Button("Remove Connection"));
@@ -158,7 +185,16 @@ MidiMap::MidiMap (thSynth *argsynth)
     connectScroll_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     connectScroll_.set_size_request(700, 128);
 
-    connectFrame_->set_child(connectScroll_);
+    /* A column view with no rows is a header over a blank box, which
+       reads as broken rather than as empty; this says what it is for. */
+    connectEmpty_.set_text("No controllers routed yet. Pick a source and a "
+                           "parameter below, then Add.");
+    connectEmpty_.add_css_class("dim-label");
+    connectEmpty_.set_can_target(false);
+    connectOverlay_.set_child(connectScroll_);
+    connectOverlay_.add_overlay(connectEmpty_);
+
+    connectFrame_->set_child(connectOverlay_);
 
     connectModel_ = Gio::ListStore<MidiMapRow>::create();
     connectSelection_ = Gtk::SingleSelection::create(connectModel_);
@@ -275,8 +311,8 @@ void MidiMap::fillDestChanCombo (void)
         chanStr << i + 1 << ": ";
         idStr << i;
 
-        destChanCombo_->append(idStr.str(), chanStr.str() +
-                thUtil::basename(patch->doc.dsp.c_str()));
+        destChanCombo_->append(idStr.str(),
+                               chanStr.str() + instrumentName(patch));
 
         if (first)
         {
@@ -356,10 +392,13 @@ void MidiMap::fillDestArgCombo (int chan)
 
     rebuilding_ = false;
 
+    /* Through the same path as a pick from the combo, so the spinners
+       take the arg's range too. Setting only selectedMin_ and selectedMax_
+       left them at the 0..0 they were built with: the window opened with
+       Minimum and Maximum both 0 and neither able to move. */
     if (selectedArg_)
     {
-        selectedMin_ = selectedArg_->min();
-        selectedMax_ = selectedArg_->max();
+        onDestArgComboChanged(selectedArg_);
         setDestArgCombo(chan);
     }
 
@@ -412,12 +451,8 @@ void MidiMap::populateConnections (void)
              connectionMap->begin(); i != connectionMap->end(); i++)
     {
         connection = i->second;
-        instrument = thUtil::basename(patchMgr->getPatch(
-                                 connection->destChan())->filename.c_str());
-        if (instrument.length() == 0)
-        {
-            instrument = string("Untitled");
-        }
+        instrument = instrumentName(
+            patchMgr->getPatch(connection->destChan()));
         
         std::ostringstream chanStr;
         chanStr << connection->destChan() + 1 << ": ";
@@ -428,6 +463,8 @@ void MidiMap::populateConnections (void)
                                                 instrument,
                                                 connection->argName()));
     }
+
+    connectEmpty_.set_visible(connectModel_->get_n_items() == 0);
 }
 
 
@@ -450,22 +487,42 @@ void MidiMap::onDestChanComboChanged (int chan)
 void MidiMap::onDestArgComboChanged (thArg *arg)
 {
     selectedArg_ = arg;
-    selectedMin_ = arg->min();
-    selectedMax_ = arg->max();
-    minSpinBtn_->set_range(selectedMin_, selectedMax_);
-    maxSpinBtn_->set_range(selectedMin_, selectedMax_);
-    minSpinBtn_->set_value(selectedMin_);
-    maxSpinBtn_->set_value(selectedMax_);
+    setDetails(arg->min(), arg->max(), arg->min(), arg->max());
+}
+
+/* Both spinners to the range [lo, hi] and the values min and max.
+ *
+ * set_range clamps a spinner's value and says so through value-changed, so
+ * setting the ranges one at a time let onMinChanged and onMaxChanged
+ * overwrite selectedMin_ and selectedMax_ mid-way: going from 0..0 to an
+ * arg of 20..20000 left Maximum at 20, and from 20..20000 to one of 0..1
+ * left both at 1. The handlers stand aside until both are set, and the
+ * selection is taken from the arguments rather than read back. */
+void MidiMap::setDetails (double lo, double hi, double min, double max)
+{
+    settingDetails_ = true;
+
+    minSpinBtn_->set_range(lo, hi);
+    maxSpinBtn_->set_range(lo, hi);
+    minSpinBtn_->set_value(min);
+    maxSpinBtn_->set_value(max);
+
+    settingDetails_ = false;
+
+    selectedMin_ = minSpinBtn_->get_value();
+    selectedMax_ = maxSpinBtn_->get_value();
 }
 
 void MidiMap::onMinChanged (void)
 {
-    selectedMin_ = minSpinBtn_->get_value();
+    if (!settingDetails_)
+        selectedMin_ = minSpinBtn_->get_value();
 }
 
 void MidiMap::onMaxChanged (void)
 {
-    selectedMax_ = maxSpinBtn_->get_value();
+    if (!settingDetails_)
+        selectedMax_ = maxSpinBtn_->get_value();
 }
 
 void MidiMap::onExpToggled (void)
@@ -525,14 +582,8 @@ void MidiMap::onConnectionMoved (void)
             selectedExp_ = selectedConnection->scale();
             setDestChanCombo();
             setDestArgCombo(selectedDestChan_);
-            selectedMin_ = selectedConnection->min();
-            selectedMax_ = selectedConnection->max();
-            minSpinBtn_->set_range(selectedArg_->min(),
-                                   selectedArg_->max());
-            maxSpinBtn_->set_range(selectedArg_->min(),
-                                   selectedArg_->max());
-            minSpinBtn_->set_value(selectedMin_);
-            maxSpinBtn_->set_value(selectedMax_);
+            setDetails(selectedArg_->min(), selectedArg_->max(),
+                       selectedConnection->min(), selectedConnection->max());
             expCheckBtn_->set_active(selectedExp_);
         }
     }

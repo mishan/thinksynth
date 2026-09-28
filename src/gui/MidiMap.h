@@ -78,6 +78,9 @@ protected:
        were menus. There is no event to take now. */
     void onDestChanComboChanged (int chan);
     void onDestArgComboChanged (thArg *arg);
+
+    /* The details' ranges and values together; see the definition. */
+    void setDetails (double lo, double hi, double min, double max);
     void onMinChanged (void);
     void onMaxChanged (void);
     void onExpToggled (void);
@@ -110,6 +113,10 @@ protected:
     /* Repopulating a ComboBoxText emits signal_changed; without this the
        selection handlers would recurse back into the fill functions. */
     bool rebuilding_;
+
+    /* Set while setDetails is moving the spinners, whose value-changed
+       handlers would otherwise read them back half-way. */
+    bool settingDetails_;
     Gtk::Label *minLbl_;
     Gtk::SpinButton *minSpinBtn_;
     Gtk::Label *maxLbl_;
@@ -121,6 +128,8 @@ protected:
 
     Gtk::Frame *connectFrame_;
     Gtk::ScrolledWindow connectScroll_;
+    Gtk::Overlay connectOverlay_;
+    Gtk::Label connectEmpty_;
     Gtk::ColumnView connectView_;
     Glib::RefPtr<Gio::ListStore<MidiMapRow> > connectModel_;
     Glib::RefPtr<Gtk::SingleSelection> connectSelection_;
