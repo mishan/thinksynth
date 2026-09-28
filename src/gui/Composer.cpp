@@ -2075,35 +2075,23 @@ Composer::buildKnobsSection (void)
 
     int row = 0;
 
-    /* Headers, because without them this is a name and two anonymous
-       spinners, and there is no guessing which of `0.000' and `255.000'
-       is which -- least of all that neither is the knob's *value*. The
-       value lives on the slider above the canvas, where it can be
-       dragged while the piece plays; this section is the knob's shape,
-       not its position. */
-    {
-        static const char *heads[] = { "knob", "lowest", "highest",
-                                       "shown as" };
-
-        for (int c = 0; c < 4; c++)
-        {
-            Gtk::Label *h = manage(new Gtk::Label(heads[c]));
-
-            h->set_xalign(0);
-            h->set_sensitive(false);
-            grid->attach(*h, c, row);
-        }
-
-        row++;
-    }
-
+    /* A knob to a block of three rows -- its name and Remove, its range,
+       and what the slider says -- rather than one row of all five, which
+       came to some 640 pixels and wanted a pane that wide before any of
+       it was cut off. The words stay beside the numbers, because without
+       them this is two anonymous spinners, and there is no guessing which
+       of `0.000' and `255.000' is which -- least of all that neither is
+       the knob's *value*. The value lives on the slider above the canvas,
+       where it can be dragged while the piece plays; this section is the
+       knob's shape, not its position. */
     for (size_t i = 0; i < doc_.knobs.size(); i++)
     {
         const thcGenEdit::Knob &k = doc_.knobs[i];
         std::string name = k.name;
 
-        Gtk::Label *lbl = manage(new Gtk::Label("@" + name));
+        Gtk::Label *lbl = manage(new Gtk::Label());
 
+        lbl->set_markup("<b>@" + Glib::Markup::escape_text(name) + "</b>");
         lbl->set_xalign(0);
 
         Gtk::SpinButton *minSpin = manage(new Gtk::SpinButton(
@@ -2113,9 +2101,14 @@ Composer::buildKnobsSection (void)
         Gtk::Entry *lblEntry = manage(new Gtk::Entry());
         Gtk::Button *rm = manage(new Gtk::Button("Remove"));
 
+        minSpin->set_width_chars(6);
+        maxSpin->set_width_chars(6);
+
         lblEntry->set_text(k.label);
         lblEntry->set_placeholder_text("label");
-        lblEntry->set_max_width_chars(10);
+        lblEntry->set_hexpand(true);
+
+        rm->set_halign(Gtk::Align::END);
 
         auto applyMeta = [this, name, minSpin, maxSpin, lblEntry]
         {
@@ -2144,11 +2137,33 @@ Composer::buildKnobsSection (void)
                     structuralReload();
             });
 
-        grid->attach(*lbl, 0, row);
+        auto word = [] (const char *text)
+        {
+            Gtk::Label *w = manage(new Gtk::Label(text));
+
+            w->set_xalign(0);
+            w->set_sensitive(false);
+
+            return w;
+        };
+
+        /* A little room above every knob but the first, so each block
+           reads as one. */
+        if (i > 0)
+            lbl->set_margin_top(8);
+
+        grid->attach(*lbl, 0, row, 3, 1);
+        grid->attach(*rm, 3, row);
+        row++;
+
+        grid->attach(*word("lowest"), 0, row);
         grid->attach(*minSpin, 1, row);
-        grid->attach(*maxSpin, 2, row);
-        grid->attach(*lblEntry, 3, row);
-        grid->attach(*rm, 4, row);
+        grid->attach(*word("highest"), 2, row);
+        grid->attach(*maxSpin, 3, row);
+        row++;
+
+        grid->attach(*word("shown as"), 0, row);
+        grid->attach(*lblEntry, 1, row, 3, 1);
         row++;
     }
 
@@ -2168,8 +2183,16 @@ Composer::buildKnobsSection (void)
                 structuralReload();
         });
 
-    grid->attach(*newName, 0, row, 2, 1);
-    grid->attach(*add, 2, row);
+    newName->set_hexpand(true);
+
+    if (!doc_.knobs.empty())
+    {
+        newName->set_margin_top(8);
+        add->set_margin_top(8);
+    }
+
+    grid->attach(*newName, 0, row, 3, 1);
+    grid->attach(*add, 3, row);
 
     exp->set_child(*grid);
     exp->set_expanded(!doc_.knobs.empty());

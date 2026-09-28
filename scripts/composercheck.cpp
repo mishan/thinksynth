@@ -152,6 +152,7 @@ public:
     using Composer::roll_;
     using Composer::sched_;
     using Composer::selBox_;
+    using Composer::editorBox_;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -426,6 +427,29 @@ run (const std::string &pluginPath, const char *genFile)
     }
 
     ok("the edit panel opens and closes twice");
+
+    /* Its width: a knob is a block of rows rather than one wide row, so
+       the settings fit a pane beside the canvas without scrolling
+       sideways. One row of all five was some 640 pixels. */
+    {
+        win->setEditing(true);
+        pump(4);
+
+        int min = 0, nat = 0, a = 0, b = 0;
+
+        win->editorBox_.measure(Gtk::Orientation::HORIZONTAL, -1,
+                                min, nat, a, b);
+
+        if (win->doc_.knobs.empty())
+            fail("the piece under test has a knob to lay out");
+        else if (min <= 0 || min > 440)
+            fail("the piece's settings fit a pane 440 pixels wide");
+        else
+            ok("the piece's settings fit a pane 440 pixels wide");
+
+        win->setEditing(false);
+        pump(4);
+    }
 
     /* And now the button the panel is not allowed to have forgotten.
        This is the crash: before the fix, the first press here went
