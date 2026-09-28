@@ -52,7 +52,7 @@ typedef void (*sighandler_t)(int);
 
 #include "gui/Keyboard.h"
 #include "gui/KeyboardPanel.h"
-#include "gui/PatchSelWindow.h"
+#include "gui/PatchSelPanel.h"
 #include "gui/MainSynthWindow.h"
 
 /* XXX: globals */

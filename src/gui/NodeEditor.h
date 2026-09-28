@@ -96,6 +96,11 @@ protected:
     void onTogglePalette (void);
     void onToggleParams (void);
 
+    /* The two side panels, as their toggles show and set them. */
+    void showPanels (bool palette, bool params);
+    bool paletteShown (void) const;
+    bool paramsShown (void) const;
+
     /* Places the canvas/parameters split the first time it has a real width.
        See the comment on the definition. */
     void onSplitAllocate (void);
@@ -455,6 +460,11 @@ private:
 
     Gtk::Label titleLbl_;   /* what the window title used to say */
     Gtk::Box toolbar_{Gtk::Orientation::HORIZONTAL};
+
+    /* The toolbar scrolls sideways rather than setting the editor's
+       minimum width: the editor is a pane as narrow as somebody drags it,
+       and the buttons are the one row that cannot wrap. */
+    Gtk::ScrolledWindow toolbarScroll_;
     Gtk::Paned outer_{Gtk::Orientation::HORIZONTAL};  /* palette | the rest   */
     Gtk::Paned split_{Gtk::Orientation::HORIZONTAL};  /* canvas  | parameters */
     Gtk::ScrolledWindow scroller_;

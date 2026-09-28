@@ -16,8 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef PATCHSEL_WINDOW_H
-#define PATCHSEL_WINDOW_H
+#ifndef PATCHSEL_PANEL_H
+#define PATCHSEL_PANEL_H
 
 #include "SaveButton.h"
 
@@ -65,11 +65,13 @@ private:
     Glib::ustring path_;
 };
 
-class PatchSelWindow : public Gtk::Window
+/* Every channel's patch in one list, with the one picked to load, save or
+   unload below it. A pane of the main window; it was a window of its own. */
+class PatchSelPanel : public Gtk::Box
 {
 public:
-    PatchSelWindow (thSynth *);
-    ~PatchSelWindow (void);
+    PatchSelPanel (thSynth *);
+    ~PatchSelPanel (void);
 
 protected:
     bool LoadPatch (void);
@@ -158,4 +160,4 @@ private:
     int currchan;
 };
 
-#endif /* PATCHSEL_WINDOW_H */
+#endif /* PATCHSEL_PANEL_H */

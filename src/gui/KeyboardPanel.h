@@ -32,7 +32,8 @@ public:
     ~KeyboardPanel (void);
 
     /* Aims the keys at `chan' (0-based), as picking it in the spinner
-       does. The main window calls this when a channel's tab is chosen. */
+       does. The main window calls this when a channel is picked in
+       Channels. */
     void setChannel (int chan);
 
 protected:

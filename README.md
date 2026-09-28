@@ -43,6 +43,12 @@ used only when pkg-config reports 6.0.0 or newer, which Ubuntu does not ship
 API). So building RtAudio's Linux backends is part of building thinksynth, and
 those headers are what it needs.
 
+The main window's tiled panes are **mullion-gtk**
+(<https://github.com/mishan/mullion-gtk>), fetched the same way: no
+distribution packages it yet, so it is built from source at a pinned commit and
+linked in statically unless pkg-config finds `mullion-gtk-0`. It needs GTK 4.10
+and GLib 2.74 or newer, and building it from source needs CMake 3.21.
+
 Which is also why the JACK and PulseAudio ones are optional: CMake probes for
 them and compiles those backends in only if they are there. ALSA is always on.
 The configure summary says what you ended up with, including whether RtAudio

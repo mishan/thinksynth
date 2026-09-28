@@ -60,7 +60,9 @@ private:
 };
 
 
-class MidiMap : public Gtk::Window
+/* MIDI controllers routed to patch parameters: a pane of the main window,
+   which was a window of its own. */
+class MidiMap : public Gtk::Box
 {
 public:
     MidiMap (thSynth *);

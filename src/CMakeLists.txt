@@ -203,8 +203,9 @@ set(THINKSYNTH_SOURCES
     gui/StageParamsView.cpp
     gui/NodeEditor.cpp
     gui/PanelView.cpp
+    gui/Panes.cpp
     gui/SaveButton.cpp
-    gui/PatchSelWindow.cpp
+    gui/PatchSelPanel.cpp
     gui/PianoRoll.cpp
     gui/ComposerCanvasWidget.cpp
     gui/ComposerWindow.cpp)
@@ -324,6 +325,7 @@ target_link_libraries(thinksynth PRIVATE
     PkgConfig::GTKMM
     PkgConfig::GTHREAD
     PkgConfig::CAIRO
+    ${THINK_MULLION_LIB}
     ${THINK_RTAUDIO_LIB}
     ${THINK_RTMIDI_LIB}
     ${THINK_COREFOUNDATION})

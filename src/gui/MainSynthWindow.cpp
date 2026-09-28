@@ -26,6 +26,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <system_error>
@@ -36,7 +37,8 @@
 
 #include "think.h"
 
-#include "PatchSelWindow.h"
+#include "PatchSelPanel.h"
+#include "Panes.h"
 #include "Keyboard.h"
 #include "KeyboardPanel.h"
 #include "ComposerWindow.h"
@@ -66,14 +68,16 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     set_title("thinksynth");
 
     tearingDown_ = false;
+    panes_ = NULL;
+    chan_ = 0;
+    selecting_ = false;
     width_ = 0;
     height_ = 0;
 
-    /* 520x360 until now, which predates the channel strip down the left and
-       the parameter columns -- the window opened too small to show either.
-       This is what a first run gets; applyPrefs replaces it with the size the
-       last one was left at. */
-    set_default_size(1000, 700);
+    /* Room for the first layout's three columns and the keys under them,
+       each at its minimum and a little over. This is what a first run gets;
+       applyPrefs replaces it with the size the last one was left at. */
+    set_default_size(1440, 900);
 
     /* The size is taken while the window is still on screen, at the two
        moments it is about to stop being: the close button, and Quit.
@@ -103,7 +107,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
        They start out the same. */
     prevDir_ = dspDir_;
 
-    /* "win.keyboard" and the rest resolve against this. */
+    /* "win.pane-keyboard" and the rest resolve against this. */
     actions_ = Gio::SimpleActionGroup::create();
     insert_action_group("win", actions_);
 
@@ -113,24 +117,29 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
         sigc::mem_fun(*this, &MainSynthWindow::onApplicationSet));
 
     
-    set_child(vbox_);
+    /* The title bar carries what is about the whole window: the master
+       level and the menu. What is about one channel is in its panes. */
+    header_.set_title_widget(*manage(new Gtk::Label("thinksynth")));
+    header_.pack_end(menuBtn_);
+    set_titlebar(header_);
 
     dspEntryLbl_.set_label("Channel 1 DSP:");
     dspBrowseBtn_.set_label("Browse");
+    dspEntryBox_.set_spacing(6);
+    dspEntryBox_.set_margin(6);
     dspEntryBox_.append(dspEntryLbl_);
     dspEntry_.set_hexpand(true);
     dspEntryBox_.append(dspEntry_);
     dspEntryBox_.append(dspBrowseBtn_);
 
-    /* Master level, on the row that already belongs to the whole window
-       rather than to one channel -- the same reason the DSP File entry is
-       here. Shown 0..127 like a channel's own amplitude, so the two read on
-       one scale; 100 is unity, which is where it starts, and there is room
-       above it because the engine allows gain over 1.
+    /* Master level, in the title bar because it is the whole synth's rather
+       than one channel's. Shown 0..127 like a channel's own amplitude, so
+       the two read on one scale; 100 is unity, which is where it starts, and
+       there is room above it because the engine allows gain over 1.
     
        The limiter downstream is what makes going above unity safe to offer;
        see TH_LIMIT_KNEE. */
-    masterLbl_.set_text("Master:");
+    masterLbl_.set_text("Master");
 
     /* 0..127, not 0..TH_MASTER_GAIN_MAX*100. That constant is 4.0, so
        scaling it put 400 on a volume control -- four times unity, a number
@@ -147,14 +156,13 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     masterScale_.set_value_pos(Gtk::PositionType::RIGHT);
     masterScale_.set_size_request(160, -1);
     masterScale_.set_value(thSynth::instance()->masterGain() * 100.0);
+    masterScale_.set_tooltip_text("Master level: 100 is unity");
 
     masterScale_.signal_value_changed().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onMasterGain));
 
-    dspEntryBox_.append(*manage(new Gtk::Separator(
-                                    Gtk::Orientation::VERTICAL)));
-    dspEntryBox_.append(masterLbl_);
-    dspEntryBox_.append(masterScale_);
+    header_.pack_end(masterScale_);
+    header_.pack_end(masterLbl_);
 
     dspEntry_.signal_activate().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onDspEntryActivate));
@@ -162,39 +170,15 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     dspBrowseBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onBrowseButton));
 
-    vbox_.append(*menuBar_);
-    vbox_.append(dspEntryBox_);
-    notebook_.set_vexpand(true);
-    vbox_.append(notebook_);
-
-    /* The keys along the bottom, under the channel they play (onSwitchPage
-       aims them). Built before populate(), which switches to the first
-       page. */
-    kbPanel_ = manage(new KeyboardPanel(thSynth::instance()));
-    vbox_.append(*manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
-    vbox_.append(*kbPanel_);
-
-    /* Tabs down the left rather than across the top.
-     *
-     * There is one per MIDI channel, so sixteen of them, and across the top
-     * they did not fit -- the notebook scrolled and most of the patches you
-     * had loaded were off the end, reachable only by paging. Stacked
-     * vertically they all fit in the height a patch panel needs anyway, and
-     * the list reads as what it is: the channels, in order.
-     *
-     * Still scrollable, because nothing guarantees the window is tall. */
-    notebook_.set_tab_pos(Gtk::PositionType::LEFT);
-    notebook_.set_scrollable();
-
-    notebook_.signal_switch_page().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onSwitchPage));
+    buildPanes();
 
     populate();
+    selectChannel(0);
 
-    /* Focus on the channel tabs to begin with. Left to GTK it goes to the
+    /* Focus on the channel list to begin with. Left to GTK it goes to the
        first focusable widget, the DSP entry, with its text selected -- so
        the first key typed replaced the channel's DSP. */
-    set_focus(notebook_);
+    set_focus(chanList_);
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     patchMgr->signal_patches_changed().connect(
@@ -208,30 +192,256 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
 MainSynthWindow::~MainSynthWindow (void)
 {
-    /* The notebook is a member, so it is torn down after this body has run,
-       and taking its pages away asks for a node editor to be built on each of
-       them. Nothing about this window is worth building now. */
+    /* Nothing about this window is worth building now: taking the panes
+       down takes the graph out of view, and a graph coming into view builds
+       an editor. */
     tearingDown_ = true;
 
     rememberGeometry();
+    writeLayout();
 
-    /* These are kept rather than destroyed when they close, so this is where
-       they go -- before the synth, which they all reach into. */
-    delete aboutBox_;
-    delete patchSel_;
-    delete midiMap_;
-    delete compWin_;
-
-    aboutBox_ = NULL;
+    /* The panes first, and everything in them with them -- the patch list,
+       the MIDI map, the keys -- before the synth, which they all reach
+       into. The lists and stacks that are members here are only taken off
+       them, and go with the window: the node editors with them, which
+       tearingDown_ keeps anything from building more of. */
+    delete panes_;
+    panes_ = NULL;
     patchSel_ = NULL;
     midiMap_ = NULL;
     kbPanel_ = NULL;
+
+    /* These are kept rather than destroyed when they close, so this is where
+       they go. */
+    delete aboutBox_;
+    delete compWin_;
+
+    aboutBox_ = NULL;
     compWin_ = NULL;
 
     /* Not shutdown(): the loop has already ended by the time this runs, and
        asking a torn-down application to quit again is not a thing to do in a
        destructor. Just off the screen. */
     set_visible(false);
+}
+
+/* The first layout, for a first run and for Reset Layout: the channels down
+ * the left, the graph of the one picked in the middle and its parameters on
+ * the right, with the MIDI routing a tab behind them, and the keys along the
+ * bottom. The patch list starts in the drawer: Channels picks a channel, and
+ * the list is for loading and saving whole patches.
+ *
+ * Ids the web page uses for the same thing are the ones used here, so a
+ * layout means the same on both. */
+static const char *DESKTOP_LAYOUT =
+    "{\"dir\":\"col\",\"size\":[0.76,0.24],\"kids\":["
+      "{\"dir\":\"row\",\"size\":[0.12,0.53,0.35],\"kids\":["
+        "{\"tabs\":[\"channelbox\"]},"
+        "{\"tabs\":[\"nodeview\"]},"
+        "{\"tabs\":[\"paramview\",\"midimap\"]}]},"
+      "{\"tabs\":[\"keyboard\"]}]}";
+
+/* The window's one mode, until it has more than one. */
+static const char *DESKTOP_MODE = "desktop";
+
+/* `content' in a scrolled window, sideways and, if `down', downward too.
+ *
+ * A scroller hands its child the whole width when there is room, and its
+ * minimum when there is not: so a parameter panel still decides its columns
+ * from the width it has, and a pane dragged narrower than the panel's one
+ * column scrolls rather than cutting the column off. */
+Gtk::Widget &MainSynthWindow::scrolled (Gtk::Widget &content, bool down)
+{
+    Gtk::ScrolledWindow *sw = manage(new Gtk::ScrolledWindow);
+
+    sw->set_policy(Gtk::PolicyType::AUTOMATIC,
+                   down ? Gtk::PolicyType::AUTOMATIC
+                        : Gtk::PolicyType::NEVER);
+    sw->set_child(content);
+
+    return *sw;
+}
+
+void MainSynthWindow::buildPanes (void)
+{
+    panes_ = new Panes;
+
+    chanList_.set_selection_mode(Gtk::SelectionMode::BROWSE);
+    chanList_.signal_row_selected().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onChannelRow));
+    chanScroll_.set_child(chanList_);
+    chanScroll_.set_policy(Gtk::PolicyType::NEVER,
+                           Gtk::PolicyType::AUTOMATIC);
+    chanScroll_.set_vexpand(true);
+
+    paramBox_.append(dspEntryBox_);
+    paramBox_.append(*manage(new Gtk::Separator(
+                                 Gtk::Orientation::HORIZONTAL)));
+    paramStack_.set_vexpand(true);
+    paramBox_.append(paramStack_);
+
+    nodeStack_.set_vexpand(true);
+
+    /* The keys play the channel picked in Channels (selectChannel aims
+       them). */
+    kbPanel_ = manage(new KeyboardPanel(thSynth::instance()));
+    patchSel_ = manage(new PatchSelPanel(thSynth::instance()));
+    midiMap_ = manage(new MidiMap(thSynth::instance()));
+
+    /* Minimum widths: what each can be read at, which is what the layout
+       gives up before it gives up a pane -- and, added across a row, the
+       narrowest the window can be, so they are kept low enough for a
+       1280-pixel screen. A pane narrower than its content would clip it,
+       so the ones that cannot wrap scroll instead. */
+    panes_->add("channelbox", "Channels", chanScroll_, 160);
+    panes_->add("paramview", "Patch params", scrolled(paramBox_, false), 400);
+    panes_->add("nodeview", "Patch graph", nodeStack_, 480);
+    panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
+    panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 400);
+    panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 400);
+
+    panes_->setDefault(DESKTOP_MODE, DESKTOP_LAYOUT);
+    panes_->setMode(DESKTOP_MODE);
+
+    panes_->signal_pane_shown().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onPaneShown));
+    panes_->signal_layout_changed().connect(
+        sigc::hide(sigc::mem_fun(*this, &MainSynthWindow::syncPaneActions)));
+    panes_->signal_layout_kept().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onLayoutKept));
+
+    keptLayout_ = readLayout();
+    hadLayout_ = !keptLayout_.empty();
+    panes_->load(keptLayout_);
+
+    set_child(panes_->widget());
+
+    syncPaneActions();
+}
+
+void MainSynthWindow::onPaneShown (const string &id, bool visible)
+{
+    if (paneActs_.count(id))
+        paneActs_[id]->set_state(Glib::Variant<bool>::create(visible));
+
+    if (id == "nodeview" && visible)
+        ensureEditor(chan_);
+}
+
+void MainSynthWindow::syncPaneActions (void)
+{
+    if (panes_ == NULL)
+        return;
+
+    for (std::map<string, Glib::RefPtr<Gio::SimpleAction> >::iterator i =
+             paneActs_.begin(); i != paneActs_.end(); ++i)
+        i->second->set_state(
+            Glib::Variant<bool>::create(panes_->isVisible(i->first)));
+}
+
+/* A tick in the menu, or its key: a pane in view closes to the drawer, and
+   one that is not -- closed, or behind another tab -- comes to the front,
+   where it was. So Ctrl+M shows the MIDI routing, as it did when that was
+   a window, and a second Ctrl+M puts it away. */
+void MainSynthWindow::togglePane (const string &id)
+{
+    if (panes_ == NULL)
+        return;
+
+    if (panes_->isVisible(id))
+        panes_->close(id);
+    else
+        panes_->present(id, true);
+
+    syncPaneActions();
+}
+
+/* Beside thinkrc rather than in it: thinkrc reads 255 bytes a line and
+   splits every value at its commas, and a layout is longer than that and
+   made of commas. */
+string MainSynthWindow::layoutPath (void)
+{
+    return (std::filesystem::path(Glib::get_user_config_dir()) /
+            PACKAGE_NAME / "panes.ini").string();
+}
+
+string MainSynthWindow::readLayout (void)
+{
+    Glib::RefPtr<Glib::KeyFile> file = Glib::KeyFile::create();
+
+    try
+    {
+        file->load_from_file(layoutPath());
+
+        return file->get_string("layouts", DESKTOP_MODE);
+    }
+    catch (const Glib::Error &)
+    {
+        /* No file, or nothing kept in it: the first layout. */
+        return string();
+    }
+}
+
+void MainSynthWindow::onLayoutKept (const string &mode, const string &text)
+{
+    if (mode != DESKTOP_MODE)
+        return;
+
+    keptLayout_ = text;
+
+    /* After the last change of a burst -- a divider's drag is a change on
+       every step of it. */
+    layoutWrite_.disconnect();
+    layoutWrite_ = Glib::signal_timeout().connect(
+        [this] { writeLayout(); return false; }, 500);
+}
+
+void MainSynthWindow::writeLayout (void)
+{
+    if (!layoutWrite_.connected())
+        return;
+
+    layoutWrite_.disconnect();
+
+    const string path = layoutPath();
+    Glib::RefPtr<Glib::KeyFile> file = Glib::KeyFile::create();
+
+    try
+    {
+        file->load_from_file(path, Glib::KeyFile::Flags::KEEP_COMMENTS);
+    }
+    catch (const Glib::Error &)
+    {
+        /* A first write: nothing to keep. */
+    }
+
+    if (keptLayout_.empty())
+    {
+        try
+        {
+            file->remove_key("layouts", DESKTOP_MODE);
+        }
+        catch (const Glib::Error &)
+        {
+        }
+    }
+    else
+        file->set_string("layouts", DESKTOP_MODE, keptLayout_);
+
+    std::error_code ec;
+
+    std::filesystem::create_directories(
+        std::filesystem::path(path).parent_path(), ec);
+
+    try
+    {
+        file->save_to_file(path);
+    }
+    catch (const Glib::Error &e)
+    {
+        fprintf(stderr, "thinksynth: could not keep the layout in %s: %s\n",
+                path.c_str(), e.what());
+    }
 }
 
 /* The size the window has now, while it still has one.
@@ -269,6 +479,7 @@ void MainSynthWindow::captureSize (void)
 void MainSynthWindow::shutdown (void)
 {
     captureSize();
+    writeLayout();
 
     set_visible(false);
 
@@ -345,13 +556,6 @@ void MainSynthWindow::applyPrefs (void)
         gthTheme::startWatching();
     }
 
-    /* Whether the keys were left showing. */
-    {
-        string **kvals = prefs->Get("keyboard");
-
-        showKeyboard(kvals == NULL || kvals[0] == NULL || *(kvals[0]) != "0");
-    }
-
     /* The directory the DSP browser opens in. This was read in the
        constructor, where the preferences have not been loaded yet, so it
        always fell through to the install path however many times you had
@@ -361,15 +565,18 @@ void MainSynthWindow::applyPrefs (void)
     if (vals != NULL && vals[0] != NULL)
         prevDir_ = *(vals[0]);
 
-    vals = prefs->Get("window");
+    /* Whether the keys were left hidden, from when that was a preference
+       of its own, for a first run with panes: after that the layout says
+       where they are, and the preference is not asked again. */
+    if (!hadLayout_)
+    {
+        string **kvals = prefs->Get("keyboard");
 
-    if (vals == NULL || vals[0] == NULL || vals[1] == NULL)
-        return;
+        if (kvals != NULL && kvals[0] != NULL && *(kvals[0]) == "0")
+            panes_->close("keyboard");
+    }
 
-    const int w = atoi(vals[0]->c_str());
-    const int h = atoi(vals[1]->c_str());
-
-    /* A saved size is only worth honouring if it can be seen. A window
+    /* A saved size is only worth honoring if it can be seen. A window
        restored to 12x4 -- or to something larger than the screen it is now
        being opened on, which is what moving between a desktop and a laptop
        does -- is worse than one that ignores the file. */
@@ -403,6 +610,29 @@ void MainSynthWindow::applyPrefs (void)
             }
         }
     }
+
+    /* The first run's size, cut down to a screen smaller than it. */
+    {
+        int dw = 0, dh = 0;
+
+        get_default_size(dw, dh);
+
+        if (maxw > 0 && dw > maxw)
+            dw = maxw;
+
+        if (maxh > 0 && dh > maxh)
+            dh = maxh;
+
+        set_default_size(dw, dh);
+    }
+
+    vals = prefs->Get("window");
+
+    if (vals == NULL || vals[0] == NULL || vals[1] == NULL)
+        return;
+
+    const int w = atoi(vals[0]->c_str());
+    const int h = atoi(vals[1]->c_str());
 
     if (w < 320 || h < 240)
         return;
@@ -446,9 +676,9 @@ void MainSynthWindow::addAction (const Glib::ustring &name,
     actions_->add_action(name, handler);
 
     /* Recorded rather than bound. An accelerator belongs to the application
-       -- it is what makes "win.keyboard" answer to Ctrl+K from any window the
-       application owns -- and the window is built before it has been given
-       one, so this waits for onApplicationSet. */
+       -- it is what makes "win.pane-keyboard" answer to Ctrl+K from any
+       window the application owns -- and the window is built before it has
+       been given one, so this waits for onApplicationSet. */
     if (accel != NULL)
         accels_.push_back(std::make_pair("win." + name, Glib::ustring(accel)));
 }
@@ -468,29 +698,54 @@ void MainSynthWindow::onApplicationSet (void)
  *
  * Gtk::MenuBar, Gtk::Menu and Gtk::MenuItem are all gone. What replaces them
  * is a Gio::Menu -- a description of the menu with no widgets in it -- shown
- * by a Gtk::PopoverMenuBar, with the behaviour attached separately as named
- * actions on the window.
+ * by the title bar's menu button, with the behaviour attached separately as
+ * named actions on the window.
  *
- * The indirection earns its keep: an accelerator now binds to "win.keyboard"
- * rather than to a widget, so it works before the menu has ever been opened
- * and keeps working if the item moves. */
+ * The indirection earns its keep: an accelerator binds to an action rather
+ * than to a widget, so it works before the menu has ever been opened and
+ * keeps working if the item moves. */
 void MainSynthWindow::populateMenu (void)
 {
-    Glib::RefPtr<Gio::Menu> file = Gio::Menu::create();
-    Glib::RefPtr<Gio::Menu> fileItems = Gio::Menu::create();
-    Glib::RefPtr<Gio::Menu> quitItem = Gio::Menu::create();
-    Glib::RefPtr<Gio::Menu> help = Gio::Menu::create();
+    /* The panes, each a tick that says whether it is in view: see
+       togglePane. The keys keep the Ctrl+K they were toggled with, and the
+       patch list and the MIDI map the Ctrl+P and Ctrl+M that opened their
+       windows. */
+    static const struct
+    {
+        const char *id;
+        const char *label;
+        const char *accel;
+    } panes[] = {
+        { "channelbox", "_Channels",       NULL },
+        { "paramview",  "Patch _Params",   NULL },
+        { "nodeview",   "Patch _Graph",    NULL },
+        { "keyboard",   "_Keys",           "<Control>k" },
+        { "patches",    "Patch _Selector", "<Control>p" },
+        { "midimap",    "_MIDI Routing",   "<Control>m" },
+    };
 
-    /* A toggle now the keys are part of this window rather than one of
-       their own. Shown to begin with; applyPrefs puts back what was left. */
-    keyboardAction_ = actions_->add_action_bool(
-        "keyboard", sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard), true);
-    accels_.push_back(std::make_pair(Glib::ustring("win.keyboard"),
-                                     Glib::ustring("<Control>k")));
-    addAction("patchsel",
-              sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel), "<Control>p");
-    addAction("midimap",
-              sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap), "<Control>m");
+    Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
+
+    for (size_t i = 0; i < G_N_ELEMENTS(panes); i++)
+    {
+        const string id = panes[i].id;
+
+        paneActs_[id] = actions_->add_action_bool(
+            "pane-" + id,
+            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::togglePane), id),
+            false);
+
+        if (panes[i].accel != NULL)
+            accels_.push_back(std::make_pair("win.pane-" + id,
+                                             Glib::ustring(panes[i].accel)));
+
+        view->append(panes[i].label, "win.pane-" + id);
+    }
+
+    /* The panes answer to "panes.reset" themselves, but only from inside:
+       this menu hangs off the title bar, which is not. */
+    addAction("reset-layout",
+              [this] { if (panes_ != NULL) panes_->reset(); });
     addAction("composer",
               sigc::mem_fun(*this, &MainSynthWindow::menuComposer),
               "<Control>g");
@@ -506,22 +761,13 @@ void MainSynthWindow::populateMenu (void)
         sigc::mem_fun(*this, &MainSynthWindow::menuTheme),
         gthTheme::toString(gthTheme::current()));
 
-    /* No Node View item. It dates from when the editor was a window of its
-       own; now that it is a tab on the patch page, the menu could only do
-       what clicking the tab does -- and it had to explain itself with a
-       dialog when the current channel had no patch on it. */
-    fileItems->append("_Patch Selector", "win.patchsel");
-    fileItems->append("_MIDI Controllers", "win.midimap");
-    fileItems->append("_Composer", "win.composer");
+    Glib::RefPtr<Gio::Menu> layout = Gio::Menu::create();
 
-    /* A separator is a section boundary in a menu model rather than an item
-       of its own, so Quit goes in a section by itself. */
-    quitItem->append("_Quit", "win.quit");
+    layout->append("_Reset Layout", "win.reset-layout");
 
-    file->append_section(fileItems);
-    file->append_section(quitItem);
+    Glib::RefPtr<Gio::Menu> windows = Gio::Menu::create();
 
-    help->append("_About", "win.about");
+    windows->append("C_omposer", "win.composer");
 
     Glib::RefPtr<Gio::Menu> appearance = Gio::Menu::create();
 
@@ -532,43 +778,33 @@ void MainSynthWindow::populateMenu (void)
     appearance->append("_Light", "win.theme::light");
     appearance->append("_Dark",  "win.theme::dark");
 
-    Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> look = Gio::Menu::create();
 
-    view->append("_Keyboard", "win.keyboard");
-    view->append_submenu("_Appearance", appearance);
+    look->append_submenu("_Appearance", appearance);
 
-    Glib::RefPtr<Gio::Menu> bar = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> end = Gio::Menu::create();
 
-    bar->append_submenu("_File", file);
-    bar->append_submenu("_View", view);
-    bar->append_submenu("_Help", help);
+    end->append("A_bout", "win.about");
+    end->append("_Quit", "win.quit");
 
-    /* Help no longer sits over on the right. set_right_justified went with
-       Gtk::MenuItem, and a menu model has no place to say it. */
-    menuBar_ = Gtk::manage(new Gtk::PopoverMenuBar(bar));
+    /* One menu behind the button, in sections: a separator is a section
+       boundary in a menu model rather than an item of its own. */
+    Glib::RefPtr<Gio::Menu> menu = Gio::Menu::create();
+
+    menu->append_section(view);
+    menu->append_section(layout);
+    menu->append_section(windows);
+    menu->append_section(look);
+    menu->append_section(end);
+
+    menuBtn_.set_icon_name("open-menu-symbolic");
+    menuBtn_.set_tooltip_text("Menu");
+    menuBtn_.set_menu_model(menu);
+
+    /* F10 opens it, as it opened the menu bar this replaces. */
+    menuBtn_.set_primary(true);
 }
 
-
-void MainSynthWindow::menuKeyboard (void)
-{
-    bool on = true;
-
-    keyboardAction_->get_state(on);
-    showKeyboard(!on);
-}
-
-void MainSynthWindow::showKeyboard (bool on)
-{
-    keyboardAction_->set_state(Glib::Variant<bool>::create(on));
-    kbPanel_->set_visible(on);
-
-    string **vals = new string *[2];
-
-    vals[0] = new string(on ? "1" : "0");
-    vals[1] = NULL;
-
-    gthPrefs::instance()->Set("keyboard", vals);
-}
 
 void MainSynthWindow::menuComposer (void)
 {
@@ -583,36 +819,6 @@ void MainSynthWindow::menuComposer (void)
     }
 
     compWin_->present();
-}
-
-void MainSynthWindow::menuPatchSel (void)
-{
-    if (patchSel_ == NULL)
-    {
-        patchSel_ = new PatchSelWindow(thSynth::instance());
-        patchSel_->signal_close_request().connect(
-            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
-                       (Gtk::Window *)patchSel_), false);
-
-        addCloseAccel(patchSel_);
-    }
-    
-    patchSel_->present();
-}
-
-void MainSynthWindow::menuMidiMap (void)
-{
-    if (midiMap_ == NULL)
-    {
-        midiMap_ = new MidiMap(thSynth::instance());
-        midiMap_->signal_close_request().connect(
-            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
-                       (Gtk::Window *)midiMap_), false);
-
-        addCloseAccel(midiMap_);
-    }
-
-    midiMap_->present();
 }
 
 void MainSynthWindow::menuQuit (void)
@@ -634,49 +840,66 @@ void MainSynthWindow::menuAbout (void)
     aboutBox_->present();
 }
 
-/* The tab strip runs down the side, so its width is the window's to spare.
+/* Channels is a narrow pane, so its width is the window's to spare.
  *
- * Left-aligned because a column of centred labels of different lengths has no
- * edge to read down. Ellipsised at the end so one long name cannot widen the
- * strip and take that space from the patch panel; the full path is on the
+ * Left-aligned because a column of centered labels of different lengths has
+ * no edge to read down. Ellipsized at the end so one long name cannot widen
+ * the pane and take that space from the patch; the full path is on the
  * tooltip either way. */
-Gtk::Widget *MainSynthWindow::makeTabLabel (const string &text,
-                                            const string &tip)
+Gtk::Widget *MainSynthWindow::makeChannelLabel (const string &text,
+                                                const string &tip)
 {
     Gtk::Label *lbl = manage(new Gtk::Label(text));
 
     lbl->set_xalign(0.0);
     lbl->set_ellipsize(Pango::EllipsizeMode::END);
+    lbl->set_margin(4);
 
-    /* Both widths, and the minimum is the one that matters: an ellipsising
-       label reports "..." as its minimum size, so with only a maximum set the
-       notebook shrank every tab to three dots. width_chars reserves the room;
-       max_width_chars stops one long name widening the strip. */
+    /* Both widths, and the minimum is the one that matters: an ellipsizing
+       label reports "..." as its minimum size, so with only a maximum set
+       the list shrank every row to three dots. width_chars reserves the
+       room; max_width_chars stops one long name widening the pane. */
     lbl->set_width_chars(16);
     lbl->set_max_width_chars(22);
 
     if (!tip.empty())
         lbl->set_tooltip_text(tip);
 
-    lbl->show();
-
     return lbl;
 }
 
-void MainSynthWindow::append_tab (const string &tabName, const string &tip,
-                                  int num, bool is_real)
+void MainSynthWindow::appendChannel (const string &tabName, const string &tip,
+                                     int num, bool is_real)
 {
+    const string name = "ch" + std::to_string(num);
+
+    Gtk::Widget *row = makeChannelLabel(tabName, tip);
+
+    /* An empty channel's row dimmed, so the four with something on them
+       stand out of the sixteen. */
+    if (!is_real)
+        row->add_css_class("dim-label");
+
+    chanList_.append(*row);
+
+    /* The graph's holder, filled when it is first looked at. */
+    Gtk::Box *holder = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+
+    holders_.push_back(holder);
+    nodeStack_.add(*holder, name);
+
     if (is_real == false)
     {
         Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
         lbl->set_justify(Gtk::Justification::CENTER);
+        lbl->set_wrap(true);
+        paramStack_.add(*lbl, name);
 
-        /* An empty channel's tab dimmed, so the four with something on
-           them stand out of the sixteen. */
-        Gtk::Widget *tab = makeTabLabel(tabName, tip);
+        Gtk::Label *none = manage(new Gtk::Label("No patch on this channel."));
 
-        tab->add_css_class("dim-label");
-        notebook_.append_page(*lbl, *tab);
+        none->add_css_class("dim-label");
+        none->set_vexpand(true);
+        holder->append(*none);
         return;
     }
 
@@ -689,7 +912,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     {
         Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
         sorry->set_justify(Gtk::Justification::CENTER);
-        notebook_.append_page(*sorry, *makeTabLabel(tabName, tip));
+        sorry->set_wrap(true);
+        paramStack_.add(*sorry, name);
         return;
     }
         
@@ -774,7 +998,13 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->comment()));
 
         lname_lbl->set_xalign(1.0);
+        lname_lbl->set_yalign(0.0);
         rname_lbl->set_xalign(0.0);
+
+        /* Wrapped: a pane is as narrow as somebody drags it, and one line
+           of description was the widest thing on the page. */
+        rname_lbl->set_wrap(true);
+        rname_lbl->set_hexpand(true);
         
         info_table->attach(*lname_lbl, 0, 2, 1, 1);
         info_table->attach(*rname_lbl, 1, 2, 1, 1);
@@ -809,42 +1039,18 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
 
     dsp_table->rebuild();
 
-    /* Two views of the same patch, side by side in the same window: the
-       sliders, and the graph they came from. The node editor used to be a
-       separate window opened from the menu, so the two could never be seen
-       together and each had its own idea of what was unsaved.
-    
-       The editor itself is not built yet. Building one scans the plugin
-       directory to fill its palette, and doing that sixteen times on startup
-       to reach the one page anyone opens would be sixteen scans wasted. The
-       Nodes page holds an empty box until its tab is first looked at. */
-    Gtk::Notebook *sub = manage(new Gtk::Notebook);
-    Gtk::Box *holder = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
-
-    sub->append_page(*tab_view, "Overview");
-    sub->append_page(*holder, "Nodes");
-
-    sub->signal_switch_page().connect(
-        sigc::bind(
-            sigc::mem_fun(*this, &MainSynthWindow::onSubTab),
-            holder, patchMgr->getPatch(num) ? patchMgr->getPatch(num)->doc.dsp
-                                            : string(),
-            num));
-
-    /* The patch bar sits above the two views rather than in either of them.
-       Which patch this is, how loud it is and whether it has been saved are
-       facts about the patch; they should not go away because you switched to
-       the graph, and they should not scroll off the top of the parameter
-       panel. */
+    /* The patch bar sits above the parameters. Which patch this is, how
+       loud it is and whether it has been saved are facts about the patch;
+       they should not scroll off the top of the parameter panel. The graph
+       they came from is a pane of its own, beside this one. */
     Gtk::Box *page = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
     page->append(*makePatchBar(num));
     page->append(*manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
-    sub->set_vexpand(true);
-    page->append(*sub);
+    tab_view->set_vexpand(true);
+    page->append(*tab_view);
 
-    notebook_.append_page(*page, *makeTabLabel(tabName, tip));
-
+    paramStack_.add(*page, name);
 }
 
 /* The channel effect's block. See the header.
@@ -905,9 +1111,17 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
 
     none->set_use_underline(true);
     none->set_sensitive(!name.empty());
+    /* Out of the click, as a save is: taking the effect off rebuilds every
+       page, this button's with it, while its handler would still be on the
+       stack. */
     none->signal_clicked().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onEffectRemove),
-                   chan));
+        [this, chan]
+        {
+            Glib::signal_idle().connect_once(
+                sigc::bind(sigc::mem_fun(*this,
+                                         &MainSynthWindow::onEffectRemove),
+                           chan));
+        });
     bar->append(*none);
 
     /* Nothing to load one onto. An effect belongs to a channel and the
@@ -946,19 +1160,15 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
     return frame;
 }
 
-/* Everything a change of effect has to do to this window.
- *
- * The whole notebook, for the reason onBrowseResponse rebuilds it: a page
- * holds widgets bound to args on a channel, and the channel's second arg map
- * has just been replaced. Rebuilding one page is what this looks like it
- * should do and is not what the window is built to offer. */
+/* Everything a change of effect has to do to this window, beyond what the
+ * patch manager's patches_changed has already done: every page is rebuilt
+ * there, because a page holds widgets bound to args on a channel and the
+ * channel's second arg map has just been replaced. What is left is which
+ * channel is looked at. */
 void MainSynthWindow::reloadPages (int chan)
 {
-    clearPages();
-    populate();
-
     if (chan >= 0)
-        notebook_.set_current_page(chan);
+        selectChannel(chan);
 }
 
 /* The effect chooser, which is the instrument browser with the other half of
@@ -1033,8 +1243,8 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
     Gtk::Label *nameLbl = manage(new Gtk::Label);
 
-    /* The tab carries this too, but ellipsised to sixteen characters in a
-       narrow strip -- so it is often the end of the name that is missing, and
+    /* Channels carries this too, but ellipsized to sixteen characters in a
+       narrow pane -- so it is often the end of the name that is missing, and
        the end is what tells two versions of a patch apart. */
     nameLbl->set_markup("<b>" + Glib::Markup::escape_text(
                             saved
@@ -1266,7 +1476,7 @@ void MainSynthWindow::onSavePatchAsResponse (int response,
 /* Deferred out of the click that asked for it.
  *
  * savePatch emits signal_patches_changed, and this window answers that by
- * removing every notebook page and building them again -- so the button whose
+ * removing every channel's pages and building them again -- so the button whose
  * handler is on the stack, and the page holding it, would be destroyed
  * underneath an emission that is still running. Writing from an idle callback
  * means the click has returned first and nothing is left pointing into the
@@ -1311,42 +1521,40 @@ string MainSynthWindow::resolveDspPath (const string &named)
     return path;
 }
 
-/* The Nodes tab has been shown for the first time: build its editor.
+/* The channel's graph is in view for the first time: build its editor.
  *
- * `page' and `num' are which sub-tab was switched to; `holder' is the empty
- * box the Nodes page was given. Anything already built is left alone -- this
- * fires on every switch, not only the first. */
-void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
-                                Gtk::Widget *holder, string dspFile, int chan)
+ * Anything already built is left alone -- this is asked on every change of
+ * channel and every time the graph comes into view, not only the first. */
+void MainSynthWindow::ensureEditor (int chan)
 {
-    (void)page;
-
-    /* Not while the pages are being taken away: this fires as a side effect
-       of a sub-notebook losing its Overview page, and the Nodes page it is
-       switching to is on its way out with it. Building an editor there is a
-       plugin directory scanned and a .dsp parsed for a widget nobody will
-       see -- and at shutdown, when the window is destroyed after the synth,
-       it was a NULL thSynth::instance() handed to a node editor that then
-       parsed with it. */
-    if (tearingDown_ || num != 1 || editors_.count(holder))
+    /* Not while the pages are being taken away, or the window is: at
+       shutdown, when the window is destroyed after the synth, it was a NULL
+       thSynth::instance() handed to a node editor that then parsed with
+       it. */
+    if (tearingDown_ || chan < 0 || chan >= (int)holders_.size() ||
+        editors_.count(chan))
         return;
 
-    Gtk::Box *box = dynamic_cast<Gtk::Box *>(holder);
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
 
-    if (box == NULL)
+    /* An empty channel's holder says so already. */
+    if (patch == NULL)
         return;
+
+    const string dspFile = patch->doc.dsp;
 
     NodeEditor *ed = manage(new NodeEditor(thSynth::instance()));
 
-    editors_[holder] = ed;
+    editors_[chan] = ed;
 
     ed->set_vexpand(true);
-    box->append(*ed);
+    holders_[chan]->append(*ed);
 
     if (dspFile.empty())
     {
-        ed->setStatusPublic("This patch has no DSP file yet. Choose one above,"
-                            " or use New to start one.");
+        ed->setStatusPublic("This patch has no DSP file yet. Choose one in "
+                            "Patch params, or use New to start one.");
         return;
     }
 
@@ -1361,7 +1569,6 @@ void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
 
 void MainSynthWindow::populate (void)
 {
-    /* populate notebook */
     editors_.clear();
 
     /* The sliders about to be discarded are subscribed to args that outlive
@@ -1396,7 +1603,7 @@ void MainSynthWindow::populate (void)
                "(Untitled)" below -- the two used to read the same, so an
                empty channel and unsaved work looked alike. */
             tabName = chanStr.str() + "(empty)";
-            append_tab (tabName, "", i, false);
+            appendChannel(tabName, "", i, false);
             continue;
         }
 
@@ -1404,16 +1611,16 @@ void MainSynthWindow::populate (void)
         {
             /* The basename, not the path.
             
-               A tab read `3: /usr/local/share/thinksynth/dsp/old/analog03.dsp'
-               -- almost all of it identical to every other tab, and the part
-               that identifies it last, which is the part a narrow tab cuts
+               A row read `3: /usr/local/share/thinksynth/dsp/old/analog03.dsp'
+               -- almost all of it identical to every other row, and the part
+               that identifies it last, which is the part a narrow pane cuts
                off. The full path is still worth having, so it moves to the
                tooltip. */
             tabName = chanStr.str() +
                       thUtil::basename(patch->filename.c_str());
 
-            /* And without ".patch": every tab has it, so it says nothing,
-               and it is what the strip's width cut to "FunkMachine.p...". */
+            /* And without ".patch": every row has it, so it says nothing,
+               and it is what the pane's width cut to "FunkMachine.p...". */
             const string ext = ".patch";
 
             if (tabName.size() > ext.size() &&
@@ -1427,51 +1634,44 @@ void MainSynthWindow::populate (void)
             tabName = chanStr.str() + "(Untitled)";
         }
 
-        append_tab (tabName, patch->filename, i, true);
+        appendChannel(tabName, patch->filename, i, true);
     }
-
-    /* The first page is current without a switch ever happening, so it would
-       otherwise be the one tab never marked. */
-    const int cur = notebook_.get_current_page();
-
-    highlightTab(cur < 0 ? 0 : cur);
 }
 
 
-/* Empties the notebook.
- *
- * gtkmm-3 dropped Notebook::pages() and Widget::hide_all(), so pages are
- * removed one at a time and hide() covers the children.
- *
- * Removing a page destroys the Overview/Nodes notebook sitting on it, and a
- * notebook that is losing pages switches to whichever one is left. That
- * arrives at onSubTab as a request to build a node editor -- on a page that
- * is being destroyed, which is at best a plugin directory scanned and a .dsp
- * parsed for nothing. Hence the flag. */
+/* Empties Channels and both stacks, to be filled again. */
 void MainSynthWindow::clearPages (void)
 {
     tearingDown_ = true;
 
-    /* Not hidden first any more. That was to spare the flicker of sixteen
-       pages going one at a time, and it depended on a show_all() afterwards
-       to undo it -- which GTK4 does not have, so the notebook stayed hidden
-       and the window came up empty below the toolbar. */
-    while (notebook_.get_n_pages() > 0)
-        notebook_.remove_page(-1);
+    /* Not while a row is being taken away: a list losing its selected row
+       selects nothing, and nothing is not a channel. */
+    selecting_ = true;
+
+    while (Gtk::Widget *w = chanList_.get_first_child())
+        chanList_.remove(*w);
+
+    selecting_ = false;
+
+    while (Gtk::Widget *w = paramStack_.get_first_child())
+        paramStack_.remove(*w);
+
+    while (Gtk::Widget *w = nodeStack_.get_first_child())
+        nodeStack_.remove(*w);
+
+    holders_.clear();
+    editors_.clear();
 
     tearingDown_ = false;
 }
 
 void MainSynthWindow::onPatchesChanged (void)
 {
-    int pagenum = notebook_.get_current_page();
-
     clearPages();
 
     populate();
 
-    if (pagenum != -1)
-        notebook_.set_current_page(pagenum);
+    selectChannel(chan_);
 }
 
 void MainSynthWindow::onPatchLoadError (const char* failure)
@@ -1491,9 +1691,7 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
  *
  * Returning true keeps the window: GTK asks whether it may close, and this
  * says no and hides it instead. So it survives to be presented again, which
- * is both simpler and cheaper than rebuilding it -- the patch selector and
- * the MIDI map are subscribed to the patch manager and keep themselves
- * current whether they are on screen or not.
+ * is both simpler and cheaper than rebuilding it.
  *
  * They are deleted in the destructor now, which is also where they have to be:
  * every one of them points into the synth. */
@@ -1501,8 +1699,8 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
  *
  * A key controller rather than an application accelerator, which is how
  * Ctrl+K and the rest are done. Those work because the main window is added
- * to the application and "win.keyboard" resolves against it; these windows
- * are deliberately not added -- the application quits when the last of its
+ * to the application and "win.pane-keyboard" resolves against it; these
+ * windows are deliberately not added -- the application quits when the last of its
  * windows goes, and the shutdown ordering wants exactly one window deciding
  * that. So an accelerator registered on the application would never reach
  * them.
@@ -1556,44 +1754,6 @@ bool MainSynthWindow::onSubWindowClose (Gtk::Window *window)
     return true;
 }
 
-/* gtkmm-3 passes the page widget itself rather than the opaque GtkNotebookPage
-   struct, which no longer exists. */
-/* Make it obvious which tab is the current one.
- *
- * Across the top a selected tab is unmistakable -- it joins the page below
- * it. Down the side that join is a one-pixel edge, and with the labels
- * left-aligned in a tall strip the only other mark was the dotted focus
- * rectangle, which is about having keyboard focus and not about which patch
- * you are looking at.
- *
- * Bold rather than a colour or a background: it reads on every theme, light
- * or dark, without this having an opinion about the palette. get_text()
- * returns the label's plain text whether or not markup was applied to it, so
- * the name survives being marked up and unmarked repeatedly. */
-void MainSynthWindow::highlightTab (int pagenum)
-{
-    for (int i = 0; i < notebook_.get_n_pages(); i++)
-    {
-        Gtk::Widget *w = notebook_.get_nth_page(i);
-
-        if (w == NULL)
-            continue;
-
-        Gtk::Label *lbl =
-            dynamic_cast<Gtk::Label *>(notebook_.get_tab_label(*w));
-
-        if (lbl == NULL)
-            continue;
-
-        const string text = lbl->get_text();
-
-        if (i == pagenum)
-            lbl->set_markup("<b>" + Glib::Markup::escape_text(text) + "</b>");
-        else
-            lbl->set_text(text);
-    }
-}
-
 /* 100 on the slider is unity gain, so the number reads like a channel
    amplitude rather than a multiplier. setMasterGain clamps and stores
    atomically; the audio thread reads it every block. */
@@ -1602,21 +1762,45 @@ void MainSynthWindow::onMasterGain (void)
     thSynth::instance()->setMasterGain(masterScale_.get_value() / 100.0);
 }
 
-void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
+/* The channel the panes are about.
+ *
+ * Channels picks it, and a reload, a load or an effect keeps it; Patch
+ * params and Patch graph show its pages, and the keys play it. */
+void MainSynthWindow::selectChannel (int chan)
 {
-    highlightTab((int)pagenum);
+    if (chan < 0 || chan >= (int)holders_.size())
+        chan = 0;
+
+    chan_ = chan;
+
+    const string name = "ch" + std::to_string(chan);
+
+    if (paramStack_.get_child_by_name(name) != NULL)
+        paramStack_.set_visible_child(name);
+
+    if (nodeStack_.get_child_by_name(name) != NULL)
+        nodeStack_.set_visible_child(name);
+
+    if (Gtk::ListBoxRow *row = chanList_.get_row_at_index(chan))
+    {
+        selecting_ = true;
+        chanList_.select_row(*row);
+        selecting_ = false;
+    }
 
     /* And the keys play the channel being looked at. */
     if (kbPanel_ != NULL)
-        kbPanel_->setChannel((int)pagenum);
+        kbPanel_->setChannel(chan);
+
+    if (panes_ != NULL && panes_->isVisible("nodeview"))
+        ensureEditor(chan);
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
-    gthPatchManager::PatchFile *patch = patchMgr->getPatch(pagenum);
+    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
 
     /* The entry is the current channel's DSP, and sits over all sixteen
-       tabs; the label says which one it is. */
-    dspEntryLbl_.set_label("Channel " + std::to_string(pagenum + 1) +
-                           " DSP:");
+       pages; the label says which one it is. */
+    dspEntryLbl_.set_label("Channel " + std::to_string(chan + 1) + " DSP:");
 
     if (patch == NULL)
     {
@@ -1627,11 +1811,19 @@ void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
     dspEntry_.set_text(patch->doc.dsp);
 }
 
+void MainSynthWindow::onChannelRow (Gtk::ListBoxRow *row)
+{
+    if (selecting_ || row == NULL)
+        return;
+
+    selectChannel(row->get_index());
+}
+
 void MainSynthWindow::onDspEntryActivate (void)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     string dspfile = dspEntry_.get_text();
-    int pagenum = notebook_.get_current_page();
+    int pagenum = chan_;
 
     /* noop caused by a spurious Enter */
     if (dspfile == "")
@@ -1645,11 +1837,8 @@ void MainSynthWindow::onDspEntryActivate (void)
         return;
     }
 
-    clearPages();
-
-    populate();
-
-    notebook_.set_current_page(pagenum);
+    /* The pages are rebuilt already: loading says the patches changed. */
+    selectChannel(pagenum);
 }
 
 /* The instrument chooser: a browser over the catalog rather than a file
@@ -1759,10 +1948,10 @@ void MainSynthWindow::openDspBrowser (bool effects, int chan)
 
 void MainSynthWindow::onBrowseButton (void)
 {
-    /* The page is captured now rather than read in the handler: the browser
-       is not modal to the notebook, and the tab that was current when Browse
-       was clicked is the one this is loading onto. */
-    openDspBrowser(false, notebook_.get_current_page());
+    /* The channel is captured now rather than read in the handler: the
+       browser is not modal to the window, and the channel that was current
+       when Browse was clicked is the one this is loading onto. */
+    openDspBrowser(false, chan_);
 }
 
 void MainSynthWindow::queueSavePatch (string file, int chan)
@@ -1806,9 +1995,6 @@ void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
         gthPrefs::instance()->Set("dspdir", vals);
     }
 
-    /* load up the patch file */
-    clearPages();
-
-    populate();
-    notebook_.set_current_page(pagenum);
+    /* The pages are rebuilt already: loading says the patches changed. */
+    selectChannel(pagenum);
 }
