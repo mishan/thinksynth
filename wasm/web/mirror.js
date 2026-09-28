@@ -168,6 +168,18 @@ function showPiece ()
     post({ type: 'piece', chains });
 }
 
+/* What the piece calls a chain and a stage: what a command names the stage
+   by, beside its indices, so that it still reaches it after an edit has
+   moved it (thinkweb.cpp, namedStage). */
+function namesOf (chain, stage)
+{
+    return {
+        chainName: M.ccall('tw_chain_name', 'string', ['number'], [chain]),
+        stageName: M.ccall('tw_stage_label', 'string', ['number', 'number'],
+                           [chain, stage]),
+    };
+}
+
 /* Everything the canvas has decided to send since it was last asked. Each
    becomes an `input' command on the page. */
 function sendGestures ()
@@ -177,6 +189,8 @@ function sendGestures ()
             type: 'input',
             chain: M._tw_canvas_input_chain(k),
             stage: M._tw_canvas_input_stage(k),
+            ...namesOf(M._tw_canvas_input_chain(k),
+                       M._tw_canvas_input_stage(k)),
             kind: M._tw_canvas_input_kind(k),
             button: M._tw_canvas_input_button(k),
             x: M._tw_canvas_input_x(k),
@@ -269,8 +283,7 @@ function sendGestures ()
             knob: M.UTF8ToString(M._tw_canvas_bind_knob()),
             chain,
             stage,
-            chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
-                                              ['number'], [chain])),
+            ...namesOf(chain, stage),
             at: { x: M._tw_canvas_bind_x(), y: M._tw_canvas_bind_y(),
                   w: M._tw_canvas_bind_w(), h: M._tw_canvas_bind_h() },
             panel: panelOf(chain, stage),
@@ -290,8 +303,7 @@ function sendGestures ()
         type: 'params',
         chain,
         stage,
-        chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
-                                          ['number'], [chain])),
+        ...namesOf(chain, stage),
         at: { x: M._tw_canvas_params_x(), y: M._tw_canvas_params_y(),
               w: M._tw_canvas_params_w(), h: M._tw_canvas_params_h() },
         panel: panelOf(chain, stage),

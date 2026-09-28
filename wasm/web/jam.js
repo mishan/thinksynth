@@ -1375,7 +1375,9 @@ function showComposer (on)
         onGesture: (g) =>
         {
             const cmd = maker.input(g.chain, g.stage, g.kind, g.x, g.y, g.w,
-                                    g.h, g.button);
+                                    g.h, g.button,
+                                    { chainName: g.chainName,
+                                      stageName: g.stageName });
 
             /* A gesture's end is where a picture that edits its params
                writes them (THC_INPUT_EDITS); what it writes, this peer
@@ -1389,9 +1391,9 @@ function showComposer (on)
         /* A stage's param, out to the room and back at its time -- to this
            peer as to every other, which is what keeps one piece one
            piece. */
-        onParamEdit: (chain, stage, row, text) =>
+        onParamEdit: (chain, stage, row, text, names) =>
         {
-            const cmd = maker.param(chain, stage, row, text);
+            const cmd = maker.param(chain, stage, row, text, names);
 
             ownParams.push(paramKey(cmd));
             send(cmd);

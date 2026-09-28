@@ -252,9 +252,19 @@ export function apply (M, m, host = NOWHERE)
              * the person touched. What it completes to is worked out on
              * arrival against the file this instance holds, by every
              * instance (src/StagePanel.h). */
-            M.ccall('tw_param', null,
-                    ['number', 'number', 'number', 'string', 'string'],
-                    [m.at ?? -1, m.chain, m.stage, m.row, m.text]);
+            /* By name as well when the command carries names, which a room's
+               does: an edit stamped before it may have moved the stage. */
+            if (m.chainName && m.stageName)
+                M.ccall('tw_param_named', null,
+                        ['number', 'string', 'string', 'number', 'number',
+                         'string', 'string'],
+                        [m.at ?? -1, m.chainName, m.stageName, m.chain,
+                         m.stage, m.row, m.text]);
+            else
+                M.ccall('tw_param', null,
+                        ['number', 'number', 'number', 'string', 'string'],
+                        [m.at ?? -1, m.chain, m.stage, m.row, m.text]);
+
             return true;
 
         case 'mute':
@@ -295,8 +305,17 @@ export function apply (M, m, host = NOWHERE)
             if (m.tag)
                 M.ccall('tw_command_tag', null, ['string'], [m.tag]);
 
-            M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
-                        m.button ?? 1);
+            if (m.chainName && m.stageName)
+                M.ccall('tw_input_named', null,
+                        ['number', 'string', 'string', 'number', 'number',
+                         'number', 'number', 'number', 'number', 'number',
+                         'number'],
+                        [m.at, m.chainName, m.stageName, m.chain, m.stage,
+                         m.kind, m.x, m.y, m.w, m.h, m.button ?? 1]);
+            else
+                M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w,
+                            m.h, m.button ?? 1);
+
             return true;
 
         case 'noteat':

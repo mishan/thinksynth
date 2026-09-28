@@ -275,6 +275,10 @@ class Peer
                two renders. */
             batch: (fn) => fn(),
 
+            /* engine.js's own, for the commands that name a stage. */
+            param: (cmd) => engineApply(M, { ...cmd, type: 'param' }),
+            input: (cmd) => engineApply(M, { ...cmd, type: 'input' }),
+
             /* engine.js's `edit', over the module directly. */
             edit: (at, text, files = {}, tie = 0) =>
             {
@@ -1146,6 +1150,143 @@ async function handsSession (createThinkWeb, piece, dsps)
     return { ok: true, peers, stamped, stopAt, ahead };
 }
 
+/* A command that names a stage, applied after an edit that moved it.
+ *
+ * loosen.gen's chains are grid, breathed and corrected, each with a
+ * humanize stage `h' in the last two. An edit puts a chain above them all,
+ * so corrected is chain 3 afterwards and chain 2 is breathed. Then a param
+ * for corrected's `h' arrives, stamped for after the edit and numbered as
+ * the piece was before it -- what a page whose composer view had not
+ * caught up would send. By its numbers it would set breathed's; by its
+ * names, corrected's.
+ */
+async function movedSession (createThinkWeb, piece, dsps, named = true)
+{
+    const sim = new Sim();
+    const net = new Net(sim, NETWORKS.still, 7);
+    const relay = new Relay(sim, net);
+    const peers = [];
+
+    for (const spec of PEERS)
+    {
+        const { M, ok, errors } = await loadPiece(createThinkWeb, {
+            rate: spec.rate, windowlen: spec.windowlen, block: spec.block,
+            gen: piece.text, instruments: dsps,
+        });
+
+        if (!ok)
+            return { ok: false, errors };
+
+        const peer = new Peer(sim, net, spec, M);
+
+        peer.gen = piece.text;
+        peers.push(peer);
+    }
+
+    const [A, B] = peers;
+
+    A.others = [B];
+    B.others = [A];
+
+    const start = piece.text.indexOf('chain grid {');
+    const end = piece.text.indexOf('\n};\n', start) + 4;
+    const extra = piece.text.slice(start, end)
+        .replace('chain grid {', 'chain extra {') + '\n';
+    const moved = piece.text.slice(0, start) + extra +
+                  piece.text.slice(start);
+    let editAt = null;
+    let stopAt = null;
+
+    A.startRendering();
+    B.startRendering();
+    A.startPinging(relay, 1000, 0);
+    B.startPinging(relay, 1000, 333);
+
+    sim.at(3000, async () =>
+        A.send(A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
+                             'no-document-here', 4242), true));
+
+    sim.at(6000, async () =>
+    {
+        const cmd = A.edit(moved);
+
+        editAt = cmd.at;
+        await A.send(cmd);
+    });
+
+    /* Well after the edit's bar, stamped for later still. */
+    sim.at(10000, async () =>
+        B.send(B.maker.param(2, 1, 'vel', '20',
+                             named ? { chainName: 'corrected',
+                                       stageName: 'h' }
+                                   : {})));
+
+    sim.at(14000, async () =>
+    {
+        const cmd = A.maker.stop();
+
+        stopAt = cmd.at;
+        await A.send(cmd, true);
+    });
+
+    let settle = null;
+
+    await sim.run(() =>
+    {
+        if (stopAt === null || !peers.every((p) => !p.transport.running))
+            return false;
+
+        settle ??= sim.t + 1000;
+
+        return sim.t >= settle;
+    });
+
+    return { ok: true, peers, editAt, stopAt };
+}
+
+/* The humanize stage's `vel' in one chain of a piece's text. */
+function velOf (text, chain)
+{
+    const start = text.indexOf(`chain ${chain} {`);
+    const body = text.slice(start, text.indexOf('\n};', start));
+    const h = body.slice(body.indexOf('stage h '));
+
+    return /\bvel\s*=\s*([\d.]+)/.exec(h)?.[1] ?? null;
+}
+
+/* What movedSession's param did, as complaints. */
+function movedComplaints (r)
+{
+    const complaints = [];
+
+    if (!r.ok)
+        return [`did not load: ${r.errors.join('; ')}`];
+
+    const [A, B] = r.peers;
+    const texts = r.peers.map((p) => p.M.UTF8ToString(p.M._tw_piece_text()));
+
+    if (texts[0] !== texts[1])
+        complaints.push('the two peers hold different texts');
+
+    if (velOf(texts[0], 'corrected') !== '20')
+        complaints.push(`corrected's h has vel ` +
+                        `${velOf(texts[0], 'corrected')}, not 20`);
+
+    if (velOf(texts[0], 'breathed') !== '14')
+        complaints.push(`breathed's h was changed to ` +
+                        `${velOf(texts[0], 'breathed')}`);
+
+    if (tapeBefore(A.tape, r.stopAt) !== tapeBefore(B.tape, r.stopAt))
+        complaints.push('the two tapes differ');
+
+    for (const p of r.peers)
+        if (p.M._tw_edit_count() !== 1)
+            complaints.push(`${p.name} applied ${p.M._tw_edit_count()} ` +
+                            'edits');
+
+    return complaints;
+}
+
 /* Every edit that was sent, applied whole on every peer. */
 function editComplaints (r)
 {
@@ -1442,6 +1583,38 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                     `${r.stamped.filter((c) => c.type === 'note').length} ` +
                     `keys; ${met} grid lines where the peers' keys met\n`);
         }
+    }
+
+    /* A command for a stage an edit moved: by name it reaches it, and the
+       same command without its names reaches the neighbour -- the second
+       run is what says the first one tested anything. */
+    {
+        const piece = pieces(build).find((p) => p.name === 'loosen.gen');
+
+        process.stdout.write('\na param numbered for the piece before an ' +
+                             'edit that moved its stage\n\n');
+
+        const r = await movedSession(createThinkWeb, piece, dsps);
+        const complaints = movedComplaints(r);
+        const unnamed = movedComplaints(
+            await movedSession(createThinkWeb, piece, dsps, false));
+
+        if (!unnamed.some((c) => /breathed's h was changed/.test(c)))
+            complaints.push('without its names the param did not go astray, ' +
+                            'so this proves nothing');
+
+        if (complaints.length > 0)
+        {
+            failures++;
+            process.stdout.write(`FAIL  loosen.gen     ` +
+                                 `${complaints.join('; ')}\n`);
+        }
+        else
+            process.stdout.write(
+                `ok    loosen.gen     the edit at ${r.editAt.toFixed(3)} ` +
+                `moved corrected from chain 2 to 3; the param numbered 2 ` +
+                `reached it by name, and without its names reached ` +
+                `breathed\n`);
     }
 
     /* The late joiner. */

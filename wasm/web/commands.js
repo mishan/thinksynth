@@ -39,8 +39,9 @@
  *   knob       { at, knob, value }            knob: its name
  *   knobwrite  { at, knob, value }
  *   edit       { at, text, files }            the piece's new text
- *   input      { at, chain, stage, kind, x, y, w, h, button }
- *   param      { at, chain, stage, row, text }
+ *   input      { at, chain, stage, chainName, stageName, kind, x, y, w, h,
+ *                button }
+ *   param      { at, chain, stage, chainName, stageName, row, text }
  *   mute       { at, chain, on }
  *   solo       { at, chain, on }
  *   section    { at, section, chain, level }
@@ -166,9 +167,10 @@ export class Maker
        the document. The coordinates are draw's, not the page's: the
        conversion is done by the code that drew the rectangle, on every
        platform. */
-    input (chain, stage, kind, x, y, w, h, button = 1)
+    input (chain, stage, kind, x, y, w, h, button = 1, names = {})
     {
-        return this.make('input', { chain, stage, kind, x, y, w, h, button },
+        return this.make('input', { chain, stage, ...names, kind, x, y, w, h,
+                                    button },
                          this.knobLead);
     }
 
@@ -186,9 +188,9 @@ export class Maker
        What it completes to is worked out on arrival, by every peer, against
        the file each of them holds (src/StagePanel.h). Completing it here
        would be the sender telling the others what their own file says. */
-    param (chain, stage, row, text)
+    param (chain, stage, row, text, names = {})
     {
-        return this.make('param', { chain, stage, row, text },
+        return this.make('param', { chain, stage, ...names, row, text },
                          this.knobLead);
     }
 

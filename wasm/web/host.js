@@ -536,8 +536,10 @@ export async function createSynth (ctx, { windowlen = 256,
          * something a composer is heard through. `row' is the param's name
          * and `text' is the part of the line the person touched; every
          * instance completes it against the piece it holds. */
-        param: ({ at = -1, chain, stage, row, text, rev }) =>
-            post({ type: 'param', at, chain, stage, row, text, rev }),
+        param: ({ at = -1, chain, stage, chainName, stageName, row, text,
+                  rev }) =>
+            post({ type: 'param', at, chain, stage, chainName, stageName, row,
+                   text, rev }),
 
         /* A chain's live mute or solo, at a transport time or -1 for the
            next window. Not written into the piece. */
@@ -555,11 +557,12 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
-           of it is one the module wants. */
-        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1,
-                  tag = '', rev }) =>
-            post({ type: 'input', at, chain, stage, kind, x, y, w, h,
-                   button, tag, rev }),
+           of it is one the module wants -- the stage's names too, which
+           it finds the stage by after an edit has moved it. */
+        input: ({ at = -1, chain, stage, chainName, stageName, kind, x, y, w,
+                  h, button = 1, tag = '', rev }) =>
+            post({ type: 'input', at, chain, stage, chainName, stageName, kind,
+                   x, y, w, h, button, tag, rev }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

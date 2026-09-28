@@ -453,7 +453,9 @@ export function createComposerView ({ root = document, toMirror,
         params.panel = panel;
         params.setValue = showPanel(
             body, panel,
-            (row, text) => onParamEdit(about.chain, about.stage, row, text));
+            (row, text) => onParamEdit(about.chain, about.stage, row, text,
+                                       { chainName: about.chainName,
+                                         stageName: about.stageName }));
     };
 
     const showParams = (m) =>
@@ -461,6 +463,7 @@ export function createComposerView ({ root = document, toMirror,
         const box = $('composerparams');
 
         params = { chain: m.chain, stage: m.stage, chainName: m.chainName,
+                   stageName: m.stageName,
                    panel: null, setValue: () => {} };
 
         draw(m.panel === null ? null : JSON.parse(m.panel));
@@ -515,7 +518,9 @@ export function createComposerView ({ root = document, toMirror,
             button.addEventListener('click', () =>
             {
                 box.hidden = true;
-                onParamEdit(m.chain, m.stage, row.id, `@${m.knob}`);
+                onParamEdit(m.chain, m.stage, row.id, `@${m.knob}`,
+                            { chainName: m.chainName,
+                              stageName: m.stageName });
             });
             box.append(button);
         }

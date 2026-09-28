@@ -264,6 +264,13 @@ struct Scheduled
        once its text has loaded (applyEdit). */
     std::vector<std::pair<std::string, std::string> > files;
 
+    /* TW_INPUT, TW_PARAM: the stage by chain and stage name as well, when
+       the command carries them. Looked up when it applies (namedStage):
+       an edit that adds a chain or a stage above this one moves every
+       index after it, and a command made before the edit and applied
+       after it would otherwise reach a neighbour. */
+    std::string chainName, stageName;
+
     int    channel, note;       /* TW_NOTE                             */
     bool   on, heard;           /* TW_NOTE                             */
 
@@ -706,15 +713,16 @@ thcStage *stageAt (int chain, int stage)
 /* A stage's parameter, set: the piece's own text spliced, and the running
  * stage poked so that the new line is heard from here. What TW_PARAM does,
  * and what a gesture's end does for a THC_INPUT_EDITS picture (`input'),
- * whose record says so and carries the command's tag. `row' is the param,
- * `text' the part of the line to complete against the file
+ * whose record says so and carries the command's tag. `sent' is the
+ * command as it arrived, `c' with its stage found by name. `row' is the
+ * param, `text' the part of the line to complete against the file
  * (src/StagePanel.h). False when there was nothing to write.
  *
  * Both halves here and nowhere else, so that there is one door: a second
  * one opening at a different moment is exactly the divergence the stamp
  * exists to stop. */
 static bool
-writeParam (const Scheduled &c, const std::string &row,
+writeParam (const Scheduled &c, const Scheduled &sent, const std::string &row,
             const std::string &text, bool input)
 {
     StagePanel target;
@@ -762,9 +770,12 @@ writeParam (const Scheduled &c, const std::string &row,
 
     AppliedParam done;
 
+    /* As the command carried them, which is how the page that sent it
+       knows it for its own -- not where namedStage found the stage, which
+       an edit may have moved. */
     done.at = c.at;
-    done.chain = c.chain;
-    done.stage = c.stage;
+    done.chain = sent.chain;
+    done.stage = sent.stage;
     done.row = row;
     done.text = text;
     done.chainName = canvasDoc_.chains[(size_t)c.chain].name;
@@ -836,7 +847,7 @@ captureEdits (const Scheduled &c, thcStage *st)
                 same = true;
 
         if (!same)
-            writeParam(c, info->name, text, true);
+            writeParam(c, c, info->name, text, true);
     }
 }
 
@@ -863,8 +874,46 @@ bool listensOn (int channel)
     return false;
 }
 
-void applyScheduled (const Scheduled &c)
+/* `c' with its chain and stage indices made the ones its names give, in the
+ * piece as it is now. True if it names a stage that is there -- by name
+ * when it has names, by index when it has none -- and false, having said
+ * so, when the names find nothing: the stage has been edited away, and a
+ * command meant for it is dropped rather than handed to whatever stands in
+ * its place.
+ */
+bool namedStage (Scheduled &c)
 {
+    if (c.chainName.empty() || c.stageName.empty())
+        return true;
+
+    for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+    {
+        const thcChain *ch = sched_->chain(ci);
+
+        if (ch->name != c.chainName)
+            continue;
+
+        for (size_t si = 0; si < ch->stages.size(); si++)
+            if (ch->stages[si]->name == c.stageName)
+            {
+                c.chain = (int)ci;
+                c.stage = (int)si;
+                return true;
+            }
+
+        break;
+    }
+
+    fprintf(stderr, "no stage %s in chain %s now; a command for it is "
+            "dropped\n", c.stageName.c_str(), c.chainName.c_str());
+
+    return false;
+}
+
+void applyScheduled (const Scheduled &given)
+{
+    Scheduled c = given;
+
     if (c.rev >= 0 && c.rev != edits_)
         switch (c.op)
         {
@@ -872,6 +921,9 @@ void applyScheduled (const Scheduled &c)
             case TW_PARAM: case TW_INPUT:
                 return;
         }
+
+    if ((c.op == TW_INPUT || c.op == TW_PARAM) && !namedStage(c))
+        return;
 
     switch (c.op)
     {
@@ -1118,7 +1170,7 @@ void applyScheduled (const Scheduled &c)
          * the divergence the stamp exists to stop.
          */
         case TW_PARAM:
-            writeParam(c, c.row, c.text, false);
+            writeParam(c, given, c.row, c.text, false);
             break;
 
         case TW_INPUT:
@@ -3141,6 +3193,15 @@ EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
     return c != NULL ? (int)c->stages.size() : 0;
 }
 
+/* What the piece calls a stage -- `stage a gen::arp' is "a" -- as opposed to
+   tw_stage_name's plugin. Empty for a stage the piece did not name. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_label (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL ? s->name.c_str() : "";
+}
+
 EMSCRIPTEN_KEEPALIVE const char *tw_stage_name (int chain, int stage)
 {
     const thcStage *s = stageAt(chain, stage);
@@ -4883,6 +4944,29 @@ EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
     schedule(c);
 }
 
+/* The same, with the stage named as well (tw_input_named). */
+EMSCRIPTEN_KEEPALIVE void tw_param_named (double at, const char *chainName,
+                                          const char *stageName, int chain,
+                                          int stage, const char *row,
+                                          const char *text)
+{
+    if (row == NULL || text == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.row = row;
+    c.text = text;
+    c.chainName = chainName ? chainName : "";
+    c.stageName = stageName ? stageName : "";
+
+    schedule(c);
+}
+
 /* How many param edits have been written to the piece and not yet asked
    for. The worklet reads it every quantum, which is why it is a count and
    not the list. */
@@ -5116,9 +5200,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
         });
 }
 
-EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
-                                    int kind, double x, double y, double w,
-                                    double h, int button)
+static Scheduled inputOf (double at, int chain, int stage, int kind,
+                          double x, double y, double w, double h, int button)
 {
     Scheduled c = {};
 
@@ -5134,6 +5217,29 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
     c.button = button;
     c.text = nextTag_;
     nextTag_.clear();
+
+    return c;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
+                                    int kind, double x, double y, double w,
+                                    double h, int button)
+{
+    schedule(inputOf(at, chain, stage, kind, x, y, w, h, button));
+}
+
+/* The same, with the stage named as well: what a room's command carries,
+   since an edit stamped before it can move the indices (namedStage). */
+EMSCRIPTEN_KEEPALIVE void tw_input_named (double at, const char *chainName,
+                                          const char *stageName, int chain,
+                                          int stage, int kind, double x,
+                                          double y, double w, double h,
+                                          int button)
+{
+    Scheduled c = inputOf(at, chain, stage, kind, x, y, w, h, button);
+
+    c.chainName = chainName ? chainName : "";
+    c.stageName = stageName ? stageName : "";
 
     schedule(c);
 }

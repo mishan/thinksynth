@@ -357,6 +357,12 @@ On `latejoin`, the first of M4's three parts. Where it stands:
 - A seat is any channel the piece plays -- its instruments, the channels
   it takes `input midi` on, and the ones its sinks name -- where it was
   the instruments alone, which gave a piece like `hands.gen` no seats.
+- A gesture on a composer's picture and a stage's param name the stage
+  by chain and stage name as well as by index, and the worklet finds it
+  by name when the command applies: an edit that adds a chain or a stage
+  above it moves every index after it. `protocoltest.mjs` sends a param
+  numbered for the piece before such an edit; by name it reaches its
+  stage, and the same command without its names reaches the neighbour.
 - Not yet: by hand across two machines.
 
 ### M6, so far
