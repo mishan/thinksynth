@@ -32,6 +32,7 @@ class Composer;
 class KeyboardPanel;
 class PatchSelPanel;
 class Panes;
+typedef struct _MlnPanes MlnPanes;
 
 using namespace std;
 
@@ -187,6 +188,10 @@ protected:
     /* Gives a secondary window Ctrl+W. See the definition for why it is a
        controller rather than an accelerator like the rest of them. */
     void addCloseAccel (Gtk::Window *window);
+
+    /* A window for panes moved out of this one: the same actions and
+       keys as here. See the definition. */
+    static GtkWindow *makePaneWindow (MlnPanes *panes, gpointer self);
     bool onSubWindowKey (guint keyval, guint keycode, Gdk::ModifierType state,
                          Gtk::Window *window);
     void onMasterGain (void);
