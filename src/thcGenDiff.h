@@ -78,8 +78,9 @@ public:
        seed goes on with the one `live' has.
 
        False with `errors' when the new text does not load, and then
-       nothing has changed; false as well when it loaded and an instrument
-       did not, and then the edit has been applied without it. */
+       nothing has changed. True once it is the piece -- with `errors'
+       still saying so if an instrument would not load, which leaves that
+       channel as the edit found it or silent. */
     static bool apply (thcScheduler &live,
                        const std::map<std::string, thcPlugin *> &plugins,
                        const std::string &oldPath, const std::string &newPath,

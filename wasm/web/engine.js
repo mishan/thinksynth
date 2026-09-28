@@ -20,11 +20,11 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
- * `transport', `begin', `batch', `at', `knob', `paneledit', `stageparam',
- * `param', `mute', `solo', `section', `knobwrite', `input', `midion',
- * `midioff', `on', `off' or `alloff' message, turned into the tw_ call that
- * applies it. It used to live in worklet.js, and moved here when there were
- * two instances to apply it to.
+ * `transport', `begin', `batch', `edit', `at', `knob', `paneledit',
+ * `stageparam', `param', `mute', `solo', `section', `knobwrite', `input',
+ * `midion', `midioff', `on', `off' or `alloff' message, turned into the tw_
+ * call that applies it. It used to live in worklet.js, and moved here when
+ * there were two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -168,7 +168,28 @@ export function apply (M, m, host = NOWHERE)
             return true;
 
         case 'knob':
-            M._tw_knob(m.at, m.knob, m.value);
+            /* A room's command names the knob; the solo page's numbers it.
+               A name is looked up when the command applies, after any edit
+               stamped before it (thinkweb.cpp, TW_KNOB). */
+            if (typeof m.knob === 'string')
+                M.ccall('tw_knob_named', null,
+                        ['number', 'string', 'number'],
+                        [m.at, m.knob, m.value]);
+            else
+                M._tw_knob(m.at, m.knob, m.value);
+
+            return true;
+
+        case 'edit':
+            /* A new text for the piece at a transport time, and the other
+               files the edit changed: those into the module's files now,
+               the piece at its stamp (thinkweb.cpp, applyEdit). */
+            for (const [name, text] of Object.entries(m.files ?? {}))
+                M.ccall('tw_instrument', 'number', ['string', 'string'],
+                        [name, text]);
+
+            M.ccall('tw_edit', null, ['number', 'string', 'string'],
+                    [m.at, m.text, Object.keys(m.files ?? {}).join('\n')]);
             return true;
 
         case 'speed':

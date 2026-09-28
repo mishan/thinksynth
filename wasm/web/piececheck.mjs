@@ -191,7 +191,7 @@ export function pieces (buildDir)
  * Without one the whole of `seconds' is taken. */
 export function reference (name, nodeBuildDir, options = {})
 {
-    const { args, env, cut } = genwavCall(name, nodeBuildDir, options);
+    const { args, env, cut, done } = genwavCall(name, nodeBuildDir, options);
     let text;
 
     try
@@ -203,6 +203,10 @@ export function reference (name, nodeBuildDir, options = {})
     {
         throw genwavFailure(name, e.status, e.stderr);
     }
+    finally
+    {
+        done();
+    }
 
     return tapeBefore(text, cut);
 }
@@ -212,12 +216,14 @@ export function reference (name, nodeBuildDir, options = {})
    `code' where execFileSync reports it as `status'. */
 export function referenceAsync (name, nodeBuildDir, options = {})
 {
-    const { args, env, cut } = genwavCall(name, nodeBuildDir, options);
+    const { args, env, cut, done } = genwavCall(name, nodeBuildDir, options);
 
     return new Promise((resolve, reject) =>
         execFile('node', args, { cwd: top, encoding: 'utf8', env },
                  (e, stdout, stderr) =>
                  {
+                     done();
+
                      if (e)
                          reject(genwavFailure(name, e.code, stderr));
                      else
@@ -237,15 +243,31 @@ function genwavCall (name, nodeBuildDir,
     const args = [path.join(here, '..', 'genwav.mjs'),
                   '-s', String(until), '-t', '-', '-q'];
 
+    /* An edit's text goes to genwav as a file, one per edit, in a
+       directory of this call's own. */
+    let dir = null;
+
     for (const c of commands)
     {
         if (c.type === 'knob')
         {
-            if (knobs[c.knob] === undefined)
+            /* A room's command names the knob; an older one numbers it. */
+            const knob = typeof c.knob === 'string' ? c.knob : knobs[c.knob];
+
+            if (knob === undefined)
                 throw new Error(`reference: knob ${c.knob} of ${name} has ` +
                                 'no name to give genwav');
 
-            args.push('-c', `${c.at} knob ${knobs[c.knob]} ${c.value}`);
+            args.push('-c', `${c.at} knob ${knob} ${c.value}`);
+        }
+        else if (c.type === 'edit')
+        {
+            dir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'reference-'));
+
+            const file = path.join(dir, `edit-${args.length}.gen`);
+
+            fs.writeFileSync(file, c.text);
+            args.push('-c', `${c.at} edit ${file}`);
         }
         else if (c.op === 'tempo')
             args.push('-c', `${c.at} tempo ${c.bpm}`);
@@ -257,7 +279,9 @@ function genwavCall (name, nodeBuildDir,
 
     return { args,
              env: { ...process.env, THINK_WASM_BUILD: nodeBuildDir },
-             cut: stopAt === null ? seconds : stopAt };
+             cut: stopAt === null ? seconds : stopAt,
+             done: () => dir && fs.rmSync(dir, { recursive: true,
+                                                force: true }) };
 }
 
 /* genwav.mjs's statuses, which are scripts/genwav's: 4 is a voice the

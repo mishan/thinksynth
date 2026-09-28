@@ -195,10 +195,7 @@ thcGenDiff::apply (thcScheduler &live,
     }
 
     if (!live.adopt(next, edit, why))
-    {
         errors.push_back(why);
-        return false;
-    }
 
     return true;
 }

@@ -36,8 +36,9 @@
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
  *   transport  { at, op: 'start', origin, piece, seed, seek } -- a seek
- *   knob       { at, knob, value }
+ *   knob       { at, knob, value }            knob: its name
  *   knobwrite  { at, knob, value }
+ *   edit       { at, text, files }            the piece's new text
  *   input      { at, chain, stage, kind, x, y, w, h, button }
  *   param      { at, chain, stage, row, text }
  *   mute       { at, chain, on }
@@ -105,6 +106,8 @@ export class Maker
                          this.transportLead);
     }
 
+    /* By name: an edit can add a knob or take one away, and a number made
+       before one names a different knob after it. */
     knob (knob, value)
     {
         return this.make('knob', { knob, value }, this.knobLead);
@@ -115,6 +118,22 @@ export class Maker
     knobWrite (knob, value)
     {
         return this.make('knobwrite', { knob, value }, this.knobLead);
+    }
+
+    /* The piece's new text, and the other files the edit changed as
+     * { name: text }, applied at `at' -- the next bar, which the caller
+     * works out (nextBar below): stamped with a time rather than a lead,
+     * because what an edit keeps and what it rebuilds happens at one
+     * point in the piece on every peer, and a bar line is where a person
+     * hears a change as meant. -1 while the transport is stopped.
+     *
+     * The text rides in the command rather than being read off the
+     * document by each peer, because the document goes on moving -- the
+     * next keystroke is already on its way -- and what every peer applies
+     * has to be the one revision the sender pressed Apply on. */
+    edit (at, text, files = {})
+    {
+        return { ...this.make('edit', { text, files }, 0), at };
     }
 
     /* A gesture on a stage's picture: which stage, what kind of gesture,
@@ -256,6 +275,30 @@ export class Dedupe
     }
 }
 
+/* The first bar line at least `lead' seconds past `now', in transport
+ * seconds, from a worklet's tape message: the transport time it reported,
+ * the beat that falls on, the tempo and the meter. -1 when the transport
+ * is stopped: an edit then applies on arrival, on every peer, since no
+ * time is passing.
+ *
+ * A tempo change already stamped between now and then is not seen, so
+ * the time may not be on the bar; it is still one time on every peer,
+ * which is what the tape depends on.
+ */
+export function nextBar (now, report, lead)
+{
+    const { beat, tempo, meter } = report;
+
+    if (now < 0 || !(tempo > 0) || !(meter > 0))
+        return -1;
+
+    /* The report's beat is at the report's own `now', a little behind. */
+    const from = beat + (now + lead - report.now) * tempo / 60;
+    const bar = Math.ceil(from / meter - 1e-9) * meter;
+
+    return now + lead + (bar - from) * 60 / tempo;
+}
+
 /* Has this command's time already gone by, by the page's own reckoning?
    The worklet counts a late command when it applies it; this is how the
    page can say which one it was. `at' below zero is "now", never late. */
@@ -377,6 +420,10 @@ function applyNow (cmd, { synth, listens })
 
         case 'section':
             synth.section(cmd);
+            break;
+
+        case 'edit':
+            synth.edit(cmd.at, cmd.text, cmd.files);
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.

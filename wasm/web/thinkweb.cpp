@@ -69,6 +69,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -78,6 +79,7 @@
 
 #include "gthSynthSource.h"
 
+#include "thcGenDiff.h"
 #include "thcGenFile.h"
 #include "thcMidiExport.h"
 #include "thcMidiRouter.h"
@@ -127,6 +129,8 @@
 /* Where an export's piece is written to be loaded from: not the one being
    played, which the export must not disturb. */
 #define TW_EXPORT_FILE "/export.gen"
+/* Where an edit's new text is put while it is read (applyEdit). */
+#define TW_EDIT_FILE "/piece-edit.gen"
 
 /* Where the shipped pieces are kept, for the menu's sake alone: the piece
    being played is written to TW_PIECE_FILE above and loaded from there. */
@@ -177,6 +181,7 @@ enum TransportOp
     TW_SECTION,
     TW_KNOBWRITE,
     TW_SEEK,
+    TW_EDIT,
 };
 
 struct Command
@@ -210,7 +215,8 @@ struct Scheduled
 {
     double at;
     int    op;
-    int    knob;                /* TW_KNOB: an index into knobs_       */
+    int    knob;                /* TW_KNOB: an index into knobs_, when
+                                   `row' does not name the knob       */
     double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's,
                                    TW_MUTE's and TW_SOLO's (0 or 1) */
 
@@ -239,7 +245,11 @@ struct Scheduled
        Strings, unlike every other field here, because a param is named by
        name: the plugin's own registration order is the only index there
        would be, and a peer a revision behind would then set its
-       neighbour. */
+       neighbour.
+
+       TW_KNOB: `row' is the knob's name, when the command named one.
+       TW_EDIT: `text' is the piece's new text, and `row' the other files
+       it changed, one name to a line. */
     std::string row, text;
 };
 
@@ -786,6 +796,8 @@ captureEdits (const Scheduled &c, thcStage *st)
     }
 }
 
+void applyEdit (const Scheduled &c);
+
 void applyScheduled (const Scheduled &c)
 {
     switch (c.op)
@@ -836,8 +848,17 @@ void applyScheduled (const Scheduled &c)
                (thcScheduler::bindKnob). By index into the list the page
                was handed at the load: a name would have to be copied into
                the command, and a copy has a length, and a knob whose name
-               ran past it was silently never moved. */
-            if (c.knob >= 0 && c.knob < (int)knobs_.size())
+               ran past it was silently never moved.
+
+               By name when the command carries one, and looked up here,
+               when it applies: an edit can add a knob or take one away, and
+               an index made before that names a different knob after it. */
+            if (!c.row.empty())
+            {
+                if (thArg *k = sched_->knob(c.row))
+                    k->setValue((float)c.value);
+            }
+            else if (c.knob >= 0 && c.knob < (int)knobs_.size())
                 knobs_[c.knob]->setValue((float)c.value);
 
             break;
@@ -920,6 +941,10 @@ void applyScheduled (const Scheduled &c)
             applied_.push_back(done);
             break;
         }
+
+        case TW_EDIT:
+            applyEdit(c);
+            break;
 
         case TW_STAGEPARAM:
         {
@@ -1913,6 +1938,78 @@ int reroute (const std::string &pattern)
     return n;
 }
 
+/* Edits applied since the load, and what the last one had to say. */
+int                      edits_;
+std::vector<std::string> editErrors_;
+
+/* A new text for the piece, at the time the command was stamped for
+ * (thcGenDiff): what it keeps and what it builds is the same answer on
+ * every instance handed the same two texts at the same time. The piece's
+ * own file is the text it is replacing -- param edits spliced in and all,
+ * which is what the stages were built from -- and becomes the new one if
+ * it loads.
+ *
+ * What the host holds about the piece follows: the knobs by index, the
+ * sinks' channels, the text as read back, and the canvas's stages, which
+ * point at instances an edit may just have destroyed. */
+void applyEdit (const Scheduled &c)
+{
+    std::set<std::string> changed;
+    size_t from = 0;
+
+    while (from < c.row.size())
+    {
+        size_t to = c.row.find('\n', from);
+
+        if (to == std::string::npos)
+            to = c.row.size();
+
+        if (to > from)
+            changed.insert(c.row.substr(from, to - from));
+
+        from = to + 1;
+    }
+
+    editErrors_.clear();
+
+    if (!writeFile(TW_EDIT_FILE, c.text.c_str()))
+    {
+        editErrors_.push_back("the edit could not be written down");
+        edits_++;
+        return;
+    }
+
+    if (!thcGenDiff::apply(*sched_, plugins_, TW_PIECE_FILE, TW_EDIT_FILE,
+                           changed, editErrors_))
+    {
+        edits_++;
+        return;
+    }
+
+    writeFile(TW_PIECE_FILE, c.text.c_str());
+
+    canvasDoc_ = thcGenEdit::Doc();
+
+    std::string why;
+
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+        editErrors_.push_back("the edit cannot be read back: " + why);
+
+    knobs_.clear();
+
+    for (const auto &k : sched_->knobs())
+        knobs_.push_back(k.second);
+
+    collectSinks();
+
+    if (canvas_ != NULL)
+        canvas_->SetPiece(canvasDoc_.chains.empty() ? NULL : &canvasDoc_,
+                          sched_);
+
+    edits_++;
+}
+
 } /* namespace */
 
 extern "C" {
@@ -2195,6 +2292,8 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     knobs_.clear();
     sinks_.clear();
     applied_.clear();
+    edits_ = 0;
+    editErrors_.clear();
 
     sched_->stop();
 
@@ -2332,6 +2431,18 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_description (void)
 EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
 {
     return sched_->tempo();
+}
+
+/* Beats at the transport's now, and beats to a bar: what a room page picks
+   the next bar with, for an edit. */
+EMSCRIPTEN_KEEPALIVE double tw_beat (void)
+{
+    return sched_->beat();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_meter (void)
+{
+    return sched_->meter();
 }
 
 /* Whether the tempo means anything to this piece.
@@ -4237,6 +4348,62 @@ EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
  * knob's place in the list this module built at the load; tw_knob_index
  * reads it the other way round, for a command arriving by name. An index
  * outside the list is ignored. */
+/* A knob by name, which is what a room's command carries: resolved when it
+   applies, after any edit stamped before it. */
+EMSCRIPTEN_KEEPALIVE void tw_knob_named (double at, const char *name,
+                                         double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_KNOB;
+    c.knob = -1;
+    c.row = name ? name : "";
+    c.value = value;
+
+    schedule(c);
+}
+
+/* A new text for the piece at transport time `at', and the other files the
+ * edit changed, one name to a line -- their new texts already handed over
+ * through tw_instrument. Applied inside the step, like any stamped command
+ * (applyEdit). `at' below zero is the next window, as for a knob.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_edit (double at, const char *text,
+                                   const char *changed)
+{
+    if (text == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_EDIT;
+    c.text = text;
+    c.row = changed ? changed : "";
+
+    schedule(c);
+}
+
+/* How many edits have been applied since the load, and what the last one
+   said: nothing when it went in whole. The page reads the count off the
+   tape message to know its knobs and seats want drawing again. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_count (void)
+{
+    return edits_;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_error_count (void)
+{
+    return (int)editErrors_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_edit_error (int k)
+{
+    return k >= 0 && k < (int)editErrors_.size() ? editErrors_[k].c_str()
+                                                   : "";
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
 {
     Scheduled c = {};

@@ -41,9 +41,9 @@ import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
-         commandTag, isLate, replayable } from './commands.js';
+         commandTag, isLate, nextBar, replayable } from './commands.js';
 import { docOf, fileNames, files, hashOf, instrumentTexts, pieceName,
-         pieceText, readFile, spliceFile } from './doc.js';
+         pieceText, readFile, snapshot, spliceFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
@@ -164,6 +164,20 @@ let maker = null;
 const dedupe = new Dedupe();
 
 let piece = null;               /* the worklet's word on the loaded piece */
+
+/* The text this page's worklet is playing, as { piece, files }: what was
+   loaded, with every edit applied since. What Apply sends the difference
+   from -- a .dsp the document has changed since then goes with the edit. */
+let playing = null;
+
+/* The last tape message: where the transport was, in seconds and beats,
+   which is what Apply picks the next bar from. */
+let lastTape = null;
+
+/* The knob panel's rows, by name and by row id: a command names a knob by
+   name, and the panel knows its sliders by id. */
+const knobIds = new Map();
+const knobNames = new Map();
 let listens = new Set();        /* channels the piece takes input on */
 
 /* note -> { count, midi, seat }: how many hands are on it, how many of
@@ -349,7 +363,17 @@ async function applyOne (from, cmd)
     /* And what the page shows follows. */
     /* Ours moved its own slider as it was dragged. */
     if (cmd.type === 'knob' && from !== room.peer)
-        setKnobValue(String(cmd.knob), cmd.value);
+        setKnobValue(String(knobIds.get(cmd.knob) ?? cmd.knob), cmd.value);
+    else if (cmd.type === 'edit')
+    {
+        playing = { piece: playing?.piece ?? pieceName(doc),
+                    files: { ...playing?.files, ...cmd.files } };
+        playing.files[playing.piece] = cmd.text;
+        loadedGen = cmd.text;
+
+        status(`${room.peers.get(from)?.name ?? from}'s edit` +
+               (cmd.at >= 0 ? ` applies at ${cmd.at.toFixed(2)} s.` : '.'));
+    }
     else if (cmd.type === 'transport')
     {
         if (cmd.op === 'start')
@@ -497,6 +521,16 @@ function joinRun ()
                 return loadFromDoc(start.seed, docOf(run.files));
             },
         });
+
+        /* And the edits it stepped through, as the page's idea of what its
+           worklet is playing, which Apply sends the difference from. */
+        for (const c of [...byKey.values()].filter((c) => c.type === 'edit')
+                                           .sort((a, b) => a.at - b.at))
+        {
+            playing.files = { ...playing.files, ...c.files };
+            playing.files[playing.piece] = c.text;
+            loadedGen = c.text;
+        }
     });
 
     applying = done.catch((e) => log(`catching up: ${e.message}`));
@@ -533,6 +567,7 @@ async function loadFromDoc (seed = -1, from = doc)
     const it = await synth.loadPiece(gen, seed);
 
     loadedGen = gen;
+    playing = snapshot(from);
 
     /* And then the aiming, in that order, for the reason the solo page
        aims in that order: a channel the piece named and put nothing on
@@ -585,14 +620,15 @@ async function loadFromDoc (seed = -1, from = doc)
     return piece !== null;
 }
 
-/* The piece text this peer last loaded, which is what its canvas draws
-   and what a drop on the canvas is numbered against. */
+/* The piece text this peer last loaded, with the edits applied since,
+   which is what its canvas draws and what a drop on the canvas is numbered
+   against. */
 let loadedGen = null;
 
 /* A stage box dropped elsewhere in its chain: the document spliced, by
- * this peer, the way its own param edits are, and applied at once if the
- * room is playing -- a structural edit is a reload, and the room's reload
- * is Apply. Stopped, the next Play takes it.
+ * this peer, the way its own param edits are, and applied if the room is
+ * playing -- a structural edit is an edit, and the room's edit is Apply, at
+ * the next bar. Stopped, the next Play takes it.
  *
  * Only against the document as this peer loaded it: the drop is numbered
  * by the canvas, and a document that has moved on since -- a peer's edit,
@@ -627,7 +663,7 @@ async function moveStage (chainName, from, to)
     spliceFile(doc, name, text);
 
     if (transport?.running)
-        await play();
+        await applyEdit();
     else
         log('stage moved; Play applies it');
 }
@@ -664,15 +700,66 @@ async function freezeChain (chain, chainName)
     spliceFile(doc, name, text);
 
     if (transport?.running)
-        await play();
+        await applyEdit();
     else
         log(`${chainName} frozen; Play applies it`);
 }
 
 /* ---- transport ---- */
 
-/* Play, and Apply: a start from a new origin, with the document as it
-   stands, from a seed the file pins or this peer picks. */
+/* Apply: the document as it stands, into the piece that is playing, at the
+ * next bar -- what a stage keeps and what is built again is thcGenDiff's
+ * rule, the same on every peer. With the .gen goes every .dsp the document
+ * has changed since this page's worklet last loaded one. While stopped
+ * there is no bar to wait for, and it is a Play from the top.
+ */
+async function applyEdit ()
+{
+    if (doc === null || synth === null)
+        return;
+
+    if (!transport?.running || lastTape === null || playing === null)
+        return play();
+
+    const text = pieceText(doc);
+
+    if (text === null)
+        return;
+
+    const changed = {};
+
+    for (const [name, t] of Object.entries(instrumentTexts(doc)))
+        if (playing.files[name] !== t)
+            changed[name] = t;
+
+    const at = nextBar(transportNow(), lastTape, maker.transportLead);
+
+    await send(maker.edit(at, text, changed));
+}
+
+/* An edit has been applied here: the piece is what it now says, and the
+   knobs, the seats and the channels it listens on follow. */
+async function edited (m)
+{
+    m.errors.forEach((e) => log(`edit: ${e}`));
+
+    if (m.errors.length > 0)
+        status('The edit did not go in whole; see the log.');
+    else
+        status('Edited.');
+
+    piece = m;
+    listens = new Set(m.listens);
+    $('about').textContent = m.description;
+
+    await drawKnobs();
+    showSeats();
+    showNodeChannel();
+    enable();
+}
+
+/* Play: a start from a new origin, with the document as it stands, from a
+   seed the file pins or this peer picks. */
 async function play ()
 {
     if (!clocksReady() || doc === null)
@@ -901,6 +988,8 @@ async function drawKnobs ()
         ? { shape: 0 } : await synth.panel(1 /* thPanel::KNOB */, 0, 0);
 
     setKnobValue = () => {};
+    knobIds.clear();
+    knobNames.clear();
 
     if (answer.shape === 0)
     {
@@ -908,16 +997,26 @@ async function drawKnobs ()
         return;
     }
 
+    const panel = JSON.parse(answer.json);
+
+    for (const row of panel.rows)
+    {
+        knobIds.set(row.knob, String(row.id));
+        knobNames.set(String(row.id), row.knob);
+    }
+
     /* Held before it is sent, and not after: this one goes out to the room
        as a stamped command and every peer applies it to the same knob. See
-       the same handler in main.js. */
-    setKnobValue = showPanel($('knobs'), JSON.parse(answer.json),
+       the same handler in main.js. By name, which survives an edit that
+       adds a knob or takes one away (commands.js). */
+    setKnobValue = showPanel($('knobs'), panel,
                              (row, text) =>
                              {
                                  const value = numberIn(text);
 
                                  if (value !== null)
-                                     send(maker.knob(Number(row), value));
+                                     send(maker.knob(knobNames.get(String(row)),
+                                                     value));
                              },
                              (row, text) =>
                              {
@@ -982,6 +1081,7 @@ function enable ()
 
 function tape (m)
 {
+    lastTape = m;
     diff.take('worklet', m);
     showClock($('clock'), m);
     nodes?.feed(m.probes);
@@ -1196,7 +1296,7 @@ function showComposer (on)
                 return;
             }
 
-            send(maker.knob(knob, value));
+            send(maker.knob(knobNames.get(String(knob)), value));
 
             /* A peer's own move does not come back through the strip's
                follower (it skips this peer), so it is shown here. */
@@ -1336,6 +1436,7 @@ async function start ()
                                          onMidi: (msgs) => midiOutUI.take(msgs),
                                          onMidiState: (list) =>
                                              midiOutUI.state(list),
+                                         onEdited: edited,
                                          onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
@@ -1502,7 +1603,7 @@ function init ()
     $('join').addEventListener('click', join);
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
-    $('apply').addEventListener('click', play);
+    $('apply').addEventListener('click', applyEdit);
     $('stop').addEventListener('click', stop);
     $('tempo').addEventListener('change', tempo);
     $('export').addEventListener('click', exportTape);
@@ -1573,7 +1674,18 @@ function init ()
        nothing here that a person could not do with the page. */
     window.jam = {
         join, start, play, stop,
-        knob: (knob, value) => send(maker.knob(knob, value)),
+        /* A knob by name, or by its row's id as the panel numbers it. */
+        knob: (knob, value) => send(maker.knob(
+            typeof knob === 'string' ? knob
+                                     : knobNames.get(String(knob)), value)),
+        apply: () => applyEdit(),
+
+        /* A file of the document replaced, as a splice (doc.js): what a
+           harness types with, without a keyboard. */
+        setFile: (name, text) => spliceFile(doc, name, text),
+
+        /* Edits this page's worklet has applied since the load. */
+        edits: () => lastTape?.edits ?? 0,
         tempo: (bpm) => send(maker.tempo(bpm)),
         seat: (seat) => room.claim(seat),
         tape: () => tapeText,

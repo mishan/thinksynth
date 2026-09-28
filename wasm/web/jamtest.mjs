@@ -32,6 +32,10 @@
  * other and to genwav.mjs's for the same piece and the same command stream,
  * and the late count on both is zero.
  *
+ * Ten seconds in, the first page changes a chain in the document and
+ * presses Apply: the edit goes out stamped for the next bar, and every
+ * peer puts the new text into the piece there.
+ *
  * Partway through, a third page -- another Chromium -- joins the room that
  * is already playing and presses Start. It catches up from the relay's log
  * of the run, moves the knob itself once it has, and its tape, from the
@@ -813,6 +817,31 @@ try
     }
     await at(8000);
     await B.page.evaluate(() => window.jam.knob(0, 0.77));
+
+    /* An edit, applied while it plays: the wildcard chain always plays,
+       and louder. */
+    await at(10000);
+    {
+        const edited = await A.page.evaluate(() =>
+        {
+            const name = window.jam.piece();
+            const was = window.jam.file(name);
+            const next = was.replace('prob = 0.6; hold = 5 s; vel = 50;',
+                                     'prob = 1; hold = 5 s; vel = 90;');
+
+            if (next === was)
+                return false;
+
+            window.jam.setFile(name, next);
+            window.jam.apply();
+
+            return true;
+        });
+
+        if (!edited)
+            fail('the edit found nothing to change in the piece');
+    }
+
     await at(12000);
     await B.page.evaluate(() => window.jam.tempo(100));
     await at(16000);
@@ -874,6 +903,7 @@ try
             tape: window.jam.tape(),
             late: window.jam.late(),
             sent: window.jam.sent(),
+            edits: window.jam.edits(),
             peers: window.jam.peers(),
             margins: window.jam.margins(),
             log: document.getElementById('log').textContent,
@@ -896,8 +926,8 @@ try
        belongs to no run, and the load a Play does puts the piece back to
        what the file says whatever was moved before it. */
     const sent = results.flatMap((r) => r.sent)
-        .filter((c) => (c.type === 'knob' || c.type === 'transport') &&
-                       c.at >= 0)
+        .filter((c) => (c.type === 'knob' || c.type === 'transport' ||
+                        c.type === 'edit') && c.at >= 0)
         .sort((a, b) => a.at - b.at);
     const stopAt = sent.find((c) => c.op === 'stop')?.at;
 
@@ -935,7 +965,23 @@ try
         else
             fail(`chromium's tape differs from genwav's: ` +
                  `${firstDifference(want, tapes[0])}`);
+
+        /* And the edit is heard: without it, genwav composes something
+           else. */
+        const unedited = reference(PIECE, nodeBuild, {
+            commands: sent.filter((c) => c.type !== 'edit'), knobs, stopAt });
+
+        if (unedited !== want)
+            ok('and not the tape of the run nobody edited');
+        else
+            fail('the edit made no difference to the tape');
     }
+
+    for (const r of results)
+        if (r.edits === 1)
+            ok(`${r.label} applied the edit`);
+        else
+            fail(`${r.label} applied ${r.edits} edits, not 1`);
 
     for (const r of results)
     {

@@ -336,7 +336,8 @@ struct Peer
         spill(next, text);
 
         if (!thcGenDiff::apply(sched, plugins, cur.string(), next.string(),
-                               std::set<std::string>(), errors))
+                               std::set<std::string>(), errors) ||
+            !errors.empty())
             return false;
 
         spill(cur, text);

@@ -80,6 +80,7 @@ export async function createSynth (ctx, { windowlen = 256,
                                           onParamEdits = () => {},
                                           onMidi = () => {},
                                           onMidiState = () => {},
+                                          onEdited = () => {},
                                           onMirror = null } = {})
 {
     /* A browser offers the worklet only in a secure context: https, or
@@ -208,6 +209,9 @@ export async function createSynth (ctx, { windowlen = 256,
                 onMidiState(m.instruments);
                 break;
 
+            case 'edited':
+                onEdited(m);
+                break;
             case 'tape':
                 /* And the mirror is told how far this has got: it steps
                    to there, which is tw_render without the render. So its
@@ -441,7 +445,8 @@ export async function createSynth (ctx, { windowlen = 256,
            seconds has where the tempo is the one it has not. */
         speed: (value, at = -1) => post({ type: 'speed', value, at }),
 
-        /* `knob' is the index loadPiece reported the knob under; `at' a
+        /* `knob' is the index loadPiece reported the knob under, or its
+           name, which is looked up when the command applies; `at' a
            transport time, or -1 for the next window. */
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
 
@@ -454,6 +459,12 @@ export async function createSynth (ctx, { windowlen = 256,
            { text }, "" when refused. */
         genSetKnob: (text, name, value) =>
             ask({ type: 'genknob', text, name, value }),
+
+        /* A new text for the piece at transport time `at', and the other
+           files the edit changed, as { name: text }. What it keeps of the
+           piece playing is thcGenDiff's rule; `onEdited' hears what the
+           piece is afterwards. */
+        edit: (at, text, files = {}) => post({ type: 'edit', at, text, files }),
 
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a

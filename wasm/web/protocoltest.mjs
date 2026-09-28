@@ -48,8 +48,13 @@
  * see both -- the count, and which command. A hazard that is hidden is
  * worse than one that is shown.
  *
+ * Ten seconds in, one peer presses Apply on the piece with a number in its
+ * last chain moved: an edit, stamped for the next bar, which every peer and
+ * genwav apply at that time.
+ *
  * Then a third peer that joins late: ninety seconds into a two-minute run,
- * with knobs moving and the tempo changing on either side of its arrival.
+ * with knobs moving, the tempo changing and the piece edited on either side
+ * of its arrival.
  * It asks the relay for the run -- the start and the stamped commands since
  * -- steps its transport from the room's origin up to the present without a
  * sound, and plays on from there, moving a knob of its own once it has. Its
@@ -67,7 +72,7 @@ import { drain, tapeBefore, tapeLine } from '../tape.mjs';
 import { AudioClock, RelayClock, TransportClock, frameOfRelayMs }
     from './clock.js';
 import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp, isLate,
-         replayable } from './commands.js';
+         nextBar, replayable } from './commands.js';
 import { firstDifference, instruments, pieces, reference }
     from './piececheck.mjs';
 import { loadPiece, schedule } from './render.mjs';
@@ -125,6 +130,13 @@ const RELAY_OFFSET = 987654.321;
    the one that breaks the knob lead. */
 const NETWORKS = {
     lan:  { delay: 40, jitter: 20, loss: 0.02 },
+
+    /* The late joiner's: the LAN without the loss. A gesture the mesh drops
+       parts the tapes by design -- nothing resends it, and the page counts
+       the gap -- and which one it drops is a matter of the seed, so a
+       session about something else would pass or fail on which command
+       the dice landed on. */
+    still: { delay: 40, jitter: 20, loss: 0 },
     slow: { delay: 300, jitter: 20, loss: 0.0 },
 };
 
@@ -257,6 +269,17 @@ class Peer
                between two renders; here every call is already between
                two renders. */
             batch: (fn) => fn(),
+
+            /* engine.js's `edit', over the module directly. */
+            edit: (at, text, files = {}) =>
+            {
+                for (const [name, t] of Object.entries(files))
+                    M.ccall('tw_instrument', 'number', ['string', 'string'],
+                            [name, t]);
+
+                M.ccall('tw_edit', null, ['number', 'string', 'string'],
+                        [at, text, Object.keys(files).join('\n')]);
+            },
             transportAt: (op, at, value = 0) =>
                 schedule(M, { op, at, value }),
             knob: (knob, value, at) =>
@@ -405,6 +428,18 @@ class Peer
         };
     }
 
+    /* An edit of this peer's own, at the next bar past the transport lead:
+       what the page's Apply sends (jam.js, applyEdit). */
+    edit (text)
+    {
+        const { M } = this;
+        const report = { now: M._tw_now(), beat: M._tw_beat(),
+                         tempo: M._tw_tempo(), meter: M._tw_meter() };
+
+        return this.maker.edit(nextBar(this.transportNow(), report,
+                                       this.maker.transportLead), text);
+    }
+
     /* A command of this peer's own: applied here, sent to everyone else,
        and a copy to the relay for whoever joins later (jam.js, send). */
     async send (cmd, reliable = false)
@@ -501,10 +536,50 @@ class Relay
     }
 }
 
+/* The piece with one plain number in its last chain that has one moved --
+ * a whole number up by one, anything else by a tenth -- and still loading:
+ * what an Apply mid-run sends. null when no chain has such a number.
+ */
+async function nudged (createThinkWeb, piece, dsps)
+{
+    const text = piece.text;
+    const chains = [...text.matchAll(/^chain\s+\w+\s*\{/gm)]
+        .map((m) => m.index).reverse();
+
+    for (const start of chains)
+    {
+        const end = text.indexOf('\n};', start);
+        const body = text.slice(start, end < 0 ? text.length : end);
+
+        for (const m of body.matchAll(/(\b\w+\s*=\s*)(-?\d+(?:\.\d+)?)(\s*;)/g))
+        {
+            const v = Number(m[2]);
+
+            if (v === 0)
+                continue;
+
+            const to = Number.isInteger(v) ? v + 1
+                                           : Number((v * 0.9).toFixed(6));
+            const at = start + m.index + m[1].length;
+            const next = text.slice(0, at) + String(to) +
+                         text.slice(at + m[2].length);
+            const { ok } = await loadPiece(createThinkWeb, {
+                rate: 48000, windowlen: 256, block: 128, gen: next,
+                instruments: dsps,
+            });
+
+            if (ok)
+                return next;
+        }
+    }
+
+    return null;
+}
+
 /* The script: Play from A, knobs from both sides, a tempo from each, Stop
    from A. Returns what was stamped, so the reference can be given the same
    stream. */
-async function play (sim, relay, peers, knob, seed)
+async function play (sim, relay, peers, knob, seed, editText = null)
 {
     const [A, B] = peers;
     const stamped = [];
@@ -535,12 +610,24 @@ async function play (sim, relay, peers, knob, seed)
             sim.at(t, async () =>
             {
                 const value = knob.min + (knob.max - knob.min) * frac;
-                const cmd = who.maker.knob(knob.knob, value);
+                const cmd = who.maker.knob(knob.name, value);
 
                 await who.send(cmd);
                 note(cmd);
             });
     }
+
+    /* An Apply from B, ten seconds in: the edit lands at the next bar,
+       on both peers, and the knobs on either side of it go on landing on
+       the knob they name. */
+    if (editText !== null)
+        sim.at(10000, async () =>
+        {
+            const cmd = B.edit(editText);
+
+            await B.send(cmd);
+            note(cmd);
+        });
 
     sim.at(18000, async () =>
     {
@@ -592,7 +679,8 @@ async function play (sim, relay, peers, knob, seed)
 
 /* One piece over one network: the peers made, the script run, the tapes
    held against each other and against genwav's. */
-async function session (createThinkWeb, piece, dsps, network, seed)
+async function session (createThinkWeb, piece, dsps, network, seed,
+                        editText = null)
 {
     const sim = new Sim();
     const net = new Net(sim, NETWORKS[network], seed);
@@ -629,7 +717,8 @@ async function session (createThinkWeb, piece, dsps, network, seed)
     peers[0].startPinging(relay, 1000, 0);
     peers[1].startPinging(relay, 1000, 333);
 
-    const { stamped, stopAt } = await play(sim, relay, peers, knob, 4242);
+    const { stamped, stopAt } = await play(sim, relay, peers, knob, 4242,
+                                           editText);
 
     return { ok: true, peers, knob, stamped, stopAt, net, relay };
 }
@@ -652,10 +741,11 @@ function firstKnob (M)
  * either side of it, and once it has caught up it moves the knob too --
  * the joiner as a musician rather than a listener.
  */
-async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0)
+async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0,
+                            editText = null)
 {
     const sim = new Sim();
-    const net = new Net(sim, NETWORKS.lan, seed);
+    const net = new Net(sim, NETWORKS.still, seed);
     const relay = new Relay(sim, net);
     const peers = [];
 
@@ -722,12 +812,28 @@ async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0)
                     return;
 
                 const value = knob.min + (knob.max - knob.min) * frac;
-                const cmd = who.maker.knob(knob.knob, value);
+                const cmd = who.maker.knob(knob.name, value);
 
                 await who.send(cmd);
                 note(cmd);
             });
     }
+
+    /* An edit before the joiner arrives, which it has to step through,
+       and the text put back after it has, which it has to apply live. */
+    if (editText !== null)
+        for (const [who, t, text] of [[B, origin + 50000, editText],
+                                      [A, joinMs + 18000, piece.text]])
+            sim.at(t, async () =>
+            {
+                if (!who.live)
+                    return;
+
+                const cmd = who.edit(text);
+
+                await who.send(cmd);
+                note(cmd);
+            });
 
     for (const [who, t, bpm] of [[A, origin + 40000, 100],
                                  [B, joinMs + 10000, 140]])
@@ -796,6 +902,27 @@ async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0)
     return { ok: true, peers, knob, stamped, stopAt, caughtUp };
 }
 
+/* Every edit that was sent, applied whole on every peer. */
+function editComplaints (r)
+{
+    const sent = r.stamped.filter((c) => c.type === 'edit').length;
+    const out = [];
+
+    for (const p of r.peers)
+    {
+        const got = p.M._tw_edit_count();
+        const said = p.M._tw_edit_error_count();
+
+        if (got !== sent || said !== 0)
+            out.push(`${p.name} applied ${got} of ${sent} edits` +
+                     (said !== 0
+                          ? `: ${p.M.UTF8ToString(p.M._tw_edit_error(0))}`
+                          : ''));
+    }
+
+    return out;
+}
+
 /* How far each peer's origin frame is from where the origin truly fell on
    its output, in milliseconds. The tapes do not depend on this -- a
    transport time is frames from the origin, wherever the origin is -- but
@@ -833,7 +960,18 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
     const dsps = instruments(build);
-    const all = pieces(build).filter((p) => p.seeded);
+    /* PROTOCOLTEST_ONLY=name.gen runs one piece, and PROTOCOLTEST_DUMP=dir
+       writes each peer's tape there: for reading a failure. */
+    const all = pieces(build).filter((p) => p.seeded &&
+        (!process.env.PROTOCOLTEST_ONLY ||
+         p.name === process.env.PROTOCOLTEST_ONLY));
+    const dump = (piece, peers) =>
+    {
+        if (process.env.PROTOCOLTEST_DUMP)
+            for (const p of peers)
+                fs.writeFileSync(path.join(process.env.PROTOCOLTEST_DUMP,
+                                           `${piece.name}.${p.name}`), p.tape);
+    };
     let failures = 0;
 
     process.stdout.write(
@@ -844,7 +982,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
 
     for (const piece of all)
     {
-        const r = await session(createThinkWeb, piece, dsps, 'lan', 1);
+        const r = await session(createThinkWeb, piece, dsps, 'lan', 1,
+                                await nudged(createThinkWeb, piece, dsps));
 
         if (!r.ok)
         {
@@ -864,8 +1003,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
 
         const want = reference(piece.name, nodeBuild, {
             commands: r.stamped, stopAt: r.stopAt,
-            knobs: r.knob === null ? {} : { [r.knob.knob]: r.knob.name },
         });
+
+        complaints.push(...editComplaints(r));
 
         if (a !== want)
             complaints.push(`A differs from genwav: ` +
@@ -900,7 +1040,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             process.stdout.write(
                 `ok    ${piece.name.padEnd(14)} ` +
                 `${String(a.split('\n').length - 1).padStart(5)} events   ` +
-                `${r.stamped.length} commands, ${r.net.dropped} lost, ` +
+                `${r.stamped.length} commands` +
+                `${r.stamped.some((c) => c.type === 'edit') ? ' with an edit'
+                                                             : ''}, ` +
+                `${r.net.dropped} lost, ` +
                 `origins ${r.peers.map((p) => originError(p, r.stamped[0])
                                                   .toFixed(2) + ' ms')
                                     .join(' and ')} off\n`);
@@ -964,7 +1107,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
 
     for (const piece of all.filter((p) => LATE_PIECES.includes(p.name)))
     {
-        const r = await lateSession(createThinkWeb, piece, dsps, 3);
+        const r = await lateSession(createThinkWeb, piece, dsps, 3, 0,
+                                    await nudged(createThinkWeb, piece, dsps));
 
         if (!r.ok)
         {
@@ -975,6 +1119,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         }
 
         const [A, B, C] = r.peers;
+
+        dump(piece, r.peers);
         const [a, b, c] = [A, B, C].map((p) => tapeBefore(p.tape, r.stopAt));
         const complaints = [];
 
@@ -986,8 +1132,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
 
         const want = reference(piece.name, nodeBuild, {
             commands: r.stamped, stopAt: r.stopAt,
-            knobs: r.knob === null ? {} : { [r.knob.knob]: r.knob.name },
         });
+
+        complaints.push(...editComplaints(r));
 
         if (a !== want)
             complaints.push(`A differs from genwav: ` +

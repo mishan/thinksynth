@@ -311,9 +311,26 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   ended (`loosen`); what is due is now delivered before each tick. Over
   two minutes of every seeded piece, 24 tapes are unchanged and 9 have
   lines in a different order; no event is added, lost or moved.
-- Not yet: the edit as a command -- stamped for the next bar, carried with
-  the document's revision, applied by the worklet and the mirror, and
-  logged for a late joiner -- and the quantised and play-ahead modes.
+- **Apply is an edit**, on `editcmd`, which starts where `editbar` ends.
+  While the transport runs, Apply sends the document's `.gen`, and every
+  `.dsp` it has changed since the worklet last loaded one, as an `edit`
+  command stamped for the first bar line past the transport lead. The
+  text rides in the command rather than being read off the document by
+  each peer: the document goes on moving, and every peer has to apply the
+  one revision the sender pressed Apply on. The worklet and the mirror
+  apply it through the same `TW_EDIT`, the relay logs it, and a late
+  joiner steps through it. Stopped, Apply is still Play from the top.
+- A knob command names its knob now, and the name is looked up when the
+  command applies. An index was a place in a list an edit can reorder.
+- `genwav.mjs -c "AT edit FILE"` is the reference. `protocoltest.mjs`
+  sends an Apply from one peer ten seconds into every seeded piece, and in
+  the late-join run one edit before the joiner arrives and one after;
+  `jamtest.mjs` changes a chain from one page mid-run. Every peer applies
+  every edit, one tape, genwav's, and not the tape of the run nobody
+  edited.
+- Not yet: the quantised and play-ahead modes. And `input` and `param`
+  commands still name a stage by its index, which an edit that adds a
+  stage above it moves.
 
 ### M6, so far
 
@@ -642,6 +659,7 @@ beat it applies at; every peer applies it at that beat.
 ```
 transport   { at, op: start | stop | tempo, origin, seed, bpm }
 knob        { at, name, value, from }                latest at wins
+edit        { at, text, files }                     the piece, at a bar
 param       { at, chain, stage, row, text }         a stage's line, spliced
 note        { at, seat, note, velocity, mode }       mode: direct | quantised | ahead
 noteoff     { at, seat, note }
