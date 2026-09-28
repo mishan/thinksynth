@@ -54,7 +54,7 @@ struct thcStage;
  * a stage with eight params is taller than its chain's row, so opening
  * one shoved every chain below it down and opening two made the canvas
  * unreadable. Nothing here is typed into either, at eight pixels a row.
- * The canvas asks; ComposerWindow answers with the Edit panel's own
+ * The canvas asks; Composer answers with the Selection pane's own
  * rows, which already know about units and knob bindings.
  *
  * A stage whose module also exports composer_input has a picture that is
@@ -65,7 +65,7 @@ struct thcStage;
  * double-click, puts it back.
  *
  * The canvas does not edit anything itself. It reports -- a selection,
- * a drag that wants stages reordered -- and ComposerWindow performs the
+ * a drag that wants stages reordered -- and Composer performs the
  * edit through thcGenEdit and reloads. One writer, as everywhere else.
  * Input is not an exception to that: a click goes to the plugin's own
  * state and changes what is playing, which is a performance, not a file

@@ -68,7 +68,7 @@
 #include "gthPatchfile.h"
 #include "gthSignal.h"
 #include "gui/ComposerCanvasWidget.h"
-#include "gui/ComposerWindow.h"
+#include "gui/Composer.h"
 #include "gui/ItemBrowser.h"
 #include "gui/PianoRoll.h"
 
@@ -84,28 +84,71 @@ sigNoteOn    m_sigKbdNoteOn;
 sigNoteOff   m_sigKbdNoteOff;
 
 /* A subclass, for the same reason editorcheck has one: which widgets the
- * window keeps are its own business, and there is no call to widen them
+ * composer keeps are its own business, and there is no call to widen them
  * for a test. `protected' is the access level that means "and for
- * anything that is a ComposerWindow", which this is. */
-class TestComposer : public ComposerWindow {
+ * anything that is a Composer", which this is.
+ *
+ * And a window around it, standing in for the main window's panes: the
+ * canvas, the roll, the settings and the selection stacked, with the
+ * transport over them and the composer's actions on the window. Started
+ * as it is built, as the main window starts it when one of its panes is
+ * first looked at, and with the canvas counted as in view. */
+class TestComposer : public Composer {
 public:
-    TestComposer (thSynth *synth) : ComposerWindow(synth) { }
+    TestComposer (thSynth *synth) : Composer(synth)
+    {
+        Gtk::Box *box = Gtk::manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
-    using ComposerWindow::editBtn_;
-    using ComposerWindow::kbdBtn_;
-    using ComposerWindow::canvas_;
-    using ComposerWindow::canvasScroll_;
-    using ComposerWindow::doc_;
-    using ComposerWindow::paramPop_;
-    using ComposerWindow::structuralReload;
-    using ComposerWindow::workPath_;
-    using ComposerWindow::status_;
-    using ComposerWindow::acts_;
-    using ComposerWindow::saveAct_;
-    using ComposerWindow::rollAct_;
-    using ComposerWindow::tabs_;
-    using ComposerWindow::roll_;
-    using ComposerWindow::sched_;
+        box->append(transport());
+        box->append(status());
+        canvasView().set_vexpand(true);
+        box->append(canvasView());
+        box->append(rollView());
+        box->append(settingsView());
+        box->append(selectionView());
+
+        host_ = new Gtk::Window;
+        host_->set_default_size(1060, 640);
+        host_->set_child(*box);
+        host_->insert_action_group("composer", actions());
+
+        signal_show_selection().connect([this] { selectionShown_++; });
+
+        setCanvasShown(true);
+        start();
+    }
+
+    /* The window first: it lets go of the widgets that are the
+       composer's, and the composer goes after. */
+    ~TestComposer (void)
+    {
+        delete host_;
+    }
+
+    void set_visible (bool on) { host_->set_visible(on); }
+
+    void activate_action (const Glib::ustring &name)
+    {
+        host_->activate_action(name);
+    }
+
+    Gtk::Window *host_;
+
+    /* How many times the Selection pane has been asked for. */
+    int selectionShown_ = 0;
+
+    using Composer::kbdBtn_;
+    using Composer::canvas_;
+    using Composer::canvasScroll_;
+    using Composer::doc_;
+    using Composer::paramPop_;
+    using Composer::structuralReload;
+    using Composer::workPath_;
+    using Composer::status_;
+    using Composer::acts_;
+    using Composer::saveAct_;
+    using Composer::roll_;
+    using Composer::sched_;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -341,21 +384,22 @@ run (const std::string &pluginPath, const char *genFile)
     else
         ok("Save starts greyed out");
 
-    if (win->editBtn_ == NULL || win->kbdBtn_ == NULL)
+    if (win->kbdBtn_ == NULL)
     {
-        fail("the toolbar's toggles exist");
+        fail("the toolbar's toggle exists");
         delete win;
         return failures;
     }
 
-    /* The Edit panel, which is what nulls the pointers. Twice, because
-       the second build is the one that runs after rebuildEditor has
-       already cleared everything once. */
+    /* The piece's settings and the selection coming into view and going
+       out of it, which is what builds and clears them and nulls the
+       pointers. Twice, because the second build is the one that runs
+       after rebuildEditor has already cleared everything once. */
     for (int round = 0; round < 2; round++)
     {
-        win->editBtn_->set_active(true);
+        win->setEditing(true);
         pump(4);
-        win->editBtn_->set_active(false);
+        win->setEditing(false);
         pump(4);
     }
 
@@ -373,11 +417,11 @@ run (const std::string &pluginPath, const char *genFile)
 
     /* The other order too, in case a future rebuild only forgets on one
        of the two paths. */
-    win->editBtn_->set_active(true);
+    win->setEditing(true);
     pump(4);
     win->kbdBtn_->set_active(true);
     pump(4);
-    win->editBtn_->set_active(false);
+    win->setEditing(false);
     pump(4);
     win->kbdBtn_->set_active(false);
     pump(4);
@@ -874,7 +918,7 @@ run (const std::string &pluginPath, const char *genFile)
        menu model refers to. */
     {
         static const char *want[] = { "new", "open", "save", "saveas",
-                                      "revert", "roll" };
+                                      "revert" };
         int missing = 0;
 
         for (size_t i = 0; i < sizeof(want) / sizeof(want[0]); i++)
@@ -900,36 +944,15 @@ run (const std::string &pluginPath, const char *genFile)
     else
         ok("...and wakes up once the piece has been edited");
 
-    /* The roll is a strip now, not a fixture. Checked both ways: a view
-       you can hide and not show again is worse than one you cannot
-       hide. */
+    /* Clicking the canvas asks for Selection. Without this the pane is a
+       worse version of the column it replaced: the settings would go on
+       showing the piece's name while the thing just clicked sat behind a
+       tab nobody was told about. */
     {
-        win->activate_action("composer.roll");
+        win->setEditing(true);
         pump(4);
 
-        if (win->roll_->get_visible())
-            fail("the piano roll would not go away");
-        else
-            ok("the piano roll can be hidden");
-
-        win->activate_action("composer.roll");
-        pump(4);
-
-        if (!win->roll_->get_visible())
-            fail("the piano roll would not come back");
-        else
-            ok("...and brought back");
-    }
-
-    /* Clicking the canvas raises Selection. Without this the tabs are a
-       worse version of the column they replaced: the panel would go on
-       showing the piece's name while the thing just clicked sat behind
-       a tab nobody was told about. */
-    {
-        win->editBtn_->set_active(true);
-        pump(4);
-        win->tabs_.set_current_page(0);
-        pump(2);
+        const int before = win->selectionShown_;
 
         ComposerCanvas::Selection sel;
 
@@ -940,25 +963,32 @@ run (const std::string &pluginPath, const char *genFile)
         win->canvas_->select(sel);
         pump(4);
 
-        if (win->tabs_.get_current_page() != 1)
-            fail("selecting a stage did not raise the Selection tab");
+        if (win->selectionShown_ != before + 1)
+            fail("selecting a stage did not ask for the Selection pane");
         else
-            ok("clicking the canvas raises Selection");
+            ok("clicking the canvas asks for Selection");
 
-        /* But deselecting does not: being thrown into an empty tab
-           reads as the window losing its place. */
-        win->tabs_.set_current_page(0);
-        pump(2);
+        /* But deselecting does not: being thrown into an empty pane reads
+           as the window losing its place. */
         win->canvas_->select(ComposerCanvas::Selection());
         pump(4);
 
-        if (win->tabs_.get_current_page() != 0)
-            fail("deselecting yanked the panel to an empty tab");
+        if (win->selectionShown_ != before + 1)
+            fail("deselecting asked for an empty Selection pane");
         else
-            ok("...and deselecting leaves it where it was");
+            ok("...and deselecting leaves the panes where they were");
 
-        win->editBtn_->set_active(false);
+        /* Nor does a selection while neither the settings nor the
+           selection is in view: nobody is editing. */
+        win->setEditing(false);
         pump(4);
+        win->canvas_->select(sel);
+        pump(4);
+
+        if (win->selectionShown_ != before + 1)
+            fail("a selection asked for Selection with nobody editing");
+        else
+            ok("...and nothing is asked for while nobody is editing");
     }
 
     delete win;
@@ -1013,10 +1043,9 @@ closeWithIdlesPending (const std::string &pluginPath)
     win->set_visible(true);
     pump(1);
 
-    /* Three idles, queued as late as possible: the first split of the
-       canvas against the roll (from the map, above), the Edit panel's
-       width (from the toggle), and a structural reload. */
-    win->editBtn_->set_active(true);
+    /* Idles queued as late as possible: the editor built as it comes into
+       view, and a structural reload. */
+    win->setEditing(true);
     win->structuralReload();
 
     delete win;
@@ -1203,9 +1232,9 @@ runRefused (const std::string &pluginPath)
     /* Drawn twice, with the edit panel in between, because the canvas is
        rebuilt on the way through and a box built from a rejected file
        has to survive both passes. */
-    win->editBtn_->set_active(true);
+    win->setEditing(true);
     pump(6);
-    win->editBtn_->set_active(false);
+    win->setEditing(false);
     pump(6);
 
     /* And this one is the refused piece's version of it: the section is

@@ -271,7 +271,7 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
               PATCH GENCATALOG PANEL STAGEPANEL
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp"
@@ -296,7 +296,7 @@ think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
                     "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"

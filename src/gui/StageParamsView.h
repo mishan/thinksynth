@@ -38,7 +38,7 @@
  * from the document, so a stage poked before its line was written would show
  * the old value over the new sound.
  *
- * This is what ComposerWindow::addParamRow became. What left with it is
+ * This is what Composer::addParamRow became. What left with it is
  * everything that turned out to be a rule rather than a drawing: which of
  * the three units a duration is written in, which knobs a param may be read
  * through, what a typed note set or preset name is allowed to be, and the

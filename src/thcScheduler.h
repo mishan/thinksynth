@@ -157,7 +157,7 @@ public:
      * done after the first, because "what a fresh load would have done"
      * is not the same question on the two hosts. On the desktop an edit
      * to the work file pokes the live store so it is audible without a
-     * reload (ComposerWindow::applyParam), and the file a reload would
+     * reload (Composer::applyParam), and the file a reload would
      * read is the edited one -- so `prob = 0.5' typed after Play, a
      * binding made after Play, an unbind after Play, all have to survive
      * a rewind, as they did before any of this was recorded.

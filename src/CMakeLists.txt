@@ -208,7 +208,7 @@ set(THINKSYNTH_SOURCES
     gui/PatchSelPanel.cpp
     gui/PianoRoll.cpp
     gui/ComposerCanvasWidget.cpp
-    gui/ComposerWindow.cpp)
+    gui/Composer.cpp)
 
 # ---------------------------------------------------------------------------
 # Windows resources: icon, manifest, version block
