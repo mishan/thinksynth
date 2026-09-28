@@ -238,17 +238,32 @@ export class Room
                                    : { type: 'relayed', to, data });
     }
 
-    /* A transport command, kept by the relay for whoever arrives next. */
+    /* The run this page believes is playing, as the relay keys it: the
+       start's sender and counter (relay.mjs, runKeyOf). */
+    get runKey ()
+    {
+        return this.playing ? `${this.playing.from}#${this.playing.seq}`
+                            : null;
+    }
+
+    /* A transport command, kept by the relay for whoever arrives next. A
+       start begins a run and a stop ends it; this page's own are what it
+       knows first. */
     transport (data)
     {
-        this.send({ type: 'transport', data });
+        if (data?.op === 'start')
+            this.playing = data;
+        else if (data?.op === 'stop')
+            this.playing = null;
+
+        this.send({ type: 'transport', data, run: this.runKey });
     }
 
     /* A copy of a stamped command the mesh carried, for the relay to keep
        for whoever joins while this run plays. */
     log (data)
     {
-        this.send({ type: 'log', data });
+        this.send({ type: 'log', data, run: this.runKey });
     }
 
     /* What a peer joining a playing room needs: resolves to `{ start,

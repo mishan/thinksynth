@@ -338,6 +338,11 @@ async function applyOne (from, cmd)
         keep(margins, { from, seq: cmd.seq, type: cmd.type,
                         margin: cmd.at - transportNow() });
 
+    /* A new Play ends any catching up: its begin replaces the one being
+       caught up with, and the origin that would have said so never comes. */
+    if (cmd.type === 'transport' && cmd.op === 'start')
+        catchingFrom = null;
+
     await apply(cmd, { synth, frameOfOrigin, listens, load: loadFor });
 
     /* And what the page shows follows. */

@@ -63,7 +63,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { DEFAULT_PIECE, dspNames, hashOf, meta, putFile, snapshot }
+import { DEFAULT_PIECE, dspNames, hashOfFiles, meta, putFile, snapshot }
     from './doc.js';
 
 export const PROTOCOL = 1;
@@ -137,6 +137,13 @@ export function seedFiles (doc, piece, tree)
     });
 
     return true;
+}
+
+/* Which run a start began: its sender and counter, which is what a page
+   stamps its logged commands with (room.js). */
+export function runKeyOf (start)
+{
+    return start ? `${start.from}#${start.seq}` : null;
 }
 
 /* A short random id: for a peer, and for nothing else. */
@@ -229,11 +236,15 @@ class Room
         this.run = run;
     }
 
-    record (cmd)
+    /* A stamped command, into the run it was made in. `runKey' is that
+       run's start, as the sender knew it (runKeyOf); a copy that arrives
+       after another Play has begun is the old run's straggler, stamped for
+       a time in a piece that is no longer playing, and is not kept. */
+    record (cmd, runKey)
     {
         const { run } = this;
 
-        if (run === null)
+        if (run === null || runKey !== runKeyOf(run.start))
             return;
 
         if (run.log.length >= LOG_MAX)
@@ -251,12 +262,13 @@ class Room
     {
         return new Promise((resolve) =>
         {
-            const timer = setTimeout(() => finish(false), SNAPSHOT_WAIT);
+            const timer = setTimeout(() => finish(snapshot(this.doc), false),
+                                     SNAPSHOT_WAIT);
             let checking = false;
             let again = false;
             let done = false;
 
-            const finish = (matched) =>
+            const finish = (snap, matched) =>
             {
                 if (done)
                     return;
@@ -264,7 +276,7 @@ class Room
                 done = true;
                 clearTimeout(timer);
                 this.doc.off('update', check);
-                resolve({ ...snapshot(this.doc), matched });
+                resolve({ ...snap, matched });
             };
 
             const check = async () =>
@@ -284,9 +296,15 @@ class Room
                     if (done)
                         return;
 
-                    if (await hashOf(this.doc) === hash)
+                    /* The snapshot first and its hash after, so what is
+                       handed over is what was hashed: an update landing
+                       during the digest would otherwise be in the one and
+                       not the other. */
+                    const snap = snapshot(this.doc);
+
+                    if (await hashOfFiles(snap.files) === hash)
                     {
-                        finish(true);
+                        finish(snap, true);
                         return;
                     }
                 }
@@ -577,7 +595,7 @@ class Room
                         this.run = null;
                     }
                     else
-                        this.record(m.data);
+                        this.record(m.data, m.run);
 
                     others({ type: 'transport', from: id, data: m.data });
                     break;
@@ -588,7 +606,7 @@ class Room
                    others have it. */
                 case 'log':
                     if (typeof m.data === 'object' && m.data !== null)
-                        this.record(m.data);
+                        this.record(m.data, m.run);
                     break;
 
                 /* A late joiner, ready to play: the run as the relay has

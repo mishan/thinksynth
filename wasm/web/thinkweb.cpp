@@ -1128,6 +1128,11 @@ bool catchUp (double start, int len, double budgetMs)
 {
     const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
 
+    /* Two slices a window whatever they cost: a budget smaller than one
+       slice would otherwise step one window per window rendered, which is
+       the output's own pace, and the transport would never catch it. */
+    int slices = 0;
+
     while (catchFrame_ < start && sched_->running())
     {
         /* Not rounded: the origin is wherever the room's clock put it,
@@ -1139,7 +1144,7 @@ bool catchUp (double start, int len, double budgetMs)
         synth_->process();
         catchFrame_ += n;
 
-        if (budgetMs >= 0 && tw_clock_ms() - t0 >= budgetMs)
+        if (budgetMs >= 0 && ++slices >= 2 && tw_clock_ms() - t0 >= budgetMs)
             break;
     }
 

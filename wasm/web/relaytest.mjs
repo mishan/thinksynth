@@ -388,15 +388,23 @@ try
 
         await g.next('welcome');
 
+        const key = `${wf.peer}#0`;
+
         f.send({ type: 'transport',
                  data: { type: 'transport', op: 'start', origin: 777,
                          piece: { hash }, seed: 5, from: wf.peer,
                          seq: 0, at: -1 } });
         f.send({ type: 'log', data: { type: 'knob', at: 1.5, knob: 0,
-                                      value: 0.3, from: wf.peer, seq: 1 } });
+                                      value: 0.3, from: wf.peer, seq: 1 },
+                 run: key });
         f.send({ type: 'transport',
                  data: { type: 'transport', op: 'tempo', bpm: 90, at: 2,
-                         from: wf.peer, seq: 2 } });
+                         from: wf.peer, seq: 2 }, run: key });
+
+        /* A straggler from a run that is over: kept out. */
+        f.send({ type: 'log', data: { type: 'knob', at: 9, knob: 0,
+                                      value: 0.9, from: wf.peer, seq: 3 },
+                 run: 'somebody#41' });
 
         await new Promise((r) => setTimeout(r, 200));
         g.send({ type: 'catchup' });
@@ -410,7 +418,8 @@ try
               'a late joiner is handed the document at the revision the ' +
               'start named, once the relay has it');
         check(run.log?.map((c) => c.seq).join() === '1,2',
-              'and the stamped commands since, a copied knob and a tempo');
+              'and the stamped commands since, a copied knob and a tempo, ' +
+              'and not one stamped for another run');
 
         f.send({ type: 'transport',
                  data: { type: 'transport', op: 'stop', at: 3,

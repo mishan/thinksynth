@@ -224,10 +224,18 @@ export function docOf ({ piece, files: texts })
    number, and a load must load the same text on every peer. Hex. */
 export async function hashOf (doc)
 {
+    return hashOfFiles(snapshot(doc).files);
+}
+
+/* The same, of a snapshot's files: what the relay hashes, so that the text
+   it hands a joiner is the text it hashed, however the document moves while
+   the digest is worked out. */
+export async function hashOfFiles (texts)
+{
     const parts = [];
 
-    for (const name of fileNames(doc))
-        parts.push(name, '\0', readFile(doc, name), '\0');
+    for (const name of Object.keys(texts).sort())
+        parts.push(name, '\0', texts[name], '\0');
 
     const bytes = new TextEncoder().encode(parts.join(''));
     const digest = await crypto.subtle.digest('SHA-256', bytes);
