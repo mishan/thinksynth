@@ -249,9 +249,11 @@ struct Scheduled
        neighbour.
 
        TW_NOTE: a key, at a transport time -- a quantised or a play-ahead
-       seat's, which lands where it is stamped on every peer. `midi' says
-       it goes into the piece through `input midi' rather than straight
-       onto the channel; `value' is the velocity.
+       seat's, which lands where it is stamped on every peer. Into the
+       piece through `input midi' if the piece takes it on that channel
+       when the key applies, straight onto the channel if not; `heard'
+       drops it in the second case, for the player who already heard it.
+       `value' is the velocity.
 
        TW_KNOB: `row' is the knob's name, when the command named one.
        TW_EDIT: `text' is the piece's new text; `files' below are the other
@@ -263,7 +265,7 @@ struct Scheduled
     std::vector<std::pair<std::string, std::string> > files;
 
     int    channel, note;       /* TW_NOTE                             */
-    bool   on, midi;            /* TW_NOTE                             */
+    bool   on, heard;           /* TW_NOTE                             */
 
     /* The order among commands stamped for one time: lower first, and
        arrival order within one. Zero but for an edit and a key, whose
@@ -830,6 +832,27 @@ captureEdits (const Scheduled &c, thcStage *st)
 
 void applyEdit (const Scheduled &c);
 
+/* Does a chain take `input midi' on this channel? */
+bool listensOn (int channel)
+{
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        if (!c->inputMidi)
+            continue;
+
+        if (c->sinks.empty())
+            return true;
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+            if (c->sinks[k].channel == channel)
+                return true;
+    }
+
+    return false;
+}
+
 void applyScheduled (const Scheduled &c)
 {
     if (c.rev >= 0 && c.rev != edits_)
@@ -987,7 +1010,11 @@ void applyScheduled (const Scheduled &c)
             break;
 
         case TW_NOTE:
-            if (c.midi)
+            /* Into the piece or onto the channel is decided here, when the
+               key applies, from the piece as it is then: an edit stamped
+               before it may have added or taken away an `input midi', and
+               a page asked earlier would route it by the piece it had. */
+            if (listensOn(c.channel))
             {
                 /* CMD_MIDI_ON's event, at the time it was stamped for
                    rather than the top of whichever window it arrived
@@ -1005,6 +1032,8 @@ void applyScheduled (const Scheduled &c)
 
                 sched_->injectMidiEvent(ev);
             }
+            else if (c.heard)
+                break;
             else if (c.on)
                 synth_->addNote(c.channel, (float)c.note, (float)c.value);
             else
@@ -2646,22 +2675,7 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int k)
    keys, answered by the piece rather than guessed at. */
 EMSCRIPTEN_KEEPALIVE int tw_listens (int channel)
 {
-    for (size_t i = 0; i < sched_->chainCount(); i++)
-    {
-        const thcChain *c = sched_->chain(i);
-
-        if (!c->inputMidi)
-            continue;
-
-        if (c->sinks.empty())
-            return 1;
-
-        for (size_t k = 0; k < c->sinks.size(); k++)
-            if (c->sinks[k].channel == channel)
-                return 1;
-    }
-
-    return 0;
+    return listensOn(channel) ? 1 : 0;
 }
 
 /* ---- the channels the piece is asking somebody to aim ---- */
@@ -4463,13 +4477,15 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_named (double at, const char *name,
 }
 
 /* A key at transport time `at': pressed when `on', released when not, into
- * the piece through `input midi' when `midi' and straight onto the channel
- * when not. `tie' orders it among commands stamped for the same time.
+ * the piece through `input midi' if it takes input on `channel' by then, and
+ * straight onto the channel if not -- unless `heard', which says its player
+ * played it live already. `tie' orders it among commands stamped for the
+ * same time.
  * What a quantised or play-ahead seat sends; a direct seat's key is
  * frame-stamped and goes by tw_note_on and tw_midi_on.
  */
 EMSCRIPTEN_KEEPALIVE void tw_note_at (double at, int channel, int note,
-                                      double velocity, int on, int midi,
+                                      double velocity, int on, int heard,
                                       double tie)
 {
     Scheduled c = {};
@@ -4480,7 +4496,7 @@ EMSCRIPTEN_KEEPALIVE void tw_note_at (double at, int channel, int note,
     c.note = note;
     c.value = velocity;
     c.on = on != 0;
-    c.midi = midi != 0;
+    c.heard = heard != 0;
     c.tie = tie;
 
     schedule(c);

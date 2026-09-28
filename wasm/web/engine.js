@@ -302,7 +302,7 @@ export function apply (M, m, host = NOWHERE)
         case 'noteat':
             /* A key at a transport time (thinkweb.cpp, TW_NOTE). */
             M._tw_note_at(m.at, m.channel, m.note, m.velocity, m.on ? 1 : 0,
-                          m.midi ? 1 : 0, m.tie);
+                          m.heard ? 1 : 0, m.tie);
             return true;
 
         case 'midion':

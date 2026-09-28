@@ -463,22 +463,22 @@ export async function catchUp (start, log, { synth, frameOfOrigin, listens,
    apart by. */
 function applyNow (cmd, { synth, listens, self = null })
 {
-    /* A stamped key: at its time, on every peer. Except a play-ahead key
-       of this peer's own onto a channel, which it played the moment it
-       was pressed (jam.js) -- the bar is for everybody else's ears. One
-       into the piece is applied here like anyone's, or this peer's piece
-       would compose from it a bar before the others' did. */
+    /* A stamped key: at its time, on every peer. Whether it goes into the
+       piece or onto the channel is the worklet's to say when it applies,
+       from the piece as it is then -- an edit stamped before the key can
+       change it. What this side knows is whether the player has heard it:
+       a play-ahead key of this peer's own onto a channel was played the
+       moment it was pressed (jam.js), and the bar is for everybody else's
+       ears. One into the piece is applied here like anyone's, or this
+       peer's piece would compose from it a bar before the others' did. */
     if ((cmd.type === 'note' || cmd.type === 'noteoff') &&
         (cmd.mode ?? 'direct') !== 'direct')
     {
-        const midi = listens.has(cmd.seat);
-
-        if (cmd.mode === 'ahead' && !midi && cmd.from === self)
-            return;
-
         synth.noteAt(cmd.at, cmd.seat, cmd.note,
                      cmd.type === 'note' ? cmd.velocity : 0,
-                     cmd.type === 'note', midi, tieOf(cmd));
+                     cmd.type === 'note',
+                     cmd.mode === 'ahead' && cmd.from === self,
+                     tieOf(cmd));
         return;
     }
 

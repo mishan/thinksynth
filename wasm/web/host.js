@@ -467,12 +467,14 @@ export async function createSynth (ctx, { windowlen = 256,
         edit: (at, text, files = {}, tie = 0) =>
             post({ type: 'edit', at, text, files, tie }),
 
-        /* A key at a transport time: pressed when `on', into the piece
-           when `midi', ordered among keys stamped for the same time by
-           `tie' (commands.js, tieOf). What a quantised or play-ahead
-           seat's key is. */
-        noteAt: (at, channel, note, velocity, on, midi, tie) =>
-            post({ type: 'noteat', at, channel, note, velocity, on, midi,
+        /* A key at a transport time: pressed when `on', into the piece or
+           onto the channel as the piece stands when it applies, dropped in
+           the second case when `heard' says its player played it live, and
+           ordered among commands stamped for the same time by `tie'
+           (commands.js, tieOf). What a quantised or play-ahead seat's key
+           is. */
+        noteAt: (at, channel, note, velocity, on, heard, tie) =>
+            post({ type: 'noteat', at, channel, note, velocity, on, heard,
                    tie }),
 
         /* A channel's parameters, as the module describes them

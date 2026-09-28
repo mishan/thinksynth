@@ -297,9 +297,9 @@ class Peer
                 M._tw_midi_on(frame, channel, note, velocity),
             midiOff: (note, frame, channel) =>
                 M._tw_midi_off(frame, channel, note),
-            noteAt: (at, channel, note, velocity, on, midi, tie) =>
+            noteAt: (at, channel, note, velocity, on, heard, tie) =>
                 M._tw_note_at(at, channel, note, velocity, on ? 1 : 0,
-                              midi ? 1 : 0, tie),
+                              heard ? 1 : 0, tie),
         };
 
         this.gen = null;                /* set by the script, for a reload */
@@ -1099,6 +1099,29 @@ async function handsSession (createThinkWeb, piece, dsps)
         key(B, t + 200, arp, 65 + (k % 4), 900, 'ahead');
     }
 
+    /* Partway through, an edit moves the quantizer's sink to channel 9,
+       so it no longer takes keys on the channel they are played on, and a
+       later one puts it back: the keys between go onto the channel and not
+       into the piece, on every peer, however long each peer's page went on
+       believing the piece took them -- whether a key goes in is the
+       worklet's to say when it applies. */
+    const deaf = piece.text.replace(
+        /(chain corrected \{[\s\S]*?sink \{ channel = )2;/, '$19;');
+
+    if (deaf === piece.text)
+        throw new Error('hands.gen: no sink on corrected to move');
+
+    for (const [who, t, text] of [[B, origin + 2500 + 5 * 1300 + 700, deaf],
+                                  [A, origin + 2500 + 8 * 1300 + 700,
+                                   piece.text]])
+        sim.at(t, async () =>
+        {
+            const cmd = who.edit(text);
+
+            await who.send(cmd);
+            stamped.push(cmd);
+        });
+
     sim.at(origin + SECONDS * 1000, async () =>
     {
         const cmd = A.maker.stop();
@@ -1374,6 +1397,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                 if (p.M._tw_late() !== 0)
                     complaints.push(`${p.name} applied ${p.M._tw_late()} ` +
                                     'command(s) late');
+
+            complaints.push(...editComplaints(r));
 
             /* Keys from the two peers that met on one grid line, which is
                what the tie is there for. */
