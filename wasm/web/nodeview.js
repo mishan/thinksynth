@@ -720,7 +720,11 @@ export async function createNodeView ({ files, root = document,
      */
     let wanted = true;
 
-    const refit = () => view.show(wanted && $('nodeview').open);
+    /* And whether there is a file to draw: with none (offer, below) the
+       canvas is hidden, and drawing into it would be for nobody too. */
+    let hasFile = true;
+
+    const refit = () => view.show(wanted && hasFile && $('nodeview').open);
 
     const show = (on) =>
     {
@@ -790,7 +794,36 @@ export async function createNodeView ({ files, root = document,
             select.append(option);
         }
 
-        if (select.options.length === 0)
+        /* Nothing to edit is said, rather than shown as a menu with
+           nothing in it over a canvas with nothing on it. Only where the
+           page has the words for it: the room page has no #nodeempty,
+           and its graph is whatever the room is playing. */
+        const none = select.options.length === 0;
+        const empty = $('nodeempty');
+
+        /* And the file it was over let go of: a selection and its panel
+           left up would still take edits, and an edit writes the file. */
+        if (none && file !== null)
+        {
+            watching?.();
+            watching = null;
+            file = null;
+            selected = -1;
+            M._tw_node_canvas_select(-1);
+            showParams();
+        }
+
+        hasFile = !none;
+        refit();
+
+        if (empty !== null)
+        {
+            select.closest('.row').hidden = none;
+            $('nodescroll').hidden = none;
+            empty.hidden = !none;
+        }
+
+        if (none)
             return;
 
         select.value = names.includes(was) ? was : select.options[0].value;

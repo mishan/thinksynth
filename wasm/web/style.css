@@ -674,6 +674,10 @@ details { margin: 0.8em 0; }
 
 .hint { color: var(--dim); font-size: 0.9em; margin: 0.4em 0; }
 
+/* The graph's "no graph to edit": a hint in look, but not a .hint, which
+   a phone hides -- and there it is the only thing in the pane. */
+#nodeempty { color: var(--dim); margin: 0.8em 0; }
+
 /* ---- a finger rather than a mouse ---- */
 
 @media (pointer: coarse)
