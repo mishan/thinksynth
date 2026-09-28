@@ -133,6 +133,9 @@ public:
     using NodeEditor::paintEnlarged;
     using NodeEditor::enlarged_;
     using NodeEditor::probeTick_;
+    using NodeEditor::showPanels;
+    using NodeEditor::paletteShown;
+    using NodeEditor::paramsShown;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -635,6 +638,24 @@ int run (const string &pluginPath, const char *file)
     ok(ed->open(file, 0), "the editor opens %s on channel 0", file);
 
     pump(0.2);
+
+    /* The palette and the parameter panel start collapsed, the graph
+       taking the pane, and each toggle opens its own and closes it
+       again. */
+    ok(!ed->paletteShown() && !ed->paramsShown(),
+       "the palette and the parameter panel start collapsed");
+
+    ed->showPanels(true, true);
+    pump(0.2);
+
+    ok(ed->paletteShown() && ed->paramsShown(),
+       "...and their toggles open them");
+
+    ed->showPanels(false, false);
+    pump(0.2);
+
+    ok(!ed->paletteShown() && !ed->paramsShown(),
+       "...and close them again");
 
     ok(ed->panels() == 0, "a freshly opened patch carries no panels");
 

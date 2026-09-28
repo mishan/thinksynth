@@ -73,6 +73,12 @@ NodeEditor::NodeEditor (thSynth *synth)
        read and putting an expanding nothing between the two halves. That is
        the widget GTK4 leaves you for the job, and it is at least honest about
        what pack_end was doing. */
+    /* The two panels' toggles first, where the toolbar starts: it scrolls
+       sideways in a narrow pane, and the far end of it is what goes out of
+       sight. */
+    toolbar_.append(paletteBtn_);
+    toolbar_.append(paramsBtn_);
+    toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
     toolbar_.append(titleLbl_);
     toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
     toolbar_.append(newBtn_);
@@ -89,19 +95,20 @@ NodeEditor::NodeEditor (thSynth *synth)
         toolbar_.append(*gap);
     }
 
-    /* Grouped with the zoom buttons rather than with the editing ones: what
-       is on screen and how big it is are the same kind of decision, and none
-       of them change the file. */
-    toolbar_.append(paletteBtn_);
-    toolbar_.append(paramsBtn_);
-    toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
     toolbar_.append(zoomFitBtn_);
     toolbar_.append(zoomOutBtn_);
     toolbar_.append(zoomResetBtn_);
     toolbar_.append(zoomInBtn_);
 
-    paletteBtn_.set_active(true);
-    paramsBtn_.set_active(true);
+    /* Both panels start collapsed, so the graph has the pane: the editor
+       is one pane of a window now, not a window of its own, and the graph
+       is what it is opened to look at. Set before the toggles' handlers
+       are connected, below, so this is the state and not a change to
+       it. */
+    paletteBtn_.set_active(false);
+    paramsBtn_.set_active(false);
+    palette_.set_visible(false);
+    paramScroll_.set_visible(false);
     paletteBtn_.set_tooltip_text("Show or hide the plugin palette");
     paramsBtn_.set_tooltip_text("Show or hide the parameter panel");
 
@@ -331,6 +338,22 @@ void NodeEditor::onTogglePalette (void)
         paletteWidth_ = outer_.get_position();
         palette_.hide();
     }
+}
+
+void NodeEditor::showPanels (bool palette, bool params)
+{
+    paletteBtn_.set_active(palette);
+    paramsBtn_.set_active(params);
+}
+
+bool NodeEditor::paletteShown (void) const
+{
+    return paletteBtn_.get_active() && palette_.get_mapped();
+}
+
+bool NodeEditor::paramsShown (void) const
+{
+    return paramsBtn_.get_active() && paramScroll_.get_mapped();
 }
 
 void NodeEditor::onToggleParams (void)

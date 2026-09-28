@@ -293,7 +293,7 @@ void MainSynthWindow::buildPanes (void)
        would clip it, so the ones that cannot wrap scroll instead. */
     panes_->add("channelbox", "Channels", chanScroll_, 160);
     panes_->add("paramview", "Patch params", scrolled(paramBox_, false), 500);
-    panes_->add("nodeview", "Patch graph", nodeStack_, 640);
+    panes_->add("nodeview", "Patch graph", nodeStack_, 480);
     panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 600);
     panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 460);
     panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 500);
