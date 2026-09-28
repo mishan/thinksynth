@@ -324,7 +324,7 @@ endif()
 # commit and built static into the program, the same as RtAudio: nothing new
 # to bundle on macOS or Windows and nothing missing from the Linux tarball.
 set(THINK_MULLION_VERSION 0.1.0)
-set(THINK_MULLION_VERSION_TAG 5f1e814084675f5cfddab1506a422eedc45d4ec7)
+set(THINK_MULLION_VERSION_TAG 1349279d9f259235bc66847024b81b1c97e28ce9) # v0.1.0
 
 option(THINK_FETCH_MULLION "Always build mullion-gtk from source" OFF)
 
