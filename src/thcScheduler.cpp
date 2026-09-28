@@ -687,7 +687,7 @@ thcScheduler::addKnob (const std::string &name, float value)
     if (l != lent_.end())
     {
         if (keepValues_.find(name) == keepValues_.end())
-            l->second->setValue(value);
+            pendingValues_[name] = value;
 
         knobs_[name] = l->second;
         return l->second;
@@ -2191,6 +2191,7 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
     next.knobs_.clear();
     next.lent_.clear();
 
+
     /* The wakes: the kept stages' own, moved to their new places, and
        the new stages', in one deterministic order -- by time, the kept
        ones ahead of the new at one instant, each side in the order it
@@ -2289,6 +2290,16 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
                 st->params.freeze();
         }
 
+    /* A changed declaration's value, now that the text is the piece: set
+       once the stages are in place and answer to this scheduler, so what
+       it announces -- a param_changed, a re-arm -- reaches the stages
+       that will hear it. */
+    for (const auto &v : next.pendingValues_)
+        if (thArg *k = knob(v.first))
+            k->setValue(v.second);
+
+    next.pendingValues_.clear();
+
     /* What the new stages borrowed. */
     if (controlSynth_ == NULL && next.controlSynth_ != NULL &&
         next.ownsControl_)
@@ -2356,7 +2367,12 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
         }
     }
 
-    if (!sameInstrument(master_, next.master_))
+    /* The master effect by the same rule: a changed declaration, or its
+       .dsp changed underneath it. */
+    if (!sameInstrument(master_, next.master_) ||
+        (!next.master_.effect.empty() &&
+         plan.changedFiles.find(next.master_.effect) !=
+             plan.changedFiles.end()))
     {
         master_ = next.master_;
 

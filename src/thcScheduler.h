@@ -1297,6 +1297,11 @@ private:
     bool                            staging_;
     std::map<std::string, thArg *>  lent_;
     std::set<std::string>           keepValues_;
+
+    /* A lent knob's value from a changed declaration, held until adopt():
+       the load may yet fail, and a text that does not load changes
+       nothing -- a knob's value included. */
+    std::map<std::string, float>    pendingValues_;
     std::vector<thArg *>            retired_;
 
     /* Borrowed from the live scheduler by a staged one, so the stages

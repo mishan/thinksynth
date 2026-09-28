@@ -531,17 +531,14 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
 
     const thcGenEdit::Chain &edChain = doc.chains[ei - 1];
 
-    /* The added chain: a copy of the first chain's generator, as its own
-       chain on a channel nothing else plays on. */
-    const thcGenEdit::Chain &first = doc.chains[0];
+    /* The added chain: a copy of the first generator the piece has, as its
+       own chain on a channel nothing else plays on. */
     const thcGenEdit::Stage *gen = NULL;
 
-    for (const thcGenEdit::Stage &st : first.stages)
-        if (st.category == "gen")
-        {
-            gen = &st;
-            break;
-        }
+    for (const thcGenEdit::Chain &ch : doc.chains)
+        for (const thcGenEdit::Stage &st : ch.stages)
+            if (gen == NULL && st.category == "gen")
+                gen = &st;
 
     std::string c;
 
@@ -549,8 +546,11 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
     {
         std::vector<std::pair<std::string, std::string> > params;
 
+        /* Not a param that reads a node: the node is its old chain's, and
+           the copy is a chain of its own. It plays that param's default. */
         for (const thcGenEdit::Param &pa : gen->params)
-            params.push_back(std::make_pair(pa.name, pa.valueText));
+            if (pa.valueText.find("->") == std::string::npos)
+                params.push_back(std::make_pair(pa.name, pa.valueText));
 
         c = edited(scratch, b, [&](const std::string &f, std::string &w)
         {
@@ -564,8 +564,7 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
 
     if (c.empty())
     {
-        printf("skip  %-16s its first chain has no generator to copy\n",
-               piece.c_str());
+        printf("skip  %-16s it has no generator to copy\n", piece.c_str());
         return;
     }
 
@@ -774,6 +773,18 @@ checkKnobsAndRefusal (const std::map<std::string, thcPlugin *> &plugins,
     p.sched.knob(k0.name)->setValue((float)moved0);
     p.sched.knob(k1.name)->setValue((float)moved1);
     p.stepTo(3);
+
+    /* 6, the knobs: a text that does not load -- whose declaration of
+       @k1 is not the one playing -- leaves both knobs where they were. */
+    if (p.edit(next + "\nchain broken { stage x gen::no_such_plugin { }; };\n",
+               errors))
+        fail(piece, "a text that does not load was applied");
+
+    if ((*p.sched.knob(k0.name))[0] != (float)moved0 ||
+        (*p.sched.knob(k1.name))[0] != (float)moved1)
+        fail(piece, "a text that did not load moved a knob: @" + k0.name +
+             " " + std::to_string((*p.sched.knob(k0.name))[0]) + ", @" +
+             k1.name + " " + std::to_string((*p.sched.knob(k1.name))[0]));
 
     if (!p.edit(next, errors))
     {
