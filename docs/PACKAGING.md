@@ -245,9 +245,10 @@ difference between "works if you already have gtkmm-4" and "works".
 Most of that manifest is C++ bindings. `org.gnome.Platform` ships GTK, glib,
 pango and cairo but none of gtkmm, glibmm, pangomm, cairomm or libsigc++ —
 gnome-build-meta keeps those under `elements/core-deps/`, which builds GNOME OS
-rather than the Flatpak SDK. So the manifest builds all six, plus RtAudio and
-RtMidi, which are absent from the runtime and from Flathub's shared-modules, and
-whose CMake FetchContent fallback cannot run in a build sandbox with no network.
+rather than the Flatpak SDK. So the manifest builds all six, plus RtAudio,
+RtMidi and mullion-gtk, which are absent from the runtime and from Flathub's
+shared-modules, and whose CMake FetchContent fallback cannot run in a build
+sandbox with no network.
 
 **Version pinning there is done by reading each tarball's `meson.build`** rather
 than by taking the newest release: gtkmm 4.22.0 declares `gtk_req '>= 4.22.0'`

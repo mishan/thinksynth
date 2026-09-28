@@ -241,6 +241,22 @@ modules:
         url: https://github.com/thestk/rtmidi/archive/refs/tags/6.0.0.tar.gz
         sha256: ef7bcda27fee6936b651c29ebe9544c74959d0b1583b716ce80a1c6fea7617f0
 
+  # The main window's tiled panes. Static, which is its default: the
+  # thinksynth module finds it through pkg-config and links it in.
+  - name: mullion-gtk
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DMLN_TESTS=OFF
+    # Only thinksynth's build wants it; the app keeps none of it.
+    cleanup:
+      - '*'
+    sources:
+      - type: git
+        url: https://github.com/mishan/mullion-gtk.git
+        commit: 23ff8405aca0b9f5101be697b2de2b54cfa1961a
+
   - name: thinksynth
     buildsystem: cmake-ninja
     config-opts:

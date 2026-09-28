@@ -324,6 +324,7 @@ target_link_libraries(thinksynth PRIVATE
     PkgConfig::GTKMM
     PkgConfig::GTHREAD
     PkgConfig::CAIRO
+    ${THINK_MULLION_LIB}
     ${THINK_RTAUDIO_LIB}
     ${THINK_RTMIDI_LIB}
     ${THINK_COREFOUNDATION})

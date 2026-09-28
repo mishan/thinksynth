@@ -131,11 +131,10 @@ find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(SIGC   REQUIRED IMPORTED_TARGET sigc++-3.0)
 # A floor, so a toolkit that is too old says so once instead of failing in
-# three hundred places. 4.6 is the oldest release the code knowingly uses
-# anything from (Gtk::ScrolledWindow::unset_child); CI exercises 4.14, which
-# is what Ubuntu 24.04 carries, and that is the version this is actually
-# tested against.
-pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-4.0>=4.6)
+# three hundred places. 4.10 is mullion-gtk's, which the main window's panes
+# are; CI exercises 4.14, which is what Ubuntu 24.04 carries, and that is the
+# version this is actually tested against.
+pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-4.0>=4.10)
 pkg_check_modules(GTHREAD REQUIRED IMPORTED_TARGET gthread-2.0)
 pkg_check_modules(GLIBMM REQUIRED IMPORTED_TARGET glibmm-2.68)
 
@@ -317,6 +316,56 @@ else()
 
   set(THINK_RTMIDI_LIB rtmidi)
   set(THINK_RTMIDI_ORIGIN "fetched ${THINK_RTMIDI_VERSION}")
+endif()
+
+# The tiled panes the main window is made of. No distribution packages
+# mullion-gtk yet, so a system copy is used when pkg-config finds one (a
+# Flatpak module, a packager's build) and otherwise it is fetched at a pinned
+# commit and built static into the program, the same as RtAudio: nothing new
+# to bundle on macOS or Windows and nothing missing from the Linux tarball.
+set(THINK_MULLION_VERSION 0.1.0)
+set(THINK_MULLION_VERSION_TAG 23ff8405aca0b9f5101be697b2de2b54cfa1961a)
+
+option(THINK_FETCH_MULLION "Always build mullion-gtk from source" OFF)
+
+if(NOT THINK_FETCH_MULLION)
+  pkg_check_modules(MULLION IMPORTED_TARGET "mullion-gtk-0>=${THINK_MULLION_VERSION}")
+endif()
+
+if(MULLION_FOUND)
+  set(THINK_MULLION_LIB PkgConfig::MULLION)
+  set(THINK_MULLION_ORIGIN "system ${MULLION_VERSION}")
+else()
+  message(STATUS "mullion-gtk not found via pkg-config; fetching ${THINK_MULLION_VERSION}")
+
+  # A C library in a C++ project; its own project() says so too, but a
+  # language is best enabled where the whole build can see it.
+  enable_language(C)
+
+  # Static, no tests and no install rules: those are its defaults when it is
+  # not the top-level project, spelled out so a cache left by another build
+  # cannot change them.
+  set(MLN_SHARED OFF CACHE BOOL "" FORCE)
+  set(MLN_TESTS OFF CACHE BOOL "" FORCE)
+  set(MLN_INSTALL OFF CACHE BOOL "" FORCE)
+
+  # No GIT_SHALLOW: a shallow clone can only name a branch or a tag, and
+  # this names a commit.
+  FetchContent_Declare(mullion_gtk
+      GIT_REPOSITORY https://github.com/mishan/mullion-gtk.git
+      GIT_TAG ${THINK_MULLION_VERSION_TAG}
+      EXCLUDE_FROM_ALL)
+
+  if(CMAKE_VERSION VERSION_LESS 3.21)
+    message(FATAL_ERROR
+        "Building mullion-gtk from source needs CMake 3.21 or newer. "
+        "Upgrade CMake, or install mullion-gtk and point PKG_CONFIG_PATH at it.")
+  endif()
+
+  FetchContent_MakeAvailable(mullion_gtk)
+
+  set(THINK_MULLION_LIB mullion-gtk::mullion-gtk)
+  set(THINK_MULLION_ORIGIN "fetched ${THINK_MULLION_VERSION}")
 endif()
 
 pkg_check_modules(JACK IMPORTED_TARGET jack)
@@ -664,6 +713,7 @@ message(STATUS "  system ................: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  build type ............: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  RtAudio ...............: ${THINK_RTAUDIO_ORIGIN}")
 message(STATUS "  RtMidi ................: ${THINK_RTMIDI_ORIGIN}")
+message(STATUS "  mullion-gtk ...........: ${THINK_MULLION_ORIGIN}")
 message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")
 message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
 message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")
