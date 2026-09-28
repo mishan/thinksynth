@@ -281,6 +281,48 @@ think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM)
 
+# The main window, tiled: the whole GUI less main(), since the window is
+# made of all of it. Its own harness for composercheck's reason -- a failure
+# here is about how the window puts its panes together, and one binary for
+# everything would make that harder to see.
+think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
+              COMPOSERCANVAS ROLLCANVAS PANEL STAGEPANEL PATCH DSPCATALOG
+              GENCATALOG
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthTheme.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/AboutBox.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Keyboard.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/KeyboardPanel.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/MainSynthWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/MidiMap.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParamsView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Panes.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/PatchSelPanel.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp")
+target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB})
+
+# gthTheme reads the macOS appearance through CoreFoundation; see
+# src/CMakeLists.txt.
+if(APPLE)
+  find_library(THINK_COREFOUNDATION CoreFoundation REQUIRED)
+  target_link_libraries(windowcheck PRIVATE ${THINK_COREFOUNDATION})
+endif()
+
 # The piano roll's drawing, with no window around it: that the future half is
 # drawn at all, that a gesture moves the view, and -- through `--dump' and
 # wasm/web/rollcheck.mjs -- that the browser's copy of the same class draws
@@ -728,6 +770,15 @@ add_test(NAME composercheck
 set_tests_properties(composercheck PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
+# Needs a display too. THINK_DSP_PATH for editorcheck's reason below: the
+# patch's .dsp is named bare and resolved against a corpus.
+add_test(NAME windowcheck
+         COMMAND windowcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
+
+set_tests_properties(windowcheck PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+
 # Skips itself, loudly, where there is no display -- see the comment in
 # editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
 add_test(NAME editorcheck
@@ -745,7 +796,8 @@ set_tests_properties(editorcheck PROPERTIES
 # Alone under `ctest -j': both pump the main loop a fixed number of times
 # and then read what GTK mapped, and with every core busy a popover can be
 # built but not yet shown when composercheck looks.
-set_tests_properties(composercheck editorcheck PROPERTIES RUN_SERIAL TRUE)
+set_tests_properties(composercheck editorcheck windowcheck PROPERTIES
+    RUN_SERIAL TRUE)
 
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
@@ -774,7 +826,7 @@ set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspbloc
 # failed on the runner while every one of them passed locally. A gate that
 # disagrees with CI about what it is testing is worse than no gate.
 if(THINK_SANITIZE MATCHES "address")
-  foreach(_t composercheck editorcheck)
+  foreach(_t composercheck editorcheck windowcheck)
     set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT
         "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
   endforeach()
