@@ -29,9 +29,31 @@
 #include "MidiMap.h"
 #include "ColumnUtil.h"
 
+/* A channel's instrument as the channel tabs name it: its patch file
+   without ".patch", or its .dsp when no patch file has been saved. Both
+   the destination combo and the connection list use it. */
+static string instrumentName (gthPatchManager::PatchFile *patch)
+{
+    if (patch == NULL)
+        return "Untitled";
+
+    string name = patch->filename.empty()
+        ? thUtil::basename(patch->doc.dsp.c_str())
+        : thUtil::basename(patch->filename.c_str());
+
+    const string ext = ".patch";
+
+    if (name.size() > ext.size() &&
+        name.compare(name.size() - ext.size(), ext.size(), ext) == 0)
+        name.erase(name.size() - ext.size());
+
+    return name.empty() ? "Untitled" : name;
+}
+
 MidiMap::MidiMap (thSynth *argsynth)
 {
     rebuilding_ = false;
+    settingDetails_ = false;
 
     /* All of these are read before anything necessarily sets them -- with no
        patch loaded, fillDestArgCombo() finds no args and leaves selectedArg_
@@ -289,19 +311,8 @@ void MidiMap::fillDestChanCombo (void)
         chanStr << i + 1 << ": ";
         idStr << i;
 
-        /* The patch, as the channel tabs name it; the DSP when the channel
-           has no patch file. The list of connections above names the
-           same thing. */
-        string name = patch->filename.empty()
-            ? thUtil::basename(patch->doc.dsp.c_str())
-            : thUtil::basename(patch->filename.c_str());
-        const string ext = ".patch";
-
-        if (name.size() > ext.size() &&
-            name.compare(name.size() - ext.size(), ext.size(), ext) == 0)
-            name.erase(name.size() - ext.size());
-
-        destChanCombo_->append(idStr.str(), chanStr.str() + name);
+        destChanCombo_->append(idStr.str(),
+                               chanStr.str() + instrumentName(patch));
 
         if (first)
         {
@@ -440,12 +451,8 @@ void MidiMap::populateConnections (void)
              connectionMap->begin(); i != connectionMap->end(); i++)
     {
         connection = i->second;
-        instrument = thUtil::basename(patchMgr->getPatch(
-                                 connection->destChan())->filename.c_str());
-        if (instrument.length() == 0)
-        {
-            instrument = string("Untitled");
-        }
+        instrument = instrumentName(
+            patchMgr->getPatch(connection->destChan()));
         
         std::ostringstream chanStr;
         chanStr << connection->destChan() + 1 << ": ";
@@ -480,22 +487,42 @@ void MidiMap::onDestChanComboChanged (int chan)
 void MidiMap::onDestArgComboChanged (thArg *arg)
 {
     selectedArg_ = arg;
-    selectedMin_ = arg->min();
-    selectedMax_ = arg->max();
-    minSpinBtn_->set_range(selectedMin_, selectedMax_);
-    maxSpinBtn_->set_range(selectedMin_, selectedMax_);
-    minSpinBtn_->set_value(selectedMin_);
-    maxSpinBtn_->set_value(selectedMax_);
+    setDetails(arg->min(), arg->max(), arg->min(), arg->max());
+}
+
+/* Both spinners to the range [lo, hi] and the values min and max.
+ *
+ * set_range clamps a spinner's value and says so through value-changed, so
+ * setting the ranges one at a time let onMinChanged and onMaxChanged
+ * overwrite selectedMin_ and selectedMax_ mid-way: going from 0..0 to an
+ * arg of 20..20000 left Maximum at 20, and from 20..20000 to one of 0..1
+ * left both at 1. The handlers stand aside until both are set, and the
+ * selection is taken from the arguments rather than read back. */
+void MidiMap::setDetails (double lo, double hi, double min, double max)
+{
+    settingDetails_ = true;
+
+    minSpinBtn_->set_range(lo, hi);
+    maxSpinBtn_->set_range(lo, hi);
+    minSpinBtn_->set_value(min);
+    maxSpinBtn_->set_value(max);
+
+    settingDetails_ = false;
+
+    selectedMin_ = minSpinBtn_->get_value();
+    selectedMax_ = maxSpinBtn_->get_value();
 }
 
 void MidiMap::onMinChanged (void)
 {
-    selectedMin_ = minSpinBtn_->get_value();
+    if (!settingDetails_)
+        selectedMin_ = minSpinBtn_->get_value();
 }
 
 void MidiMap::onMaxChanged (void)
 {
-    selectedMax_ = maxSpinBtn_->get_value();
+    if (!settingDetails_)
+        selectedMax_ = maxSpinBtn_->get_value();
 }
 
 void MidiMap::onExpToggled (void)
@@ -555,14 +582,8 @@ void MidiMap::onConnectionMoved (void)
             selectedExp_ = selectedConnection->scale();
             setDestChanCombo();
             setDestArgCombo(selectedDestChan_);
-            selectedMin_ = selectedConnection->min();
-            selectedMax_ = selectedConnection->max();
-            minSpinBtn_->set_range(selectedArg_->min(),
-                                   selectedArg_->max());
-            maxSpinBtn_->set_range(selectedArg_->min(),
-                                   selectedArg_->max());
-            minSpinBtn_->set_value(selectedMin_);
-            maxSpinBtn_->set_value(selectedMax_);
+            setDetails(selectedArg_->min(), selectedArg_->max(),
+                       selectedConnection->min(), selectedConnection->max());
             expCheckBtn_->set_active(selectedExp_);
         }
     }
