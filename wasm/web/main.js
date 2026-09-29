@@ -1109,7 +1109,11 @@ async function moveStage (chainName, from, to)
     if (synth === null)
         return;
 
-    if ($('gen').value !== loadedText)
+    /* A load in flight has moved loadedText on to a piece the canvas
+       is not drawing yet, and the drop's numbering is the old one's. */
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
     {
         status('The text has changes that are not loaded; load them ' +
                'before moving a stage.', true);
@@ -1117,12 +1121,21 @@ async function moveStage (chainName, from, to)
     }
 
     const wasRunning = lastTape?.running === true;
-    const { text } = await synth.genMoveStage($('gen').value, chainName,
-                                              from, to);
+    const { text } = await synth.genMoveStage(was, chainName, from, to);
 
     if (text === '')
     {
         status(`Could not move that stage in ${chainName}.`, true);
+        return;
+    }
+
+    /* And again, for what happened during the round trip: a param edit
+       written back, a mode switch, a load. Any of them is the text this
+       move was not made to. */
+    if ($('gen').value !== was || loadedText !== was || loading > 0)
+    {
+        status('The piece changed while that stage was being moved; ' +
+               'try it again.', true);
         return;
     }
 
@@ -1483,6 +1496,10 @@ function quietly (what)
  * command names it by, which is why the edit is a Number() of it and
  * nothing here has to hold a second list.
  */
+/* What showPanel handed back for the knob strip: how a move made
+   somewhere else -- a knob dragged on the canvas -- is shown in it. */
+let setKnobShown = () => {};
+
 async function drawKnobs ()
 {
     if (synth === null)
@@ -1502,7 +1519,8 @@ async function drawKnobs ()
        on no path between this and the write. panel.js holds what it emits
        inside the row's travel; this is the last look before it becomes a
        command every peer applies. */
-    showPanel($('knobs'), JSON.parse(answer.json), (row, text) =>
+    setKnobShown = showPanel($('knobs'), JSON.parse(answer.json),
+                             (row, text) =>
     {
         const value = numberIn(text);
 
@@ -2494,7 +2512,11 @@ function showComposer (on)
         /* A knob node dragged on the canvas: the knob strip's command, so
            the strip follows it as it follows any other move. Live only,
            as the strip is. */
-        onKnob: (knob, value) => synth?.knob(knob, value),
+        onKnob: (knob, value) =>
+        {
+            synth?.knob(knob, value);
+            setKnobShown(String(knob), value);
+        },
 
         onMove: moveStage,
     });

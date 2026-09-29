@@ -1453,13 +1453,15 @@ try
        per animation frame, and the drag is what the motions say. */
     const drag = async (x0, y0, x1, y1) =>
     {
-        await page.mouse.move(box.x + x0, box.y + y0);
+        const where = await scroller();
+
+        await page.mouse.move(where.x + x0, where.y + y0);
         await page.mouse.down();
 
         for (let i = 1; i <= 8; i++)
         {
-            await page.mouse.move(box.x + x0 + (x1 - x0) * i / 8,
-                                  box.y + y0 + (y1 - y0) * i / 8);
+            await page.mouse.move(where.x + x0 + (x1 - x0) * i / 8,
+                                  where.y + y0 + (y1 - y0) * i / 8);
             await new Promise((r) => setTimeout(r, 40));
         }
 
@@ -1483,6 +1485,12 @@ try
         check(values[0]?.value === 5,
               'a knob dragged on the canvas moves the piece\'s knob: ' +
               JSON.stringify(values));
+
+        const shown = await page.$eval(
+            '#knobs .panelrow input[type="number"]', (e) => e.value);
+
+        check(Number(shown) === 5,
+              `...and the knob strip shows where it went: ${shown}`);
     }
 
     /* A wire from the knob's port onto the first stage of the second
@@ -1519,10 +1527,14 @@ try
        the text, and the piece is loaded again. */
     const floorOrder = (t) =>
     {
-        const chain = t.slice(t.indexOf('chain floor'));
+        const from = t.indexOf('chain floor');
+        const next = t.indexOf('\nchain ', from + 1);
+        const chain = t.slice(from, next < 0 ? undefined : next);
+        const eno = chain.indexOf('gen::eno_line');
+        const harm = chain.indexOf('xform::harmonize');
 
-        return chain.indexOf('gen::eno_line') <
-               chain.indexOf('xform::harmonize') ? 'eno,harm' : 'harm,eno';
+        return from < 0 || eno < 0 || harm < 0 ? 'missing'
+            : eno < harm ? 'eno,harm' : 'harm,eno';
     };
 
     const first = await page.evaluate(() => window.solo.stageAt(1, 0));

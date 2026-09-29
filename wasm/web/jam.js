@@ -402,6 +402,8 @@ async function loadFromDoc (seed = -1)
        nobody's tape. */
     const it = await synth.loadPiece(gen, seed);
 
+    loadedGen = gen;
+
     /* And then the aiming, in that order, for the reason the solo page
        aims in that order: a channel the piece named and put nothing on
        sounds through the defaults and never through what this page did
@@ -452,39 +454,51 @@ async function loadFromDoc (seed = -1)
     return piece !== null;
 }
 
+/* The piece text this peer last loaded, which is what its canvas draws
+   and what a drop on the canvas is numbered against. */
+let loadedGen = null;
+
 /* A stage box dropped elsewhere in its chain: the document spliced, by
  * this peer, the way its own param edits are, and applied at once if the
  * room is playing -- a structural edit is a reload, and the room's reload
- * is Apply. Stopped, the next Play takes it. */
+ * is Apply. Stopped, the next Play takes it.
+ *
+ * Only against the document as this peer loaded it: the drop is numbered
+ * by the canvas, and a document that has moved on since -- a peer's edit,
+ * a move not yet applied -- may not have that stage there. Not retried
+ * for the same reason. */
 async function moveStage (chainName, from, to)
 {
     const name = pieceName(doc);
+    const was = name === null ? null : readFile(doc, name);
 
-    for (let tries = 0; name !== null && tries < 4; tries++)
+    if (was === null || was !== loadedGen)
     {
-        const was = readFile(doc, name);
-
-        if (was === null)
-            return;
-
-        const { text } = await synth.genMoveStage(was, chainName, from, to);
-
-        if (text === '')
-        {
-            log(`could not move that stage in ${chainName}`);
-            return;
-        }
-
-        if (readFile(doc, name) === was)
-        {
-            spliceFile(doc, name, text);
-
-            if (transport?.running)
-                await play();
-
-            return;
-        }
+        log('the piece has changed since it was loaded; Apply it before ' +
+            'moving a stage');
+        return;
     }
+
+    const { text } = await synth.genMoveStage(was, chainName, from, to);
+
+    if (text === '')
+    {
+        log(`could not move that stage in ${chainName}`);
+        return;
+    }
+
+    if (readFile(doc, name) !== was)
+    {
+        log('the piece changed while that stage was being moved');
+        return;
+    }
+
+    spliceFile(doc, name, text);
+
+    if (transport?.running)
+        await play();
+    else
+        log('stage moved; Play applies it');
 }
 
 /* ---- transport ---- */
@@ -888,8 +902,14 @@ function showComposer (on)
            release repeats the last value and is not sent. */
         onKnob: (knob, value, commit) =>
         {
-            if (!commit)
-                send(maker.knob(knob, value));
+            if (commit)
+                return;
+
+            send(maker.knob(knob, value));
+
+            /* A peer's own move does not come back through the strip's
+               follower (it skips this peer), so it is shown here. */
+            setKnobValue(String(knob), value);
         },
 
         onMove: moveStage,

@@ -128,8 +128,19 @@ export function createCanvasView ({ scroller, canvas, send,
     const DOUBLE_MS = 400, DOUBLE_PX = 5;
     let last = { t: -Infinity, x: 0, y: 0, n: 0 };
 
+    /* The pointer a gesture is made with. A second finger landing while
+       one is down is not a second gesture: the content has one press
+       and one drag at a time, and a second press would restart the
+       drag from wherever that finger is. */
+    let pointer = null;
+
     canvas.addEventListener('pointerdown', (e) =>
     {
+        if (pointer !== null)
+            return;
+
+        pointer = e.pointerId;
+
         const p = at(e);
         const again = e.timeStamp - last.t < DOUBLE_MS &&
                       Math.abs(p.x - last.x) <= DOUBLE_PX &&
@@ -145,6 +156,9 @@ export function createCanvasView ({ scroller, canvas, send,
 
     canvas.addEventListener('pointermove', (e) =>
     {
+        if (pointer !== null && e.pointerId !== pointer)
+            return;
+
         /* Held for the next animation frame, and the last one wins: what
            matters about a drag is where it is now. */
         pending = at(e);
@@ -152,6 +166,11 @@ export function createCanvasView ({ scroller, canvas, send,
 
     const release = (e) =>
     {
+        if (e.pointerId !== pointer)
+            return;
+
+        pointer = null;
+
         if (pending !== null)
         {
             send({ type: 'motion', ...pending });

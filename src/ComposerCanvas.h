@@ -256,6 +256,7 @@ private:
            Unused, and left alone, by every other kind. */
         double kv, klo, khi;
         double kLive;            /* the live value when kv last took it */
+        int    kHold;            /* frames kv waits for live after a drag */
         bool ghost;              /* an add-slot                         */
     };
 

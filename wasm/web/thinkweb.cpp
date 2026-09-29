@@ -3561,12 +3561,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
     return appliedJson_.c_str();
 }
 
-/* `text' with one stage's param set to `valueText', by the writer TW_PARAM
- * splices the piece with, or "" if it would not take the edit.
- *
- * For a text that is not the piece this instance loaded: a room's document,
- * which may have moved on since the load, gets the edit its peer made and
- * not a copy of this instance's file. */
 /* `text' through one thcGenEdit call on a scratch file, and back as text:
  * what the call made of it, or "" when it refused. The refusal is said on
  * stderr, under `what'. */
@@ -3610,6 +3604,12 @@ spliceText (const char *text, const char *what,
     return out.c_str();
 }
 
+/* `text' with one stage's param set to `valueText', by the writer TW_PARAM
+ * splices the piece with, or "" if it would not take the edit.
+ *
+ * For a text that is not the piece this instance loaded: a room's document,
+ * which may have moved on since the load, gets the edit its peer made and
+ * not a copy of this instance's file. */
 EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
                                                    const char *chain,
                                                    int docStage,
