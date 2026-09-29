@@ -547,6 +547,18 @@ add_test(NAME localecheck
 set_tests_properties(localecheck PROPERTIES
                      SKIP_REGULAR_EXPRESSION "SKIP  no locale")
 
+# A graph loaded from text sounds the same as the file it was read from.
+add_test(NAME dsphash.text
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dsphash>
+                 -DEXTRA_ARGS_B=-t
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 "-DEXTRA_ARGS=-i ${PROJECT_SOURCE_DIR}/dsp/supersaw.dsp"
+                 -P "${_runner}")
+
 # Every plugin compiled into think_embedded sounds the same as its module:
 # the corpus through both builds of dsphash, compared hash for hash.
 if(THINK_EMBEDDED)

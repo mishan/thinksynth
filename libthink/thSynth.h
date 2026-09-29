@@ -42,6 +42,14 @@ public:
     thSynthTree *loadTree(const string &filename, int channum, float amp);
     thSynthTree *loadTree(FILE *input);
 
+    /* loadTree onto a channel, over text in memory rather than a file: a
+       graph a host carries inside itself -- an audio plugin built around
+       one instrument -- has no file to point at, and fmemopen, the other
+       way to hand this a FILE*, is not on Windows. `name' is what the
+       channel is known by in a log line, and need not be a file. */
+    thSynthTree *loadTreeText (const string &name, const string &text,
+                               int channum, float amp);
+
     /* Parses a .dsp and hands back a tree that thSynth neither owns nor
        tracks: the caller deletes it.
 
@@ -287,6 +295,11 @@ public:
     thSynthTree *loadEffect (const string &filename, int channum,
                              int sideChan = -1);
 
+    /* loadEffect over text in memory. `name' is what the channel is known
+       by in a log line, and need not be a file. */
+    thSynthTree *loadEffectText (const string &name, const string &text,
+                                 int channum, int sideChan = -1);
+
     /* Takes the effect off `channum'. True if the audio thread was told;
        false only when the command queue is full, in which case the effect is
        still running and the caller has to try again. */
@@ -443,8 +456,22 @@ private:
     void disarmProbesOn (int channum);
 
     /* The file half of loading an effect graph, shared by the channel's and
-       the mix's. Assumes synthMutex_ is already held. */
-    thSynthTree *parseEffect (const string &filename);
+       the mix's: `text' if it is not NULL, else the file `filename' names.
+       Assumes synthMutex_ is already held. */
+    thSynthTree *parseEffect (const string &filename,
+                              const string *text = NULL);
+    thSynthTree *checkEffect (const string &filename, thSynthTree *raw,
+                              int parseResult);
+
+    /* The bodies of loadTree/loadTreeText and loadEffect/loadEffectText,
+       with `text' NULL for a file. placeChannel is loadChannel after the
+       parse, with synthMutex_ held. */
+    thSynthTree *loadChannel (const string &filename, const string *text,
+                              int channum, float amp);
+    thSynthTree *placeChannel (const string &filename, thSynthTree *raw,
+                               int parseResult, int channum, float amp);
+    thSynthTree *loadEffectFrom (const string &filename, const string *text,
+                                 int channum, int sideChan);
 
     /* GUI thread, with synthMutex_ held. True if putting an effect with
        `sideChan' onto `channum' would make a channel wait on itself --

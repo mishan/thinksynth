@@ -33,6 +33,11 @@
  * module, or a row of the table pointing at the wrong plugin, changes a
  * hash.
  *
+ * -t reads each file into memory and loads it with loadTreeText and
+ * loadEffectText instead, which is what a host that carries its graph
+ * inside itself does; the `text' gate compares that against loading the
+ * file.
+ *
  * The phrase: a note, a second one over it two windows later, and the first
  * released two windows after that, so attack, overlap and release all
  * reach the hash. An effect graph (one that takes input) has nothing of its
@@ -51,6 +56,9 @@
 #include <string.h>
 
 #include <stdint.h>
+
+#include <fstream>
+#include <sstream>
 
 #include "think.h"
 
@@ -82,6 +90,34 @@ static bool isEffect (const string &pluginPath, const char *file)
     return effect;
 }
 
+static bool fromText = false;
+
+static string readFile (const char *file)
+{
+    std::ifstream in(file, std::ios::binary);
+    std::ostringstream text;
+
+    text << in.rdbuf();
+
+    return text.str();
+}
+
+static bool loadInstrument (thSynth &synth, const char *file, int chan)
+{
+    if (fromText)
+        return synth.loadTreeText(file, readFile(file), chan, 100) != NULL;
+
+    return synth.loadTree(file, chan, 100) != NULL;
+}
+
+static bool loadEffect (thSynth &synth, const char *file, int chan, int side)
+{
+    if (fromText)
+        return synth.loadEffectText(file, readFile(file), chan, side) != NULL;
+
+    return synth.loadEffect(file, chan, side) != NULL;
+}
+
 static bool renderPhrase (const string &pluginPath, const char *file,
                           const char *source, uint64_t &hash)
 {
@@ -91,12 +127,12 @@ static bool renderPhrase (const string &pluginPath, const char *file,
 
     if (source == NULL)
     {
-        if (synth.loadTree(file, 0, 100) == NULL)
+        if (!loadInstrument(synth, file, 0))
             return false;
     }
-    else if (synth.loadTree(source, 0, 100) == NULL ||
-             synth.loadTree(source, 1, 100) == NULL ||
-             synth.loadEffect(file, 0, 1) == NULL)
+    else if (!loadInstrument(synth, source, 0) ||
+             !loadInstrument(synth, source, 1) ||
+             !loadEffect(synth, file, 0, 1))
         return false;
 
     const size_t samples = thOutputSamples(synth.audioChannelCount(),
@@ -140,6 +176,8 @@ int main (int argc, char **argv)
                 return 2;
             pluginPath = argv[i];
         }
+        else if (!strcmp(argv[i], "-t"))
+            fromText = true;
         else if (!strcmp(argv[i], "-i"))
         {
             if (++i >= argc)
@@ -155,7 +193,7 @@ int main (int argc, char **argv)
 
     if (firstFile < 0)
     {
-        printf("usage: %s [-p PLUGINS] [-i INSTRUMENT] file.dsp ...\n",
+        printf("usage: %s [-p PLUGINS] [-i INSTRUMENT] [-t] file.dsp ...\n",
                argv[0]);
         return 2;
     }

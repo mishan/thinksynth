@@ -8,11 +8,12 @@
 # invokes ctest.
 #
 # Required: -DHARNESS= -DCORPUS= -DPLUGIN_DIR= -DMODE=dsp|patch
-# Optional: -DEXTRA_ARGS= -DHARNESS_B=
+# Optional: -DEXTRA_ARGS= -DHARNESS_B= -DEXTRA_ARGS_B=
 #
-# HARNESS_B is a second build of the same harness, run over the same files
-# with the same arguments. Both have to succeed and print exactly the same
-# thing; the lines that differ are the failure.
+# HARNESS_B and EXTRA_ARGS_B make it a comparison: a second harness, or the
+# same one with more arguments, run over the same files. Both sides have to
+# succeed and print exactly the same thing; the lines that differ are the
+# failure.
 
 if(NOT HARNESS OR NOT CORPUS OR NOT PLUGIN_DIR OR NOT MODE)
   message(FATAL_ERROR "RunHarness.cmake: HARNESS, CORPUS, PLUGIN_DIR and MODE are all required")
@@ -87,16 +88,24 @@ if(DSP_PATH)
   set(ENV{THINK_DSP_PATH} "${DSP_PATH}")
 endif()
 
-if(HARNESS_B)
+if(HARNESS_B OR EXTRA_ARGS_B)
+  if(NOT HARNESS_B)
+    set(HARNESS_B "${HARNESS}")
+  endif()
+
+  separate_arguments(extra_B NATIVE_COMMAND "${EXTRA_ARGS_B}")
+
   foreach(side A B)
     if(side STREQUAL "A")
       set(_h "${HARNESS}")
+      set(_x ${extra})
     else()
       set(_h "${HARNESS_B}")
+      set(_x ${extra} ${extra_B})
     endif()
 
     execute_process(
-        COMMAND "${_h}" ${extra} -p "${PLUGIN_DIR}" ${files}
+        COMMAND "${_h}" ${_x} -p "${PLUGIN_DIR}" ${files}
         ${_wd}
         RESULT_VARIABLE rc
         OUTPUT_VARIABLE out_${side})
@@ -124,7 +133,7 @@ if(HARNESS_B)
     endforeach()
 
     message(FATAL_ERROR "${differ} of ${count} ${MODE} files differ between "
-                        "${HARNESS} and ${HARNESS_B}")
+                        "${HARNESS} and ${HARNESS_B} ${EXTRA_ARGS_B}")
   endif()
 
   message(STATUS "${count} ${MODE} files identical")

@@ -1295,10 +1295,35 @@ void thSynth::newMidiControllerConnection (unsigned char channel,
 
 thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 {
+    return loadChannel(filename, NULL, channum, amp);
+}
+
+thSynthTree *thSynth::loadTreeText (const string &name, const string &text,
+                                    int channum, float amp)
+{
+    return loadChannel(name, &text, channum, amp);
+}
+
+/* GUI thread. loadTree and loadTreeText: `text' is the graph, or NULL to
+   read the file `filename' names. Nothing after the parse can tell which. */
+thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
+                                   int channum, float amp)
+{
     if (channum < 0)
     {
         fprintf(stderr, "thSynth::loadTree: negative channel %d\n", channum);
         return NULL;
+    }
+
+    if (text != NULL)
+    {
+        std::lock_guard<std::mutex> lock(synthMutex_);
+        collectRetired();
+
+        thSynthTree *raw = NULL;
+        int parseResult = thParseDspText(this, *text, &raw);
+
+        return placeChannel(filename, raw, parseResult, channum, amp);
     }
 
     std::error_code ec;
@@ -1351,6 +1376,14 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     fclose(input);
 
+    return placeChannel(filename, raw, parseResult, channum, amp);
+}
+
+/* GUI thread, with synthMutex_ held. The half of loading an instrument that
+   is about the channel rather than about where the graph came from. */
+thSynthTree *thSynth::placeChannel (const string &filename, thSynthTree *raw,
+                                    int parseResult, int channum, float amp)
+{
     /* registerTree false: the thMidiChan below takes ownership. */
     thSynthTree *tree = finishParse(filename, raw, parseResult, false);
 
@@ -1428,6 +1461,21 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 thSynthTree *thSynth::loadEffect (const string &filename, int channum,
                                   int sideChan)
 {
+    return loadEffectFrom(filename, NULL, channum, sideChan);
+}
+
+thSynthTree *thSynth::loadEffectText (const string &name, const string &text,
+                                      int channum, int sideChan)
+{
+    return loadEffectFrom(name, &text, channum, sideChan);
+}
+
+/* GUI thread. loadEffect and loadEffectText, as loadChannel is the two
+   loadTrees. */
+thSynthTree *thSynth::loadEffectFrom (const string &filename,
+                                      const string *text, int channum,
+                                      int sideChan)
+{
     if ((channum < 0) || (channum >= midiChannelCnt_))
     {
         fprintf(stderr, "thSynth::loadEffect: no such channel %d\n", channum);
@@ -1455,7 +1503,7 @@ thSynthTree *thSynth::loadEffect (const string &filename, int channum,
         return NULL;
     }
 
-    thSynthTree *tree = parseEffect(filename);
+    thSynthTree *tree = parseEffect(filename, text);
 
     if (tree == NULL)
         return NULL;
@@ -1587,8 +1635,18 @@ int thSynth::orderChannels (int *order) const
  *
  * Shared by the channel's effect and the mix's, because the two differ in
  * nothing else. */
-thSynthTree *thSynth::parseEffect (const string &filename)
+thSynthTree *thSynth::parseEffect (const string &filename, const string *text)
 {
+    thSynthTree *raw = NULL;
+    int parseResult;
+
+    if (text != NULL)
+    {
+        parseResult = thParseDspText(this, *text, &raw);
+
+        return checkEffect(filename, raw, parseResult);
+    }
+
     std::error_code ec;
 
     if (!std::filesystem::exists(filename, ec))
@@ -1617,11 +1675,18 @@ thSynthTree *thSynth::parseEffect (const string &filename)
        have done the other, and synthMutex_ is not recursive -- taking it
        twice is a deadlock, which is exactly what this function's first
        draft was. */
-    thSynthTree *raw = NULL;
-    int parseResult = thParseDsp(this, input, &raw);
+    parseResult = thParseDsp(this, input, &raw);
 
     fclose(input);
 
+    return checkEffect(filename, raw, parseResult);
+}
+
+/* GUI thread, with synthMutex_ held: a parsed graph, kept only if it is an
+   effect. */
+thSynthTree *thSynth::checkEffect (const string &filename, thSynthTree *raw,
+                                   int parseResult)
+{
     /* registerTree false: the thChanEffect below takes ownership. */
     thSynthTree *tree = finishParse(filename, raw, parseResult, false);
 

@@ -296,7 +296,7 @@ and requires the two renders to be bitwise equal.
 | `dsplevel` | yes | peak, proportion shaped, gain reduction; exit status is the number of measurements over `TH_MAX` |
 | `dspsweep` | yes | every control of every DSP at both ends of its range and three points between, at both ends of the keyboard; exit status is the number of cases the per-voice guard fired on. With `-g` it also gates the guard itself |
 | `poolcheck` | yes | every DSP played twice, with finished voices restarted and with every note a fresh copy, compared bitwise |
-| `dsphash` | yes | a hash of a short phrase through every DSP, effects over an instrument; built twice, and the `dsphash.embedded` gate requires `think_embedded`'s compiled-in plugins to hash the same as the dlopened ones |
+| `dsphash` | yes | a hash of a short phrase through every DSP, effects over an instrument; built twice, and the `dsphash.embedded` gate requires `think_embedded`'s compiled-in plugins to hash the same as the dlopened ones, `dsphash.text` a graph loaded from text the same as its file |
 | `localecheck` | yes | every DSP parsed, printed and played under a comma-decimal `LC_NUMERIC` and under `C`, compared bitwise; skipped where no such locale is installed |
 | `dspstress` | no | a synthetic audio thread calling `process()` while the main thread does what the GUI thread does |
 | `dspab` | no | two renders compared for bitwise identity — used when a change is meant to be inaudible |
