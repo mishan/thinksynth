@@ -1840,6 +1840,28 @@ try
 
         await page.keyboard.press('Escape');
 
+        /* The `full' block, pressed while playing: the transport is there
+           -- intro, groove and break later -- and plays on from it. */
+        await page.click('#play');
+        await new Promise((r) => setTimeout(r, 1000));
+
+        const heads = (await lane()).heads;
+        const headAt = await scroller();
+
+        await page.mouse.click(headAt.x + heads[3].x, headAt.y + heads[3].y);
+
+        const jumped = await until(lane, (l) => l.now > 50);
+
+        await new Promise((r) => setTimeout(r, 1000));
+
+        const later = await lane();
+
+        check(jumped.now > 50 && later.now > jumped.now,
+              `a section's block moves the transport to it and plays on: ` +
+              `${jumped.now.toFixed(1)} s, then ${later.now.toFixed(1)} s`);
+
+        await page.click('#stop');
+
         const colonyLoads = await page.evaluate(() => window.solo.pieces());
 
         await page.selectOption('#piece', COMPOSER_PIECE);

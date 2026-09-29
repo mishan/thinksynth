@@ -151,7 +151,8 @@ enum CmdType
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
    four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
    TW_SOLO, TW_SECTION and TW_KNOBWRITE have entry points of their own and
-   never arrive as an op from there. */
+   never arrive as an op from there. TW_SEEK arrives both ways: framed from
+   a solo page, stamped from a room's (tw_at). */
 enum TransportOp
 {
     TW_START,
@@ -167,6 +168,7 @@ enum TransportOp
     TW_SOLO,
     TW_SECTION,
     TW_KNOBWRITE,
+    TW_SEEK,
 };
 
 struct Command
@@ -486,6 +488,23 @@ void applyDue (double start, int len)
                         epoch_++;
                         break;
 
+                    /* To a transport time, heard from there as if played
+                       to it (thcScheduler::seek): a rewind that goes on.
+                       Playing on, the clock is pinned there at this
+                       window's first frame, as a resume is. */
+                    case TW_SEEK:
+                        sched_->seek(c.value);
+                        dropStamped();
+                        epoch_++;
+
+                        if (sched_->running())
+                        {
+                            originAt_ = sched_->now();
+                            originFrame_ = start;
+                        }
+
+                        break;
+
                     case TW_TEMPO:
                         sched_->setTempo(c.value);
                         break;
@@ -694,6 +713,26 @@ void applyScheduled (const Scheduled &c)
         case TW_STOP:
             sched_->halt();
             break;
+
+        /* A room's seek, at `at' on every peer: the clock pinned so the
+           frame `at' fell on is now the seek's time. What was stamped for
+           the run being left is dropped, as a rewind drops it. */
+        case TW_SEEK:
+        {
+            const double frame = originFrame_ >= 0 ? frameOf(c.at) : -1;
+
+            sched_->seek(c.value);
+            dropStamped();
+            epoch_++;
+
+            if (frame >= 0 && sched_->running())
+            {
+                originFrame_ = frame;
+                originAt_ = sched_->now();
+            }
+
+            break;
+        }
 
         case TW_TEMPO:
             sched_->setTempo(c.value);
@@ -1013,8 +1052,10 @@ void step (double start, int len)
 
         applyScheduled(c);
 
-        /* A stop: the transport is where the stop said, and stays. */
-        if (!sched_->running())
+        /* A stop: the transport is where the stop said, and stays. A
+           seek: the rest of this window was reckoned on the clock before
+           it, and the next window is the first on the new one. */
+        if (!sched_->running() || c.op == TW_SEEK)
             return;
     }
 
@@ -1385,6 +1426,9 @@ CanvasMove canvasMove_;
 
 /* A chain's F pressed: which chain, once per press. */
 int canvasFreeze_ = -1;
+
+/* A section's block pressed: the time to seek to, or -1. */
+double canvasSeek_ = -1;
 
 /* A wire from a knob dropped on a stage: which knob, which stage (the
    scheduler's numbering, like a params request), and where its box is
@@ -2535,6 +2579,8 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
         canvas_->sigFreeze.connect(
             [](size_t chain) { canvasFreeze_ = (int)chain; });
 
+        canvas_->sigSeek.connect([](double at) { canvasSeek_ = at; });
+
         canvas_->sigMoveStage.connect(
             [](size_t chain, int from, int to)
             {
@@ -2844,6 +2890,33 @@ EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_y (int section, int chain)
     return canvas_ != NULL && section >= 0 && chain >= 0 &&
            canvas_->sectionCell((size_t)section, (size_t)chain, x, y)
         ? y : -1.0;
+}
+
+/* A section's block: the time to seek to, once per press, or -1. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_seek_wanted (void)
+{
+    const double was = canvasSeek_;
+
+    canvasSeek_ = -1;
+
+    return was;
+}
+
+/* The middle of a section's block in the lane, in shell pixels, or -1. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_head_x (int section)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 &&
+           canvas_->sectionHead((size_t)section, x, y) ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_head_y (int section)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 &&
+           canvas_->sectionHead((size_t)section, x, y) ? y : -1.0;
 }
 
 /* A chain's F: the chain, once per press, or -1. */
@@ -3674,7 +3747,7 @@ EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame)
    tw_knob. */
 EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
 {
-    if (op != TW_STOP && op != TW_TEMPO)
+    if (op != TW_STOP && op != TW_TEMPO && op != TW_SEEK)
         return;
 
     Scheduled c = {};

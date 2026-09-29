@@ -35,6 +35,7 @@
  *   transport  { at, op: 'start', origin, piece: { hash }, seed }
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
+ *   transport  { at, op: 'seek', to }
  *   knob       { at, knob, value }
  *   knobwrite  { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
@@ -96,6 +97,15 @@ export class Maker
     stop ()
     {
         return this.make('transport', { op: 'stop' }, this.transportLead);
+    }
+
+    /* To transport time `to', from where the piece is: with the
+       transport's lead, like a stop, since every peer plays the whole
+       piece up to there when it lands. */
+    seek (to)
+    {
+        return this.make('transport', { op: 'seek', to },
+                         this.transportLead);
     }
 
     tempo (bpm)
@@ -297,6 +307,10 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 
                 case 'tempo':
                     synth.transportAt('tempo', cmd.at, cmd.bpm);
+                    break;
+
+                case 'seek':
+                    synth.transportAt('seek', cmd.at, cmd.to);
                     break;
             }
             break;

@@ -1022,6 +1022,10 @@ function showComposer (on)
         onMove: moveStage,
         onFreeze: freezeChain,
 
+        /* A section's block: the room's transport there, with the
+           transport's lead. */
+        onSeek: (at) => send(maker.seek(at)),
+
         /* An arrangement cell: the room's command, written into the
            document by this peer when it comes back, as a param is. */
         onSection: (section, chain, level) =>

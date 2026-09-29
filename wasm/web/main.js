@@ -2580,6 +2580,9 @@ function showComposer (on)
             synth?.section({ at: -1, section, chain, level }),
 
         onFreeze: freezeChain,
+
+        /* A section's block: the transport there, in the next window. */
+        onSeek: (at) => synth?.transport('seek', at),
     });
 
     composer.show(on);

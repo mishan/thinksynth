@@ -42,6 +42,7 @@ import { showPanel } from './panel.js';
 export function createComposerView ({ root = document, toMirror,
                                       onGesture, onParamEdit, onMix,
                                       onKnob, onMove, onSection, onFreeze,
+                                      onSeek,
                                       keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
@@ -257,6 +258,11 @@ export function createComposerView ({ root = document, toMirror,
             case 'lane':
                 laneAsked?.(m);
                 laneAsked = null;
+                return true;
+
+            /* A section's block: the transport to where it begins. */
+            case 'canvasseek':
+                onSeek?.(m.at);
                 return true;
 
             /* A chain's F. */
