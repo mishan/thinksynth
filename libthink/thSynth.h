@@ -235,8 +235,12 @@ public:
 
     float *getChanBuffer (int chan);
 
+    /* Fixed for the synth's life. A graph folds `375 ms' against the rate
+       when it loads, a channel keeps the rate it was built with, and
+       osc::sample and osc::pad keep tables made for it; a setter that
+       changed only this number left all three at the old rate, so there
+       is none. A host whose rate changes makes a new synth. */
     long getSampleRate (void) const { return sampleRate_; }
-    void setSampleRate (long samples) { sampleRate_ = samples; }
 
     /* Master gain, applied to the summed mix before the output limiter.
      *
