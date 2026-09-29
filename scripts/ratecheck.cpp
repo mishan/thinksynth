@@ -26,7 +26,11 @@
  * the device was reopened on the new source and is running, and that a
  * `10 ms' in a graph loaded afterwards is 480 frames and not 441. And that
  * a synth already at the device's rate is left alone.
-
+ *
+ * And th_sample, the language's one second in samples, which was the
+ * compile-time 44100 whatever the synth ran at: it is 48000 in a synth at
+ * 48 kHz and 22050 in one at 22.05 kHz, scales by a plain number
+ * (`th_sample / 2'), and still refuses a sum and a second unit.
  *
  *   scripts/ratecheck -p build/plugins/
  *
@@ -178,6 +182,76 @@ int main (int argc, char **argv)
         audio.stop();
         delete source;
         delete synth;
+    }
+
+    /* th_sample at two rates. */
+    {
+        const long rates[] = { 48000, 22050 };
+
+        for (int r = 0; r < 2; r++)
+        {
+            thSynth synth(pluginPath, 256, rates[r]);
+            const string text = string(
+                "name \"th_sample\";\n"
+                "node ionode {\n"
+                "    channels = 2;\n"
+                "    out0 = osc->out;\n"
+                "    out1 = osc->out;\n"
+                "    play = 1;\n"
+                "};\n"
+                "node osc osc::simple {\n"
+                "    freq = 440;\n"
+                "    waveform = 0;\n"
+                "};\n"
+                "node env env::ad {\n"
+                "    a = th_sample;\n"
+                "    d = th_sample / 4;\n"
+                "    trigger = ionode->trigger;\n"
+                "};\n"
+                "io ionode;\n");
+
+            thSynthTree *tree = synth.loadTreeText("th_sample", text, 0, 100);
+            thArg *a = tree ? tree->getArg("env", "a") : NULL;
+            thArg *d = tree ? tree->getArg("env", "d") : NULL;
+            char what[96];
+
+            snprintf(what, sizeof(what),
+                     "th_sample is %ld and th_sample / 4 is %g at %ld Hz",
+                     rates[r], rates[r] / 4.0, rates[r]);
+            check(a != NULL && d != NULL && (*a)[0] == (float)rates[r] &&
+                  (*d)[0] == (float)(rates[r] / 4.0), what);
+        }
+    }
+
+    /* What stays refused: a sum with a unit in it, a unit in a
+       denominator, and a second unit. */
+    {
+        const char *bad[] = {
+            "th_sample + 1", "2 / th_sample", "th_sample ms", "5 ms * 5 ms",
+        };
+
+        for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        {
+            thSynth synth(pluginPath, 256, 48000);
+            const string text = string(
+                "name \"refused\";\n"
+                "node ionode {\n"
+                "    channels = 2;\n"
+                "    out0 = env->out;\n"
+                "    out1 = env->out;\n"
+                "    play = 1;\n"
+                "};\n"
+                "node env env::ad {\n"
+                "    a = ") + bad[i] + ";\n"
+                "    trigger = ionode->trigger;\n"
+                "};\n"
+                "io ionode;\n";
+
+            string what = string("`") + bad[i] + "' is refused";
+
+            check(synth.loadTreeText("refused", text, 0, 100) == NULL,
+                  what.c_str());
+        }
     }
 
     printf("\n%d failure(s)\n", failed);

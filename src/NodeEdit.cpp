@@ -242,13 +242,17 @@ static bool sameValue (double a, double b)
 /* The named constants the lexer knows. 229 uses of th_max and th_min across
    the corpus, so a writer that did not recognise them would turn `inmax =
    th_max' into `inmax = 1' on the first save of any file containing one. */
+static long editRate (void);
+
 static bool namedConstant (const string &word, double &out)
 {
     if (word == "th_max")      { out = TH_MAX;      return true; }
     if (word == "th_min")      { out = TH_MIN;      return true; }
     if (word == "th_range")    { out = TH_RANGE;    return true; }
     if (word == "th_midimax")  { out = MIDIVALMAX;  return true; }
-    if (word == "th_sample")   { out = TH_SAMPLE;   return true; }
+    /* A second at the rate the loader folded with, as the grammar reads it
+       (`1000 ms'); see editRate. */
+    if (word == "th_sample")   { out = editRate();  return true; }
 
     return false;
 }
