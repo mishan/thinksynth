@@ -199,6 +199,16 @@ public:
        sends it as a command. */
     sigc::signal<void (size_t, size_t, double)> sigSectionLevel;
 
+    /* The probe: which stage's output a probe is showing (kind STAGE),
+       or NONE. Pressing an arrow puts one there, pressing it again or
+       Escape takes it away. A view setting, nothing sent. */
+    const Selection &probe (void) const { return probe_; }
+    void setProbe (const Selection &at);
+
+    /* The middle of the arrow carrying a stage's output, in widget
+       pixels: the arrow a probe on that stage hangs from. */
+    bool probeArrow (size_t chain, size_t stage, double &x, double &y) const;
+
     /* A section's block was pressed: the transport time it begins at,
        the first time round, for the window to seek to. */
     sigc::signal<void (double)> sigSeek;
@@ -386,6 +396,11 @@ private:
                    &fn) const;
 
     void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    void drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const;
+
+    void eachArrow (const std::function<bool (const Selection &, double,
+                                              double, double)> &fn) const;
+    bool arrowAt (double x, double y, Selection &out) const;
     bool layoutLane (double y);
 
     void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
@@ -440,6 +455,7 @@ private:
     size_t columns_;
 
     Selection sel_;
+    Selection probe_;
 
     bool chainHues_;
 

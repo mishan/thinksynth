@@ -803,6 +803,41 @@ run (const std::string &pluginPath, const char *genFile)
         }
     }
 
+    /* A probe: pressing the arrow out of a stage puts one on it, pressing
+       it again takes it off, and Escape does too. */
+    {
+        double px, py;
+
+        if (!win->canvas_->probeArrow(0, 0, px, py))
+            fail("the first stage has no arrow out of it");
+        else
+        {
+            win->canvas_->pressAt(px, py, 1, 1);
+            pump(2);
+
+            const ComposerCanvas::Selection on = win->canvas_->probe();
+
+            win->canvas_->pressAt(px, py, 1, 1);
+            pump(2);
+
+            const bool offAgain = win->canvas_->probe().kind ==
+                                  ComposerCanvas::Selection::NONE;
+
+            win->canvas_->pressAt(px, py, 1, 1);
+            win->canvas_->keyPressed(CanvasContent::KEY_ESCAPE);
+            pump(2);
+
+            if (on.kind == ComposerCanvas::Selection::STAGE &&
+                on.chain == 0 && on.index == 0 && offAgain &&
+                win->canvas_->probe().kind == ComposerCanvas::Selection::NONE)
+                ok("an arrow's probe goes on and off with a press, and off "
+                   "with Escape");
+            else
+                fail("an arrow's probe goes on and off with a press, and off "
+                     "with Escape");
+        }
+    }
+
     /* Color Notes by Chain: the roll by chain, and the canvas's chain
        names striped to match, together and back. */
     {

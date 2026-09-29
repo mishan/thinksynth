@@ -330,6 +330,14 @@ struct thcInstrument
     thcInstrument (void) : sideChannel(-1), channel(-1) {}
 };
 
+/* A note a chain was heard to play, or a stage let out: what freezing a
+ * chain into a pattern reads, and what a probe on an arrow draws. */
+struct thcPlayed
+{
+    double at, duration;           /* transport seconds; 0 while held   */
+    int    note, velocity;
+};
+
 /* One placement of a plugin in a chain. */
 class thcScheduler;
 
@@ -371,6 +379,10 @@ struct thcStage
        counted; it is bookkeeping, not something the stage did. */
     double         lastIn, lastOut;
 
+    /* The notes it let out in the last few seconds, oldest first: what a
+       probe on the arrow after it draws. Eight seconds of them. */
+    std::deque<thcPlayed> out;
+
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),
           sched(NULL), chain(0), ticks(wantTick), awaitingStart(wantTick),
@@ -408,14 +420,6 @@ struct thcSink
      * `*' cannot collide with a real name: a chanarg is a .dsp
      * identifier, and identifiers do not contain it. */
     bool namesItsOwn (void) const { return chanarg == "*"; }
-};
-
-/* A note a chain was heard to play: what freezing it into a pattern
- * reads. */
-struct thcPlayed
-{
-    double at, duration;           /* transport seconds; 0 while held   */
-    int    note, velocity;
 };
 
 /* A linear pipeline: stage 0 is usually a generator, the rest

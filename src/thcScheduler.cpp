@@ -2245,7 +2245,24 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
     if (ev.type != THC_EV_NOTEOFF && !seeking_)
     {
         if (fromStage > 0 && fromStage <= c.stages.size() && !passed)
-            c.stages[fromStage - 1]->lastOut = transportNow_;
+        {
+            thcStage *from = c.stages[fromStage - 1].get();
+
+            from->lastOut = transportNow_;
+
+            /* And what it let out, for a probe on the arrow after it:
+               eight seconds of it, which a probe shows the last few of. */
+            if (ev.type == THC_EV_NOTE && !seeking_)
+            {
+                from->out.push_back({ ev.at, ev.u.note.duration,
+                                      ev.u.note.note, ev.u.note.velocity });
+
+                while (!from->out.empty() &&
+                       (from->out.front().at < transportNow_ - 8 ||
+                        from->out.size() > 512))
+                    from->out.pop_front();
+            }
+        }
 
         if (fromStage < c.stages.size() &&
             c.stages[fromStage]->plugin->hasReceive())
@@ -2763,7 +2780,10 @@ thcScheduler::reset (void)
         c.played.clear();
 
         for (auto &s : c.stages)
+        {
             s->lastIn = s->lastOut = -1;
+            s->out.clear();
+        }
     }
 
     /* And the instruments, if a structure edit has been anywhere near

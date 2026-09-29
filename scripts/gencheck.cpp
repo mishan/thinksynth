@@ -9671,6 +9671,71 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
              "tape against " + std::to_string(tail.size()));
 }
 
+/* What a probe draws: each stage keeps the notes it let out. A chance
+ * lets out fewer than it was given, a transpose the same number an octave
+ * up, and a rewind forgets them. */
+static void
+checkProbes (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-probe-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "seed 3;\n"
+               "tempo 120;\n"
+               "chain c {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+               "    notes = \"C3\"; period = 0.25 beats; hold = 0.1 beats;\n"
+               "    vel = 100; };\n"
+               "  stage up xform::transpose { semitones = 12; };\n"
+               "  stage some xform::chance { prob = 0.5; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    sched.setAuditionSynchronous(true);
+
+    if (path.empty() || !loader.load(path, &sched))
+    {
+        fail("the probe piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+    sched.start();
+
+    while (sched.now() < 3.0)
+    {
+        sched.stepTransport(0.02);
+        drainSynth();
+    }
+
+    const thcChain *c = sched.chain(0);
+    const auto &src = c->stages[0]->out, &up = c->stages[1]->out,
+               &some = c->stages[2]->out;
+    bool octave = !up.empty();
+
+    for (const thcPlayed &p : up)
+        octave = octave && p.note == 60;
+
+    if (src.empty() || up.size() != src.size() || !octave ||
+        some.empty() || some.size() >= up.size())
+        fail("a probe's notes: " + std::to_string(src.size()) + " out of "
+             "euclid, " + std::to_string(up.size()) + " out of transpose, " +
+             std::to_string(some.size()) + " out of chance");
+
+    sched.reset();
+
+    if (!c->stages[0]->out.empty())
+        fail("a rewind should forget what the stages let out");
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -11843,6 +11908,7 @@ main (int argc, char *argv[])
     checkSectionEdits(plugins, &synth);
     checkDrawnControls(plugins, &synth);
     checkSeek(plugins, &synth);
+    checkProbes(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

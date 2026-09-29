@@ -84,6 +84,11 @@ they drive. Everything is reachable from there:
   accent's steps are set to is written into the piece at the end of each
   gesture, in the window and on the page, and so is a knob when it is let go
   of.
+- **Click an arrow** to probe it: a small roll under it shows the last three
+  seconds of what the stage before it let out, and, for a transformer, what
+  went into it as outlines -- so a swing or a humanize is a bar beside its
+  outline, a chance's drop an outline with no bar, a transposition a bar above
+  it. Click again, or Escape, to put it away.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the
