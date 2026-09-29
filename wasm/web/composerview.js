@@ -41,7 +41,7 @@ import { showPanel } from './panel.js';
 
 export function createComposerView ({ root = document, toMirror,
                                       onGesture, onParamEdit, onMix,
-                                      onKnob, onMove, onSection,
+                                      onKnob, onMove, onSection, onFreeze,
                                       keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
@@ -65,6 +65,14 @@ export function createComposerView ({ root = document, toMirror,
     {
         mix.mute.clear();
         mix.solo.clear();
+    };
+
+    /* A chain to come back muted from the next load: what a freeze does
+       to the chain it froze. */
+    const muteOnLoad = (name) =>
+    {
+        if (keepMix)
+            mix.mute.add(name);
     };
 
     const setMix = (type, chain, on) =>
@@ -249,6 +257,11 @@ export function createComposerView ({ root = document, toMirror,
             case 'lane':
                 laneAsked?.(m);
                 laneAsked = null;
+                return true;
+
+            /* A chain's F. */
+            case 'canvasfreeze':
+                onFreeze?.(m.chain, m.chainName);
                 return true;
 
             /* An arrangement cell pressed: a `section' command. */
@@ -566,6 +579,7 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf, chipOf, mix: askMix, forgetMix,
+             muteOnLoad,
              knobAt, stageAt, activity, layout, lane, pollParams,
 
              /* How many pieces the mirror has loaded, for a harness to

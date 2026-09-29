@@ -89,6 +89,7 @@
 
 #include "ComposerCanvas.h"
 #include "RollCanvas.h"
+#include "thcFreeze.h"
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
@@ -1252,6 +1253,9 @@ struct CanvasMove
 
 CanvasMove canvasMove_;
 
+/* A chain's F pressed: which chain, once per press. */
+int canvasFreeze_ = -1;
+
 /* A wire from a knob dropped on a stage: which knob, which stage (the
    scheduler's numbering, like a params request), and where its box is
    for the menu that asks which param. */
@@ -2398,6 +2402,9 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 sectionPending_[{ (int)section, (int)chain }] = level;
             });
 
+        canvas_->sigFreeze.connect(
+            [](size_t chain) { canvasFreeze_ = (int)chain; });
+
         canvas_->sigMoveStage.connect(
             [](size_t chain, int from, int to)
             {
@@ -2707,6 +2714,16 @@ EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_y (int section, int chain)
     return canvas_ != NULL && section >= 0 && chain >= 0 &&
            canvas_->sectionCell((size_t)section, (size_t)chain, x, y)
         ? y : -1.0;
+}
+
+/* A chain's F: the chain, once per press, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_freeze_wanted (void)
+{
+    const int was = canvasFreeze_;
+
+    canvasFreeze_ = -1;
+
+    return was;
 }
 
 /* A stage dropped elsewhere in its chain: nonzero once per drop, and then
@@ -3903,6 +3920,73 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_section (const char *text,
             return thcGenEdit::setSectionLevel(path, section, chain, level,
                                                why);
         });
+}
+
+/* Why the last tw_gen_freeze wrote nothing. */
+std::string freezeWhy_;
+
+/* Chain `chain' frozen into `text': what this instance heard it play in
+ * the last `bars' bars, as a new chain beside it with a gen::grid that
+ * plays it back, through the chain's first note sink (thcFreeze.h). ""
+ * when there is nothing to freeze or the writer refused;
+ * tw_gen_freeze_why says which. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_freeze (const char *text, int chain,
+                                                int bars)
+{
+    freezeWhy_.clear();
+
+    if (text == NULL || sched_ == NULL || chain < 0 ||
+        (size_t)chain >= canvasDoc_.chains.size())
+    {
+        freezeWhy_ = "no such chain";
+        return "";
+    }
+
+    const thcGenEdit::Chain &c = canvasDoc_.chains[(size_t)chain];
+    const thcGenEdit::Sink *sink = NULL;
+
+    for (const thcGenEdit::Sink &s : c.sinks)
+        if (s.chanarg.empty())
+        {
+            sink = &s;
+            break;
+        }
+
+    if (sink == NULL)
+    {
+        freezeWhy_ = c.name + " plays no notes to freeze";
+        return "";
+    }
+
+    thcFreeze::Params params;
+
+    if (!thcFreeze::fromChain(*sched_, (size_t)chain, bars, params,
+                              freezeWhy_))
+        return "";
+
+    std::vector<std::string> names;
+
+    for (const thcGenEdit::Chain &other : canvasDoc_.chains)
+        names.push_back(other.name);
+
+    const std::string name = thcFreeze::frozenName(c.name, names);
+    const char *out = spliceText(text, name.c_str(),
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::addChain(path, name, sink->channel,
+                                        sink->instrument, "frozen", "gen",
+                                        "grid", params, why);
+        });
+
+    if (*out == 0)
+        freezeWhy_ = "the frozen chain could not be written";
+
+    return out;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_freeze_why (void)
+{
+    return freezeWhy_.c_str();
 }
 
 /* One stage of a chain moved to another place in it, in `text': the edit a

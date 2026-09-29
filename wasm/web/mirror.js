@@ -221,6 +221,18 @@ function sendGestures ()
 
     M._tw_canvas_sections_clear();
 
+    /* A chain's F: the page asks the worklet, which heard what it
+       played, for the text with the frozen chain in it. */
+    const frozen = M._tw_canvas_freeze_wanted();
+
+    if (frozen >= 0)
+        post({
+            type: 'canvasfreeze',
+            chain: frozen,
+            chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                              ['number'], [frozen])),
+        });
+
     /* A stage box dropped elsewhere in its chain. The page makes the
        edit, to whichever text it holds, and loads what comes back. */
     if (M._tw_canvas_move_wanted())

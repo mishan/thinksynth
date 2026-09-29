@@ -501,6 +501,43 @@ async function moveStage (chainName, from, to)
         log('stage moved; Play applies it');
 }
 
+/* A chain's F: the frozen chain spliced into the document by this peer,
+ * on moveStage's terms, and applied if the room is playing. The original
+ * is left playing: the room's mix is set by commands, and M is one. */
+async function freezeChain (chain, chainName)
+{
+    const name = pieceName(doc);
+    const was = name === null ? null : readFile(doc, name);
+
+    if (was === null || was !== loadedGen)
+    {
+        log('the piece has changed since it was loaded; Apply it before ' +
+            'freezing a chain');
+        return;
+    }
+
+    const { text, why } = await synth.genFreeze(was, chain, 2);
+
+    if (text === '')
+    {
+        log(`could not freeze ${chainName}: ${why}`);
+        return;
+    }
+
+    if (readFile(doc, name) !== was)
+    {
+        log('the piece changed while that chain was being frozen');
+        return;
+    }
+
+    spliceFile(doc, name, text);
+
+    if (transport?.running)
+        await play();
+    else
+        log(`${chainName} frozen; Play applies it`);
+}
+
 /* ---- transport ---- */
 
 /* Play, and Apply: a start from a new origin, with the document as it
@@ -923,6 +960,7 @@ function showComposer (on)
         },
 
         onMove: moveStage,
+        onFreeze: freezeChain,
 
         /* An arrangement cell: the room's command, written into the
            document by this peer when it comes back, as a param is. */

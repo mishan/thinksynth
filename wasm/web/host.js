@@ -174,6 +174,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'genparam':
             case 'genmove':
             case 'gensection':
+            case 'genfreeze':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -368,6 +369,11 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* One chain's level in one section, in `text'. Resolves to
            { text }, "" when the writer refused. */
+        /* A chain frozen into `text' from what the worklet heard it play
+           in the last `bars' bars. Resolves to { text, why }. */
+        genFreeze: (text, chain, bars) =>
+            ask({ type: 'genfreeze', text, chain, bars }),
+
         genSetSection: (text, sectionName, chainName, level) =>
             ask({ type: 'gensection', text, section: sectionName,
                   chain: chainName, level }),
