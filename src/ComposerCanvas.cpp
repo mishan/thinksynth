@@ -2039,7 +2039,15 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
 
     enlargedRect(rx, ry, rw, rh);
 
-    if (x < rx || y < ry || x >= rx + rw || y >= ry + rh)
+    /* A release ends the gesture wherever it lands, held to the picture's
+       edge: a plugin keeping a grab, or a host writing an edit when the
+       gesture ends, must hear it. Anything else outside is not for it. */
+    if (type == THC_IN_RELEASE)
+    {
+        x = std::clamp(x, rx, rx + rw - 1e-6);
+        y = std::clamp(y, ry, ry + rh - 1e-6);
+    }
+    else if (x < rx || y < ry || x >= rx + rw || y >= ry + rh)
         return false;
 
     thcInputEvent ev;
@@ -2326,6 +2334,9 @@ ComposerCanvas::onReleased (int, double sx, double sy, int)
        than its press would be a pair no plugin could match up. */
     feedInput(THC_IN_RELEASE, x, y, feedButton_);
     feeding_ = false;
+
+    if (enlarged_.kind == Selection::STAGE)
+        sigGestureEnd.emit(enlarged_.chain, enlarged_.index);
 }
 
 void

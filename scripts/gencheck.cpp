@@ -9302,6 +9302,14 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
         ev.button = button;
         st->plugin->input(st->state, &ev);
     };
+    /* The pictures that are editors of their own params say so, and a
+       Life board, which the piece goes on changing, does not. */
+    if (!ring->plugin->inputEdits() || !acc->plugin->inputEdits() ||
+        !plugins.at("grid")->inputEdits() ||
+        (plugins.count("life") && plugins.at("life")->inputEdits()))
+        fail("THC_INPUT_EDITS should be euclid's, accent's and grid's, and "
+             "not life's");
+
     const int fills = ring->plugin->paramIndex("fills");
     const int rotate = ring->plugin->paramIndex("rotate");
     const int pattern = acc->plugin->paramIndex("pattern");

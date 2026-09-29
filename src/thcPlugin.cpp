@@ -170,7 +170,8 @@ thcPlugin::moduleLoad (void)
        relying on a flag bit the host does not implement should find
        out here, not by whatever the unknown bit silently fails to do. */
     if ((flags_ & ~(THC_GENERATOR | THC_TRANSFORMER |
-                    THC_EMITS_AHEAD | THC_NEEDS_AHEAD)) != 0)
+                    THC_EMITS_AHEAD | THC_NEEDS_AHEAD |
+                    THC_INPUT_EDITS)) != 0)
     {
         fprintf(stderr, "thcPlugin: %s declared flags 0x%x, which this "
                 "interface version does not define\n", path_.c_str(),

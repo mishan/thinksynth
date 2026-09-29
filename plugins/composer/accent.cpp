@@ -92,7 +92,7 @@ composer_init (thcComposerInfo *info)
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_TRANSFORMER);
+    info->set_flags(info->host, THC_TRANSFORMER | THC_INPUT_EDITS);
     info->set_desc(info->host,
         "Weight each note by where it falls: an accent pattern and a swell.");
 

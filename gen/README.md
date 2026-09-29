@@ -78,7 +78,10 @@ they drive. Everything is reachable from there:
 - **Drawn controls**: besides grid, life, ca and evolve, the euclid ring is a
   control -- a click in its middle adds a hit (the other button takes one
   away) and dragging round the ring turns the pattern -- and accent's steps
-  are drawn and clicked to mark the ones to lean on.
+  are drawn and clicked to mark the ones to lean on. What a grid, the ring or
+  accent's steps are set to is written into the piece at the end of each
+  gesture, in the window and on the page, and so is a knob when it is let go
+  of.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the

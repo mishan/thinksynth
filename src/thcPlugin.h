@@ -75,6 +75,7 @@ public:
     int  flags (void) const { return flags_; }
     bool isGenerator (void) const { return (flags_ & THC_GENERATOR) != 0; }
     bool isTransformer (void) const { return (flags_ & THC_TRANSFORMER) != 0; }
+    bool inputEdits (void) const { return (flags_ & THC_INPUT_EDITS) != 0; }
 
     bool hasTick (void) const { return tick_ != NULL; }
     bool hasReceive (void) const { return receive_ != NULL; }

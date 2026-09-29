@@ -171,6 +171,19 @@ Composer::Composer (thSynth *synth)
     canvas_->sigFreeze.connect(
         sigc::mem_fun(*this, &Composer::onCanvasFreeze));
 
+    /* A picture that edits its own params -- a grid's cells, the euclid
+       ring, accent's steps -- is written into the piece when the gesture
+       ends, silently, as the sequencer's tracks are. A Life board is
+       not: its capture stays the Selection pane's deliberate act. */
+    canvas_->sigGestureEnd.connect(
+        [this](size_t chain, size_t stage)
+        {
+            thcStage *s = liveStage(chain, stage);
+
+            if (s != NULL && s->plugin->inputEdits())
+                captureStage(chain, stage, false);
+        });
+
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
                              Gtk::PolicyType::AUTOMATIC);

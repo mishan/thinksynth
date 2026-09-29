@@ -228,6 +228,11 @@ public:
        click lands on the cell the clicker saw. */
     sigc::signal<void (size_t, size_t, const thcInputEvent &)> sigInput;
 
+    /* A gesture on the enlarged picture ended: which stage, in the
+       document's numbering. What a host that writes a picture's edits
+       into the file at a gesture's end listens for (THC_INPUT_EDITS). */
+    sigc::signal<void (size_t, size_t)> sigGestureEnd;
+
     /* Where the enlarged picture would go, in laid-out coordinates.
        False if no stage is enlarged. Answers about the view rather than
        about whether the stage has a picture to put there.
