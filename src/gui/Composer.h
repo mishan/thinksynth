@@ -207,6 +207,16 @@ protected:
        walk one to the right on every reload. */
     bool channelTaken (int channel);
 
+    /* Every gen::grid in the piece written back into the work file where
+       what it plays has moved from what was loaded or last written: see
+       useDocument. */
+    void captureGrids (void);
+
+    /* A grid's `rows' after a change of the graph that plays it, and its
+       pattern reshaped from the bottom to match. False, with the edit
+       refused in the status line, when the file would not take it. */
+    bool fitRows (size_t ci, size_t si, bool readsNote, std::string &why);
+
     /* One structural edit has happened in the work file: reload it,
        rewind, resume if we were playing, rebuild the panels.
      *
@@ -373,6 +383,15 @@ protected:
     std::string pieceLabel_;        /* what the status line calls it     */
     bool        dirty_;
     bool        reloadPending_;     /* an idle reload is already queued  */
+    bool        reloadMarksDirty_ = false;  /* ...and what it will say   */
+
+    /* What each grid's pattern was when the piece was loaded, or last
+       written back, by "chain.stage.param" in the document's
+       numbering. A capture that hands back the same text has
+       nothing to write, whatever the file's spelling of it -- scratch.gen
+       writes its drums with `|' bar lines, and the grid hands its
+       pattern back without them. */
+    std::map<std::string, std::string> baseline_;
 
     thcGenEdit::Doc doc_;           /* what the work file says           */
 

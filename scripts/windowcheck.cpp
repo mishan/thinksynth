@@ -560,6 +560,31 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->mode_ == "piece",
           "New and Open in sequence mode go to piece mode first");
 
+    pickMode(win, "patch");
+    activate(win, "pane-seqview");
+
+    check(win->mode_ == "seq" && win->panes_->isVisible("seqview"),
+          "the Sequencer's tick in patch mode goes to sequence mode");
+
+    /* The keys went to the last track the first time; a channel picked
+       after that is somebody's, and stays through a trip elsewhere. */
+    win->selectChannel(0);
+    pickMode(win, "piece");
+    pickMode(win, "seq");
+
+    check(win->chan_ == 0,
+          "...and a channel picked there is kept through a trip to "
+          "another mode");
+
+    /* A change to sequence mode's layout, for the section that keeps
+       them. */
+    activate(win, "pane-roll");
+
+    check(isClosed(win, "roll") && win->mode_ == "seq",
+          "the roll closes in sequence mode");
+
+    pickMode(win, "piece");
+
     /* ---- a pane in a window of its own ---- */
 
     mln_panes_undock(win->panes_->gobj(), "keyboard");
@@ -615,6 +640,15 @@ run (const std::string &pluginPath, const std::string &dsp)
             patch == std::string::npos ? std::string()
                 : text.substr(patch, text.find('\n', patch) - patch);
 
+        const size_t seqAt = text.find("seq=");
+        const std::string seqLine =
+            seqAt == std::string::npos ? std::string()
+                : text.substr(seqAt, text.find('\n', seqAt) - seqAt);
+
+        check(!seqLine.empty() && seqLine.find("\"roll\"") ==
+                                      std::string::npos,
+              "sequence mode's layout is kept too, without its closed roll");
+
         check(text.find("[layouts]") != std::string::npos &&
               patch != std::string::npos && piece != std::string::npos &&
               patchLine.find("\"keyboard\"") == std::string::npos &&
@@ -642,6 +676,15 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(!isClosed(win, "keyboard"),
           "...and piece mode's, where the keys were not closed");
 
+    win->setDesktopMode("seq");
+    pump(4);
+
+    check(isClosed(win, "roll"),
+          "...and sequence mode's, with the roll it closed");
+
+    win->setDesktopMode("piece");
+    pump(4);
+
     delete win;
     pump(4);
 
@@ -653,6 +696,30 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     check(win->mode_ == "piece",
           "the mode last used is the one a new window starts in");
+
+    win->setDesktopMode("seq");
+    pump(4);
+    delete win;
+    pump(4);
+
+    /* ...sequence mode among them, which has no tracks until its pane is
+       in view and the composer starts -- and then the keys go to the
+       last one. */
+    win = new TestWindow;
+    win->applyPrefs();
+    win->set_visible(true);
+    pump(8);
+
+    {
+        SeqView &started = win->composer_->sequencer();
+        const size_t n = started.trackCount();
+
+        check(win->mode_ == "seq" &&
+              win->composer_->document() == Composer::SEQUENCE &&
+              n == 5 && win->chan_ == started.trackChannel(n - 1),
+              "a window that starts in sequence mode opens the sequence, "
+              "with the keys on its last track");
+    }
 
     win->setDesktopMode("patch");
     pump(4);

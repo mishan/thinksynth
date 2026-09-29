@@ -559,6 +559,11 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     else if (mode == PIECE_MODE)
         composer_->useDocument(Composer::PIECE);
 
+    /* Read again on the way in, so a graph added since the last time has
+       its title on the buttons. */
+    if (mode == SEQ_MODE)
+        catalog_.reset();
+
     composer_->sequencer().setChoosing(
         mode == SEQ_MODE,
         [this] (const string &dsp) { return dspTitle(dsp); });
@@ -580,18 +585,31 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
 
     syncPaneActions();
     syncComposer();
+}
 
-    /* The keys to the last track, which in the sequence is the one with a
-       keyboard instrument on it -- the others are a kit and a bass, and
-       the channel picked before was likely a patch no track plays. */
-    if (mode == SEQ_MODE && !tearingDown_)
-    {
-        const SeqView &seq = composer_->sequencer();
-        const size_t n = seq.trackCount();
+/* The keys to the last track, which in the sequence is the one with a
+ * keyboard instrument on it -- the others are a kit and a bass, and the
+ * channel picked before was likely a patch no track plays.
+ *
+ * Once, the first time the sequence has tracks: after that the channel is
+ * whatever somebody picked, and a trip through another mode is not a
+ * reason to take it from them. From syncComposer as well as the mode
+ * switch, because a window that starts in sequence mode has no tracks
+ * until its pane is in view and the composer starts.
+ */
+void MainSynthWindow::aimKeysAtSequence (void)
+{
+    if (keysAimed_ || mode_ != SEQ_MODE || tearingDown_ || composer_ == NULL)
+        return;
 
-        if (n > 0 && seq.trackChannel(n - 1) >= 0)
-            selectChannel(seq.trackChannel(n - 1));
-    }
+    const SeqView &seq = composer_->sequencer();
+    const size_t n = seq.trackCount();
+
+    if (n == 0 || seq.trackChannel(n - 1) < 0)
+        return;
+
+    keysAimed_ = true;
+    selectChannel(seq.trackChannel(n - 1));
 }
 
 void MainSynthWindow::onPaneShown (const string &id, bool visible)
@@ -625,6 +643,8 @@ void MainSynthWindow::syncComposer (void)
     composer_->setCanvasShown(canvas);
     composer_->setSequencerShown(tracks);
     composer_->setEditing(editing && composer_->started());
+
+    aimKeysAtSequence();
 }
 
 void MainSynthWindow::syncPaneActions (void)
@@ -2424,6 +2444,8 @@ string MainSynthWindow::dspTitle (const string &dsp)
  */
 void MainSynthWindow::onChooseTrack (size_t chain, size_t stage, string dsp)
 {
+    /* Read afresh, as Browse's is, and kept for the titles after. */
+    catalog_.reset();
     dspCatalog();
 
     std::shared_ptr<DspCatalog> catalog = catalog_;

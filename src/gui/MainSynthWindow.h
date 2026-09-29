@@ -191,6 +191,10 @@ protected:
     string dspTitle (const string &dsp);
     DspCatalog *dspCatalog (void);
 
+    /* The keys to the sequence's last track, the first time it has one. */
+    void aimKeysAtSequence (void);
+    bool keysAimed_ = false;
+
     /* The layout, kept in panes.ini beside thinkrc: written a moment after
        the last change rather than on every step of a divider's drag, and
        at the end. */
@@ -349,8 +353,8 @@ protected:
 private:
     gthAudio *audio_;
 
-    /* The shipped graphs' headers, read the first time a track's
-       chooser needs a title. */
+    /* The shipped graphs' headers: read when sequence mode is entered and
+       when a track's chooser opens, and kept for the buttons' titles. */
     std::shared_ptr<DspCatalog> catalog_;
 
     /* The shipped tree, which is what the browser catalogs, and wherever a

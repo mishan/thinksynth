@@ -458,10 +458,30 @@ Composer::useDocument (Document which)
 
     Held &was = held_[which_];
 
+    /* A reload still queued belongs to the document being put away: its
+       edit is already in the work text, and what it would have said
+       about unsaved edits is this document's, not the next one's. Its
+       live stages are about to be replaced, so there is nothing of them
+       to capture either. */
+    if (reloadPending_)
+    {
+        reloadIdle_.disconnect();
+        reloadPending_ = false;
+        was.dirty = reloadMarksDirty_;
+    }
+    else
+    {
+        /* What was drawn on a grid and never written down -- a click on
+           the canvas, notes a `listen' grid recorded -- would otherwise
+           go with the scheduler. Grids only: a Life board or a CA moves
+           on its own, and capturing one is a decision about the piece. */
+        captureGrids();
+        was.dirty = dirty_;
+    }
+
     was.held = true;
     was.genPath = genPath_;
     was.text = readText(workPath_);
-    was.dirty = dirty_;
 
     which_ = which;
 
@@ -515,57 +535,121 @@ Composer::setTrackInstrument (size_t ci, size_t si, const std::string &dsp,
         return false;
     }
 
-    /* A kick, a hat, a clap ignores the note it is sent, so a ladder over
-       one is rows that all make the same sound: one row is all it has to
-       say. A graph that is played at pitch gets a ladder back if it was
-       down to one, and keeps the one it has otherwise. */
-    std::string rows;
-
-    for (size_t p = 0; p < chain.stages[si].params.size(); p++)
-        if (chain.stages[si].params[p].name == "rows")
-            rows = chain.stages[si].params[p].valueText;
-
-    std::string want = rows;
-
-    if (!readsNote)
-        want = "1";
-    else if (rows.empty() || rows == "1")
-        want = "6";
-
-    std::string why;
-
-    /* The pattern goes with it, reshaped here: a grid nobody has drawn on
-       reads its cells from the top when it is reloaded at another height,
-       which kept the empty row above a bass line and dropped the root
-       the line was written on. From the bottom instead, as the grid
-       itself does for one somebody has drawn on. */
-    if (want != rows)
+    /* Refused before anything is written, rather than after the rows
+       have been: setInstrumentDsp refuses the same names, and by then a
+       track would have been reshaped for a graph it never got. */
+    if (dsp.empty() || dsp.find('"') != std::string::npos ||
+        dsp.find('\n') != std::string::npos)
     {
-        thcStage *s = liveStage(ci, si);
-        const int at = s != NULL ? s->plugin->paramIndex("cells") : -1;
-        const std::string cells =
-            at >= 0 ? s->plugin->capture(s->state, at) : std::string();
-
-        if (!editOk(thcGenEdit::setParam(workPath_, chain.name, (int)si,
-                                         "rows", want, why), why))
-            return false;
-
-        if (!cells.empty() &&
-            !editOk(thcGenEdit::setParam(workPath_, chain.name, (int)si,
-                                         "cells",
-                                         "\"" + bottomRows(cells,
-                                                           atoi(want.c_str()))
-                                         + "\"", why), why))
-            return false;
+        status_->set_text("'" + dsp + "' cannot be written as a file name");
+        return false;
     }
 
-    if (!editOk(thcGenEdit::setInstrumentDsp(workPath_, inst, dsp, why),
-                why))
+    /* Several edits, and all of them or none: what the file said before
+       goes back if any is refused, so the work file never holds half a
+       change the live piece does not. */
+    const std::string before = readText(workPath_);
+    std::string why;
+    bool ok = editOk(thcGenEdit::setInstrumentDsp(workPath_, inst, dsp, why),
+                     why);
+
+    /* Every grid the instrument plays, not only the one whose button was
+       pressed: the `dsp' line is the instrument's, so each track on it
+       now plays the new graph. */
+    for (size_t c = 0; ok && c < doc_.chains.size(); c++)
+    {
+        bool plays = false;
+
+        for (size_t k = 0; k < doc_.chains[c].sinks.size(); k++)
+            if (doc_.chains[c].sinks[k].instrument == inst &&
+                doc_.chains[c].sinks[k].chanarg.empty())
+                plays = true;
+
+        if (!plays)
+            continue;
+
+        for (size_t s = 0; ok && s < doc_.chains[c].stages.size(); s++)
+            if (doc_.chains[c].stages[s].plugin == "grid" &&
+                doc_.chains[c].stages[s].category == "gen")
+                ok = fitRows(c, s, readsNote, why);
+    }
+
+    if (!ok)
+    {
+        std::ofstream out(workPath_.c_str(),
+                          std::ios::trunc | std::ios::binary);
+
+        out << before;
         return false;
+    }
 
     scheduleReload(true);
 
     return true;
+}
+
+/* A kick, a hat, a clap ignores the note it is sent, so a ladder over one
+ * is rows that all make the same sound: one row is all it has to say. A
+ * graph that is played at pitch gets a ladder back if it was down to one,
+ * and keeps the one it has otherwise.
+ *
+ * The height it has is the live grid's, not the file's line: a grid with
+ * no `rows' line is the plugin's default, and one bound to a knob is
+ * whatever the knob says. A binding is left alone -- it is somebody's
+ * decision about the grid, and a choice of instrument is not a licence to
+ * cut it.
+ */
+bool
+Composer::fitRows (size_t ci, size_t si, bool readsNote, std::string &why)
+{
+    const thcGenEdit::Stage &stage = doc_.chains[ci].stages[si];
+
+    for (size_t p = 0; p < stage.params.size(); p++)
+        if (stage.params[p].name == "rows" &&
+            stage.params[p].valueText.find_first_not_of("0123456789") !=
+                std::string::npos)
+            return true;
+
+    thcStage *s = liveStage(ci, si);
+    const int rowsAt = s != NULL ? s->plugin->paramIndex("rows") : -1;
+
+    if (rowsAt < 0)
+        return true;
+
+    const int have = (int)(s->params.get(rowsAt) + 0.5);
+    const int want = !readsNote ? 1 : have <= 1 ? 6 : have;
+
+    if (want == have)
+        return true;
+
+    /* The pattern goes with it, reshaped here: a grid nobody has drawn on
+       reads its cells from the top when it is reloaded at another height,
+       which kept the empty row above a bass line and dropped the root the
+       line was written on. From the bottom instead, as the grid itself
+       does for one somebody has drawn on. */
+    const int cellsAt = s->plugin->paramIndex("cells");
+    const std::string cells =
+        cellsAt >= 0 ? s->plugin->capture(s->state, cellsAt) : std::string();
+    const std::string name = doc_.chains[ci].name;
+
+    if (!editOk(thcGenEdit::setParam(workPath_, name, (int)si, "rows",
+                                     std::to_string(want), why), why))
+        return false;
+
+    return cells.empty() ||
+           editOk(thcGenEdit::setParam(workPath_, name, (int)si, "cells",
+                                       "\"" + bottomRows(cells, want) + "\"",
+                                       why), why);
+}
+
+void
+Composer::captureGrids (void)
+{
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+        for (size_t si = 0; si < doc_.chains[ci].stages.size(); si++)
+            if (doc_.chains[ci].stages[si].plugin == "grid" &&
+                doc_.chains[ci].stages[si].category == "gen")
+                captureStage(ci, si, false);
 }
 
 /* An instrument arriving on a channel, in the application's terms.
@@ -905,6 +989,36 @@ Composer::parseWork (void)
     if (thcGenEdit::describe(workPath_, doc_, why) != thcGenEdit::OK)
         doc_ = thcGenEdit::Doc();
 
+    /* What each grid plays as loaded, for captureStage to measure a
+       later capture against. */
+    baseline_.clear();
+
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+        for (size_t si = 0; si < doc_.chains[ci].stages.size(); si++)
+        {
+            if (doc_.chains[ci].stages[si].plugin != "grid")
+                continue;
+
+            thcStage *s = liveStage(ci, si);
+
+            if (s == NULL || !s->plugin->hasCapture())
+                continue;
+
+            for (int pi = 0; pi < s->plugin->paramCount(); pi++)
+            {
+                const thcPlugin::ParamInfo *info = s->plugin->paramInfo(pi);
+
+                if (info == NULL || info->type != THC_PARAM_STRING)
+                    continue;
+
+                const std::string text = s->plugin->capture(s->state, pi);
+
+                if (!text.empty())
+                    baseline_[std::to_string(ci) + "." + std::to_string(si) +
+                              "." + info->name] = text;
+            }
+        }
+
     tempoGuard_ = true;
     tempoVal_->set_value(sched_->tempo());
     tempoGuard_ = false;
@@ -949,6 +1063,7 @@ Composer::scheduleReload (bool markDirty)
         return;
 
     reloadPending_ = true;
+    reloadMarksDirty_ = markDirty;
 
     /* Stored: a reload queued at idle and a composer destroyed before
        the loop comes round again is a callback into freed memory that
@@ -2782,28 +2897,18 @@ Composer::captureStage (size_t ci, size_t si, bool report)
             continue;
         }
 
-        /* Unchanged, from a sequencer track: a gesture that ended where
-           it began is not an edit, and writing it would mark the piece
-           dirty for nothing. The button writes regardless, as it always
-           has. */
-        const std::string quoted = "\"" + text + "\"";
+        /* Unchanged, from a sequencer track or a change of document: a
+           gesture that ended where it began is not an edit, and writing
+           it would mark the piece dirty for nothing. The button writes
+           regardless, as it always has. */
+        const std::string key = std::to_string(ci) + "." +
+                                std::to_string(si) + "." + info->name;
 
-        if (!report && ci < doc_.chains.size() &&
-            si < doc_.chains[ci].stages.size())
-        {
-            const std::vector<thcGenEdit::Param> &have =
-                doc_.chains[ci].stages[si].params;
-            bool same = false;
+        if (!report && baseline_.count(key) && baseline_[key] == text)
+            continue;
 
-            for (size_t k = 0; k < have.size(); k++)
-                if (have[k].name == info->name && have[k].valueText == quoted)
-                    same = true;
-
-            if (same)
-                continue;
-        }
-
-        applyParam(ci, si, info->name, quoted);
+        applyParam(ci, si, info->name, "\"" + text + "\"");
+        baseline_[key] = text;
         written++;
     }
 
