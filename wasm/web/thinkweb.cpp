@@ -65,6 +65,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -1133,6 +1134,53 @@ struct CanvasMix
 };
 
 std::vector<CanvasMix> canvasMixes_;
+
+/* A knob node's track dragged on the canvas: which knob, by its index in
+   knobs_ (the index a knob command carries), and where it was dragged to.
+   `commit' is the release. */
+struct CanvasKnob
+{
+    int    knob;
+    double value;
+    bool   commit;
+};
+
+std::vector<CanvasKnob> canvasKnobs_;
+
+/* A stage box dropped at another place in its chain, in the document's
+   numbering, which is what the splice is in. One at a time: a drop is a
+   release. */
+struct CanvasMove
+{
+    int  chain, from, to;
+    bool wanted;
+
+    CanvasMove (void) : chain(-1), from(-1), to(-1), wanted(false) {}
+};
+
+CanvasMove canvasMove_;
+
+/* A wire from a knob dropped on a stage: which knob, which stage (the
+   scheduler's numbering, like a params request), and where its box is
+   for the menu that asks which param. */
+struct CanvasBind
+{
+    std::string knob;
+    int  chain, stage;
+    int  x, y, w, h;
+    bool wanted;
+
+    CanvasBind (void) : chain(-1), stage(-1), x(0), y(0), w(0), h(0),
+                        wanted(false) {}
+};
+
+CanvasBind canvasBind_;
+
+/* Whether the canvas's first button is down, and where it went down, in
+   shell pixels. The desktop has a drag gesture for this; here the press,
+   the motions and the release are the drag. */
+bool   canvasHeld_ = false;
+double canvasHeldX_ = 0, canvasHeldY_ = 0;
 
 /* ---- the one index a stage has across this boundary ----
  *
@@ -2237,6 +2285,41 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 mixPending_[{ (int)chain, true }] = on;
             });
 
+        /* A knob node's track, dragged: by index, which is how a knob
+           command names one. */
+        canvas_->sigKnob.connect(
+            [](std::string name, double value, bool commit)
+            {
+                for (size_t i = 0; i < knobs_.size(); i++)
+                    if (knobs_[i]->name() == name)
+                    {
+                        canvasKnobs_.push_back({ (int)i, value, commit });
+                        break;
+                    }
+            });
+
+        canvas_->sigMoveStage.connect(
+            [](size_t chain, int from, int to)
+            {
+                canvasMove_.chain = (int)chain;
+                canvasMove_.from = from;
+                canvasMove_.to = to;
+                canvasMove_.wanted = true;
+            });
+
+        canvas_->sigBindKnob.connect(
+            [](std::string knob, size_t chain, size_t stage, CanvasRect at)
+            {
+                canvasBind_.knob = knob;
+                canvasBind_.chain = (int)chain;
+                canvasBind_.stage = liveOf((int)chain, (int)stage);
+                canvasBind_.x = at.x;
+                canvasBind_.y = at.y;
+                canvasBind_.w = at.w;
+                canvasBind_.h = at.h;
+                canvasBind_.wanted = true;
+            });
+
         canvas_->sigInput.connect(
             [](size_t chain, size_t stage, const thcInputEvent &ev)
             {
@@ -2293,20 +2376,47 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_draw (int w, int h)
 EMSCRIPTEN_KEEPALIVE void tw_canvas_press (double x, double y, int button,
                                            int nPress)
 {
-    if (canvas_ != NULL)
-        canvas_->pressAt(x, y, button, nPress);
+    if (canvas_ == NULL)
+        return;
+
+    canvas_->pressAt(x, y, button, nPress);
+
+    /* And a drag begins, as the desktop's drag gesture begins one beside
+       its click: after the press, which is what decides whether the drag
+       is a stage being carried or a knob, a wire or a paint stroke. A
+       double-click's press is not a drag. */
+    if (button == 1 && nPress == 1)
+    {
+        canvasHeld_ = true;
+        canvasHeldX_ = x;
+        canvasHeldY_ = y;
+        canvas_->onDragBegin(x, y);
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_canvas_motion (double x, double y)
 {
-    if (canvas_ != NULL)
-        canvas_->motionTo(x, y);
+    if (canvas_ == NULL)
+        return;
+
+    canvas_->motionTo(x, y);
+
+    if (canvasHeld_)
+        canvas_->onDragUpdate(x - canvasHeldX_, y - canvasHeldY_);
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_canvas_release (double x, double y, int button)
 {
-    if (canvas_ != NULL)
-        canvas_->releaseAt(x, y, button);
+    if (canvas_ == NULL)
+        return;
+
+    canvas_->releaseAt(x, y, button);
+
+    if (canvasHeld_)
+    {
+        canvasHeld_ = false;
+        canvas_->onDragEnd(x - canvasHeldX_, y - canvasHeldY_);
+    }
 }
 
 /* CanvasContent::Key, not a keysym: the shell maps its own spelling to
@@ -2406,6 +2516,120 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_on (int k)
 EMSCRIPTEN_KEEPALIVE void tw_canvas_mixes_clear (void)
 {
     canvasMixes_.clear();
+}
+
+/* The knob drags, drained the same way: each becomes a knob command. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_count (void)
+{
+    return (int)canvasKnobs_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_index (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size() ? canvasKnobs_[k].knob
+                                                  : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_knob_value (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size() ? canvasKnobs_[k].value
+                                                  : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_commit (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size() && canvasKnobs_[k].commit;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_knobs_clear (void)
+{
+    canvasKnobs_.clear();
+}
+
+/* A stage dropped elsewhere in its chain: nonzero once per drop, and then
+   which chain and from where to where, in the document's numbering. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_wanted (void)
+{
+    const bool was = canvasMove_.wanted;
+
+    canvasMove_.wanted = false;
+
+    return was ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_chain (void)
+{
+    return canvasMove_.chain;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_from (void)
+{
+    return canvasMove_.from;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_to (void)
+{
+    return canvasMove_.to;
+}
+
+/* A wire dropped on a stage: nonzero once per drop, and then the knob, the
+   stage and where its box is. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_bind_wanted (void)
+{
+    const bool was = canvasBind_.wanted;
+
+    canvasBind_.wanted = false;
+
+    return was ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_canvas_bind_knob (void)
+{
+    return canvasBind_.knob.c_str();
+}
+
+#define TW_BIND_FIELD(name)                                                \
+    EMSCRIPTEN_KEEPALIVE int tw_canvas_bind_##name (void)                  \
+    {                                                                      \
+        return canvasBind_.name;                                           \
+    }
+
+TW_BIND_FIELD(chain)
+TW_BIND_FIELD(stage)
+TW_BIND_FIELD(x)
+TW_BIND_FIELD(y)
+TW_BIND_FIELD(w)
+TW_BIND_FIELD(h)
+
+#undef TW_BIND_FIELD
+
+/* Where a knob node's track runs and where its port is, in shell pixels,
+   for a harness to drag them: x0, x1 and y of the track, then x and y of
+   the port. -1 for no such knob. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_knob_at (const char *name, int which)
+{
+    double v[5] = { -1, -1, -1, -1, -1 };
+
+    if (canvas_ == NULL || name == NULL || which < 0 || which > 4 ||
+        !canvas_->knobTrack(name, v[0], v[1], v[2]) ||
+        !canvas_->knobPort(name, v[3], v[4]))
+        return -1.0;
+
+    return v[which];
+}
+
+/* Where a stage's box is, in shell pixels: x, y, w, h by `which', or -1.
+   The stage in the document's numbering, as the canvas lays it out. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_stage_at (int chain, int stage,
+                                                int which)
+{
+    CanvasRect at;
+
+    if (canvas_ == NULL || chain < 0 || stage < 0 ||
+        !canvas_->stageRect((size_t)chain, (size_t)stage, at))
+        return -1.0;
+
+    return which == 0 ? at.x : which == 1 ? at.y : which == 2 ? at.w : at.h;
 }
 
 /* The middle of a chain's mute (which 0) or solo (1) button, in shell
@@ -3337,34 +3561,25 @@ EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
     return appliedJson_.c_str();
 }
 
-/* `text' with one stage's param set to `valueText', by the writer TW_PARAM
- * splices the piece with, or "" if it would not take the edit.
- *
- * For a text that is not the piece this instance loaded: a room's document,
- * which may have moved on since the load, gets the edit its peer made and
- * not a copy of this instance's file. */
-EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
-                                                   const char *chain,
-                                                   int docStage,
-                                                   const char *param,
-                                                   const char *valueText)
+/* `text' through one thcGenEdit call on a scratch file, and back as text:
+ * what the call made of it, or "" when it refused. The refusal is said on
+ * stderr, under `what'. */
+static const char *
+spliceText (const char *text, const char *what,
+            const std::function<thcGenEdit::Result (const std::string &,
+                                                    std::string &)> &edit)
 {
     static const char *const SCRATCH = "/splice.gen";
     static std::string out;
 
     out.clear();
 
-    if (text == NULL || chain == NULL || param == NULL || valueText == NULL)
-        return "";
-
     std::string why;
 
-    if (!writeFile(SCRATCH, text) ||
-        thcGenEdit::setParam(SCRATCH, chain, docStage, param, valueText,
-                             why) != thcGenEdit::OK)
+    if (!writeFile(SCRATCH, text) || edit(SCRATCH, why) != thcGenEdit::OK)
     {
         if (!why.empty())
-            fprintf(stderr, "%s: %s\n", param, why.c_str());
+            fprintf(stderr, "%s: %s\n", what, why.c_str());
 
         remove(SCRATCH);
 
@@ -3387,6 +3602,47 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
     remove(SCRATCH);
 
     return out.c_str();
+}
+
+/* `text' with one stage's param set to `valueText', by the writer TW_PARAM
+ * splices the piece with, or "" if it would not take the edit.
+ *
+ * For a text that is not the piece this instance loaded: a room's document,
+ * which may have moved on since the load, gets the edit its peer made and
+ * not a copy of this instance's file. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
+                                                   const char *chain,
+                                                   int docStage,
+                                                   const char *param,
+                                                   const char *valueText)
+{
+    if (text == NULL || chain == NULL || param == NULL || valueText == NULL)
+        return "";
+
+    return spliceText(text, param,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setParam(path, chain, docStage, param,
+                                        valueText, why);
+        });
+}
+
+/* One stage of a chain moved to another place in it, in `text': the edit a
+ * stage box dropped elsewhere on the canvas makes. Stages in the
+ * document's numbering; the block moves with its text. "" when the writer
+ * refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
+                                                    const char *chain,
+                                                    int from, int to)
+{
+    if (text == NULL || chain == NULL)
+        return "";
+
+    return spliceText(text, chain,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::moveStage(path, chain, from, to, why);
+        });
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,

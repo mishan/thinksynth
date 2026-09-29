@@ -1099,6 +1099,53 @@ function paramsEdited ({ piece: text })
     loadedText = text;
 }
 
+/* A stage box dropped elsewhere in its chain on the canvas: the box's text
+ * spliced by the module and loaded again, playing from the top if it was
+ * playing -- a structural edit rewinds, as it does on the desktop. Refused
+ * while the box holds text that was never loaded: the canvas draws the
+ * loaded piece, and its numbering need not be the box's. */
+async function moveStage (chainName, from, to)
+{
+    if (synth === null)
+        return;
+
+    /* A load in flight has moved loadedText on to a piece the canvas
+       is not drawing yet, and the drop's numbering is the old one's. */
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before moving a stage.', true);
+        return;
+    }
+
+    const wasRunning = lastTape?.running === true;
+    const { text } = await synth.genMoveStage(was, chainName, from, to);
+
+    if (text === '')
+    {
+        status(`Could not move that stage in ${chainName}.`, true);
+        return;
+    }
+
+    /* And again, for what happened during the round trip: a param edit
+       written back, a mode switch, a load. Any of them is the text this
+       move was not made to. */
+    if ($('gen').value !== was || loadedText !== was || loading > 0)
+    {
+        status('The piece changed while that stage was being moved; ' +
+               'try it again.', true);
+        return;
+    }
+
+    $('gen').value = text;
+    await loadPiece();
+
+    if (wasRunning && piece !== null)
+        synth.transport('start');
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -1449,6 +1496,10 @@ function quietly (what)
  * command names it by, which is why the edit is a Number() of it and
  * nothing here has to hold a second list.
  */
+/* What showPanel handed back for the knob strip: how a move made
+   somewhere else -- a knob dragged on the canvas -- is shown in it. */
+let setKnobShown = () => {};
+
 async function drawKnobs ()
 {
     if (synth === null)
@@ -1468,7 +1519,8 @@ async function drawKnobs ()
        on no path between this and the write. panel.js holds what it emits
        inside the row's travel; this is the last look before it becomes a
        command every peer applies. */
-    showPanel($('knobs'), JSON.parse(answer.json), (row, text) =>
+    setKnobShown = showPanel($('knobs'), JSON.parse(answer.json),
+                             (row, text) =>
     {
         const value = numberIn(text);
 
@@ -2456,6 +2508,17 @@ function showComposer (on)
            back after a load of the same piece, as the desktop does. */
         onMix: (type, chain, on) => synth?.[type]({ at: -1, chain, on }),
         keepMix: true,
+
+        /* A knob node dragged on the canvas: the knob strip's command, so
+           the strip follows it as it follows any other move. Live only,
+           as the strip is. */
+        onKnob: (knob, value) =>
+        {
+            synth?.knob(knob, value);
+            setKnobShown(String(knob), value);
+        },
+
+        onMove: moveStage,
     });
 
     composer.show(on);
@@ -2622,6 +2685,19 @@ window.solo = {
     chipOf: (chain, which) => composer?.chipOf(chain, which),
     mix: () => composer?.mix(),
     pieces: () => composer?.pieces() ?? 0,
+    knobAt: (name) => composer?.knobAt(name),
+    stageAt: (chain, stage) => composer?.stageAt(chain, stage),
+    genText: () => $('gen').value,
+
+    /* The piece's knobs as the worklet holds them: { id, value } by row. */
+    knobValues: async () =>
+    {
+        const answer = await synth.panel(1 /* thPanel::KNOB */, 0, 0);
+
+        return answer.shape === 0 ? []
+            : JSON.parse(answer.json).rows.map((r) => ({ id: r.id,
+                                                         value: r.value }));
+    },
     params: () => composer?.params() ?? [],
 
     /* The tracks the sequencer pane ended up with: which stage each row

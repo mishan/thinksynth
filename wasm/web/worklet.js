@@ -298,6 +298,20 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* One stage moved within its chain, in a text given: the edit a
+         * stage box dropped on the canvas makes. "" when refused. */
+        if (m.type === 'genmove')
+        {
+            this.port.postMessage({
+                type: 'genmove', id: m.id,
+                text: this.M.ccall('tw_gen_move_stage', 'string',
+                                   ['string', 'string', 'number', 'number'],
+                                   [m.text, m.chain, m.from, m.to]),
+            });
+
+            return;
+        }
+
         if (m.type === 'settempo')
         {
             this.port.postMessage({

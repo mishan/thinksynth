@@ -206,6 +206,8 @@ ComposerCanvas::rebuild (void)
         thArg *arg = sched_ ? sched_->knob(k.name) : NULL;
 
         b.kv  = arg != NULL ? (*arg)[0] : k.value;
+        b.kLive = b.kv;
+        b.kHold = 0;
         b.klo = arg != NULL ? arg->min() : (k.hasMin ? k.min : 0);
         b.khi = arg != NULL ? arg->max() : (k.hasMax ? k.max : 1);
 
@@ -1067,6 +1069,42 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
         return;
     }
 
+    /* A knob moved from elsewhere -- the knob strip, a MIDI controller,
+       a peer -- is followed here, by taking the live value when it
+       changes. Not while a box is being dragged, which shows the drag;
+       and not for a moment after, while the commands the drag sent are
+       still arriving -- a browser's land a window or a room's lead
+       later, and the box would walk back through them. It holds until
+       the live value reaches it, or for a second's worth of frames. */
+    for (size_t i = 0; sched_ != NULL && i < boxes_.size(); i++)
+    {
+        Box &b = boxes_[i];
+
+        if (b.what.kind != Selection::KNOB ||
+            b.what.index >= doc_->knobs.size())
+            continue;
+
+        thArg *arg = sched_->knob(doc_->knobs[b.what.index].name);
+
+        if (arg == NULL)
+            continue;
+
+        const double live = (*arg)[0];
+
+        if ((int)i == dragKnob_)
+            b.kLive = live;
+        else if (b.kHold > 0)
+        {
+            if (std::fabs(live - b.kv) < 1e-6 || --b.kHold == 0)
+            {
+                b.kHold = 0;
+                b.kv = b.kLive = live;
+            }
+        }
+        else if (live != b.kLive)
+            b.kv = b.kLive = live;
+    }
+
     /* Wires under the arrows, and both under the boxes. */
     drawWires(cr);
 
@@ -1512,6 +1550,9 @@ ComposerCanvas::onReleased (int, double sx, double sy, int)
             boxes_[dragKnob_].what.index < doc_->knobs.size())
             sigKnob.emit(doc_->knobs[boxes_[dragKnob_].what.index].name,
                          boxes_[dragKnob_].kv, true);
+
+        if ((size_t)dragKnob_ < boxes_.size())
+            boxes_[dragKnob_].kHold = 60;
 
         dragKnob_ = -1;
         return;
