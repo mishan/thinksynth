@@ -543,8 +543,14 @@ static inline float thClampSample (float sample)
 #define debug(...) ;
 #endif /* USE_DEBUG */
 
-#define likely(x)   __builtin_expect((x),1)
-#define unlikely(x) __builtin_expect((x),0)
+/* Guarded: a host that includes this beside its own framework -- DPF, in
+   plugin/ -- may already have the same two. */
+#ifndef likely
+# define likely(x)   __builtin_expect((x),1)
+#endif
+#ifndef unlikely
+# define unlikely(x) __builtin_expect((x),0)
+#endif
 
 #ifndef __GNUC__
 # define __builtin_expect(x, expected_value) (x)
