@@ -137,6 +137,17 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
 {
     doc_ = doc;
     sched_ = sched;
+
+    /* The levels the file wrote other than 1, 0 and 0.5, which a click on
+       the lane steps back to. */
+    laneWritten_.clear();
+
+    for (size_t si = 0; sched_ != NULL && si < sched_->sections().size();
+         si++)
+        for (const auto &l : sched_->sections()[si].levels)
+            if (l.second != 0 && l.second != 0.5 && l.second != 1)
+                laneWritten_[{ si, l.first }] = l.second;
+
     dragBox_ = -1;
     dropAt_ = -1;
     feeding_ = false;
@@ -439,6 +450,10 @@ ComposerCanvas::rebuild (void)
     rowX_.clear();
     rowY_.clear();
     rowH_.clear();
+    heads_.clear();
+    cells_.clear();
+    laneRight_ = 0;
+    laneTotal_ = 0;
 
     if (doc_ == NULL)
         return;
@@ -502,39 +517,9 @@ ComposerCanvas::rebuild (void)
 
     /* The arrangement, when the piece has one: under the knobs, above
        the chains, as wide as its sections are long. */
-    heads_.clear();
-    cells_.clear();
-    laneRight_ = 0;
-
-    if (sched_ != NULL && !sched_->sections().empty() &&
-        sched_->sectionsLength() > 0)
-    {
-        const std::vector<thcSection> &secs = sched_->sections();
-        const double scale = LANE_W / sched_->sectionsLength();
-        double x = M + LABEL_W + 8;
-
-        for (size_t si = 0; si < secs.size(); si++)
-        {
-            const double w =
-                std::max(LANE_COL_MIN, sched_->sectionLength(secs[si]) *
-                                       scale);
-
-            heads_.push_back({ x, y, w - LANE_GAP, LANE_HEAD_H });
-
-            for (size_t ci = 0; ci < doc_->chains.size(); ci++)
-                cells_.push_back({ si, ci, x,
-                                   y + LANE_HEAD_H + LANE_GAP +
-                                       ci * (LANE_ROW_H + LANE_GAP),
-                                   w - LANE_GAP, LANE_ROW_H });
-
-            x += w;
-        }
-
-        laneRight_ = x;
-        laneY_ = y;
+    if (layoutLane(y))
         y += LANE_HEAD_H + LANE_GAP +
              doc_->chains.size() * (LANE_ROW_H + LANE_GAP) + ROW_GAP;
-    }
 
     /* Each chain's row laid out once at the origin, to be measured, and
        then the columns chosen from what was measured. */
@@ -1405,11 +1390,18 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
             b.kv = b.kLive = live;
     }
 
+    /* A tempo change moves the lengths of sections written in beats
+       against those written in seconds: the blocks follow. */
+    if (!heads_.empty() && sched_ != NULL &&
+        std::fabs(sched_->sectionsLength() - laneTotal_) > 1e-9)
+        layoutLane(laneY_);
+
+    /* The arrangement first, so the wires from the knobs above it to the
+       stages below cross over it -- the one being pulled included. */
+    drawLane(cr);
+
     /* Wires under the arrows, and both under the boxes. */
     drawWires(cr);
-
-    /* The arrangement over the wires, which would only cross it. */
-    drawLane(cr);
 
     /* Arrows first, boxes over them. Each one lights as an event goes
        along it: out of the stage it leaves, or into the stage it enters
@@ -1714,6 +1706,57 @@ ComposerCanvas::flash (double t) const
     return 1.0 - f * f;
 }
 
+/* The lane's blocks and cells, from `y' down: a block per section, as wide
+ * as it is long at the scale that makes the arrangement about LANE_W.
+ * False, and nothing laid out, for a piece with no sections. Again from
+ * draw() when a tempo change has moved the sections' lengths, which does
+ * not change the lane's height. */
+bool
+ComposerCanvas::layoutLane (double y)
+{
+    heads_.clear();
+    cells_.clear();
+    laneRight_ = 0;
+    laneTotal_ = 0;
+
+    if (sched_ == NULL || doc_ == NULL || sched_->sections().empty() ||
+        sched_->sectionsLength() <= 0)
+        return false;
+
+    const std::vector<thcSection> &secs = sched_->sections();
+    const double scale = LANE_W / sched_->sectionsLength();
+    double x = M + LABEL_W + 8;
+
+    for (size_t si = 0; si < secs.size(); si++)
+    {
+        const double w =
+            std::max(LANE_COL_MIN, sched_->sectionLength(secs[si]) * scale);
+
+        heads_.push_back({ x, y, w - LANE_GAP, LANE_HEAD_H });
+
+        for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+            cells_.push_back({ si, ci, x,
+                               y + LANE_HEAD_H + LANE_GAP +
+                                   ci * (LANE_ROW_H + LANE_GAP),
+                               w - LANE_GAP, LANE_ROW_H });
+
+        x += w;
+    }
+
+    laneRight_ = x;
+    laneY_ = y;
+    laneTotal_ = sched_->sectionsLength();
+
+    return true;
+}
+
+double
+ComposerCanvas::laneLevel (size_t section, size_t chain) const
+{
+    return sched_ != NULL && doc_ != NULL && chain < doc_->chains.size()
+        ? sched_->sectionLevelOf(section, doc_->chains[chain].name) : 1.0;
+}
+
 /* The arrangement: the sections as blocks, the one playing lit, and a
  * row per chain with its level in each -- full as written, empty where
  * it is silent, and the number where it is anything else. A line where
@@ -1768,8 +1811,7 @@ ComposerCanvas::drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const
         if (c.section >= secs.size() || c.chain >= doc_->chains.size())
             continue;
 
-        const double level =
-            sched_->sectionLevelOf(c.section, doc_->chains[c.chain].name);
+        const double level = laneLevel(c.section, c.chain);
         double r = 1, g = 1, b = 1;
 
         if (chainHues_)
@@ -2051,10 +2093,23 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
             if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h &&
                 c.chain < doc_->chains.size())
             {
-                const double now =
-                    sched_->sectionLevelOf(c.section,
-                                           doc_->chains[c.chain].name);
-                const double next = now == 1 ? 0 : now == 0 ? 0.5 : 1;
+                /* Round as written (1), silent, half -- and back to the
+                   level the file had, where it had one of its own, so a
+                   click never loses what somebody wrote. */
+                const double now = laneLevel(c.section, c.chain);
+                const auto was = laneWritten_.find(
+                    { c.section, doc_->chains[c.chain].name });
+                const bool own = was != laneWritten_.end();
+                double next;
+
+                if (now == 1)
+                    next = 0;
+                else if (now == 0)
+                    next = 0.5;
+                else if (now == 0.5 && own)
+                    next = was->second;
+                else
+                    next = 1;
 
                 sigSectionLevel.emit(c.section, c.chain, next);
                 return;

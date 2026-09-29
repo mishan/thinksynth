@@ -1693,12 +1693,11 @@ try
                   `an arrangement cell steps the kick's level in the ` +
                   `intro, and the text follows: ${text}`);
 
-            /* Round again: as written, which takes it out of the
-               section, and then silent. */
-            await new Promise((r) => setTimeout(r, 500));
+            /* Round again, two presses faster than a command comes back:
+               the cell answers with what it asked for, so the second
+               reads the first -- as written, then silent -- and the text
+               ends where the second left it. */
             await cellPress();
-            await until(lane, (l) => l.levels[0][0] === 1);
-            await new Promise((r) => setTimeout(r, 500));
             await cellPress();
 
             const back = await until(lane, (l) => l.levels[0][0] === 0);
@@ -1706,7 +1705,8 @@ try
                                       (t) => /kick = 0;/.test(t));
 
             check(back.levels[0][0] === 0 && /kick = 0;/.test(again),
-                  `...and round to silent again: ${again}`);
+                  'two quick presses step it twice, through as written ' +
+                  `to silent: ${again}`);
         }
 
         const colonyLoads = await page.evaluate(() => window.solo.pieces());

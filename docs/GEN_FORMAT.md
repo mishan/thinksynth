@@ -900,9 +900,10 @@ stage, a new chain) contains:
   `instrument = pad` and `channel = 4` replaces that one statement — there is
   no sense in which one can be edited into the other, and a sink left carrying
   both would not load.
-- The arrangement is hand-written: no operation here creates, edits or removes
-  a `section`. What the editor owes it is that no *other* edit can invalidate
-  one — renaming a chain rewrites every section that names it, and removing a
+- The arrangement is written by hand, except for one edit: a chain's level in
+  a section (`setSectionLevel`), which writes `chain = level;` into it, or
+  takes the entry out at 1. Nothing creates or removes a `section`. What the
+  editor owes it besides is that no *other* edit can invalidate one — renaming a chain rewrites every section that names it, and removing a
   chain a section names is refused and says which section. A dangling name in
   a section is a file that does not load, which is the same reason `removeKnob`
   rewrites every `@name`.

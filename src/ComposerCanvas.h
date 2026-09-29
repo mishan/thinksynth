@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <map>
 #include <set>
 
 #include <sigc++/sigc++.h>
@@ -288,6 +289,11 @@ protected:
        both be read against the old flag. */
     virtual bool mixFlag (size_t chain, bool solo) const;
 
+    /* A chain's level in one section, as its lane cell shows it and a
+       press steps it: the scheduler's, or -- for the same reason as
+       mixFlag -- what a shell has asked for and not yet heard back. */
+    virtual double laneLevel (size_t section, size_t chain) const;
+
 private:
     /* One clickable box, laid out by rebuild(). */
     struct Box
@@ -363,6 +369,7 @@ private:
                    &fn) const;
 
     void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    bool layoutLane (double y);
 
     void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
                    const Box &box, bool selected) const;
@@ -400,6 +407,11 @@ private:
     std::vector<LaneRect> heads_;
     std::vector<LaneCell> cells_;
     double laneY_, laneRight_;
+
+    /* The arrangement's length the lane was laid out for, and the levels
+       the file wrote that a click would otherwise lose. */
+    double laneTotal_ = 0;
+    std::map<std::pair<size_t, std::string>, double> laneWritten_;
 
     /* The chains collapsed, by name. */
     std::set<std::string> collapsed_;

@@ -9108,6 +9108,60 @@ checkSectionEdits (const std::map<std::string, thcPlugin *> &plugins,
         fail("the edited arrangement read back with other levels:\n" +
              text);
 
+    /* The shapes a hand-written arrangement comes in: an empty block, a
+       block's only entry, an entry last on a line after another, and a
+       block of lines indented its own way. */
+    {
+        const std::string more = thUtil::tempFile("gencheck-arr2-");
+
+        if (more.empty())
+            fail("could not write the second arrangement piece");
+        else
+        {
+            {
+                std::ofstream out(more.c_str(), std::ios::trunc);
+
+                out << text.substr(text.find("chain kick"))
+                    << "section e 1 bars {};\n"
+                       "section o 1 bars { kick = 0; };\n"
+                       "section t 1 bars { kick = 0;  snare = 0;\n"
+                       "                   };\n"
+                       "section l 1 bars {\n"
+                       "        kick = 0;\n"
+                       "};\n";
+            }
+
+            editOk(thcGenEdit::setSectionLevel(more, "e", "kick", 0, why),
+                   why, "setSectionLevel into an empty block");
+            editOk(thcGenEdit::setSectionLevel(more, "o", "kick", 1, why),
+                   why, "setSectionLevel taking out a block's only entry");
+            editOk(thcGenEdit::setSectionLevel(more, "t", "snare", 1, why),
+                   why, "setSectionLevel taking out the last on a line");
+            editOk(thcGenEdit::setSectionLevel(more, "l", "snare", 0, why),
+                   why, "setSectionLevel into an indented block");
+
+            const std::string got = slurp(more);
+
+            if (got.find("section e 1 bars { kick = 0; };") ==
+                    std::string::npos ||
+                got.find("section o 1 bars { };") == std::string::npos ||
+                got.find("{ kick = 0;\n") == std::string::npos ||
+                got.find("        kick = 0;\n        snare = 0;\n};") ==
+                    std::string::npos)
+                fail("setSectionLevel wrote the hand-written shapes as:\n" +
+                     got);
+
+            thcScheduler again(synth);
+            thcGenLoader reader(plugins);
+
+            if (!reader.load(more, &again))
+                fail("the hand-written shapes, edited, did not load:\n" +
+                     got);
+
+            remove(more.c_str());
+        }
+    }
+
     sched.setSectionLevel(1, "snare", 0.5);
     sched.setSectionLevel(0, "kick", 1);
 

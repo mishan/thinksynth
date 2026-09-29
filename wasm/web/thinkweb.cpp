@@ -236,6 +236,10 @@ struct Scheduled
    toggles. Dropped when the command lands with that value, and at a load. */
 std::map<std::pair<int, bool>, bool> mixPending_;
 
+/* The same for an arrangement cell, by (section, chain): the level asked
+   for, until the `section' command lands with it. */
+std::map<std::pair<int, int>, double> sectionPending_;
+
 /* Room for this many commands in flight before the queue has to grow. */
 #define TW_PENDING 1024
 
@@ -636,6 +640,15 @@ void applyScheduled (const Scheduled &c)
 
             sched_->setSectionLevel((size_t)c.param, ch->name, c.value);
 
+            {
+                const auto asked =
+                    sectionPending_.find({ c.param, c.chain });
+
+                if (asked != sectionPending_.end() &&
+                    asked->second == c.value)
+                    sectionPending_.erase(asked);
+            }
+
             AppliedParam done;
             char level[32];
 
@@ -1034,6 +1047,14 @@ protected:
 
         return asked != mixPending_.end()
             ? asked->second : ComposerCanvas::mixFlag(chain, solo);
+    }
+
+    double laneLevel (size_t section, size_t chain) const override
+    {
+        const auto asked = sectionPending_.find({ (int)section, (int)chain });
+
+        return asked != sectionPending_.end()
+            ? asked->second : ComposerCanvas::laneLevel(section, chain);
     }
 
     void resizeShell (int w, int h) override
@@ -2374,6 +2395,7 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
             {
                 canvasSections_.push_back({ (int)section, (int)chain,
                                             level });
+                sectionPending_[{ (int)section, (int)chain }] = level;
             });
 
         canvas_->sigMoveStage.connect(
@@ -2426,6 +2448,7 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
     }
 
     mixPending_.clear();
+    sectionPending_.clear();
     canvas_->SetPiece(&canvasDoc_, sched_);
     canvas_->setChainHues(byChain_);
 

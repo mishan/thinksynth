@@ -2927,6 +2927,9 @@ thcGenEdit::setSectionLevel (const std::string &filename,
             a = line;
             b++;
         }
+        else if (b < text.size() && text[b] == '\n')
+            a = line;                   /* last on its line: no trailing
+                                           spaces left behind            */
 
         edits.push_back({ a, b, "" });
     }
@@ -2944,7 +2947,26 @@ thcGenEdit::setSectionLevel (const std::string &filename,
             line--;
 
         if (line > 0 && text[line - 1] == '\n')
-            edits.push_back({ line, line, "    " + entry + "\n" });
+        {
+            /* At the indent of the line before, which is the block's own
+               -- four spaces where that line is the statement's first. */
+            size_t prev = line - 1;
+
+            while (prev > 0 && text[prev - 1] != '\n')
+                prev--;
+
+            size_t ind = prev;
+
+            while (ind < text.size() && (text[ind] == ' ' || text[ind] == '\t'))
+                ind++;
+
+            std::string indent = text.substr(prev, ind - prev);
+
+            if (text.compare(ind, 7, "section") == 0)
+                indent += "    ";
+
+            edits.push_back({ line, line, indent + entry + "\n" });
+        }
         else if (at > 0 && text[at - 1] == ' ')
             edits.push_back({ at, at, entry + " " });
         else
