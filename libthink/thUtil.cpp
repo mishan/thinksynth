@@ -26,6 +26,8 @@
 #endif
 
 #include <filesystem>
+#include <locale>
+#include <sstream>
 #include <system_error>
 #include <vector>
 
@@ -428,4 +430,40 @@ string thUtil::findDataDir (const string &subdir, const char *envVar,
             return absolutePath(tries[i]);
 
     return "";
+}
+
+double thUtil::parseDouble (const char *text)
+{
+    std::istringstream in(text);
+    double v = 0;
+
+    in.imbue(std::locale::classic());
+
+    in >> v;
+
+    return v;
+}
+
+float thUtil::parseFloat (const char *text)
+{
+    std::istringstream in(text);
+    float v = 0;
+
+    in.imbue(std::locale::classic());
+
+    in >> v;
+
+    return v;
+}
+
+string thUtil::formatFixed (double value, int precision)
+{
+    std::ostringstream out;
+
+    out.imbue(std::locale::classic());
+    out.setf(std::ios::fixed, std::ios::floatfield);
+    out.precision(precision);
+    out << value;
+
+    return out.str();
 }

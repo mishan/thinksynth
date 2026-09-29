@@ -102,6 +102,26 @@ public:
      * The caller owns the file and should remove it.
      */
     static string tempFile (const string &prefix);
+
+    /* Decimal text to a number and a number to decimal text, in the C
+     * locale whatever LC_NUMERIC says.
+     *
+     * atof, strtof and printf's %f follow LC_NUMERIC, so under de_DE they
+     * read `0.5' as 0 and write a half as `0,5'. The application pins
+     * LC_NUMERIC to "C" in main(), but a host that links libthink into
+     * itself -- an audio plugin inside a DAW -- cannot change a locale the
+     * host's own UI depends on, so the library's conversions do not rely on
+     * it. Rounding is the C library's in the C locale, so a value parses and
+     * prints exactly as it did before.
+     *
+     * The parsers read the longest prefix that is a number and return 0 if
+     * there is none, as atof and strtof do; out of range they return the
+     * largest finite value where those return infinity. */
+    static double parseDouble (const char *text);
+    static float parseFloat (const char *text);
+
+    /* printf("%.*f", precision, value). */
+    static string formatFixed (double value, int precision);
 };
 
 #endif /* TH_UTIL_H */

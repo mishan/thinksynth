@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "thLexer.h"
+#include "thUtil.h"
 
 /* Everything one lex carries. `pos' is the byte cursor YY_USER_ACTION
  * advances, `off' is where the match now running started, and `tok' is
@@ -91,7 +92,7 @@ thLexEmit (thLexExtra *x, thLexToken::Kind kind,
 
 [0-9]+(\.([0-9]+)?)? {
   thLexEmit(yyextra, thLexToken::NUMBER, yytext, yyleng, yylineno);
-  yyextra->tok.num = atof(yytext);
+  yyextra->tok.num = thUtil::parseDouble(yytext);
   return 1;
 }
 

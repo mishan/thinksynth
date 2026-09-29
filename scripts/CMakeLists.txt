@@ -156,6 +156,9 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 think_harness(dsplevel)
 think_harness(dspab)
 
+# Numbers read and written the same under a comma-decimal LC_NUMERIC.
+think_harness(localecheck)
+
 # The same harness twice: dlopened plugins, and think_embedded's compiled-in
 # ones. See the dsphash.embedded gate below.
 think_harness(dsphash)
@@ -516,6 +519,21 @@ add_test(NAME dspcheck.dsp
                  -DMODE=dsp
                  "-DEXTRA_ARGS=-q --shipped"
                  -P "${_runner}")
+
+# Every .dsp parses, prints and plays the same under de_DE as under C. A
+# machine with no comma-decimal locale installed skips it: the harness says
+# SKIP, and the runner turns any nonzero status into a failure, so the skip
+# is read off the output rather than the exit code.
+add_test(NAME localecheck
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:localecheck>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -P "${_runner}")
+set_tests_properties(localecheck PROPERTIES
+                     SKIP_REGULAR_EXPRESSION "SKIP  no locale")
 
 # Every plugin compiled into think_embedded sounds the same as its module:
 # the corpus through both builds of dsphash, compared hash for hash.
