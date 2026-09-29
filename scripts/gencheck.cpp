@@ -8877,6 +8877,136 @@ checkMuteSolo (const std::map<std::string, thcPlugin *> &plugins,
              "lost its note-off");
 }
 
+/* Which chain made an event, and when each stage last did something:
+ * what the composer view flashes and the roll colors by. Two chains on
+ * one channel, told apart only by pitch, so the channel cannot be what
+ * answers. */
+static void
+checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
+                    thSynth *synth)
+{
+    if (plugins.find("euclid") == plugins.end())
+    {
+        fail("module 'euclid' is missing; build the plugins first");
+        return;
+    }
+
+    const std::string path = thUtil::tempFile("gencheck-who-");
+
+    if (path.empty())
+    {
+        fail("could not write the chain identity piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "seed 5;\n"
+               "chain low {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"C2\"; period = 0.25 s; hold = 0.1 s;\n"
+               "    vel = 100; };\n"
+               "  stage up xform::transpose { semitones = 0; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n"
+               "chain high {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"D4\"; period = 0.25 s; hold = 0.1 s;\n"
+               "    vel = 80; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n";
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail("the chain identity piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+
+    int right = 0, wrong = 0;
+
+    sigc::connection conn = sched.sigDelivered.connect(
+        [&](const thcEvent &ev)
+        {
+            if (ev.type != THC_EV_NOTE)
+                return;
+
+            const int want = ev.u.note.note < 50 ? 0 : 1;
+
+            (sched.deliveringChain() == want ? right : wrong)++;
+        });
+
+    int pendingRight = 0, pendingWrong = 0;
+
+    sched.start();
+
+    for (int step = 0; step < 100; step++)
+    {
+        if (step == 50)
+            sched.setMuted(1, true);
+
+        sched.stepTransport(0.02);
+
+        const std::vector<thcEvent> &pending = sched.peekPending();
+        const std::vector<int> &chains = sched.peekPendingChains();
+
+        for (size_t i = 0; i < pending.size() && i < chains.size(); i++)
+            if (pending[i].type == THC_EV_NOTE)
+                (chains[i] == (pending[i].u.note.note < 50 ? 0 : 1)
+                     ? pendingRight : pendingWrong)++;
+    }
+
+    const thcChain *low = sched.chain(0), *high = sched.chain(1);
+    const double now = sched.now();
+
+    sched.stop();
+    conn.disconnect();
+    drainSynth();
+
+    if (right == 0 || wrong != 0)
+        fail("chain identity: " + std::to_string(wrong) + " of " +
+             std::to_string(right + wrong) + " delivered notes named the "
+             "wrong chain");
+
+    if (pendingWrong != 0)
+        fail("chain identity: a pending note named the wrong chain");
+
+    if (low == NULL || high == NULL || low->stages.size() != 2)
+        fail("chain identity: the piece's chains are not what was written");
+    else
+    {
+        if (!(low->stages[0]->lastOut > now - 0.3) ||
+            !(low->stages[1]->lastIn > now - 0.3) ||
+            !(low->stages[1]->lastOut > now - 0.3))
+            fail("chain identity: a stage's activity times did not follow "
+                 "what it emitted");
+
+        if (!(low->lastHeard > now - 0.3))
+            fail("chain identity: a playing chain was not marked heard");
+
+        if (!(high->lastHeard < 1.1) || !(high->lastGated > now - 0.3))
+            fail("chain identity: a muted chain was marked heard, or its "
+                 "drops were not marked");
+    }
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -11045,6 +11175,7 @@ main (int argc, char *argv[])
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
     checkMuteSolo(plugins, &synth);
+    checkChainIdentity(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

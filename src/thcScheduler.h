@@ -365,10 +365,15 @@ struct thcStage
        is every stage in the tree -- never touches this. */
     unsigned       stalled;
 
+    /* When an event last went in and last came out, in transport
+       seconds, or -1: what the composer view flashes. A note-off is not
+       counted; it is bookkeeping, not something the stage did. */
+    double         lastIn, lastOut;
+
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),
           sched(NULL), chain(0), ticks(wantTick), awaitingStart(wantTick),
-          stalled(0)
+          stalled(0), lastIn(-1), lastOut(-1)
     {
         ear.ctx = NULL;
         ear.hear = NULL;
@@ -411,6 +416,11 @@ struct thcChain
     std::string  name;
     bool         muted;
     bool         soloed;     /* while any chain is, only those are heard */
+
+    /* When a note or chanarg of this chain was last delivered, and when
+       one last reached the end of the chain and was dropped by the mute,
+       the solos or the arrangement; transport seconds, or -1. */
+    double       lastHeard, lastGated;
     bool         inputMidi;  /* fed by live MIDI on the sink channel     */
     double       start;      /* first generator wake, seconds or beats  */
     bool         startBeats;
@@ -905,6 +915,21 @@ public:
     sigc::signal<void (const thcEvent &)> sigDelivered;
     const std::vector<thcEvent> &peekPending (void) const;
 
+    /* Which chain made the event sigDelivered is emitting, by index, or
+       -1 for one no chain made (a key played straight onto a channel).
+       Meaningful only inside the emission.
+     *
+       A question rather than a field of the event, because thcEvent is
+       the plugins' ABI and the chain is the host's business. */
+    int deliveringChain (void) const { return deliveringChain_; }
+
+    /* The chain each entry of the last peekPending() came from, in the
+       same order: -1 where none did. */
+    const std::vector<int> &peekPendingChains (void) const
+    {
+        return peekChains_;
+    }
+
     /* Does the patch on `channel' declare this knob? What the .gen
        loader asks about a sink bound to one of the piece's own
        instruments, where the graph is known and a typo is therefore
@@ -951,7 +976,11 @@ private:
     void retireStranded (void);
 
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
-    void queuePending (const thcEvent &ev, const std::string *nameOverride);
+    void queuePending (const thcEvent &ev, const std::string *nameOverride,
+                       int chain);
+
+    /* deliver(), saying which chain the event came from while it does. */
+    void deliverFrom (const thcEvent &ev, int chain);
     void releaseHeld (int channel, int note);
     void flushHeld (void);
     /* The body of a step, once the clock has been moved: the stages, the
@@ -1109,6 +1138,8 @@ private:
         /* Emission order, and the tie-break that makes two events at the
            same instant come out the way they went in. See LaterPending. */
         unsigned long seq;
+
+        int      chain;          /* which made it, or -1                */
     };
 
     /* min-heaps kept as vectors with std::push_heap/pop_heap --
@@ -1170,6 +1201,9 @@ private:
     bool injectingLive_;
 
     mutable std::vector<thcEvent> peekCache_;
+    mutable std::vector<int>      peekChains_;
+
+    int deliveringChain_;
 };
 
 #endif /* THCSCHEDULER_H */

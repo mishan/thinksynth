@@ -390,7 +390,7 @@ thcScheduler::thcScheduler (thSynth *synth)
       auditioner_(NULL), running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
       masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
-      injectingLive_(false)
+      injectingLive_(false), deliveringChain_(-1)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -426,6 +426,8 @@ thcScheduler::addChain (const std::string &name)
     chains_.back().name = name;
     chains_.back().muted = false;
     chains_.back().soloed = false;
+    chains_.back().lastHeard = -1;
+    chains_.back().lastGated = -1;
     chains_.back().inputMidi = false;
     chains_.back().start = 0;
     chains_.back().startBeats = false;
@@ -2193,6 +2195,19 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     const thcEvent &ev = *at;
 
+    /* What the composer view flashes: the stage this came out of, and
+       the one it is going into. */
+    if (ev.type != THC_EV_NOTEOFF)
+    {
+        if (fromStage > 0 && fromStage <= c.stages.size())
+            c.stages[fromStage - 1]->lastOut = transportNow_;
+
+        if (fromStage < c.stages.size())
+            c.stages[fromStage]->lastIn = transportNow_;
+    }
+
+    const int chainIndex = (int)(&c - &chains_[0]);
+
     if (fromStage >= c.stages.size())
     {
         /* The arrangement, and the live mute and solo, applied as one
@@ -2223,7 +2238,12 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
             !isStructureEdit(ev.type))
         {
             if (level <= 0)
+            {
+                if (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG)
+                    c.lastGated = transportNow_;
+
                 return;
+            }
 
             if (ev.type == THC_EV_NOTE)
             {
@@ -2235,7 +2255,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
         /* No sinks: the programmatic-chain case; deliver as emitted. */
         if (c.sinks.empty())
         {
-            queuePending(*gated, NULL);
+            queuePending(*gated, NULL, chainIndex);
             return;
         }
 
@@ -2268,7 +2288,8 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
                vector's component has one worth keeping. */
             queuePending(routed,
                          (sink.isChanarg() && !sink.namesItsOwn())
-                             ? &sink.chanarg : NULL);
+                             ? &sink.chanarg : NULL,
+                         chainIndex);
         }
         return;
     }
@@ -2297,12 +2318,13 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
  * know or care which patch knob it lands on). */
 void
 thcScheduler::queuePending (const thcEvent &ev,
-                            const std::string *nameOverride)
+                            const std::string *nameOverride, int chain)
 {
     Pending p;
 
     p.at = ev.at;
     p.ev = ev;
+    p.chain = chain;
 
     if (ev.type == THC_EV_CHANARG)
     {
@@ -2339,7 +2361,7 @@ thcScheduler::queuePending (const thcEvent &ev,
        wait for Play. It should not -- the keys were pressed now. */
     if (injectingLive_ && p.at <= transportNow_)
     {
-        deliver(p.ev);
+        deliverFrom(p.ev, chain);
         return;
     }
 
@@ -2358,8 +2380,20 @@ thcScheduler::deliverDue (double now)
         Pending p = pending_.back();
         pending_.pop_back();
 
-        deliver(p.ev);
+        deliverFrom(p.ev, p.chain);
     }
+}
+
+void
+thcScheduler::deliverFrom (const thcEvent &ev, int chain)
+{
+    if (chain >= 0 && (size_t)chain < chains_.size() &&
+        (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG))
+        chains_[chain].lastHeard = transportNow_;
+
+    deliveringChain_ = chain;
+    deliver(ev);
+    deliveringChain_ = -1;
 }
 
 /* The only place the framework touches the synth, and it touches it
@@ -2809,9 +2843,14 @@ thcScheduler::peekPending (void) const
 {
     peekCache_.clear();
     peekCache_.reserve(pending_.size());
+    peekChains_.clear();
+    peekChains_.reserve(pending_.size());
 
     for (size_t i = 0; i < pending_.size(); i++)
+    {
         peekCache_.push_back(pending_[i].ev);
+        peekChains_.push_back(pending_[i].chain);
+    }
 
     return peekCache_;
 }
