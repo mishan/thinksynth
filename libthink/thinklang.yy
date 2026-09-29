@@ -253,6 +253,12 @@ factor MOD %prec PERCENT /* percentage of TH_MAX  (ex: somearg = 50%) */
         YYERROR;
     }
 
+    if ($1.units)
+    {
+        yyerror(ctx, "a value with a unit cannot take another");
+        YYERROR;
+    }
+
     $$.floatval = $1.floatval;
     $$.units = "%";
     $$.expr = NULL;
@@ -264,6 +270,13 @@ factor MS /* milliseconds */
     {
         yyerror(ctx, "a unit cannot be written on a signal");
         thExprFree($1.expr);
+        YYERROR;
+    }
+
+    /* `th_sample ms' among them: th_sample is `1000 ms' already. */
+    if ($1.units)
+    {
+        yyerror(ctx, "a value with a unit cannot take another");
         YYERROR;
     }
 
@@ -836,7 +849,17 @@ yylex (YYSTYPE *yylval, thParseContext *ctx)
         if (w == "th_min")      { yylval->floatval = TH_MIN;     return NUMBER; }
         if (w == "th_range")    { yylval->floatval = TH_RANGE;   return NUMBER; }
         if (w == "th_midimax")  { yylval->floatval = MIDIVALMAX; return NUMBER; }
-        if (w == "th_sample")   { yylval->floatval = TH_SAMPLE;  return NUMBER; }
+        /* A second of samples, at whatever rate the synth runs at: which
+           is `1000 ms', and is carried as that so it folds at load time
+           with every other `ms'. It was the compile-time TH_SAMPLE, which
+           under `thinksynth -r 48000' or in a browser at 48 kHz was
+           44100 and not a second. */
+        if (w == "th_sample")
+        {
+            yylval->floatval = 1000;
+            yylval->units = "ms";
+            return NUMBER;
+        }
 
         if (w == "nil")         return NIL;
         if (w == "node")        return NODE;
@@ -924,6 +947,23 @@ thArith (thParseContext *ctx, YYSTYPE *out, int op,
     out->floatval = 0;
     out->units = NULL;
     out->expr = NULL;
+
+    /* Scaling a number that has a unit by one that has none: `th_sample / 2'
+     * is half a second, `2 * 5 ms' is 10 ms. Both folds are a
+     * multiplication, so scaling the literal and folding it is exactly
+     * folding it and scaling the result, and the unit can ride along.
+     * Nothing else keeps one: a sum has none this grammar can name, a unit
+     * in a denominator is not a unit it has, and a signal is not folded. */
+    if (a->expr == NULL && b->expr == NULL &&
+        ((op == '*' && (a->units == NULL) != (b->units == NULL)) ||
+         (op == '/' && a->units != NULL && b->units == NULL)))
+    {
+        out->floatval = (op == '*') ? a->floatval * b->floatval
+                                    : a->floatval / b->floatval;
+        out->units = a->units ? a->units : b->units;
+
+        return true;
+    }
 
     if (!thCheckNoUnits(ctx, a->units, b->units))
     {

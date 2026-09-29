@@ -40,6 +40,7 @@ typedef void (*sighandler_t)(int);
 #include "gthAudio.h"
 #include "gthGtkRuntime.h"
 #include "gthSynthSource.h"
+#include "gthAudioRate.h"
 #include "gthRtAudio.h"
 #include "gthRtMidi.h"
 
@@ -434,12 +435,6 @@ int main (int argc, char *argv[])
     {
         midi = new gthRtMidi(PACKAGE_NAME, midiapi, midiport);
 
-        if (midi->opened())
-        {
-            midi->signal_event().connect(
-                sigc::bind(sigc::ptr_fun(&dispatchmidi), Synth));
-        }
-
         if (driver == "none")
         {
             puts("Using dummy audio device; no audio output will occur.");
@@ -493,6 +488,18 @@ int main (int argc, char *argv[])
         aout = new gthDummyAudio();
         aout->open(want, asource);
         aout->start();
+    }
+
+    /* The device, not -r, has the last word on the rate: it may have come up
+       at another one, and a synth cannot change its rate once made. Nothing
+       is loaded yet and nothing else holds the synth, so it is made again
+       here if need be -- which is why MIDI is connected only after. */
+    gthFollowDeviceRate(aout, Synth, asource, plugin_path);
+
+    if (midi != NULL && midi->opened())
+    {
+        midi->signal_event().connect(
+            sigc::bind(sigc::ptr_fun(&dispatchmidi), Synth));
     }
 
     /* On the heap, so it can be destroyed at a chosen point rather than at

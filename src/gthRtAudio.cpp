@@ -213,6 +213,15 @@ bool gthRtAudio::open (const gthAudioFmt &want, gthAudioSource *source)
     if (rt_ == NULL || source == NULL)
         return false;
 
+    /* Opened again, as gthFollowDeviceRate does when the synth has to be
+       made again at the device's rate: RtAudio refuses a second openStream
+       on an open stream. */
+    if (rt_->isStreamOpen())
+    {
+        stop();
+        rt_->closeStream();
+    }
+
     source_ = source;
     deviceId_ = resolveDevice(wantDevice_);
 

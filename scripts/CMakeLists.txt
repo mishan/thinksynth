@@ -264,6 +264,11 @@ think_harness(dspblock EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
 # dspcapture.cpp.
 think_harness(dspcapture EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
 
+# The synth following the device's rate at startup, against a device that
+# insists on its own.
+think_harness(ratecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp"
+                              "${PROJECT_SOURCE_DIR}/src/gthAudioRate.cpp")
+
 # The MIDI thread handoff, without a MIDI device. gthMidiQueue needs glibmm
 # for Glib::Dispatcher but not gtkmm, so this stays headless.
 think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
@@ -737,6 +742,9 @@ add_test(NAME dspblock
                  "${PROJECT_SOURCE_DIR}/dsp/mfm01.dsp")
 
 # Writes its own graphs, so it needs the plugins and nothing else.
+add_test(NAME ratecheck
+         COMMAND ratecheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
 add_test(NAME dspcapture
          COMMAND dspcapture -p "${PROJECT_BINARY_DIR}/plugins/")
 

@@ -152,7 +152,9 @@ unlikely.
   folding has done since the language existed. `exprcheck` pins it rather than
   fixing it, because fixing it changes what an existing file means — and
   `gencheck` pins the same list, so the two languages cannot drift apart on it.
-- **A unit inside an expression is refused**, signal or not, and so is an
+- **A unit inside an expression is refused**, signal or not — short of a
+  number with a unit scaled by one without (see
+  [What the grammar allows](#what-the-grammar-allows)) — and so is an
   expression on a `@chanarg` or on its range — a control is a constant the GUI
   writes, and a value with two authors is not a thing this format can express.
 - **The editor draws one read-only box per expression** and refuses to wire
@@ -735,10 +737,20 @@ Two things that only showed up in practice:
   writer unfold through the same functions at the same rate; a `-r` session
   that displayed or saved through a different one would rewrite files to mean
   something else.
-- **A unit inside arithmetic is a parse error.** `5 ms + 3` used to produce a
-  number by accident — the leaf was folded before the operator ran, so it meant
-  223.5 samples — and with the fold deferred there is no accident left to have.
-  Nothing in the corpus does this; the rule exists so nothing quietly starts.
+- **A unit inside arithmetic is a parse error**, with one exception. `5 ms + 3`
+  used to produce a number by accident — the leaf was folded before the
+  operator ran, so it meant 223.5 samples — and with the fold deferred there is
+  no accident left to have. Nothing in the corpus does this; the rule exists so
+  nothing quietly starts. The exception is scaling by a plain number: `2 * 5
+  ms` is `10 ms` and `th_sample / 2` is `500 ms`. Both folds are a
+  multiplication, so scaling before the fold is exactly scaling after it. A sum,
+  a unit in a denominator, a second unit (`th_sample ms`) and a unit on a signal
+  are all still refused.
+- **`th_sample` is `1000 ms`**: a second in samples at the rate the synth runs
+  at, folded at load like any other `ms`. It used to be the compile-time
+  `TH_SAMPLE`, 44100 whatever the rate, so at 48 kHz a graph asking for a
+  second got 0.92 of one. That also makes it a value with a unit: `th_sample +
+  1`, which used to parse, no longer does. Nothing in the corpus wrote either.
 - **229 uses of `th_max` and `th_min`**, plus `th_range`, `th_midimax` and
   `th_sample`. A writer that did not recognise these would turn
   `inmax = th_max` into `inmax = 1` on the first save of any file containing one.
