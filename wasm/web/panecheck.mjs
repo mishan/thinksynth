@@ -429,7 +429,8 @@ try
      * a pane is a box that scrolls, and a popover inside one is clipped
      * by it. */
     await page.selectOption('#piece', 'colony.gen');
-    await page.waitForSelector('#composerstages button', { timeout: 60000 });
+    await page.waitForSelector('#composerpaint:not([hidden])',
+                               { timeout: 60000 });
     await page.click('#panetab-composerview').catch(() => {});
     await page.waitForFunction(() => window.solo.drawing().composer,
                                null, { timeout: 30000 });

@@ -98,16 +98,33 @@ export function createComposerView ({ root = document, toMirror,
 
     const status = () =>
     {
-        const which = stages.get(`${enlarged.chain}.${enlarged.stage}`);
+        const key = `${enlarged.chain}.${enlarged.stage}`;
+        const which = stages.get(key);
+        const menu = $('composerpaint');
+
+        /* The menu says what is being painted on, or nothing. */
+        menu.value = which !== undefined ? key : '';
 
         $('composerstatus').textContent = which !== undefined
-            ? `Painting ${which}. Drag on it; Escape puts it back. What ` +
-              'you paint goes out as a command and arrives at its time, ' +
-              'here as on every peer.'
+            ? `Painting ${which}. Drag on it; Escape, or the menu, puts it ` +
+              'back. What you paint goes out as a command and arrives at ' +
+              'its time, here as on every peer.'
             : stages.size > 0
-                ? 'Double-click a picture that is a control to enlarge it.'
+                ? 'Paint on a picture from the menu, or double-click it.'
                 : '';
     };
+
+    /* One menu for every picture that can be painted on, rather than a
+       button each: a piece with a dozen of them had a dozen buttons,
+       taller on a phone than the canvas they were for. The first entry
+       is the piece itself, which is how a finger leaves a picture. */
+    $('composerpaint').addEventListener('change', (e) =>
+    {
+        const [chain, stage] = e.target.value === ''
+            ? [-1, -1] : e.target.value.split('.').map(Number);
+
+        toMirror({ type: 'enlarge', chain, stage });
+    });
 
     /* One button per stage that can be painted on. The canvas enlarges a
        stage on a double-click and puts it back on Escape; these are the
@@ -115,29 +132,39 @@ export function createComposerView ({ root = document, toMirror,
        out that a picture is a control at all. */
     const offer = (chains) =>
     {
-        const row = $('composerstages');
+        const menu = $('composerpaint');
+        const top = document.createElement('option');
 
-        row.replaceChildren();
         stages = new Map();
+        top.value = '';
+        top.textContent = 'Paint\u2026';
+        menu.replaceChildren(top);
 
         for (const chain of chains)
+        {
+            const group = document.createElement('optgroup');
+
+            group.label = chain.name;
+
             for (const stage of chain.stages)
             {
                 if (!stage.takesInput)
                     continue;
 
-                const button = document.createElement('button');
+                const option = document.createElement('option');
+                const key = `${chain.chain}.${stage.stage}`;
 
-                stages.set(`${chain.chain}.${stage.stage}`,
-                           `${stage.name} in ${chain.name}`);
-
-                button.textContent = `Paint ${stage.name} in ${chain.name}`;
-                button.addEventListener('click', () => toMirror(
-                    { type: 'enlarge', chain: chain.chain,
-                      stage: stage.stage }));
-                row.append(button);
+                stages.set(key, `${stage.name} in ${chain.name}`);
+                option.value = key;
+                option.textContent = `${stage.name} in ${chain.name}`;
+                group.append(option);
             }
 
+            if (group.children.length > 0)
+                menu.append(group);
+        }
+
+        menu.hidden = stages.size === 0;
         enlarged = { chain: -1, stage: -1 };
         status();
     };

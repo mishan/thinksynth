@@ -1095,7 +1095,8 @@ try
        Choosing it loads it; the mirror is sent the same load and says
        what it has, which is where the buttons below come from. */
     await page.selectOption('#piece', COMPOSER_PIECE);
-    await page.waitForSelector('#composerstages button', { timeout: 60000 });
+    await page.waitForSelector('#composerpaint:not([hidden])',
+                               { timeout: 60000 });
 
     /* The first frame that reaches the page: the canvas is sized to the
        drawing and the drawing is on it. A blank canvas of the right size
@@ -1145,19 +1146,22 @@ try
           `and to the width of the view: ${fitted.width} in ${fitted.box}, ` +
           `${fitted.wide ? 'scrolling sideways' : 'no sideways scroll'}`);
 
-    const stages = await page.$$eval('#composerstages button',
-                                     (bs) => bs.map((b) => b.textContent));
+    const stages = await page.$$eval('#composerpaint option:not([value=""])',
+                                     (os) => os.map((o) => o.textContent));
 
     check(stages.length > 0,
           `${COMPOSER_PIECE} offers its controls: ${stages.join(', ')}`);
 
-    /* The Life board's: the euclid ring before it is a control too. */
-    await page.click('#composerstages button:has-text("Paint life")');
+    /* The Life board's: the euclid ring before it is a control too. With
+       the view in sight, which is where a menu under it is chosen from:
+       out of sight it draws nothing, and says nothing either. */
+    await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+    await page.selectOption('#composerpaint', { label: 'life in colony' });
     await page.waitForFunction(
         () => /^Painting /.test(
             document.getElementById('composerstatus').textContent),
         null, { timeout: 60000 });
-    check(true, `${stages[0]} enlarged`);
+    check(true, 'life in colony enlarged, from the Paint menu');
 
     /* A drag across the enlarged board. Nothing is playing, so the board
        changes only if the drag reached the composer -- which it can only
@@ -1206,6 +1210,22 @@ try
             document.getElementById('composerstatus').textContent),
         null, { timeout: 60000 });
     check(true, 'and Escape puts it back');
+
+    /* And the menu does both for a finger, which has no Escape: the
+       picture chosen enlarges it, and the menu's first entry, the piece,
+       puts it back. */
+    await page.selectOption('#composerpaint', { label: 'life in colony' });
+    await page.waitForFunction(
+        () => /^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 15000 });
+    await page.selectOption('#composerpaint', '');
+    await page.waitForFunction(
+        () => !/^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 15000 });
+    check(await page.$eval('#composerpaint', (m) => m.value) === '',
+          'the Paint menu enlarges a picture and puts it back');
 
     /* A stage's params handle -- the three little sliders in its title
        bar -- asks for a popover beside the box, and what goes in it comes
@@ -1765,7 +1785,9 @@ try
 
         /* The euclid ring, enlarged and right-clicked in its middle: a hit
            fewer, which the end of the gesture writes into the piece. */
-        await page.click('#composerstages button:has-text("euclid in kick")');
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+        await page.selectOption('#composerpaint',
+                                { label: 'euclid in kick' });
         await page.waitForFunction(
             () => /^Painting /.test(
                 document.getElementById('composerstatus').textContent),
@@ -1810,7 +1832,9 @@ try
 
         /* tamb's accent is "..x.": clearing its one mark leaves no
            pattern, and the text says so rather than keeping the old one. */
-        await page.click('#composerstages button:has-text("accent in tamb")');
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+        await page.selectOption('#composerpaint',
+                                { label: 'accent in tamb' });
         await page.waitForFunction(
             () => /^Painting /.test(
                 document.getElementById('composerstatus').textContent),
