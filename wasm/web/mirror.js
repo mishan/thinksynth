@@ -188,6 +188,54 @@ function sendGestures ()
 
     M._tw_canvas_mixes_clear();
 
+    /* A knob node's track, dragged: a knob command on the page, by the
+       index the module gave the knob at the load. */
+    for (let k = 0; k < M._tw_canvas_knob_count(); k++)
+        post({
+            type: 'canvasknob',
+            knob: M._tw_canvas_knob_index(k),
+            value: M._tw_canvas_knob_value(k),
+            commit: M._tw_canvas_knob_commit(k) !== 0,
+        });
+
+    M._tw_canvas_knobs_clear();
+
+    /* A stage box dropped elsewhere in its chain. The page makes the
+       edit, to whichever text it holds, and loads what comes back. */
+    if (M._tw_canvas_move_wanted())
+    {
+        const chain = M._tw_canvas_move_chain();
+
+        post({
+            type: 'canvasmove',
+            chain,
+            chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                              ['number'], [chain])),
+            from: M._tw_canvas_move_from(),
+            to: M._tw_canvas_move_to(),
+        });
+    }
+
+    /* A wire from a knob dropped on a stage: which param is the page's
+       question to ask, from the stage's own panel. */
+    if (M._tw_canvas_bind_wanted())
+    {
+        const chain = M._tw_canvas_bind_chain();
+        const stage = M._tw_canvas_bind_stage();
+
+        post({
+            type: 'canvasbind',
+            knob: M.UTF8ToString(M._tw_canvas_bind_knob()),
+            chain,
+            stage,
+            chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                              ['number'], [chain])),
+            at: { x: M._tw_canvas_bind_x(), y: M._tw_canvas_bind_y(),
+                  w: M._tw_canvas_bind_w(), h: M._tw_canvas_bind_h() },
+            panel: panelOf(chain, stage),
+        });
+    }
+
     /* And the params popover, if a stage's handle was clicked. Read here
        rather than asked for later, because the page has no scheduler to
        read them from: this instance is where the piece is. */
@@ -514,6 +562,21 @@ function receive (m)
             post({ type: 'handle', chain: m.chain, stage: m.stage,
                    x: M._tw_canvas_handle_x(m.chain, m.stage),
                    y: M._tw_canvas_handle_y(m.chain, m.stage) });
+            break;
+
+        /* Where a knob's track and port are, and a stage's box, for a
+           page that wants to drag them. */
+        case 'knobat':
+            post({ type: 'knobat',
+                   at: [0, 1, 2, 3, 4].map((w) => M.ccall(
+                       'tw_canvas_knob_at', 'number', ['string', 'number'],
+                       [m.name, w])) });
+            break;
+
+        case 'stageat':
+            post({ type: 'stageat',
+                   at: [0, 1, 2, 3].map((w) => M._tw_canvas_stage_at(
+                       m.chain, m.stage, w)) });
             break;
 
         /* Where a chain's M (which 0) or S (1) is, for the same page. */

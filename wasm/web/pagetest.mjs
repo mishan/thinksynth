@@ -1431,6 +1431,123 @@ try
     await press(1, 0);
     await mixUntil((c) => c.length > 1 && !c[1].muted, 'and unmuted again');
 
+    /* Polled, like the mix: `what' is asked until `want' says yes. */
+    const until = async (what, want) =>
+    {
+        let got;
+
+        for (let i = 0; i < 100; i++)
+        {
+            got = await what();
+
+            if (want(got))
+                return got;
+
+            await new Promise((r) => setTimeout(r, 100));
+        }
+
+        return got;
+    };
+
+    /* A drag on the canvas, a frame at a time: the view sends one motion
+       per animation frame, and the drag is what the motions say. */
+    const drag = async (x0, y0, x1, y1) =>
+    {
+        await page.mouse.move(box.x + x0, box.y + y0);
+        await page.mouse.down();
+
+        for (let i = 1; i <= 8; i++)
+        {
+            await page.mouse.move(box.x + x0 + (x1 - x0) * i / 8,
+                                  box.y + y0 + (y1 - y0) * i / 8);
+            await new Promise((r) => setTimeout(r, 40));
+        }
+
+        await page.mouse.up();
+    };
+
+    /* A knob node's track, dragged to its end: a knob command, which the
+       worklet's knob then reads back as the top of its range. */
+    const knob = await page.evaluate(() => window.solo.knobAt('density'));
+
+    if (knob[0] < 0)
+        check(false, 'colony has no density knob on the canvas');
+    else
+    {
+        await drag(knob[0] + 2, knob[2], knob[1] + 20, knob[2]);
+
+        const values = await until(
+            () => page.evaluate(() => window.solo.knobValues()),
+            (v) => v.length > 0 && v[0].value === 5);
+
+        check(values[0]?.value === 5,
+              'a knob dragged on the canvas moves the piece\'s knob: ' +
+              JSON.stringify(values));
+    }
+
+    /* A wire from the knob's port onto the first stage of the second
+       chain asks which param; the answer is a binding written into the
+       text. */
+    const bindings = (t) => (t.match(/@density\b/g) ?? []).length;
+    const textBefore = await page.evaluate(() => window.solo.genText());
+    const target = await page.evaluate(() => window.solo.stageAt(1, 0));
+
+    if (knob[0] < 0 || target[0] < 0)
+        check(false, 'nothing to pull a wire between');
+    else
+    {
+        await drag(knob[3], knob[4], target[0] + target[2] / 2,
+                   target[1] + target[3] / 2);
+        await page.waitForSelector('#composerparams:not([hidden]) button',
+                                   { timeout: 15000 });
+
+        const row = await page.getAttribute(
+            '#composerparams button', 'data-row');
+
+        await page.click('#composerparams button');
+
+        const text = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => bindings(t) > bindings(textBefore));
+
+        check(bindings(text) === bindings(textBefore) + 1 &&
+              new RegExp(`${row}\\s*=\\s*@density`).test(text),
+              `a wire from a knob, dropped on a stage, binds its ${row}`);
+    }
+
+    /* A stage box carried one slot right swaps it with its neighbor in
+       the text, and the piece is loaded again. */
+    const floorOrder = (t) =>
+    {
+        const chain = t.slice(t.indexOf('chain floor'));
+
+        return chain.indexOf('gen::eno_line') <
+               chain.indexOf('xform::harmonize') ? 'eno,harm' : 'harm,eno';
+    };
+
+    const first = await page.evaluate(() => window.solo.stageAt(1, 0));
+
+    if (first[0] < 0)
+        check(false, 'the second chain has no first stage to carry');
+    else
+    {
+        const orderBefore = floorOrder(
+            await page.evaluate(() => window.solo.genText()));
+
+        await drag(first[0] + first[2] / 2, first[1] + 10,
+                   first[0] + first[2] * 1.5 + 22, first[1] + 10);
+
+        const text = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => floorOrder(t) !== orderBefore);
+
+        await page.evaluate(() => window.solo.settled());
+
+        check(orderBefore === 'eno,harm' && floorOrder(text) === 'harm,eno',
+              'a stage box carried one slot right moves its stage in the ' +
+              'text');
+    }
+
     /* ---- the piano roll ----
      *
      * The other canvas the mirror draws, and the one this page did not

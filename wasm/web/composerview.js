@@ -41,6 +41,7 @@ import { showPanel } from './panel.js';
 
 export function createComposerView ({ root = document, toMirror,
                                       onGesture, onParamEdit, onMix,
+                                      onKnob, onMove,
                                       keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
@@ -145,7 +146,8 @@ export function createComposerView ({ root = document, toMirror,
 
     /* The same for a chain's M (which 0) or S (1), and each chain's
        mute and solo as the mirror holds them. */
-    let chipAsked = null, mixAsked = null;
+    let chipAsked = null, mixAsked = null, knobAsked = null,
+        stageAsked = null;
 
     const chipOf = (chain, which) => new Promise((resolve) =>
     {
@@ -157,6 +159,20 @@ export function createComposerView ({ root = document, toMirror,
     {
         mixAsked = resolve;
         toMirror({ type: 'mix' });
+    });
+
+    /* A knob's track and port, [x0, x1, y, portX, portY], and a stage's
+       box, [x, y, w, h], in the canvas element's pixels. */
+    const knobAt = (name) => new Promise((resolve) =>
+    {
+        knobAsked = resolve;
+        toMirror({ type: 'knobat', name });
+    });
+
+    const stageAt = (chain, stage) => new Promise((resolve) =>
+    {
+        stageAsked = resolve;
+        toMirror({ type: 'stageat', chain, stage });
     });
 
     /* True if the message was this view's. */
@@ -181,6 +197,29 @@ export function createComposerView ({ root = document, toMirror,
             case 'mix':
                 mixAsked?.(m.chains);
                 mixAsked = null;
+                return true;
+            case 'knobat':
+                knobAsked?.(m.at);
+                knobAsked = null;
+                return true;
+            case 'stageat':
+                stageAsked?.(m.at);
+                stageAsked = null;
+                return true;
+
+            /* A knob node's track dragged: a knob command, by index. */
+            case 'canvasknob':
+                onKnob?.(m.knob, m.value, m.commit);
+                return true;
+
+            /* A stage box dropped elsewhere in its chain. */
+            case 'canvasmove':
+                onMove?.(m.chainName, m.from, m.to);
+                return true;
+
+            /* A wire from a knob dropped on a stage. */
+            case 'canvasbind':
+                showBind(m);
                 return true;
             case 'draw':
                 view.frame(m);
@@ -335,6 +374,66 @@ export function createComposerView ({ root = document, toMirror,
                      at.top + window.scrollY + m.at.y);
     };
 
+    /* ---- a knob's wire, dropped on a stage ----
+     *
+     * Which param it is for is a question, since a stage with six numbers
+     * has six honest answers: one button per param a knob can drive, from
+     * the stage's own panel. Picking one is a param edit whose text is the
+     * binding, sent the way a typed value is, so the piece's text is
+     * written by the same door.
+     */
+    const showBind = (m) =>
+    {
+        const box = $('composerparams');
+        const title = document.createElement('div');
+        const panel = m.panel === null ? null : JSON.parse(m.panel);
+        const rows = panel === null ? []
+                                    : panel.rows.filter((r) => r.bindable);
+
+        params = null;
+        box.replaceChildren();
+
+        title.className = 'menutitle';
+        title.textContent = `@${m.knob} → ${panel?.title ?? 'stage'} in ` +
+                            m.chainName;
+        box.append(title);
+
+        for (const row of rows)
+        {
+            const button = document.createElement('button');
+
+            button.dataset.row = row.id;
+            button.textContent = row.knob === m.knob
+                ? `${row.label}  (already @${m.knob})`
+                : row.knob ? `${row.label}  (now @${row.knob})` : row.label;
+
+            if (row.desc)
+                button.title = row.desc;
+
+            button.addEventListener('click', () =>
+            {
+                box.hidden = true;
+                onParamEdit(m.chain, m.stage, row.id, `@${m.knob}`);
+            });
+            box.append(button);
+        }
+
+        if (rows.length === 0)
+        {
+            const none = document.createElement('div');
+
+            none.className = 'paramwhat';
+            none.textContent = 'this stage has nothing a knob can drive';
+            box.append(none);
+        }
+
+        const at = $('composer').getBoundingClientRect();
+
+        placePopover(box,
+                     at.left + window.scrollX + m.at.x + m.at.w + 6,
+                     at.top + window.scrollY + m.at.y);
+    };
+
     /* The panel following the piece.
      *
      * A stage's rows come out of the .gen and move when somebody edits it,
@@ -413,7 +512,7 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf, chipOf, mix: askMix, forgetMix,
-             pollParams,
+             knobAt, stageAt, pollParams,
 
              /* How many pieces the mirror has loaded, for a harness to
                 wait on one. */

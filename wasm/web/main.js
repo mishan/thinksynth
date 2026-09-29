@@ -1099,6 +1099,40 @@ function paramsEdited ({ piece: text })
     loadedText = text;
 }
 
+/* A stage box dropped elsewhere in its chain on the canvas: the box's text
+ * spliced by the module and loaded again, playing from the top if it was
+ * playing -- a structural edit rewinds, as it does on the desktop. Refused
+ * while the box holds text that was never loaded: the canvas draws the
+ * loaded piece, and its numbering need not be the box's. */
+async function moveStage (chainName, from, to)
+{
+    if (synth === null)
+        return;
+
+    if ($('gen').value !== loadedText)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before moving a stage.', true);
+        return;
+    }
+
+    const wasRunning = lastTape?.running === true;
+    const { text } = await synth.genMoveStage($('gen').value, chainName,
+                                              from, to);
+
+    if (text === '')
+    {
+        status(`Could not move that stage in ${chainName}.`, true);
+        return;
+    }
+
+    $('gen').value = text;
+    await loadPiece();
+
+    if (wasRunning && piece !== null)
+        synth.transport('start');
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -2456,6 +2490,13 @@ function showComposer (on)
            back after a load of the same piece, as the desktop does. */
         onMix: (type, chain, on) => synth?.[type]({ at: -1, chain, on }),
         keepMix: true,
+
+        /* A knob node dragged on the canvas: the knob strip's command, so
+           the strip follows it as it follows any other move. Live only,
+           as the strip is. */
+        onKnob: (knob, value) => synth?.knob(knob, value),
+
+        onMove: moveStage,
     });
 
     composer.show(on);
@@ -2622,6 +2663,19 @@ window.solo = {
     chipOf: (chain, which) => composer?.chipOf(chain, which),
     mix: () => composer?.mix(),
     pieces: () => composer?.pieces() ?? 0,
+    knobAt: (name) => composer?.knobAt(name),
+    stageAt: (chain, stage) => composer?.stageAt(chain, stage),
+    genText: () => $('gen').value,
+
+    /* The piece's knobs as the worklet holds them: { id, value } by row. */
+    knobValues: async () =>
+    {
+        const answer = await synth.panel(1 /* thPanel::KNOB */, 0, 0);
+
+        return answer.shape === 0 ? []
+            : JSON.parse(answer.json).rows.map((r) => ({ id: r.id,
+                                                         value: r.value }));
+    },
     params: () => composer?.params() ?? [],
 
     /* The tracks the sequencer pane ended up with: which stage each row

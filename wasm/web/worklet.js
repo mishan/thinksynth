@@ -284,6 +284,20 @@ class ThinkProcessor extends AudioWorkletProcessor
         /* One stage's param set in a text that is not this instance's
          * piece: the edit a room page's own peer made, applied to the
          * document as it now stands. "" when the writer refused it. */
+        /* One stage moved within its chain, in a text given: the edit a
+         * stage box dropped on the canvas makes. "" when refused. */
+        if (m.type === 'genmove')
+        {
+            this.port.postMessage({
+                type: 'genmove', id: m.id,
+                text: this.M.ccall('tw_gen_move_stage', 'string',
+                                   ['string', 'string', 'number', 'number'],
+                                   [m.text, m.chain, m.from, m.to]),
+            });
+
+            return;
+        }
+
         if (m.type === 'genparam')
         {
             this.port.postMessage({

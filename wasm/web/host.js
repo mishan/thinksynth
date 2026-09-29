@@ -172,6 +172,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'patchcompose':
             case 'settempo':
             case 'genparam':
+            case 'genmove':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -357,6 +358,12 @@ export async function createSynth (ctx, { windowlen = 256,
         genSetParam: (text, { chainName, docStage, param, valueText }) =>
             ask({ type: 'genparam', text, chain: chainName, stage: docStage,
                   param, valueText }),
+
+        /* One stage of a chain moved to another place in it, in `text';
+           stages in the document's numbering. Resolves to { text }, ""
+           when the writer refused. */
+        genMoveStage: (text, chainName, from, to) =>
+            ask({ type: 'genmove', text, chain: chainName, from, to }),
 
         /* How fast the clock runs, as a multiple of real time, at a
            transport time or -1 for the next window. Everything moves with

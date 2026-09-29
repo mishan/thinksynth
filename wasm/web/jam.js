@@ -452,6 +452,41 @@ async function loadFromDoc (seed = -1)
     return piece !== null;
 }
 
+/* A stage box dropped elsewhere in its chain: the document spliced, by
+ * this peer, the way its own param edits are, and applied at once if the
+ * room is playing -- a structural edit is a reload, and the room's reload
+ * is Apply. Stopped, the next Play takes it. */
+async function moveStage (chainName, from, to)
+{
+    const name = pieceName(doc);
+
+    for (let tries = 0; name !== null && tries < 4; tries++)
+    {
+        const was = readFile(doc, name);
+
+        if (was === null)
+            return;
+
+        const { text } = await synth.genMoveStage(was, chainName, from, to);
+
+        if (text === '')
+        {
+            log(`could not move that stage in ${chainName}`);
+            return;
+        }
+
+        if (readFile(doc, name) === was)
+        {
+            spliceFile(doc, name, text);
+
+            if (transport?.running)
+                await play();
+
+            return;
+        }
+    }
+}
+
 /* ---- transport ---- */
 
 /* Play, and Apply: a start from a new origin, with the document as it
@@ -848,6 +883,16 @@ function showComposer (on)
         /* A chain's M or S: the room's mix, so every peer hears the same
            chains. */
         onMix: (type, chain, on) => send(maker[type](chain, on)),
+
+        /* A knob node dragged on the canvas: the room's knob command. The
+           release repeats the last value and is not sent. */
+        onKnob: (knob, value, commit) =>
+        {
+            if (!commit)
+                send(maker.knob(knob, value));
+        },
+
+        onMove: moveStage,
     });
 
     composer.show(on);
