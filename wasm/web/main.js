@@ -1121,22 +1121,37 @@ async function loadPiece ()
        nobody has since typed into -- see showTempo. */
     loadedText = $('gen').value;
 
-    const it = await quietly(async () =>
+    /* The mirror answers the load before the aiming is done, and the
+       sequencer's height measurements arrive while `placed' still holds
+       the last load's channels -- see fitTracks. */
+    loading++;
+
+    let it;
+
+    try
     {
-        const loaded = await synth.loadPiece($('gen').value);
+        it = await quietly(async () =>
+        {
+            const loaded = await synth.loadPiece($('gen').value);
 
-        if (loaded.errors.length === 0)
-            aiming = await patch.aim(
-                synth, loaded.sinks,
-                mode() === 'seq' ? new Map([...sequenceVoices(), ...aimed])
-                                 : aimed);
+            if (loaded.errors.length === 0)
+                aiming = await patch.aim(
+                    synth, loaded.sinks,
+                    mode() === 'seq' ? new Map([...sequenceVoices(), ...aimed])
+                                     : aimed);
 
-        return loaded;
-    });
+            return loaded;
+        });
+    }
+    finally
+    {
+        loading--;
+    }
 
     piece = it.errors.length === 0 ? it : null;
     placed = aiming.placed;
     showLiveIn();
+    fitTracks();
 
     if (piece === null)
     {
@@ -2223,7 +2238,9 @@ async function start ()
        mirror with a `piece' message, and fromMirror has nowhere to put
        one while composer is still null -- so made afterwards, the first
        Start went by with the message dropped and the "Paint ..." buttons
-       never appeared. */
+       never appeared. Made here whether or not their panes are in front,
+       for the same reason: a view made later, when its tab is raised,
+       has missed the message and shows no tracks. */
     showComposer(panes.visible('composerview') && mode() === 'piece');
     showSeq(panes.visible('seqview') && composing());
     showRoll(panes.visible('roll') && composing());
@@ -2409,10 +2426,11 @@ function showNodes ()
 
 function showComposer (on)
 {
-    /* Made when it is first wanted and never for a pane nobody has
-       looked at: onShow says `no' for every pane at load, and a view
-       built to be told that would have started a worker for nothing. */
-    if (composer === null && (!on || synth === null))
+    /* Made on Start, visible or not, and never before it: there is no
+       mirror to draw with until there is a synth. Hidden, it asks for no
+       frames, but it still has to hear the `piece' message the load
+       sends, which comes once. */
+    if (composer === null && synth === null)
         return;
 
     /* On a solo page there are no peers and no lead to wait out, so a
@@ -2494,9 +2512,16 @@ function readsNote (file)
    against. Kept between calls; see fitTracks. */
 let asked = new Map();
 
+/* How many loadPiece calls are between the load and the aiming. */
+let loading = 0;
+
 function fitTracks ()
 {
-    if (mode() !== 'seq' || synth === null || seq === null)
+    /* Not during a load: until the aiming lands, `placed' is empty or the
+       last load's, and a drum on a channel with nothing placed yet reads as
+       pitched -- so its grid was sent to six rows and, one measurement
+       later, back to one. */
+    if (mode() !== 'seq' || synth === null || seq === null || loading > 0)
         return;
 
     /* Rebuilt rather than edited, so a track the piece no longer has
@@ -2540,8 +2565,8 @@ function fitTracks ()
 
 function showSeq (on)
 {
-    /* Made when it is first wanted, for the reason showComposer is. */
-    if (seq === null && (!on || synth === null))
+    /* Made on Start, visible or not, for the reason showComposer is. */
+    if (seq === null && synth === null)
         return;
 
     seq ??= createSeqView({

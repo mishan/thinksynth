@@ -619,6 +619,80 @@ try
               () => document.activeElement.closest('#dsp') !== null),
           'and leaves the caret where the reader left it');
 
+    /* ---- the tracks, loaded behind another tab ---- */
+
+    /* The pane is built from the `piece' message a load sends once. Made
+       only when its pane was first in front, the view missed it if the
+       load came first, and raising the tab showed an empty pane. */
+    const behind = await browser.newPage({ viewport: WIDE });
+
+    behind.on('pageerror', (e) => errors.push(`behind: ${e.message}`));
+
+    await behind.goto(base);
+    await behind.waitForFunction(
+        () => document.body.classList.contains('tiled'));
+    await behind.selectOption('#mode', 'piece');
+    await behind.selectOption('#piece', 'scratch.gen');
+    await behind.click('#panetab-composerview');
+    await behind.click('#start');
+    await behind.waitForFunction(
+        () => !document.getElementById('loadpiece').disabled,
+        null, { timeout: 60000 });
+    await behind.evaluate(() => window.solo.settled());
+    await behind.click('#panetab-seqview');
+
+    check(await behind.evaluate(() => window.solo.tracks().length) > 0,
+          'a piece loaded with the tracks behind a tab has its tracks ' +
+          'when the tab is raised');
+
+    await behind.close();
+
+    /* ---- and the sequence's drums, loaded ---- */
+
+    /* A drum's grid is one row in the sequence's text. The heights were
+       fitted before the load's aiming landed, when no drum was placed yet
+       and each read as pitched, so the kit went to six rows and back. */
+    const kit = await browser.newPage({ viewport: WIDE });
+
+    kit.on('pageerror', (e) => errors.push(`kit: ${e.message}`));
+
+    await kit.addInitScript(() =>
+    {
+        window.tallest = new Map();
+
+        const watch = () =>
+        {
+            for (const t of window.solo?.tracks?.() ?? [])
+                window.tallest.set(t.channel, Math.max(
+                    t.rows, window.tallest.get(t.channel) ?? 0));
+
+            requestAnimationFrame(watch);
+        };
+
+        requestAnimationFrame(watch);
+    });
+    await kit.goto(base);
+    await kit.waitForFunction(
+        () => document.body.classList.contains('tiled'));
+    await kit.selectOption('#mode', 'seq');
+    await kit.click('#start');
+    await kit.waitForFunction(
+        () => !document.getElementById('loadpiece').disabled,
+        null, { timeout: 60000 });
+    await kit.evaluate(() => window.solo.settled());
+
+    /* Past two measurements, which is when the grid came back to one. */
+    await kit.waitForTimeout(1200);
+
+    const tallest = await kit.evaluate(
+        () => [0, 1, 2].map((c) => window.tallest.get(c)));
+
+    check(tallest.every((rows) => rows === 1),
+          `the sequence's drums stay one row through the load: ${
+              tallest.join(' ')}`);
+
+    await kit.close();
+
     /* ---- and the room page, which is the same catalog again ---- */
 
     /* The two pages share most of their panes and all of their tiler.

@@ -145,6 +145,11 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             canvas.className = 'trackgrid';
             canvas.tabIndex = 0;
 
+            /* A canvas with no size is 300x150, and at `width: 100%' that
+               ratio made each track half the pane's width tall for the
+               frame before the first fit. */
+            canvas.style.height = `${MIN_H}px`;
+
             track.canvas = canvas;
             track.ctx = canvas.getContext('2d');
 
