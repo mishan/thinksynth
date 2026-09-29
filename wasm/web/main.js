@@ -2687,6 +2687,7 @@ window.solo = {
     pieces: () => composer?.pieces() ?? 0,
     knobAt: (name) => composer?.knobAt(name),
     stageAt: (chain, stage) => composer?.stageAt(chain, stage),
+    activity: () => composer?.activity(),
     genText: () => $('gen').value,
 
     /* The piece's knobs as the worklet holds them: { id, value } by row. */

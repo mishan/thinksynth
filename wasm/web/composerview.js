@@ -147,7 +147,7 @@ export function createComposerView ({ root = document, toMirror,
     /* The same for a chain's M (which 0) or S (1), and each chain's
        mute and solo as the mirror holds them. */
     let chipAsked = null, mixAsked = null, knobAsked = null,
-        stageAsked = null;
+        stageAsked = null, activityAsked = null;
 
     const chipOf = (chain, which) => new Promise((resolve) =>
     {
@@ -169,11 +169,23 @@ export function createComposerView ({ root = document, toMirror,
         toMirror({ type: 'knobat', name });
     });
 
+    const activity = () => new Promise((resolve) =>
+    {
+        activityAsked = resolve;
+        toMirror({ type: 'activity' });
+    });
+
     const stageAt = (chain, stage) => new Promise((resolve) =>
     {
         stageAsked = resolve;
         toMirror({ type: 'stageat', chain, stage });
     });
+
+    /* The roll's notes by the chain that made them. Said to the mirror,
+       which draws both the roll and this canvas; nothing is heard
+       differently, so it is not a command. */
+    $('rollbychain')?.addEventListener('change', (e) =>
+        toMirror({ type: 'bychain', on: e.target.checked }));
 
     /* True if the message was this view's. */
     const fromMirror = (m) =>
@@ -205,6 +217,10 @@ export function createComposerView ({ root = document, toMirror,
             case 'stageat':
                 stageAsked?.(m.at);
                 stageAsked = null;
+                return true;
+            case 'activity':
+                activityAsked?.(m);
+                activityAsked = null;
                 return true;
 
             /* A knob node's track dragged: a knob command, by index. */
@@ -247,6 +263,11 @@ export function createComposerView ({ root = document, toMirror,
                             if (mix[type].has(c.name))
                                 onMix?.(type, c.chain, true);
                         });
+
+                /* Said again with every piece: a mirror made since the box
+                   was ticked has not heard it. */
+                if ($('rollbychain')?.checked)
+                    toMirror({ type: 'bychain', on: true });
 
                 return true;
 
@@ -512,7 +533,7 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf, chipOf, mix: askMix, forgetMix,
-             knobAt, stageAt, pollParams,
+             knobAt, stageAt, activity, pollParams,
 
              /* How many pieces the mirror has loaded, for a harness to
                 wait on one. */
