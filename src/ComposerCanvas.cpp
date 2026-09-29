@@ -206,6 +206,7 @@ ComposerCanvas::rebuild (void)
         thArg *arg = sched_ ? sched_->knob(k.name) : NULL;
 
         b.kv  = arg != NULL ? (*arg)[0] : k.value;
+        b.kLive = b.kv;
         b.klo = arg != NULL ? arg->min() : (k.hasMin ? k.min : 0);
         b.khi = arg != NULL ? arg->max() : (k.hasMax ? k.max : 1);
 
@@ -1065,6 +1066,24 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
         cr->restore();
 
         return;
+    }
+
+    /* A knob moved from elsewhere -- the knob strip, a MIDI controller,
+       a peer -- is followed here. Only a change in the live value is
+       taken, so a box just dragged keeps the value it was let go at
+       while the command setting it is still on its way. */
+    for (size_t i = 0; sched_ != NULL && i < boxes_.size(); i++)
+    {
+        Box &b = boxes_[i];
+
+        if (b.what.kind != Selection::KNOB || (int)i == dragKnob_ ||
+            b.what.index >= doc_->knobs.size())
+            continue;
+
+        thArg *arg = sched_->knob(doc_->knobs[b.what.index].name);
+
+        if (arg != NULL && (*arg)[0] != b.kLive)
+            b.kv = b.kLive = (*arg)[0];
     }
 
     /* Wires under the arrows, and both under the boxes. */
