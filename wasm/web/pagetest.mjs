@@ -1792,6 +1792,52 @@ try
               'a right-click in the euclid ring\'s middle takes a hit ' +
               'away, and the piece\'s text says so');
 
+        /* A press on the ring let go of without a turn changes nothing,
+           and writes nothing. */
+        {
+            const before = await page.evaluate(() => window.solo.genText());
+            const r = Math.min(ringBox.w, ringBox.h) / 2 - 8;
+
+            await page.mouse.click(ringAt.x + ringBox.w / 2,
+                                   ringAt.y + ringBox.h / 2 - r);
+            await new Promise((res) => setTimeout(res, 1000));
+
+            check(await page.evaluate(() => window.solo.genText()) === before,
+                  'a press on the ring with no turn leaves the text alone');
+        }
+
+        await page.keyboard.press('Escape');
+
+        /* tamb's accent is "..x.": clearing its one mark leaves no
+           pattern, and the text says so rather than keeping the old one. */
+        await page.click('#composerstages button:has-text("accent in tamb")');
+        await page.waitForFunction(
+            () => /^Painting /.test(
+                document.getElementById('composerstatus').textContent),
+            null, { timeout: 15000 });
+
+        {
+            const at = await scroller();
+            const box = await page.$eval('#composerscroll', (d) =>
+                ({ w: d.clientWidth, h: d.clientHeight }));
+
+            /* The third of four steps, halfway down. */
+            await page.mouse.click(at.x + box.w * 0.625, at.y + box.h * 0.45);
+
+            const tambOf = (t) =>
+            {
+                const a = t.indexOf('chain tamb {');
+
+                return a < 0 ? '' : t.slice(a, t.indexOf('\n};', a));
+            };
+            const cleared = await until(
+                () => page.evaluate(() => window.solo.genText()),
+                (t) => /pattern\s*=\s*"";/.test(tambOf(t)));
+
+            check(/pattern\s*=\s*"";/.test(tambOf(cleared)),
+                  'clearing an accent\'s last mark writes an empty pattern');
+        }
+
         await page.keyboard.press('Escape');
 
         const colonyLoads = await page.evaluate(() => window.solo.pieces());

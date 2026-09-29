@@ -40,7 +40,8 @@ import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
+import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, commandTag,
+         isLate }
     from './commands.js';
 import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
          readFile, spliceFile } from './doc.js';
@@ -864,12 +865,11 @@ let ownParams = [];
 const paramKey = (e) =>
     JSON.stringify([e.at, e.chain, e.stage, e.row, e.text]);
 
-/* A picture's edit written at a gesture's end: the release that ended it,
-   by its time and stage. One release can write several params. */
-const inputKey = (e) => JSON.stringify(['input', e.at, e.chain, e.stage]);
-
-/* A knob's value written at a drag's end. */
-const knobKey = (e) => JSON.stringify(['knob', e.at, e.knob]);
+/* A picture's edit written at a gesture's end, and a knob's value at a
+   drag's end: by the command's own name, which the edit carries back as
+   its tag. Not by stamp, which every command made while stopped shares. */
+const inputKey = (e) => JSON.stringify(['input', e.tag ?? commandTag(e)]);
+const knobKey = (e) => JSON.stringify(['knob', e.tag ?? commandTag(e)]);
 
 /* This peer's knob, let go of: a command every peer applies to its own
    file, and this peer's to write into the document. */
@@ -895,6 +895,8 @@ const sectionKey = (e) =>
  * edit, not reverted to that file. */
 async function paramsEdited ({ edits })
 {
+    const released = new Set();
+
     for (const e of edits)
     {
         const isSection = e.section >= 0;
@@ -906,10 +908,13 @@ async function paramsEdited ({ edits })
         if (at < 0)
             continue;
 
-        /* A release's key stays for the rest of what it wrote: one
-           gesture on a euclid ring writes fills and rotate. */
+        /* A release's key stays for the rest of what it wrote -- one
+           gesture on a euclid ring writes fills and rotate -- and goes
+           with the batch, which holds all of it. */
         if (!e.input)
             ownParams.splice(at, 1);
+        else
+            released.add(key);
 
         const name = pieceName(doc);
 
@@ -943,6 +948,14 @@ async function paramsEdited ({ edits })
                 break;
             }
         }
+    }
+
+    for (const key of released)
+    {
+        const at = ownParams.indexOf(key);
+
+        if (at >= 0)
+            ownParams.splice(at, 1);
     }
 }
 

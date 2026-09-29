@@ -238,6 +238,9 @@ struct Scheduled
    toggles. Dropped when the command lands with that value, and at a load. */
 std::map<std::pair<int, bool>, bool> mixPending_;
 
+/* See tw_command_tag. */
+std::string nextTag_;
+
 /* The same for an arrangement cell, by (section, chain): the level asked
    for, until the `section' command lands with it. */
 std::map<std::pair<int, int>, double> sectionPending_;
@@ -348,6 +351,11 @@ struct AppliedParam
        written (TW_KNOBWRITE), by index, with its name in `param'. */
     bool        input = false;
     int         knob = -1;
+
+    /* The command's own name for itself, from a room page ("peer:seq"),
+       so the peer that made a gesture or let go of a knob knows the edit
+       for its own. Empty from a solo page. */
+    std::string tag;
 };
 
 std::vector<AppliedParam> applied_;
@@ -542,16 +550,97 @@ thcStage *stageAt (int chain, int stage)
     return c->stages[(size_t)stage].get();
 }
 
+/* A stage's parameter, set: the piece's own text spliced, and the running
+ * stage poked so that the new line is heard from here. What TW_PARAM does,
+ * and what a gesture's end does for a THC_INPUT_EDITS picture (`input'),
+ * whose record says so and carries the command's tag. `row' is the param,
+ * `text' the part of the line to complete against the file
+ * (src/StagePanel.h). False when there was nothing to write.
+ *
+ * Both halves here and nowhere else, so that there is one door: a second
+ * one opening at a different moment is exactly the divergence the stamp
+ * exists to stop. */
+static bool
+writeParam (const Scheduled &c, const std::string &row,
+            const std::string &text, bool input)
+{
+    StagePanel target;
+
+    target.setPiece(&canvasDoc_, sched_);
+    target.setStage(c.chain, c.stage);
+
+    thPanelEdit edit;
+
+    const thPanelResult r = target.propose(row, text, edit);
+
+    if (!r.ok)
+    {
+        fprintf(stderr, "%s: %s\n", row.c_str(), r.why.c_str());
+        return false;
+    }
+
+    if (!r.changed || c.chain < 0 ||
+        (size_t)c.chain >= canvasDoc_.chains.size())
+        return false;
+
+    /* The document's numbering, which is what a splice is in; the command
+       names the stage the way every other one does, by its place in the
+       scheduler's list. */
+    const int docStage =
+        thcGenEdit::docIndex(canvasDoc_.chains[(size_t)c.chain], c.stage);
+
+    std::string why;
+
+    if (thcGenEdit::setParam(TW_PIECE_FILE,
+                             canvasDoc_.chains[(size_t)c.chain].name,
+                             docStage, edit.row, edit.valueText,
+                             why) != thcGenEdit::OK)
+    {
+        fprintf(stderr, "%s: %s\n", edit.row.c_str(), why.c_str());
+        return false;
+    }
+
+    /* Described again rather than patched in place: the splice is what
+       happened, and reading it back is the only account of it that cannot
+       drift from the file. */
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+        fprintf(stderr, "the piece will not read back: %s\n", why.c_str());
+
+    AppliedParam done;
+
+    done.at = c.at;
+    done.chain = c.chain;
+    done.stage = c.stage;
+    done.row = row;
+    done.text = text;
+    done.chainName = canvasDoc_.chains[(size_t)c.chain].name;
+    done.docStage = docStage;
+    done.param = edit.row;
+    done.valueText = edit.valueText;
+    done.input = input;
+    done.tag = input ? c.text : std::string();
+
+    applied_.push_back(done);
+
+    /* And the audible half, after the splice: a panel is described from
+       the document, so a stage poked first would be heard before it was
+       written (src/StagePanel.h). */
+    target.deliver(edit);
+
+    return true;
+}
+
 /* What a gesture on a THC_INPUT_EDITS picture set, written into the piece
- * at the gesture's end, param by param, and reported back as edits: the
- * page writes them where it keeps the piece, as it does a typed one. A
- * string param quoted, a whole number as it is; a value the file already
- * says, and anything else, left alone. */
+ * at the gesture's end, param by param, through writeParam, which also
+ * pokes the running stage: a param a knob drove is the value the gesture
+ * set from here on, as it is in the file. A string param and a whole number
+ * are written; a value the file already says -- a grid's bar lines aside,
+ * which it hands back without -- is left alone. */
 static void
 captureEdits (const Scheduled &c, thcStage *st)
 {
-    if (c.chain < 0 || (size_t)c.chain >= canvasDoc_.chains.size() ||
-        !st->plugin->hasCapture())
+    if (c.chain < 0 || (size_t)c.chain >= canvasDoc_.chains.size())
         return;
 
     const thcGenEdit::Chain &chain = canvasDoc_.chains[(size_t)c.chain];
@@ -560,26 +649,29 @@ captureEdits (const Scheduled &c, thcStage *st)
     if (docStage < 0 || (size_t)docStage >= chain.stages.size())
         return;
 
-    const std::string chainName = chain.name;
-    bool wrote = false;
+    auto bare = [](std::string t)
+    {
+        std::string out;
+
+        for (char ch : t)
+            if (ch != '|' && ch != '"')
+                out += ch;
+
+        return out;
+    };
 
     for (int pi = 0; pi < st->plugin->paramCount(); pi++)
     {
         const thcPlugin::ParamInfo *info = st->plugin->paramInfo(pi);
-        const std::string text = st->plugin->capture(st->state, pi);
+        std::string text;
 
-        if (info == NULL || text.empty())
+        if (info == NULL || !st->plugin->capture(st->state, pi, text))
             continue;
 
-        std::string spelled;
-
-        if (info->type == THC_PARAM_STRING &&
-            text.find_first_of("\"\n") == std::string::npos)
-            spelled = "\"" + text + "\"";
-        else if (info->type == THC_PARAM_INT &&
-                 text.find_first_not_of("-0123456789") == std::string::npos)
-            spelled = text;
-        else
+        if (!(info->type == THC_PARAM_STRING &&
+              text.find_first_of("\"\n") == std::string::npos) &&
+            !(info->type == THC_PARAM_INT && !text.empty() &&
+              text.find_first_not_of("-0123456789") == std::string::npos))
             continue;
 
         bool same = false;
@@ -587,43 +679,12 @@ captureEdits (const Scheduled &c, thcStage *st)
         for (const thcGenEdit::Param &p :
              canvasDoc_.chains[(size_t)c.chain].stages[(size_t)docStage]
                  .params)
-            if (p.name == info->name && p.valueText == spelled)
+            if (p.name == info->name && bare(p.valueText) == bare(text))
                 same = true;
 
-        if (same)
-            continue;
-
-        std::string why;
-
-        if (thcGenEdit::setParam(TW_PIECE_FILE, chainName, docStage,
-                                 info->name, spelled, why) != thcGenEdit::OK)
-        {
-            fprintf(stderr, "%s: %s\n", info->name.c_str(), why.c_str());
-            continue;
-        }
-
-        AppliedParam done;
-
-        done.at = c.at;
-        done.chain = c.chain;
-        done.stage = c.stage;
-        done.row = info->name;
-        done.text = spelled;
-        done.chainName = chainName;
-        done.docStage = docStage;
-        done.param = info->name;
-        done.valueText = spelled;
-        done.input = true;
-
-        applied_.push_back(done);
-        wrote = true;
+        if (!same)
+            writeParam(c, info->name, text, true);
     }
-
-    std::string why;
-
-    if (wrote && thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-                     thcGenEdit::OK)
-        fprintf(stderr, "the piece will not read back: %s\n", why.c_str());
 }
 
 void applyScheduled (const Scheduled &c)
@@ -813,77 +874,8 @@ void applyScheduled (const Scheduled &c)
          * the divergence the stamp exists to stop.
          */
         case TW_PARAM:
-        {
-            StagePanel target;
-
-            target.setPiece(&canvasDoc_, sched_);
-            target.setStage(c.chain, c.stage);
-
-            thPanelEdit edit;
-
-            const thPanelResult r = target.propose(c.row, c.text, edit);
-
-            if (!r.ok)
-            {
-                fprintf(stderr, "%s: %s\n", c.row.c_str(), r.why.c_str());
-                break;
-            }
-
-            if (!r.changed)
-                break;
-
-            if (c.chain < 0 || (size_t)c.chain >= canvasDoc_.chains.size())
-                break;
-
-            /* The document's numbering, which is what a splice is in; the
-               command names the stage the way every other one does, by its
-               place in the scheduler's list. */
-            const int docStage =
-                thcGenEdit::docIndex(canvasDoc_.chains[(size_t)c.chain],
-                                     c.stage);
-
-            std::string why;
-
-            if (thcGenEdit::setParam(TW_PIECE_FILE,
-                                     canvasDoc_.chains[(size_t)c.chain].name,
-                                     docStage, edit.row, edit.valueText,
-                                     why) != thcGenEdit::OK)
-            {
-                fprintf(stderr, "%s: %s\n", edit.row.c_str(), why.c_str());
-                break;
-            }
-
-            /* Described again rather than patched in place: the splice is
-               what happened, and reading it back is the only account of it
-               that cannot drift from the file. A panel is tens of rows and
-               an edit is a keystroke, so there is nothing to save by
-               guessing what changed. */
-            if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-                thcGenEdit::OK)
-                fprintf(stderr, "the piece will not read back: %s\n",
-                        why.c_str());
-
-            AppliedParam done;
-
-            done.at = c.at;
-            done.chain = c.chain;
-            done.stage = c.stage;
-            done.row = c.row;
-            done.text = c.text;
-            done.chainName = canvasDoc_.chains[(size_t)c.chain].name;
-            done.docStage = docStage;
-            done.param = edit.row;
-            done.valueText = edit.valueText;
-
-            applied_.push_back(done);
-
-            /* And the audible half, after the splice: a panel is described
-               from the document, so a stage poked first would be heard
-               before it was written (src/StagePanel.h). */
-            target.deliver(edit);
-
+            writeParam(c, c.row, c.text, false);
             break;
-        }
 
         case TW_INPUT:
         {
@@ -931,11 +923,15 @@ void applyScheduled (const Scheduled &c)
             if (c.knob < 0 || c.knob >= (int)knobs_.size())
                 break;
 
+            /* The knob's value now, not the one the command carried: two
+               hands on one knob let go in some order, and what is heard is
+               the last move's, which is what the file should say. */
             const std::string name = knobs_[c.knob]->name();
+            const double value = (*knobs_[c.knob])[0];
             std::string why, spelled;
 
-            if (!thcGenEdit::format(c.value, spelled) ||
-                thcGenEdit::setKnobValue(TW_PIECE_FILE, name, c.value, why) !=
+            if (!thcGenEdit::format(value, spelled) ||
+                thcGenEdit::setKnobValue(TW_PIECE_FILE, name, value, why) !=
                     thcGenEdit::OK)
             {
                 fprintf(stderr, "@%s: %s\n", name.c_str(), why.c_str());
@@ -956,6 +952,7 @@ void applyScheduled (const Scheduled &c)
             done.param = name;
             done.valueText = spelled;
             done.knob = c.knob;
+            done.tag = c.text;
 
             applied_.push_back(done);
             break;
@@ -3745,8 +3742,18 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_write (double at, int k, double value)
     c.op = TW_KNOBWRITE;
     c.knob = k;
     c.value = value;
+    c.text = nextTag_;
+    nextTag_.clear();
 
     schedule(c);
+}
+
+/* The name the next input or knob write goes by, for the edit it writes
+ * to be reported under: a room page's "peer:seq", so the peer that made
+ * it knows it for its own. Set just before that call, and used once. */
+EMSCRIPTEN_KEEPALIVE void tw_command_tag (const char *tag)
+{
+    nextTag_ = tag != NULL ? tag : "";
 }
 
 /* A chain's level in one section, at a transport time: the arrangement
@@ -3981,6 +3988,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
         jsonInt(appliedJson_, a.input ? 1 : 0);
         appliedJson_ += ",\"knob\":";
         jsonInt(appliedJson_, a.knob);
+        appliedJson_ += ",\"tag\":";
+        jsonString(appliedJson_, a.tag);
         appliedJson_ += '}';
     }
 
@@ -4179,6 +4188,8 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
     c.w = w;
     c.h = h;
     c.button = button;
+    c.text = nextTag_;
+    nextTag_.clear();
 
     schedule(c);
 }

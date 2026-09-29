@@ -21,10 +21,10 @@
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
  * `transport', `begin', `at', `knob', `paneledit', `stageparam', `param',
- * `mute', `solo', `section', `knobwrite', `input', `midion', `midioff', `on', `off' or
- * `alloff'
- * message, turned into the tw_ call that applies it. It used to live in
- * worklet.js, and moved here when there were two instances to apply it to.
+ * `mute', `solo', `section', `knobwrite', `input', `midion', `midioff',
+ * `on', `off' or `alloff' message, turned into the tw_ call that applies
+ * it. It used to live in worklet.js, and moved here when there were two
+ * instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -231,6 +231,9 @@ export function apply (M, m, host = NOWHERE)
             /* A knob's value written into the piece: the end of a drag
                whose middle was `knob' commands. Stamped the same, so the
                file changes where the sound did. */
+            if (m.tag)
+                M.ccall('tw_command_tag', null, ['string'], [m.tag]);
+
             M._tw_knob_write(m.at ?? -1, m.knob, m.value);
             return true;
 
@@ -247,6 +250,11 @@ export function apply (M, m, host = NOWHERE)
                was handed, with the size it was drawn at, so every
                instance inverts the same arithmetic and reaches the
                same cell. */
+            /* A room's command goes by its maker's name, so the edit its
+               release writes comes back as that peer's (tw_command_tag). */
+            if (m.tag)
+                M.ccall('tw_command_tag', null, ['string'], [m.tag]);
+
             M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
                         m.button ?? 1);
             return true;

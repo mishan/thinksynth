@@ -124,6 +124,11 @@ public:
        promises the pointer only until the next call. */
     string capture (void *state, int index);
 
+    /* The same, telling "nothing to capture" (false) from a value that
+       is the empty string (true, and `out' empty): an accent pattern
+       with every mark cleared is the second. */
+    bool capture (void *state, int index, string &out);
+
 private:
     /* Copying would give two owners of one dlopen handle. */
     thcPlugin (const thcPlugin &);

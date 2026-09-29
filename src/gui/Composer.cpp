@@ -3077,9 +3077,11 @@ Composer::captureStage (size_t ci, size_t si, bool report)
 
     for (int pi = 0; pi < s->plugin->paramCount(); pi++)
     {
-        const std::string text = s->plugin->capture(s->state, pi);
+        std::string text;
 
-        if (text.empty())
+        /* Nothing captured is not the same as an empty capture: an
+           accent pattern cleared of every mark is "", and is written. */
+        if (!s->plugin->capture(s->state, pi, text))
             continue;
 
         const thcPlugin::ParamInfo *info = s->plugin->paramInfo(pi);
@@ -3093,7 +3095,7 @@ Composer::captureStage (size_t ci, size_t si, bool report)
            may need a unit the plugin cannot know it was written in. */
         const bool quoted = info->type == THC_PARAM_STRING;
 
-        if (!quoted && (info->type != THC_PARAM_INT ||
+        if (!quoted && (info->type != THC_PARAM_INT || text.empty() ||
                         text.find_first_not_of("-0123456789") !=
                             std::string::npos))
             continue;
@@ -3121,6 +3123,33 @@ Composer::captureStage (size_t ci, size_t si, bool report)
 
         if (!report && baseline_.count(key) && baseline_[key] == text)
             continue;
+
+        /* Nor what the file already says, a grid's bar lines aside --
+           the grid hands its cells back without them. The sequencer's
+           grids have baseline_ for this; every other picture has the
+           document. */
+        if (!report && ci < doc_.chains.size() &&
+            si < doc_.chains[ci].stages.size())
+        {
+            auto bare = [](const std::string &t)
+            {
+                std::string out;
+
+                for (char ch : t)
+                    if (ch != '|' && ch != '"')
+                        out += ch;
+
+                return out;
+            };
+            bool same = false;
+
+            for (const thcGenEdit::Param &p : doc_.chains[ci].stages[si].params)
+                if (p.name == info->name && bare(p.valueText) == bare(text))
+                    same = true;
+
+            if (same)
+                continue;
+        }
 
         applyParam(ci, si, info->name, quoted ? "\"" + text + "\"" : text);
         baseline_[key] = text;

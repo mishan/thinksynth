@@ -391,8 +391,8 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* The same knob's value written into the piece, at the end of a
            drag; it comes back with the param edits. */
-        knobWrite: ({ at = -1, knob, value }) =>
-            post({ type: 'knobwrite', at, knob, value }),
+        knobWrite: ({ at = -1, knob, value, tag = '' }) =>
+            post({ type: 'knobwrite', at, knob, value, tag }),
 
         /* A knob's value in `text', for a room's document. Resolves to
            { text }, "" when refused. */
@@ -478,9 +478,10 @@ export async function createSynth (ctx, { windowlen = 256,
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
            of it is one the module wants. */
-        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1 }) =>
+        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1,
+                  tag = '' }) =>
             post({ type: 'input', at, chain, stage, kind, x, y, w, h,
-                   button }),
+                   button, tag }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

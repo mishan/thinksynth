@@ -345,3 +345,21 @@ thcPlugin::capture (void *state, int index)
 
     return text != NULL ? string(text) : string();
 }
+
+bool
+thcPlugin::capture (void *state, int index, string &out)
+{
+    out.clear();
+
+    if (capture_ == NULL || state == NULL)
+        return false;
+
+    const char *text = capture_(state, index);
+
+    if (text == NULL)
+        return false;
+
+    out = text;
+
+    return true;
+}

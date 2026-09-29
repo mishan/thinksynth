@@ -54,6 +54,11 @@
 export const KNOB_LEAD = 0.150;
 export const TRANSPORT_LEAD = 0.500;
 
+/* A command's own name: its maker and its number, which no other command
+   in the room has -- unlike its stamp, which is -1 for every command made
+   while the transport is stopped. */
+export const commandTag = (cmd) => `${cmd.from}:${cmd.seq}`;
+
 /* Makes commands for one peer: numbered, stamped, and from it. */
 export class Maker
 {
@@ -300,12 +305,14 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
             synth.knob(cmd.knob, cmd.value, cmd.at);
             break;
 
+        /* Named by their maker, so the edit each writes comes back as that
+           peer's own (commandTag). */
         case 'knobwrite':
-            synth.knobWrite(cmd);
+            synth.knobWrite({ ...cmd, tag: commandTag(cmd) });
             break;
 
         case 'input':
-            synth.input(cmd);
+            synth.input({ ...cmd, tag: commandTag(cmd) });
             break;
 
         case 'param':
