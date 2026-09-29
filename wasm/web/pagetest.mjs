@@ -1547,6 +1547,14 @@ try
 
         check(Number(shown) === 5,
               `...and the knob strip shows where it went: ${shown}`);
+
+        /* And let go of, it is in the piece: Save and Load keep it. */
+        const knobText = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => /@density\s*=\s*5\s*;/.test(t));
+
+        check(/@density\s*=\s*5\s*;/.test(knobText),
+              '...and the piece\'s text says it');
     }
 
     /* A wire from the knob's port onto the first stage of the second
@@ -1754,6 +1762,37 @@ try
               'the hats\' levels in the arrangement, and mutes the hats');
 
         await page.click('#stop');
+
+        /* The euclid ring, enlarged and right-clicked in its middle: a hit
+           fewer, which the end of the gesture writes into the piece. */
+        await page.click('#composerstages button:has-text("euclid in kick")');
+        await page.waitForFunction(
+            () => /^Painting /.test(
+                document.getElementById('composerstatus').textContent),
+            null, { timeout: 15000 });
+
+        const ringAt = await scroller();
+        const ringBox = await page.$eval('#composerscroll', (d) =>
+            ({ w: d.clientWidth, h: d.clientHeight }));
+
+        await page.mouse.click(ringAt.x + ringBox.w / 2,
+                               ringAt.y + ringBox.h / 2, { button: 'right' });
+
+        const kickOf = (t) =>
+        {
+            const a = t.indexOf('chain kick {');
+
+            return a < 0 ? '' : t.slice(a, t.indexOf('\n};', a));
+        };
+        const ringText = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => /fills\s*=\s*3\s*;/.test(kickOf(t)));
+
+        check(/fills\s*=\s*3\s*;/.test(kickOf(ringText)),
+              'a right-click in the euclid ring\'s middle takes a hit ' +
+              'away, and the piece\'s text says so');
+
+        await page.keyboard.press('Escape');
 
         const colonyLoads = await page.evaluate(() => window.solo.pieces());
 

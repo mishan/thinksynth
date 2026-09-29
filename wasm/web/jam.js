@@ -742,6 +742,13 @@ async function drawKnobs ()
 
                                  if (value !== null)
                                      send(maker.knob(Number(row), value));
+                             },
+                             (row, text) =>
+                             {
+                                 const value = numberIn(text);
+
+                                 if (value !== null)
+                                     writeKnob(Number(row), value);
                              });
 }
 
@@ -857,6 +864,23 @@ let ownParams = [];
 const paramKey = (e) =>
     JSON.stringify([e.at, e.chain, e.stage, e.row, e.text]);
 
+/* A picture's edit written at a gesture's end: the release that ended it,
+   by its time and stage. One release can write several params. */
+const inputKey = (e) => JSON.stringify(['input', e.at, e.chain, e.stage]);
+
+/* A knob's value written at a drag's end. */
+const knobKey = (e) => JSON.stringify(['knob', e.at, e.knob]);
+
+/* This peer's knob, let go of: a command every peer applies to its own
+   file, and this peer's to write into the document. */
+function writeKnob (knob, value)
+{
+    const cmd = maker.knobWrite(knob, value);
+
+    ownParams.push(knobKey(cmd));
+    send(cmd);
+}
+
 /* The same for an arrangement edit: the command's fields, and the written
    edit's -- whose level is the text it was written with. */
 const sectionKey = (e) =>
@@ -874,12 +898,18 @@ async function paramsEdited ({ edits })
     for (const e of edits)
     {
         const isSection = e.section >= 0;
-        const at = ownParams.indexOf(isSection ? sectionKey(e) : paramKey(e));
+        const isKnob = e.knob >= 0;
+        const key = isSection ? sectionKey(e) : isKnob ? knobKey(e)
+            : e.input ? inputKey(e) : paramKey(e);
+        const at = ownParams.indexOf(key);
 
         if (at < 0)
             continue;
 
-        ownParams.splice(at, 1);
+        /* A release's key stays for the rest of what it wrote: one
+           gesture on a euclid ring writes fills and rotate. */
+        if (!e.input)
+            ownParams.splice(at, 1);
 
         const name = pieceName(doc);
 
@@ -896,7 +926,10 @@ async function paramsEdited ({ edits })
             const { text } = isSection
                 ? await synth.genSetSection(was, e.param, e.chainName,
                                             Number(e.valueText))
-                : await synth.genSetParam(was, e);
+                : isKnob
+                    ? await synth.genSetKnob(was, e.param,
+                                             Number(e.valueText))
+                    : await synth.genSetParam(was, e);
 
             if (text === '')
             {
@@ -927,8 +960,19 @@ function showComposer (on)
        everywhere from that beat. */
     composer ??= createComposerView({
         toMirror: (m) => synth?.toMirror(m),
-        onGesture: (g) => send(maker.input(g.chain, g.stage, g.kind, g.x,
-                                           g.y, g.w, g.h, g.button)),
+        onGesture: (g) =>
+        {
+            const cmd = maker.input(g.chain, g.stage, g.kind, g.x, g.y, g.w,
+                                    g.h, g.button);
+
+            /* A gesture's end is where a picture that edits its params
+               writes them (THC_INPUT_EDITS); what it writes, this peer
+               puts in the document, since it made it. */
+            if (g.kind === 2)
+                ownParams.push(inputKey(cmd));
+
+            send(cmd);
+        },
 
         /* A stage's param, out to the room and back at its time -- to this
            peer as to every other, which is what keeps one piece one
@@ -950,7 +994,10 @@ function showComposer (on)
         onKnob: (knob, value, commit) =>
         {
             if (commit)
+            {
+                writeKnob(knob, value);
                 return;
+            }
 
             send(maker.knob(knob, value));
 

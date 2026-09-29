@@ -150,8 +150,8 @@ enum CmdType
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
    four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
-   TW_SOLO and TW_SECTION have entry points of their own and never arrive
-   as an op from there. */
+   TW_SOLO, TW_SECTION and TW_KNOBWRITE have entry points of their own and
+   never arrive as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -166,6 +166,7 @@ enum TransportOp
     TW_MUTE,
     TW_SOLO,
     TW_SECTION,
+    TW_KNOBWRITE,
 };
 
 struct Command
@@ -341,6 +342,12 @@ struct AppliedParam
        section, by index, with its name in `param' and the level in
        `valueText'. -1 for a param. */
     int         section = -1;
+
+    /* A picture's edit written at the end of a gesture (TW_INPUT on a
+       THC_INPUT_EDITS stage) rather than a typed one; and a knob's value
+       written (TW_KNOBWRITE), by index, with its name in `param'. */
+    bool        input = false;
+    int         knob = -1;
 };
 
 std::vector<AppliedParam> applied_;
@@ -533,6 +540,90 @@ thcStage *stageAt (int chain, int stage)
         return NULL;
 
     return c->stages[(size_t)stage].get();
+}
+
+/* What a gesture on a THC_INPUT_EDITS picture set, written into the piece
+ * at the gesture's end, param by param, and reported back as edits: the
+ * page writes them where it keeps the piece, as it does a typed one. A
+ * string param quoted, a whole number as it is; a value the file already
+ * says, and anything else, left alone. */
+static void
+captureEdits (const Scheduled &c, thcStage *st)
+{
+    if (c.chain < 0 || (size_t)c.chain >= canvasDoc_.chains.size() ||
+        !st->plugin->hasCapture())
+        return;
+
+    const thcGenEdit::Chain &chain = canvasDoc_.chains[(size_t)c.chain];
+    const int docStage = thcGenEdit::docIndex(chain, c.stage);
+
+    if (docStage < 0 || (size_t)docStage >= chain.stages.size())
+        return;
+
+    const std::string chainName = chain.name;
+    bool wrote = false;
+
+    for (int pi = 0; pi < st->plugin->paramCount(); pi++)
+    {
+        const thcPlugin::ParamInfo *info = st->plugin->paramInfo(pi);
+        const std::string text = st->plugin->capture(st->state, pi);
+
+        if (info == NULL || text.empty())
+            continue;
+
+        std::string spelled;
+
+        if (info->type == THC_PARAM_STRING &&
+            text.find_first_of("\"\n") == std::string::npos)
+            spelled = "\"" + text + "\"";
+        else if (info->type == THC_PARAM_INT &&
+                 text.find_first_not_of("-0123456789") == std::string::npos)
+            spelled = text;
+        else
+            continue;
+
+        bool same = false;
+
+        for (const thcGenEdit::Param &p :
+             canvasDoc_.chains[(size_t)c.chain].stages[(size_t)docStage]
+                 .params)
+            if (p.name == info->name && p.valueText == spelled)
+                same = true;
+
+        if (same)
+            continue;
+
+        std::string why;
+
+        if (thcGenEdit::setParam(TW_PIECE_FILE, chainName, docStage,
+                                 info->name, spelled, why) != thcGenEdit::OK)
+        {
+            fprintf(stderr, "%s: %s\n", info->name.c_str(), why.c_str());
+            continue;
+        }
+
+        AppliedParam done;
+
+        done.at = c.at;
+        done.chain = c.chain;
+        done.stage = c.stage;
+        done.row = info->name;
+        done.text = spelled;
+        done.chainName = chainName;
+        done.docStage = docStage;
+        done.param = info->name;
+        done.valueText = spelled;
+        done.input = true;
+
+        applied_.push_back(done);
+        wrote = true;
+    }
+
+    std::string why;
+
+    if (wrote && thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+                     thcGenEdit::OK)
+        fprintf(stderr, "the piece will not read back: %s\n", why.c_str());
 }
 
 void applyScheduled (const Scheduled &c)
@@ -825,6 +916,48 @@ void applyScheduled (const Scheduled &c)
             ev.button = c.button;
 
             st->plugin->input(st->state, &ev);
+
+            if (ev.type == THC_IN_RELEASE && st->plugin->inputEdits())
+                captureEdits(c, st);
+
+            break;
+        }
+
+        case TW_KNOBWRITE:
+        {
+            /* A knob's value written into the piece: the end of a drag on
+             * the knob strip or a knob node, whose middle was TW_KNOB
+             * commands and heard. Reported back with the param edits. */
+            if (c.knob < 0 || c.knob >= (int)knobs_.size())
+                break;
+
+            const std::string name = knobs_[c.knob]->name();
+            std::string why, spelled;
+
+            if (!thcGenEdit::format(c.value, spelled) ||
+                thcGenEdit::setKnobValue(TW_PIECE_FILE, name, c.value, why) !=
+                    thcGenEdit::OK)
+            {
+                fprintf(stderr, "@%s: %s\n", name.c_str(), why.c_str());
+                break;
+            }
+
+            if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+                thcGenEdit::OK)
+                fprintf(stderr, "the piece will not read back: %s\n",
+                        why.c_str());
+
+            AppliedParam done;
+
+            done.at = c.at;
+            done.chain = -1;
+            done.stage = -1;
+            done.docStage = -1;
+            done.param = name;
+            done.valueText = spelled;
+            done.knob = c.knob;
+
+            applied_.push_back(done);
             break;
         }
     }
@@ -3601,6 +3734,21 @@ EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
     schedule(c);
 }
 
+/* A knob's value written into the piece at a transport time: the end of a
+ * drag whose middle was tw_knob. The value is the knob's already; this is
+ * the file. */
+EMSCRIPTEN_KEEPALIVE void tw_knob_write (double at, int k, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_KNOBWRITE;
+    c.knob = k;
+    c.value = value;
+
+    schedule(c);
+}
+
 /* A chain's level in one section, at a transport time: the arrangement
  * lane's cell, pressed. Written into the piece and heard from `at'. */
 EMSCRIPTEN_KEEPALIVE void tw_section_level (double at, int section,
@@ -3829,6 +3977,10 @@ EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
         jsonString(appliedJson_, a.valueText);
         appliedJson_ += ",\"section\":";
         jsonInt(appliedJson_, a.section);
+        appliedJson_ += ",\"input\":";
+        jsonInt(appliedJson_, a.input ? 1 : 0);
+        appliedJson_ += ",\"knob\":";
+        jsonInt(appliedJson_, a.knob);
         appliedJson_ += '}';
     }
 
@@ -3879,6 +4031,21 @@ spliceText (const char *text, const char *what,
     remove(SCRATCH);
 
     return out.c_str();
+}
+
+/* A knob's value in a text given, for a room's document: "" when refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_knob (const char *text,
+                                                  const char *name,
+                                                  double value)
+{
+    if (text == NULL || name == NULL)
+        return "";
+
+    return spliceText(text, name,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setKnobValue(path, name, value, why);
+        });
 }
 
 /* `text' with one stage's param set to `valueText', by the writer TW_PARAM

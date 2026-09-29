@@ -21,7 +21,7 @@
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
  * `transport', `begin', `at', `knob', `paneledit', `stageparam', `param',
- * `mute', `solo', `section', `input', `midion', `midioff', `on', `off' or
+ * `mute', `solo', `section', `knobwrite', `input', `midion', `midioff', `on', `off' or
  * `alloff'
  * message, turned into the tw_ call that applies it. It used to live in
  * worklet.js, and moved here when there were two instances to apply it to.
@@ -225,6 +225,13 @@ export function apply (M, m, host = NOWHERE)
 
         case 'solo':
             M._tw_solo(m.at ?? -1, m.chain, m.on ? 1 : 0);
+            return true;
+
+        case 'knobwrite':
+            /* A knob's value written into the piece: the end of a drag
+               whose middle was `knob' commands. Stamped the same, so the
+               file changes where the sound did. */
+            M._tw_knob_write(m.at ?? -1, m.knob, m.value);
             return true;
 
         case 'section':

@@ -36,6 +36,7 @@
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
  *   knob       { at, knob, value }
+ *   knobwrite  { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
  *   param      { at, chain, stage, row, text }
  *   mute       { at, chain, on }
@@ -101,6 +102,13 @@ export class Maker
     knob (knob, value)
     {
         return this.make('knob', { knob, value }, this.knobLead);
+    }
+
+    /* A knob's value written into the piece, at the end of a drag: with
+       the knob's lead, so it lands after the drag's last move. */
+    knobWrite (knob, value)
+    {
+        return this.make('knobwrite', { knob, value }, this.knobLead);
     }
 
     /* A gesture on a stage's picture: which stage, what kind of gesture,
@@ -290,6 +298,10 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 
         case 'knob':
             synth.knob(cmd.knob, cmd.value, cmd.at);
+            break;
+
+        case 'knobwrite':
+            synth.knobWrite(cmd);
             break;
 
         case 'input':

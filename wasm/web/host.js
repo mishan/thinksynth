@@ -175,6 +175,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'genmove':
             case 'gensection':
             case 'genfreeze':
+            case 'genknob':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -387,6 +388,16 @@ export async function createSynth (ctx, { windowlen = 256,
         /* `knob' is the index loadPiece reported the knob under; `at' a
            transport time, or -1 for the next window. */
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
+
+        /* The same knob's value written into the piece, at the end of a
+           drag; it comes back with the param edits. */
+        knobWrite: ({ at = -1, knob, value }) =>
+            post({ type: 'knobwrite', at, knob, value }),
+
+        /* A knob's value in `text', for a room's document. Resolves to
+           { text }, "" when refused. */
+        genSetKnob: (text, name, value) =>
+            ask({ type: 'genknob', text, name, value }),
 
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a
