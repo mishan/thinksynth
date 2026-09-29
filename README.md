@@ -19,6 +19,11 @@ roll underneath.
 
 ![The desktop in piece mode, playing mirrorball.gen](docs/screenshots/desktop-piece.png)
 
+A sequence: `gen/scratch.gen`'s grids as tracks to click patterns into,
+each with the graph that plays it, and the roll underneath.
+
+![The desktop in sequence mode, playing scratch.gen](docs/screenshots/desktop-sequence.png)
+
 A patch: the Rhodes's graph, which can be edited live, and the parameters
 it exposes.
 
