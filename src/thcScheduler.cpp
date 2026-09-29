@@ -1887,6 +1887,43 @@ thcScheduler::sectionAt (double at) const
     return (int)sections_.size() - 1;
 }
 
+void
+thcScheduler::setSectionLevel (size_t section, const std::string &chain,
+                               double level)
+{
+    if (section >= sections_.size() || !(level >= 0))
+        return;
+
+    auto &levels = sections_[section].levels;
+
+    for (size_t i = 0; i < levels.size(); i++)
+        if (levels[i].first == chain)
+        {
+            if (level == 1)
+                levels.erase(levels.begin() + i);
+            else
+                levels[i].second = level;
+
+            return;
+        }
+
+    if (level != 1)
+        levels.push_back(std::make_pair(chain, level));
+}
+
+double
+thcScheduler::sectionLevelOf (size_t section, const std::string &chain) const
+{
+    if (section >= sections_.size())
+        return 1.0;
+
+    for (const auto &l : sections_[section].levels)
+        if (l.first == chain)
+            return l.second;
+
+    return 1.0;
+}
+
 double
 thcScheduler::sectionLevel (const thcChain &c, double at) const
 {

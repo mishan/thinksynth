@@ -736,6 +736,10 @@ one, exactly as un-muting does. Which section an event belongs to is decided by
 the event's own time and not by when it was emitted, so a grammar that emits
 eight bars in one tick is gated bar by bar.
 
+The composer view draws the sections as a lane above the chains, and a click
+on a chain's cell in a section steps its level there (1, 0, 0.5); the edit is
+written into the section as `chain = level;`, or taken out of it at 1.
+
 The live mute and solo — the M and S on a chain in the composer view — close
 the same gate: a chain they silence is at level 0 whatever the section says.
 Unlike a section they are read when an event reaches the end of the chain, not

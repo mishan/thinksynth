@@ -340,22 +340,24 @@ struct PresetIdx
 
 /* One `section' statement, and every chain name inside it.
  *
- * Nothing here edits a section: an arrangement is written by hand, and
- * the canvas that will draw one reads it through the loader. It is
- * indexed for the sake of the two edits that can *invalidate* one --
- * renaming a chain a section names, and removing it -- because the file
- * a dangling name leaves behind does not load. The same care removeKnob
- * takes over `@name'. */
+ * Indexed for the two edits that can *invalidate* one -- renaming a
+ * chain a section names, and removing it -- because the file a dangling
+ * name leaves behind does not load (the same care removeKnob takes over
+ * `@name'), and for the one edit made to a section itself: a chain's
+ * level in it (setSectionLevel). */
 struct SectionRefIdx
 {
     std::string chain;
     size_t nameA, nameB;         /* the chain name inside the block      */
+    size_t levelA, levelB;       /* its level                            */
+    size_t entryB;               /* just past the entry's ';'            */
 };
 
 struct SectionIdx
 {
     std::string name;
     size_t stmtA, stmtB;
+    size_t bodyClose;            /* the block's '}'                      */
     std::vector<SectionRefIdx> refs;
 };
 
@@ -700,6 +702,9 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     ref.chain = t[j].text;
                     ref.nameA = t[j].off;
                     ref.nameB = t[j].end;
+                    ref.levelA = t[j + 2].off;
+                    ref.levelB = t[j + 2].end;
+                    ref.entryB = t[j + 3].end;
                     se.refs.push_back(ref);
                     j += 4;
                 }
@@ -707,6 +712,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
             if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
             {
+                se.bodyClose = t[j].off;
                 se.stmtB = t[j + 1].end;
                 ix.sections.push_back(se);
                 i = j + 2;
@@ -2840,6 +2846,110 @@ thcGenEdit::renameChain (const std::string &filename,
             if (ix.sections[i].refs[k].chain == oldName)
                 edits.push_back({ ix.sections[i].refs[k].nameA,
                                   ix.sections[i].refs[k].nameB, newName });
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- the arrangement ------------------------------------------------ */
+
+R
+thcGenEdit::setSectionLevel (const std::string &filename,
+                             const std::string &section,
+                             const std::string &chain, double level,
+                             std::string &why)
+{
+    if (!(level >= 0))
+    {
+        why = "a section's level cannot be negative";
+        return REFUSED;
+    }
+
+    std::string text, num;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    SectionIdx *se = NULL;
+
+    for (size_t i = 0; i < ix.sections.size(); i++)
+        if (ix.sections[i].name == section)
+            se = &ix.sections[i];
+
+    if (se == NULL)
+    {
+        why = "no section called " + section;
+        return NOT_FOUND;
+    }
+
+    if (findChain(ix, chain) == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    if (!format(level, num))
+    {
+        why = "that level cannot be written";
+        return UNWRITABLE;
+    }
+
+    const SectionRefIdx *ref = NULL;
+
+    for (size_t k = 0; k < se->refs.size(); k++)
+        if (se->refs[k].chain == chain)
+            ref = &se->refs[k];
+
+    std::vector<Edit> edits;
+
+    /* 1 is "as written", which is what a section that does not name the
+       chain already says: the entry goes, rather than staying as a line
+       that says nothing. With the line it was on, if it had one. */
+    if (level == 1)
+    {
+        if (ref == NULL)
+            return OK;
+
+        size_t a = ref->nameA, b = ref->entryB;
+
+        while (b < text.size() && (text[b] == ' ' || text[b] == '\t'))
+            b++;
+
+        size_t line = a;
+
+        while (line > 0 && (text[line - 1] == ' ' || text[line - 1] == '\t'))
+            line--;
+
+        if (b < text.size() && text[b] == '\n' && line > 0 &&
+            text[line - 1] == '\n')
+        {
+            a = line;
+            b++;
+        }
+
+        edits.push_back({ a, b, "" });
+    }
+    else if (ref != NULL)
+        edits.push_back({ ref->levelA, ref->levelB, num });
+    else
+    {
+        /* Before the closing brace: on a line of its own where the block
+           puts its entries on lines, and inline where it is one line. */
+        const std::string entry = chain + " = " + num + ";";
+        size_t at = se->bodyClose;
+        size_t line = at;
+
+        while (line > 0 && (text[line - 1] == ' ' || text[line - 1] == '\t'))
+            line--;
+
+        if (line > 0 && text[line - 1] == '\n')
+            edits.push_back({ line, line, "    " + entry + "\n" });
+        else if (at > 0 && text[at - 1] == ' ')
+            edits.push_back({ at, at, entry + " " });
+        else
+            edits.push_back({ at, at, " " + entry + " " });
+    }
 
     return finish(filename, text, edits, why);
 }

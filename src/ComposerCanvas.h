@@ -187,6 +187,17 @@ public:
     sigc::signal<void (size_t, bool)> sigMute;
     sigc::signal<void (size_t, bool)> sigSolo;
 
+    /* A cell of the arrangement lane was pressed: which section, which
+       chain, and the level it asks that chain to have there. The window
+       writes it into the file and pokes the running piece; the browser
+       sends it as a command. */
+    sigc::signal<void (size_t, size_t, double)> sigSectionLevel;
+
+    /* The middle of a cell of the arrangement lane, in widget pixels.
+       False for a piece with no sections. */
+    bool sectionCell (size_t section, size_t chain, double &x,
+                      double &y) const;
+
     /* Which stage is filling the canvas, or NONE. Public so the window
        can label what it is showing and offer to capture it. */
     const Selection &enlarged (void) const { return enlarged_; }
@@ -351,6 +362,8 @@ private:
                                              const std::string &param)>
                    &fn) const;
 
+    void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
+
     void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
                    const Box &box, bool selected) const;
     void drawWires (const Cairo::RefPtr<Cairo::Context> &cr) const;
@@ -374,6 +387,19 @@ private:
     std::vector<double> rowX_;   /* left of each chain row              */
     std::vector<double> rowY_;   /* top of each chain row               */
     std::vector<double> rowH_;   /* height of each chain row            */
+
+    /* The arrangement lane: a block per section, and a cell per section
+       and chain; where it starts and how far right it reaches. */
+    struct LaneRect { double x, y, w, h; };
+    struct LaneCell
+    {
+        size_t section, chain;
+        double x, y, w, h;
+    };
+
+    std::vector<LaneRect> heads_;
+    std::vector<LaneCell> cells_;
+    double laneY_, laneRight_;
 
     /* The chains collapsed, by name. */
     std::set<std::string> collapsed_;

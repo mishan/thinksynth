@@ -9018,6 +9018,106 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* A chain's level in a section, edited: thcGenEdit::setSectionLevel
+ * writes an entry into a one-line block and into a block written a line
+ * at a time, changes one, and takes one out at 1 -- each file one the
+ * loader reads back with the levels asked for -- and the scheduler's
+ * setSectionLevel does the same to a running piece. */
+static void
+checkSectionEdits (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-arr-");
+
+    if (path.empty())
+    {
+        fail("could not write the arrangement piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "tempo 120;\n"
+               "section a 1 bars { kick = 0; };\n"
+               "section b 1 bars {\n"
+               "    snare = 0.5;\n"
+               "};\n"
+               "chain kick {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+               "    vel = 100; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n"
+               "chain snare {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"D2\"; period = 1 beats; hold = 0.2 beats;\n"
+               "    vel = 80; };\n"
+               "  sink { channel = 2; };\n"
+               "};\n";
+    }
+
+    std::string why;
+
+    editOk(thcGenEdit::setSectionLevel(path, "a", "snare", 0.25, why), why,
+           "setSectionLevel into a one-line section");
+    editOk(thcGenEdit::setSectionLevel(path, "b", "kick", 0, why), why,
+           "setSectionLevel into a section of lines");
+    editOk(thcGenEdit::setSectionLevel(path, "a", "kick", 0.75, why), why,
+           "setSectionLevel changing a level");
+    editOk(thcGenEdit::setSectionLevel(path, "b", "snare", 1, why), why,
+           "setSectionLevel back to as written");
+
+    if (thcGenEdit::setSectionLevel(path, "c", "kick", 0, why) !=
+        thcGenEdit::NOT_FOUND ||
+        thcGenEdit::setSectionLevel(path, "a", "bass", 0, why) !=
+        thcGenEdit::NOT_FOUND ||
+        thcGenEdit::setSectionLevel(path, "a", "kick", -1, why) !=
+        thcGenEdit::REFUSED)
+        fail("setSectionLevel took a section, a chain or a level that is "
+             "not there");
+
+    const std::string text = slurp(path);
+
+    if (text.find("snare = 0.5") != std::string::npos ||
+        text.find("section b 1 bars {\n    kick = 0;\n};") ==
+            std::string::npos)
+        fail("setSectionLevel wrote the lines section as:\n" + text);
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail("the edited arrangement did not load:\n" + text);
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+
+    if (sched.sectionLevelOf(0, "kick") != 0.75 ||
+        sched.sectionLevelOf(0, "snare") != 0.25 ||
+        sched.sectionLevelOf(1, "kick") != 0 ||
+        sched.sectionLevelOf(1, "snare") != 1)
+        fail("the edited arrangement read back with other levels:\n" +
+             text);
+
+    sched.setSectionLevel(1, "snare", 0.5);
+    sched.setSectionLevel(0, "kick", 1);
+
+    if (sched.sectionLevelOf(1, "snare") != 0.5 ||
+        sched.sectionLevelOf(0, "kick") != 1 ||
+        sched.sections()[0].levels.size() != 1)
+        fail("thcScheduler::setSectionLevel did not set, or take out, a "
+             "level");
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -11187,6 +11287,7 @@ main (int argc, char *argv[])
     checkSections(plugins, &synth);
     checkMuteSolo(plugins, &synth);
     checkChainIdentity(plugins, &synth);
+    checkSectionEdits(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

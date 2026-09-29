@@ -63,6 +63,15 @@ static const double PILL_ARROW_W = 12;
 /* The disclosure triangle in a chain's name box, which collapses it. */
 static const double DISCLOSE     = 9;
 
+/* The arrangement lane: a block per section, as wide as it is long at
+ * the scale that makes the whole arrangement about LANE_W, and never
+ * narrower than LANE_COL_MIN; under the blocks a row per chain. */
+static const double LANE_W       = 640;
+static const double LANE_COL_MIN = 34;
+static const double LANE_HEAD_H  = 18;
+static const double LANE_ROW_H   = 13;
+static const double LANE_GAP     = 2;
+
 /* Columns of chains, when the view is wide enough for more than one. */
 static const double COLUMN_GAP   = 28;
 static const int    COLUMNS_MAX  = 6;
@@ -91,7 +100,8 @@ static const int    KNOB_COLS = 6;
 static const double PORT_GRAB = 9;
 
 ComposerCanvas::ComposerCanvas (void)
-    : doc_(NULL), sched_(NULL), fitWidth_(0), columns_(1),
+    : doc_(NULL), sched_(NULL), laneY_(0), laneRight_(0), fitWidth_(0),
+      columns_(1),
       chainHues_(false),
       feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
       wireX_(0), wireY_(0), dragBox_(-1), dragDx_(0), dropAt_(-1)
@@ -115,6 +125,8 @@ ComposerCanvas::contentExtent (double &w, double &h) const
         if (boxes_[i].y + boxes_[i].h > h)
             h = boxes_[i].y + boxes_[i].h;
     }
+
+    w = std::max(w, laneRight_);
 
     if (w > 0) w += 12;
     if (h > 0) h += 12;
@@ -486,6 +498,42 @@ ComposerCanvas::rebuild (void)
 
         if (ki + 1 == doc_->knobs.size())
             y = b.y + KNOB_H + ROW_GAP;
+    }
+
+    /* The arrangement, when the piece has one: under the knobs, above
+       the chains, as wide as its sections are long. */
+    heads_.clear();
+    cells_.clear();
+    laneRight_ = 0;
+
+    if (sched_ != NULL && !sched_->sections().empty() &&
+        sched_->sectionsLength() > 0)
+    {
+        const std::vector<thcSection> &secs = sched_->sections();
+        const double scale = LANE_W / sched_->sectionsLength();
+        double x = M + LABEL_W + 8;
+
+        for (size_t si = 0; si < secs.size(); si++)
+        {
+            const double w =
+                std::max(LANE_COL_MIN, sched_->sectionLength(secs[si]) *
+                                       scale);
+
+            heads_.push_back({ x, y, w - LANE_GAP, LANE_HEAD_H });
+
+            for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+                cells_.push_back({ si, ci, x,
+                                   y + LANE_HEAD_H + LANE_GAP +
+                                       ci * (LANE_ROW_H + LANE_GAP),
+                                   w - LANE_GAP, LANE_ROW_H });
+
+            x += w;
+        }
+
+        laneRight_ = x;
+        laneY_ = y;
+        y += LANE_HEAD_H + LANE_GAP +
+             doc_->chains.size() * (LANE_ROW_H + LANE_GAP) + ROW_GAP;
     }
 
     /* Each chain's row laid out once at the origin, to be measured, and
@@ -1360,6 +1408,9 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
     /* Wires under the arrows, and both under the boxes. */
     drawWires(cr);
 
+    /* The arrangement over the wires, which would only cross it. */
+    drawLane(cr);
+
     /* Arrows first, boxes over them. Each one lights as an event goes
        along it: out of the stage it leaves, or into the stage it enters
        where the one it leaves has no live stage behind it. The arrows
@@ -1663,6 +1714,135 @@ ComposerCanvas::flash (double t) const
     return 1.0 - f * f;
 }
 
+/* The arrangement: the sections as blocks, the one playing lit, and a
+ * row per chain with its level in each -- full as written, empty where
+ * it is silent, and the number where it is anything else. A line where
+ * the transport is. */
+void
+ComposerCanvas::drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    if (heads_.empty() || sched_ == NULL || doc_ == NULL)
+        return;
+
+    const std::vector<thcSection> &secs = sched_->sections();
+    const double bottom = cells_.empty() ? laneY_ + LANE_HEAD_H
+        : cells_.back().y + cells_.back().h;
+
+    cr->set_source_rgb(BG_R, BG_G, BG_B);
+    cr->rectangle(M, laneY_ - 2, laneRight_ - M + 2, bottom - laneY_ + 4);
+    cr->fill();
+
+    const bool going = sched_->running() || sched_->now() > 0;
+    const int playing = going ? sched_->sectionAt(sched_->now()) : -1;
+
+    cr->set_font_size(9);
+
+    for (size_t si = 0; si < heads_.size() && si < secs.size(); si++)
+    {
+        const LaneRect &h = heads_[si];
+
+        roundedRect(cr, h.x, h.y, h.w, h.h, 3);
+
+        if ((int)si == playing)
+            cr->set_source_rgba(1.0, 0.85, 0.3, 0.35);
+        else
+            cr->set_source_rgba(1, 1, 1, 0.08);
+
+        cr->fill();
+        cr->set_source_rgba(1, 1, 1, 0.75);
+        fitText(cr, secs[si].name, h.x + 3, h.y + 12, h.w - 6);
+    }
+
+    /* The chain names, beside their rows. */
+    for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+    {
+        const double ry = laneY_ + LANE_HEAD_H + LANE_GAP +
+                          ci * (LANE_ROW_H + LANE_GAP);
+
+        cr->set_source_rgba(1, 1, 1, chainAudible(ci) ? 0.6 : 0.3);
+        fitText(cr, doc_->chains[ci].name, M + 2, ry + 10, LABEL_W - 4);
+    }
+
+    for (const LaneCell &c : cells_)
+    {
+        if (c.section >= secs.size() || c.chain >= doc_->chains.size())
+            continue;
+
+        const double level =
+            sched_->sectionLevelOf(c.section, doc_->chains[c.chain].name);
+        double r = 1, g = 1, b = 1;
+
+        if (chainHues_)
+            gthChannelColor((int)c.chain, r, g, b);
+
+        roundedRect(cr, c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1, 2);
+
+        if (level > 0)
+        {
+            cr->set_source_rgba(r, g, b,
+                                0.12 + 0.4 * std::min(level, 1.5) / 1.5);
+            cr->fill_preserve();
+        }
+
+        cr->set_source_rgba(1, 1, 1, level > 0 ? 0.0 : 0.18);
+        cr->set_line_width(1);
+        cr->stroke();
+
+        if (level != 0 && level != 1)
+        {
+            char t[16];
+
+            snprintf(t, sizeof(t), "%g", level);
+            cr->set_source_rgba(1, 1, 1, 0.85);
+            fitText(cr, t, c.x + 3, c.y + 10, c.w - 6);
+        }
+    }
+
+    /* Where the transport is, in the section it is in: the blocks are
+       each as wide as they are long only down to their minimum, so the
+       line is placed within its own block rather than on one scale. */
+    if (playing >= 0 && (size_t)playing < heads_.size())
+    {
+        const double total = sched_->sectionsLength();
+        double at = sched_->now();
+
+        if (total > 0 && at >= total)
+            at = fmod(at, total);
+
+        double start = 0;
+
+        for (int i = 0; i < playing; i++)
+            start += sched_->sectionLength(secs[i]);
+
+        const double len = sched_->sectionLength(secs[playing]);
+        const double f = len > 0 ? std::clamp((at - start) / len, 0.0, 1.0)
+                                 : 0.0;
+        const LaneRect &h = heads_[playing];
+        const double px = h.x + f * h.w;
+
+        cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+        cr->set_line_width(1.5);
+        cr->move_to(px, laneY_ - 1);
+        cr->line_to(px, bottom + 1);
+        cr->stroke();
+    }
+}
+
+bool
+ComposerCanvas::sectionCell (size_t section, size_t chain, double &x,
+                             double &y) const
+{
+    for (const LaneCell &c : cells_)
+        if (c.section == section && c.chain == chain)
+        {
+            x = (c.x + c.w / 2) * zoom();
+            y = (c.y + c.h / 2) * zoom();
+            return true;
+        }
+
+    return false;
+}
+
 bool
 ComposerCanvas::mixFlag (size_t chain, bool solo) const
 {
@@ -1863,6 +2043,22 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
     }
 
     const Box *box = hit(x, y);
+
+    /* A cell of the arrangement: that chain in that section, its level
+       stepped round as written (1), silent (0) and half (0.5). */
+    if (button == 1 && enlarged_.kind == Selection::NONE && sched_ != NULL)
+        for (const LaneCell &c : cells_)
+            if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h &&
+                c.chain < doc_->chains.size())
+            {
+                const double now =
+                    sched_->sectionLevelOf(c.section,
+                                           doc_->chains[c.chain].name);
+                const double next = now == 1 ? 0 : now == 0 ? 0.5 : 1;
+
+                sigSectionLevel.emit(c.section, c.chain, next);
+                return;
+            }
 
     /* A knob's output port, before the hit test gets a say.
      *
