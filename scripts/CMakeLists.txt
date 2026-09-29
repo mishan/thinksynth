@@ -159,6 +159,34 @@ think_harness(dspab)
 # Numbers read and written the same under a comma-decimal LC_NUMERIC.
 think_harness(localecheck THREADS)
 
+# think_embedded inside a module, and whether dlclose really unloads it.
+# RTLD_NOLOAD and the rules for what pins a module are glibc's. The module
+# exports its one function and nothing else, as a plugin's version script
+# would have it; a C++ module that exports its std::string instantiations
+# is pinned by libstdc++ binding to them, whatever libthink does.
+if(THINK_EMBEDDED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(_exports "${CMAKE_CURRENT_BINARY_DIR}/unloadcheck-module.map")
+  file(WRITE "${_exports}" "{ global: unloadcheck_probe; local: *; };\n")
+
+  add_library(unloadcheck-module MODULE unloadcheck-module.cpp)
+  target_include_directories(unloadcheck-module PRIVATE "${PROJECT_SOURCE_DIR}")
+  target_link_libraries(unloadcheck-module PRIVATE think_embedded)
+  target_link_options(unloadcheck-module PRIVATE
+                      "-Wl,--version-script=${_exports}")
+  set_target_properties(unloadcheck-module PROPERTIES
+      PREFIX ""
+      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+
+  add_executable(unloadcheck unloadcheck.cpp)
+  target_link_libraries(unloadcheck PRIVATE ${CMAKE_DL_LIBS})
+  set_target_properties(unloadcheck PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+  add_dependencies(unloadcheck unloadcheck-module)
+
+  add_test(NAME unloadcheck
+           COMMAND unloadcheck $<TARGET_FILE:unloadcheck-module>)
+endif()
+
 # The same harness twice: dlopened plugins, and think_embedded's compiled-in
 # ones. See the dsphash.embedded gate below.
 think_harness(dsphash)
