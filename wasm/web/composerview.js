@@ -147,7 +147,7 @@ export function createComposerView ({ root = document, toMirror,
     /* The same for a chain's M (which 0) or S (1), and each chain's
        mute and solo as the mirror holds them. */
     let chipAsked = null, mixAsked = null, knobAsked = null,
-        stageAsked = null, activityAsked = null;
+        stageAsked = null, activityAsked = null, layoutAsked = null;
 
     const chipOf = (chain, which) => new Promise((resolve) =>
     {
@@ -169,6 +169,12 @@ export function createComposerView ({ root = document, toMirror,
         toMirror({ type: 'knobat', name });
     });
 
+    const layout = () => new Promise((resolve) =>
+    {
+        layoutAsked = resolve;
+        toMirror({ type: 'layout' });
+    });
+
     const activity = () => new Promise((resolve) =>
     {
         activityAsked = resolve;
@@ -186,6 +192,13 @@ export function createComposerView ({ root = document, toMirror,
        differently, so it is not a command. */
     $('rollbychain')?.addEventListener('change', (e) =>
         toMirror({ type: 'bychain', on: e.target.checked }));
+
+    /* Every chain to one short line, or every one open again: a view
+       setting, the mirror's canvas's own. */
+    $('collapseall')?.addEventListener('click', () =>
+        toMirror({ type: 'collapseall', on: true }));
+    $('expandall')?.addEventListener('click', () =>
+        toMirror({ type: 'collapseall', on: false }));
 
     /* True if the message was this view's. */
     const fromMirror = (m) =>
@@ -221,6 +234,10 @@ export function createComposerView ({ root = document, toMirror,
             case 'activity':
                 activityAsked?.(m);
                 activityAsked = null;
+                return true;
+            case 'layout':
+                layoutAsked?.(m);
+                layoutAsked = null;
                 return true;
 
             /* A knob node's track dragged: a knob command, by index. */
@@ -533,7 +550,7 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf, chipOf, mix: askMix, forgetMix,
-             knobAt, stageAt, activity, pollParams,
+             knobAt, stageAt, activity, layout, pollParams,
 
              /* How many pieces the mirror has loaded, for a harness to
                 wait on one. */

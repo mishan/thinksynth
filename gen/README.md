@@ -61,6 +61,10 @@ they drive. Everything is reachable from there:
   when the mute, a solo or the arrangement drops what reached them. *Color
   Notes by Chain* colors the piano roll by the chain that made each note, and
   stripes each chain's name to match.
+- **The triangle** on a chain's name collapses it to one short line, its
+  stages and sinks shrunk to pills; *Collapse Chains* and *Expand Chains* do
+  every chain. When the view is wide enough the chains are laid out in
+  columns, in file order down each one.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the

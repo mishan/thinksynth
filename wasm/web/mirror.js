@@ -114,6 +114,15 @@ async function start ({ bytes, windowlen, sampleRate })
  * else about the drawing it never needs to know, because it does not do
  * the drawing.
  */
+/* The canvas to the view's width: columns chosen at 1:1, and then scaled
+   down if even one of them is wider than the view. */
+function fitToWidth ()
+{
+    M._tw_canvas_set_zoom(1);
+    M._tw_canvas_refit_columns();
+    M._tw_canvas_zoom_to_width();
+}
+
 function showPiece ()
 {
     if (!M._tw_canvas_show())
@@ -125,8 +134,9 @@ function showPiece ()
     /* A piece that has just loaded is a drawing that did not exist when
        the page last asked for a fit -- and a fit of nothing is dropped,
        since there is nothing to fit to. So the fit happens here, where
-       there is. */
-    M._tw_canvas_zoom_to_width();
+       there is -- from 1:1, with the columns chosen for that, so the zoom
+       is this piece's and not whatever the last one left. */
+    fitToWidth();
 
     const chains = [];
 
@@ -523,22 +533,27 @@ function receive (m)
                quarter-scale picture nobody can read
                (CanvasContent::zoomToWidth). */
             if (m.fit)
-                M._tw_canvas_zoom_to_width();
+                fitToWidth();
 
             break;
 
+        /* A zoom changes the room the columns have in the drawing's own
+           units, with no change in the view to say so. */
         case 'zoom':
             M._tw_canvas_set_zoom(m.zoom);
+            M._tw_canvas_refit_columns();
             break;
 
         /* Ctrl+wheel: a step in, a step out. The shell says by how much
            and this says from what, since the zoom is the content's. */
         case 'zoomBy':
             M._tw_canvas_set_zoom(M._tw_canvas_zoom() * m.by);
+            M._tw_canvas_refit_columns();
             break;
 
         case 'fit':
             M._tw_canvas_zoom_to_fit();
+            M._tw_canvas_refit_columns();
             break;
 
         case 'enlarge':
@@ -593,6 +608,26 @@ function receive (m)
                    running: M._tw_running() !== 0, chains });
             break;
         }
+
+        /* The layout: how many columns, and for each chain whether it is
+           collapsed and where its disclosure triangle is. */
+        case 'layout':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ collapsed: M._tw_canvas_collapsed(c) !== 0,
+                              x: M._tw_canvas_disclose_x(c),
+                              y: M._tw_canvas_disclose_y(c) });
+
+            post({ type: 'layout', columns: M._tw_canvas_columns(),
+                   width: M._tw_canvas_width(), chains });
+            break;
+        }
+
+        case 'collapseall':
+            M._tw_canvas_collapse_all(m.on ? 1 : 0);
+            break;
 
         /* The roll by chain rather than channel, and the canvas to match. */
         case 'bychain':

@@ -1449,6 +1449,61 @@ try
         return got;
     };
 
+    /* A chain's triangle collapses it, and Expand chains opens every
+       one again. */
+    {
+        const layout = () =>
+            page.evaluate(() => window.solo.canvasLayout());
+        const before = await layout();
+        const where = await scroller();
+
+        await page.mouse.click(where.x + before.chains[1].x,
+                               where.y + before.chains[1].y);
+
+        const after = await until(layout, (l) => l.chains[1].collapsed);
+
+        check(after.chains[1].collapsed && !after.chains[0].collapsed &&
+              after.chains[2].y < before.chains[2].y,
+              'a chain\'s triangle collapses it and the rows below move up');
+
+        await page.click('#expandall');
+
+        const open = await until(layout,
+                                 (l) => l.chains.every((c) => !c.collapsed));
+
+        check(open.chains.every((c) => !c.collapsed),
+              'Expand chains opens every chain again');
+
+        /* Wide enough for more than one, the chains go in columns, and
+           back to one when the view narrows again. */
+        await page.addStyleTag({ content:
+            '#composerscroll { width: 1500px !important; ' +
+            'max-width: none !important; }' });
+
+        const wide = await until(layout, (l) => l.columns > 1);
+        const room = await page.$eval('#composerscroll',
+                                      (d) => d.clientWidth);
+
+        /* Colony's chains are about the same height, so the columns hold
+           about as many each, and the drawing fits the view. */
+        const tops = new Set(wide.chains.map((c) => c.x));
+        const perColumn = [...tops].map(
+            (x) => wide.chains.filter((c) => c.x === x).length);
+
+        check(wide.columns > 1 && wide.width <= room &&
+              Math.max(...perColumn) - Math.min(...perColumn) <= 1,
+              `a view wide enough lays the chains out in ${wide.columns} ` +
+              `columns of ${perColumn.join('/')}, ${wide.width} wide in ` +
+              `${room}`);
+
+        await page.evaluate(() => document.querySelectorAll('style')
+            .forEach((s) => s.textContent.includes('1500px') && s.remove()));
+
+        const narrow = await until(layout, (l) => l.columns === 1);
+
+        check(narrow.columns === 1, '...and one again when it narrows');
+    }
+
     /* A drag on the canvas, a frame at a time: the view sends one motion
        per animation frame, and the drag is what the motions say. */
     const drag = async (x0, y0, x1, y1) =>

@@ -1575,8 +1575,15 @@ Composer::buildActions (void)
     menu_->append("Save Piece _As...", "composer.saveas");
     menu_->append("Revert Pie_ce", "composer.revert");
 
+    acts->add_action("collapse-chains",
+                     [this] { canvas_->setAllCollapsed(true); });
+    acts->add_action("expand-chains",
+                     [this] { canvas_->setAllCollapsed(false); });
+
     Glib::RefPtr<Gio::Menu> roll = Gio::Menu::create();
 
+    roll->append("Co_llapse Chains", "composer.collapse-chains");
+    roll->append("E_xpand Chains", "composer.expand-chains");
     roll->append("Color Notes by C_hain", "composer.roll-by-chain");
     menu_->append_section(roll);
 
@@ -1597,8 +1604,14 @@ Composer::buildActions (void)
 bool
 Composer::onDrawTimer (void)
 {
+    /* The columns follow the view's width. Asked here rather than on a
+       resize, because the drawing area is sized to the drawing and does
+       not hear the scroller around it get narrower. */
     if (canvas_ != NULL && canvasShown_)
+    {
+        canvas_->fitColumns();
         canvas_->queue_draw();
+    }
 
     if (seqShown_)
         seq_.tick();
@@ -3076,6 +3089,7 @@ Composer::buildChainSelection (size_t ci)
                     nameEntry->get_text(), why), why))
             {
                 mixRenamed_[chainName] = nameEntry->get_text();
+                canvas_->renameCollapsed(chainName, nameEntry->get_text());
                 structuralReload();
             }
         });

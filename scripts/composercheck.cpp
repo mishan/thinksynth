@@ -695,6 +695,86 @@ run (const std::string &pluginPath, const char *genFile)
     else
         fail("the piece here has fewer than two chains to mute between");
 
+    /* A chain's disclosure triangle collapses it to a short row and back,
+       and a reload of the same piece keeps it collapsed. */
+    {
+        double dx, dy;
+        CanvasRect open, small;
+
+        win->canvas_->setZoom(0.5);
+        pump(2);
+
+        if (!win->canvas_->discloseAt(0, dx, dy) ||
+            !win->canvas_->stageRect(0, 0, open))
+            fail("the first chain has no disclosure triangle");
+        else
+        {
+            win->canvas_->pressAt(dx, dy, 1, 1);
+            pump(2);
+
+            if (win->canvas_->chainCollapsed(0) &&
+                win->canvas_->stageRect(0, 0, small) && small.h < open.h)
+                ok("a chain's triangle collapses it to a short row");
+            else
+                fail("a chain's triangle collapses it to a short row");
+
+            /* M sits beside the name on a collapsed row. */
+            double mx, my;
+
+            if (win->canvas_->chainChip(0, 0, mx, my))
+            {
+                win->canvas_->pressAt(mx, my, 1, 1);
+                pump(2);
+
+                const bool muted = win->sched_->chain(0)->muted;
+
+                win->canvas_->pressAt(mx, my, 1, 1);
+                pump(2);
+
+                if (muted && !win->sched_->chain(0)->muted)
+                    ok("...where M still mutes and unmutes the chain");
+                else
+                    fail("...where M still mutes and unmutes the chain");
+            }
+
+            win->structuralReload();
+            pump(6);
+
+            if (win->canvas_->chainCollapsed(0))
+                ok("...which a reload of the same piece keeps");
+            else
+                fail("...which a reload of the same piece keeps");
+
+            if (win->canvas_->discloseAt(0, dx, dy))
+                win->canvas_->pressAt(dx, dy, 1, 1);
+
+            pump(2);
+
+            if (!win->canvas_->chainCollapsed(0) &&
+                win->canvas_->stageRect(0, 0, small) &&
+                std::abs(small.h - open.h) <= 1)
+                ok("...and the triangle opens it again");
+            else
+                fail("...and the triangle opens it again");
+
+            win->acts_->activate_action("collapse-chains");
+            pump(2);
+
+            bool all = true;
+
+            for (size_t ci = 0; ci < win->doc_.chains.size(); ci++)
+                all = all && win->canvas_->chainCollapsed(ci);
+
+            win->acts_->activate_action("expand-chains");
+            pump(2);
+
+            if (all && !win->canvas_->chainCollapsed(0))
+                ok("Collapse Chains and Expand Chains do every chain");
+            else
+                fail("Collapse Chains and Expand Chains do every chain");
+        }
+    }
+
     /* Color Notes by Chain: the roll by chain, and the canvas's chain
        names striped to match, together and back. */
     {
