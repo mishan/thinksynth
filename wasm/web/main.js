@@ -1568,6 +1568,14 @@ async function drawKnobs ()
 
         if (value !== null)
             synth.knob(Number(row), value);
+    },
+    /* The end of a drag or a typed value: into the piece. */
+    (row, text) =>
+    {
+        const value = numberIn(text);
+
+        if (value !== null)
+            synth.knobWrite({ at: -1, knob: Number(row), value });
     });
 }
 
@@ -2554,10 +2562,14 @@ function showComposer (on)
         /* A knob node dragged on the canvas: the knob strip's command, so
            the strip follows it as it follows any other move. Live only,
            as the strip is. */
-        onKnob: (knob, value) =>
+        onKnob: (knob, value, commit) =>
         {
             synth?.knob(knob, value);
             setKnobShown(String(knob), value);
+
+            /* Let go of: into the piece, as a desktop drag is. */
+            if (commit)
+                synth?.knobWrite({ at: -1, knob, value });
         },
 
         onMove: moveStage,
@@ -2568,6 +2580,9 @@ function showComposer (on)
             synth?.section({ at: -1, section, chain, level }),
 
         onFreeze: freezeChain,
+
+        /* A section's block: the transport there, in the next window. */
+        onSeek: (at) => synth?.transport('seek', at),
     });
 
     composer.show(on);
@@ -2737,7 +2752,7 @@ window.solo = {
     knobAt: (name) => composer?.knobAt(name),
     stageAt: (chain, stage) => composer?.stageAt(chain, stage),
     activity: () => composer?.activity(),
-    canvasLayout: () => composer?.layout(),
+    canvasLayout: (arrow) => composer?.layout(arrow),
     lane: () => composer?.lane(),
     genText: () => $('gen').value,
 

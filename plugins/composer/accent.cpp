@@ -92,7 +92,7 @@ composer_init (thcComposerInfo *info)
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_TRANSFORMER);
+    info->set_flags(info->host, THC_TRANSFORMER | THC_INPUT_EDITS);
     info->set_desc(info->host,
         "Weight each note by where it falls: an accent pattern and a swell.");
 
@@ -320,6 +320,18 @@ composer_input (void *state, const thcInputEvent *ev)
     if (ev->type == THC_IN_RELEASE || ev->w <= 0)
         return;
 
+    /* Off the steps -- which there are as many of as the pattern has, or
+       EMPTY_STEPS for none -- is nothing, and touches nothing. */
+    {
+        const size_t n = strlen(patternOf(st));
+        const int steps = n == 0 ? EMPTY_STEPS
+                                 : (int)(n > MAX_PATTERN ? MAX_PATTERN : n);
+        const int at = (int)floor(ev->x / (ev->w / steps));
+
+        if (at < 0 || at >= steps)
+            return;
+    }
+
     if (!st->touched)
     {
         const char *p = patternOf(st);
@@ -345,12 +357,7 @@ composer_input (void *state, const thcInputEvent *ev)
     const int i = (int)floor(ev->x / (ev->w / len));
 
     if (i < 0 || i >= len)
-    {
-        if (strspn(st->drawn, ".") == (size_t)len)
-            st->drawn[0] = 0;
-
         return;
-    }
 
     const bool on = st->drawn[i] == 'x' || st->drawn[i] == 'X';
 

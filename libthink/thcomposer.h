@@ -274,6 +274,13 @@ typedef struct {
 #define THC_EMITS_AHEAD (1 << 2)  /* generator can emit future events */
 #define THC_NEEDS_AHEAD (1 << 3)  /* transformer places events earlier */
 
+/* Its picture is an editor of its own params (composer_input,
+   composer_capture): what a gesture set is the piece from then on, and a
+   host writes it into the file at the gesture's end. Not for a picture
+   that is a state the piece goes on changing, a Life board say, whose
+   capture is a deliberate act. */
+#define THC_INPUT_EDITS (1 << 4)
+
 /* Passed to composer_init. */
 typedef struct {
     void *host;

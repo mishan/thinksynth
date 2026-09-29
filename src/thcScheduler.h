@@ -330,6 +330,15 @@ struct thcInstrument
     thcInstrument (void) : sideChannel(-1), channel(-1) {}
 };
 
+/* A note a chain was heard to play, or a stage let out: what freezing a
+ * chain into a pattern reads, and what a probe on an arrow draws. */
+struct thcPlayed
+{
+    double at, duration;           /* transport seconds; 0 until a held
+                                      note's release says               */
+    int    note, velocity;
+};
+
 /* One placement of a plugin in a chain. */
 class thcScheduler;
 
@@ -371,6 +380,11 @@ struct thcStage
        counted; it is bookkeeping, not something the stage did. */
     double         lastIn, lastOut;
 
+    /* The notes that went along the arrow after it -- its own and any it
+       let pass -- and, for a stage that takes notes, the ones that came
+       into it: eight seconds of each, oldest first, what a probe draws. */
+    std::deque<thcPlayed> in, out;
+
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),
           sched(NULL), chain(0), ticks(wantTick), awaitingStart(wantTick),
@@ -408,14 +422,6 @@ struct thcSink
      * `*' cannot collide with a real name: a chanarg is a .dsp
      * identifier, and identifiers do not contain it. */
     bool namesItsOwn (void) const { return chanarg == "*"; }
-};
-
-/* A note a chain was heard to play: what freezing it into a pattern
- * reads. */
-struct thcPlayed
-{
-    double at, duration;           /* transport seconds; 0 while held   */
-    int    note, velocity;
 };
 
 /* A linear pipeline: stage 0 is usually a generator, the rest
@@ -918,6 +924,14 @@ public:
        are not aligned. A time at or before now is a step of nothing. */
     void stepTransportTo (double t);
 
+    /* To transport time `t', from the top: the piece rewound and played
+       up to `t' without a sound, so every stage is where it would have
+       been had it been heard getting there -- which a generative piece
+       cannot be put any other way. Notes due at or after `t' play from
+       there; chanargs and structure edits on the way are applied. Keeps
+       playing if it was, and otherwise waits at `t'. */
+    void seek (double t);
+
     /* Route a live MIDI note into a chain's receive() path (Markov
      * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
      * same thread, so it is a plain call into propagate(). On a stopped
@@ -1236,6 +1250,9 @@ private:
     mutable std::vector<int>      peekChains_;
 
     int deliveringChain_;
+
+    bool seeking_ = false;     /* seek() is playing ahead, silently      */
+    bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
 
     /* Set by propagate() for the one call that carries an event past a
        stage with no receive, so that stage is not lit as its source. */

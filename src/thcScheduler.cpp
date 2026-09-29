@@ -798,6 +798,7 @@ thcScheduler::ensureAuditioner (void)
 void
 thcScheduler::setAuditionSynchronous (bool on)
 {
+    auditionSync_ = on;
     ensureAuditioner();
 
 #ifndef __EMSCRIPTEN__
@@ -2241,7 +2242,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     passingThrough_ = false;
 
-    if (ev.type != THC_EV_NOTEOFF)
+    if (ev.type != THC_EV_NOTEOFF && !seeking_)
     {
         if (fromStage > 0 && fromStage <= c.stages.size() && !passed)
             c.stages[fromStage - 1]->lastOut = transportNow_;
@@ -2249,6 +2250,43 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
         if (fromStage < c.stages.size() &&
             c.stages[fromStage]->plugin->hasReceive())
             c.stages[fromStage]->lastIn = transportNow_;
+    }
+
+    /* And what a probe on an arrow draws: every note that went along it,
+       whoever made it -- one that only passed through the stage before
+       it included -- and every note that went into a stage that takes
+       them, eight seconds of each. A held note's release gives it its
+       length. */
+    if (!seeking_ && (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF))
+    {
+        auto keep = [&](std::deque<thcPlayed> &d)
+        {
+            if (ev.type == THC_EV_NOTEOFF)
+            {
+                for (size_t i = d.size(); i-- > 0; )
+                    if (d[i].note == ev.u.note.note && d[i].duration <= 0)
+                    {
+                        d[i].duration = std::max(ev.at - d[i].at, 0.0);
+                        break;
+                    }
+
+                return;
+            }
+
+            d.push_back({ ev.at, ev.u.note.duration, ev.u.note.note,
+                          ev.u.note.velocity });
+
+            while (!d.empty() && (d.front().at < transportNow_ - 8 ||
+                                  d.size() > 512))
+                d.pop_front();
+        };
+
+        if (fromStage > 0 && fromStage <= c.stages.size())
+            keep(c.stages[fromStage - 1]->out);
+
+        if (fromStage < c.stages.size() &&
+            c.stages[fromStage]->plugin->hasReceive())
+            keep(c.stages[fromStage]->in);
     }
 
     const int chainIndex = (int)(&c - &chains_[0]);
@@ -2287,7 +2325,8 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
                 /* At the event's own time, which is when it would have
                    been heard: a chain that emits ahead is dropped ahead
                    too, and would light before the notes it still plays. */
-                if (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG)
+                if ((ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG) &&
+                    !seeking_)
                     c.lastGated[ev.type == THC_EV_CHANARG] =
                         std::max(transportNow_, ev.at);
 
@@ -2437,6 +2476,12 @@ thcScheduler::deliverDue (double now)
 void
 thcScheduler::deliverFrom (const thcEvent &ev, int chain)
 {
+    if (seeking_)
+    {
+        deliver(ev);
+        return;
+    }
+
     if (chain >= 0 && (size_t)chain < chains_.size() &&
         (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG))
         chains_[chain].lastHeard[ev.type == THC_EV_CHANARG] = transportNow_;
@@ -2488,6 +2533,12 @@ thcScheduler::deliverFrom (const thcEvent &ev, int chain)
 void
 thcScheduler::deliver (const thcEvent &ev)
 {
+    /* A seek plays the piece up to where it is going without a sound:
+       the notes are not heard, but what an event leaves behind -- a
+       chanarg's value, a swapped instrument -- is where the piece is. */
+    if (seeking_ && (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF))
+        return;
+
     switch (ev.type)
     {
         case THC_EV_NOTE:
@@ -2554,7 +2605,8 @@ thcScheduler::deliver (const thcEvent &ev)
         }
     }
 
-    sigDelivered.emit(ev);                      /* piano roll, keyboard  */
+    if (!seeking_)
+        sigDelivered.emit(ev);                  /* piano roll, keyboard  */
 }
 
 void
@@ -2658,6 +2710,60 @@ thcScheduler::stop (void)
 }
 
 void
+thcScheduler::seek (double t)
+{
+    const bool was = running_;
+
+    halt();
+    reset();
+
+    /* No further than a piece that ends goes, and no further than an
+       hour: a seek is the whole piece up to there, and a target nobody
+       could mean is a host stalled for nothing. */
+    if (endAfter_ && sectionsLength() > 0)
+        t = std::min(t, sectionsLength());
+
+    t = std::min(t, 3600.0);
+
+    /* Up to just short of `t', silently -- short of it, so what is due
+       at `t' itself is heard: a section starts on a bar line, and so
+       does its downbeat. Steps of 20 ms, the desktop's own: a stage asks
+       for its wakes and gets them whatever the step, but one woken by a
+       node moving is woken at the end of the step it moved in. An ear a
+       composer listens through answers at once, as a harness's does, or
+       a breeding population would not breed on the way. */
+    const double to = t - 1e-6;
+
+    if (to > 0)
+    {
+        const bool wasSync = auditionSync_;
+
+        if (!wasSync)
+            setAuditionSynchronous(true);
+
+        seeking_ = true;
+        start();
+
+        while (running_ && transportNow_ < to - 1e-9)
+            stepTransportTo(std::min(to, transportNow_ + 0.02));
+
+        seeking_ = false;
+
+        if (!wasSync)
+            setAuditionSynchronous(false);
+    }
+
+    /* Playing on from there if it was playing -- start() takes the wall
+       clock the timer steps by from now, or its first tick would step
+       the transport by however long the seek took; otherwise waiting
+       there for Play. A piece that ends before `t' has stopped itself. */
+    if (was && !(endAfter_ && sectionAt(transportNow_) < 0))
+        start();
+    else
+        running_ = false;
+}
+
+void
 thcScheduler::halt (void)
 {
     stop();
@@ -2694,7 +2800,11 @@ thcScheduler::reset (void)
         c.played.clear();
 
         for (auto &s : c.stages)
+        {
             s->lastIn = s->lastOut = -1;
+            s->in.clear();
+            s->out.clear();
+        }
     }
 
     /* And the instruments, if a structure edit has been anywhere near

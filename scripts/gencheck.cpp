@@ -9302,6 +9302,14 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
         ev.button = button;
         st->plugin->input(st->state, &ev);
     };
+    /* The pictures that are editors of their own params say so, and a
+       Life board, which the piece goes on changing, does not. */
+    if (!ring->plugin->inputEdits() || !acc->plugin->inputEdits() ||
+        !plugins.at("grid")->inputEdits() ||
+        (plugins.count("life") && plugins.at("life")->inputEdits()))
+        fail("THC_INPUT_EDITS should be euclid's, accent's and grid's, and "
+             "not life's");
+
     const int fills = ring->plugin->paramIndex("fills");
     const int rotate = ring->plugin->paramIndex("rotate");
     const int pattern = acc->plugin->paramIndex("pattern");
@@ -9510,6 +9518,320 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
         fail("a second freeze should be called beat_frozen2");
 
     remove(path.c_str());
+}
+
+/* thcScheduler::seek: to four seconds, from the top, silently, and then
+ * played on -- the notes from there are the notes a piece played
+ * straight through makes from there, random choices and all, and none
+ * before it is heard. */
+static void
+checkSeek (const std::map<std::string, thcPlugin *> &plugins,
+           thSynth *synth)
+{
+    const std::string body =
+        "seed 17;\n"
+        "tempo 120;\n"
+        "chain line {\n"
+        "  stage src gen::eno_line { notes = \"C4 E4 G4\"; period = 0.7 s;\n"
+        "    jitter = 0.3 s; prob = 0.6; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain beat {\n"
+        "  stage src gen::euclid { steps = 8; fills = 5; rotate = 0;\n"
+        "    notes = \"C2 D2\"; period = 0.25 beats; hold = 0.2 beats;\n"
+        "    vel = 100; ahead = 1; };\n"
+        "  stage c xform::chance { prob = 0.5; };\n"
+        "  sink { channel = 2; };\n"
+        "};\n"
+        "chain bar {\n"
+        "  stage src gen::euclid { steps = 1; fills = 1; rotate = 0;\n"
+        "    notes = \"C1\"; period = 4 beats; hold = 1 beats;\n"
+        "    vel = 90; };\n"
+        "  sink { channel = 3; };\n"
+        "};\n";
+
+    const std::string path = thUtil::tempFile("gencheck-seek-");
+
+    if (path.empty())
+    {
+        fail("could not write the seek piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    /* `how': 0 straight through, 1 a seek to 4 s on a stopped transport
+       then Play, 2 a seek to 4 s from 2 s while playing. */
+    auto play = [&](int how, std::string &tape)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        sched.setAuditionSynchronous(true);
+
+        if (!loader.load(path, &sched))
+            return false;
+
+        sigc::connection conn = sched.sigDelivered.connect(
+            [&tape](const thcEvent &ev)
+            {
+                if (ev.type != THC_EV_NOTE)
+                    return;
+
+                char b[96];
+
+                snprintf(b, sizeof(b), "%.9f %d %d\n", ev.at, ev.channel,
+                         ev.u.note.note);
+                tape += b;
+            });
+
+        if (how == 1)
+        {
+            sched.seek(4.0);
+
+            if (sched.running() || std::fabs(sched.now() - 4.0) > 1e-5)
+                fail("a seek on a stopped transport should wait at 4 s");
+        }
+
+        sched.start();
+
+        while (sched.now() < 8.0 - 1e-9)
+        {
+            if (how == 2 && std::fabs(sched.now() - 2.0) < 1e-9)
+            {
+                tape.clear();
+                sched.seek(4.0);
+
+                if (!sched.running())
+                    fail("a seek while playing should go on playing");
+            }
+
+            sched.stepTransport(0.02);
+            drainSynth();
+        }
+
+        sched.stop();
+        conn.disconnect();
+        drainSynth();
+
+        return true;
+    };
+
+    std::string straight, sought, onTheFly;
+
+    if (!play(0, straight) || !play(1, sought) || !play(2, onTheFly))
+    {
+        fail("the seek piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+
+    /* Each run between four seconds and just short of eight: where the
+       last step of each lands past eight is the stepping's business. */
+    auto window = [](const std::string &t)
+    {
+        std::string out, line;
+        std::istringstream lines(t);
+
+        while (std::getline(lines, line))
+        {
+            const double at = atof(line.c_str());
+
+            if (at >= 4.0 - 1e-9 && at < 7.9)
+                out += line + "\n";
+        }
+
+        return out;
+    };
+
+    const std::string tail = window(straight);
+
+    sought = window(sought);
+    onTheFly = window(onTheFly);
+
+    /* At 120 a bar is two seconds, so the bar chain has its downbeat due
+       at 4 s exactly: the seek must not swallow it. */
+    if (tail.find("4.000000000 2 ") == std::string::npos)
+        fail("the straight run should have a note at exactly 4 s");
+
+    if (tail.empty() || sought != tail)
+        fail("after a seek to 4 s the piece should play what it plays from "
+             "4 s straight through; " + std::to_string(sought.size()) +
+             " bytes of tape against " + std::to_string(tail.size()));
+
+    if (onTheFly != tail)
+        fail("a seek to 4 s while playing should play on as the piece does "
+             "from 4 s; " + std::to_string(onTheFly.size()) + " bytes of "
+             "tape against " + std::to_string(tail.size()));
+}
+
+/* What a probe draws: each stage keeps the notes it let out. A chance
+ * lets out fewer than it was given, a transpose the same number an octave
+ * up, and a rewind forgets them. */
+static void
+checkProbes (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-probe-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "seed 3;\n"
+               "tempo 120;\n"
+               "chain c {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+               "    notes = \"C3\"; period = 0.25 beats; hold = 0.1 beats;\n"
+               "    vel = 100; };\n"
+               "  stage up xform::transpose { semitones = 12; };\n"
+               "  stage some xform::chance { prob = 0.5; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    sched.setAuditionSynchronous(true);
+
+    if (path.empty() || !loader.load(path, &sched))
+    {
+        fail("the probe piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+    sched.start();
+
+    while (sched.now() < 3.0)
+    {
+        sched.stepTransport(0.02);
+        drainSynth();
+    }
+
+    const thcChain *c = sched.chain(0);
+    const auto &src = c->stages[0]->out, &up = c->stages[1]->out,
+               &some = c->stages[2]->out;
+    bool octave = !up.empty();
+
+    for (const thcPlayed &p : up)
+        octave = octave && p.note == 60;
+
+    if (src.empty() || up.size() != src.size() || !octave ||
+        some.empty() || some.size() >= up.size())
+        fail("a probe's notes: " + std::to_string(src.size()) + " out of "
+             "euclid, " + std::to_string(up.size()) + " out of transpose, " +
+             std::to_string(some.size()) + " out of chance");
+
+    /* What went into the chance is what came out of the transpose. */
+    if (c->stages[2]->in.size() != up.size())
+        fail("a probe's outlines: " + std::to_string(c->stages[2]->in.size()) +
+             " into chance, against " + std::to_string(up.size()) +
+             " out of transpose");
+
+    sched.reset();
+
+    if (!c->stages[0]->out.empty() || !c->stages[2]->in.empty())
+        fail("a rewind should forget what the stages let out and took in");
+
+    /* A generator placed after another passes the first one's notes on,
+       and the arrow after it carries both: so does what a transformer
+       after it took in. And a transformer fed live notes takes them in,
+       each as long as its release made it. */
+    {
+        const std::string two = thUtil::tempFile("gencheck-probe2-");
+
+        {
+            std::ofstream out(two.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\n"
+                   "chain c {\n"
+                   "  stage a gen::euclid { steps = 1; fills = 1; "
+                   "rotate = 0;\n"
+                   "    notes = \"C3\"; period = 1 beats; hold = 0.1 beats;\n"
+                   "    vel = 100; };\n"
+                   "  stage b gen::euclid { steps = 1; fills = 1; "
+                   "rotate = 0;\n"
+                   "    notes = \"E3\"; period = 1 beats; hold = 0.1 beats;\n"
+                   "    vel = 100; };\n"
+                   "  stage up xform::transpose { semitones = 0; };\n"
+                   "  sink { channel = 1; };\n"
+                   "};\n"
+                   "chain keys {\n"
+                   "  input midi;\n"
+                   "  stage t xform::transpose { semitones = 0; };\n"
+                   "  sink { channel = 2; };\n"
+                   "};\n";
+        }
+
+        thcScheduler s2(synth);
+        thcGenLoader l2(plugins);
+
+        s2.setAuditionSynchronous(true);
+
+        if (two.empty() || !l2.load(two, &s2))
+            fail("the second probe piece did not load");
+        else
+        {
+            auto key = [&s2](thcEventType type)
+            {
+                thcEvent ev = {};
+
+                ev.type = type;
+                ev.at = s2.now();
+                ev.channel = 1;
+                ev.u.note.note = 62;
+                ev.u.note.velocity = 90;
+                ev.u.note.level = 1;
+                s2.injectMidiEvent(ev);
+            };
+
+            s2.start();
+
+            while (s2.now() < 2.0 - 1e-9)
+            {
+                if (std::fabs(s2.now() - 0.5) < 1e-9)
+                    key(THC_EV_NOTE);
+
+                if (std::fabs(s2.now() - 1.0) < 1e-9)
+                    key(THC_EV_NOTEOFF);
+
+                s2.stepTransport(0.02);
+                drainSynth();
+            }
+
+            auto pitches = [](const std::deque<thcPlayed> &d)
+            {
+                std::set<int> out;
+
+                for (const thcPlayed &p : d)
+                    out.insert(p.note);
+
+                return out;
+            };
+
+            const thcChain *pc = s2.chain(0), *kc = s2.chain(1);
+
+            if (pitches(pc->stages[1]->out) != std::set<int>{ 48, 52 } ||
+                pitches(pc->stages[2]->in) != std::set<int>{ 48, 52 })
+                fail("the arrow after a generator that passes another's "
+                     "notes should carry both");
+
+            if (kc->stages[0]->in.size() != 1 ||
+                std::fabs(kc->stages[0]->in.front().duration - 0.5) > 0.03)
+                fail("a transformer fed a held key should take it in, as "
+                     "long as its release made it");
+        }
+
+        remove(two.c_str());
+    }
 }
 
 static void
@@ -11683,6 +12005,8 @@ main (int argc, char *argv[])
     checkChainIdentity(plugins, &synth);
     checkSectionEdits(plugins, &synth);
     checkDrawnControls(plugins, &synth);
+    checkSeek(plugins, &synth);
+    checkProbes(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

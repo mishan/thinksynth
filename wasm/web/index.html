@@ -198,15 +198,17 @@
   </div>
 
   <!-- Which stages can be painted on, and what is being painted on
-       now. The canvas enlarges a stage on a double-click and puts it
-       back on Escape; these are the same two things for a finger, and
-       they are what says a picture is a control at all. -->
-  <div class="row" id="composerstages"></div>
-  <div class="row">
-    <button id="collapseall">Collapse chains</button>
-    <button id="expandall">Expand chains</button>
+       now: one menu, however many there are. The canvas enlarges a stage
+       on a double-click and puts it back on Escape; the menu is the same
+       two things for a finger, and it is what says a picture is a
+       control at all. -->
+  <div class="row" id="composertools">
+    <select id="composerpaint" aria-label="Paint on a picture"
+            hidden></select>
+    <button id="collapseall">Collapse</button>
+    <button id="expandall">Expand</button>
     <label class="hint"><input type="checkbox" id="rollbychain">
-      Color the piano roll by chain</label>
+      Roll by chain</label>
   </div>
   <p id="composerstatus" class="hint"></p>
 </details>

@@ -35,7 +35,9 @@
  *   transport  { at, op: 'start', origin, piece: { hash }, seed }
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
+ *   transport  { at, op: 'start', origin, piece, seed, from } -- a seek
  *   knob       { at, knob, value }
+ *   knobwrite  { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
  *   param      { at, chain, stage, row, text }
  *   mute       { at, chain, on }
@@ -52,6 +54,11 @@
    adjustable there. */
 export const KNOB_LEAD = 0.150;
 export const TRANSPORT_LEAD = 0.500;
+
+/* A command's own name: its maker and its number, which no other command
+   in the room has -- unlike its stamp, which is -1 for every command made
+   while the transport is stopped. */
+export const commandTag = (cmd) => `${cmd.from}:${cmd.seq}`;
 
 /* Makes commands for one peer: numbered, stamped, and from it. */
 export class Maker
@@ -80,10 +87,10 @@ export class Maker
 
     /* Play. `origin' is a relay-clock time; the caller has already put it
        `transportLead' ahead. */
-    start (origin, hash, seed)
+    start (origin, hash, seed, from = 0)
     {
         return this.make('transport', { op: 'start', origin,
-                                        piece: { hash }, seed },
+                                        piece: { hash }, seed, from },
                          this.transportLead);
     }
 
@@ -101,6 +108,13 @@ export class Maker
     knob (knob, value)
     {
         return this.make('knob', { knob, value }, this.knobLead);
+    }
+
+    /* A knob's value written into the piece, at the end of a drag: with
+       the knob's lead, so it lands after the drag's last move. */
+    knobWrite (knob, value)
+    {
+        return this.make('knobwrite', { knob, value }, this.knobLead);
     }
 
     /* A gesture on a stage's picture: which stage, what kind of gesture,
@@ -275,7 +289,11 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
                     if (load !== undefined)
                         await load(cmd);
 
-                    synth.begin(frameOfOrigin(cmd.origin));
+                    /* From the top, or from `from': a room's seek is a
+                       start from a time, so every peer plays up to it at
+                       the same frame, and a peer joining later hears the
+                       start the relay kept, `from' and all. */
+                    synth.begin(frameOfOrigin(cmd.origin), cmd.from ?? 0);
                     break;
 
                 case 'stop':
@@ -285,6 +303,7 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
                 case 'tempo':
                     synth.transportAt('tempo', cmd.at, cmd.bpm);
                     break;
+
             }
             break;
 
@@ -292,8 +311,14 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
             synth.knob(cmd.knob, cmd.value, cmd.at);
             break;
 
+        /* Named by their maker, so the edit each writes comes back as that
+           peer's own (commandTag). */
+        case 'knobwrite':
+            synth.knobWrite({ ...cmd, tag: commandTag(cmd) });
+            break;
+
         case 'input':
-            synth.input(cmd);
+            synth.input({ ...cmd, tag: commandTag(cmd) });
             break;
 
         case 'param':

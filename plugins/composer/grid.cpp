@@ -152,7 +152,8 @@ composer_init (thcComposerInfo *info)
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_GENERATOR | THC_TRANSFORMER);
+    info->set_flags(info->host,
+                    THC_GENERATOR | THC_TRANSFORMER | THC_INPUT_EDITS);
     info->set_desc(info->host,
         "A step grid: click the pattern, or play notes into it.");
 

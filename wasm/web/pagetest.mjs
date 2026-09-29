@@ -1095,7 +1095,8 @@ try
        Choosing it loads it; the mirror is sent the same load and says
        what it has, which is where the buttons below come from. */
     await page.selectOption('#piece', COMPOSER_PIECE);
-    await page.waitForSelector('#composerstages button', { timeout: 60000 });
+    await page.waitForSelector('#composerpaint:not([hidden])',
+                               { timeout: 60000 });
 
     /* The first frame that reaches the page: the canvas is sized to the
        drawing and the drawing is on it. A blank canvas of the right size
@@ -1145,19 +1146,22 @@ try
           `and to the width of the view: ${fitted.width} in ${fitted.box}, ` +
           `${fitted.wide ? 'scrolling sideways' : 'no sideways scroll'}`);
 
-    const stages = await page.$$eval('#composerstages button',
-                                     (bs) => bs.map((b) => b.textContent));
+    const stages = await page.$$eval('#composerpaint option:not([value=""])',
+                                     (os) => os.map((o) => o.textContent));
 
     check(stages.length > 0,
           `${COMPOSER_PIECE} offers its controls: ${stages.join(', ')}`);
 
-    /* The Life board's: the euclid ring before it is a control too. */
-    await page.click('#composerstages button:has-text("Paint life")');
+    /* The Life board's: the euclid ring before it is a control too. With
+       the view in sight, which is where a menu under it is chosen from:
+       out of sight it draws nothing, and says nothing either. */
+    await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+    await page.selectOption('#composerpaint', { label: 'life in colony' });
     await page.waitForFunction(
         () => /^Painting /.test(
             document.getElementById('composerstatus').textContent),
         null, { timeout: 60000 });
-    check(true, `${stages[0]} enlarged`);
+    check(true, 'life in colony enlarged, from the Paint menu');
 
     /* A drag across the enlarged board. Nothing is playing, so the board
        changes only if the drag reached the composer -- which it can only
@@ -1206,6 +1210,22 @@ try
             document.getElementById('composerstatus').textContent),
         null, { timeout: 60000 });
     check(true, 'and Escape puts it back');
+
+    /* And the menu does both for a finger, which has no Escape: the
+       picture chosen enlarges it, and the menu's first entry, the piece,
+       puts it back. */
+    await page.selectOption('#composerpaint', { label: 'life in colony' });
+    await page.waitForFunction(
+        () => /^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 15000 });
+    await page.selectOption('#composerpaint', '');
+    await page.waitForFunction(
+        () => !/^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 15000 });
+    check(await page.$eval('#composerpaint', (m) => m.value) === '',
+          'the Paint menu enlarges a picture and puts it back');
 
     /* A stage's params handle -- the three little sliders in its title
        bar -- asks for a popover beside the box, and what goes in it comes
@@ -1547,6 +1567,14 @@ try
 
         check(Number(shown) === 5,
               `...and the knob strip shows where it went: ${shown}`);
+
+        /* And let go of, it is in the piece: Save and Load keep it. */
+        const knobText = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => /@density\s*=\s*5\s*;/.test(t));
+
+        check(/@density\s*=\s*5\s*;/.test(knobText),
+              '...and the piece\'s text says it');
     }
 
     /* A wire from the knob's port onto the first stage of the second
@@ -1755,12 +1783,159 @@ try
 
         await page.click('#stop');
 
+        /* The euclid ring, enlarged and right-clicked in its middle: a hit
+           fewer, which the end of the gesture writes into the piece. */
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+        await page.selectOption('#composerpaint',
+                                { label: 'euclid in kick' });
+        await page.waitForFunction(
+            () => /^Painting /.test(
+                document.getElementById('composerstatus').textContent),
+            null, { timeout: 15000 });
+
+        const ringAt = await scroller();
+        const ringBox = await page.$eval('#composerscroll', (d) =>
+            ({ w: d.clientWidth, h: d.clientHeight }));
+
+        await page.mouse.click(ringAt.x + ringBox.w / 2,
+                               ringAt.y + ringBox.h / 2, { button: 'right' });
+
+        const kickOf = (t) =>
+        {
+            const a = t.indexOf('chain kick {');
+
+            return a < 0 ? '' : t.slice(a, t.indexOf('\n};', a));
+        };
+        const ringText = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => /fills\s*=\s*3\s*;/.test(kickOf(t)));
+
+        check(/fills\s*=\s*3\s*;/.test(kickOf(ringText)),
+              'a right-click in the euclid ring\'s middle takes a hit ' +
+              'away, and the piece\'s text says so');
+
+        /* A press on the ring let go of without a turn changes nothing,
+           and writes nothing. */
+        {
+            const before = await page.evaluate(() => window.solo.genText());
+            const r = Math.min(ringBox.w, ringBox.h) / 2 - 8;
+
+            await page.mouse.click(ringAt.x + ringBox.w / 2,
+                                   ringAt.y + ringBox.h / 2 - r);
+            await new Promise((res) => setTimeout(res, 1000));
+
+            check(await page.evaluate(() => window.solo.genText()) === before,
+                  'a press on the ring with no turn leaves the text alone');
+        }
+
+        await page.keyboard.press('Escape');
+
+        /* tamb's accent is "..x.": clearing its one mark leaves no
+           pattern, and the text says so rather than keeping the old one. */
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+        await page.selectOption('#composerpaint',
+                                { label: 'accent in tamb' });
+        await page.waitForFunction(
+            () => /^Painting /.test(
+                document.getElementById('composerstatus').textContent),
+            null, { timeout: 15000 });
+
+        {
+            const at = await scroller();
+            const box = await page.$eval('#composerscroll', (d) =>
+                ({ w: d.clientWidth, h: d.clientHeight }));
+
+            /* The third of four steps, halfway down. */
+            await page.mouse.click(at.x + box.w * 0.625, at.y + box.h * 0.45);
+
+            const tambOf = (t) =>
+            {
+                const a = t.indexOf('chain tamb {');
+
+                return a < 0 ? '' : t.slice(a, t.indexOf('\n};', a));
+            };
+            const cleared = await until(
+                () => page.evaluate(() => window.solo.genText()),
+                (t) => /pattern\s*=\s*"";/.test(tambOf(t)));
+
+            check(/pattern\s*=\s*"";/.test(tambOf(cleared)),
+                  'clearing an accent\'s last mark writes an empty pattern');
+        }
+
+        await page.keyboard.press('Escape');
+
+        /* The `full' block, pressed while playing: the transport is there
+           -- intro, groove and break later -- and plays on from it. */
+        await page.click('#play');
+        await new Promise((r) => setTimeout(r, 1000));
+
+        const heads = (await lane()).heads;
+        const headAt = await scroller();
+
+        await page.mouse.click(headAt.x + heads[3].x, headAt.y + heads[3].y);
+
+        /* The worklet's transport, which is the one heard, and the
+           mirror's, which draws: both there. */
+        const heard = () => page.evaluate(() => window.solo.transport());
+        const jumped = await until(heard, (t) => t !== null && t.now > 50);
+        const drawn = await until(lane, (l) => l.now > 50);
+
+        await new Promise((r) => setTimeout(r, 1000));
+
+        const later = await heard();
+
+        check(jumped.now > 50 && drawn.now > 50 && later.now > jumped.now,
+              `a section's block moves the transport to it and plays on: ` +
+              `${jumped.now.toFixed(1)} s, then ${later.now.toFixed(1)} s`);
+
+        await page.click('#stop');
+
         const colonyLoads = await page.evaluate(() => window.solo.pieces());
 
         await page.selectOption('#piece', COMPOSER_PIECE);
         await page.waitForFunction((n) => window.solo.pieces() > n,
                                    colonyLoads, { timeout: 60000 });
         await page.evaluate(() => window.solo.settled());
+    }
+
+    /* A probe: the arrow out of colony's first stage, pressed after it
+       has played, hangs a small roll of what that stage let out under it --
+       drawn by the mirror, which is where the notes are -- and Escape
+       takes it away. */
+    {
+        /* Played, and stopped: what the stage let out is kept, and with
+           the transport still nothing else moves the picture, so what the
+           press changes is the probe. */
+        await page.click('#play');
+        await new Promise((r) => setTimeout(r, 3000));
+        await page.click('#stop');
+        await new Promise((r) => setTimeout(r, 800));
+
+        const arrow = { chain: 0, stage: 0 };
+        const at = (await page.evaluate(
+            (a) => window.solo.canvasLayout(a), arrow)).arrow;
+        const where = await scroller();
+        const plain = await ink();
+
+        await page.mouse.click(where.x + at.x, where.y + at.y);
+
+        const probed = await until(
+            () => page.evaluate(() => window.solo.canvasLayout()),
+            (l) => l.probe.chain === 0 && l.probe.stage === 0);
+        const drawn = await until(ink, (v) => v !== plain);
+
+        check(probed.probe.chain === 0 && probed.probe.stage === 0 &&
+              drawn !== plain,
+              'pressing an arrow puts a probe on it, drawn under it');
+
+        await page.focus('#composer');
+        await page.keyboard.press('Escape');
+
+        const gone = await until(
+            () => page.evaluate(() => window.solo.canvasLayout()),
+            (l) => l.probe.chain === -1);
+
+        check(gone.probe.chain === -1, '...and Escape takes it away');
     }
 
     /* ---- the piano roll ----

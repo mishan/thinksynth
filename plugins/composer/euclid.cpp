@@ -109,7 +109,8 @@ composer_init (thcComposerInfo *info)
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_GENERATOR | THC_EMITS_AHEAD);
+    info->set_flags(info->host,
+                    THC_GENERATOR | THC_EMITS_AHEAD | THC_INPUT_EDITS);
     info->set_desc(info->host,
         "A Euclidean rhythm: fills onsets over steps steps.");
 
@@ -506,7 +507,9 @@ composer_input (void *state, const thcInputEvent *ev)
 
     if (ev->type == THC_IN_DRAG)
     {
-        if (st->grabStep < 0)
+        /* Only once the drag has crossed a step: a grab that wobbled
+           within one is not a turn. */
+        if (st->grabStep < 0 || (step == st->grabStep && st->rotateSet < 0))
             return;
 
         st->rotateSet = ((st->grabRotate - (step - st->grabStep)) % steps +
@@ -521,9 +524,13 @@ composer_input (void *state, const thcInputEvent *ev)
     if (dist < radius * 0.6)
     {
         const int now = st->fills() < steps ? st->fills() : steps;
+        const int next = ev->button == 3 ? (now > 0 ? now - 1 : 0)
+                                         : (now < steps ? now + 1 : steps);
 
-        st->fillsSet = ev->button == 3 ? (now > 0 ? now - 1 : 0)
-                                       : (now < steps ? now + 1 : steps);
+        /* At either end, a press is no change, and sets nothing. */
+        if (next != now)
+            st->fillsSet = next;
+
         return;
     }
 

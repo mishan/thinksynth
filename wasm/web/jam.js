@@ -40,7 +40,8 @@ import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
+import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, commandTag,
+         isLate }
     from './commands.js';
 import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
          readFile, spliceFile } from './doc.js';
@@ -373,8 +374,13 @@ async function loadFor (cmd)
         });
     }
 
+    runSeed = cmd.seed;
     await loadFromDoc(cmd.seed);
 }
+
+/* The seed the run playing now started with: what a seek starts again
+   with, so it is the same piece from there. */
+let runSeed = null;
 
 /* The piece from the document into the worklet, and what the page shows
    of it: the knobs, the seats, the channels it listens on. `seed' is
@@ -553,6 +559,23 @@ async function play ()
                                : Math.floor(Math.random() * 0x100000000);
 
     await send(maker.start(origin, hash, seed));
+}
+
+/* A seek, as a room has it: a start from time `from', with the seed of
+ * the run playing, so every peer plays the same piece up to there at the
+ * same frame and goes on together. */
+async function seekTo (from)
+{
+    if (!clocksReady() || doc === null)
+        return;
+
+    const hash = await hashOf(doc);
+    const origin = room.relayNow() + maker.transportLead * 1000;
+    const seed = runSeed ?? (piece?.seeded ? piece.seed
+                                           : Math.floor(Math.random() *
+                                                        0x100000000));
+
+    await send(maker.start(origin, hash, seed, from));
 }
 
 async function stop ()
@@ -742,6 +765,13 @@ async function drawKnobs ()
 
                                  if (value !== null)
                                      send(maker.knob(Number(row), value));
+                             },
+                             (row, text) =>
+                             {
+                                 const value = numberIn(text);
+
+                                 if (value !== null)
+                                     writeKnob(Number(row), value);
                              });
 }
 
@@ -857,6 +887,22 @@ let ownParams = [];
 const paramKey = (e) =>
     JSON.stringify([e.at, e.chain, e.stage, e.row, e.text]);
 
+/* A picture's edit written at a gesture's end, and a knob's value at a
+   drag's end: by the command's own name, which the edit carries back as
+   its tag. Not by stamp, which every command made while stopped shares. */
+const inputKey = (e) => JSON.stringify(['input', e.tag ?? commandTag(e)]);
+const knobKey = (e) => JSON.stringify(['knob', e.tag ?? commandTag(e)]);
+
+/* This peer's knob, let go of: a command every peer applies to its own
+   file, and this peer's to write into the document. */
+function writeKnob (knob, value)
+{
+    const cmd = maker.knobWrite(knob, value);
+
+    ownParams.push(knobKey(cmd));
+    send(cmd);
+}
+
 /* The same for an arrangement edit: the command's fields, and the written
    edit's -- whose level is the text it was written with. */
 const sectionKey = (e) =>
@@ -871,15 +917,26 @@ const sectionKey = (e) =>
  * edit, not reverted to that file. */
 async function paramsEdited ({ edits })
 {
+    const released = new Set();
+
     for (const e of edits)
     {
         const isSection = e.section >= 0;
-        const at = ownParams.indexOf(isSection ? sectionKey(e) : paramKey(e));
+        const isKnob = e.knob >= 0;
+        const key = isSection ? sectionKey(e) : isKnob ? knobKey(e)
+            : e.input ? inputKey(e) : paramKey(e);
+        const at = ownParams.indexOf(key);
 
         if (at < 0)
             continue;
 
-        ownParams.splice(at, 1);
+        /* A release's key stays for the rest of what it wrote -- one
+           gesture on a euclid ring writes fills and rotate -- and goes
+           with the batch, which holds all of it. */
+        if (!e.input)
+            ownParams.splice(at, 1);
+        else
+            released.add(key);
 
         const name = pieceName(doc);
 
@@ -896,7 +953,10 @@ async function paramsEdited ({ edits })
             const { text } = isSection
                 ? await synth.genSetSection(was, e.param, e.chainName,
                                             Number(e.valueText))
-                : await synth.genSetParam(was, e);
+                : isKnob
+                    ? await synth.genSetKnob(was, e.param,
+                                             Number(e.valueText))
+                    : await synth.genSetParam(was, e);
 
             if (text === '')
             {
@@ -910,6 +970,14 @@ async function paramsEdited ({ edits })
                 break;
             }
         }
+    }
+
+    for (const key of released)
+    {
+        const at = ownParams.indexOf(key);
+
+        if (at >= 0)
+            ownParams.splice(at, 1);
     }
 }
 
@@ -927,8 +995,19 @@ function showComposer (on)
        everywhere from that beat. */
     composer ??= createComposerView({
         toMirror: (m) => synth?.toMirror(m),
-        onGesture: (g) => send(maker.input(g.chain, g.stage, g.kind, g.x,
-                                           g.y, g.w, g.h, g.button)),
+        onGesture: (g) =>
+        {
+            const cmd = maker.input(g.chain, g.stage, g.kind, g.x, g.y, g.w,
+                                    g.h, g.button);
+
+            /* A gesture's end is where a picture that edits its params
+               writes them (THC_INPUT_EDITS); what it writes, this peer
+               puts in the document, since it made it. */
+            if (g.kind === 2)
+                ownParams.push(inputKey(cmd));
+
+            send(cmd);
+        },
 
         /* A stage's param, out to the room and back at its time -- to this
            peer as to every other, which is what keeps one piece one
@@ -950,7 +1029,10 @@ function showComposer (on)
         onKnob: (knob, value, commit) =>
         {
             if (commit)
+            {
+                writeKnob(knob, value);
                 return;
+            }
 
             send(maker.knob(knob, value));
 
@@ -961,6 +1043,10 @@ function showComposer (on)
 
         onMove: moveStage,
         onFreeze: freezeChain,
+
+        /* A section's block: the room's transport there -- a start from
+           that time (seekTo). */
+        onSeek: seekTo,
 
         /* An arrangement cell: the room's command, written into the
            document by this peer when it comes back, as a param is. */

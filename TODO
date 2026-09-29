@@ -283,13 +283,11 @@ Node editor
 The browser page
 ----------------
 
-- Save on the page drops what was clicked into the sequencer. A click on
-  gen::grid changes the plugin's state and not the .gen text, the way a
-  clicked Life board does, and the page never asks the plugin to write it
-  back through composer_capture -- the desktop does, in
-  ComposerWindow::captureStage. Stage param edits reach the text since
-  #242; clicks want the same, spliced through thcGenEdit, which is already
-  in the module.  (wasm/web/thinkweb.cpp)
+- A clicked Life, CA or evolve board is still not written back on the
+  page: their pictures are states the piece goes on changing, so capture
+  is a deliberate act, and the page has no button for it yet (the desktop's
+  is in the Selection pane). Grids, the euclid ring and accent's steps are
+  written at each gesture's end (THC_INPUT_EDITS).  (wasm/web/thinkweb.cpp)
 
 - Two for mullion rather than this tree. `panes.commands()': what can be
   split, what is zoomed and what is in the drawer, as data -- `{ id,

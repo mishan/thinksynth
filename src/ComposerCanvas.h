@@ -199,6 +199,23 @@ public:
        sends it as a command. */
     sigc::signal<void (size_t, size_t, double)> sigSectionLevel;
 
+    /* The probe: which stage's output a probe is showing (kind STAGE),
+       or NONE. Pressing an arrow puts one there, pressing it again or
+       Escape takes it away. A view setting, nothing sent. */
+    const Selection &probe (void) const { return probe_; }
+    void setProbe (const Selection &at);
+
+    /* The middle of the arrow carrying a stage's output, in widget
+       pixels: the arrow a probe on that stage hangs from. */
+    bool probeArrow (size_t chain, size_t stage, double &x, double &y) const;
+
+    /* A section's block was pressed: the transport time it begins at,
+       the first time round, for the window to seek to. */
+    sigc::signal<void (double)> sigSeek;
+
+    /* The middle of a section's block in the lane, in widget pixels. */
+    bool sectionHead (size_t section, double &x, double &y) const;
+
     /* The middle of a cell of the arrangement lane, in widget pixels.
        False for a piece with no sections. */
     bool sectionCell (size_t section, size_t chain, double &x,
@@ -227,6 +244,11 @@ public:
        one method's, on every platform. That is the whole reason a peer's
        click lands on the cell the clicker saw. */
     sigc::signal<void (size_t, size_t, const thcInputEvent &)> sigInput;
+
+    /* A gesture on the enlarged picture ended: which stage, in the
+       document's numbering. What a host that writes a picture's edits
+       into the file at a gesture's end listens for (THC_INPUT_EDITS). */
+    sigc::signal<void (size_t, size_t)> sigGestureEnd;
 
     /* Where the enlarged picture would go, in laid-out coordinates.
        False if no stage is enlarged. Answers about the view rather than
@@ -374,6 +396,13 @@ private:
                    &fn) const;
 
     void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    void drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    bool probeRect (double &px, double &py, double &w, double &h,
+                    double &ax, double &ay) const;
+
+    void eachArrow (const std::function<bool (const Selection &, double,
+                                              double, double)> &fn) const;
+    bool arrowAt (double x, double y, Selection &out) const;
     bool layoutLane (double y);
 
     void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
@@ -428,6 +457,8 @@ private:
     size_t columns_;
 
     Selection sel_;
+    Selection probe_;
+    std::string probeChain_, probeStage_;   /* the probe's, by name     */
 
     bool chainHues_;
 

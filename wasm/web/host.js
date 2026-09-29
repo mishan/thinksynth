@@ -175,6 +175,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'genmove':
             case 'gensection':
             case 'genfreeze':
+            case 'genknob':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -337,7 +338,7 @@ export async function createSynth (ctx, { windowlen = 256,
         /* From the top, with transport zero at `frame' exactly: what a
            room's Play is, on every peer, at the frame its origin falls
            on. */
-        begin: (frame) => post({ type: 'begin', frame }),
+        begin: (frame, from = 0) => post({ type: 'begin', frame, from }),
 
         /* 'stop' or 'tempo' at a transport time, applied inside the step
            at that time; -1 is the next window. */
@@ -387,6 +388,16 @@ export async function createSynth (ctx, { windowlen = 256,
         /* `knob' is the index loadPiece reported the knob under; `at' a
            transport time, or -1 for the next window. */
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
+
+        /* The same knob's value written into the piece, at the end of a
+           drag; it comes back with the param edits. */
+        knobWrite: ({ at = -1, knob, value, tag = '' }) =>
+            post({ type: 'knobwrite', at, knob, value, tag }),
+
+        /* A knob's value in `text', for a room's document. Resolves to
+           { text }, "" when refused. */
+        genSetKnob: (text, name, value) =>
+            ask({ type: 'genknob', text, name, value }),
 
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a
@@ -467,9 +478,10 @@ export async function createSynth (ctx, { windowlen = 256,
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
            of it is one the module wants. */
-        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1 }) =>
+        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1,
+                  tag = '' }) =>
             post({ type: 'input', at, chain, stage, kind, x, y, w, h,
-                   button }),
+                   button, tag }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

@@ -221,6 +221,13 @@ function sendGestures ()
 
     M._tw_canvas_sections_clear();
 
+    /* A section's block: a seek, which the page sends as a transport
+       command. */
+    const seekTo = M._tw_canvas_seek_wanted();
+
+    if (seekTo >= 0)
+        post({ type: 'canvasseek', at: seekTo });
+
     /* A chain's F: the page asks the worklet, which heard what it
        played, for the text with the frozen chain in it. */
     const frozen = M._tw_canvas_freeze_wanted();
@@ -644,7 +651,14 @@ function receive (m)
                               y: M._tw_canvas_disclose_y(c) });
 
             post({ type: 'layout', columns: M._tw_canvas_columns(),
-                   width: M._tw_canvas_width(), chains });
+                   width: M._tw_canvas_width(), chains,
+                   probe: { chain: M._tw_canvas_probe_chain(),
+                            stage: M._tw_canvas_probe_stage() },
+                   arrow: m.arrow === undefined ? null
+                       : { x: M._tw_canvas_arrow_x(m.arrow.chain,
+                                                   m.arrow.stage),
+                           y: M._tw_canvas_arrow_y(m.arrow.chain,
+                                                   m.arrow.stage) } });
             break;
         }
 
@@ -667,7 +681,14 @@ function receive (m)
                 }
             }
 
-            post({ type: 'lane', levels, cells });
+            const heads = [];
+
+            for (let s = 0; s < M._tw_section_count(); s++)
+                heads.push({ x: M._tw_canvas_head_x(s),
+                             y: M._tw_canvas_head_y(s) });
+
+            post({ type: 'lane', levels, cells, heads,
+                   now: M._tw_now() });
             break;
         }
 

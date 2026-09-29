@@ -21,10 +21,10 @@
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
  * `transport', `begin', `at', `knob', `paneledit', `stageparam', `param',
- * `mute', `solo', `section', `input', `midion', `midioff', `on', `off' or
- * `alloff'
- * message, turned into the tw_ call that applies it. It used to live in
- * worklet.js, and moved here when there were two instances to apply it to.
+ * `mute', `solo', `section', `knobwrite', `input', `midion', `midioff',
+ * `on', `off' or `alloff' message, turned into the tw_ call that applies
+ * it. It used to live in worklet.js, and moved here when there were two
+ * instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -41,7 +41,8 @@
  */
 
 /* thinkweb.cpp's TransportOp. */
-export const TRANSPORT = { start: 0, stop: 1, rewind: 2, tempo: 3 };
+export const TRANSPORT = { start: 0, stop: 1, rewind: 2, tempo: 3,
+                           seek: 13 };
 
 const NOWHERE = {
     loaded: () => {},
@@ -138,7 +139,7 @@ export function apply (M, m, host = NOWHERE)
         case 'begin':
             /* From the top, with transport zero at this frame exactly
                (thinkweb.cpp, tw_begin). */
-            M._tw_begin(m.frame);
+            M._tw_begin(m.frame, m.from ?? 0);
             return true;
 
         case 'at':
@@ -227,6 +228,16 @@ export function apply (M, m, host = NOWHERE)
             M._tw_solo(m.at ?? -1, m.chain, m.on ? 1 : 0);
             return true;
 
+        case 'knobwrite':
+            /* A knob's value written into the piece: the end of a drag
+               whose middle was `knob' commands. Stamped the same, so the
+               file changes where the sound did. */
+            if (m.tag)
+                M.ccall('tw_command_tag', null, ['string'], [m.tag]);
+
+            M._tw_knob_write(m.at ?? -1, m.knob, m.value);
+            return true;
+
         case 'section':
             /* A chain's level in one section of the arrangement, at a
                transport time: heard, so stamped, and written into the
@@ -240,6 +251,11 @@ export function apply (M, m, host = NOWHERE)
                was handed, with the size it was drawn at, so every
                instance inverts the same arithmetic and reaches the
                same cell. */
+            /* A room's command goes by its maker's name, so the edit its
+               release writes comes back as that peer's (tw_command_tag). */
+            if (m.tag)
+                M.ccall('tw_command_tag', null, ['string'], [m.tag]);
+
             M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
                         m.button ?? 1);
             return true;

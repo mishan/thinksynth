@@ -312,6 +312,19 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* A knob's value in a text given, for a room's document. */
+        if (m.type === 'genknob')
+        {
+            this.port.postMessage({
+                type: 'genknob', id: m.id,
+                text: this.M.ccall('tw_gen_set_knob', 'string',
+                                   ['string', 'string', 'number'],
+                                   [m.text, m.name, m.value]),
+            });
+
+            return;
+        }
+
         /* A chain frozen into a text given: what this instance heard it
          * play, as a new chain beside it (thcFreeze.h). "" and a reason
          * when there was nothing to freeze. */

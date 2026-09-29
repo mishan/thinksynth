@@ -284,6 +284,9 @@ function makeSlider (row, emit, bound)
         emit(spell(input.value, row.decimals));
     });
 
+    input.addEventListener('change', () =>
+        emit.commit?.(spell(input.value, row.decimals)));
+
     shown.addEventListener('change', () =>
     {
         const taken = hold(row, shown.value);
@@ -302,6 +305,7 @@ function makeSlider (row, emit, bound)
         input.value = taken;
 
         emit(taken);
+        emit.commit?.(taken);
     });
 
     box.append(input, shown);
@@ -535,7 +539,7 @@ function makeBind (row, panel, onEdit)
     return select;
 }
 
-function makeRow (row, panel, onEdit, bound)
+function makeRow (row, panel, onEdit, bound, onCommit)
 {
     const line = document.createElement('div');
     const label = document.createElement('label');
@@ -566,6 +570,11 @@ function makeRow (row, panel, onEdit, bound)
     line.title = row.desc === '' ? row.id : row.desc;
 
     const emit = (text) => onEdit(row.id, text);
+
+    /* The end of an edit, where there is one to tell from its middle: a
+       slider let go of, a box typed into. For a caller that keeps what
+       is edited somewhere a stream of values would be too many writes. */
+    emit.commit = (text) => onCommit?.(row.id, text);
     const control = (CONTROLS[row.kind] ?? makeReadonly)(row, emit, bound);
 
     /* The menus that are about the value rather than being it, after the
@@ -614,7 +623,7 @@ function makeRow (row, panel, onEdit, bound)
  * inferred one and a group of one is not a group, and both of those are
  * settled before any of this runs.
  */
-export function showPanel (box, panel, onEdit)
+export function showPanel (box, panel, onEdit, onCommit)
 {
     const bound = new Map();
 
@@ -626,7 +635,7 @@ export function showPanel (box, panel, onEdit)
 
     for (const row of panel.rows)
         if (row.group === '')
-            loose.append(makeRow(row, panel, onEdit, bound));
+            loose.append(makeRow(row, panel, onEdit, bound, onCommit));
 
     if (loose.childElementCount > 0)
         box.append(loose);
@@ -656,7 +665,7 @@ export function showPanel (box, panel, onEdit)
 
         for (const row of panel.rows)
             if (row.group === group)
-                rows.append(makeRow(row, panel, onEdit, bound));
+                rows.append(makeRow(row, panel, onEdit, bound, onCommit));
 
         block.append(title, rows);
         box.append(block);
