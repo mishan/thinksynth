@@ -183,6 +183,7 @@ set(THINKSYNTH_SOURCES
     gthPatchfile.cpp
     gthDummyAudio.cpp
     gthSynthSource.cpp
+    gthAudioRate.cpp
     gthGtkRuntime.cpp
     gthRtAudio.cpp
     gthRtMidi.cpp
