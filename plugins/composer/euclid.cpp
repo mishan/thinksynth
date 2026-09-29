@@ -30,6 +30,7 @@
  */
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <random>
@@ -130,6 +131,17 @@ struct State {
     int              fillNum;
     int              cycle;
 
+    /* The ring as a control: fills and a rotation set by a gesture on
+       the picture, or -1 where the param says. What a press on the ring
+       began from -- the step it landed on and the rotation then -- so a
+       drag turns the ring by the steps it has crossed. */
+    int              fillsSet, rotateSet;
+    int              grabStep, grabRotate;
+    char             captured[16];
+
+    int fills (void) const;
+    int rotate (void) const;
+
     void reparseNotes (void);
     void reparseFill (void);
 
@@ -172,6 +184,21 @@ State::reparseFill (void)
                                            paramIndex[P_FILL]), fill);
 }
 
+int
+State::fills (void) const
+{
+    return fillsSet >= 0 ? fillsSet
+                         : (int)params->get(params->ctx, paramIndex[P_FILLS]);
+}
+
+int
+State::rotate (void) const
+{
+    return rotateSet >= 0 ? rotateSet
+                          : (int)params->get(params->ctx,
+                                             paramIndex[P_ROTATE]);
+}
+
 bool
 State::filling (void) const
 {
@@ -207,6 +234,10 @@ composer_create (const thcParams *params)
     st->onsetNum = 0;
     st->fillNum = 0;
     st->cycle = 0;
+    st->fillsSet = st->rotateSet = -1;
+    st->grabStep = -1;
+    st->grabRotate = 0;
+    st->captured[0] = 0;
     st->reparseNotes();
     st->reparseFill();
 
@@ -216,10 +247,19 @@ composer_create (const thcParams *params)
 extern "C" THINK_PLUGIN_API void
 composer_param_changed (void *state, int index)
 {
+    State *st = static_cast<State *>(state);
+
     if (index == paramIndex[P_NOTES])
-        static_cast<State *>(state)->reparseNotes();
+        st->reparseNotes();
     else if (index == paramIndex[P_FILL])
-        static_cast<State *>(state)->reparseFill();
+        st->reparseFill();
+
+    /* The param said something new: that is what the ring shows now,
+       over whatever a gesture set. */
+    else if (index == paramIndex[P_FILLS])
+        st->fillsSet = -1;
+    else if (index == paramIndex[P_ROTATE])
+        st->rotateSet = -1;
 }
 
 extern "C" THINK_PLUGIN_API double
@@ -245,8 +285,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         const double rawPeriod = get(P_PERIOD);
         const double period = std::isfinite(rawPeriod) && rawPeriod > 0
             ? rawPeriod : 0.001;
-        const int fills = (int)get(P_FILLS);
-        const int rotate = (int)get(P_ROTATE);
+        const int fills = st->fills();
+        const int rotate = st->rotate();
         const int velocity = (int)get(P_VEL);
         const double hold = get(P_HOLD);
         const bool onFill = st->filling();
@@ -294,7 +334,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     const bool onFill = st->filling();
 
     if (t->running && (onFill ? st->fillLen : st->poolLen) > 0 &&
-        onsetAt(st->pos, steps, (int)get(P_FILLS), (int)get(P_ROTATE)))
+        onsetAt(st->pos, steps, st->fills(), st->rotate()))
     {
         const int note = onFill ? st->fill[st->fillNum % st->fillLen]
                                 : st->pool[st->onsetNum % st->poolLen];
@@ -342,8 +382,8 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
     auto get = [&](int i) { return p->get(p->ctx, paramIndex[i]); };
 
     int steps = (int)get(P_STEPS);
-    int fills = (int)get(P_FILLS);
-    int rotate = (int)get(P_ROTATE);
+    int fills = st->fills();
+    int rotate = st->rotate();
     const bool ahead = (int)get(P_AHEAD) != 0;
 
     if (steps < 1)
@@ -405,8 +445,111 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
             cairo_stroke(cr);
         }
     }
+
+    /* How many of how many, in the middle, which is also where a press
+       adds or takes away a hit. */
+    if (radius >= 20)
+    {
+        char t[16];
+        cairo_text_extents_t ext;
+
+        snprintf(t, sizeof(t), "%d/%d", fills < steps ? fills : steps,
+                 steps);
+        cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, radius / 3.5 < 9 ? 9 : radius / 3.5);
+        cairo_text_extents(cr, t, &ext);
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.45);
+        cairo_move_to(cr, cx - ext.width / 2 - ext.x_bearing,
+                      cy - ext.height / 2 - ext.y_bearing);
+        cairo_show_text(cr, t);
+    }
 }
 #endif
+
+/* The ring as a control, in draw's own coordinates. A press in the middle
+ * adds a hit, or with the other button takes one away; a press on the
+ * ring grabs it, and dragging round turns the pattern by the steps
+ * crossed. Both change what plays from the next step, as the params
+ * would, and composer_capture hands them back as the params' text. */
+extern "C" THINK_PLUGIN_API void
+composer_input (void *state, const thcInputEvent *ev)
+{
+    State *st = static_cast<State *>(state);
+    const thcParams *p = st->params;
+    int steps = (int)p->get(p->ctx, paramIndex[P_STEPS]);
+
+    if (steps < 1)
+        steps = 1;
+
+    const double cx = ev->w / 2, cy = ev->h / 2;
+    const double radius = (ev->w < ev->h ? ev->w : ev->h) / 2 - 8;
+    const double dx = ev->x - cx, dy = ev->y - cy;
+    const double dist = sqrt(dx * dx + dy * dy);
+
+    if (radius < 4)
+        return;
+
+    /* The step a point is nearest, round the ring from twelve o'clock. */
+    double a = atan2(dy, dx) + M_PI / 2;
+
+    if (a < 0)
+        a += 2 * M_PI;
+
+    const int step = (int)lround(a / (2 * M_PI) * steps) % steps;
+
+    if (ev->type == THC_IN_RELEASE)
+    {
+        st->grabStep = -1;
+        return;
+    }
+
+    if (ev->type == THC_IN_DRAG)
+    {
+        if (st->grabStep < 0)
+            return;
+
+        st->rotateSet = ((st->grabRotate - (step - st->grabStep)) % steps +
+                         steps) % steps;
+        return;
+    }
+
+    /* A press begins a gesture: whatever grab the last one left, its
+       release lost off the edge of the picture, is over. */
+    st->grabStep = -1;
+
+    if (dist < radius * 0.6)
+    {
+        const int now = st->fills() < steps ? st->fills() : steps;
+
+        st->fillsSet = ev->button == 3 ? (now > 0 ? now - 1 : 0)
+                                       : (now < steps ? now + 1 : steps);
+        return;
+    }
+
+    st->grabStep = step;
+    st->grabRotate = st->rotate();
+}
+
+/* What a gesture set, as the params' text: fills and rotate, each only
+ * where the ring has moved it off what the param says. */
+extern "C" THINK_PLUGIN_API const char *
+composer_capture (void *state, int index)
+{
+    State *st = static_cast<State *>(state);
+    int value;
+
+    if (index == paramIndex[P_FILLS] && st->fillsSet >= 0)
+        value = st->fillsSet;
+    else if (index == paramIndex[P_ROTATE] && st->rotateSet >= 0)
+        value = st->rotateSet;
+    else
+        return NULL;
+
+    snprintf(st->captured, sizeof(st->captured), "%d", value);
+
+    return st->captured;
+}
 
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)

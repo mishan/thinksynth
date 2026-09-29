@@ -188,6 +188,11 @@ public:
     sigc::signal<void (size_t, bool)> sigMute;
     sigc::signal<void (size_t, bool)> sigSolo;
 
+    /* A chain's F: freeze what it just played into a new chain (see
+       thcFreeze.h). The window does the edit; the browser sends it to
+       the page, which splices its text. */
+    sigc::signal<void (size_t)> sigFreeze;
+
     /* A cell of the arrangement lane was pressed: which section, which
        chain, and the level it asks that chain to have there. The window
        writes it into the file and pokes the running piece; the browser
@@ -234,8 +239,8 @@ public:
     /* Where a stage's box is, in widget pixels. */
     bool stageRect (size_t chain, size_t stage, CanvasRect &at) const;
 
-    /* The middle of a chain's mute (which 0) or solo (1) button, in
-       widget pixels. Public for the reason paramsHandle is. */
+    /* The middle of a chain's mute (which 0), solo (1) or freeze (2)
+       button, in widget pixels. Public for the reason paramsHandle is. */
     bool chainChip (size_t chain, int which, double &x, double &y) const;
 
     /* Where a knob node's value track is, in widget pixels, and where

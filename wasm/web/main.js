@@ -1146,6 +1146,48 @@ async function moveStage (chainName, from, to)
         synth.transport('start');
 }
 
+/* A chain's F on the canvas: what it just played, as a new chain with a
+ * grid, written into the box by the worklet, which heard it; the piece
+ * loaded again with the frozen chain's original muted, and playing again
+ * if it was. On moveStage's terms about text that was never loaded. */
+async function freezeChain (chain, chainName)
+{
+    if (synth === null)
+        return;
+
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before freezing a chain.', true);
+        return;
+    }
+
+    const wasRunning = lastTape?.running === true;
+    const { text, why } = await synth.genFreeze(was, chain, 2);
+
+    if (text === '')
+    {
+        status(`Could not freeze ${chainName}: ${why}.`, true);
+        return;
+    }
+
+    if ($('gen').value !== was || loadedText !== was || loading > 0)
+    {
+        status('The piece changed while that chain was being frozen; ' +
+               'try it again.', true);
+        return;
+    }
+
+    composer?.muteOnLoad(chainName);
+    $('gen').value = text;
+    await loadPiece();
+
+    if (wasRunning && piece !== null)
+        synth.transport('start');
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -2524,6 +2566,8 @@ function showComposer (on)
            box by the param edits' path when it comes back. */
         onSection: (section, chain, level) =>
             synth?.section({ at: -1, section, chain, level }),
+
+        onFreeze: freezeChain,
     });
 
     composer.show(on);

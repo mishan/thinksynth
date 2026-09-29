@@ -312,6 +312,23 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* A chain frozen into a text given: what this instance heard it
+         * play, as a new chain beside it (thcFreeze.h). "" and a reason
+         * when there was nothing to freeze. */
+        if (m.type === 'genfreeze')
+        {
+            const text = this.M.ccall('tw_gen_freeze', 'string',
+                                      ['string', 'number', 'number'],
+                                      [m.text, m.chain, m.bars]);
+
+            this.port.postMessage({
+                type: 'genfreeze', id: m.id, text,
+                why: this.M.ccall('tw_gen_freeze_why', 'string'),
+            });
+
+            return;
+        }
+
         /* One chain's level in one section, in a text given: the edit an
          * arrangement cell makes, for a room's document. */
         if (m.type === 'gensection')

@@ -62,6 +62,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "thcFreeze.h"
 #include "thcGenEdit.h"
 #include "thcNodeHost.h"
 #include "thcAudition.h"
@@ -9228,6 +9229,289 @@ checkSectionEdits (const std::map<std::string, thcPlugin *> &plugins,
              "level");
 }
 
+/* The pictures that became controls, and freezing a chain: the euclid
+ * ring takes a hit from a press in its middle and turns under a drag
+ * round it; accent's steps are marked by a press and painted by a drag;
+ * each hands its param back through composer_capture. And a chain that
+ * played quarter notes for three bars freezes into a grid that reads
+ * them back as a pattern, loads, and plays them. */
+static void
+checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
+                    thSynth *synth)
+{
+    if (plugins.find("euclid") == plugins.end() ||
+        plugins.find("accent") == plugins.end() ||
+        plugins.find("grid") == plugins.end())
+    {
+        fail("euclid, accent or grid is missing; build the plugins first");
+        return;
+    }
+
+    const std::string path = thUtil::tempFile("gencheck-draw-");
+
+    if (path.empty())
+    {
+        fail("could not write the drawn-controls piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "tempo 120;\n"
+               "meter 4;\n"
+               "chain beat {\n"
+               "  stage src gen::euclid { steps = 8; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"C2\"; period = 0.5 beats; "
+               "hold = 0.2 beats;\n"
+               "    vel = 100; };\n"
+               "  stage acc xform::accent { pattern = \"\"; "
+               "grid = 0.25 beats; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n";
+    }
+
+    thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched) || sched.chainCount() != 1)
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail("the drawn-controls piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    thcStage *ring = sched.chain(0)->stages[0].get();
+    thcStage *acc = sched.chain(0)->stages[1].get();
+    auto gesture = [](thcStage *st, thcInputType type, double x, double y,
+                      int button)
+    {
+        thcInputEvent ev = {};
+
+        ev.type = type;
+        ev.x = x;
+        ev.y = y;
+        ev.w = 100;
+        ev.h = 100;
+        ev.button = button;
+        st->plugin->input(st->state, &ev);
+    };
+    const int fills = ring->plugin->paramIndex("fills");
+    const int rotate = ring->plugin->paramIndex("rotate");
+    const int pattern = acc->plugin->paramIndex("pattern");
+
+    /* The middle adds a hit, the other button takes one away. */
+    gesture(ring, THC_IN_PRESS, 50, 50, 1);
+    gesture(ring, THC_IN_RELEASE, 50, 50, 1);
+
+    if (ring->plugin->capture(ring->state, fills) != "5")
+        fail("a press in the euclid ring's middle should make 5 fills; "
+             "captured '" + ring->plugin->capture(ring->state, fills) + "'");
+
+    gesture(ring, THC_IN_PRESS, 50, 50, 3);
+    gesture(ring, THC_IN_PRESS, 50, 50, 3);
+
+    if (ring->plugin->capture(ring->state, fills) != "3")
+        fail("two presses with the other button should leave 3 fills");
+
+    /* Grabbed at twelve o'clock (step 0 of 8) and dragged to three
+       (step 2): the pattern turns two steps clockwise. */
+    gesture(ring, THC_IN_PRESS, 50, 8, 1);
+    gesture(ring, THC_IN_DRAG, 92, 50, 1);
+    gesture(ring, THC_IN_RELEASE, 92, 50, 1);
+
+    if (ring->plugin->capture(ring->state, rotate) != "6")
+        fail("a drag round the euclid ring by two steps should rotate it "
+             "to 6 of 8; captured '" +
+             ring->plugin->capture(ring->state, rotate) + "'");
+
+    /* A grab whose release was lost is over at the next press: a press
+       in the middle and a drag from there leave the rotation alone. */
+    gesture(ring, THC_IN_PRESS, 50, 8, 1);
+    gesture(ring, THC_IN_PRESS, 50, 50, 1);
+    gesture(ring, THC_IN_DRAG, 92, 50, 1);
+
+    if (ring->plugin->capture(ring->state, rotate) != "6")
+        fail("a drag from the euclid ring's middle turned it, from a grab "
+             "whose release never came");
+
+    gesture(ring, THC_IN_RELEASE, 92, 50, 1);
+
+    if (!acc->plugin->capture(acc->state, pattern).empty())
+        fail("an untouched accent captured a pattern");
+
+    /* An empty pattern offers sixteen steps: press the first, drag over
+       the next three, and press the third again to clear it. */
+    gesture(acc, THC_IN_PRESS, 1, 50, 1);
+    gesture(acc, THC_IN_DRAG, 20, 50, 1);
+    gesture(acc, THC_IN_RELEASE, 20, 50, 1);
+    gesture(acc, THC_IN_PRESS, 13, 50, 1);
+
+    if (acc->plugin->capture(acc->state, pattern) != "xx.x............")
+        fail("accent's drawn pattern should be xx.x............; "
+             "captured '" + acc->plugin->capture(acc->state, pattern) +
+             "'");
+
+    /* The param said again: what is drawn gives way to it. */
+    acc->plugin->paramChanged(acc->state, pattern);
+
+    if (!acc->plugin->capture(acc->state, pattern).empty())
+        fail("accent kept a drawn pattern over a param change");
+
+    ring->plugin->paramChanged(ring->state, fills);
+    ring->plugin->paramChanged(ring->state, rotate);
+
+    /* Three bars of four hits in eight half-beat steps, then frozen. */
+    sched.start();
+
+    while (sched.now() < 6.0 + 1e-9)
+    {
+        sched.stepTransport(0.02);
+        drainSynth();
+    }
+
+    thcFreeze::Params params;
+    std::string why;
+
+    if (!thcFreeze::fromChain(sched, 0, 2, params, why))
+        fail("freezing a chain that played should work: " + why);
+    else
+    {
+        std::map<std::string, std::string> got(params.begin(),
+                                               params.end());
+        const std::string bar = "x...x...x...x...";
+
+        if (got["cells"] != "\"" + bar + bar + "\"" ||
+            got["steps"] != "32" || got["rows"] != "1" ||
+            got["notes"] != "\"C2\"" || got["period"] != "0.25 beats")
+        {
+            std::string all;
+
+            for (const auto &p : params)
+                all += p.first + " = " + p.second + "; ";
+
+            fail("the frozen grid should be two bars of quarter notes on "
+                 "C2: " + all);
+        }
+
+        editOk(thcGenEdit::addChain(path, thcFreeze::frozenName("beat",
+                   { "beat" }), 1, "", "frozen", "gen", "grid", params,
+                   why), why, "addChain of a frozen grid");
+
+        const std::vector<Heard> heard =
+            playBody(plugins, synth, "frozen", slurp(path), 3.9);
+        int frozen = 0;
+
+        for (const Heard &h : heard)
+            if (h.note == 36 && std::fabs(h.at * 2 - std::lround(h.at * 2)) <
+                                    1e-6)
+                frozen++;
+
+        /* Both chains play C2 on the beat: eight each in two bars. */
+        if (frozen != 16)
+            fail("the frozen chain should double the original on the "
+                 "beat; heard " + std::to_string(frozen) + " of 16");
+    }
+
+    /* A phrase with two pitches, a held note, and a note struck again
+       inside its own tie: the ladder bottom row last, the held note as
+       long as its release made it, and the tie ended by the second
+       strike. Played into an `input midi' chain at 120, so a step is
+       0.125 s and two bars are four seconds. */
+    {
+        const std::string keys = thUtil::tempFile("gencheck-keys-");
+
+        {
+            std::ofstream out(keys.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\n"
+                   "chain hands {\n"
+                   "  input midi;\n"
+                   "  sink { channel = 1; };\n"
+                   "};\n";
+        }
+
+        thcScheduler live(synth);
+        thcGenLoader reader(plugins);
+
+        live.setAuditionSynchronous(true);
+
+        if (keys.empty() || !reader.load(keys, &live))
+            fail("the live freeze piece did not load");
+        else
+        {
+            auto key = [&live](thcEventType type, int note)
+            {
+                thcEvent ev = {};
+
+                ev.type = type;
+                ev.at = live.now();
+                ev.channel = 0;
+                ev.u.note.note = note;
+                ev.u.note.velocity = 100;
+                ev.u.note.level = 1;
+                live.injectMidiEvent(ev);
+            };
+
+            live.start();
+
+            while (live.now() < 1.0 - 1e-9)
+                live.stepTransport(0.0625);
+
+            key(THC_EV_NOTE, 64);
+
+            while (live.now() < 1.5 - 1e-9)
+                live.stepTransport(0.0625);
+
+            key(THC_EV_NOTEOFF, 64);
+
+            while (live.now() < 4.0 - 1e-9)
+                live.stepTransport(0.0625);
+
+            drainSynth();
+
+            /* And two strikes of C4 by hand: a long one, and a short one
+               two steps into it. */
+            live.chain(0)->played.push_front({ 0.25, 0.125, 60, 100 });
+            live.chain(0)->played.push_front({ 0.0, 0.5, 60, 100 });
+
+            thcFreeze::Params held;
+
+            if (!thcFreeze::fromChain(live, 0, 2, held, why))
+                fail("the live phrase would not freeze: " + why);
+            else
+            {
+                std::map<std::string, std::string> got(held.begin(),
+                                                       held.end());
+                const std::string dots(16, '.');
+
+                if (got["cells"] != "\"........x---...." + dots +
+                                    "/x-x............." + dots + "\"" ||
+                    got["notes"] != "\"C4 E4\"" || got["rows"] != "2")
+                    fail("the live phrase froze as cells = " + got["cells"] +
+                         ", notes = " + got["notes"]);
+            }
+
+            live.stop();
+        }
+
+        remove(keys.c_str());
+    }
+
+    std::vector<std::string> taken = { "beat", "beat_frozen" };
+
+    if (thcFreeze::frozenName("beat", taken) != "beat_frozen2")
+        fail("a second freeze should be called beat_frozen2");
+
+    remove(path.c_str());
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -11398,6 +11682,7 @@ main (int argc, char *argv[])
     checkMuteSolo(plugins, &synth);
     checkChainIdentity(plugins, &synth);
     checkSectionEdits(plugins, &synth);
+    checkDrawnControls(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

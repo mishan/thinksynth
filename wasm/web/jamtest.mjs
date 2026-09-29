@@ -159,15 +159,19 @@ async function paintTogether (pages)
 
     /* The painter's page: the mirror said what the piece has, and what
        can be painted on is a button. */
-    await B.page.waitForSelector('#composerstages button', { timeout: 30000 });
-    await B.page.click('#composerstages button');
+    /* The Life board's, by name: colony's euclid ring is a control
+       too, and comes first. */
+    const board = '#composerstages button:has-text("Paint life")';
+
+    await B.page.waitForSelector(board, { timeout: 30000 });
+    await B.page.click(board);
     await B.page.waitForFunction(
         () => /^Painting /.test(
             document.getElementById('composerstatus').textContent),
         null, { timeout: 15000 });
 
     ok(`${B.label} enlarged ` +
-       `${await B.page.textContent('#composerstages button')}`);
+       `${await B.page.textContent(board)}`);
 
     await A.page.evaluate(() => window.jam.play());
 

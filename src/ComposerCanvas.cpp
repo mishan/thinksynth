@@ -76,7 +76,9 @@ static const double LANE_GAP     = 2;
 static const double COLUMN_GAP   = 28;
 static const int    COLUMNS_MAX  = 6;
 
-/* The mute and solo buttons along the foot of a chain's name box. */
+/* The mute, solo and freeze buttons along the foot of a chain's name
+ * box. */
+static const int    CHIPS    = 3;
 static const double CHIP_W   = 22;
 static const double CHIP_H   = 16;
 static const double CHIP_GAP = 4;
@@ -232,10 +234,10 @@ ComposerCanvas::layoutRow (size_t ci, double x0, double y, double &h,
 
         b.what.kind = Selection::CHAIN;
         b.what.chain = ci;
-        /* Collapsed, M and S move up beside the name, and the box is
+        /* Collapsed, M, S and F move up beside the name, and the box is
            wider by them so the name keeps its room. */
         b.x = x; b.y = y; b.h = rowH;
-        b.w = small ? LABEL_W + 2 * (CHIP_W + CHIP_GAP) : LABEL_W;
+        b.w = small ? LABEL_W + CHIPS * (CHIP_W + CHIP_GAP) : LABEL_W;
         b.title = chain.name;
         b.sub = chain.inputMidi ? "midi in" : "";
         b.live = NULL;
@@ -837,9 +839,9 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
         const double titleX = box.x + DISCLOSE + 6;
 
-        /* Collapsed, the name shares one line with M and S. */
+        /* Collapsed, the name shares one line with M, S and F. */
         const double titleW = small
-            ? box.w - DISCLOSE - 8 - 2 * (CHIP_W + CHIP_GAP)
+            ? box.w - DISCLOSE - 8 - CHIPS * (CHIP_W + CHIP_GAP)
             : box.w - DISCLOSE - 8;
 
         cr->set_source_rgba(1, 1, 1, chainAudible(box.what.chain)
@@ -859,10 +861,11 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
         else if (!box.sub.empty())
             fitText(cr, box.sub, titleX, box.y + 30, titleW);
 
-        /* M and S, lit while set: red for a mute, green for a solo. */
-        for (int which = 0; which < 2; which++)
+        /* M and S, lit while set: red for a mute, green for a solo; and
+           F, which freezes, and so is never lit. */
+        for (int which = 0; which < CHIPS; which++)
         {
-            const bool on = which == 0 ? muted : soloed;
+            const bool on = which == 0 ? muted : which == 1 && soloed;
             double cx, cy, cw, ch;
 
             chipRect(box, which, cx, cy, cw, ch);
@@ -882,7 +885,7 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
             cr->set_line_width(1);
             cr->stroke();
 
-            const char *label = which == 0 ? "M" : "S";
+            const char *label = which == 0 ? "M" : which == 1 ? "S" : "F";
             Cairo::TextExtents ext;
 
             cr->set_font_size(10);
@@ -1543,7 +1546,7 @@ ComposerCanvas::chipRect (const Box &b, int which, double &x, double &y,
        foot of the box. */
     if (b.h < STAGE_H)
     {
-        x = b.x + b.w - (2 - which) * (CHIP_W + CHIP_GAP);
+        x = b.x + b.w - (CHIPS - which) * (CHIP_W + CHIP_GAP);
         y = b.y + (b.h - CHIP_H) / 2;
     }
     else
@@ -2166,7 +2169,7 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
     if (box != NULL && box->what.kind == Selection::CHAIN && !box->ghost &&
         button == 1 && sched_ != NULL && enlarged_.kind == Selection::NONE)
     {
-        for (int which = 0; which < 2; which++)
+        for (int which = 0; which < CHIPS; which++)
         {
             double cx, cy, cw, ch;
 
@@ -2174,6 +2177,16 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 
             if (x < cx || x > cx + cw || y < cy || y > cy + ch)
                 continue;
+
+            /* F is an action, not a flag: once per click, so a
+               double-click is not two frozen chains. */
+            if (which == 2)
+            {
+                if (nPress == 1)
+                    sigFreeze.emit(box->what.chain);
+
+                return;
+            }
 
             const bool on = !mixFlag(box->what.chain, which == 1);
 

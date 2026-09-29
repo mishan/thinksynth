@@ -124,17 +124,26 @@ function takeTape (p)
 }
 
 /* The first stage whose picture is a control -- its module exports
-   composer_input. Two do: `life', in colony and glider, and `ca', in
-   loom and cavern. */
+   composer_input -- and which this file knows where to paint on
+   (PAINT_AT): `life', in colony and glider, and `ca', in loom and cavern.
+   The euclid ring and accent's steps are controls too, whose gestures
+   gencheck drives; where on them a press is heard depends on the piece,
+   which is what PAINT_AT cannot say for them. */
 function clickable (M)
 {
     for (let c = 0; c < M._tw_chain_count(); c++)
         for (let s = 0; s < M._tw_stage_count(c); s++)
-            if (M._tw_stage_takes_input(c, s))
-                return { chain: c, stage: s,
-                         name: M.UTF8ToString(
-                             M.ccall('tw_stage_name', 'number',
-                                     ['number', 'number'], [c, s])) };
+        {
+            if (!M._tw_stage_takes_input(c, s))
+                continue;
+
+            const name = M.UTF8ToString(
+                M.ccall('tw_stage_name', 'number', ['number', 'number'],
+                        [c, s]));
+
+            if (name in PAINT_AT)
+                return { chain: c, stage: s, name };
+        }
 
     return null;
 }

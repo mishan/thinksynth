@@ -1151,7 +1151,8 @@ try
     check(stages.length > 0,
           `${COMPOSER_PIECE} offers its controls: ${stages.join(', ')}`);
 
-    await page.click('#composerstages button');
+    /* The Life board's: the euclid ring before it is a control too. */
+    await page.click('#composerstages button:has-text("Paint life")');
     await page.waitForFunction(
         () => /^Painting /.test(
             document.getElementById('composerstatus').textContent),
@@ -1708,6 +1709,51 @@ try
                   'two quick presses step it twice, through as written ' +
                   `to silent: ${again}`);
         }
+
+        /* F on a chain that has been playing: the hats, which the intro
+           keeps. What they played comes back as a new chain with a grid,
+           the text says so, and the hats themselves come back muted. */
+        await page.click('#play');
+        await new Promise((r) => setTimeout(r, 5000));
+
+        const freezeLoads = await page.evaluate(() => window.solo.pieces());
+        const f = await page.evaluate(() => window.solo.chipOf(2, 2));
+
+        /* Below what the scroller shows at this page's height: scrolled
+           to, and pressed where it now is. */
+        const top = await page.$eval('#composerscroll', (d, y) =>
+        {
+            d.scrollTop = Math.max(0, y - d.clientHeight / 2);
+
+            return d.scrollTop;
+        }, f.y);
+        const at = await scroller();
+
+        await page.mouse.click(at.x + f.x, at.y + f.y - top);
+        await page.waitForFunction((n) => window.solo.pieces() > n,
+                                   freezeLoads, { timeout: 30000 })
+            .catch(async () => check(false, 'F reloaded nothing: ' +
+                await page.textContent('#status')));
+        await page.$eval('#composerscroll', (d) => { d.scrollTop = 0; });
+
+        const frozenText = await page.evaluate(() => window.solo.genText());
+        const mixAfter = await until(
+            () => page.evaluate(() => window.solo.mix()),
+            (c) => c.length > 2 && c[2].muted);
+
+        /* And it plays where the hats play, as loud: the break has them
+           at 0.6. */
+        const brk = frozenText.slice(frozenText.indexOf('section break'));
+        const breakStmt = brk.slice(0, brk.indexOf('};'));
+
+        check(/chain hats_frozen \{[^}]*gen::grid/.test(frozenText) &&
+              /hats_frozen = 0\.6;/.test(breakStmt) &&
+              mixAfter[2].muted && mixAfter.length === before.levels[0]
+                  .length + 1,
+              'F freezes what the hats played into hats_frozen, a grid at ' +
+              'the hats\' levels in the arrangement, and mutes the hats');
+
+        await page.click('#stop');
 
         const colonyLoads = await page.evaluate(() => window.solo.pieces());
 

@@ -602,6 +602,7 @@ thcScheduler::clearChains (void)
 
     chains_.clear();
     soloCount_ = 0;
+    meter_ = 4;
     wakeups_.clear();
     pending_.clear();
 
@@ -2440,6 +2441,37 @@ thcScheduler::deliverFrom (const thcEvent &ev, int chain)
         (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG))
         chains_[chain].lastHeard[ev.type == THC_EV_CHANARG] = transportNow_;
 
+    /* And what it played, for a freeze: a minute or so of it, which is
+       more bars than a pattern holds at any tempo anybody plays. */
+    if (chain >= 0 && (size_t)chain < chains_.size() &&
+        ev.type == THC_EV_NOTE)
+    {
+        static const double PLAYED_KEEP = 90;
+        std::deque<thcPlayed> &played = chains_[chain].played;
+
+        played.push_back({ ev.at, ev.u.note.duration, ev.u.note.note,
+                           ev.u.note.velocity });
+
+        while (!played.empty() &&
+               (played.front().at < ev.at - PLAYED_KEEP ||
+                played.size() > 4096))
+            played.pop_front();
+    }
+
+    /* A held note's release, which is where its length is known. */
+    if (chain >= 0 && (size_t)chain < chains_.size() &&
+        ev.type == THC_EV_NOTEOFF)
+    {
+        std::deque<thcPlayed> &played = chains_[chain].played;
+
+        for (size_t i = played.size(); i-- > 0; )
+            if (played[i].note == ev.u.note.note && played[i].duration <= 0)
+            {
+                played[i].duration = std::max(ev.at - played[i].at, 0.0);
+                break;
+            }
+    }
+
     deliveringChain_ = chain;
     deliver(ev);
     deliveringChain_ = -1;
@@ -2659,6 +2691,7 @@ thcScheduler::reset (void)
     {
         c.lastHeard[0] = c.lastHeard[1] = -1;
         c.lastGated[0] = c.lastGated[1] = -1;
+        c.played.clear();
 
         for (auto &s : c.stages)
             s->lastIn = s->lastOut = -1;
