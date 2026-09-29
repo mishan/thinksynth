@@ -117,23 +117,41 @@ if(HARNESS_B OR EXTRA_ARGS_B)
   endforeach()
 
   if(NOT out_A STREQUAL out_B)
-    string(REPLACE "\n" ";" lines_A "${out_A}")
-    string(REPLACE "\n" ";" lines_B "${out_B}")
-    list(LENGTH lines_A n)
-    math(EXPR last "${n} - 1")
-
+    # Line by line with string(FIND) rather than as CMake lists: a list
+    # splits on every `;' in a line and treats an unbalanced `[' as the
+    # start of a bracket, and the two sides may not print the same number
+    # of lines. A side that has run out shows as (nothing).
     set(differ 0)
-    foreach(i RANGE ${last})
-      list(GET lines_A ${i} a)
-      list(GET lines_B ${i} b)
-      if(NOT a STREQUAL b)
-        message("A  ${a}\nB  ${b}")
+
+    while(NOT out_A STREQUAL "" OR NOT out_B STREQUAL "")
+      foreach(side A B)
+        string(FIND "${out_${side}}" "\n" at)
+
+        if(at EQUAL -1)
+          set(line_${side} "${out_${side}}")
+          set(out_${side} "")
+        else()
+          string(SUBSTRING "${out_${side}}" 0 ${at} line_${side})
+          math(EXPR at "${at} + 1")
+          string(SUBSTRING "${out_${side}}" ${at} -1 out_${side})
+        endif()
+      endforeach()
+
+      if(NOT line_A STREQUAL line_B)
+        foreach(side A B)
+          if(line_${side} STREQUAL "")
+            set(line_${side} "(nothing)")
+          endif()
+        endforeach()
+
+        message("A  ${line_A}\nB  ${line_B}")
         math(EXPR differ "${differ} + 1")
       endif()
-    endforeach()
+    endwhile()
 
-    message(FATAL_ERROR "${differ} of ${count} ${MODE} files differ between "
-                        "${HARNESS} and ${HARNESS_B} ${EXTRA_ARGS_B}")
+    message(FATAL_ERROR "${differ} line(s) differ between ${HARNESS} and "
+                        "${HARNESS_B} ${EXTRA_ARGS_B} over ${count} ${MODE} "
+                        "files")
   endif()
 
   message(STATUS "${count} ${MODE} files identical")
