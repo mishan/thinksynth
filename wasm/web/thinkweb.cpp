@@ -151,8 +151,8 @@ enum CmdType
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
    four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
    TW_SOLO, TW_SECTION and TW_KNOBWRITE have entry points of their own and
-   never arrive as an op from there. TW_SEEK arrives both ways: framed from
-   a solo page, stamped from a room's (tw_at). */
+   never arrive as an op from there. TW_SEEK is a solo page's, framed; a
+   room's seek is a begin from a time (tw_begin). */
 enum TransportOp
 {
     TW_START,
@@ -311,6 +311,11 @@ double frameOf (double at)
    transport is rewound and started, with a partial first step so that
    transport zero is that frame and not the start of its window. */
 bool   armed_;
+
+/* Where an armed begin starts the piece from: 0 for the top, or the time
+   a room's seek is to, which every peer plays up to silently at the same
+   frame (thcScheduler::seek). */
+double armFrom_ = 0;
 double armFrame_;
 
 /* The piece as thcGenEdit reads it back: the authored spellings, the chains
@@ -533,9 +538,12 @@ void beginDue (double start, int len)
     sched_->reset();
     epoch_++;
 
-    /* From the top, so transport zero is what the frame below is pinned
-       to whatever the clock was doing before. */
-    originAt_ = 0;
+    /* From the top, or from where a seek said: played up to there without
+       a sound, and the frame below pinned to wherever that is. */
+    if (armFrom_ > 0)
+        sched_->seek(armFrom_);
+
+    originAt_ = sched_->now();
 
     /* A begin whose frame has already gone by -- it arrived late, or was
        stamped for a frame this synth had already rendered -- starts now,
@@ -714,25 +722,7 @@ void applyScheduled (const Scheduled &c)
             sched_->halt();
             break;
 
-        /* A room's seek, at `at' on every peer: the clock pinned so the
-           frame `at' fell on is now the seek's time. What was stamped for
-           the run being left is dropped, as a rewind drops it. */
-        case TW_SEEK:
-        {
-            const double frame = originFrame_ >= 0 ? frameOf(c.at) : -1;
 
-            sched_->seek(c.value);
-            dropStamped();
-            epoch_++;
-
-            if (frame >= 0 && sched_->running())
-            {
-                originFrame_ = frame;
-                originAt_ = sched_->now();
-            }
-
-            break;
-        }
 
         case TW_TEMPO:
             sched_->setTempo(c.value);
@@ -1052,10 +1042,8 @@ void step (double start, int len)
 
         applyScheduled(c);
 
-        /* A stop: the transport is where the stop said, and stays. A
-           seek: the rest of this window was reckoned on the clock before
-           it, and the next window is the first on the new one. */
-        if (!sched_->running() || c.op == TW_SEEK)
+        /* A stop: the transport is where the stop said, and stays. */
+        if (!sched_->running())
             return;
     }
 
@@ -3734,11 +3722,12 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
  * away with the old run's and counted as nothing. What is in the queue
  * now is the old run's, and the load that a start always comes with has
  * dropped it already. */
-EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame)
+EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from)
 {
     dropStamped();
     armed_ = true;
     armFrame_ = originFrame;
+    armFrom_ = from > 0 ? from : 0;
 }
 
 /* A stop or a tempo, at transport time `at', inside the step. TW_START and
@@ -3747,7 +3736,7 @@ EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame)
    tw_knob. */
 EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
 {
-    if (op != TW_STOP && op != TW_TEMPO && op != TW_SEEK)
+    if (op != TW_STOP && op != TW_TEMPO)
         return;
 
     Scheduled c = {};

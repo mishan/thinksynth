@@ -1850,13 +1850,17 @@ try
 
         await page.mouse.click(headAt.x + heads[3].x, headAt.y + heads[3].y);
 
-        const jumped = await until(lane, (l) => l.now > 50);
+        /* The worklet's transport, which is the one heard, and the
+           mirror's, which draws: both there. */
+        const heard = () => page.evaluate(() => window.solo.transport());
+        const jumped = await until(heard, (t) => t !== null && t.now > 50);
+        const drawn = await until(lane, (l) => l.now > 50);
 
         await new Promise((r) => setTimeout(r, 1000));
 
-        const later = await lane();
+        const later = await heard();
 
-        check(jumped.now > 50 && later.now > jumped.now,
+        check(jumped.now > 50 && drawn.now > 50 && later.now > jumped.now,
               `a section's block moves the transport to it and plays on: ` +
               `${jumped.now.toFixed(1)} s, then ${later.now.toFixed(1)} s`);
 

@@ -374,8 +374,13 @@ async function loadFor (cmd)
         });
     }
 
+    runSeed = cmd.seed;
     await loadFromDoc(cmd.seed);
 }
+
+/* The seed the run playing now started with: what a seek starts again
+   with, so it is the same piece from there. */
+let runSeed = null;
 
 /* The piece from the document into the worklet, and what the page shows
    of it: the knobs, the seats, the channels it listens on. `seed' is
@@ -554,6 +559,23 @@ async function play ()
                                : Math.floor(Math.random() * 0x100000000);
 
     await send(maker.start(origin, hash, seed));
+}
+
+/* A seek, as a room has it: a start from time `from', with the seed of
+ * the run playing, so every peer plays the same piece up to there at the
+ * same frame and goes on together. */
+async function seekTo (from)
+{
+    if (!clocksReady() || doc === null)
+        return;
+
+    const hash = await hashOf(doc);
+    const origin = room.relayNow() + maker.transportLead * 1000;
+    const seed = runSeed ?? (piece?.seeded ? piece.seed
+                                           : Math.floor(Math.random() *
+                                                        0x100000000));
+
+    await send(maker.start(origin, hash, seed, from));
 }
 
 async function stop ()
@@ -1022,9 +1044,9 @@ function showComposer (on)
         onMove: moveStage,
         onFreeze: freezeChain,
 
-        /* A section's block: the room's transport there, with the
-           transport's lead. */
-        onSeek: (at) => send(maker.seek(at)),
+        /* A section's block: the room's transport there -- a start from
+           that time (seekTo). */
+        onSeek: seekTo,
 
         /* An arrangement cell: the room's command, written into the
            document by this peer when it comes back, as a param is. */

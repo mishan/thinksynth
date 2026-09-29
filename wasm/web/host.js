@@ -338,7 +338,7 @@ export async function createSynth (ctx, { windowlen = 256,
         /* From the top, with transport zero at `frame' exactly: what a
            room's Play is, on every peer, at the frame its origin falls
            on. */
-        begin: (frame) => post({ type: 'begin', frame }),
+        begin: (frame, from = 0) => post({ type: 'begin', frame, from }),
 
         /* 'stop' or 'tempo' at a transport time, applied inside the step
            at that time; -1 is the next window. */

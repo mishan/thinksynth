@@ -35,7 +35,7 @@
  *   transport  { at, op: 'start', origin, piece: { hash }, seed }
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
- *   transport  { at, op: 'seek', to }
+ *   transport  { at, op: 'start', origin, piece, seed, from } -- a seek
  *   knob       { at, knob, value }
  *   knobwrite  { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
@@ -87,25 +87,16 @@ export class Maker
 
     /* Play. `origin' is a relay-clock time; the caller has already put it
        `transportLead' ahead. */
-    start (origin, hash, seed)
+    start (origin, hash, seed, from = 0)
     {
         return this.make('transport', { op: 'start', origin,
-                                        piece: { hash }, seed },
+                                        piece: { hash }, seed, from },
                          this.transportLead);
     }
 
     stop ()
     {
         return this.make('transport', { op: 'stop' }, this.transportLead);
-    }
-
-    /* To transport time `to', from where the piece is: with the
-       transport's lead, like a stop, since every peer plays the whole
-       piece up to there when it lands. */
-    seek (to)
-    {
-        return this.make('transport', { op: 'seek', to },
-                         this.transportLead);
     }
 
     tempo (bpm)
@@ -298,7 +289,11 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
                     if (load !== undefined)
                         await load(cmd);
 
-                    synth.begin(frameOfOrigin(cmd.origin));
+                    /* From the top, or from `from': a room's seek is a
+                       start from a time, so every peer plays up to it at
+                       the same frame, and a peer joining later hears the
+                       start the relay kept, `from' and all. */
+                    synth.begin(frameOfOrigin(cmd.origin), cmd.from ?? 0);
                     break;
 
                 case 'stop':
@@ -309,9 +304,6 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
                     synth.transportAt('tempo', cmd.at, cmd.bpm);
                     break;
 
-                case 'seek':
-                    synth.transportAt('seek', cmd.at, cmd.to);
-                    break;
             }
             break;
 

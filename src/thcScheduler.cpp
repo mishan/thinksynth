@@ -798,6 +798,7 @@ thcScheduler::ensureAuditioner (void)
 void
 thcScheduler::setAuditionSynchronous (bool on)
 {
+    auditionSync_ = on;
     ensureAuditioner();
 
 #ifndef __EMSCRIPTEN__
@@ -2241,7 +2242,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     passingThrough_ = false;
 
-    if (ev.type != THC_EV_NOTEOFF)
+    if (ev.type != THC_EV_NOTEOFF && !seeking_)
     {
         if (fromStage > 0 && fromStage <= c.stages.size() && !passed)
             c.stages[fromStage - 1]->lastOut = transportNow_;
@@ -2287,7 +2288,8 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
                 /* At the event's own time, which is when it would have
                    been heard: a chain that emits ahead is dropped ahead
                    too, and would light before the notes it still plays. */
-                if (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG)
+                if ((ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG) &&
+                    !seeking_)
                     c.lastGated[ev.type == THC_EV_CHANARG] =
                         std::max(transportNow_, ev.at);
 
@@ -2678,26 +2680,49 @@ thcScheduler::seek (double t)
     halt();
     reset();
 
-    if (t > 0)
+    /* No further than a piece that ends goes, and no further than an
+       hour: a seek is the whole piece up to there, and a target nobody
+       could mean is a host stalled for nothing. */
+    if (endAfter_ && sectionsLength() > 0)
+        t = std::min(t, sectionsLength());
+
+    t = std::min(t, 3600.0);
+
+    /* Up to just short of `t', silently -- short of it, so what is due
+       at `t' itself is heard: a section starts on a bar line, and so
+       does its downbeat. Steps of 20 ms, the desktop's own: a stage asks
+       for its wakes and gets them whatever the step, but one woken by a
+       node moving is woken at the end of the step it moved in. An ear a
+       composer listens through answers at once, as a harness's does, or
+       a breeding population would not breed on the way. */
+    const double to = t - 1e-6;
+
+    if (to > 0)
     {
-        /* The whole piece up to `t', silently. Steps of a tenth of a
-           second: the stages are woken at the times they asked for
-           whatever the step, so the size is only how often the nodes and
-           the deliveries catch up, and nothing delivered is heard. */
+        const bool wasSync = auditionSync_;
+
+        if (!wasSync)
+            setAuditionSynchronous(true);
+
         seeking_ = true;
         start();
 
-        while (running_ && transportNow_ < t - 1e-9)
-            stepTransportTo(std::min(t, transportNow_ + 0.1));
+        while (running_ && transportNow_ < to - 1e-9)
+            stepTransportTo(std::min(to, transportNow_ + 0.02));
 
         seeking_ = false;
+
+        if (!wasSync)
+            setAuditionSynchronous(false);
     }
 
-    /* Playing on from there if it was playing; otherwise waiting there
-       for Play. A piece that ends before `t' has stopped itself. */
-    if (was && !running_ && !(endAfter_ && sectionAt(transportNow_) < 0))
+    /* Playing on from there if it was playing -- start() takes the wall
+       clock the timer steps by from now, or its first tick would step
+       the transport by however long the seek took; otherwise waiting
+       there for Play. A piece that ends before `t' has stopped itself. */
+    if (was && !(endAfter_ && sectionAt(transportNow_) < 0))
         start();
-    else if (!was)
+    else
         running_ = false;
 }
 

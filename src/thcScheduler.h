@@ -1246,6 +1246,7 @@ private:
     int deliveringChain_;
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
+    bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
 
     /* Set by propagate() for the one call that carries an event past a
        stage with no receive, so that stage is not lit as its source. */

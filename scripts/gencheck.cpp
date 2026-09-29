@@ -9530,7 +9530,7 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
 {
     const std::string body =
         "seed 17;\n"
-        "tempo 110;\n"
+        "tempo 120;\n"
         "chain line {\n"
         "  stage src gen::eno_line { notes = \"C4 E4 G4\"; period = 0.7 s;\n"
         "    jitter = 0.3 s; prob = 0.6; };\n"
@@ -9542,6 +9542,12 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
         "    vel = 100; ahead = 1; };\n"
         "  stage c xform::chance { prob = 0.5; };\n"
         "  sink { channel = 2; };\n"
+        "};\n"
+        "chain bar {\n"
+        "  stage src gen::euclid { steps = 1; fills = 1; rotate = 0;\n"
+        "    notes = \"C1\"; period = 4 beats; hold = 1 beats;\n"
+        "    vel = 90; };\n"
+        "  sink { channel = 3; };\n"
         "};\n";
 
     const std::string path = thUtil::tempFile("gencheck-seek-");
@@ -9558,7 +9564,9 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
         out << body;
     }
 
-    auto play = [&](bool seekFirst, std::string &tape)
+    /* `how': 0 straight through, 1 a seek to 4 s on a stopped transport
+       then Play, 2 a seek to 4 s from 2 s while playing. */
+    auto play = [&](int how, std::string &tape)
     {
         thcScheduler sched(synth);
         thcGenLoader loader(plugins);
@@ -9581,11 +9589,11 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
                 tape += b;
             });
 
-        if (seekFirst)
+        if (how == 1)
         {
             sched.seek(4.0);
 
-            if (sched.running() || std::fabs(sched.now() - 4.0) > 1e-9)
+            if (sched.running() || std::fabs(sched.now() - 4.0) > 1e-5)
                 fail("a seek on a stopped transport should wait at 4 s");
         }
 
@@ -9593,6 +9601,15 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
 
         while (sched.now() < 8.0 - 1e-9)
         {
+            if (how == 2 && std::fabs(sched.now() - 2.0) < 1e-9)
+            {
+                tape.clear();
+                sched.seek(4.0);
+
+                if (!sched.running())
+                    fail("a seek while playing should go on playing");
+            }
+
             sched.stepTransport(0.02);
             drainSynth();
         }
@@ -9604,9 +9621,9 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
         return true;
     };
 
-    std::string straight, sought;
+    std::string straight, sought, onTheFly;
 
-    if (!play(false, straight) || !play(true, sought))
+    if (!play(0, straight) || !play(1, sought) || !play(2, onTheFly))
     {
         fail("the seek piece did not load");
         remove(path.c_str());
@@ -9615,19 +9632,43 @@ checkSeek (const std::map<std::string, thcPlugin *> &plugins,
 
     remove(path.c_str());
 
-    /* The straight run from four seconds on. */
-    std::string tail;
-    std::istringstream lines(straight);
-    std::string line;
+    /* Each run between four seconds and just short of eight: where the
+       last step of each lands past eight is the stepping's business. */
+    auto window = [](const std::string &t)
+    {
+        std::string out, line;
+        std::istringstream lines(t);
 
-    while (std::getline(lines, line))
-        if (atof(line.c_str()) >= 4.0 - 1e-9)
-            tail += line + "\n";
+        while (std::getline(lines, line))
+        {
+            const double at = atof(line.c_str());
+
+            if (at >= 4.0 - 1e-9 && at < 7.9)
+                out += line + "\n";
+        }
+
+        return out;
+    };
+
+    const std::string tail = window(straight);
+
+    sought = window(sought);
+    onTheFly = window(onTheFly);
+
+    /* At 120 a bar is two seconds, so the bar chain has its downbeat due
+       at 4 s exactly: the seek must not swallow it. */
+    if (tail.find("4.000000000 2 ") == std::string::npos)
+        fail("the straight run should have a note at exactly 4 s");
 
     if (tail.empty() || sought != tail)
         fail("after a seek to 4 s the piece should play what it plays from "
              "4 s straight through; " + std::to_string(sought.size()) +
              " bytes of tape against " + std::to_string(tail.size()));
+
+    if (onTheFly != tail)
+        fail("a seek to 4 s while playing should play on as the piece does "
+             "from 4 s; " + std::to_string(onTheFly.size()) + " bytes of "
+             "tape against " + std::to_string(tail.size()));
 }
 
 static void

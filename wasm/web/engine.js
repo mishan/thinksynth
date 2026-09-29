@@ -139,7 +139,7 @@ export function apply (M, m, host = NOWHERE)
         case 'begin':
             /* From the top, with transport zero at this frame exactly
                (thinkweb.cpp, tw_begin). */
-            M._tw_begin(m.frame);
+            M._tw_begin(m.frame, m.from ?? 0);
             return true;
 
         case 'at':

@@ -219,7 +219,7 @@ class Peer
            ops go through render.mjs's schedule(), which is the one place
            the op numbers are written down on this side. */
         this.synth = {
-            begin: (frame) => M._tw_begin(frame),
+            begin: (frame, from = 0) => M._tw_begin(frame, from),
             transportAt: (op, at, value = 0) =>
                 schedule(M, { op, at, value }),
             knob: (knob, value, at) =>
