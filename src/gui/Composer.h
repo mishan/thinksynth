@@ -304,6 +304,8 @@ protected:
     void onCanvasKnob (std::string name, double value, bool commit);
     void onCanvasBindKnob (std::string knob, size_t chain, size_t stage,
                            CanvasRect at);
+    void onCanvasMute (size_t chain, bool on);
+    void onCanvasSolo (size_t chain, bool on);
     void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a
@@ -392,6 +394,12 @@ protected:
        writes its drums with `|' bar lines, and the grid hands its
        pattern back without them. */
     std::map<std::string, std::string> baseline_;
+
+    /* The chains muted and soloed when the piece was last parsed, by
+       name, and which document that was. A reload of the same document
+       -- an edit -- puts them back; any other load starts clear. */
+    std::vector<std::string> mutedNames_, soloedNames_;
+    std::string mixOf_;
 
     thcGenEdit::Doc doc_;           /* what the work file says           */
 

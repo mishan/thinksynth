@@ -587,6 +587,82 @@ run (const std::string &pluginPath, const char *genFile)
             ok("the enlarged view can be left again");
     }
 
+    /* A chain's M and S, pressed at half zoom for the reason the params
+       handle below is: a missed conversion lands on another box. The
+       buttons set the live flags and leave the selection alone, and a
+       structural reload of the same piece keeps them. */
+    if (win->sched_->chainCount() >= 2)
+    {
+        double mx, my, sx, sy;
+
+        win->canvas_->setZoom(0.5);
+        pump(2);
+
+        const ComposerCanvas::Selection was = win->canvas_->selection();
+
+        if (!win->canvas_->chainChip(0, 0, mx, my) ||
+            !win->canvas_->chainChip(0, 1, sx, sy))
+            fail("the first chain has no mute or solo button");
+        else
+        {
+            win->canvas_->pressAt(mx, my, 1, 1);
+            pump(2);
+
+            if (win->sched_->chain(0)->muted &&
+                !win->sched_->chain(1)->muted)
+                ok("a chain's M mutes that chain");
+            else
+                fail("a chain's M mutes that chain");
+
+            if (win->canvas_->selection() == was)
+                ok("...and leaves the selection where it was");
+            else
+                fail("...and leaves the selection where it was");
+
+            win->canvas_->pressAt(mx, my, 1, 1);
+            pump(2);
+
+            if (!win->sched_->chain(0)->muted)
+                ok("...and a second press unmutes it");
+            else
+                fail("...and a second press unmutes it");
+
+            win->canvas_->pressAt(sx, sy, 1, 1);
+            pump(2);
+
+            if (win->sched_->chain(0)->soloed &&
+                win->sched_->audible(*win->sched_->chain(0)) &&
+                !win->sched_->audible(*win->sched_->chain(1)))
+                ok("a chain's S silences every other chain");
+            else
+                fail("a chain's S silences every other chain");
+
+            win->structuralReload();
+            pump(6);
+
+            if (win->sched_->chainCount() >= 2 &&
+                win->sched_->chain(0)->soloed &&
+                !win->sched_->audible(*win->sched_->chain(1)))
+                ok("...and the solo survives a reload of the same piece");
+            else
+                fail("...and the solo survives a reload of the same piece");
+
+            if (win->canvas_->chainChip(0, 1, sx, sy))
+                win->canvas_->pressAt(sx, sy, 1, 1);
+
+            pump(2);
+
+            if (win->sched_->chainCount() >= 2 &&
+                !win->sched_->chain(0)->soloed &&
+                win->sched_->audible(*win->sched_->chain(1)))
+                ok("...and pressing it again brings the others back");
+            else
+                fail("...and pressing it again brings the others back");
+        }
+    }
+    else
+        fail("the piece here has fewer than two chains to mute between");
+
     /* The params handle on a stage box, pressed rather than read.
      *
        This is the section the coordinate conversions were missing. Every

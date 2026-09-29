@@ -161,6 +161,10 @@ Composer::Composer (thSynth *synth)
         sigc::mem_fun(*this, &Composer::onCanvasKnob));
     canvas_->sigBindKnob.connect(
         sigc::mem_fun(*this, &Composer::onCanvasBindKnob));
+    canvas_->sigMute.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasMute));
+    canvas_->sigSolo.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasSolo));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
@@ -932,6 +936,34 @@ Composer::parseWork (void)
     prevOwned_.swap(ownedChannels_);
     prevInstruments_ = sched_->instruments();
 
+    /* The mute and the solos are the scheduler's and a load clears them.
+       Taken by name now, to put back below if this is the same document
+       loaded again: an added stage is not a reason to hear every chain. */
+    const std::string mixOf = std::to_string((int)which_) + ":" + genPath_;
+
+    if (mixOf == mixOf_)
+    {
+        mutedNames_.clear();
+        soloedNames_.clear();
+
+        for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+        {
+            const thcChain *c = sched_->chain(ci);
+
+            if (c->muted)
+                mutedNames_.push_back(c->name);
+
+            if (c->soloed)
+                soloedNames_.push_back(c->name);
+        }
+    }
+    else
+    {
+        mutedNames_.clear();
+        soloedNames_.clear();
+        mixOf_ = mixOf;
+    }
+
     thcGenLoader loader(composers_);
 
     if (!loader.load(workPath_, sched_))
@@ -983,6 +1015,19 @@ Composer::parseWork (void)
     }
 
     releaseInstruments();
+
+    for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+    {
+        const std::string &name = sched_->chain(ci)->name;
+
+        if (std::find(mutedNames_.begin(), mutedNames_.end(), name) !=
+            mutedNames_.end())
+            sched_->setMuted(ci, true);
+
+        if (std::find(soloedNames_.begin(), soloedNames_.end(), name) !=
+            soloedNames_.end())
+            sched_->setSoloed(ci, true);
+    }
 
     std::string why;
 
@@ -1594,6 +1639,26 @@ Composer::onKbdToggle (void)
         kbdOnConn_.disconnect();
         kbdOffConn_.disconnect();
     }
+}
+
+/* A chain's M or S on the canvas. Live, like the Selection pane's mute
+ * check, and not written to the file. The pane is rebuilt when it is
+ * showing a chain, so its check follows the button. */
+void
+Composer::onCanvasMute (size_t chain, bool on)
+{
+    sched_->setMuted(chain, on);
+    canvas_->queue_draw();
+
+    if (canvas_->selection().kind == ComposerCanvas::Selection::CHAIN)
+        rebuildSelection();
+}
+
+void
+Composer::onCanvasSolo (size_t chain, bool on)
+{
+    sched_->setSoloed(chain, on);
+    canvas_->queue_draw();
 }
 
 void

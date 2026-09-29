@@ -736,6 +736,9 @@ one, exactly as un-muting does. Which section an event belongs to is decided by
 the event's own time and not by when it was emitted, so a grammar that emits
 eight bars in one tick is gated bar by bar.
 
+The live mute and solo — the M and S on a chain in the composer view — are the
+same gate: a chain they silence is at level 0 whatever the section says.
+
 A muted chain is muted in full: its chanargs stop too, and a knob one was
 driving keeps the value it had. Two kinds of event go through whatever the
 level says, and neither of them is sound. A note-off, because a swallowed off

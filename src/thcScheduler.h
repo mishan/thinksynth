@@ -410,6 +410,7 @@ struct thcChain
 {
     std::string  name;
     bool         muted;
+    bool         soloed;     /* while any chain is, only those are heard */
     bool         inputMidi;  /* fed by live MIDI on the sink channel     */
     double       start;      /* first generator wake, seconds or beats  */
     bool         startBeats;
@@ -767,8 +768,20 @@ public:
 
     /* Mute drops events at end-of-chain, not at the source: the
        algorithm keeps evolving silently, so un-muting mid-piece rejoins
-       a living process rather than restarting a cold one. */
+       a living process rather than restarting a cold one.
+     *
+       Solo is the same gate from the other side: while any chain is
+       soloed, every chain that is not is muted. A chain both muted and
+       soloed stays muted. Neither is saved; a load clears both. */
     void setMuted (size_t chain, bool muted);
+    void setSoloed (size_t chain, bool soloed);
+
+    /* Whether the mute and the solos let this chain be heard. The
+       arrangement's levels are applied on top, and are not asked. */
+    bool audible (const thcChain &c) const
+    {
+        return !c.muted && (soloCount_ == 0 || c.soloed);
+    }
 
     /* ---- the arrangement (docs/GEN_FORMAT.md 5c) ----
      *
@@ -961,6 +974,7 @@ private:
 
     thSynth                 *synth_;
     std::vector<thcChain>    chains_;
+    size_t                   soloCount_;   /* chains with `soloed' set */
     std::vector<thcSection>  sections_;
     bool                     endAfter_;   /* the file's `section end;'  */
     sigc::connection         timer_;

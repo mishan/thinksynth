@@ -386,7 +386,7 @@ thcScheduler::thcScheduler (thSynth *synth)
        belongs to, which puts it ahead of the transport members here
        even though nothing about it is more fundamental. swapped_ is a
        container and needs no mention. */
-    : synth_(synth), endAfter_(false), controlSynth_(NULL),
+    : synth_(synth), soloCount_(0), endAfter_(false), controlSynth_(NULL),
       auditioner_(NULL), running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
       masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
@@ -425,6 +425,7 @@ thcScheduler::addChain (const std::string &name)
     chains_.push_back(thcChain());
     chains_.back().name = name;
     chains_.back().muted = false;
+    chains_.back().soloed = false;
     chains_.back().inputMidi = false;
     chains_.back().start = 0;
     chains_.back().startBeats = false;
@@ -598,6 +599,7 @@ thcScheduler::clearChains (void)
         }
 
     chains_.clear();
+    soloCount_ = 0;
     wakeups_.clear();
     pending_.clear();
 
@@ -1790,6 +1792,20 @@ thcScheduler::setMuted (size_t chain, bool muted)
         chains_[chain].muted = muted;
 }
 
+void
+thcScheduler::setSoloed (size_t chain, bool soloed)
+{
+    if (chain >= chains_.size() || chains_[chain].soloed == soloed)
+        return;
+
+    chains_[chain].soloed = soloed;
+
+    if (soloed)
+        soloCount_++;
+    else
+        soloCount_--;
+}
+
 /* ---- the arrangement --------------------------------------------------
  *
  * Three questions, asked in transport seconds: how long a section is,
@@ -2179,26 +2195,27 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     if (fromStage >= c.stages.size())
     {
-        if (c.muted)
-            return;
-
-        /* The arrangement, applied where the mute is. The section is the
-         * one this event's own `at' falls in.
+        /* The arrangement, and the live mute and solo, applied as one
+         * level. The section is the one this event's own `at' falls in;
+         * a chain the mute or the solos silence is at 0 whatever the
+         * section says.
          *
-         * A level of 0 mutes the chain for that section: its notes and
-         * its chanargs are both dropped, so a walk or a gate driving a
-         * knob stops pushing and the knob keeps the value it had.
+         * A level of 0 mutes the chain: its notes and its chanargs are
+         * both dropped, so a walk or a gate driving a knob stops pushing
+         * and the knob keeps the value it had.
          *
          * Two kinds of event go through whatever the level says, and
          * neither of them is sound. A NOTEOFF: a swallowed off hangs a
          * voice for the rest of the piece, while an off for a note
          * nobody holds is a no-op releaseHeld is already written to
-         * cope with -- only one of the two is a bug. And a structure
-         * edit: a swap or a node-arg edit is the piece rebuilding
-         * itself, and one dropped leaves a channel holding a graph the
-         * piece has moved on from, with no later event to catch it up.
+         * cope with -- only one of the two is a bug. A key held on an
+         * `input midi' chain that is muted before it is let go is the
+         * live case. And a structure edit: a swap or a node-arg edit is
+         * the piece rebuilding itself, and one dropped leaves a channel
+         * holding a graph the piece has moved on from, with no later
+         * event to catch it up.
          */
-        const double level = sectionLevel(c, ev.at);
+        const double level = audible(c) ? sectionLevel(c, ev.at) : 0.0;
         thcEvent scaled = ev;
         const thcEvent *gated = &ev;
 
