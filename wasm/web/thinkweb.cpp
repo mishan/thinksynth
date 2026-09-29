@@ -228,6 +228,11 @@ struct Scheduled
     std::string row, text;
 };
 
+/* A chain's mute or solo the canvas has asked for and the command has not
+   yet set, by (chain, solo): what its button shows and what the next press
+   toggles. Dropped when the command lands with that value, and at a load. */
+std::map<std::pair<int, bool>, bool> mixPending_;
+
 /* Room for this many commands in flight before the queue has to grow. */
 #define TW_PENDING 1024
 
@@ -584,6 +589,15 @@ void applyScheduled (const Scheduled &c)
                 sched_->setMuted((size_t)c.chain, c.value != 0);
             else
                 sched_->setSoloed((size_t)c.chain, c.value != 0);
+
+            {
+                const auto asked =
+                    mixPending_.find({ c.chain, c.op == TW_SOLO });
+
+                if (asked != mixPending_.end() &&
+                    asked->second == (c.value != 0))
+                    mixPending_.erase(asked);
+            }
 
             break;
 
@@ -959,6 +973,14 @@ public:
 
 protected:
     void requestRedraw (void) override { dirty_ = true; }
+
+    bool mixFlag (size_t chain, bool solo) const override
+    {
+        const auto asked = mixPending_.find({ (int)chain, solo });
+
+        return asked != mixPending_.end()
+            ? asked->second : ComposerCanvas::mixFlag(chain, solo);
+    }
 
     void resizeShell (int w, int h) override
     {
@@ -2205,12 +2227,14 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
             [](size_t chain, bool on)
             {
                 canvasMixes_.push_back({ (int)chain, false, on });
+                mixPending_[{ (int)chain, false }] = on;
             });
 
         canvas_->sigSolo.connect(
             [](size_t chain, bool on)
             {
                 canvasMixes_.push_back({ (int)chain, true, on });
+                mixPending_[{ (int)chain, true }] = on;
             });
 
         canvas_->sigInput.connect(
@@ -2240,6 +2264,7 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
         return 0;
     }
 
+    mixPending_.clear();
     canvas_->SetPiece(&canvasDoc_, sched_);
 
     return 1;

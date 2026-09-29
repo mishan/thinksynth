@@ -40,7 +40,8 @@ import { placePopover } from './popover.js';
 import { showPanel } from './panel.js';
 
 export function createComposerView ({ root = document, toMirror,
-                                      onGesture, onParamEdit, onMix })
+                                      onGesture, onParamEdit, onMix,
+                                      keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -49,6 +50,36 @@ export function createComposerView ({ root = document, toMirror,
         canvas: $('composer'),
         send: toMirror,
     });
+
+    /* The chains by name, as the last piece reported them, and -- where
+       `keepMix' asks for it -- which of them were muted and soloed, by
+       name, to put back when the piece is loaded again: a load clears
+       both, and an edit is not a reason to hear every chain. forgetMix()
+       is what choosing another piece calls. */
+    let chainNames = [];
+    let pieces = 0;               /* pieces the mirror has reported      */
+    const mix = { mute: new Set(), solo: new Set() };
+
+    const forgetMix = () =>
+    {
+        mix.mute.clear();
+        mix.solo.clear();
+    };
+
+    const setMix = (type, chain, on) =>
+    {
+        const name = chainNames[chain];
+
+        if (keepMix && name !== undefined)
+        {
+            if (on)
+                mix[type].add(name);
+            else
+                mix[type].delete(name);
+        }
+
+        onMix?.(type, chain, on);
+    };
 
     /* The stages whose picture is a control, by "chain.stage", and which
        one is enlarged now. */
@@ -122,7 +153,7 @@ export function createComposerView ({ root = document, toMirror,
         toMirror({ type: 'chip', chain, which });
     });
 
-    const mix = () => new Promise((resolve) =>
+    const askMix = () => new Promise((resolve) =>
     {
         mixAsked = resolve;
         toMirror({ type: 'mix' });
@@ -167,6 +198,17 @@ export function createComposerView ({ root = document, toMirror,
                their pictures are controls. */
             case 'piece':
                 offer(m.chains);
+                chainNames = m.chains.map((c) => c.name);
+                pieces++;
+
+                if (keepMix)
+                    for (const type of ['mute', 'solo'])
+                        m.chains.forEach((c) =>
+                        {
+                            if (mix[type].has(c.name))
+                                onMix?.(type, c.chain, true);
+                        });
+
                 return true;
 
             /* A press, drag or release the canvas took on an enlarged
@@ -180,7 +222,7 @@ export function createComposerView ({ root = document, toMirror,
                page's: a command, like a gesture. */
             case 'mute':
             case 'solo':
-                onMix?.(m.type, m.chain, m.on);
+                setMix(m.type, m.chain, m.on);
                 return true;
 
             /* Somebody clicked a stage's params handle. The canvas says
@@ -370,7 +412,12 @@ export function createComposerView ({ root = document, toMirror,
     $('composerview').addEventListener(
         'toggle', () => view.show(wanted && $('composerview').open));
 
-    return { fromMirror, show, handleOf, chipOf, mix, pollParams,
+    return { fromMirror, show, handleOf, chipOf, mix: askMix, forgetMix,
+             pollParams,
+
+             /* How many pieces the mirror has loaded, for a harness to
+                wait on one. */
+             pieces: () => pieces,
              /* Whether the frame loop is running, which is the whole
                 point of asking a pane whether anybody is looking. */
              visible: () => view.visible(),

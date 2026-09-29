@@ -658,6 +658,38 @@ run (const std::string &pluginPath, const char *genFile)
                 ok("...and pressing it again brings the others back");
             else
                 fail("...and pressing it again brings the others back");
+
+            /* The enlarged view hides the rows, and the buttons with
+               them: a press where one was is not a mute. */
+            ComposerCanvas::Selection big;
+
+            big.kind = ComposerCanvas::Selection::STAGE;
+            big.chain = 0;
+            big.index = 0;
+            win->canvas_->setEnlarged(big);
+            pump(2);
+
+            if (win->canvas_->enlarged().kind ==
+                ComposerCanvas::Selection::NONE)
+                fail("the first stage would not enlarge");
+            else if (win->canvas_->chainChip(0, 0, mx, my))
+            {
+                win->canvas_->pressAt(mx, my, 1, 1);
+                pump(2);
+
+                if (!win->sched_->chain(0)->muted)
+                    ok("a press where M was, in the enlarged view, is "
+                       "not a mute");
+                else
+                {
+                    fail("a press where M was, in the enlarged view, is "
+                         "not a mute");
+                    win->sched_->setMuted(0, false);
+                }
+
+                win->canvas_->setEnlarged(ComposerCanvas::Selection());
+                pump(2);
+            }
         }
     }
     else

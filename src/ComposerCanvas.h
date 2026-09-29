@@ -233,6 +233,14 @@ public:
     void onReleased (int nPress, double x, double y, int button);
     void onMotion (double x, double y);
 
+protected:
+    /* A chain's mute (solo false) or solo flag, as a button shows it and
+       as a press toggles it. The scheduler's; a shell whose presses
+       reach the scheduler only later, as commands, answers with what it
+       has asked for until the command lands, or two quick presses would
+       both be read against the old flag. */
+    virtual bool mixFlag (size_t chain, bool solo) const;
+
 private:
     /* One clickable box, laid out by rebuild(). */
     struct Box

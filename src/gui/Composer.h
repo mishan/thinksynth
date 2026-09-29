@@ -396,10 +396,14 @@ protected:
     std::map<std::string, std::string> baseline_;
 
     /* The chains muted and soloed when the piece was last parsed, by
-       name, and which document that was. A reload of the same document
-       -- an edit -- puts them back; any other load starts clear. */
+       name, put back by the next parse: an edit is not a reason to hear
+       every chain again. forgetMix() is what another document calls,
+       and a rename says what the chain is called now. */
     std::vector<std::string> mutedNames_, soloedNames_;
-    std::string mixOf_;
+    bool mixForgotten_ = true;
+    std::map<std::string, std::string> mixRenamed_;
+
+    void forgetMix (void);
 
     thcGenEdit::Doc doc_;           /* what the work file says           */
 

@@ -577,10 +577,8 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
     if (box.what.kind == Selection::CHAIN)
     {
-        const thcChain *live =
-            sched_ != NULL ? sched_->chain(box.what.chain) : NULL;
-        const bool muted = live != NULL && live->muted;
-        const bool soloed = live != NULL && live->soloed;
+        const bool muted = mixFlag(box.what.chain, false);
+        const bool soloed = mixFlag(box.what.chain, true);
 
         cr->set_source_rgba(1, 1, 1, chainAudible(box.what.chain)
                                          ? 0.85 : 0.35);
@@ -1173,6 +1171,14 @@ ComposerCanvas::chipRect (const Box &b, int which, double &x, double &y,
 }
 
 bool
+ComposerCanvas::mixFlag (size_t chain, bool solo) const
+{
+    const thcChain *c = sched_ != NULL ? sched_->chain(chain) : NULL;
+
+    return c != NULL && (solo ? c->soloed : c->muted);
+}
+
+bool
 ComposerCanvas::chainAudible (size_t chain) const
 {
     const thcChain *c = sched_ != NULL ? sched_->chain(chain) : NULL;
@@ -1392,13 +1398,12 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
     /* A chain's mute or solo button. Neither selects the chain: they
        are played, like a mixer's, while whatever is selected stays so.
        Every press toggles, a double-click's second included, so two
-       quick clicks are two toggles and not one and a selection. */
+       quick clicks are two toggles and not one and a selection. Not in
+       the enlarged view, which hides the rows the buttons are on. */
     if (box != NULL && box->what.kind == Selection::CHAIN && !box->ghost &&
-        button == 1 && sched_ != NULL)
+        button == 1 && sched_ != NULL && enlarged_.kind == Selection::NONE)
     {
-        const thcChain *live = sched_->chain(box->what.chain);
-
-        for (int which = 0; live != NULL && which < 2; which++)
+        for (int which = 0; which < 2; which++)
         {
             double cx, cy, cw, ch;
 
@@ -1407,10 +1412,12 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
             if (x < cx || x > cx + cw || y < cy || y > cy + ch)
                 continue;
 
+            const bool on = !mixFlag(box->what.chain, which == 1);
+
             if (which == 0)
-                sigMute.emit(box->what.chain, !live->muted);
+                sigMute.emit(box->what.chain, on);
             else
-                sigSolo.emit(box->what.chain, !live->soloed);
+                sigSolo.emit(box->what.chain, on);
 
             return;
         }

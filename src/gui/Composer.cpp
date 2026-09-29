@@ -462,6 +462,8 @@ Composer::useDocument (Document which)
 
     Held &was = held_[which_];
 
+    forgetMix();
+
     /* A reload still queued belongs to the document being put away: its
        edit is already in the work text, and what it would have said
        about unsaved edits is this document's, not the next one's. Its
@@ -937,11 +939,15 @@ Composer::parseWork (void)
     prevInstruments_ = sched_->instruments();
 
     /* The mute and the solos are the scheduler's and a load clears them.
-       Taken by name now, to put back below if this is the same document
-       loaded again: an added stage is not a reason to hear every chain. */
-    const std::string mixOf = std::to_string((int)which_) + ":" + genPath_;
-
-    if (mixOf == mixOf_)
+       Taken by name now, to put back below. Not from a scheduler a
+       failed load left empty: what was taken before that failure is
+       still what is wanted. */
+    if (mixForgotten_)
+    {
+        mutedNames_.clear();
+        soloedNames_.clear();
+    }
+    else if (sched_->chainCount() > 0)
     {
         mutedNames_.clear();
         soloedNames_.clear();
@@ -949,20 +955,20 @@ Composer::parseWork (void)
         for (size_t ci = 0; ci < sched_->chainCount(); ci++)
         {
             const thcChain *c = sched_->chain(ci);
+            const auto renamed = mixRenamed_.find(c->name);
+            const std::string &name =
+                renamed != mixRenamed_.end() ? renamed->second : c->name;
 
             if (c->muted)
-                mutedNames_.push_back(c->name);
+                mutedNames_.push_back(name);
 
             if (c->soloed)
-                soloedNames_.push_back(c->name);
+                soloedNames_.push_back(name);
         }
     }
-    else
-    {
-        mutedNames_.clear();
-        soloedNames_.clear();
-        mixOf_ = mixOf;
-    }
+
+    mixForgotten_ = false;
+    mixRenamed_.clear();
 
     thcGenLoader loader(composers_);
 
@@ -1449,6 +1455,7 @@ Composer::onOpenChosen (std::string path)
     }
 
     genPath_ = path;
+    forgetMix();
     scheduleReload(false);
 }
 
@@ -1459,6 +1466,7 @@ Composer::onNew (void)
         [this]
         {
             genPath_.clear();
+            forgetMix();
 
             if (!ensureWork())
                 return;
@@ -1639,6 +1647,16 @@ Composer::onKbdToggle (void)
         kbdOnConn_.disconnect();
         kbdOffConn_.disconnect();
     }
+}
+
+/* Another document: its chains are not these, whatever they are called. */
+void
+Composer::forgetMix (void)
+{
+    mutedNames_.clear();
+    soloedNames_.clear();
+    mixRenamed_.clear();
+    mixForgotten_ = true;
 }
 
 /* A chain's M or S on the canvas. Live, like the Selection pane's mute
@@ -3028,7 +3046,10 @@ Composer::buildChainSelection (size_t ci)
 
             if (editOk(thcGenEdit::renameChain(workPath_, chainName,
                     nameEntry->get_text(), why), why))
+            {
+                mixRenamed_[chainName] = nameEntry->get_text();
                 structuralReload();
+            }
         });
 
     mute->signal_toggled().connect(
