@@ -1388,6 +1388,8 @@ let picking = Promise.resolve();
 
 async function pickPiece ()
 {
+    composer?.forgetMix();
+
     const run = (async () =>
     {
         $('gen').value =
@@ -2449,6 +2451,11 @@ function showComposer (on)
            anybody else in the room. */
         onParamEdit: (chain, stage, row, text) =>
             synth?.param({ at: -1, chain, stage, row, text }),
+
+        /* A chain's M or S, for the next window like a knob -- and put
+           back after a load of the same piece, as the desktop does. */
+        onMix: (type, chain, on) => synth?.[type]({ at: -1, chain, on }),
+        keepMix: true,
     });
 
     composer.show(on);
@@ -2612,6 +2619,9 @@ function showRoll (on)
    honest way to press one. */
 window.solo = {
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
+    chipOf: (chain, which) => composer?.chipOf(chain, which),
+    mix: () => composer?.mix(),
+    pieces: () => composer?.pieces() ?? 0,
     params: () => composer?.params() ?? [],
 
     /* The tracks the sequencer pane ended up with: which stage each row
@@ -2758,6 +2768,8 @@ function panesFor (which)
 async function pickMode ()
 {
     const which = mode();
+
+    composer?.forgetMix();
 
     /* For style.css, which has rules for one mode on a phone. */
     document.body.dataset.mode = which;

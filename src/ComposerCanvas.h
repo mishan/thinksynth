@@ -144,6 +144,13 @@ public:
     sigc::signal<void (std::string, size_t, size_t,
                        CanvasRect)> sigBindKnob;
 
+    /* A chain's mute or solo button was pressed: which chain, and what
+       it asks the flag to become. The canvas only reads the flags; the
+       window sets them on the scheduler, and the browser sends them as
+       commands every instance applies at its time. */
+    sigc::signal<void (size_t, bool)> sigMute;
+    sigc::signal<void (size_t, bool)> sigSolo;
+
     /* Which stage is filling the canvas, or NONE. Public so the window
        can label what it is showing and offer to capture it. */
     const Selection &enlarged (void) const { return enlarged_; }
@@ -178,6 +185,10 @@ public:
 
     /* Where a stage's box is, in widget pixels. */
     bool stageRect (size_t chain, size_t stage, CanvasRect &at) const;
+
+    /* The middle of a chain's mute (which 0) or solo (1) button, in
+       widget pixels. Public for the reason paramsHandle is. */
+    bool chainChip (size_t chain, int which, double &x, double &y) const;
 
     /* Where a knob node's value track is, in widget pixels, and where
        its output port is. False if there is no such knob. */
@@ -222,6 +233,14 @@ public:
     void onReleased (int nPress, double x, double y, int button);
     void onMotion (double x, double y);
 
+protected:
+    /* A chain's mute (solo false) or solo flag, as a button shows it and
+       as a press toggles it. The scheduler's; a shell whose presses
+       reach the scheduler only later, as commands, answers with what it
+       has asked for until the command lands, or two quick presses would
+       both be read against the old flag. */
+    virtual bool mixFlag (size_t chain, bool solo) const;
+
 private:
     /* One clickable box, laid out by rebuild(). */
     struct Box
@@ -248,6 +267,15 @@ private:
 
     /* Where the params handle is, in box space. */
     static void twistyRect (const Box &b, double &x, double &y, double &s);
+
+    /* Where a chain box's mute (which 0) or solo (1) button is, in box
+       space. */
+    static void chipRect (const Box &b, int which, double &x, double &y,
+                          double &w, double &h);
+
+    /* Whether the mute and the solos let the chain be heard; true with
+       no live piece to ask. */
+    bool chainAudible (size_t chain) const;
 
     CanvasRect boxRect (const Box &b) const;
 

@@ -8705,6 +8705,178 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* The live mute and solo (thcScheduler::setMuted, setSoloed), set
+ * mid-piece the way the canvas's buttons set them: a solo silences every
+ * chain not soloed, a mute wins over a solo on the same chain, clearing
+ * both brings everything back -- and a key held on an `input midi' chain
+ * that is muted before it is let go still gets its note-off. */
+static void
+checkMuteSolo (const std::map<std::string, thcPlugin *> &plugins,
+               thSynth *synth)
+{
+    if (plugins.find("euclid") == plugins.end())
+    {
+        fail("module 'euclid' is missing; build the plugins first");
+        return;
+    }
+
+    const std::string path = thUtil::tempFile("gencheck-mute-");
+
+    if (path.empty())
+    {
+        fail("could not write the mute piece");
+        return;
+    }
+
+    /* Four notes a second on each of two channels, and a third chain
+       that is only a key. */
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "seed 5;\n"
+               "chain kick {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"C2\"; period = 0.25 s; hold = 0.1 s;\n"
+               "    vel = 100; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n"
+               "chain snare {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"D2\"; period = 0.25 s; hold = 0.1 s;\n"
+               "    vel = 80; };\n"
+               "  sink { channel = 2; };\n"
+               "};\n"
+               "chain keys {\n"
+               "  input midi;\n"
+               "  sink { channel = 3; };\n"
+               "};\n";
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail("the mute piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+
+    /* Per second of the piece, how many notes each channel delivered,
+       and whether the key's off arrived. */
+    int heard[5][2] = {};
+    bool keyOn = false, keyOff = false;
+
+    sigc::connection conn = sched.sigDelivered.connect(
+        [&](const thcEvent &ev)
+        {
+            const int sec = (int)ev.at;
+
+            if (ev.type == THC_EV_NOTE && ev.channel < 2 && sec >= 0 &&
+                sec < 5)
+                heard[sec][ev.channel]++;
+
+            if (ev.channel == 2 && ev.type == THC_EV_NOTE)
+                keyOn = true;
+
+            /* Before the stop, whose flush would release it anyway. */
+            if (ev.channel == 2 && ev.type == THC_EV_NOTEOFF &&
+                ev.at < 1.0)
+                keyOff = true;
+        });
+
+    auto key = [&sched](thcEventType type)
+    {
+        thcEvent ev = {};
+
+        ev.type = type;
+        ev.at = sched.now();
+        ev.channel = 2;
+        ev.u.note.note = 60;
+        ev.u.note.velocity = 100;
+        ev.u.note.level = 1;
+        sched.injectMidiEvent(ev);
+    };
+
+    sched.start();
+
+    /* Second 0 as written; 1, the snare soloed; 2, the kick muted and
+       the solo gone; 3, the kick soloed as well as muted; 4, both
+       cleared. Each change is made one step short of its second: the
+       step that reaches a whole second runs the stage due on it, so a
+       change made after that step would miss the second's first note. */
+    for (int step = 0; step < 250; step++)
+    {
+        if (step == 49)
+            sched.setSoloed(1, true);
+
+        if (step == 99)
+        {
+            sched.setSoloed(1, false);
+            sched.setMuted(0, true);
+        }
+
+        if (step == 149)
+            sched.setSoloed(0, true);
+
+        if (step == 199)
+        {
+            sched.setMuted(0, false);
+            sched.setSoloed(0, false);
+        }
+
+        /* The key: down while the chain is heard, muted, then up. */
+        if (step == 10)
+            key(THC_EV_NOTE);
+
+        if (step == 20)
+            sched.setMuted(2, true);
+
+        if (step == 30)
+            key(THC_EV_NOTEOFF);
+
+        sched.stepTransport(0.02);
+    }
+
+    sched.stop();
+    conn.disconnect();
+    drainSynth();
+
+    const int want[5][2] = {
+        { 4, 4 },   /* as written                                      */
+        { 0, 4 },   /* the snare soloed                                */
+        { 0, 4 },   /* the kick muted                                  */
+        { 0, 0 },   /* the kick soloed and muted: the only solo, mute  */
+        { 4, 4 },   /* both cleared                                    */
+    };
+
+    for (int sec = 0; sec < 5; sec++)
+        if (heard[sec][0] != want[sec][0] || heard[sec][1] != want[sec][1])
+            fail("mute/solo: second " + std::to_string(sec) +
+                 " should deliver " + std::to_string(want[sec][0]) +
+                 " kicks and " + std::to_string(want[sec][1]) +
+                 " snares; heard " + std::to_string(heard[sec][0]) +
+                 " and " + std::to_string(heard[sec][1]));
+
+    if (!keyOn)
+        fail("mute/solo: the key was never delivered");
+    else if (!keyOff)
+        fail("mute/solo: a key held on a chain muted before it was let go "
+             "lost its note-off");
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -10872,6 +11044,7 @@ main (int argc, char *argv[])
     checkHeldNotes(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
+    checkMuteSolo(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

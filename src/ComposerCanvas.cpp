@@ -47,6 +47,11 @@ static const double TITLE_H  = 15;
 /* The params handle in a stage box's title bar. */
 static const double TWISTY   = 9;
 
+/* The mute and solo buttons along the foot of a chain's name box. */
+static const double CHIP_W   = 22;
+static const double CHIP_H   = 16;
+static const double CHIP_GAP = 4;
+
 /* The canvas background, named because the boxes have to repaint it: a
  * box is opaque, so that a wire running behind it is behind it. */
 static const double BG_R = 0.09, BG_G = 0.09, BG_B = 0.11;
@@ -572,12 +577,11 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
     if (box.what.kind == Selection::CHAIN)
     {
-        bool muted = false;
+        const bool muted = mixFlag(box.what.chain, false);
+        const bool soloed = mixFlag(box.what.chain, true);
 
-        if (sched_ != NULL && sched_->chain(box.what.chain) != NULL)
-            muted = sched_->chain(box.what.chain)->muted;
-
-        cr->set_source_rgba(1, 1, 1, muted ? 0.35 : 0.85);
+        cr->set_source_rgba(1, 1, 1, chainAudible(box.what.chain)
+                                         ? 0.85 : 0.35);
         cr->set_font_size(12);
         fitText(cr, box.title, box.x + 2, box.y + 16, box.w - 4);
 
@@ -586,8 +590,46 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
         if (muted)
             fitText(cr, "muted", box.x + 2, box.y + 30, box.w - 4);
+        else if (!chainAudible(box.what.chain))
+            fitText(cr, "another is soloed", box.x + 2, box.y + 30,
+                    box.w - 4);
         else if (!box.sub.empty())
             fitText(cr, box.sub, box.x + 2, box.y + 30, box.w - 4);
+
+        /* M and S, lit while set: red for a mute, green for a solo. */
+        for (int which = 0; which < 2; which++)
+        {
+            const bool on = which == 0 ? muted : soloed;
+            double cx, cy, cw, ch;
+
+            chipRect(box, which, cx, cy, cw, ch);
+            roundedRect(cr, cx + 0.5, cy + 0.5, cw - 1, ch - 1, 3);
+
+            if (on)
+            {
+                if (which == 0)
+                    cr->set_source_rgba(0.90, 0.35, 0.30, 0.85);
+                else
+                    cr->set_source_rgba(0.40, 0.80, 0.45, 0.85);
+
+                cr->fill_preserve();
+            }
+
+            cr->set_source_rgba(1, 1, 1, on ? 0.0 : 0.3);
+            cr->set_line_width(1);
+            cr->stroke();
+
+            const char *label = which == 0 ? "M" : "S";
+            Cairo::TextExtents ext;
+
+            cr->set_font_size(10);
+            cr->get_text_extents(label, ext);
+            cr->set_source_rgba(on ? BG_R : 1, on ? BG_G : 1, on ? BG_B : 1,
+                                on ? 1.0 : 0.55);
+            cr->move_to(cx + (cw - ext.width) / 2 - ext.x_bearing,
+                        cy + (ch - ext.height) / 2 - ext.y_bearing);
+            cr->show_text(label);
+        }
 
         if (selected)
         {
@@ -709,6 +751,16 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
         for (size_t i = 0; i < st.params.size() && i < 4; i++)
             fitText(cr, st.params[i].name + " " + st.params[i].valueText,
                     box.x + 4, bodyY + 10 + i * 11, box.w - 8);
+    }
+
+    /* A chain the mute or the solos silence is drawn behind a veil of
+       the background: still running, as its pictures show, and not
+       heard. */
+    if (!chainAudible(box.what.chain))
+    {
+        roundedRect(cr, box.x, box.y, box.w, box.h, 5);
+        cr->set_source_rgba(BG_R, BG_G, BG_B, 0.55);
+        cr->fill();
     }
 }
 
@@ -1108,6 +1160,55 @@ ComposerCanvas::twistyRect (const Box &b, double &x, double &y, double &s)
     y = b.y + (TITLE_H - TWISTY) / 2;
 }
 
+void
+ComposerCanvas::chipRect (const Box &b, int which, double &x, double &y,
+                          double &w, double &h)
+{
+    w = CHIP_W;
+    h = CHIP_H;
+    x = b.x + 2 + which * (CHIP_W + CHIP_GAP);
+    y = b.y + b.h - CHIP_H - 4;
+}
+
+bool
+ComposerCanvas::mixFlag (size_t chain, bool solo) const
+{
+    const thcChain *c = sched_ != NULL ? sched_->chain(chain) : NULL;
+
+    return c != NULL && (solo ? c->soloed : c->muted);
+}
+
+bool
+ComposerCanvas::chainAudible (size_t chain) const
+{
+    const thcChain *c = sched_ != NULL ? sched_->chain(chain) : NULL;
+
+    return c == NULL || sched_->audible(*c);
+}
+
+bool
+ComposerCanvas::chainChip (size_t chain, int which, double &x,
+                           double &y) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        const Box &b = boxes_[i];
+
+        if (b.what.kind != Selection::CHAIN || b.ghost ||
+            b.what.chain != chain)
+            continue;
+
+        double cx, cy, cw, ch;
+
+        chipRect(b, which, cx, cy, cw, ch);
+        x = (cx + cw / 2) * zoom();
+        y = (cy + ch / 2) * zoom();
+        return true;
+    }
+
+    return false;
+}
+
 thcStage *
 ComposerCanvas::enlargedStage (void) const
 {
@@ -1290,6 +1391,34 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
             wireX_ = x;
             wireY_ = y;
             requestRedraw();
+            return;
+        }
+    }
+
+    /* A chain's mute or solo button. Neither selects the chain: they
+       are played, like a mixer's, while whatever is selected stays so.
+       Every press toggles, a double-click's second included, so two
+       quick clicks are two toggles and not one and a selection. Not in
+       the enlarged view, which hides the rows the buttons are on. */
+    if (box != NULL && box->what.kind == Selection::CHAIN && !box->ghost &&
+        button == 1 && sched_ != NULL && enlarged_.kind == Selection::NONE)
+    {
+        for (int which = 0; which < 2; which++)
+        {
+            double cx, cy, cw, ch;
+
+            chipRect(*box, which, cx, cy, cw, ch);
+
+            if (x < cx || x > cx + cw || y < cy || y > cy + ch)
+                continue;
+
+            const bool on = !mixFlag(box->what.chain, which == 1);
+
+            if (which == 0)
+                sigMute.emit(box->what.chain, on);
+            else
+                sigSolo.emit(box->what.chain, on);
+
             return;
         }
     }

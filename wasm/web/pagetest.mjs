@@ -1337,6 +1337,100 @@ try
               'and the next press closes it');
     }
 
+    /* A chain's M and S. A press leaves the canvas as a `mute' or `solo'
+       command and the flag changes when it comes back, so the mirror's
+       own state is what is read -- polled from here, because
+       waitForFunction does not wait on a promise. */
+    const mixUntil = async (want, what) =>
+    {
+        let chains = [];
+
+        for (let i = 0; i < 100; i++)
+        {
+            chains = await page.evaluate(() => window.solo.mix());
+
+            if (want(chains))
+                break;
+
+            await new Promise((r) => setTimeout(r, 100));
+        }
+
+        check(want(chains), `${what}: ${JSON.stringify(chains)}`);
+    };
+
+    /* The scroller brought into view and measured each time: pressing
+       Load scrolls the page to the button, and the canvas moves with
+       whatever else a load rewrites. */
+    const scroller = async () =>
+    {
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+
+        return page.$eval('#composerscroll', (d) =>
+        {
+            const r = d.getBoundingClientRect();
+
+            return { x: r.x, y: r.y };
+        });
+    };
+
+    const press = async (chain, which) =>
+    {
+        const at = await page.evaluate(
+            ([c, w]) => window.solo.chipOf(c, w), [chain, which]);
+        const where = await scroller();
+
+        if (at.x < 0)
+            check(false, `chain ${chain} has no ${which ? 'S' : 'M'}`);
+        else
+            await page.mouse.click(where.x + at.x, where.y + at.y);
+    };
+
+    await press(0, 0);
+    await mixUntil((c) => c.length > 1 && c[0].muted && !c[0].audible &&
+                          c[1].audible,
+                   "a chain's M mutes that chain and no other");
+
+    await press(0, 0);
+    await mixUntil((c) => c.length > 1 && !c[0].muted && c[0].audible,
+                   '...and a second press unmutes it');
+
+    await press(1, 1);
+    await mixUntil((c) => c.length > 1 && c[1].soloed && c[1].audible &&
+                          c.every((x, i) => i === 1 || !x.audible),
+                   "a chain's S silences every other chain");
+
+    await press(1, 1);
+    await mixUntil((c) => c.length > 1 && c.every((x) => x.audible),
+                   '...and a second press brings them back');
+
+    /* Two presses faster than a command comes back are two toggles, not
+       two of the same set: the button answers with what it has asked
+       for, and a double-click reaches the canvas as two presses. */
+    {
+        const at = await page.evaluate(() => window.solo.chipOf(0, 0));
+        const where = await scroller();
+
+        await page.mouse.dblclick(where.x + at.x, where.y + at.y);
+        await new Promise((r) => setTimeout(r, 1000));
+        await mixUntil((c) => c.length > 1 && !c[0].muted,
+                       'a double-click on M is two toggles, and leaves the ' +
+                       'chain as it was');
+    }
+
+    /* Loading the same piece again keeps what was muted: a load clears
+       the scheduler's flags, and the page puts them back by name. */
+    await press(1, 0);
+    await mixUntil((c) => c.length > 1 && c[1].muted, 'muted before a load');
+    const loadsBefore = await page.evaluate(() => window.solo.pieces());
+
+    await page.click('#loadpiece');
+    await page.waitForFunction(
+        (n) => window.solo.pieces() > n, loadsBefore, { timeout: 30000 });
+    await mixUntil((c) => c.length > 1 && c[1].muted && !c[0].muted,
+                   'a load of the same piece keeps the chain muted');
+    await press(1, 0);
+    await mixUntil((c) => c.length > 1 && !c[1].muted, 'and unmuted again');
+
     /* ---- the piano roll ----
      *
      * The other canvas the mirror draws, and the one this page did not

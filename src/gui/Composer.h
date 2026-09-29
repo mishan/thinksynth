@@ -304,6 +304,8 @@ protected:
     void onCanvasKnob (std::string name, double value, bool commit);
     void onCanvasBindKnob (std::string knob, size_t chain, size_t stage,
                            CanvasRect at);
+    void onCanvasMute (size_t chain, bool on);
+    void onCanvasSolo (size_t chain, bool on);
     void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a
@@ -392,6 +394,16 @@ protected:
        writes its drums with `|' bar lines, and the grid hands its
        pattern back without them. */
     std::map<std::string, std::string> baseline_;
+
+    /* The chains muted and soloed when the piece was last parsed, by
+       name, put back by the next parse: an edit is not a reason to hear
+       every chain again. forgetMix() is what another document calls,
+       and a rename says what the chain is called now. */
+    std::vector<std::string> mutedNames_, soloedNames_;
+    bool mixForgotten_ = true;
+    std::map<std::string, std::string> mixRenamed_;
+
+    void forgetMix (void);
 
     thcGenEdit::Doc doc_;           /* what the work file says           */
 

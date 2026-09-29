@@ -116,12 +116,30 @@ export function createCanvasView ({ scroller, canvas, send,
 
     /* ---- the pointer, the keys and the wheel ---- */
 
+    /* The click count, kept here: a pointer event's `detail' is 0 by
+     * specification -- the count belongs to mouse events, and
+     * `pointerdown' carries none -- and a content class that answers a
+     * double-click (the roll goes back to live, the composer canvas
+     * enlarges a stage) has to hear of one. A press soon enough after the
+     * last and near enough to it is its second, as the desktop's click
+     * gesture counts: the same presses on both platforms, where a
+     * `dblclick' listener used to add a third one of its own after the
+     * second release. */
+    const DOUBLE_MS = 400, DOUBLE_PX = 5;
+    let last = { t: -Infinity, x: 0, y: 0, n: 0 };
+
     canvas.addEventListener('pointerdown', (e) =>
     {
+        const p = at(e);
+        const again = e.timeStamp - last.t < DOUBLE_MS &&
+                      Math.abs(p.x - last.x) <= DOUBLE_PX &&
+                      Math.abs(p.y - last.y) <= DOUBLE_PX;
+
+        last = { t: e.timeStamp, x: p.x, y: p.y, n: again ? last.n + 1 : 1 };
+
         canvas.setPointerCapture(e.pointerId);
         canvas.focus();
-        send({ type: 'press', ...at(e), button: e.button + 1,
-               nPress: e.detail || 1 });
+        send({ type: 'press', ...p, button: e.button + 1, nPress: last.n });
         e.preventDefault();
     });
 
@@ -145,24 +163,6 @@ export function createCanvasView ({ scroller, canvas, send,
 
     canvas.addEventListener('pointerup', release);
     canvas.addEventListener('pointercancel', release);
-
-    /* A double-click, as a press that says so.
-     *
-     * Its own listener because a pointer event's `detail' is 0 by
-     * specification -- the click count belongs to mouse events, and
-     * `pointerdown' carries none. So every press above arrives as the
-     * first one, and a content class that answers a double-click (the
-     * roll goes back to live, the composer canvas enlarges a stage)
-     * would never hear of one. The browser is what knows; this is it
-     * saying so, as the press-and-release pair the content already
-     * takes, because `dblclick' lands after the second pointerup and a
-     * press left unreleased is a drag nobody ended. */
-    canvas.addEventListener('dblclick', (e) =>
-    {
-        send({ type: 'press', ...at(e), button: e.button + 1, nPress: 2 });
-        send({ type: 'release', ...at(e), button: e.button + 1 });
-        e.preventDefault();
-    });
 
     canvas.addEventListener('keydown', (e) =>
     {

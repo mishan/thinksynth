@@ -53,6 +53,9 @@ they drive. Everything is reachable from there:
 - **Double-click a stage** that draws something to fill the canvas with it, and
   again — or Escape — to put it back. `glider.gen` is the piece to try this on.
 - **Drag a stage box** sideways to reorder its chain.
+- **M and S** at the foot of a chain's name mute it, or solo it so only the
+  soloed chains are heard. Both are live and not saved; the chain keeps
+  running underneath, so it comes back mid-phrase.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the

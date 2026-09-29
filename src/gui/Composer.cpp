@@ -161,6 +161,10 @@ Composer::Composer (thSynth *synth)
         sigc::mem_fun(*this, &Composer::onCanvasKnob));
     canvas_->sigBindKnob.connect(
         sigc::mem_fun(*this, &Composer::onCanvasBindKnob));
+    canvas_->sigMute.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasMute));
+    canvas_->sigSolo.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasSolo));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
@@ -457,6 +461,8 @@ Composer::useDocument (Document which)
     }
 
     Held &was = held_[which_];
+
+    forgetMix();
 
     /* A reload still queued belongs to the document being put away: its
        edit is already in the work text, and what it would have said
@@ -932,6 +938,38 @@ Composer::parseWork (void)
     prevOwned_.swap(ownedChannels_);
     prevInstruments_ = sched_->instruments();
 
+    /* The mute and the solos are the scheduler's and a load clears them.
+       Taken by name now, to put back below. Not from a scheduler a
+       failed load left empty: what was taken before that failure is
+       still what is wanted. */
+    if (mixForgotten_)
+    {
+        mutedNames_.clear();
+        soloedNames_.clear();
+    }
+    else if (sched_->chainCount() > 0)
+    {
+        mutedNames_.clear();
+        soloedNames_.clear();
+
+        for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+        {
+            const thcChain *c = sched_->chain(ci);
+            const auto renamed = mixRenamed_.find(c->name);
+            const std::string &name =
+                renamed != mixRenamed_.end() ? renamed->second : c->name;
+
+            if (c->muted)
+                mutedNames_.push_back(name);
+
+            if (c->soloed)
+                soloedNames_.push_back(name);
+        }
+    }
+
+    mixForgotten_ = false;
+    mixRenamed_.clear();
+
     thcGenLoader loader(composers_);
 
     if (!loader.load(workPath_, sched_))
@@ -983,6 +1021,19 @@ Composer::parseWork (void)
     }
 
     releaseInstruments();
+
+    for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+    {
+        const std::string &name = sched_->chain(ci)->name;
+
+        if (std::find(mutedNames_.begin(), mutedNames_.end(), name) !=
+            mutedNames_.end())
+            sched_->setMuted(ci, true);
+
+        if (std::find(soloedNames_.begin(), soloedNames_.end(), name) !=
+            soloedNames_.end())
+            sched_->setSoloed(ci, true);
+    }
 
     std::string why;
 
@@ -1404,6 +1455,7 @@ Composer::onOpenChosen (std::string path)
     }
 
     genPath_ = path;
+    forgetMix();
     scheduleReload(false);
 }
 
@@ -1414,6 +1466,7 @@ Composer::onNew (void)
         [this]
         {
             genPath_.clear();
+            forgetMix();
 
             if (!ensureWork())
                 return;
@@ -1594,6 +1647,36 @@ Composer::onKbdToggle (void)
         kbdOnConn_.disconnect();
         kbdOffConn_.disconnect();
     }
+}
+
+/* Another document: its chains are not these, whatever they are called. */
+void
+Composer::forgetMix (void)
+{
+    mutedNames_.clear();
+    soloedNames_.clear();
+    mixRenamed_.clear();
+    mixForgotten_ = true;
+}
+
+/* A chain's M or S on the canvas. Live, like the Selection pane's mute
+ * check, and not written to the file. The pane is rebuilt when it is
+ * showing a chain, so its check follows the button. */
+void
+Composer::onCanvasMute (size_t chain, bool on)
+{
+    sched_->setMuted(chain, on);
+    canvas_->queue_draw();
+
+    if (canvas_->selection().kind == ComposerCanvas::Selection::CHAIN)
+        rebuildSelection();
+}
+
+void
+Composer::onCanvasSolo (size_t chain, bool on)
+{
+    sched_->setSoloed(chain, on);
+    canvas_->queue_draw();
 }
 
 void
@@ -2963,7 +3046,10 @@ Composer::buildChainSelection (size_t ci)
 
             if (editOk(thcGenEdit::renameChain(workPath_, chainName,
                     nameEntry->get_text(), why), why))
+            {
+                mixRenamed_[chainName] = nameEntry->get_text();
                 structuralReload();
+            }
         });
 
     mute->signal_toggled().connect(
