@@ -46,6 +46,12 @@
  * vocoder's carrier, a compressor's key. Each file gets a fresh synth,
  * which restarts osc::static's noise, and srand is reseeded; see dspab.
  *
+ * The phrase is played twice on that synth, the plugins reset and the
+ * graphs loaded again in between, as renderNote does between two renders.
+ * A plugin whose module_reset the loader cannot find -- a row missing from
+ * the compiled-in table -- carries its state into the second pass, and the
+ * second pass is in the hash.
+ *
  * Exit status is the number of files that did not load.
  */
 
@@ -118,6 +124,9 @@ static bool loadEffect (thSynth &synth, const char *file, int chan, int side)
     return synth.loadEffect(file, chan, side) != NULL;
 }
 
+static bool playPhrase (thSynth &synth, const char *file, const char *source,
+                        uint64_t &hash);
+
 static bool renderPhrase (const string &pluginPath, const char *file,
                           const char *source, uint64_t &hash)
 {
@@ -125,6 +134,22 @@ static bool renderPhrase (const string &pluginPath, const char *file,
 
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
+    hash = 0xcbf29ce484222325ULL;
+
+    for (int pass = 0; pass < 2; pass++)
+    {
+        synth.getPluginManager()->resetPlugins();
+
+        if (!playPhrase(synth, file, source, hash))
+            return false;
+    }
+
+    return true;
+}
+
+static bool playPhrase (thSynth &synth, const char *file, const char *source,
+                        uint64_t &hash)
+{
     if (source == NULL)
     {
         if (!loadInstrument(synth, file, 0))
@@ -137,8 +162,6 @@ static bool renderPhrase (const string &pluginPath, const char *file,
 
     const size_t samples = thOutputSamples(synth.audioChannelCount(),
                                            synth.getWindowlen());
-
-    hash = 0xcbf29ce484222325ULL;
 
     for (int w = 0; w < DH_WINDOWS; w++)
     {

@@ -47,6 +47,20 @@ namespace thp_${id} {
 
   set_property(GLOBAL APPEND PROPERTY THINK_STATIC_SOURCES "${wrapper}")
   set_property(GLOBAL APPEND PROPERTY THINK_STATIC_PLUGINS "${category}/${name}")
+
+  # module_reset is optional, and the table can only point at one the
+  # plugin defines: a row naming a function that does not exist fails the
+  # link. A weak declaration would let the linker decide, as it does for
+  # the composers, but a weak reference to an undefined C++ function is
+  # not a thing MinGW does reliably. So the source is read for it instead.
+  # A definition this misses leaves the row out, which is what
+  # dsphash.embedded's second pass is there to notice.
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/${category}/${name}.cpp" reset
+       REGEX "^[ \t]*void[ \t]+module_reset[ \t]*\\(")
+
+  if(reset)
+    set_property(GLOBAL APPEND PROPERTY THINK_STATIC_RESETS "${category}/${name}")
+  endif()
 endfunction()
 
 # think_static_registry(<output>)
@@ -62,6 +76,7 @@ endfunction()
 function(think_static_registry output)
   get_property(THINK_STATIC_PRELUDE GLOBAL PROPERTY THINK_STATIC_PRELUDE)
   get_property(STATIC_PLUGINS   GLOBAL PROPERTY THINK_STATIC_PLUGINS)
+  get_property(STATIC_RESETS    GLOBAL PROPERTY THINK_STATIC_RESETS)
   get_property(STATIC_COMPOSERS GLOBAL PROPERTY THINK_STATIC_COMPOSERS)
   get_property(STATIC_VISUALS   GLOBAL PROPERTY THINK_STATIC_VISUALS)
 
@@ -87,12 +102,22 @@ function(think_static_registry output)
 
   foreach(p IN LISTS STATIC_PLUGINS)
     string(REPLACE "/" "_" id "${p}")
+
+    set(reset_decl "")
+    set(reset_row "")
+
+    if(p IN_LIST STATIC_RESETS)
+      set(reset_decl "    void module_reset (thPlugin *);\n")
+      set(reset_row
+          "    { \"module_reset\",    (void *)&thp_${id}::module_reset },\n")
+    endif()
+
     string(APPEND decls
 "namespace thp_${id} {
     int  module_init (thPlugin *);
     int  module_callback (thNode *, thSynthTree *, unsigned int, unsigned int);
     void module_cleanup (thPlugin *);
-}
+${reset_decl}}
 ")
     string(APPEND syms
 "const thStaticSymbol dsp_${id}[] = {
@@ -100,7 +125,7 @@ function(think_static_registry output)
     { \"module_init\",     (void *)&thp_${id}::module_init },
     { \"module_callback\", (void *)&thp_${id}::module_callback },
     { \"module_cleanup\",  (void *)&thp_${id}::module_cleanup },
-};
+${reset_row}};
 ")
     string(APPEND rows "    TH_ROW(\"${p}\", dsp_${id}),\n")
   endforeach()
