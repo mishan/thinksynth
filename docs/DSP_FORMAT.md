@@ -656,11 +656,11 @@ against the desktop's, byte for byte.
 
 That the writing is one thing too is what makes a `.patch` saved in a browser
 a file the application opens: the bytes come from `thPatchCompose` on both
-sides, and all 101 shipped patches compose back to themselves byte for byte.
+sides, and all 105 shipped patches compose back to themselves byte for byte.
 
 ### A patch's category is its drawer
 
-`patches/{bass,leads,pads,organs,brass,winds,drums/...}`. That directory is
+`patches/{bass,keys,leads,pads,organs,brass,winds,drums/...}`. That directory is
 part of the name — `leads/SuperRes.patch` is what `thinkrc` stores, what
 `gthPrefs`'s first-run defaults spell and what the page's `patches/index.json`
 lists — so it is load-bearing, and it is already the grouping every patch menu
@@ -836,12 +836,12 @@ files have gone. `dsp/fx/` is where the effects idea lives now.
 one of those plugins would bring any file naming it back into the sweep. The
 filter matching nothing is the point of it.
 
-**All 101 patches load.** Two of them did not until recently:
+**All 105 patches load.** Two of them did not until recently:
 `patches/pads/Rythmic.patch` and `Rythmic-2.patch` named an absolute
 `/usr/local/share//thinksynth/dsp/mfm03.dsp` that was never in the tree, and
 now name `mfm01.dsp`, which declares exactly the chanargs they set.
 
-The CI gates therefore run over all 77 DSPs and all 101 patches, plus the
+The CI gates therefore run over all 77 DSPs and all 105 patches, plus the
 three specimens in `scripts/guard/`.
 `cmake/RunHarness.cmake` filters DSPs by what a file *references* rather than
 by name, so the exclusion cannot go stale. It strips comments before it looks,

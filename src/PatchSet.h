@@ -80,7 +80,8 @@ typedef sigc::signal<void(const char*)> type_signal_patch_load_error;
 /* ---- the first-run configuration ----
  *
  * What a channel sounds like when nothing has said otherwise: four patches,
- * one of each obvious kind, on the first four channels.
+ * one of each obvious kind, on the first four channels, each at a level of
+ * its own.
  *
  * Built in rather than shipped as a file. The file this replaces was
  * configure_file'd with absolute paths, which made it correct only on a
@@ -113,6 +114,12 @@ int thPatchDefaultCount (void);
  * should not have the same gap -- and the rule for closing it lives here so
  * that there is one of it. */
 string thPatchDefaultFor (int channel);
+
+/* The amp that channel's default goes on at, on the channel's 0..127
+ * scale; the same `c mod count' rule. Not TH_DEFAULT_CHAN_AMP for every
+ * one: that is the level for a patch nobody has measured, and these four
+ * have been, against each other. */
+float thPatchDefaultAmp (int channel);
 
 class thPatchSet
 {

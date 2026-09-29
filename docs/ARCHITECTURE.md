@@ -16,7 +16,7 @@ see [DSP_FORMAT.md](DSP_FORMAT.md); for the output stage and gain staging see
 | GUI | `src/gui/` | gtkmm-4: main window, keyboard, arg sliders, patch selector, MIDI map, node canvas. |
 
 Data lives in `dsp/` — 61 instruments and 16 effect graphs under `dsp/fx/` —
-plus the 22 wavs under `dsp/samples/` and `patches/**/*.patch` (101 presets).
+plus the 22 wavs under `dsp/samples/` and `patches/**/*.patch` (105 presets).
 All of it installs and all of it loads; there is no longer a drawer of files
 that do neither. Three graphs that are specimens rather than instruments live
 in `scripts/guard/` beside the harnesses that cite them.

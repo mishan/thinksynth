@@ -2000,6 +2000,13 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_default (int channel)
     return patchJson_.c_str();
 }
 
+/* The amp that channel's default goes on at: src/PatchSet.h's, the same
+   number the desktop's first run writes into thinkrc. */
+EMSCRIPTEN_KEEPALIVE float tw_patch_default_amp (int channel)
+{
+    return thPatchDefaultAmp(channel);
+}
+
 /* How many there are, so a page can fetch each of them once before the first
    load -- the aiming happens inside a load, and a load has no time to wait
    for the network. */

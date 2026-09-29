@@ -19,10 +19,10 @@ roll underneath.
 
 ![The desktop in piece mode, playing mirrorball.gen](docs/screenshots/desktop-piece.png)
 
-A patch: SuperRes's graph, which can be edited live, and the parameters
+A patch: the Rhodes's graph, which can be edited live, and the parameters
 it exposes.
 
-![The desktop in patch mode, with SuperRes's graph](docs/screenshots/desktop-patch.png)
+![The desktop in patch mode, with the Rhodes's graph](docs/screenshots/desktop-patch.png)
 
 The same engine in a browser, [on the web](https://mishan.github.io/thinksynth/),
 playing the same piece, and on a phone.
@@ -136,14 +136,15 @@ There is nothing to set up. With no configuration file anywhere, thinksynth
 writes one and starts with four channels already loaded:
 
 ```
-channel 0,leads/SuperRes.patch,30
-channel 1,bass/FunkMachine.patch,30
-channel 2,organs/Organ1.patch,30
-channel 3,pads/SynString.patch,30
+channel 0,keys/Rhodes.patch,30
+channel 1,pads/Juno.patch,30
+channel 2,bass/ElectricBass.patch,60
+channel 3,leads/Pluck.patch,28
 ```
 
 So the on-screen keyboard makes a sound immediately, and the channel spinner
-moves between four different ones. Edit or delete lines to change that; delete
+moves between four different ones: an electric piano, a pad, a fingered bass
+and a pluck, each at a level measured against the others. Edit or delete lines to change that; delete
 the whole file to get the defaults back.
 
 The patches are named relatively and looked up the same way DSPs are, which is

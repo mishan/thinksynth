@@ -233,12 +233,19 @@ export async function aim (synth, channels, chosen = new Map())
        the load these belong to. */
     for (const channel of channels)
     {
-        const name = chosen.get(channel) ??
-                     (await synth.patchDefault(channel)).name;
+        /* A default goes on at its own level, as it does on the desktop's
+           first run; a choice somebody made goes on at the one every
+           patch loaded by hand gets. */
+        const fallback = chosen.has(channel)
+            ? null : await synth.patchDefault(channel);
+        const name = chosen.get(channel) ?? fallback.name;
 
         try
         {
             placed.set(channel, await place(synth, channel, name));
+
+            if (fallback !== null)
+                synth.chanarg(channel, 'amp', fallback.amp);
         }
         catch (e)
         {

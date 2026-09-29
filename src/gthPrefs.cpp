@@ -304,11 +304,10 @@ bool gthPrefs::LoadDefaults (void)
      * configure_file'd with absolute ones, which made it correct only on a
      * machine installed to the prefix the build was configured with.
      *
-     * TH_DEFAULT_CHAN_AMP because that is what loading a patch by hand gives
-     * it; a channel that came from here and a channel the user loaded should
-     * not sit at different volumes for no reason a user can see. Four
-     * channels at once is the case that number is chosen for -- see where it
-     * is defined. */
+     * Each at the amp the table gives it rather than TH_DEFAULT_CHAN_AMP,
+     * which is the level for a patch loaded by hand that nobody has
+     * measured. These four have been measured against each other, and at
+     * one amp the bass sat at half the level of the rest. */
     const int n = thPatchDefaultCount();
 
     size_t loaded = 0;
@@ -324,7 +323,7 @@ bool gthPrefs::LoadDefaults (void)
             continue;
         }
 
-        synth->setChanArg(chan, new thArg("amp", TH_DEFAULT_CHAN_AMP));
+        synth->setChanArg(chan, new thArg("amp", thPatchDefaultAmp(chan)));
         loaded++;
     }
 

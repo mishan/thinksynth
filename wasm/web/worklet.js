@@ -399,6 +399,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                 type: 'patchdefault', id: m.id,
                 name: this.M.ccall('tw_patch_default', 'string', ['number'],
                                    [m.channel]),
+                amp: this.M._tw_patch_default_amp(m.channel),
             });
 
             return;
