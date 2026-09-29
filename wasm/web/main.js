@@ -2752,7 +2752,7 @@ window.solo = {
     knobAt: (name) => composer?.knobAt(name),
     stageAt: (chain, stage) => composer?.stageAt(chain, stage),
     activity: () => composer?.activity(),
-    canvasLayout: () => composer?.layout(),
+    canvasLayout: (arrow) => composer?.layout(arrow),
     lane: () => composer?.lane(),
     genText: () => $('gen').value,
 

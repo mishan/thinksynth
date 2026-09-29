@@ -651,7 +651,14 @@ function receive (m)
                               y: M._tw_canvas_disclose_y(c) });
 
             post({ type: 'layout', columns: M._tw_canvas_columns(),
-                   width: M._tw_canvas_width(), chains });
+                   width: M._tw_canvas_width(), chains,
+                   probe: { chain: M._tw_canvas_probe_chain(),
+                            stage: M._tw_canvas_probe_stage() },
+                   arrow: m.arrow === undefined ? null
+                       : { x: M._tw_canvas_arrow_x(m.arrow.chain,
+                                                   m.arrow.stage),
+                           y: M._tw_canvas_arrow_y(m.arrow.chain,
+                                                   m.arrow.stage) } });
             break;
         }
 

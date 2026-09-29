@@ -1874,6 +1874,43 @@ try
         await page.evaluate(() => window.solo.settled());
     }
 
+    /* A probe: the arrow out of colony's first stage, pressed while it
+       plays, hangs a small roll of what that stage let out under it --
+       drawn by the mirror, which is where the notes are -- and Escape
+       takes it away. */
+    {
+        await page.click('#play');
+        await new Promise((r) => setTimeout(r, 3000));
+
+        const arrow = { chain: 0, stage: 0 };
+        const at = (await page.evaluate(
+            (a) => window.solo.canvasLayout(a), arrow)).arrow;
+        const where = await scroller();
+        const plain = await ink();
+
+        await page.mouse.click(where.x + at.x, where.y + at.y);
+
+        const probed = await until(
+            () => page.evaluate(() => window.solo.canvasLayout()),
+            (l) => l.probe.chain === 0 && l.probe.stage === 0);
+        const drawn = await until(ink, (v) => v !== plain);
+
+        check(probed.probe.chain === 0 && probed.probe.stage === 0 &&
+              drawn !== plain,
+              'pressing an arrow puts a probe on it, drawn under it');
+
+        await page.focus('#composer');
+        await page.keyboard.press('Escape');
+
+        const gone = await until(
+            () => page.evaluate(() => window.solo.canvasLayout()),
+            (l) => l.probe.chain === -1);
+
+        check(gone.probe.chain === -1, '...and Escape takes it away');
+
+        await page.click('#stop');
+    }
+
     /* ---- the piano roll ----
      *
      * The other canvas the mirror draws, and the one this page did not

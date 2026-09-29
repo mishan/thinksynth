@@ -2880,6 +2880,38 @@ EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_y (int section, int chain)
         ? y : -1.0;
 }
 
+/* The probe: its chain and stage in the document's numbering, or -1; and
+   where the arrow carrying a stage's output is, in shell pixels, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_probe_chain (void)
+{
+    return canvas_ != NULL &&
+           canvas_->probe().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->probe().chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_probe_stage (void)
+{
+    return canvas_ != NULL &&
+           canvas_->probe().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->probe().index : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_arrow_x (int chain, int stage)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 && stage >= 0 &&
+           canvas_->probeArrow((size_t)chain, (size_t)stage, x, y) ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_arrow_y (int chain, int stage)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 && stage >= 0 &&
+           canvas_->probeArrow((size_t)chain, (size_t)stage, x, y) ? y : -1.0;
+}
+
 /* A section's block: the time to seek to, once per press, or -1. */
 EMSCRIPTEN_KEEPALIVE double tw_canvas_seek_wanted (void)
 {

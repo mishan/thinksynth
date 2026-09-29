@@ -185,10 +185,12 @@ export function createComposerView ({ root = document, toMirror,
         toMirror({ type: 'lane' });
     });
 
-    const layout = () => new Promise((resolve) =>
+    /* With `arrow' ({ chain, stage }), also where that stage's output
+       arrow is. */
+    const layout = (arrow) => new Promise((resolve) =>
     {
         layoutAsked = resolve;
-        toMirror({ type: 'layout' });
+        toMirror({ type: 'layout', arrow });
     });
 
     const activity = () => new Promise((resolve) =>
