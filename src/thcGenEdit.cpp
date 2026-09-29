@@ -2921,13 +2921,18 @@ thcGenEdit::setSectionLevel (const std::string &filename,
         while (line > 0 && (text[line - 1] == ' ' || text[line - 1] == '\t'))
             line--;
 
-        if (b < text.size() && text[b] == '\n' && line > 0 &&
-            text[line - 1] == '\n')
+        /* Where the line ends, in either spelling: a file written on
+           Windows ends its lines "\r\n". */
+        const size_t eol = b < text.size() && text[b] == '\r' &&
+                           b + 1 < text.size() && text[b + 1] == '\n'
+            ? 2 : b < text.size() && text[b] == '\n' ? 1 : 0;
+
+        if (eol > 0 && line > 0 && text[line - 1] == '\n')
         {
             a = line;
-            b++;
+            b += eol;
         }
-        else if (b < text.size() && text[b] == '\n')
+        else if (eol > 0)
             a = line;                   /* last on its line: no trailing
                                            spaces left behind            */
 
@@ -2965,7 +2970,11 @@ thcGenEdit::setSectionLevel (const std::string &filename,
             if (text.compare(ind, 7, "section") == 0)
                 indent += "    ";
 
-            edits.push_back({ line, line, indent + entry + "\n" });
+            /* Ended the way the line before is. */
+            const bool crlf = line >= 2 && text[line - 2] == '\r';
+
+            edits.push_back({ line, line,
+                              indent + entry + (crlf ? "\r\n" : "\n") });
         }
         else if (at > 0 && text[at - 1] == ' ')
             edits.push_back({ at, at, entry + " " });

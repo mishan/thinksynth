@@ -9162,6 +9162,62 @@ checkSectionEdits (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* The same edits to a file whose lines end "\r\n", as one written
+       on Windows does: written and read back in binary, so what is
+       compared is the bytes, on every platform. */
+    {
+        const std::string crlf = thUtil::tempFile("gencheck-arr3-");
+
+        if (crlf.empty())
+            fail("could not write the CRLF arrangement piece");
+        else
+        {
+            std::string body = text.substr(text.find("chain kick")) +
+                "section l 1 bars {\n"
+                "    kick = 0;\n"
+                "    snare = 0;\n"
+                "};\n"
+                "section t 1 bars { kick = 0;  snare = 0;\n"
+                "                   };\n";
+            std::string bytes;
+
+            for (char ch : body)
+                bytes += ch == '\n' ? std::string("\r\n")
+                                     : std::string(1, ch);
+
+            {
+                std::ofstream out(crlf.c_str(),
+                                  std::ios::trunc | std::ios::binary);
+
+                out << bytes;
+            }
+
+            editOk(thcGenEdit::setSectionLevel(crlf, "l", "kick", 1, why),
+                   why, "setSectionLevel taking out a CRLF line");
+            editOk(thcGenEdit::setSectionLevel(crlf, "l", "kick", 0.5, why),
+                   why, "setSectionLevel into a CRLF block");
+            editOk(thcGenEdit::setSectionLevel(crlf, "t", "snare", 1, why),
+                   why, "setSectionLevel taking out the last on a CRLF "
+                        "line");
+
+            std::string got;
+
+            {
+                std::ifstream in(crlf.c_str(), std::ios::binary);
+
+                got.assign(std::istreambuf_iterator<char>(in),
+                           std::istreambuf_iterator<char>());
+            }
+
+            if (got.find("section l 1 bars {\r\n    snare = 0;\r\n"
+                         "    kick = 0.5;\r\n};") == std::string::npos ||
+                got.find("{ kick = 0;\r\n") == std::string::npos)
+                fail("setSectionLevel on a CRLF file wrote:\n" + got);
+
+            remove(crlf.c_str());
+        }
+    }
+
     sched.setSectionLevel(1, "snare", 0.5);
     sched.setSectionLevel(0, "kick", 1);
 
