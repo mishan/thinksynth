@@ -169,28 +169,39 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
            button than its press is a pair no plugin can match up. */
         Glib::RefPtr<Gtk::GestureDrag> drag = Gtk::GestureDrag::create();
 
+        /* The handlers hold the gesture by pointer: the gesture holds
+           them, and a reference back would keep both alive after the
+           track is gone. */
+        Gtk::GestureDrag *g = drag.get();
+
         drag->set_button(0);
         drag->signal_drag_begin().connect(
-            [this, i, drag](double x, double y)
+            [this, i, g](double x, double y)
             {
-                tracks_[i].button = (int)drag->get_current_button();
+                if (i >= tracks_.size())
+                    return;
+
+                tracks_[i].button = (int)g->get_current_button();
                 input(i, THC_IN_PRESS, x, y, tracks_[i].button);
             });
         drag->signal_drag_update().connect(
-            [this, i, drag](double dx, double dy)
+            [this, i, g](double dx, double dy)
             {
                 double x, y;
 
-                if (drag->get_start_point(x, y))
+                if (i < tracks_.size() && g->get_start_point(x, y))
                     input(i, THC_IN_DRAG, x + dx, y + dy,
                           tracks_[i].button);
             });
         drag->signal_drag_end().connect(
-            [this, i, drag](double dx, double dy)
+            [this, i, g](double dx, double dy)
             {
                 double x, y;
 
-                if (drag->get_start_point(x, y))
+                if (i >= tracks_.size())
+                    return;
+
+                if (g->get_start_point(x, y))
                     input(i, THC_IN_RELEASE, x + dx, y + dy,
                           tracks_[i].button);
 
