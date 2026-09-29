@@ -171,6 +171,16 @@ Composer::Composer (thSynth *synth)
     canvas_->sigFreeze.connect(
         sigc::mem_fun(*this, &Composer::onCanvasFreeze));
 
+    /* A section's block: the piece from there, as it would be had it
+       played there. */
+    canvas_->sigSeek.connect(
+        [this](double at)
+        {
+            sched_->seek(at);
+            updateTransportButtons();
+            canvas_->queue_draw();
+        });
+
     /* A picture that edits its own params -- a grid's cells, the euclid
        ring, accent's steps -- is written into the piece when the gesture
        ends, silently, as the sequencer's tracks are. A Life board is

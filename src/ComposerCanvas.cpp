@@ -1874,6 +1874,18 @@ ComposerCanvas::drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const
 }
 
 bool
+ComposerCanvas::sectionHead (size_t section, double &x, double &y) const
+{
+    if (section >= heads_.size())
+        return false;
+
+    x = (heads_[section].x + heads_[section].w / 2) * zoom();
+    y = (heads_[section].y + heads_[section].h / 2) * zoom();
+
+    return true;
+}
+
+bool
 ComposerCanvas::sectionCell (size_t section, size_t chain, double &x,
                              double &y) const
 {
@@ -2096,6 +2108,26 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
     }
 
     const Box *box = hit(x, y);
+
+    /* A section's block: the transport to where it begins, heard from
+       there as if it had been played to it (thcScheduler::seek). */
+    if (button == 1 && nPress == 1 && enlarged_.kind == Selection::NONE &&
+        sched_ != NULL)
+        for (size_t si = 0; si < heads_.size(); si++)
+        {
+            const LaneRect &h = heads_[si];
+
+            if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h)
+                continue;
+
+            double at = 0;
+
+            for (size_t k = 0; k < si && k < sched_->sections().size(); k++)
+                at += sched_->sectionLength(sched_->sections()[k]);
+
+            sigSeek.emit(at);
+            return;
+        }
 
     /* A cell of the arrangement: that chain in that section, its level
        stepped round as written (1), silent (0) and half (0.5). */

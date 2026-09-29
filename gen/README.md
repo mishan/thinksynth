@@ -69,7 +69,9 @@ they drive. Everything is reachable from there:
   block per section as wide as it is long, the one playing lit and a line
   where the transport is, and a row per chain with its level in each section.
   Click a cell to step that chain's level there -- as written, silent, half --
-  which is heard at once and written into the piece.
+  which is heard at once and written into the piece. Click a section's block
+  to jump there: the piece is played up to it silently, so every generator is
+  where it would have been, and goes on from there.
 - **F** on a chain freezes it: what it played in the last two bars becomes a
   new chain, `<name>_frozen`, with a `gen::grid` holding the phrase, and the
   original is muted (on the room page it is left playing). The frozen chain

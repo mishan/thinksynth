@@ -918,6 +918,14 @@ public:
        are not aligned. A time at or before now is a step of nothing. */
     void stepTransportTo (double t);
 
+    /* To transport time `t', from the top: the piece rewound and played
+       up to `t' without a sound, so every stage is where it would have
+       been had it been heard getting there -- which a generative piece
+       cannot be put any other way. Notes due at or after `t' play from
+       there; chanargs and structure edits on the way are applied. Keeps
+       playing if it was, and otherwise waits at `t'. */
+    void seek (double t);
+
     /* Route a live MIDI note into a chain's receive() path (Markov
      * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
      * same thread, so it is a plain call into propagate(). On a stopped
@@ -1236,6 +1244,8 @@ private:
     mutable std::vector<int>      peekChains_;
 
     int deliveringChain_;
+
+    bool seeking_ = false;     /* seek() is playing ahead, silently      */
 
     /* Set by propagate() for the one call that carries an event past a
        stage with no receive, so that stage is not lit as its source. */

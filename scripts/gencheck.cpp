@@ -9520,6 +9520,116 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
     remove(path.c_str());
 }
 
+/* thcScheduler::seek: to four seconds, from the top, silently, and then
+ * played on -- the notes from there are the notes a piece played
+ * straight through makes from there, random choices and all, and none
+ * before it is heard. */
+static void
+checkSeek (const std::map<std::string, thcPlugin *> &plugins,
+           thSynth *synth)
+{
+    const std::string body =
+        "seed 17;\n"
+        "tempo 110;\n"
+        "chain line {\n"
+        "  stage src gen::eno_line { notes = \"C4 E4 G4\"; period = 0.7 s;\n"
+        "    jitter = 0.3 s; prob = 0.6; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain beat {\n"
+        "  stage src gen::euclid { steps = 8; fills = 5; rotate = 0;\n"
+        "    notes = \"C2 D2\"; period = 0.25 beats; hold = 0.2 beats;\n"
+        "    vel = 100; ahead = 1; };\n"
+        "  stage c xform::chance { prob = 0.5; };\n"
+        "  sink { channel = 2; };\n"
+        "};\n";
+
+    const std::string path = thUtil::tempFile("gencheck-seek-");
+
+    if (path.empty())
+    {
+        fail("could not write the seek piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    auto play = [&](bool seekFirst, std::string &tape)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        sched.setAuditionSynchronous(true);
+
+        if (!loader.load(path, &sched))
+            return false;
+
+        sigc::connection conn = sched.sigDelivered.connect(
+            [&tape](const thcEvent &ev)
+            {
+                if (ev.type != THC_EV_NOTE)
+                    return;
+
+                char b[96];
+
+                snprintf(b, sizeof(b), "%.9f %d %d\n", ev.at, ev.channel,
+                         ev.u.note.note);
+                tape += b;
+            });
+
+        if (seekFirst)
+        {
+            sched.seek(4.0);
+
+            if (sched.running() || std::fabs(sched.now() - 4.0) > 1e-9)
+                fail("a seek on a stopped transport should wait at 4 s");
+        }
+
+        sched.start();
+
+        while (sched.now() < 8.0 - 1e-9)
+        {
+            sched.stepTransport(0.02);
+            drainSynth();
+        }
+
+        sched.stop();
+        conn.disconnect();
+        drainSynth();
+
+        return true;
+    };
+
+    std::string straight, sought;
+
+    if (!play(false, straight) || !play(true, sought))
+    {
+        fail("the seek piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+
+    /* The straight run from four seconds on. */
+    std::string tail;
+    std::istringstream lines(straight);
+    std::string line;
+
+    while (std::getline(lines, line))
+        if (atof(line.c_str()) >= 4.0 - 1e-9)
+            tail += line + "\n";
+
+    if (tail.empty() || sought != tail)
+        fail("after a seek to 4 s the piece should play what it plays from "
+             "4 s straight through; " + std::to_string(sought.size()) +
+             " bytes of tape against " + std::to_string(tail.size()));
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -11691,6 +11801,7 @@ main (int argc, char *argv[])
     checkChainIdentity(plugins, &synth);
     checkSectionEdits(plugins, &synth);
     checkDrawnControls(plugins, &synth);
+    checkSeek(plugins, &synth);
     checkChainStart(plugins, &synth);
     checkRun(plugins, &synth);
     checkVariation(plugins, &synth);

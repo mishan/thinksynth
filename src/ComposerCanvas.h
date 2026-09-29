@@ -199,6 +199,13 @@ public:
        sends it as a command. */
     sigc::signal<void (size_t, size_t, double)> sigSectionLevel;
 
+    /* A section's block was pressed: the transport time it begins at,
+       the first time round, for the window to seek to. */
+    sigc::signal<void (double)> sigSeek;
+
+    /* The middle of a section's block in the lane, in widget pixels. */
+    bool sectionHead (size_t section, double &x, double &y) const;
+
     /* The middle of a cell of the arrangement lane, in widget pixels.
        False for a piece with no sections. */
     bool sectionCell (size_t section, size_t chain, double &x,

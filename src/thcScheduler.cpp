@@ -2437,6 +2437,12 @@ thcScheduler::deliverDue (double now)
 void
 thcScheduler::deliverFrom (const thcEvent &ev, int chain)
 {
+    if (seeking_)
+    {
+        deliver(ev);
+        return;
+    }
+
     if (chain >= 0 && (size_t)chain < chains_.size() &&
         (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG))
         chains_[chain].lastHeard[ev.type == THC_EV_CHANARG] = transportNow_;
@@ -2488,6 +2494,12 @@ thcScheduler::deliverFrom (const thcEvent &ev, int chain)
 void
 thcScheduler::deliver (const thcEvent &ev)
 {
+    /* A seek plays the piece up to where it is going without a sound:
+       the notes are not heard, but what an event leaves behind -- a
+       chanarg's value, a swapped instrument -- is where the piece is. */
+    if (seeking_ && (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF))
+        return;
+
     switch (ev.type)
     {
         case THC_EV_NOTE:
@@ -2554,7 +2566,8 @@ thcScheduler::deliver (const thcEvent &ev)
         }
     }
 
-    sigDelivered.emit(ev);                      /* piano roll, keyboard  */
+    if (!seeking_)
+        sigDelivered.emit(ev);                  /* piano roll, keyboard  */
 }
 
 void
@@ -2655,6 +2668,37 @@ thcScheduler::stop (void)
     running_ = false;
     flushNoteOffs();
     flushHeld();
+}
+
+void
+thcScheduler::seek (double t)
+{
+    const bool was = running_;
+
+    halt();
+    reset();
+
+    if (t > 0)
+    {
+        /* The whole piece up to `t', silently. Steps of a tenth of a
+           second: the stages are woken at the times they asked for
+           whatever the step, so the size is only how often the nodes and
+           the deliveries catch up, and nothing delivered is heard. */
+        seeking_ = true;
+        start();
+
+        while (running_ && transportNow_ < t - 1e-9)
+            stepTransportTo(std::min(t, transportNow_ + 0.1));
+
+        seeking_ = false;
+    }
+
+    /* Playing on from there if it was playing; otherwise waiting there
+       for Play. A piece that ends before `t' has stopped itself. */
+    if (was && !running_ && !(endAfter_ && sectionAt(transportNow_) < 0))
+        start();
+    else if (!was)
+        running_ = false;
 }
 
 void
