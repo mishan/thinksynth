@@ -2519,6 +2519,11 @@ function showComposer (on)
         },
 
         onMove: moveStage,
+
+        /* An arrangement cell: for the next window, and written into the
+           box by the param edits' path when it comes back. */
+        onSection: (section, chain, level) =>
+            synth?.section({ at: -1, section, chain, level }),
     });
 
     composer.show(on);
@@ -2689,6 +2694,7 @@ window.solo = {
     stageAt: (chain, stage) => composer?.stageAt(chain, stage),
     activity: () => composer?.activity(),
     canvasLayout: () => composer?.layout(),
+    lane: () => composer?.lane(),
     genText: () => $('gen').value,
 
     /* The piece's knobs as the worklet holds them: { id, value } by row. */

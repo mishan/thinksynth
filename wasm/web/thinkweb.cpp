@@ -148,9 +148,9 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE
-   and TW_SOLO have entry points of their own and never arrive as an op
-   from there. */
+   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
+   TW_SOLO and TW_SECTION have entry points of their own and never arrive
+   as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -164,6 +164,7 @@ enum TransportOp
     TW_PARAM,
     TW_MUTE,
     TW_SOLO,
+    TW_SECTION,
 };
 
 struct Command
@@ -201,7 +202,8 @@ struct Scheduled
     double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's,
                                    TW_MUTE's and TW_SOLO's (0 or 1) */
 
-    /* TW_STAGEPARAM: which param of the stage named below. */
+    /* TW_STAGEPARAM: which param of the stage named below. TW_SECTION:
+       which section, with `chain' and a level in `value'. */
     int    param;
 
     /* TW_INPUT: a gesture on a stage's picture, in the coordinates the
@@ -329,6 +331,11 @@ struct AppliedParam
     std::string chainName;          /* the document's, for a splice */
     int         docStage;
     std::string param, valueText;
+
+    /* An arrangement edit (TW_SECTION) rather than a param's: which
+       section, by index, with its name in `param' and the level in
+       `valueText'. -1 for a param. */
+    int         section = -1;
 };
 
 std::vector<AppliedParam> applied_;
@@ -601,6 +608,51 @@ void applyScheduled (const Scheduled &c)
             }
 
             break;
+
+        case TW_SECTION:
+        {
+            /* A chain's level in one section: the running piece poked, at
+             * `at' like a knob because it decides what is heard, and the
+             * piece's own text spliced, and the splice reported back the
+             * way a param's is -- the page writes it into its box or its
+             * room's document. */
+            const thcChain *ch = c.chain >= 0
+                ? sched_->chain((size_t)c.chain) : NULL;
+
+            if (ch == NULL || c.param < 0 ||
+                (size_t)c.param >= sched_->sections().size())
+                break;
+
+            const std::string section = sched_->sections()[c.param].name;
+            std::string why;
+
+            if (thcGenEdit::setSectionLevel(TW_PIECE_FILE, section, ch->name,
+                                            c.value, why) != thcGenEdit::OK)
+            {
+                fprintf(stderr, "section %s: %s\n", section.c_str(),
+                        why.c_str());
+                break;
+            }
+
+            sched_->setSectionLevel((size_t)c.param, ch->name, c.value);
+
+            AppliedParam done;
+            char level[32];
+
+            snprintf(level, sizeof(level), "%.17g", c.value);
+
+            done.at = c.at;
+            done.chain = c.chain;
+            done.stage = -1;
+            done.chainName = ch->name;
+            done.docStage = -1;
+            done.param = section;
+            done.valueText = level;
+            done.section = c.param;
+
+            applied_.push_back(done);
+            break;
+        }
 
         case TW_STAGEPARAM:
         {
@@ -1155,6 +1207,16 @@ struct CanvasKnob
 };
 
 std::vector<CanvasKnob> canvasKnobs_;
+
+/* The arrangement lane's cells pressed, waiting to be sent as `section'
+   commands: which section, which chain, and the level asked for. */
+struct CanvasSection
+{
+    int    section, chain;
+    double level;
+};
+
+std::vector<CanvasSection> canvasSections_;
 
 /* A stage box dropped at another place in its chain, in the document's
    numbering, which is what the splice is in. One at a time: a drop is a
@@ -2307,6 +2369,13 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                     }
             });
 
+        canvas_->sigSectionLevel.connect(
+            [](size_t section, size_t chain, double level)
+            {
+                canvasSections_.push_back({ (int)section, (int)chain,
+                                            level });
+            });
+
         canvas_->sigMoveStage.connect(
             [](size_t chain, int from, int to)
             {
@@ -2567,6 +2636,54 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_commit (int k)
 EMSCRIPTEN_KEEPALIVE void tw_canvas_knobs_clear (void)
 {
     canvasKnobs_.clear();
+}
+
+/* The arrangement cells pressed, drained the same way. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_section_count (void)
+{
+    return (int)canvasSections_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_section_section (int k)
+{
+    return k >= 0 && k < (int)canvasSections_.size()
+        ? canvasSections_[k].section : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_section_chain (int k)
+{
+    return k >= 0 && k < (int)canvasSections_.size()
+        ? canvasSections_[k].chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_section_level (int k)
+{
+    return k >= 0 && k < (int)canvasSections_.size()
+        ? canvasSections_[k].level : 1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_sections_clear (void)
+{
+    canvasSections_.clear();
+}
+
+/* The middle of a cell of the arrangement lane, in shell pixels, or -1. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_x (int section, int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 && chain >= 0 &&
+           canvas_->sectionCell((size_t)section, (size_t)chain, x, y)
+        ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_y (int section, int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 && chain >= 0 &&
+           canvas_->sectionCell((size_t)section, (size_t)chain, x, y)
+        ? y : -1.0;
 }
 
 /* A stage dropped elsewhere in its chain: nonzero once per drop, and then
@@ -3444,6 +3561,38 @@ EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
     schedule(c);
 }
 
+/* A chain's level in one section, at a transport time: the arrangement
+ * lane's cell, pressed. Written into the piece and heard from `at'. */
+EMSCRIPTEN_KEEPALIVE void tw_section_level (double at, int section,
+                                            int chain, double level)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_SECTION;
+    c.param = section;
+    c.chain = chain;
+    c.value = level;
+
+    schedule(c);
+}
+
+/* A chain's level in one section as the running piece has it; 1 where the
+ * section does not name it. */
+EMSCRIPTEN_KEEPALIVE double tw_section_level_of (int section, int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL || section < 0 ? 1.0
+        : sched_->sectionLevelOf((size_t)section, c->name);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_section_count (void)
+{
+    return sched_ != NULL ? (int)sched_->sections().size() : 0;
+}
+
 /* A chain's live mute or solo, at a transport time: `on' nonzero sets
  * it. Stamped like a knob, and not written into the document -- the
  * desktop's mute is not saved either. `at' below zero is "now". */
@@ -3638,6 +3787,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
         jsonString(appliedJson_, a.param);
         appliedJson_ += ",\"valueText\":";
         jsonString(appliedJson_, a.valueText);
+        appliedJson_ += ",\"section\":";
+        jsonInt(appliedJson_, a.section);
         appliedJson_ += '}';
     }
 
@@ -3710,6 +3861,24 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
         {
             return thcGenEdit::setParam(path, chain, docStage, param,
                                         valueText, why);
+        });
+}
+
+/* One chain's level in one section, in `text': the edit an arrangement
+ * cell makes, for a room's document. "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_section (const char *text,
+                                                     const char *section,
+                                                     const char *chain,
+                                                     double level)
+{
+    if (text == NULL || section == NULL || chain == NULL)
+        return "";
+
+    return spliceText(text, section,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setSectionLevel(path, section, chain, level,
+                                               why);
         });
 }
 

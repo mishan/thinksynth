@@ -820,6 +820,12 @@ let ownParams = [];
 const paramKey = (e) =>
     JSON.stringify([e.at, e.chain, e.stage, e.row, e.text]);
 
+/* The same for an arrangement edit: the command's fields, and the written
+   edit's -- whose level is the text it was written with. */
+const sectionKey = (e) =>
+    JSON.stringify(['section', e.at, e.section, e.chain,
+                    e.level ?? Number(e.valueText)]);
+
 /* What the worklet wrote, and of it, what this peer made: into the document.
  *
  * Applied to the document as it now stands rather than copied from the
@@ -830,7 +836,8 @@ async function paramsEdited ({ edits })
 {
     for (const e of edits)
     {
-        const at = ownParams.indexOf(paramKey(e));
+        const isSection = e.section >= 0;
+        const at = ownParams.indexOf(isSection ? sectionKey(e) : paramKey(e));
 
         if (at < 0)
             continue;
@@ -849,7 +856,10 @@ async function paramsEdited ({ edits })
             if (was === null)
                 break;
 
-            const { text } = await synth.genSetParam(was, e);
+            const { text } = isSection
+                ? await synth.genSetSection(was, e.param, e.chainName,
+                                            Number(e.valueText))
+                : await synth.genSetParam(was, e);
 
             if (text === '')
             {
@@ -913,6 +923,16 @@ function showComposer (on)
         },
 
         onMove: moveStage,
+
+        /* An arrangement cell: the room's command, written into the
+           document by this peer when it comes back, as a param is. */
+        onSection: (section, chain, level) =>
+        {
+            const cmd = maker.section(section, chain, level);
+
+            ownParams.push(sectionKey(cmd));
+            send(cmd);
+        },
     });
 
     composer.show(on);

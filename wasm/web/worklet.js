@@ -312,6 +312,20 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* One chain's level in one section, in a text given: the edit an
+         * arrangement cell makes, for a room's document. */
+        if (m.type === 'gensection')
+        {
+            this.port.postMessage({
+                type: 'gensection', id: m.id,
+                text: this.M.ccall('tw_gen_set_section', 'string',
+                                   ['string', 'string', 'string', 'number'],
+                                   [m.text, m.section, m.chain, m.level]),
+            });
+
+            return;
+        }
+
         if (m.type === 'settempo')
         {
             this.port.postMessage({

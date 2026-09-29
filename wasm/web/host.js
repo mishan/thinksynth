@@ -173,6 +173,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'settempo':
             case 'genparam':
             case 'genmove':
+            case 'gensection':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -365,6 +366,12 @@ export async function createSynth (ctx, { windowlen = 256,
         genMoveStage: (text, chainName, from, to) =>
             ask({ type: 'genmove', text, chain: chainName, from, to }),
 
+        /* One chain's level in one section, in `text'. Resolves to
+           { text }, "" when the writer refused. */
+        genSetSection: (text, sectionName, chainName, level) =>
+            ask({ type: 'gensection', text, section: sectionName,
+                  chain: chainName, level }),
+
         /* How fast the clock runs, as a multiple of real time, at a
            transport time or -1 for the next window. Everything moves with
            it, which is what makes it the control a piece written in
@@ -444,6 +451,12 @@ export async function createSynth (ctx, { windowlen = 256,
 
         solo: ({ at = -1, chain, on }) =>
             post({ type: 'solo', at, chain, on }),
+
+        /* A chain's level in one section, at a transport time or -1 for
+           the next window. Written into the piece; the splice comes back
+           with the param edits. */
+        section: ({ at = -1, section, chain, level }) =>
+            post({ type: 'section', at, section, chain, level }),
 
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field

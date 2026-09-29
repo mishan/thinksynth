@@ -40,6 +40,7 @@
  *   param      { at, chain, stage, row, text }
  *   mute       { at, chain, on }
  *   solo       { at, chain, on }
+ *   section    { at, section, chain, level }
  *   note       { at, seat, note, velocity }
  *   noteoff    { at, seat, note }
  *
@@ -153,6 +154,14 @@ export class Maker
     solo (chain, on)
     {
         return this.make('solo', { chain, on }, this.knobLead);
+    }
+
+    /* A chain's level in one section of the arrangement. Stamped with the
+       knob's lead: it decides what is heard from there on. */
+    section (section, chain, level)
+    {
+        return this.make('section', { section, chain, level },
+                         this.knobLead);
     }
 
     /* A key. Stamped with now and no lead: direct mode plays it on
@@ -297,6 +306,10 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 
         case 'solo':
             synth.solo(cmd);
+            break;
+
+        case 'section':
+            synth.section(cmd);
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.
