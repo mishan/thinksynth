@@ -405,6 +405,8 @@ protected:
 
     void forgetMix (void);
 
+    bool rollByChain_ = false;      /* the roll's notes by chain's hue   */
+
     thcGenEdit::Doc doc_;           /* what the work file says           */
 
     /* The roll, made in start() with the scheduler it reads, and the box

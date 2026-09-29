@@ -88,6 +88,14 @@ public:
      * against this one's clock. */
     void clear (void);
 
+    /* Color notes by the chain that made them rather than by the channel
+       they sound on: which chain is playing what, where several share an
+       instrument. Chain N takes the hue channel N has, and the composer
+       canvas puts that hue on the chain's name (setChainHues). Chanargs
+       and structure edits stay on their channel's. */
+    void setColorByChain (bool on);
+    bool colorByChain (void) const { return byChain_; }
+
     /* Draws everything, having first taken this frame's view of the
      * scheduler -- the transport's time while following, one copy of the
      * pending queue, the prune and the pitch-range ease.
@@ -155,7 +163,17 @@ private:
     {
         double start, duration;
         int    channel, note, velocity;
+        int    chain;             /* which made it, or -1               */
     };
+
+    /* A scheduled event and the chain it came from. */
+    struct Ghost : thcEvent
+    {
+        int chain;
+    };
+
+    void noteColor (const Cairo::RefPtr<Cairo::Context> &cr, int channel,
+                    int chain, double alpha) const;
     struct ArgTick
     {
         double at;
@@ -225,7 +243,9 @@ private:
 
     /* This frame's copy of the scheduled future, taken once per draw
        and read by both the range fit and the draw. */
-    std::vector<thcEvent> pendingView_;
+    std::vector<Ghost>   pendingView_;
+
+    bool   byChain_;                  /* notes in their chain's hue      */
 
     double spanPast_, spanFuture_;    /* seconds each side of now        */
     double viewNow_;                  /* time at the now-line            */

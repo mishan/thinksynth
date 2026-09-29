@@ -53,8 +53,24 @@ channelColor (const Cairo::RefPtr<Cairo::Context> &cr, int chan,
     cr->set_source_rgba(r, g, b, alpha);
 }
 
+/* A note's color: its channel's hue, or its chain's where the roll is
+ * coloring by chain and the note came from one. */
+void
+RollCanvas::noteColor (const Cairo::RefPtr<Cairo::Context> &cr, int channel,
+                       int chain, double alpha) const
+{
+    channelColor(cr, byChain_ && chain >= 0 ? chain : channel, alpha);
+}
+
+void
+RollCanvas::setColorByChain (bool on)
+{
+    byChain_ = on;
+    requestRedraw();
+}
+
 RollCanvas::RollCanvas (thcScheduler *sched)
-    : sched_(sched), spanPast_(60), spanFuture_(30), viewNow_(0),
+    : sched_(sched), byChain_(false), spanPast_(60), spanFuture_(30), viewNow_(0),
       following_(true), dragging_(false), dragX0_(0), dragT0_(0),
       loShown_(48), hiShown_(72), loFit_(48), hiFit_(72),
       lastW_(0), lastH_(0)
@@ -83,7 +99,8 @@ RollCanvas::onDelivered (const thcEvent &ev)
     if (ev.type == THC_EV_NOTE)
     {
         const Note n = { ev.at, ev.u.note.duration, ev.channel,
-                         ev.u.note.note, ev.u.note.velocity };
+                         ev.u.note.note, ev.u.note.velocity,
+                         sched_->deliveringChain() };
 
         /* A duration <= 0 is live input's "held until further notice",
            and a bar with no end yet is not history: it belongs in
@@ -194,7 +211,18 @@ RollCanvas::step (void)
     /* One copy of the scheduled future per frame, shared by the range
        fit and the draw -- peekPending rebuilds its vector per call, and
        asking twice a frame was paying for the copy twice. */
-    pendingView_ = sched_->peekPending();
+    {
+        const std::vector<thcEvent> &pending = sched_->peekPending();
+        const std::vector<int> &chains = sched_->peekPendingChains();
+
+        pendingView_.resize(pending.size());
+
+        for (size_t i = 0; i < pending.size(); i++)
+        {
+            static_cast<thcEvent &>(pendingView_[i]) = pending[i];
+            pendingView_[i].chain = i < chains.size() ? chains[i] : -1;
+        }
+    }
 
     /* And put in time order, which peekPending's is not: what it hands
        back mirrors a heap, and how a heap lays itself out is the standard
@@ -205,7 +233,7 @@ RollCanvas::step (void)
        the difference between "one class draws one picture" and a claim
        nothing can check. rollcheck is what checks it. */
     std::sort(pendingView_.begin(), pendingView_.end(),
-              [](const thcEvent &a, const thcEvent &b)
+              [](const Ghost &a, const Ghost &b)
               {
                   if (a.at != b.at)
                       return a.at < b.at;
@@ -237,7 +265,12 @@ RollCanvas::step (void)
                   if (a.u.note.duration != b.u.note.duration)
                       return a.u.note.duration < b.u.note.duration;
 
-                  return a.u.note.velocity < b.u.note.velocity;
+                  if (a.u.note.velocity != b.u.note.velocity)
+                      return a.u.note.velocity < b.u.note.velocity;
+
+                  /* The chain last: it is the color when coloring by
+                     chain, so it is drawn too. */
+                  return a.chain < b.chain;
               });
 
     fitPitchRange();
@@ -435,7 +468,8 @@ RollCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
         if (x1 < 0 || x0 > width)
             return;
 
-        channelColor(cr, n.channel, 0.35 + 0.65 * (n.velocity / 127.0));
+        noteColor(cr, n.channel, n.chain,
+                  0.35 + 0.65 * (n.velocity / 127.0));
         cr->rectangle(x0, noteY(n.note + 1) + 1,
                       std::max(x1 - x0, 2.0), laneH - 2);
         cr->fill();
@@ -461,7 +495,7 @@ RollCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
         if (x1 < 0 || x0 > width)
             continue;
 
-        channelColor(cr, p.channel, 0.55);
+        noteColor(cr, p.channel, p.chain, 0.55);
         cr->set_line_width(1);
         cr->rectangle(x0 + 0.5, noteY(p.u.note.note + 1) + 1.5,
                       std::max(x1 - x0, 2.0) - 1, laneH - 3);

@@ -144,6 +144,12 @@ public:
     sigc::signal<void (std::string, size_t, size_t,
                        CanvasRect)> sigBindKnob;
 
+    /* Whether each chain's name box wears a stripe of the chain's hue:
+       on while the piano roll is coloring notes by chain, which gives
+       each chain the hue gthChannelColor gives the same number. */
+    void setChainHues (bool on) { chainHues_ = on; requestRedraw(); }
+    bool chainHues (void) const { return chainHues_; }
+
     /* A chain's mute or solo button was pressed: which chain, and what
        it asks the flag to become. The canvas only reads the flags; the
        window sets them on the scheduler, and the browser sends them as
@@ -279,6 +285,11 @@ private:
        no live piece to ask. */
     bool chainAudible (size_t chain) const;
 
+    /* How lit an activity light last set at transport time `t' is now:
+       1 at the moment, fading to 0, and 0 while the transport is not
+       running or for a time never set (-1). */
+    double flash (double t) const;
+
     CanvasRect boxRect (const Box &b) const;
 
     /* A knob node's value track and its output port, in box space. */
@@ -323,6 +334,8 @@ private:
     std::vector<double> rowY_;   /* top of each chain row               */
 
     Selection sel_;
+
+    bool chainHues_;
 
     /* NONE unless a stage is filling the canvas. Kept as a Selection
        rather than a Box index because rebuild() renumbers the boxes and
