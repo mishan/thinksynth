@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <set>
 
 #include <sigc++/sigc++.h>
 
@@ -143,6 +144,26 @@ public:
        worse than asking. */
     sigc::signal<void (std::string, size_t, size_t,
                        CanvasRect)> sigBindKnob;
+
+    /* A chain collapsed to one short line: its name, M and S, and a pill
+       for each stage and sink. Kept by name, so it survives a reload; a
+       view setting, never written into the file. */
+    bool chainCollapsed (size_t chain) const;
+    void setChainCollapsed (size_t chain, bool on);
+    void setAllCollapsed (bool on);
+
+    /* The middle of a chain's disclosure triangle, in widget pixels.
+       Public for the reason paramsHandle is. */
+    bool discloseAt (size_t chain, double &x, double &y) const;
+
+    /* Lay the chains out in as many columns as the view is wide enough
+       for, if that has changed since the last layout. True if it did,
+       and the drawing changed size. A shell calls it when its view may
+       have changed width; it is cheap when it has not. */
+    bool fitColumns (void);
+
+    /* How many columns the chains are in now. */
+    size_t columns (void) const { return columns_; }
 
     /* Whether each chain's name box wears a stripe of the chain's hue:
        on while the piano roll is coloring notes by chain, which gives
@@ -267,6 +288,12 @@ private:
     };
 
     void rebuild (void);
+    void relayout (void);
+
+    /* One chain's boxes at (x, y), appended to `out'; the row's width is
+       returned and its height left in `h'. */
+    double layoutRow (size_t chain, double x, double y, double &h,
+                      std::vector<Box> &out) const;
     const Box *hit (double x, double y) const;
     const Box *boxFor (size_t chain, size_t stage) const;
 
@@ -275,6 +302,10 @@ private:
 
     /* Where the params handle is, in box space. */
     static void twistyRect (const Box &b, double &x, double &y, double &s);
+
+    /* Where a chain box's disclosure triangle is, in box space. */
+    static void discloseRect (const Box &b, double &x, double &y,
+                              double &s);
 
     /* Where a chain box's mute (which 0) or solo (1) button is, in box
        space. */
@@ -331,7 +362,18 @@ private:
     thcScheduler *sched_;
 
     std::vector<Box> boxes_;
+    std::vector<double> rowX_;   /* left of each chain row              */
     std::vector<double> rowY_;   /* top of each chain row               */
+    std::vector<double> rowH_;   /* height of each chain row            */
+
+    /* The chains collapsed, by name. */
+    std::set<std::string> collapsed_;
+
+    /* The view width the columns were chosen for, in the drawing's
+       units, and how many that gave. 0 before a view has been seen:
+       one column. */
+    double fitWidth_;
+    size_t columns_;
 
     Selection sel_;
 

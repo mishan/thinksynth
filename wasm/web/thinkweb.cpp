@@ -969,6 +969,7 @@ public:
         viewH_ = h;
 
         shellResized();
+        fitColumns();
         dirty_ = true;
     }
 
@@ -2652,6 +2653,43 @@ EMSCRIPTEN_KEEPALIVE double tw_canvas_stage_at (int chain, int stage,
         return -1.0;
 
     return which == 0 ? at.x : which == 1 ? at.y : which == 2 ? at.w : at.h;
+}
+
+/* How many columns the chains are laid out in, whether a chain is
+   collapsed, and where its disclosure triangle is in shell pixels (-1 for
+   no such chain): for a test. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_columns (void)
+{
+    return canvas_ != NULL ? (int)canvas_->columns() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_collapsed (int chain)
+{
+    return canvas_ != NULL && chain >= 0 &&
+           canvas_->chainCollapsed((size_t)chain) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_disclose_x (int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 &&
+           canvas_->discloseAt((size_t)chain, x, y) ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_disclose_y (int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 &&
+           canvas_->discloseAt((size_t)chain, x, y) ? y : -1.0;
+}
+
+/* Every chain collapsed, or every one opened. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_collapse_all (int on)
+{
+    if (canvas_ != NULL)
+        canvas_->setAllCollapsed(on != 0);
 }
 
 /* The middle of a chain's mute (which 0) or solo (1) button, in shell

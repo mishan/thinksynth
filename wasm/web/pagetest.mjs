@@ -1431,7 +1431,6 @@ try
     await press(1, 0);
     await mixUntil((c) => c.length > 1 && !c[1].muted, 'and unmuted again');
 
-    /* Polled, like the mix: `what' is asked until `want' says yes. */
     const until = async (what, want) =>
     {
         let got;
@@ -1448,6 +1447,51 @@ try
 
         return got;
     };
+
+    /* A chain's triangle collapses it, and Expand chains opens every
+       one again. */
+    {
+        const layout = () =>
+            page.evaluate(() => window.solo.canvasLayout());
+        const before = await layout();
+        const where = await scroller();
+
+        await page.mouse.click(where.x + before.chains[1].x,
+                               where.y + before.chains[1].y);
+
+        const after = await until(layout, (l) => l.chains[1].collapsed);
+
+        check(after.chains[1].collapsed && !after.chains[0].collapsed &&
+              after.chains[2].y < before.chains[2].y,
+              'a chain\'s triangle collapses it and the rows below move up');
+
+        await page.click('#expandall');
+
+        const open = await until(layout,
+                                 (l) => l.chains.every((c) => !c.collapsed));
+
+        check(open.chains.every((c) => !c.collapsed),
+              'Expand chains opens every chain again');
+
+        /* Wide enough for more than one, the chains go in columns, and
+           back to one when the view narrows again. */
+        await page.addStyleTag({ content:
+            '#composerscroll { width: 2400px !important; ' +
+            'max-width: none !important; }' });
+
+        const wide = await until(layout, (l) => l.columns > 1);
+
+        check(wide.columns > 1,
+              `a view wide enough lays the chains out in ${wide.columns} ` +
+              'columns');
+
+        await page.evaluate(() => document.querySelectorAll('style')
+            .forEach((s) => s.textContent.includes('2400px') && s.remove()));
+
+        const narrow = await until(layout, (l) => l.columns === 1);
+
+        check(narrow.columns === 1, '...and one again when it narrows');
+    }
 
     /* A drag on the canvas, a frame at a time: the view sends one motion
        per animation frame, and the drag is what the motions say. */

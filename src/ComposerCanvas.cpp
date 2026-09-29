@@ -53,6 +53,20 @@ static const double TWISTY   = 9;
  * behind the ear. */
 static const double FLASH_S  = 0.5;
 
+/* A collapsed chain: a row this tall, its stages and sinks pills. */
+static const double ROW_SMALL_H  = 30;
+static const double PILL_W       = 70;
+static const double PILL_SINK_W  = 52;
+static const double PILL_H       = 24;
+static const double PILL_ARROW_W = 12;
+
+/* The disclosure triangle in a chain's name box, which collapses it. */
+static const double DISCLOSE     = 9;
+
+/* Columns of chains, when the view is wide enough for more than one. */
+static const double COLUMN_GAP   = 28;
+static const int    COLUMNS_MAX  = 6;
+
 /* The mute and solo buttons along the foot of a chain's name box. */
 static const double CHIP_W   = 22;
 static const double CHIP_H   = 16;
@@ -77,7 +91,8 @@ static const int    KNOB_COLS = 6;
 static const double PORT_GRAB = 9;
 
 ComposerCanvas::ComposerCanvas (void)
-    : doc_(NULL), sched_(NULL), chainHues_(false),
+    : doc_(NULL), sched_(NULL), fitWidth_(0), columns_(1),
+      chainHues_(false),
       feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
       wireX_(0), wireY_(0), dragBox_(-1), dragDx_(0), dropAt_(-1)
 {
@@ -171,11 +186,235 @@ ComposerCanvas::select (const Selection &sel)
 /* Lay every clickable box out once per piece; drawing and hit testing
  * both read the result, so they cannot disagree about where things
  * are. */
+/* One chain's row, laid out with its top-left at (x, y): the name, the
+ * stages, the sinks and the ghosts that add to them -- or, collapsed, the
+ * name and a small pill for each stage and sink. Appended to `out'; the
+ * row's width is returned and its height left in `h'. */
+double
+ComposerCanvas::layoutRow (size_t ci, double x0, double y, double &h,
+                           std::vector<Box> &out) const
+{
+    const thcGenEdit::Chain &chain = doc_->chains[ci];
+    const bool small = collapsed_.count(chain.name) != 0;
+    const double rowH = small ? ROW_SMALL_H : STAGE_H;
+    const double stageW = small ? PILL_W : STAGE_W;
+    const double sinkW = small ? PILL_SINK_W : SINK_W;
+    const double boxH = small ? PILL_H : STAGE_H;
+    const double boxY = y + (rowH - boxH) / 2;
+    const double arrow = small ? PILL_ARROW_W : ARROW_W;
+    thcChain *live = sched_ ? sched_->chain(ci) : NULL;
+    double x = x0;
+
+    h = rowH;
+
+    {
+        Box b;
+
+        b.what.kind = Selection::CHAIN;
+        b.what.chain = ci;
+        /* Collapsed, M and S move up beside the name, and the box is
+           wider by them so the name keeps its room. */
+        b.x = x; b.y = y; b.h = rowH;
+        b.w = small ? LABEL_W + 2 * (CHIP_W + CHIP_GAP) : LABEL_W;
+        b.title = chain.name;
+        b.sub = chain.inputMidi ? "midi in" : "";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = false;
+        out.push_back(b);
+        x += b.w + arrow;
+    }
+
+
+    for (size_t si = 0; si < chain.stages.size(); si++)
+    {
+        Box b;
+
+        b.what.kind = Selection::STAGE;
+        b.what.chain = ci;
+        b.what.index = si;
+        b.x = x; b.y = boxY; b.w = stageW; b.h = boxH;
+        b.title = small ? chain.stages[si].plugin
+                        : chain.stages[si].category + "::" +
+                          chain.stages[si].plugin;
+        b.sub = small ? "" : chain.stages[si].name;
+        b.channel = -1;
+        b.ghost = false;
+
+        /* Through liveIndex: a dsp stage is a stage in the file and
+           nothing in the scheduler's list, so the two stopped being
+           indexable by the same number. A node box gets a NULL live,
+           which is right -- it has no thcStage, and every reader here
+           already guards for one. */
+        const int at = thcGenEdit::liveIndex(chain, si);
+
+        b.live = live != NULL && at >= 0 &&
+                 (size_t)at < live->stages.size()
+            ? live->stages[at].get() : NULL;
+
+        out.push_back(b);
+        x += stageW + arrow;
+    }
+
+    /* The ghosts are for building a chain, which a collapsed one is not
+       being: it is put away to make room. */
+    if (!small)
+    {
+        Box b;
+
+        b.what.kind = Selection::ADD_STAGE;
+        b.what.chain = ci;
+        b.what.index = chain.stages.size();
+        b.x = x; b.y = y + (STAGE_H - GHOST_W) / 2;
+        b.w = GHOST_W; b.h = GHOST_W;
+        b.title = "+";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = true;
+        out.push_back(b);
+        x += GHOST_W + ARROW_W;
+    }
+
+    for (size_t ki = 0; ki < chain.sinks.size(); ki++)
+    {
+        Box b;
+
+        b.what.kind = Selection::SINK;
+        b.what.chain = ci;
+        b.what.index = ki;
+        b.x = x; b.y = boxY; b.w = sinkW; b.h = boxH;
+
+        char t[24];
+
+        /* A sink bound to one of the piece's own instruments wears its
+           name, not the number underneath it: the number is an
+           allocation nobody chose, and "ch 3" says nothing about what is
+           on channel 3 -- which was the whole complaint the instrument
+           block answers. The hue still comes from the channel, because
+           the roll draws notes in it and the two pictures have to
+           agree. */
+        int channel = chain.sinks[ki].channel;
+
+        if (!chain.sinks[ki].instrument.empty())
+        {
+            const thcInstrument *inst = sched_
+                ? sched_->instrument(chain.sinks[ki].instrument) : NULL;
+
+            b.title = chain.sinks[ki].instrument;
+            channel = inst != NULL ? inst->channel + 1 : 0;
+        }
+        else
+        {
+            snprintf(t, sizeof(t), "ch %d", channel);
+            b.title = t;
+        }
+
+        b.sub = small ? ""
+            : chain.sinks[ki].chanarg.empty()
+                ? "notes" : "@" + chain.sinks[ki].chanarg;
+        b.live = NULL;
+        b.channel = channel;
+        b.ghost = false;
+        out.push_back(b);
+        x += sinkW + (small ? 4 : 8);
+    }
+
+    if (!small)
+    {
+        Box b;
+
+        b.what.kind = Selection::ADD_SINK;
+        b.what.chain = ci;
+        b.what.index = chain.sinks.size();
+        b.x = x; b.y = y + (STAGE_H - GHOST_W) / 2;
+        b.w = GHOST_W; b.h = GHOST_W;
+        b.title = "+";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = true;
+        out.push_back(b);
+        x += GHOST_W;
+    }
+
+    return x - x0;
+}
+
+/* How many columns the chains go in, and which chain starts each: the most
+ * columns whose widths fit `avail' side by side, the chains kept in file
+ * order down each column and split where the columns come out nearest the
+ * same height. One column when nothing more fits, or when there is no
+ * width to fit to. */
+static std::vector<size_t>
+columnStarts (const std::vector<double> &w, const std::vector<double> &h,
+              double avail, double gap)
+{
+    const size_t n = w.size();
+    std::vector<size_t> best(1, 0);
+
+    if (n < 2 || avail <= 0)
+        return best;
+
+    double total = 0;
+
+    for (size_t i = 0; i < n; i++)
+        total += h[i];
+
+    for (size_t k = std::min(n, (size_t)COLUMNS_MAX); k >= 2; k--)
+    {
+        /* Greedy against the even share: a column closes once it has
+           reached its share, or when the chains left are only enough to
+           give each remaining column one. */
+        std::vector<size_t> starts(1, 0);
+        double filled = 0, colH = 0;
+
+        for (size_t i = 0; i < n; i++)
+        {
+            const size_t colsLeft = k - starts.size();
+            const size_t rowsLeft = n - i;
+
+            if (colH > 0 && colsLeft > 0 &&
+                (filled + colH / 2 >= total * starts.size() / k ||
+                 rowsLeft <= colsLeft))
+            {
+                starts.push_back(i);
+                colH = 0;
+            }
+
+            colH += h[i];
+            filled += h[i];
+        }
+
+        if (starts.size() != k)
+            continue;
+
+        double width = 0;
+
+        for (size_t c = 0; c < k; c++)
+        {
+            const size_t a = starts[c];
+            const size_t b = c + 1 < k ? starts[c + 1] : n;
+            double colW = 0;
+
+            for (size_t i = a; i < b; i++)
+                colW = std::max(colW, w[i]);
+
+            width += colW + (c > 0 ? gap : 0);
+        }
+
+        if (width <= avail)
+            return starts;
+    }
+
+    return best;
+}
+
 void
 ComposerCanvas::rebuild (void)
 {
     boxes_.clear();
+    rowX_.clear();
     rowY_.clear();
+    rowH_.clear();
 
     if (doc_ == NULL)
         return;
@@ -229,150 +468,64 @@ ComposerCanvas::rebuild (void)
             y = b.y + KNOB_H + ROW_GAP;
     }
 
-    for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+    /* Each chain's row laid out once at the origin, to be measured, and
+       then the columns chosen from what was measured. */
+    const size_t n = doc_->chains.size();
+    std::vector<std::vector<Box> > rows(n);
+    std::vector<double> widths(n), heights(n);
+
+    for (size_t ci = 0; ci < n; ci++)
     {
-        const thcGenEdit::Chain &chain = doc_->chains[ci];
+        double h = 0;
 
-        rowY_.push_back(y);
+        widths[ci] = layoutRow(ci, 0, 0, h, rows[ci]);
+        heights[ci] = h + ROW_GAP;
+    }
 
-        double x = M;
+    const std::vector<size_t> starts =
+        columnStarts(widths, heights, fitWidth_ - 2 * M, COLUMN_GAP);
 
+    columns_ = starts.size();
+
+    double colX = M, bottom = y;
+
+    for (size_t c = 0; c < starts.size(); c++)
+    {
+        const size_t a = starts[c];
+        const size_t b = c + 1 < starts.size() ? starts[c + 1] : n;
+        double rowTop = y, colW = 0;
+
+        for (size_t ci = a; ci < b; ci++)
         {
-            Box b;
+            rowX_.push_back(colX);
+            rowY_.push_back(rowTop);
+            rowH_.push_back(heights[ci] - ROW_GAP);
 
-            b.what.kind = Selection::CHAIN;
-            b.what.chain = ci;
-            b.x = x; b.y = y; b.w = LABEL_W; b.h = STAGE_H;
-            b.title = chain.name;
-            b.sub = chain.inputMidi ? "midi in" : "";
-            b.live = NULL;
-            b.channel = -1;
-            b.ghost = false;
-            boxes_.push_back(b);
-        }
-
-        x += LABEL_W + ARROW_W;
-
-        for (size_t si = 0; si < chain.stages.size(); si++)
-        {
-            Box b;
-
-            b.what.kind = Selection::STAGE;
-            b.what.chain = ci;
-            b.what.index = si;
-            b.x = x; b.y = y; b.w = STAGE_W; b.h = STAGE_H;
-            b.title = chain.stages[si].category + "::" +
-                      chain.stages[si].plugin;
-            b.sub = chain.stages[si].name;
-            b.channel = -1;
-            b.ghost = false;
-
-            thcChain *live = sched_ ? sched_->chain(ci) : NULL;
-
-            /* Through liveIndex: a dsp stage is a stage in the file and
-               nothing in the scheduler's list, so the two stopped being
-               indexable by the same number. A node box gets a NULL
-               live, which is right -- it has no thcStage, and every
-               reader here already guards for one. */
-            const int at = thcGenEdit::liveIndex(chain, si);
-
-            b.live = live != NULL && at >= 0 &&
-                     (size_t)at < live->stages.size()
-                ? live->stages[at].get() : NULL;
-
-            boxes_.push_back(b);
-            x += STAGE_W + ARROW_W;
-        }
-
-        {
-            Box b;
-
-            b.what.kind = Selection::ADD_STAGE;
-            b.what.chain = ci;
-            b.what.index = chain.stages.size();
-            b.x = x; b.y = y + (STAGE_H - GHOST_W) / 2;
-            b.w = GHOST_W; b.h = GHOST_W;
-            b.title = "+";
-            b.live = NULL;
-            b.channel = -1;
-            b.ghost = true;
-            boxes_.push_back(b);
-            x += GHOST_W + ARROW_W;
-        }
-
-        for (size_t ki = 0; ki < chain.sinks.size(); ki++)
-        {
-            Box b;
-
-            b.what.kind = Selection::SINK;
-            b.what.chain = ci;
-            b.what.index = ki;
-            b.x = x; b.y = y; b.w = SINK_W; b.h = STAGE_H;
-
-            char t[24];
-
-            /* A sink bound to one of the piece's own instruments wears
-               its name, not the number underneath it: the number is an
-               allocation nobody chose, and "ch 3" says nothing about
-               what is on channel 3 -- which was the whole complaint the
-               instrument block answers. The hue still comes from the
-               channel, because the roll draws notes in it and the two
-               pictures have to agree. */
-            int channel = chain.sinks[ki].channel;
-
-            if (!chain.sinks[ki].instrument.empty())
+            for (Box &box : rows[ci])
             {
-                const thcInstrument *inst = sched_
-                    ? sched_->instrument(chain.sinks[ki].instrument) : NULL;
-
-                b.title = chain.sinks[ki].instrument;
-                channel = inst != NULL ? inst->channel + 1 : 0;
-            }
-            else
-            {
-                snprintf(t, sizeof(t), "ch %d", channel);
-                b.title = t;
+                box.x += colX;
+                box.y += rowTop;
+                boxes_.push_back(box);
             }
 
-            b.sub = chain.sinks[ki].chanarg.empty()
-                ? "notes" : "@" + chain.sinks[ki].chanarg;
-            b.live = NULL;
-            b.channel = channel;
-            b.ghost = false;
-            boxes_.push_back(b);
-            x += SINK_W + 8;
+            colW = std::max(colW, widths[ci]);
+            rowTop += heights[ci];
         }
 
-        {
-            Box b;
-
-            b.what.kind = Selection::ADD_SINK;
-            b.what.chain = ci;
-            b.what.index = chain.sinks.size();
-            b.x = x; b.y = y + (STAGE_H - GHOST_W) / 2;
-            b.w = GHOST_W; b.h = GHOST_W;
-            b.title = "+";
-            b.live = NULL;
-            b.channel = -1;
-            b.ghost = true;
-            boxes_.push_back(b);
-            x += GHOST_W;
-        }
-
-        y += STAGE_H + ROW_GAP;
+        bottom = std::max(bottom, rowTop);
+        colX += colW + COLUMN_GAP;
     }
 
     {
         Box b;
 
         b.what.kind = Selection::ADD_CHAIN;
-        b.x = M; b.y = y; b.w = LABEL_W + 36; b.h = 26;
+        b.x = M; b.y = bottom; b.w = LABEL_W + 36; b.h = 26;
         b.title = "+ chain";
         b.live = NULL;
         b.channel = -1;
         b.ghost = true;
         boxes_.push_back(b);
-        y += 26;
     }
 
     /* The size follows from the boxes -- contentExtent() reads them --
@@ -600,21 +753,56 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
             cr->fill();
         }
 
+        const bool small = box.h < STAGE_H;
+
+        /* The disclosure triangle: pointing down while the row is open,
+           right while it is collapsed. */
+        {
+            double dx, dy, ds;
+
+            discloseRect(box, dx, dy, ds);
+            cr->set_source_rgba(1, 1, 1, 0.5);
+
+            if (small)
+            {
+                cr->move_to(dx + ds * 0.25, dy);
+                cr->line_to(dx + ds, dy + ds / 2);
+                cr->line_to(dx + ds * 0.25, dy + ds);
+            }
+            else
+            {
+                cr->move_to(dx, dy + ds * 0.25);
+                cr->line_to(dx + ds, dy + ds * 0.25);
+                cr->line_to(dx + ds / 2, dy + ds);
+            }
+
+            cr->close_path();
+            cr->fill();
+        }
+
+        const double titleX = box.x + DISCLOSE + 6;
+
+        /* Collapsed, the name shares one line with M and S. */
+        const double titleW = small
+            ? box.w - DISCLOSE - 8 - 2 * (CHIP_W + CHIP_GAP)
+            : box.w - DISCLOSE - 8;
+
         cr->set_source_rgba(1, 1, 1, chainAudible(box.what.chain)
                                          ? 0.85 : 0.35);
         cr->set_font_size(12);
-        fitText(cr, box.title, box.x + 2, box.y + 16, box.w - 4);
+        fitText(cr, box.title, titleX, box.y + (small ? 19 : 16), titleW);
 
         cr->set_font_size(9);
         cr->set_source_rgba(1, 1, 1, 0.4);
 
-        if (muted)
-            fitText(cr, "muted", box.x + 2, box.y + 30, box.w - 4);
+        if (small)
+            ;
+        else if (muted)
+            fitText(cr, "muted", titleX, box.y + 30, titleW);
         else if (!chainAudible(box.what.chain))
-            fitText(cr, "another is soloed", box.x + 2, box.y + 30,
-                    box.w - 4);
+            fitText(cr, "another is soloed", titleX, box.y + 30, titleW);
         else if (!box.sub.empty())
-            fitText(cr, box.sub, box.x + 2, box.y + 30, box.w - 4);
+            fitText(cr, box.sub, titleX, box.y + 30, titleW);
 
         /* M and S, lit while set: red for a mute, green for a solo. */
         for (int which = 0; which < 2; which++)
@@ -707,9 +895,16 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     roundedRect(cr, box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1, 5);
     cr->stroke();
 
+    /* A collapsed chain's pill has its name in the middle, clear of the
+       light and the handle. */
+    const bool pill = box.h < STAGE_H;
+
     cr->set_source_rgba(1, 1, 1, 0.8);
     cr->set_font_size(10);
-    fitText(cr, box.title, box.x + 4, box.y + 11, box.w - 8);
+    fitText(cr, box.title, box.x + 4,
+            pill ? box.y + box.h / 2 + 4 : box.y + 11,
+            pill && box.what.kind == Selection::STAGE && box.live != NULL
+                ? box.w - 30 : box.w - 8);
 
     cr->set_source_rgba(1, 1, 1, 0.45);
     cr->set_font_size(9);
@@ -765,7 +960,9 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     double bodyY = box.y + TITLE_H;
     double bodyH = box.h - TITLE_H - 12;
 
-    if (box.live != NULL && box.live->plugin->hasDraw())
+    if (pill)
+        ;
+    else if (box.live != NULL && box.live->plugin->hasDraw())
     {
         cr->save();
         cr->rectangle(box.x + 2, bodyY, box.w - 4, bodyH);
@@ -1173,7 +1370,7 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
         if (b.ghost)
             continue;
 
-        double y = rowY_[a.what.chain] + STAGE_H / 2;
+        double y = rowY_[a.what.chain] + rowH_[a.what.chain] / 2;
         double x0 = a.x + a.w, x1 = b.x;
         double lit = 0;
         bool gated = false;
@@ -1243,13 +1440,13 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
         {
             const Box &d = boxes_[dragged];
             size_t ci = d.what.chain;
-            double cx = M + LABEL_W + ARROW_W +
+            double cx = rowX_[ci] + LABEL_W + ARROW_W +
                 dropAt_ * (STAGE_W + ARROW_W) - ARROW_W / 2;
 
             cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
             cr->set_line_width(2);
             cr->move_to(cx, rowY_[ci] - 4);
-            cr->line_to(cx, rowY_[ci] + STAGE_H + 4);
+            cr->line_to(cx, rowY_[ci] + rowH_[ci] + 4);
             cr->stroke();
         }
 
@@ -1276,8 +1473,121 @@ ComposerCanvas::chipRect (const Box &b, int which, double &x, double &y,
 {
     w = CHIP_W;
     h = CHIP_H;
-    x = b.x + 2 + which * (CHIP_W + CHIP_GAP);
-    y = b.y + b.h - CHIP_H - 4;
+
+    /* Collapsed, at the right of the name's one line; open, along the
+       foot of the box. */
+    if (b.h < STAGE_H)
+    {
+        x = b.x + b.w - (2 - which) * (CHIP_W + CHIP_GAP);
+        y = b.y + (b.h - CHIP_H) / 2;
+    }
+    else
+    {
+        x = b.x + 2 + which * (CHIP_W + CHIP_GAP);
+        y = b.y + b.h - CHIP_H - 4;
+    }
+}
+
+void
+ComposerCanvas::discloseRect (const Box &b, double &x, double &y, double &s)
+{
+    s = DISCLOSE;
+    x = b.x + 2;
+    y = b.y + (b.h < STAGE_H ? (b.h - DISCLOSE) / 2 : 8);
+}
+
+bool
+ComposerCanvas::chainCollapsed (size_t chain) const
+{
+    return doc_ != NULL && chain < doc_->chains.size() &&
+           collapsed_.count(doc_->chains[chain].name) != 0;
+}
+
+void
+ComposerCanvas::setChainCollapsed (size_t chain, bool on)
+{
+    if (doc_ == NULL || chain >= doc_->chains.size() ||
+        chainCollapsed(chain) == on)
+        return;
+
+    if (on)
+        collapsed_.insert(doc_->chains[chain].name);
+    else
+        collapsed_.erase(doc_->chains[chain].name);
+
+    relayout();
+}
+
+void
+ComposerCanvas::setAllCollapsed (bool on)
+{
+    if (doc_ == NULL)
+        return;
+
+    for (const thcGenEdit::Chain &c : doc_->chains)
+        if (on)
+            collapsed_.insert(c.name);
+        else
+            collapsed_.erase(c.name);
+
+    relayout();
+}
+
+bool
+ComposerCanvas::discloseAt (size_t chain, double &x, double &y) const
+{
+    for (const Box &b : boxes_)
+        if (b.what.kind == Selection::CHAIN && b.what.chain == chain)
+        {
+            double dx, dy, ds;
+
+            discloseRect(b, dx, dy, ds);
+            x = (dx + ds / 2) * zoom();
+            y = (dy + ds / 2) * zoom();
+            return true;
+        }
+
+    return false;
+}
+
+/* The layout again, for a change in what it is laid out from -- a row
+   collapsed, the view's width -- and the shell told the new size. */
+void
+ComposerCanvas::relayout (void)
+{
+    rebuild();
+    contentResized();
+    requestRedraw();
+}
+
+bool
+ComposerCanvas::fitColumns (void)
+{
+    double vx = 0, vy = 0, vw = 0, vh = 0;
+
+    if (!shellViewport(vx, vy, vw, vh) || vw < 1)
+        return false;
+
+    /* In the drawing's own units: a view zoomed out has room for more. */
+    const double w = vw / zoom();
+
+    /* Within a few pixels is the same width: a scrollbar coming and going
+       as the drawing changes height is not a reason to lay out again. */
+    if (std::fabs(w - fitWidth_) < 24)
+        return false;
+
+    fitWidth_ = w;
+
+    const size_t was = columns_;
+
+    rebuild();
+
+    if (columns_ == was)
+        return false;
+
+    contentResized();
+    requestRedraw();
+    return true;
 }
 
 double
@@ -1523,6 +1833,25 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
         }
     }
 
+    /* A chain's disclosure triangle: collapsed to one short line, or
+       opened again. A view setting, like the zoom -- nothing is sent,
+       and the file does not change. */
+    if (box != NULL && box->what.kind == Selection::CHAIN && !box->ghost &&
+        button == 1 && enlarged_.kind == Selection::NONE)
+    {
+        double dx, dy, ds;
+
+        discloseRect(*box, dx, dy, ds);
+
+        if (x >= dx - 4 && x <= dx + ds + 4 && y >= dy - 4 &&
+            y <= dy + ds + 4)
+        {
+            setChainCollapsed(box->what.chain,
+                              !chainCollapsed(box->what.chain));
+            return;
+        }
+    }
+
     /* A chain's mute or solo button. Neither selects the chain: they
        are played, like a mixer's, while whatever is selected stays so.
        Every press toggles, a double-click's second included, so two
@@ -1754,7 +2083,10 @@ ComposerCanvas::onDragBegin (double sx, double sy)
 
     const Box *box = hit(x, y);
 
-    if (box != NULL && box->what.kind == Selection::STAGE)
+    /* Not a collapsed chain's pills, which are too small to carry and
+       sit where the full boxes' slots are not. */
+    if (box != NULL && box->what.kind == Selection::STAGE &&
+        box->h >= STAGE_H)
         dragBox_ = (int)(box - &boxes_[0]);
 }
 
@@ -1776,7 +2108,7 @@ ComposerCanvas::onDragUpdate (double dx, double)
     size_t ci = d.what.chain;
     size_t nStages = doc_->chains[ci].stages.size();
     double center = d.x + dragDx_ + d.w / 2;
-    double first = M + LABEL_W + ARROW_W;
+    double first = rowX_[ci] + LABEL_W + ARROW_W;
     int slot = (int)std::lround((center - first) / (STAGE_W + ARROW_W));
 
     dropAt_ = std::clamp(slot, 0, (int)nStages - 1);

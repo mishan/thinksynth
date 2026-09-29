@@ -594,6 +594,26 @@ function receive (m)
             break;
         }
 
+        /* The layout: how many columns, and for each chain whether it is
+           collapsed and where its disclosure triangle is. */
+        case 'layout':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ collapsed: M._tw_canvas_collapsed(c) !== 0,
+                              x: M._tw_canvas_disclose_x(c),
+                              y: M._tw_canvas_disclose_y(c) });
+
+            post({ type: 'layout', columns: M._tw_canvas_columns(),
+                   width: M._tw_canvas_width(), chains });
+            break;
+        }
+
+        case 'collapseall':
+            M._tw_canvas_collapse_all(m.on ? 1 : 0);
+            break;
+
         /* The roll by chain rather than channel, and the canvas to match. */
         case 'bychain':
             M._tw_color_by_chain(m.on ? 1 : 0);
