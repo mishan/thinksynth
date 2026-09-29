@@ -397,6 +397,9 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(!win->panes_->isVisible("keyboard") && !isClosed(win, "keyboard"),
           "...and the keys a tab behind the roll");
 
+    check(!win->panes_->isVisible("seqview") && !isClosed(win, "seqview"),
+          "...and the sequencer a tab behind the canvas");
+
     activate(win, "pane-selection");
 
     check(win->panes_->isVisible("selection") &&
@@ -406,6 +409,18 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(descendants(&win->composer_->selectionView()) > 3 &&
           descendants(&win->composer_->settingsView()) > 3,
           "...built, now that it is in view");
+
+    activate(win, "pane-seqview");
+
+    check(win->panes_->isVisible("seqview") &&
+          !win->panes_->isVisible("composerview") && ticked(win, "seqview"),
+          "the sequencer's tick raises it over the canvas");
+
+    activate(win, "pane-composerview");
+
+    check(win->panes_->isVisible("composerview") &&
+          !win->panes_->isVisible("seqview"),
+          "...and the canvas's raises the canvas again");
 
     pickMode(win, "patch");
 

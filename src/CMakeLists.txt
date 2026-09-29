@@ -207,6 +207,7 @@ set(THINKSYNTH_SOURCES
     gui/SaveButton.cpp
     gui/PatchSelPanel.cpp
     gui/PianoRoll.cpp
+    gui/SeqView.cpp
     gui/ComposerCanvasWidget.cpp
     gui/Composer.cpp)
 

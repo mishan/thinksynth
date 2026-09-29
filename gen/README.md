@@ -61,6 +61,13 @@ and *Selection* for whatever is selected on the canvas, which clicking raises
 for you. New, Open, Save and Revert are in the menu; **☰ → Piano Roll** puts
 the roll away when the canvas wants the whole window.
 
+Behind the canvas is the *Sequencer* tab: every `gen::grid` in the piece as a
+track, one row per degree of its ladder, with the channel and what plays it
+at the left. Click a cell for a note, again for an accent, again to clear it;
+drag a note to the right to tie it, and use the right button to erase. What
+you draw goes into the piece, so Save keeps it. `scratch.gen` is five tracks
+to start from.
+
 Every piece is gated: `scripts/gencheck` loads all of them on every build, and
 requires each one with a generator in it to deliver something inside a minute
 of virtual time — a piece that loads and then says nothing is a piece with a

@@ -193,8 +193,8 @@ chain loop_ab3 {
 The main window has two modes, switched by the **Patch** and **Piece**
 buttons at the left of its title bar (Ctrl+1 and Ctrl+2): patch mode is a
 channel's graph, its parameters and the keys, and piece mode is the
-composer's canvas, the piece's settings and the piano roll. Each keeps its
-own layout.
+composer's canvas, the sequencer, the piece's settings and the piano roll.
+Each keeps its own layout.
 
 A piece carries its own instruments, so one file is the whole thing: open
 `gen/airports.gen` from the main window's menu (**☰ → Open Piece...**), press **Play**,

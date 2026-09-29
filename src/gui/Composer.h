@@ -30,6 +30,7 @@
    do -- and it is the same header ComposerCanvas already pulls in. */
 #include "thcScheduler.h"
 #include "ComposerCanvasWidget.h"
+#include "SeqView.h"
 #include "StageParamsView.h"
 
 class thSynth;
@@ -40,9 +41,9 @@ struct thcStage;
 class PianoRoll;
 
 /* The composer: a piece, its scheduler, and the widgets that show it --
- * the node canvas, the piano roll, the piece's settings and a panel that
- * follows the canvas selection, each a pane of the main window, and the
- * transport for its title bar.
+ * the node canvas, the sequencer, the piano roll, the piece's settings and
+ * a panel that follows the canvas selection, each a pane of the main
+ * window, and the transport for its title bar.
  *
  * The canvas is the structure editor: click a stage, a sink, a chain
  * name or one of the ghost "+" slots and the Selection pane grows the
@@ -81,6 +82,7 @@ public:
     /* The panes' content. The host parents them, and has to let them go
        before this is destroyed. */
     Gtk::Widget &canvasView (void) { return canvasScroll_; }
+    Gtk::Widget &sequencerView (void) { return seq_; }
     Gtk::Widget &rollView (void);
     Gtk::Widget &settingsView (void) { return editorScroll_; }
     Gtk::Widget &selectionView (void) { return selScroll_; }
@@ -102,6 +104,9 @@ public:
 
     /* Whether the canvas is in view: a hidden one is not redrawn. */
     void setCanvasShown (bool on) { canvasShown_ = on; }
+
+    /* The same for the sequencer's tracks. */
+    void setSequencerShown (bool on) { seqShown_ = on; }
 
     /* Something was selected on the canvas, and the Selection pane is
        where it can be edited. */
@@ -212,8 +217,10 @@ protected:
 
     /* Write a stage's clicked-into-shape state back into the file. See
        the definition for why it is a button and not a side effect of
-       clicking. */
-    void captureStage (size_t ci, size_t si);
+       clicking. `report': say what happened in the status line, which
+       the button does and a sequencer track, captured on every gesture,
+       does not. */
+    void captureStage (size_t ci, size_t si, bool report = true);
 
     /* The selection-driven half, rebuilt whenever the canvas selection
        changes (or the piece reloads under it). */
@@ -346,6 +353,7 @@ protected:
     bool started_ = false;
     bool editing_ = false;
     bool canvasShown_ = false;
+    bool seqShown_ = false;
     sigc::signal<void ()> showSelection_;
     sigc::signal<void ()> wanted_;
     sigc::signal<void ()> startedSig_;
@@ -364,6 +372,10 @@ protected:
        strip. */
     ComposerCanvasWidget *canvas_;
     Gtk::ScrolledWindow canvasScroll_;
+
+    /* The piece's grids as tracks. What is drawn on one is captured into
+       the work file when the gesture ends, as the Capture button does. */
+    SeqView seq_;
 
     /* A stage's params, while one is showing. Owned by hand rather than
        managed: a popover parented to the canvas is not the canvas's
