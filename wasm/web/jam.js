@@ -844,6 +844,10 @@ function showComposer (on)
             ownParams.push(paramKey(cmd));
             send(cmd);
         },
+
+        /* A chain's M or S: the room's mix, so every peer hears the same
+           chains. */
+        onMix: (type, chain, on) => send(maker[type](chain, on)),
     });
 
     composer.show(on);

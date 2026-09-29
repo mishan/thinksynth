@@ -40,7 +40,7 @@ import { placePopover } from './popover.js';
 import { showPanel } from './panel.js';
 
 export function createComposerView ({ root = document, toMirror,
-                                      onGesture, onParamEdit })
+                                      onGesture, onParamEdit, onMix })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -112,6 +112,22 @@ export function createComposerView ({ root = document, toMirror,
         toMirror({ type: 'handle', chain, stage });
     });
 
+    /* The same for a chain's M (which 0) or S (1), and each chain's
+       mute and solo as the mirror holds them. */
+    let chipAsked = null, mixAsked = null;
+
+    const chipOf = (chain, which) => new Promise((resolve) =>
+    {
+        chipAsked = resolve;
+        toMirror({ type: 'chip', chain, which });
+    });
+
+    const mix = () => new Promise((resolve) =>
+    {
+        mixAsked = resolve;
+        toMirror({ type: 'mix' });
+    });
+
     /* True if the message was this view's. */
     const fromMirror = (m) =>
     {
@@ -126,6 +142,14 @@ export function createComposerView ({ root = document, toMirror,
             case 'handle':
                 handleAsked?.(m);
                 handleAsked = null;
+                return true;
+            case 'chip':
+                chipAsked?.(m);
+                chipAsked = null;
+                return true;
+            case 'mix':
+                mixAsked?.(m.chains);
+                mixAsked = null;
                 return true;
             case 'draw':
                 view.frame(m);
@@ -150,6 +174,13 @@ export function createComposerView ({ root = document, toMirror,
                in. What happens to it is the page's. */
             case 'input':
                 onGesture(m);
+                return true;
+
+            /* A chain's M or S was pressed. What it becomes is the
+               page's: a command, like a gesture. */
+            case 'mute':
+            case 'solo':
+                onMix?.(m.type, m.chain, m.on);
                 return true;
 
             /* Somebody clicked a stage's params handle. The canvas says
@@ -339,7 +370,7 @@ export function createComposerView ({ root = document, toMirror,
     $('composerview').addEventListener(
         'toggle', () => view.show(wanted && $('composerview').open));
 
-    return { fromMirror, show, handleOf, pollParams,
+    return { fromMirror, show, handleOf, chipOf, mix, pollParams,
              /* Whether the frame loop is running, which is the whole
                 point of asking a pane whether anybody is looking. */
              visible: () => view.visible(),

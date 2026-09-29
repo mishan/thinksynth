@@ -147,8 +147,9 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED and TW_PARAM have
-   entry points of their own and never arrive as an op from there. */
+   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE
+   and TW_SOLO have entry points of their own and never arrive as an op
+   from there. */
 enum TransportOp
 {
     TW_START,
@@ -160,6 +161,8 @@ enum TransportOp
     TW_STAGEPARAM,
     TW_SPEED,
     TW_PARAM,
+    TW_MUTE,
+    TW_SOLO,
 };
 
 struct Command
@@ -194,7 +197,8 @@ struct Scheduled
     double at;
     int    op;
     int    knob;                /* TW_KNOB: an index into knobs_       */
-    double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's */
+    double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's,
+                                   TW_MUTE's and TW_SOLO's (0 or 1) */
 
     /* TW_STAGEPARAM: which param of the stage named below. */
     int    param;
@@ -205,7 +209,8 @@ struct Scheduled
        document revision -- and w and h come along because the ABI
        requires them: the draw's size is the host's business and an
        enlarged view is the same draw at a different size. Every peer
-       inverts the same arithmetic and reaches the same cell. */
+       inverts the same arithmetic and reaches the same cell.
+       TW_MUTE and TW_SOLO use `chain' alone. */
     int    chain, stage;
     int    kind;                /* thcInputType                        */
     double x, y, w, h;
@@ -563,6 +568,22 @@ void applyScheduled (const Scheduled &c)
                ran past it was silently never moved. */
             if (c.knob >= 0 && c.knob < (int)knobs_.size())
                 knobs_[c.knob]->setValue((float)c.value);
+
+            break;
+
+        case TW_MUTE:
+        case TW_SOLO:
+            /* A chain's live mute or solo, at `at' inside the step: it is
+               heard, and two peers that set it either side of a note
+               deliver two different tapes. The mirror applies it too,
+               and its canvas, drawn every frame, lights the button. */
+            if (c.chain < 0 || (size_t)c.chain >= sched_->chainCount())
+                break;
+
+            if (c.op == TW_MUTE)
+                sched_->setMuted((size_t)c.chain, c.value != 0);
+            else
+                sched_->setSoloed((size_t)c.chain, c.value != 0);
 
             break;
 
@@ -1080,6 +1101,16 @@ struct CanvasInput
 };
 
 std::vector<CanvasInput> canvasInputs_;
+
+/* The M and S presses on chain boxes, waiting the same way: which chain,
+   solo rather than mute, and what the flag is asked to become. */
+struct CanvasMix
+{
+    int  chain;
+    bool solo, on;
+};
+
+std::vector<CanvasMix> canvasMixes_;
 
 /* ---- the one index a stage has across this boundary ----
  *
@@ -2167,6 +2198,21 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 canvasParams_.wanted = true;
             });
 
+        /* A chain's M or S. Queued like a gesture, for the page to send
+           as a command: the flags change when it comes back, here as in
+           the worklet, and not when the button was pressed. */
+        canvas_->sigMute.connect(
+            [](size_t chain, bool on)
+            {
+                canvasMixes_.push_back({ (int)chain, false, on });
+            });
+
+        canvas_->sigSolo.connect(
+            [](size_t chain, bool on)
+            {
+                canvasMixes_.push_back({ (int)chain, true, on });
+            });
+
         canvas_->sigInput.connect(
             [](size_t chain, size_t stage, const thcInputEvent &ev)
             {
@@ -2307,6 +2353,59 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_input_count (void)
 EMSCRIPTEN_KEEPALIVE void tw_canvas_inputs_clear (void)
 {
     canvasInputs_.clear();
+}
+
+/* The M and S presses, drained beside the gestures: each becomes a `mute'
+ * or `solo' command on the page. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_count (void)
+{
+    return (int)canvasMixes_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_chain (int k)
+{
+    return k >= 0 && k < (int)canvasMixes_.size() ? canvasMixes_[k].chain
+                                                  : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_solo (int k)
+{
+    return k >= 0 && k < (int)canvasMixes_.size() && canvasMixes_[k].solo;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_on (int k)
+{
+    return k >= 0 && k < (int)canvasMixes_.size() && canvasMixes_[k].on;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_mixes_clear (void)
+{
+    canvasMixes_.clear();
+}
+
+/* The middle of a chain's mute (which 0) or solo (1) button, in shell
+   pixels, or -1: what a test presses, for the reason tw_canvas_handle_x
+   exists. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_chip_x (int chain, int which)
+{
+    double x = 0, y = 0;
+
+    if (canvas_ == NULL || chain < 0 ||
+        !canvas_->chainChip((size_t)chain, which, x, y))
+        return -1.0;
+
+    return x;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_chip_y (int chain, int which)
+{
+    double x = 0, y = 0;
+
+    if (canvas_ == NULL || chain < 0 ||
+        !canvas_->chainChip((size_t)chain, which, x, y))
+        return -1.0;
+
+    return y;
 }
 
 #define TW_INPUT_FIELD(name, type, member, empty)                          \
@@ -3026,6 +3125,59 @@ EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
     c.value = value;
 
     schedule(c);
+}
+
+/* A chain's live mute or solo, at a transport time: `on' nonzero sets
+ * it. Stamped like a knob, and not written into the document -- the
+ * desktop's mute is not saved either. `at' below zero is "now". */
+EMSCRIPTEN_KEEPALIVE void tw_mute (double at, int chain, int on)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_MUTE;
+    c.chain = chain;
+    c.value = on ? 1 : 0;
+
+    schedule(c);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_solo (double at, int chain, int on)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_SOLO;
+    c.chain = chain;
+    c.value = on ? 1 : 0;
+
+    schedule(c);
+}
+
+/* Whether a chain is muted, soloed, and heard after both; -1 for no such
+ * chain. For a page drawing its own buttons, and for the tests. */
+EMSCRIPTEN_KEEPALIVE int tw_chain_muted (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1 : c->muted ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_chain_soloed (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1 : c->soloed ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_chain_audible (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1 : sched_->audible(*c) ? 1 : 0;
 }
 
 /* How fast the clock runs, as a multiple of real time, at a transport

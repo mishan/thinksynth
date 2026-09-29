@@ -177,6 +177,17 @@ function sendGestures ()
 
     M._tw_canvas_inputs_clear();
 
+    /* A chain's M or S. Sent, not applied: the flag changes when the
+       command comes back, on this instance as on the worklet. */
+    for (let k = 0; k < M._tw_canvas_mix_count(); k++)
+        post({
+            type: M._tw_canvas_mix_solo(k) ? 'solo' : 'mute',
+            chain: M._tw_canvas_mix_chain(k),
+            on: M._tw_canvas_mix_on(k) !== 0,
+        });
+
+    M._tw_canvas_mixes_clear();
+
     /* And the params popover, if a stage's handle was clicked. Read here
        rather than asked for later, because the page has no scheduler to
        read them from: this instance is where the piece is. */
@@ -504,6 +515,27 @@ function receive (m)
                    x: M._tw_canvas_handle_x(m.chain, m.stage),
                    y: M._tw_canvas_handle_y(m.chain, m.stage) });
             break;
+
+        /* Where a chain's M (which 0) or S (1) is, for the same page. */
+        case 'chip':
+            post({ type: 'chip', chain: m.chain, which: m.which,
+                   x: M._tw_canvas_chip_x(m.chain, m.which),
+                   y: M._tw_canvas_chip_y(m.chain, m.which) });
+            break;
+
+        /* Each chain's mute, solo, and whether it is heard after both. */
+        case 'mix':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ muted: M._tw_chain_muted(c) === 1,
+                              soloed: M._tw_chain_soloed(c) === 1,
+                              audible: M._tw_chain_audible(c) === 1 });
+
+            post({ type: 'mix', chains });
+            break;
+        }
 
         /* The pointer. The canvas decides what it landed on; whatever it
            wants sent goes back as a gesture to be stamped. */

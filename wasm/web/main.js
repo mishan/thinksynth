@@ -2449,6 +2449,9 @@ function showComposer (on)
            anybody else in the room. */
         onParamEdit: (chain, stage, row, text) =>
             synth?.param({ at: -1, chain, stage, row, text }),
+
+        /* A chain's M or S, for the next window like a knob. */
+        onMix: (type, chain, on) => synth?.[type]({ at: -1, chain, on }),
     });
 
     composer.show(on);
@@ -2612,6 +2615,8 @@ function showRoll (on)
    honest way to press one. */
 window.solo = {
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
+    chipOf: (chain, which) => composer?.chipOf(chain, which),
+    mix: () => composer?.mix(),
     params: () => composer?.params() ?? [],
 
     /* The tracks the sequencer pane ended up with: which stage each row

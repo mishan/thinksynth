@@ -38,6 +38,8 @@
  *   knob       { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
  *   param      { at, chain, stage, row, text }
+ *   mute       { at, chain, on }
+ *   solo       { at, chain, on }
  *   note       { at, seat, note, velocity }
  *   noteoff    { at, seat, note }
  *
@@ -138,6 +140,19 @@ export class Maker
     {
         return this.make('param', { chain, stage, row, text },
                          this.knobLead);
+    }
+
+    /* A chain's mute or solo, set or cleared. Stamped with the knob's
+       lead: it is heard, and a peer that muted a window early would
+       drop a note the others play. */
+    mute (chain, on)
+    {
+        return this.make('mute', { chain, on }, this.knobLead);
+    }
+
+    solo (chain, on)
+    {
+        return this.make('solo', { chain, on }, this.knobLead);
     }
 
     /* A key. Stamped with now and no lead: direct mode plays it on
@@ -274,6 +289,14 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 
         case 'param':
             synth.param(cmd);
+            break;
+
+        case 'mute':
+            synth.mute(cmd);
+            break;
+
+        case 'solo':
+            synth.solo(cmd);
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.

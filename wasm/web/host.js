@@ -430,6 +430,14 @@ export async function createSynth (ctx, { windowlen = 256,
         param: ({ at = -1, chain, stage, row, text }) =>
             post({ type: 'param', at, chain, stage, row, text }),
 
+        /* A chain's live mute or solo, at a transport time or -1 for the
+           next window. Not written into the piece. */
+        mute: ({ at = -1, chain, on }) =>
+            post({ type: 'mute', at, chain, on }),
+
+        solo: ({ at = -1, chain, on }) =>
+            post({ type: 'solo', at, chain, on }),
+
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
            of it is one the module wants. */
