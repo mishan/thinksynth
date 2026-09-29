@@ -617,6 +617,8 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
         return false;
     }
 
+    sched->setMeter(meter_);
+
     return true;
 }
 

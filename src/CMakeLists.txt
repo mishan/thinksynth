@@ -57,6 +57,7 @@ add_library(think_composerhost OBJECT
     thcNodeHost.cpp
     thcGenFile.cpp
     thcGenEdit.cpp
+    thcFreeze.cpp
     thcAudition.cpp)
 
 target_include_directories(think_composerhost PUBLIC

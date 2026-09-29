@@ -19,6 +19,7 @@
 #ifndef THCSCHEDULER_H
 #define THCSCHEDULER_H
 
+#include <deque>
 #include <functional>
 #include <map>
 #include <set>
@@ -409,6 +410,14 @@ struct thcSink
     bool namesItsOwn (void) const { return chanarg == "*"; }
 };
 
+/* A note a chain was heard to play: what freezing it into a pattern
+ * reads. */
+struct thcPlayed
+{
+    double at, duration;           /* transport seconds; 0 while held   */
+    int    note, velocity;
+};
+
 /* A linear pipeline: stage 0 is usually a generator, the rest
  * transformers. Live MIDI can also be routed in at stage 0. */
 struct thcChain
@@ -423,6 +432,10 @@ struct thcChain
        have been heard; transport seconds, or -1. Apart, because a chain
        with a note sink and a chanarg sink lights each by its own. */
     double       lastHeard[2], lastGated[2];
+
+    /* The notes it was heard to play in the last PLAYED_KEEP seconds of
+       transport, oldest first. */
+    std::deque<thcPlayed> played;
     bool         inputMidi;  /* fed by live MIDI on the sink channel     */
     double       start;      /* first generator wake, seconds or beats  */
     bool         startBeats;
@@ -869,6 +882,12 @@ public:
     void   setTempo (double bpm);
     double tempo (void) const { return tempo_; }
 
+    /* Where the transport is in beats, and how many beats make the bar the
+       piece's `meter' says (4 where it says none). */
+    double beat (void) const { return beat_; }
+    double meter (void) const { return meter_; }
+    void   setMeter (double beats) { meter_ = beats > 0 ? beats : 4; }
+
     /* Does the tempo mean anything to this piece?
      *
      * It scales beat-valued durations and nothing else, so a piece whose
@@ -1124,6 +1143,7 @@ private:
     bool     running_;
     double   transportNow_;    /* integrated musical seconds             */
     double   beat_;            /* integrated beats                       */
+    double   meter_ = 4;       /* beats to the bar                       */
     double   tempo_;
     gint64   lastMono_;        /* g_get_monotonic_time at last tick      */
     unsigned masterSeed_;      /* stage seeds derive from this           */

@@ -31,6 +31,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "thcFreeze.h"
 #include "thcGenEdit.h"
 #include "PianoRoll.h"
 #include "Dialogs.h"
@@ -167,6 +168,8 @@ Composer::Composer (thSynth *synth)
         sigc::mem_fun(*this, &Composer::onCanvasSolo));
     canvas_->sigSectionLevel.connect(
         sigc::mem_fun(*this, &Composer::onCanvasSectionLevel));
+    canvas_->sigFreeze.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasFreeze));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
@@ -1715,6 +1718,58 @@ Composer::onCanvasSectionLevel (size_t section, size_t chain, double level)
     canvas_->queue_draw();
 }
 
+/* A chain frozen: what it played in the last two bars, as a new chain
+ * beside it with a grid that plays it back, through the same instrument
+ * or channel (thcFreeze.h). The original is muted rather than removed, so
+ * nothing is lost that one M press will not bring back. */
+void
+Composer::onCanvasFreeze (size_t chain)
+{
+    if (chain >= doc_.chains.size())
+        return;
+
+    const thcGenEdit::Chain &c = doc_.chains[chain];
+    const thcGenEdit::Sink *sink = NULL;
+
+    for (const thcGenEdit::Sink &s : c.sinks)
+        if (s.chanarg.empty())
+        {
+            sink = &s;
+            break;
+        }
+
+    if (sink == NULL)
+    {
+        status_->set_text(c.name + " plays no notes to freeze");
+        return;
+    }
+
+    thcFreeze::Params params;
+    std::string why;
+
+    if (!thcFreeze::fromChain(*sched_, chain, 2, params, why))
+    {
+        status_->set_text(c.name + ": " + why);
+        return;
+    }
+
+    std::vector<std::string> names;
+
+    for (const thcGenEdit::Chain &other : doc_.chains)
+        names.push_back(other.name);
+
+    const std::string name = thcFreeze::frozenName(c.name, names);
+
+    if (!editOk(thcGenEdit::addChain(workPath_, name, sink->channel,
+                                     sink->instrument, "frozen", "gen",
+                                     "grid", params, why), why))
+        return;
+
+    /* Kept by name across the reload the new chain needs. */
+    sched_->setMuted(chain, true);
+    structuralReload();
+}
+
 /* Another document: its chains are not these, whatever they are called. */
 void
 Composer::forgetMix (void)
@@ -3086,6 +3141,12 @@ Composer::buildChainSelection (size_t ci)
     Gtk::CheckButton *mute = manage(new Gtk::CheckButton("mute"));
     Gtk::CheckButton *input = manage(new Gtk::CheckButton("MIDI in"));
     Gtk::Button *rm = manage(new Gtk::Button("Remove chain"));
+    Gtk::Button *freeze = manage(new Gtk::Button("Freeze last 2 bars"));
+
+    freeze->set_tooltip_text("What this chain just played, as a new chain "
+                             "with a grid you can edit; this one is muted. "
+                             "The F on the canvas does the same.");
+    freeze->signal_clicked().connect([this, ci] { onCanvasFreeze(ci); });
 
     nameEntry->set_text(chainName);
     nameEntry->set_max_width_chars(12);
@@ -3161,6 +3222,7 @@ Composer::buildChainSelection (size_t ci)
     head->append(*mute);
     head->append(*input);
     selBox_->append(*head);
+    selBox_->append(*freeze);
     selBox_->append(*rm);
 }
 

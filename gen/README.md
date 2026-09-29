@@ -70,6 +70,13 @@ they drive. Everything is reachable from there:
   where the transport is, and a row per chain with its level in each section.
   Click a cell to step that chain's level there -- as written, silent, half --
   which is heard at once and written into the piece.
+- **F** on a chain freezes it: what it played in the last two bars becomes a
+  new chain, `<name>_frozen`, with a `gen::grid` holding the phrase, and the
+  original is muted. Edit the grid, or unmute the original and keep both.
+- **Drawn controls**: besides grid, life, ca and evolve, the euclid ring is a
+  control -- a click in its middle adds a hit (the other button takes one
+  away) and dragging round the ring turns the pattern -- and accent's steps
+  are drawn and clicked to mark the ones to lean on.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the

@@ -775,6 +775,34 @@ run (const std::string &pluginPath, const char *genFile)
         }
     }
 
+    /* F on a chain that has not played is refused, and says so, rather
+       than writing an empty grid. */
+    {
+        double fx, fy;
+        const size_t chains = win->doc_.chains.size();
+
+        win->sched_->reset();
+        pump(2);
+
+        if (!win->canvas_->chainChip(0, 2, fx, fy))
+            fail("the first chain has no F");
+        else
+        {
+            win->canvas_->pressAt(fx, fy, 1, 1);
+            pump(6);
+
+            if (win->doc_.chains.size() == chains &&
+                win->status_->get_text().find("has not played") !=
+                    Glib::ustring::npos)
+                ok("F on a chain that has not played says so and adds "
+                   "nothing");
+            else
+                fail(("F on a chain that has not played says so and adds "
+                       "nothing: " +
+                       std::string(win->status_->get_text())).c_str());
+        }
+    }
+
     /* Color Notes by Chain: the roll by chain, and the canvas's chain
        names striped to match, together and back. */
     {
