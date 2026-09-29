@@ -183,9 +183,6 @@ ComposerCanvas::select (const Selection &sel)
     requestRedraw();
 }
 
-/* Lay every clickable box out once per piece; drawing and hit testing
- * both read the result, so they cannot disagree about where things
- * are. */
 /* One chain's row, laid out with its top-left at (x, y): the name, the
  * stages, the sinks and the ghosts that add to them -- or, collapsed, the
  * name and a small pill for each stage and sink. Appended to `out'; the
@@ -372,8 +369,11 @@ columnStarts (const std::vector<double> &w, const std::vector<double> &h,
             const size_t colsLeft = k - starts.size();
             const size_t rowsLeft = n - i;
 
+            /* `filled' is every row before this one: the row starts the
+               next column when its middle would be past this column's
+               share. */
             if (colH > 0 && colsLeft > 0 &&
-                (filled + colH / 2 >= total * starts.size() / k ||
+                (filled + h[i] / 2 > total * starts.size() / k ||
                  rowsLeft <= colsLeft))
             {
                 starts.push_back(i);
@@ -408,9 +408,21 @@ columnStarts (const std::vector<double> &w, const std::vector<double> &h,
     return best;
 }
 
+/* Lay every clickable box out, once per piece and again when a row is
+ * collapsed or the view's width changes the columns; drawing and hit
+ * testing both read the result, so they cannot disagree about where
+ * things are. */
 void
 ComposerCanvas::rebuild (void)
 {
+    /* A knob box let go of a moment ago is holding its value for the
+       commands its drag sent; a layout in that moment keeps the hold. */
+    std::vector<Box> knobsWere;
+
+    for (const Box &b : boxes_)
+        if (b.what.kind == Selection::KNOB)
+            knobsWere.push_back(b);
+
     boxes_.clear();
     rowX_.clear();
     rowY_.clear();
@@ -453,6 +465,14 @@ ComposerCanvas::rebuild (void)
         b.kv  = arg != NULL ? (*arg)[0] : k.value;
         b.kLive = b.kv;
         b.kHold = 0;
+
+        if (ki < knobsWere.size() && knobsWere[ki].kHold > 0 &&
+            knobsWere[ki].title == b.title)
+        {
+            b.kv = knobsWere[ki].kv;
+            b.kLive = knobsWere[ki].kLive;
+            b.kHold = knobsWere[ki].kHold;
+        }
         b.klo = arg != NULL ? arg->min() : (k.hasMin ? k.min : 0);
         b.khi = arg != NULL ? arg->max() : (k.hasMax ? k.max : 1);
 
@@ -482,8 +502,10 @@ ComposerCanvas::rebuild (void)
         heights[ci] = h + ROW_GAP;
     }
 
+    /* The room the columns have: the view, less the margin they start
+       at and the one contentExtent() adds past the last. */
     const std::vector<size_t> starts =
-        columnStarts(widths, heights, fitWidth_ - 2 * M, COLUMN_GAP);
+        columnStarts(widths, heights, fitWidth_ - M - 12, COLUMN_GAP);
 
     columns_ = starts.size();
 
@@ -1515,7 +1537,28 @@ ComposerCanvas::setChainCollapsed (size_t chain, bool on)
     else
         collapsed_.erase(doc_->chains[chain].name);
 
+    /* A collapsed row has no "+" boxes, so a selected one is not there
+       to be selected: the chain is, instead. */
+    if (on && sel_.chain == chain &&
+        (sel_.kind == Selection::ADD_STAGE ||
+         sel_.kind == Selection::ADD_SINK))
+    {
+        Selection s;
+
+        s.kind = Selection::CHAIN;
+        s.chain = chain;
+        select(s);
+    }
+
     relayout();
+}
+
+void
+ComposerCanvas::renameCollapsed (const std::string &was,
+                                 const std::string &now)
+{
+    if (collapsed_.erase(was) != 0)
+        collapsed_.insert(now);
 }
 
 void
@@ -1524,11 +1567,22 @@ ComposerCanvas::setAllCollapsed (bool on)
     if (doc_ == NULL)
         return;
 
-    for (const thcGenEdit::Chain &c : doc_->chains)
-        if (on)
+    collapsed_.clear();
+
+    if (on)
+        for (const thcGenEdit::Chain &c : doc_->chains)
             collapsed_.insert(c.name);
-        else
-            collapsed_.erase(c.name);
+
+    /* As for one chain: a selected "+" box goes with its row's. */
+    if (on && (sel_.kind == Selection::ADD_STAGE ||
+               sel_.kind == Selection::ADD_SINK))
+    {
+        Selection s;
+
+        s.kind = Selection::CHAIN;
+        s.chain = sel_.chain;
+        select(s);
+    }
 
     relayout();
 }
@@ -1571,9 +1625,10 @@ ComposerCanvas::fitColumns (void)
     /* In the drawing's own units: a view zoomed out has room for more. */
     const double w = vw / zoom();
 
-    /* Within a few pixels is the same width: a scrollbar coming and going
-       as the drawing changes height is not a reason to lay out again. */
-    if (std::fabs(w - fitWidth_) < 24)
+    /* A little wider is the same width: a scrollbar going away as the
+       drawing changes height is not a reason to lay out again. Any
+       narrower is, or the last column is under the edge. */
+    if (w >= fitWidth_ && w - fitWidth_ < 24)
         return false;
 
     fitWidth_ = w;

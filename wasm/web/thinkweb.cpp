@@ -2685,6 +2685,14 @@ EMSCRIPTEN_KEEPALIVE double tw_canvas_disclose_y (int chain)
            canvas_->discloseAt((size_t)chain, x, y) ? y : -1.0;
 }
 
+/* Choose the columns again for the view as it is now: after a zoom, which
+   changes the room without the view changing. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_refit_columns (void)
+{
+    if (canvas_ != NULL)
+        canvas_->refitColumns();
+}
+
 /* Every chain collapsed, or every one opened. */
 EMSCRIPTEN_KEEPALIVE void tw_canvas_collapse_all (int on)
 {

@@ -1431,6 +1431,7 @@ try
     await press(1, 0);
     await mixUntil((c) => c.length > 1 && !c[1].muted, 'and unmuted again');
 
+    /* Polled, like the mix: `what' is asked until `want' says yes. */
     const until = async (what, want) =>
     {
         let got;
@@ -1476,17 +1477,27 @@ try
         /* Wide enough for more than one, the chains go in columns, and
            back to one when the view narrows again. */
         await page.addStyleTag({ content:
-            '#composerscroll { width: 2400px !important; ' +
+            '#composerscroll { width: 1500px !important; ' +
             'max-width: none !important; }' });
 
         const wide = await until(layout, (l) => l.columns > 1);
+        const room = await page.$eval('#composerscroll',
+                                      (d) => d.clientWidth);
 
-        check(wide.columns > 1,
+        /* Colony's chains are about the same height, so the columns hold
+           about as many each, and the drawing fits the view. */
+        const tops = new Set(wide.chains.map((c) => c.x));
+        const perColumn = [...tops].map(
+            (x) => wide.chains.filter((c) => c.x === x).length);
+
+        check(wide.columns > 1 && wide.width <= room &&
+              Math.max(...perColumn) - Math.min(...perColumn) <= 1,
               `a view wide enough lays the chains out in ${wide.columns} ` +
-              'columns');
+              `columns of ${perColumn.join('/')}, ${wide.width} wide in ` +
+              `${room}`);
 
         await page.evaluate(() => document.querySelectorAll('style')
-            .forEach((s) => s.textContent.includes('2400px') && s.remove()));
+            .forEach((s) => s.textContent.includes('1500px') && s.remove()));
 
         const narrow = await until(layout, (l) => l.columns === 1);
 

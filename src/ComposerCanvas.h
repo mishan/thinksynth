@@ -152,6 +152,10 @@ public:
     void setChainCollapsed (size_t chain, bool on);
     void setAllCollapsed (bool on);
 
+    /* A chain renamed: a collapsed one stays collapsed under its new
+       name. */
+    void renameCollapsed (const std::string &was, const std::string &now);
+
     /* The middle of a chain's disclosure triangle, in widget pixels.
        Public for the reason paramsHandle is. */
     bool discloseAt (size_t chain, double &x, double &y) const;
@@ -161,6 +165,11 @@ public:
        and the drawing changed size. A shell calls it when its view may
        have changed width; it is cheap when it has not. */
     bool fitColumns (void);
+
+    /* The same, whatever the width was last time: for a shell that has
+       just changed the zoom, which changes the room there is in the
+       drawing's own units without the view changing at all. */
+    bool refitColumns (void) { fitWidth_ = 0; return fitColumns(); }
 
     /* How many columns the chains are in now. */
     size_t columns (void) const { return columns_; }

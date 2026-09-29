@@ -718,6 +718,25 @@ run (const std::string &pluginPath, const char *genFile)
             else
                 fail("a chain's triangle collapses it to a short row");
 
+            /* M sits beside the name on a collapsed row. */
+            double mx, my;
+
+            if (win->canvas_->chainChip(0, 0, mx, my))
+            {
+                win->canvas_->pressAt(mx, my, 1, 1);
+                pump(2);
+
+                const bool muted = win->sched_->chain(0)->muted;
+
+                win->canvas_->pressAt(mx, my, 1, 1);
+                pump(2);
+
+                if (muted && !win->sched_->chain(0)->muted)
+                    ok("...where M still mutes and unmutes the chain");
+                else
+                    fail("...where M still mutes and unmutes the chain");
+            }
+
             win->structuralReload();
             pump(6);
 

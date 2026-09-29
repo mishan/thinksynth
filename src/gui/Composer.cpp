@@ -3089,6 +3089,7 @@ Composer::buildChainSelection (size_t ci)
                     nameEntry->get_text(), why), why))
             {
                 mixRenamed_[chainName] = nameEntry->get_text();
+                canvas_->renameCollapsed(chainName, nameEntry->get_text());
                 structuralReload();
             }
         });
