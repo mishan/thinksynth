@@ -71,6 +71,15 @@ jobs:
             adwaita-icon-theme librsvg2-common \
             xvfb
 
+      # localecheck wants a locale whose decimal separator is a comma, and
+      # the runner image has none; without one it skips. Checked here, so a
+      # locale that fails to generate is a failed step and not a quiet skip.
+      - name: A comma-decimal locale
+        run: |
+          sudo apt-get install -y --no-install-recommends locales
+          sudo locale-gen de_DE.UTF-8
+          locale -a | grep -qix 'de_DE.utf8'
+
       - name: Configure
         run: cmake -S . -B build -G Ninja
 
@@ -235,6 +244,13 @@ jobs:
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
             xvfb
+
+      # See the linux job.
+      - name: A comma-decimal locale
+        run: |
+          sudo apt-get install -y --no-install-recommends locales
+          sudo locale-gen de_DE.UTF-8
+          locale -a | grep -qix 'de_DE.utf8'
 
       # THINK_SANITIZE applies the flags globally rather than per-target, so
       # they reach libthink and all 62 plugins. An earlier round of

@@ -48,7 +48,7 @@ void module_cleanup (thPlugin *plugin)
 enum { INOUT_BUFFER,IN_ARG,IN_CUTOFF,IN_RES,
        OUT_LOW,OUT_HIGH,OUT_BANDPASS };
 
-int args[OUT_BANDPASS + 1];
+std::atomic<int> args[OUT_BANDPASS + 1];
 
 int module_init (thPlugin *plugin)
 {

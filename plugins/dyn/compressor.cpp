@@ -87,7 +87,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 enum { OUT_ARG, OUT_GAIN, INOUT_STATE, IN_ARG, IN_SIDE, IN_THRESHOLD,
        IN_RATIO, IN_ATTACK, IN_RELEASE, IN_KNEE, IN_MAKEUP };
 
-int args[IN_MAKEUP + 1];
+std::atomic<int> args[IN_MAKEUP + 1];
 
 /* log10 and its inverse, as the multiplies everything here actually uses.
    20*log10(x) is 8.6858896*ln(x), and 10^(x/20) is exp(0.11512925*x) -- the

@@ -27,7 +27,7 @@
 #define SQR(x) ((x) * (x))
 
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, INOUT_BUFFER};
-int args[INOUT_BUFFER + 1];
+std::atomic<int> args[INOUT_BUFFER + 1];
 
 static const char desc[] = "INK Filter ][";
 thPlugin::State    mystate = thPlugin::ACTIVE;

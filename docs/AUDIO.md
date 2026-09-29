@@ -296,6 +296,9 @@ and requires the two renders to be bitwise equal.
 | `dsplevel` | yes | peak, proportion shaped, gain reduction; exit status is the number of measurements over `TH_MAX` |
 | `dspsweep` | yes | every control of every DSP at both ends of its range and three points between, at both ends of the keyboard; exit status is the number of cases the per-voice guard fired on. With `-g` it also gates the guard itself |
 | `poolcheck` | yes | every DSP played twice, with finished voices restarted and with every note a fresh copy, compared bitwise |
+| `dsphash` | yes | a hash of a short phrase through every DSP, effects over an instrument; built twice, and the `dsphash.embedded` gate requires `think_embedded`'s compiled-in plugins to hash the same as the dlopened ones, `dsphash.text` a graph loaded from text the same as its file |
+| `localecheck` | yes | every DSP parsed, printed and played under a comma-decimal `LC_NUMERIC` and under `C`, compared bitwise, and four threads converting at once under it; skipped where no such locale is installed |
+| `unloadcheck` | yes (Linux) | a module linking `think_embedded` is really unmapped by `dlclose` after loading a graph, playing it and failing a plugin lookup |
 | `dspstress` | no | a synthetic audio thread calling `process()` while the main thread does what the GUI thread does |
 | `dspab` | no | two renders compared for bitwise identity — used when a change is meant to be inaudible |
 | `dsplive` | no | the only check that tests the actual sound: renders a note twice, once with a control moved halfway through, and asserts the halves before the move are identical while the halves after differ |
@@ -315,6 +318,11 @@ with it:
 | 3 `chanargs` | + `setChanArg` and slider-style `setValue` |
 | 4 `reload` | + `loadTree` onto a live channel, `removeChan` |
 | 5 `probes` | + arming and draining visualizer probes while the patch is replaced |
+| 6 `parse` | + four threads parsing the same `.dsp` over and over |
+| 7 `instances` | + two more synths made, loaded, played and destroyed on threads of their own |
+
+`dspstress-embedded` is the same harness over `think_embedded`, for the
+compiled-in plugin table level 7 exercises.
 
 ThreadSanitizer cannot be combined with AddressSanitizer, so it needs its own
 build tree:

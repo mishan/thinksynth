@@ -59,7 +59,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_RATE, IN_DEPTH, IN_DELAY, IN_RISE, OUT_ARG, INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Delayed vibrato";
 thPlugin::State    mystate = thPlugin::ACTIVE;

@@ -54,7 +54,7 @@
 #include "plugins/dice.h"
 
 enum {IN_RATE, IN_DEPTH, IN_CENTER, IN_SEED, OUT_ARG, INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Drift (smoothed random)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

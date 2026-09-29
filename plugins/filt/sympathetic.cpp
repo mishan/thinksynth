@@ -97,7 +97,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 enum {IN_ARG, IN_PEDAL, IN_LOW, IN_HIGH, IN_UNDAMPED, IN_DECAY, IN_DAMPER,
       IN_DAMP, OUT_ARG, INOUT_BUFFER, INOUT_STATE};
 
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 /* The state: a few scalars, then per key its line's start in the buffer,
    its length, its write position, its two gains, its read delay and its

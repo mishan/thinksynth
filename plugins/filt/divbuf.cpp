@@ -43,7 +43,7 @@ void module_cleanup (thPlugin *plugin)
 
 enum { OUT_ARG,INOUT_BUFFER,IN_ARG,IN_FACTOR };
 
-int args[IN_FACTOR + 1];
+std::atomic<int> args[IN_FACTOR + 1];
 
 int module_init (thPlugin *plugin)
 {

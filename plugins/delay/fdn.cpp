@@ -142,7 +142,7 @@
 
 enum {IN_ARG, IN_SIZE, IN_DECAY, IN_DAMPING, IN_MOD, IN_RATE, IN_DIFFUSE,
       IN_SHIMMER, IN_INTERVAL, OUT_ARG, OUT_ARG2, INOUT_BUFFER, INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Feedback delay network (eight lines, a reverb)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

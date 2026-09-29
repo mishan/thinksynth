@@ -69,7 +69,7 @@
 
 enum {IN_ARG, IN_RATIO, IN_WINDOW, IN_MIX, OUT_ARG, INOUT_BUFFER,
       INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Pitch shifter (two crossfaded read heads)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

@@ -34,13 +34,25 @@ public:
     thSynth (const string &plugin_path, int windowlen, int samples);
     ~thSynth (void);
 
+    /* The first synth made in this process, until it is destroyed; NULL
+       after that, even if others are still alive. The application has one
+       synth and reaches it through this; libthink and the plugins never
+       do. */
     static thSynth *instance (void) {
-        return instance_;
+        return instance_.load();
     }
 
     thSynthTree *loadTree(const string &filename);
     thSynthTree *loadTree(const string &filename, int channum, float amp);
     thSynthTree *loadTree(FILE *input);
+
+    /* loadTree onto a channel, over text in memory rather than a file: a
+       graph a host carries inside itself -- an audio plugin built around
+       one instrument -- has no file to point at, and fmemopen, the other
+       way to hand this a FILE*, is not on Windows. `name' is what the
+       channel is known by in a log line, and need not be a file. */
+    thSynthTree *loadTreeText (const string &name, const string &text,
+                               int channum, float amp);
 
     /* Parses a .dsp and hands back a tree that thSynth neither owns nor
        tracks: the caller deletes it.
@@ -227,8 +239,12 @@ public:
 
     float *getChanBuffer (int chan);
 
+    /* Fixed for the synth's life. A graph folds `375 ms' against the rate
+       when it loads, a channel keeps the rate it was built with, and
+       osc::sample and osc::pad keep tables made for it; a setter that
+       changed only this number left all three at the old rate, so there
+       is none. A host whose rate changes makes a new synth. */
     long getSampleRate (void) const { return sampleRate_; }
-    void setSampleRate (long samples) { sampleRate_ = samples; }
 
     /* Master gain, applied to the summed mix before the output limiter.
      *
@@ -286,6 +302,11 @@ public:
      * thChanEffect. */
     thSynthTree *loadEffect (const string &filename, int channum,
                              int sideChan = -1);
+
+    /* loadEffect over text in memory. `name' is what the channel is known
+       by in a log line, and need not be a file. */
+    thSynthTree *loadEffectText (const string &name, const string &text,
+                                 int channum, int sideChan = -1);
 
     /* Takes the effect off `channum'. True if the audio thread was told;
        false only when the command queue is full, in which case the effect is
@@ -443,8 +464,22 @@ private:
     void disarmProbesOn (int channum);
 
     /* The file half of loading an effect graph, shared by the channel's and
-       the mix's. Assumes synthMutex_ is already held. */
-    thSynthTree *parseEffect (const string &filename);
+       the mix's: `text' if it is not NULL, else the file `filename' names.
+       Assumes synthMutex_ is already held. */
+    thSynthTree *parseEffect (const string &filename,
+                              const string *text = NULL);
+    thSynthTree *checkEffect (const string &filename, thSynthTree *raw,
+                              int parseResult);
+
+    /* The bodies of loadTree/loadTreeText and loadEffect/loadEffectText,
+       with `text' NULL for a file. placeChannel is loadChannel after the
+       parse, with synthMutex_ held. */
+    thSynthTree *loadChannel (const string &filename, const string *text,
+                              int channum, float amp);
+    thSynthTree *placeChannel (const string &filename, thSynthTree *raw,
+                               int parseResult, int channum, float amp);
+    thSynthTree *loadEffectFrom (const string &filename, const string *text,
+                                 int channum, int sideChan);
 
     /* GUI thread, with synthMutex_ held. True if putting an effect with
        `sideChan' onto `channum' would make a channel wait on itself --
@@ -548,7 +583,9 @@ private:
      * does not name a type". */
     std::mutex synthMutex_;
 
-    static thSynth *instance_;
+    void claimInstance (void);
+
+    static std::atomic<thSynth *> instance_;
 };
 
 #endif /* TH_SYNTH_H */

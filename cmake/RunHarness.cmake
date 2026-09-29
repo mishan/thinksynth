@@ -8,7 +8,12 @@
 # invokes ctest.
 #
 # Required: -DHARNESS= -DCORPUS= -DPLUGIN_DIR= -DMODE=dsp|patch
-# Optional: -DEXTRA_ARGS=
+# Optional: -DEXTRA_ARGS= -DHARNESS_B= -DEXTRA_ARGS_B=
+#
+# HARNESS_B and EXTRA_ARGS_B make it a comparison: a second harness, or the
+# same one with more arguments, run over the same files. Both sides have to
+# succeed and print exactly the same thing; the lines that differ are the
+# failure.
 
 if(NOT HARNESS OR NOT CORPUS OR NOT PLUGIN_DIR OR NOT MODE)
   message(FATAL_ERROR "RunHarness.cmake: HARNESS, CORPUS, PLUGIN_DIR and MODE are all required")
@@ -81,6 +86,76 @@ endif()
 
 if(DSP_PATH)
   set(ENV{THINK_DSP_PATH} "${DSP_PATH}")
+endif()
+
+if(HARNESS_B OR EXTRA_ARGS_B)
+  if(NOT HARNESS_B)
+    set(HARNESS_B "${HARNESS}")
+  endif()
+
+  separate_arguments(extra_B NATIVE_COMMAND "${EXTRA_ARGS_B}")
+
+  foreach(side A B)
+    if(side STREQUAL "A")
+      set(_h "${HARNESS}")
+      set(_x ${extra})
+    else()
+      set(_h "${HARNESS_B}")
+      set(_x ${extra} ${extra_B})
+    endif()
+
+    execute_process(
+        COMMAND "${_h}" ${_x} -p "${PLUGIN_DIR}" ${files}
+        ${_wd}
+        RESULT_VARIABLE rc
+        OUTPUT_VARIABLE out_${side})
+
+    if(NOT rc EQUAL 0)
+      message("${out_${side}}")
+      message(FATAL_ERROR "${_h}: ${rc} failure(s) over ${count} ${MODE} files")
+    endif()
+  endforeach()
+
+  if(NOT out_A STREQUAL out_B)
+    # Line by line with string(FIND) rather than as CMake lists: a list
+    # splits on every `;' in a line and treats an unbalanced `[' as the
+    # start of a bracket, and the two sides may not print the same number
+    # of lines. A side that has run out shows as (nothing).
+    set(differ 0)
+
+    while(NOT out_A STREQUAL "" OR NOT out_B STREQUAL "")
+      foreach(side A B)
+        string(FIND "${out_${side}}" "\n" at)
+
+        if(at EQUAL -1)
+          set(line_${side} "${out_${side}}")
+          set(out_${side} "")
+        else()
+          string(SUBSTRING "${out_${side}}" 0 ${at} line_${side})
+          math(EXPR at "${at} + 1")
+          string(SUBSTRING "${out_${side}}" ${at} -1 out_${side})
+        endif()
+      endforeach()
+
+      if(NOT line_A STREQUAL line_B)
+        foreach(side A B)
+          if(line_${side} STREQUAL "")
+            set(line_${side} "(nothing)")
+          endif()
+        endforeach()
+
+        message("A  ${line_A}\nB  ${line_B}")
+        math(EXPR differ "${differ} + 1")
+      endif()
+    endwhile()
+
+    message(FATAL_ERROR "${differ} line(s) differ between ${HARNESS} and "
+                        "${HARNESS_B} ${EXTRA_ARGS_B} over ${count} ${MODE} "
+                        "files")
+  endif()
+
+  message(STATUS "${count} ${MODE} files identical")
+  return()
 endif()
 
 execute_process(

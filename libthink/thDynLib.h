@@ -62,9 +62,11 @@ THINK_API std::string lastError (void);
 #ifdef THINK_STATIC_PLUGINS
 /* A build with nothing to dlopen.
  *
- * An AudioWorkletGlobalScope has no file system and no loader, so the
- * browser build links every plugin into the one module and generates this
- * table (wasm/web). open() looks a name up in it -- the name the host
+ * An AudioWorkletGlobalScope has no file system and no loader, and a host
+ * linking think_embedded -- an audio plugin inside a DAW -- cannot count
+ * on a plugins/ directory beside it, so the browser build and
+ * think_embedded link every plugin into the one binary and generate this
+ * table (cmake/ThinkStatic.cmake). open() looks a name up in it -- the name the host
  * hands over, "osc/simple" or "composer/euclid" -- and symbol() looks in
  * that entry's symbols, which is all a caller ever does with a handle.
  * Nothing above this seam knows the difference.

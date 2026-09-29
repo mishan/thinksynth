@@ -53,7 +53,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_VOWEL, IN_GENDER, OUT_ARG, INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Vowel (five formants, a to u)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

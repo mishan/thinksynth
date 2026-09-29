@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_0, IN_1, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 /* mixer::mul shipped with this same description and divides its second
    input by full scale first. This one is the plain product. */

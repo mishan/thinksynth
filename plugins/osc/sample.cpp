@@ -98,7 +98,7 @@ enum {IN_FILE, IN_FILE2, IN_FILE3, IN_FREQ, IN_ROOT, IN_START, IN_LOOP,
       IN_TRIGGER, IN_SELECT, IN_SPLIT1, IN_SPLIT2, IN_ALTERNATE,
       OUT_ARG, OUT_PLAY, INOUT_STATE, IN_XFADE};
 
-int args[IN_XFADE + 1];
+std::atomic<int> args[IN_XFADE + 1];
 
 static const char desc[] = "Sample Player (a wav at a voice's pitch)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

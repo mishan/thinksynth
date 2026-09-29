@@ -24,7 +24,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_LO, IN_HI, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 static const char desc[] = "Holds a stream between two others";
 thPlugin::State    mystate = thPlugin::PASSIVE;

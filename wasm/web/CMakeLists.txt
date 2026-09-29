@@ -140,133 +140,12 @@ target_compile_definitions(think_objects PUBLIC THINK_STATIC_PLUGINS)
 # The table
 # ---------------------------------------------------------------------------
 
-# One row per plugin the two think_add_ functions were handed, naming the
-# functions its namespace defines and the version byte its ABI is gated on.
-# A plugin whose functions do not match these declarations fails at the
-# link, which is the right place.
-get_property(STATIC_PLUGINS   GLOBAL PROPERTY THINK_STATIC_PLUGINS)
-get_property(STATIC_COMPOSERS GLOBAL PROPERTY THINK_STATIC_COMPOSERS)
-get_property(STATIC_VISUALS   GLOBAL PROPERTY THINK_STATIC_VISUALS)
-get_property(STATIC_SOURCES   GLOBAL PROPERTY THINK_STATIC_SOURCES)
+# What cmake/ThinkStatic.cmake recorded as plugins/CMakeLists.txt ran: every
+# DSP plugin, composer and visual, one row each. The composers' and the
+# visuals' rows are declared from the export lists and prototypes above.
+think_static_registry("${PROJECT_BINARY_DIR}/static/registry.cpp")
 
-set(decls "")
-set(syms "")
-set(rows "")
-set(composer_names "")
-set(visual_names "")
-
-foreach(p IN LISTS STATIC_PLUGINS)
-  string(REPLACE "/" "_" id "${p}")
-  string(APPEND decls
-"namespace thp_${id} {
-    int  module_init (thPlugin *);
-    int  module_callback (thNode *, thSynthTree *, unsigned int, unsigned int);
-    void module_cleanup (thPlugin *);
-}
-")
-  string(APPEND syms
-"const thStaticSymbol dsp_${id}[] = {
-    { \"apiversion\",      &dspVersion_ },
-    { \"module_init\",     (void *)&thp_${id}::module_init },
-    { \"module_callback\", (void *)&thp_${id}::module_callback },
-    { \"module_cleanup\",  (void *)&thp_${id}::module_cleanup },
-};
-")
-  string(APPEND rows "    TH_ROW(\"${p}\", dsp_${id}),\n")
-endforeach()
-
-# Every export a composer may have is declared for every composer, weak:
-# the address of one the plugin did not define links as a null, and a null
-# in the table is what thcPlugin reads as "not offered" -- the same answer
-# dlopen gives for a module without the symbol. So which exports a composer
-# has is decided by what it compiled, not by a scan of how it spelled them.
-foreach(c IN LISTS STATIC_COMPOSERS)
-  string(APPEND decls "extern \"C\" {\n")
-  string(APPEND syms
-"const thStaticSymbol com_${c}[] = {
-    { \"composer_apiversion\", &composerVersion_ },
-")
-
-  foreach(ex IN LISTS THINK_COMPOSER_EXPORTS)
-    string(REPLACE "@" "thc_${c}_${ex}" proto "${THINK_COMPOSER_PROTO_${ex}}")
-    string(APPEND decls "    ${proto} __attribute__((weak));\n")
-    string(APPEND syms
-           "    { \"composer_${ex}\", (void *)&thc_${c}_${ex} },\n")
-  endforeach()
-
-  string(APPEND decls "}\n")
-  string(APPEND syms "};\n")
-  string(APPEND rows "    TH_ROW(\"composer/${c}\", com_${c}),\n")
-  string(APPEND composer_names "    \"composer/${c}\",\n")
-endforeach()
-
-# The visuals, exactly as the composers: every export declared weak for
-# every module, so what the module compiled decides which it has.
-foreach(v IN LISTS STATIC_VISUALS)
-  string(APPEND decls "extern \"C\" {\n")
-  string(APPEND syms
-"const thStaticSymbol vis_${v}[] = {
-    { \"visual_apiversion\", &visualVersion_ },
-")
-
-  foreach(ex IN LISTS THINK_VISUAL_EXPORTS)
-    string(REPLACE "@" "thv_${v}_${ex}" proto "${THINK_VISUAL_PROTO_${ex}}")
-    string(APPEND decls "    ${proto} __attribute__((weak));\n")
-    string(APPEND syms
-           "    { \"visual_${ex}\", (void *)&thv_${v}_${ex} },\n")
-  endforeach()
-
-  string(APPEND decls "}\n")
-  string(APPEND syms "};\n")
-  string(APPEND rows "    TH_ROW(\"visual/${v}\", vis_${v}),\n")
-  string(APPEND visual_names "    \"visual/${v}\",\n")
-endforeach()
-
-file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/static/registry.cpp" CONTENT
-"/* The table thDynLib's static branch reads: every DSP plugin and every
-   composer in plugins/CMakeLists.txt. Written by wasm/web/CMakeLists.txt. */
-#include \"thinkstatic.h\"
-#include \"thcomposer.h\"
-#include \"thVisual.h\"
-#include \"thDynLib.h\"
-
-namespace {
-
-/* What thPlugin and thcPlugin check a plugin's version byte against before
-   they call anything in it. A plugin compiled into this module was compiled
-   against these headers, so these are its. */
-unsigned char dspVersion_ = MODULE_IFACE_VER;
-unsigned char composerVersion_ = COMPOSER_IFACE_VER;
-unsigned char visualVersion_ = VISUAL_IFACE_VER;
-
-} /* namespace */
-
-${decls}
-namespace {
-
-${syms}
-#define TH_ROW(name, syms) { name, syms, sizeof(syms) / sizeof(syms[0]) }
-
-} /* namespace */
-
-const thStaticPlugin thStaticPlugins[] = {
-${rows}};
-
-const size_t thStaticPluginCount =
-    sizeof(thStaticPlugins) / sizeof(thStaticPlugins[0]);
-
-const char *const thStaticComposers[] = {
-${composer_names}};
-
-const size_t thStaticComposerCount =
-    sizeof(thStaticComposers) / sizeof(thStaticComposers[0]);
-
-const char *const thStaticVisuals[] = {
-${visual_names}};
-
-const size_t thStaticVisualCount =
-    sizeof(thStaticVisuals) / sizeof(thStaticVisuals[0]);
-")
+get_property(STATIC_SOURCES GLOBAL PROPERTY THINK_STATIC_SOURCES)
 
 # ---------------------------------------------------------------------------
 # The module
@@ -333,7 +212,7 @@ target_include_directories(thinkweb PRIVATE
     "${THINK_TOP}"
     "${THINK_TOP}/src")
 
-target_link_libraries(thinkweb PRIVATE think_objects sigc cairo2d)
+target_link_libraries(thinkweb PRIVATE think_objects think_loader sigc cairo2d)
 
 # .js, not Emscripten's .mjs, for the reason at the top; EXPORT_ES6 below
 # is what makes it a module, whatever it is called.

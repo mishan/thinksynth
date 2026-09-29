@@ -66,7 +66,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_DELAY, IN_GAIN, OUT_ARG, INOUT_BUFFER, INOUT_BUFPOS};
-int args[INOUT_BUFPOS + 1];
+std::atomic<int> args[INOUT_BUFPOS + 1];
 
 static const char desc[] = "Allpass delay (Schroeder)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

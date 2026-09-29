@@ -21,6 +21,7 @@
 
 #include <stdio.h>
 
+#include <string>
 #include <vector>
 
 #include "thinklang.h"
@@ -67,5 +68,10 @@ struct thParseContext
  * parses may run at once and a failed parse leaves nothing behind for
  * the next one to trip over. */
 extern int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut);
+
+/* The same over text already in memory -- a graph a host carries inside
+ * itself rather than as a file beside it. */
+extern int thParseDspText (thSynth *synth, const std::string &text,
+                           thSynthTree **treeOut);
 
 #endif /* PARSER_H */

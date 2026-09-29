@@ -53,7 +53,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_TIME, OUT_ARG, INOUT_LAST};
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "One-pole lag";
 thPlugin::State    mystate = thPlugin::ACTIVE;

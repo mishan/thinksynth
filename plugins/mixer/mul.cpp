@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_0, IN_1, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 /* math::mul shipped with this same description and is the plain product;
    this divides the second input by full scale first, so it is a signal and

@@ -24,7 +24,7 @@
 #include "think.h"
 
 enum {IN_A, IN_D, IN_S, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
-int args[INOUT_POSITION + 1];
+std::atomic<int> args[INOUT_POSITION + 1];
 
 static const char desc[] = "ADSR Envelope Generator";
 thPlugin::State    mystate = thPlugin::ACTIVE;

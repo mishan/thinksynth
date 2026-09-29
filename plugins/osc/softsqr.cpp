@@ -25,7 +25,7 @@
 #include "think.h"
 
 enum {IN_FREQ, IN_SFREQ, IN_PW, OUT_ARG, INOUT_LAST};
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "Square wave with sine-like transitions";
 thPlugin::State    mystate = thPlugin::ACTIVE;

@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_0, IN_1, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 static const char desc[] = "Divides two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;

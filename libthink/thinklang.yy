@@ -1044,25 +1044,14 @@ static void yyerror (thParseContext *ctx, const char *str)
  * under a mutex, and needed yyrestart() because flex's retained buffer
  * let a parse that stopped early feed its unread tail to the next one,
  * which then failed at "line 1" for no visible reason. A context per
- * parse makes that hazard unconstructible rather than handled. */
-int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
+ * parse makes that hazard unconstructible rather than handled.
+ *
+ * Everything after the lex, which is the only step a stream and a string
+ * do differently. `lexed' is the lexer's answer; ctx.tokens is its
+ * output either way. */
+static int parseLexed (thSynth *synth, thParseContext &ctx, bool lexed,
+                       thSynthTree **treeOut)
 {
-    /* Checked rather than assumed. Every caller in the tree passes both,
-       but this is the entry point an out-of-tree consumer of libthink
-       reaches the language through, and the failure modes are a null
-       dereference for treeOut and a parse of nothing for input. A nonzero
-       return with *treeOut left NULL is a shape finishParse already
-       handles -- it is what a parse that failed on line one looks like. */
-    if (treeOut == NULL)
-        return 1;
-
-    *treeOut = NULL;
-
-    if (synth == NULL || input == NULL)
-        return 1;
-
-    thParseContext ctx;
-
     ctx.synth = synth;
     ctx.tree = new thSynthTree("newmod", synth);
     ctx.node = new thNode("newnode", NULL);
@@ -1070,7 +1059,7 @@ int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
 
     int result = 0;
 
-    if (!thLexStream(input, ctx.tokens))
+    if (!lexed)
     {
         /* A lexical error stops the file here rather than being echoed
            to stdout and forgotten, which is what flex's default rule did
@@ -1092,4 +1081,43 @@ int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
 
     *treeOut = ctx.tree;
     return result;
+}
+
+int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
+{
+    /* Checked rather than assumed. Every caller in the tree passes both,
+       but this is the entry point an out-of-tree consumer of libthink
+       reaches the language through, and the failure modes are a null
+       dereference for treeOut and a parse of nothing for input. A nonzero
+       return with *treeOut left NULL is a shape finishParse already
+       handles -- it is what a parse that failed on line one looks like. */
+    if (treeOut == NULL)
+        return 1;
+
+    *treeOut = NULL;
+
+    if (synth == NULL || input == NULL)
+        return 1;
+
+    thParseContext ctx;
+    const bool lexed = thLexStream(input, ctx.tokens);
+
+    return parseLexed(synth, ctx, lexed, treeOut);
+}
+
+int thParseDspText (thSynth *synth, const std::string &text,
+                    thSynthTree **treeOut)
+{
+    if (treeOut == NULL)
+        return 1;
+
+    *treeOut = NULL;
+
+    if (synth == NULL)
+        return 1;
+
+    thParseContext ctx;
+    const bool lexed = thLexString(text, ctx.tokens);
+
+    return parseLexed(synth, ctx, lexed, treeOut);
 }

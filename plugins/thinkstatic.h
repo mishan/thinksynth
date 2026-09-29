@@ -20,21 +20,21 @@
  * Everything a DSP plugin includes, included once, at file scope, ahead of
  * the plugin.
  *
- * The browser build links every plugin into one module, and every plugin
- * defines the same names -- module_init, module_callback, module_cleanup,
- * args[], mystate -- so each is compiled inside a namespace of its own (see
- * cmake/ThinkPlugin.cmake here). A header included for the first time inside
- * that namespace would drag std:: and libthink in with it. Included here
- * first, every one of them is behind its guard by the time the plugin's own
- * #include lines are reached, and those lines do nothing.
+ * The browser build and think_embedded link every plugin into one binary,
+ * and every plugin defines the same names -- module_init, module_callback,
+ * module_cleanup, args[], mystate -- so each is compiled inside a namespace
+ * of its own (see cmake/ThinkStatic.cmake). A header included for the first
+ * time inside that namespace would drag std:: and libthink in with it.
+ * Included here first, every one of them is behind its guard by the time
+ * the plugin's own #include lines are reached, and those lines do nothing.
  *
  * The list is every header a built DSP plugin includes. A plugin that grows
  * a new one fails to compile here, loudly and in the header it added, and
  * the fix is a line below.
  */
 
-#ifndef TH_WEB_STATIC_H
-#define TH_WEB_STATIC_H 1
+#ifndef TH_STATIC_H
+#define TH_STATIC_H 1
 
 #include "config.h"
 
@@ -55,4 +55,4 @@
 #include "thSynth.h"
 #include "thSynthTree.h"
 
-#endif /* TH_WEB_STATIC_H */
+#endif /* TH_STATIC_H */

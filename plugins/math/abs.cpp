@@ -24,7 +24,7 @@
 #include "think.h"
 
 enum {IN_ARG, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 static const char desc[] = "The magnitude of a stream";
 thPlugin::State    mystate = thPlugin::PASSIVE;

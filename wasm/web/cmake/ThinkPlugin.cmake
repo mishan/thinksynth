@@ -9,33 +9,20 @@
 #
 # Both ABIs come this way now: the DSP plugins a .dsp names, and the
 # composers a .gen names, since the scheduler runs in the worklet too. What
-# each contributes is a wrapper source and a row in the table; CMakeLists.txt
-# here writes the table from the two properties below.
+# each contributes is a wrapper source and a row in the table;
+# CMakeLists.txt here writes the table from the properties below, through
+# think_static_registry.
 #
 # The visuals come this way too now: there is something to draw on, which is
 # cairo-canvas2d, and something to draw -- the probes the node editor arms.
 
-# A wrapper source, and a name to find its row by.
-#
-# The DSP plugins' exports are plain C++ names, so a namespace is the whole
-# trick. See think_add_composer for why the other ABI needs one more.
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/ThinkStatic.cmake")
+
+# A wrapper source, and a name to find its row by: cmake/ThinkStatic.cmake's,
+# which think_embedded in the native build uses too. See think_add_composer
+# for why the other ABI needs one more thing.
 function(think_add_plugin category name)
-  set(id "${category}_${name}")
-  set(wrapper "${PROJECT_BINARY_DIR}/static/${id}.cpp")
-
-  # CMAKE_CURRENT_SOURCE_DIR is the caller's, plugins/.
-  file(CONFIGURE OUTPUT "${wrapper}" CONTENT
-"/* plugins/${category}/${name}.cpp, in a namespace of its own. Written by
-   wasm/web/cmake/ThinkPlugin.cmake; see wasm/web/thinkstatic.h. */
-#include \"thinkstatic.h\"
-
-namespace thp_${id} {
-#include \"${CMAKE_CURRENT_SOURCE_DIR}/${category}/${name}.cpp\"
-}
-")
-
-  set_property(GLOBAL APPEND PROPERTY THINK_STATIC_SOURCES "${wrapper}")
-  set_property(GLOBAL APPEND PROPERTY THINK_STATIC_PLUGINS "${category}/${name}")
+  think_static_plugin("${category}" "${name}")
 endfunction()
 
 function(think_add_plugin_category category)

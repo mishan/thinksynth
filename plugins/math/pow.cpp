@@ -24,7 +24,7 @@
 #include "think.h"
 
 enum {IN_BASE, IN_EXP, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 /* What `pow(a, b)' in a .dsp expression becomes, and a node in its own
    right. Here rather than as a `^' operator so the language gains no

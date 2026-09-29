@@ -266,7 +266,7 @@ enum {IN_ARG, IN_FREQ, IN_B, IN_DECAY, IN_HIDECAY, IN_DAMPER, IN_GATE,
       IN_MASS, IN_FELT, IN_EXPONENT, IN_POSITION, OUT_ARG, OUT_PLAY,
       OUT_FORCE, INOUT_BUFFER, INOUT_STATE};
 
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 /* Where each string's own state lives, from the start of its block. */
 enum {

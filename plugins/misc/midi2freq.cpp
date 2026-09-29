@@ -24,7 +24,7 @@
 #include "think.h"
 
 enum {IN_NOTE, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 #define SQR(x) ((x)*(x))
 

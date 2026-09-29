@@ -155,6 +155,49 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(dspab)
+
+# Numbers read and written the same under a comma-decimal LC_NUMERIC.
+think_harness(localecheck THREADS)
+
+# think_embedded inside a module, and whether dlclose really unloads it.
+# RTLD_NOLOAD and the rules for what pins a module are glibc's. The module
+# exports its one function and nothing else, as a plugin's version script
+# would have it; a C++ module that exports its std::string instantiations
+# is pinned by libstdc++ binding to them, whatever libthink does.
+if(THINK_EMBEDDED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(_exports "${CMAKE_CURRENT_BINARY_DIR}/unloadcheck-module.map")
+  file(WRITE "${_exports}" "{ global: unloadcheck_probe; local: *; };\n")
+
+  add_library(unloadcheck-module MODULE unloadcheck-module.cpp)
+  target_include_directories(unloadcheck-module PRIVATE "${PROJECT_SOURCE_DIR}")
+  target_link_libraries(unloadcheck-module PRIVATE think_embedded)
+  target_link_options(unloadcheck-module PRIVATE
+                      "-Wl,--version-script=${_exports}")
+  set_target_properties(unloadcheck-module PROPERTIES
+      PREFIX ""
+      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+
+  add_executable(unloadcheck unloadcheck.cpp)
+  target_link_libraries(unloadcheck PRIVATE ${CMAKE_DL_LIBS})
+  set_target_properties(unloadcheck PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+  add_dependencies(unloadcheck unloadcheck-module)
+
+  add_test(NAME unloadcheck
+           COMMAND unloadcheck $<TARGET_FILE:unloadcheck-module>)
+endif()
+
+# The same harness twice: dlopened plugins, and think_embedded's compiled-in
+# ones. See the dsphash.embedded gate below.
+think_harness(dsphash)
+
+if(THINK_EMBEDDED)
+  add_executable(dsphash-embedded dsphash.cpp)
+  target_include_directories(dsphash-embedded PRIVATE "${PROJECT_SOURCE_DIR}")
+  target_link_libraries(dsphash-embedded PRIVATE think_embedded)
+  set_target_properties(dsphash-embedded PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+endif()
 think_harness(dspbench)
 
 # Arithmetic over signals: that a constant expression still folds, that one
@@ -197,6 +240,18 @@ think_harness(dspsweep)
 # TSan for MinGW. So it is simply not built there.
 if(NOT WIN32)
   think_harness(dspstress THREADS)
+
+  # The same levels over think_embedded, whose loader reads a table rather
+  # than calling dlopen: the loader level 7 exercises is that one.
+  if(THINK_EMBEDDED)
+    find_package(Threads REQUIRED)
+    add_executable(dspstress-embedded dspstress.cpp)
+    target_include_directories(dspstress-embedded PRIVATE "${PROJECT_SOURCE_DIR}")
+    target_link_libraries(dspstress-embedded PRIVATE think_embedded
+                                                     Threads::Threads)
+    set_target_properties(dspstress-embedded PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+  endif()
 endif()
 
 # The audio path's block-size handling, without a sound card. gthSynthSource
@@ -504,6 +559,48 @@ add_test(NAME dspcheck.dsp
                  -DMODE=dsp
                  "-DEXTRA_ARGS=-q --shipped"
                  -P "${_runner}")
+
+# Every .dsp parses, prints and plays the same under de_DE as under C. A
+# machine with no comma-decimal locale installed skips it: the harness says
+# SKIP, and the runner turns any nonzero status into a failure, so the skip
+# is read off the output rather than the exit code.
+add_test(NAME localecheck
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:localecheck>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -P "${_runner}")
+set_tests_properties(localecheck PROPERTIES
+                     SKIP_REGULAR_EXPRESSION "SKIP  no locale")
+
+# A graph loaded from text sounds the same as the file it was read from.
+add_test(NAME dsphash.text
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dsphash>
+                 -DEXTRA_ARGS_B=-t
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 "-DEXTRA_ARGS=-i ${PROJECT_SOURCE_DIR}/dsp/supersaw.dsp"
+                 -P "${_runner}")
+
+# Every plugin compiled into think_embedded sounds the same as its module:
+# the corpus through both builds of dsphash, compared hash for hash.
+if(THINK_EMBEDDED)
+  add_test(NAME dsphash.embedded
+           COMMAND "${CMAKE_COMMAND}"
+                   -DHARNESS=$<TARGET_FILE:dsphash>
+                   -DHARNESS_B=$<TARGET_FILE:dsphash-embedded>
+                   -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                   -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                   -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                   -DMODE=dsp
+                   "-DEXTRA_ARGS=-i ${PROJECT_SOURCE_DIR}/dsp/supersaw.dsp"
+                   -P "${_runner}")
+endif()
 
 # The fixtures beside this harness, which are not in dsp/ and so are in no
 # corpus sweep. They still have to load: divergent.dsp is the only user of

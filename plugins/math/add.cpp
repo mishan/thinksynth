@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_0, IN_1, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 /* mixer::add shipped with this same description and halves the result. This
    one is the plain sum, for arithmetic rather than for mixing. */

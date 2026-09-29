@@ -51,7 +51,7 @@ foreach (split /\n/, $after_buf)
 print $first_init_buf;
 
 print "enum { " . join(',', map { $_->{'var'} } @args) . " };\n\n";
-print "int args[" . $args[$#args]->{'var'} . " + 1];\n\n";
+print "std::atomic<int> args[" . $args[$#args]->{'var'} . " + 1];\n\n";
 
 print $init_buf;
 

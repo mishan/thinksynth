@@ -29,7 +29,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_PW, IN_SW};
 
-int args[IN_SW + 1];
+std::atomic<int> args[IN_SW + 1];
 
 void module_cleanup (thPlugin *plugin)
 {

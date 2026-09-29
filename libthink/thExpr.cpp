@@ -19,10 +19,10 @@
 #include "config.h"
 
 #include <stdio.h>
-#include <stdlib.h>     /* strtof, for the shortest round-tripping decimal */
 #include <math.h>
 
 #include "thExpr.h"
+#include "thUtil.h"
 
 using std::string;
 using std::vector;
@@ -356,26 +356,27 @@ thExprLeaves (const thExprNode *e, vector<thExprLeaf> &out)
  * so `1.2345678' came out `1.23457'. Both put a number in the editor's box
  * that the author did not write and the language cannot take back.
  *
- * Widening until strtof agrees rather than picking a fixed precision: 9
+ * Widening until the parse agrees rather than picking a fixed precision: 9
  * digits round-trips every float but writes `0.100000001' for a tenth, and
  * the first precision that round-trips is both exact and what a reader
- * expects. A non-finite value matches at once and comes out `inf' or `nan',
- * which no .dsp can hold either -- but saying so is better than rounding it
- * to something that looks finite. */
+ * expects. An infinity matches at once and comes out `inf'; a NaN matches
+ * nothing, itself included, and comes out `nan' after the widest attempt.
+ * No .dsp can hold either -- but saying so is better than rounding it to
+ * something that looks finite. */
 static string
 number (float v)
 {
-    char buf[512];
+    string text;
 
     for (int prec = 0; prec < 45; prec++)
     {
-        snprintf(buf, sizeof(buf), "%.*f", prec, (double)v);
+        text = thUtil::formatFixed(v, prec);
 
-        if (strtof(buf, NULL) == v)
+        if (thUtil::parseFloat(text.c_str()) == v)
             break;
     }
 
-    return string(buf);
+    return text;
 }
 
 static int

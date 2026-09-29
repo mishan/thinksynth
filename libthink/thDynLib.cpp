@@ -24,11 +24,21 @@
 
 /* See the header: a table the build generated, and a name to find in it. */
 
+# include <stdio.h>
 # include <string.h>
 
 namespace {
 
-std::string lastError_;
+/* Per thread, as dlerror() is: two synths loading plugins on two threads --
+ * two instances of an audio plugin in one host -- would otherwise write one
+ * buffer at once.
+ *
+ * A char array and not a std::string, because a thread_local with a
+ * destructor registers it with the C++ runtime, and glibc will not unload
+ * a module while a live thread holds a destructor of its: a host's dlclose
+ * of an audio plugin that had once failed a lookup did nothing. MinGW can
+ * run such a destructor after FreeLibrary has unmapped its code. */
+thread_local char lastError_[256];
 
 } /* namespace */
 
@@ -37,11 +47,12 @@ thDynLib::Handle thDynLib::open (const std::string &path)
     for (size_t i = 0; i < thStaticPluginCount; i++)
         if (path == thStaticPlugins[i].name)
         {
-            lastError_.clear();
+            lastError_[0] = 0;
             return (Handle)&thStaticPlugins[i];
         }
 
-    lastError_ = "no plugin " + path + " in this build";
+    snprintf(lastError_, sizeof(lastError_), "no plugin %s in this build",
+             path.c_str());
 
     return NULL;
 }
@@ -57,7 +68,7 @@ void *thDynLib::symbol (Handle handle, const char *name)
         if (!strcmp(name, p->symbols[i].name))
             return p->symbols[i].addr;
 
-    lastError_ = std::string(name) + ": not in the table";
+    snprintf(lastError_, sizeof(lastError_), "%s: not in the table", name);
 
     return NULL;
 }
@@ -113,7 +124,8 @@ std::string win32Error (DWORD code)
     return std::filesystem::path(w).string();
 }
 
-DWORD lastCode = 0;
+/* Per thread, as GetLastError() itself is. See the static branch. */
+thread_local DWORD lastCode = 0;
 
 } /* namespace */
 

@@ -24,7 +24,7 @@
 #include "think.h"
 
 enum {IN_A, IN_D, IN_S, IN_F, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
-int args[INOUT_POSITION + 1];
+std::atomic<int> args[INOUT_POSITION + 1];
 
 /* An ADSFR: env::adsr with a falloff between the sustain and the release,
    which is what the extra letter is. Both shipped with the same

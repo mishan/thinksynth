@@ -103,7 +103,7 @@
 #define SVF_FLUSH 1e-30f
 
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_LOW, OUT_BAND, OUT_HIGH, INOUT_LAST};
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "State-variable filter: low, band and high";
 thPlugin::State    mystate = thPlugin::ACTIVE;

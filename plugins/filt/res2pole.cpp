@@ -48,7 +48,7 @@ void module_cleanup (thPlugin *plugin)
 enum { OUT_LOW, OUT_HIGH, OUT_BAND, OUT_NOTCH, INOUT_DELAY, IN_ARG, IN_CUTOFF,
        IN_RES };
 
-int args[IN_RES + 1];
+std::atomic<int> args[IN_RES + 1];
 
 int module_init (thPlugin *plugin)
 {

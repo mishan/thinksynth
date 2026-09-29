@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 static const char desc[] = "Maps a stream to a new value range";
 thPlugin::State    mystate = thPlugin::PASSIVE;

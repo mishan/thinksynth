@@ -31,7 +31,7 @@
 #define QMAX 0.9995f
 
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, INOUT_LAST};
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "12db IIR LPF";
 thPlugin::State    mystate = thPlugin::ACTIVE;

@@ -18,7 +18,8 @@
 
 /*
  * Everything a visual module includes, included once, at file scope, ahead
- * of the module. thinkstatic.h and thcstatic.h, for the other two ABIs.
+ * of the module. plugins/thinkstatic.h and thcstatic.h, for the other two
+ * ABIs.
  *
  * The visuals are compiled into the one module the same way the DSP
  * plugins and the composers are, each inside a namespace of its own, so a
