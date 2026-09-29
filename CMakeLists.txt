@@ -61,6 +61,11 @@ option(THINK_BUILD_STATIC_LIB "Also build libthink as a static archive" ON)
 # audio plugin inside a DAW. See cmake/ThinkStatic.cmake.
 option(THINK_EMBEDDED "Also build think_embedded, libthink with the plugins compiled in" ON)
 
+# dsp/juno.dsp as a CLAP, VST3 and LV2 instrument, through DPF, which is
+# fetched. Off by default: it needs the network the first time and nothing
+# else here depends on it. See plugin/.
+option(THINK_BUILD_PLUGIN "Build thinksynth as an audio plugin (needs THINK_EMBEDDED)" OFF)
+
 # configure.ac:108 put -ffast-math on every object *and* the link line, which
 # sets FTZ/DAZ process-wide -- including for the GUI, and including for the
 # link, which is where it pulls in crtfastmath.o and makes the setting a
@@ -610,6 +615,14 @@ if(THINK_BUILD_HARNESSES)
   add_subdirectory(scripts)
 endif()
 
+if(THINK_BUILD_PLUGIN)
+  if(NOT THINK_EMBEDDED)
+    message(FATAL_ERROR "THINK_BUILD_PLUGIN needs THINK_EMBEDDED")
+  endif()
+
+  add_subdirectory(plugin)
+endif()
+
 # The graphs, and the kit osc::sample plays. Two patterns rather than
 # one: a FILES_MATCHING install takes nothing it was not told about, so
 # `*.dsp' alone shipped a sampler with nothing to sample -- the node
@@ -765,5 +778,6 @@ message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")
 message(STATUS "  sanitizers ............: ${THINK_SANITIZE}")
 message(STATUS "  libthink soversion ....: ${THINK_LIB_MAJOR}")
 message(STATUS "  think_embedded ........: ${THINK_EMBEDDED}")
+message(STATUS "  audio plugin ..........: ${THINK_BUILD_PLUGIN}")
 message(STATUS "  plugins install to ....: ${THINK_PLUGIN_PATH}")
 message(STATUS "")

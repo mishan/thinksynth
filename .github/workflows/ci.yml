@@ -80,8 +80,11 @@ jobs:
           sudo locale-gen de_DE.UTF-8
           locale -a | grep -qix 'de_DE.utf8'
 
+      # The audio plugin too (plugin/), and with it plugincheck and the two
+      # format validators; see docs/PLUGIN.md. Here and not on every job:
+      # the validators are Linux builds.
       - name: Configure
-        run: cmake -S . -B build -G Ninja
+        run: cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON
 
       - name: Build
         run: cmake --build build
