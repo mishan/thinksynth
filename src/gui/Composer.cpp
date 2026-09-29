@@ -165,6 +165,8 @@ Composer::Composer (thSynth *synth)
         sigc::mem_fun(*this, &Composer::onCanvasMute));
     canvas_->sigSolo.connect(
         sigc::mem_fun(*this, &Composer::onCanvasSolo));
+    canvas_->sigSectionLevel.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasSectionLevel));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
@@ -1688,6 +1690,29 @@ Composer::onKbdToggle (void)
         kbdOnConn_.disconnect();
         kbdOffConn_.disconnect();
     }
+}
+
+/* A cell of the arrangement: written into the work file, and poked into
+ * the running piece, which goes on playing -- an arrangement edit is a
+ * value edit, like a param, and not a reason to rewind. */
+void
+Composer::onCanvasSectionLevel (size_t section, size_t chain, double level)
+{
+    if (section >= sched_->sections().size() ||
+        chain >= doc_.chains.size())
+        return;
+
+    const std::string name = sched_->sections()[section].name;
+    const std::string chainName = doc_.chains[chain].name;
+    std::string why;
+
+    if (!editOk(thcGenEdit::setSectionLevel(workPath_, name, chainName,
+                                            level, why), why))
+        return;
+
+    sched_->setSectionLevel(section, chainName, level);
+    setDirty(true);
+    canvas_->queue_draw();
 }
 
 /* Another document: its chains are not these, whatever they are called. */

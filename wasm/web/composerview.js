@@ -41,7 +41,7 @@ import { showPanel } from './panel.js';
 
 export function createComposerView ({ root = document, toMirror,
                                       onGesture, onParamEdit, onMix,
-                                      onKnob, onMove,
+                                      onKnob, onMove, onSection,
                                       keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
@@ -147,7 +147,8 @@ export function createComposerView ({ root = document, toMirror,
     /* The same for a chain's M (which 0) or S (1), and each chain's
        mute and solo as the mirror holds them. */
     let chipAsked = null, mixAsked = null, knobAsked = null,
-        stageAsked = null, activityAsked = null, layoutAsked = null;
+        stageAsked = null, activityAsked = null, layoutAsked = null,
+        laneAsked = null;
 
     const chipOf = (chain, which) => new Promise((resolve) =>
     {
@@ -167,6 +168,12 @@ export function createComposerView ({ root = document, toMirror,
     {
         knobAsked = resolve;
         toMirror({ type: 'knobat', name });
+    });
+
+    const lane = () => new Promise((resolve) =>
+    {
+        laneAsked = resolve;
+        toMirror({ type: 'lane' });
     });
 
     const layout = () => new Promise((resolve) =>
@@ -238,6 +245,15 @@ export function createComposerView ({ root = document, toMirror,
             case 'layout':
                 layoutAsked?.(m);
                 layoutAsked = null;
+                return true;
+            case 'lane':
+                laneAsked?.(m);
+                laneAsked = null;
+                return true;
+
+            /* An arrangement cell pressed: a `section' command. */
+            case 'canvassection':
+                onSection?.(m.section, m.chain, m.level);
                 return true;
 
             /* A knob node's track dragged: a knob command, by index. */
@@ -550,7 +566,7 @@ export function createComposerView ({ root = document, toMirror,
         'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf, chipOf, mix: askMix, forgetMix,
-             knobAt, stageAt, activity, layout, pollParams,
+             knobAt, stageAt, activity, layout, lane, pollParams,
 
              /* How many pieces the mirror has loaded, for a harness to
                 wait on one. */

@@ -357,6 +357,17 @@ public:
                                  const std::string &start,
                                  std::string &why);
 
+    /* ---- the arrangement ---------------------------------------------- */
+
+    /* A chain's level in one section: 0 mutes it, 1 is as written --
+       which removes the chain from the section, since a section that
+       does not name a chain plays it as written -- and anything else
+       scales its notes' level. */
+    static Result setSectionLevel (const std::string &filename,
+                                   const std::string &section,
+                                   const std::string &chain, double level,
+                                   std::string &why);
+
     /* ---- stages ------------------------------------------------------- */
 
     /* Inserted before the first sink: textual order is execution order,

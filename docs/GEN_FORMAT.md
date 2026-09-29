@@ -736,6 +736,10 @@ one, exactly as un-muting does. Which section an event belongs to is decided by
 the event's own time and not by when it was emitted, so a grammar that emits
 eight bars in one tick is gated bar by bar.
 
+The composer view draws the sections as a lane above the chains, and a click
+on a chain's cell in a section steps its level there (1, 0, 0.5); the edit is
+written into the section as `chain = level;`, or taken out of it at 1.
+
 The live mute and solo — the M and S on a chain in the composer view — close
 the same gate: a chain they silence is at level 0 whatever the section says.
 Unlike a section they are read when an event reaches the end of the chain, not
@@ -896,9 +900,10 @@ stage, a new chain) contains:
   `instrument = pad` and `channel = 4` replaces that one statement — there is
   no sense in which one can be edited into the other, and a sink left carrying
   both would not load.
-- The arrangement is hand-written: no operation here creates, edits or removes
-  a `section`. What the editor owes it is that no *other* edit can invalidate
-  one — renaming a chain rewrites every section that names it, and removing a
+- The arrangement is written by hand, except for one edit: a chain's level in
+  a section (`setSectionLevel`), which writes `chain = level;` into it, or
+  takes the entry out at 1. Nothing creates or removes a `section`. What the
+  editor owes it besides is that no *other* edit can invalidate one — renaming a chain rewrites every section that names it, and removing a
   chain a section names is refused and says which section. A dangling name in
   a section is a file that does not load, which is the same reason `removeKnob`
   rewrites every `@name`.

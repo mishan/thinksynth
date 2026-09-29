@@ -1647,6 +1647,76 @@ try
 
     await page.uncheck('#rollbychain');
 
+    /* The arrangement lane, on a piece that has one: a cell pressed steps
+       that chain's level in that section, the running piece hears it, and
+       the text says it. Then colony again, for what follows. */
+    {
+        const pieceLoads = await page.evaluate(() => window.solo.pieces());
+
+        await page.selectOption('#piece', 'mirrorball.gen');
+        await page.waitForFunction((n) => window.solo.pieces() > n,
+                                   pieceLoads, { timeout: 60000 });
+        await page.evaluate(() => window.solo.settled());
+
+        const lane = () => page.evaluate(() => window.solo.lane());
+        const before = await lane();
+        /* The whole statement, which runs over more than one line. */
+        const introKick = () =>
+            page.evaluate(() =>
+            {
+                const t = window.solo.genText();
+                const a = t.indexOf('section intro');
+
+                return a < 0 ? '' : t.slice(a, t.indexOf('};', a) + 2);
+            });
+
+        const cellPress = async () =>
+        {
+            const at = (await lane()).cells[0][0];
+            const where = await scroller();
+
+            await page.mouse.click(where.x + at.x, where.y + at.y);
+        };
+
+        if (before.levels.length === 0 || before.levels[0][0] !== 0)
+            check(false, 'mirrorball\'s intro should start with the kick ' +
+                         `silent: ${JSON.stringify(before.levels[0])}`);
+        else
+        {
+            await cellPress();
+
+            const half = await until(lane, (l) => l.levels[0][0] === 0.5);
+            const text = await until(introKick,
+                                     (t) => /kick = 0\.5/.test(t));
+
+            check(half.levels[0][0] === 0.5 && /kick = 0\.5/.test(text),
+                  `an arrangement cell steps the kick's level in the ` +
+                  `intro, and the text follows: ${text}`);
+
+            /* Round again, two presses faster than a command comes back:
+               the cell answers with what it asked for, so the second
+               reads the first -- as written, then silent -- and the text
+               ends where the second left it. */
+            await cellPress();
+            await cellPress();
+
+            const back = await until(lane, (l) => l.levels[0][0] === 0);
+            const again = await until(introKick,
+                                      (t) => /kick = 0;/.test(t));
+
+            check(back.levels[0][0] === 0 && /kick = 0;/.test(again),
+                  'two quick presses step it twice, through as written ' +
+                  `to silent: ${again}`);
+        }
+
+        const colonyLoads = await page.evaluate(() => window.solo.pieces());
+
+        await page.selectOption('#piece', COMPOSER_PIECE);
+        await page.waitForFunction((n) => window.solo.pieces() > n,
+                                   colonyLoads, { timeout: 60000 });
+        await page.evaluate(() => window.solo.settled());
+    }
+
     /* ---- the piano roll ----
      *
      * The other canvas the mirror draws, and the one this page did not

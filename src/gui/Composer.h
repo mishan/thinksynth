@@ -306,6 +306,7 @@ protected:
                            CanvasRect at);
     void onCanvasMute (size_t chain, bool on);
     void onCanvasSolo (size_t chain, bool on);
+    void onCanvasSectionLevel (size_t section, size_t chain, double level);
     void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a

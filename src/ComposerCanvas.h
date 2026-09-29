@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <map>
 #include <set>
 
 #include <sigc++/sigc++.h>
@@ -187,6 +188,17 @@ public:
     sigc::signal<void (size_t, bool)> sigMute;
     sigc::signal<void (size_t, bool)> sigSolo;
 
+    /* A cell of the arrangement lane was pressed: which section, which
+       chain, and the level it asks that chain to have there. The window
+       writes it into the file and pokes the running piece; the browser
+       sends it as a command. */
+    sigc::signal<void (size_t, size_t, double)> sigSectionLevel;
+
+    /* The middle of a cell of the arrangement lane, in widget pixels.
+       False for a piece with no sections. */
+    bool sectionCell (size_t section, size_t chain, double &x,
+                      double &y) const;
+
     /* Which stage is filling the canvas, or NONE. Public so the window
        can label what it is showing and offer to capture it. */
     const Selection &enlarged (void) const { return enlarged_; }
@@ -277,6 +289,11 @@ protected:
        both be read against the old flag. */
     virtual bool mixFlag (size_t chain, bool solo) const;
 
+    /* A chain's level in one section, as its lane cell shows it and a
+       press steps it: the scheduler's, or -- for the same reason as
+       mixFlag -- what a shell has asked for and not yet heard back. */
+    virtual double laneLevel (size_t section, size_t chain) const;
+
 private:
     /* One clickable box, laid out by rebuild(). */
     struct Box
@@ -351,6 +368,9 @@ private:
                                              const std::string &param)>
                    &fn) const;
 
+    void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    bool layoutLane (double y);
+
     void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
                    const Box &box, bool selected) const;
     void drawWires (const Cairo::RefPtr<Cairo::Context> &cr) const;
@@ -374,6 +394,24 @@ private:
     std::vector<double> rowX_;   /* left of each chain row              */
     std::vector<double> rowY_;   /* top of each chain row               */
     std::vector<double> rowH_;   /* height of each chain row            */
+
+    /* The arrangement lane: a block per section, and a cell per section
+       and chain; where it starts and how far right it reaches. */
+    struct LaneRect { double x, y, w, h; };
+    struct LaneCell
+    {
+        size_t section, chain;
+        double x, y, w, h;
+    };
+
+    std::vector<LaneRect> heads_;
+    std::vector<LaneCell> cells_;
+    double laneY_, laneRight_;
+
+    /* The arrangement's length the lane was laid out for, and the levels
+       the file wrote that a click would otherwise lose. */
+    double laneTotal_ = 0;
+    std::map<std::pair<size_t, std::string>, double> laneWritten_;
 
     /* The chains collapsed, by name. */
     std::set<std::string> collapsed_;

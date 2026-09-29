@@ -822,6 +822,16 @@ public:
 
     bool endsAfterSections (void) const { return endAfter_; }
 
+    /* A chain's level in one section, changed while the piece plays:
+       what an arrangement edit does to the running piece, beside the
+       splice that writes it. 1 takes the chain out of the section. */
+    void setSectionLevel (size_t section, const std::string &chain,
+                          double level);
+
+    /* A chain's level in one section: 1 where the section does not name
+       it. */
+    double sectionLevelOf (size_t section, const std::string &chain) const;
+
     /* Where one section sits, in transport seconds at the current
        tempo: its length, and the whole arrangement's. Zero when the
        piece has no sections. */

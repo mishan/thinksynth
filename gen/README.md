@@ -65,6 +65,11 @@ they drive. Everything is reachable from there:
   stages and sinks shrunk to pills; *Collapse Chains* and *Expand Chains* do
   every chain. When the view is wide enough the chains are laid out in
   columns, in file order down each one.
+- **The arrangement**: a piece with sections gets a lane above the chains, a
+  block per section as wide as it is long, the one playing lit and a line
+  where the transport is, and a row per chain with its level in each section.
+  Click a cell to step that chain's level there -- as written, silent, half --
+  which is heard at once and written into the piece.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the

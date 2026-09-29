@@ -21,7 +21,8 @@
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
  * `transport', `begin', `at', `knob', `paneledit', `stageparam', `param',
- * `mute', `solo', `input', `midion', `midioff', `on', `off' or `alloff'
+ * `mute', `solo', `section', `input', `midion', `midioff', `on', `off' or
+ * `alloff'
  * message, turned into the tw_ call that applies it. It used to live in
  * worklet.js, and moved here when there were two instances to apply it to.
  *
@@ -224,6 +225,13 @@ export function apply (M, m, host = NOWHERE)
 
         case 'solo':
             M._tw_solo(m.at ?? -1, m.chain, m.on ? 1 : 0);
+            return true;
+
+        case 'section':
+            /* A chain's level in one section of the arrangement, at a
+               transport time: heard, so stamped, and written into the
+               piece by every instance, as a param is. */
+            M._tw_section_level(m.at ?? -1, m.section, m.chain, m.level);
             return true;
 
         case 'input':

@@ -210,6 +210,17 @@ function sendGestures ()
 
     M._tw_canvas_knobs_clear();
 
+    /* An arrangement cell: a `section' command on the page. */
+    for (let k = 0; k < M._tw_canvas_section_count(); k++)
+        post({
+            type: 'canvassection',
+            section: M._tw_canvas_section_section(k),
+            chain: M._tw_canvas_section_chain(k),
+            level: M._tw_canvas_section_level(k),
+        });
+
+    M._tw_canvas_sections_clear();
+
     /* A stage box dropped elsewhere in its chain. The page makes the
        edit, to whichever text it holds, and loads what comes back. */
     if (M._tw_canvas_move_wanted())
@@ -622,6 +633,29 @@ function receive (m)
 
             post({ type: 'layout', columns: M._tw_canvas_columns(),
                    width: M._tw_canvas_width(), chains });
+            break;
+        }
+
+        /* The arrangement as the running piece has it, [section][chain],
+           and where each cell is, for a test. */
+        case 'lane':
+        {
+            const levels = [], cells = [];
+
+            for (let s = 0; s < M._tw_section_count(); s++)
+            {
+                levels.push([]);
+                cells.push([]);
+
+                for (let c = 0; c < M._tw_chain_count(); c++)
+                {
+                    levels[s].push(M._tw_section_level_of(s, c));
+                    cells[s].push({ x: M._tw_canvas_cell_x(s, c),
+                                    y: M._tw_canvas_cell_y(s, c) });
+                }
+            }
+
+            post({ type: 'lane', levels, cells });
             break;
         }
 
