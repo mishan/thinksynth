@@ -157,7 +157,7 @@ think_harness(dsplevel)
 think_harness(dspab)
 
 # Numbers read and written the same under a comma-decimal LC_NUMERIC.
-think_harness(localecheck)
+think_harness(localecheck THREADS)
 
 # The same harness twice: dlopened plugins, and think_embedded's compiled-in
 # ones. See the dsphash.embedded gate below.

@@ -111,16 +111,16 @@ public:
      * LC_NUMERIC to "C" in main(), but a host that links libthink into
      * itself -- an audio plugin inside a DAW -- cannot change a locale the
      * host's own UI depends on, so the library's conversions do not rely on
-     * it. Rounding is the C library's in the C locale, so a value parses and
-     * prints exactly as it did before.
+     * it, and do not touch the process's locale either: several threads,
+     * the host's among them, may be using it.
      *
-     * The parsers read the longest prefix that is a number and return 0 if
-     * there is none, as atof and strtof do; out of range they return the
-     * largest finite value where those return infinity. */
+     * These are strtod, strtof and snprintf("%.*f") in the C locale, and
+     * behave as those do there: the longest prefix that is a number, 0 if
+     * there is none, infinity out of range. */
     static double parseDouble (const char *text);
     static float parseFloat (const char *text);
 
-    /* printf("%.*f", precision, value). */
+    /* printf("%.*f", precision, value), up to 511 characters. */
     static string formatFixed (double value, int precision);
 };
 

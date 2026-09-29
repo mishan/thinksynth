@@ -25,9 +25,9 @@
 #include <windows.h>   /* MoveFileExA -- see replaceFile */
 #endif
 
+#include <clocale>
+#include <cstdio>
 #include <filesystem>
-#include <locale>
-#include <sstream>
 #include <system_error>
 #include <vector>
 
@@ -54,6 +54,7 @@
 # include <unistd.h>        /* readlink, close */
 # if defined(__APPLE__)
 #  include <mach-o/dyld.h>  /* _NSGetExecutablePath */
+#  include <xlocale.h>      /* newlocale, uselocale */
 # endif
 #endif
 
@@ -432,38 +433,87 @@ string thUtil::findDataDir (const string &subdir, const char *envVar,
     return "";
 }
 
+/* The C locale, as an object the _l and uselocale calls take, made once.
+ *
+ * Not std::locale::classic() on a stream, which is what this was first:
+ * libstdc++ on MinGW implements a stream's numeric conversion by saving the
+ * process's locale, calling setlocale(LC_ALL, "C"), converting, and setting
+ * the saved one back. Two threads doing that interleave -- one restores the
+ * host's comma locale while the other is mid-strtod -- and the host's UI
+ * thread sees LC_ALL flip to "C" on every number the lexer reads. Both the
+ * calls below leave the process's locale alone: _strtod_l and friends take
+ * the locale as an argument, and uselocale sets it for this thread only. */
+#if defined(_WIN32)
+
+static _locale_t cLocale (void)
+{
+    static const _locale_t c = _create_locale(LC_NUMERIC, "C");
+
+    return c;
+}
+
 double thUtil::parseDouble (const char *text)
 {
-    std::istringstream in(text);
-    double v = 0;
-
-    in.imbue(std::locale::classic());
-
-    in >> v;
-
-    return v;
+    return _strtod_l(text, NULL, cLocale());
 }
 
 float thUtil::parseFloat (const char *text)
 {
-    std::istringstream in(text);
-    float v = 0;
-
-    in.imbue(std::locale::classic());
-
-    in >> v;
-
-    return v;
+    return _strtof_l(text, NULL, cLocale());
 }
 
 string thUtil::formatFixed (double value, int precision)
 {
-    std::ostringstream out;
+    char buf[512];
 
-    out.imbue(std::locale::classic());
-    out.setf(std::ios::fixed, std::ios::floatfield);
-    out.precision(precision);
-    out << value;
+    _snprintf_l(buf, sizeof(buf), "%.*f", cLocale(), precision, value);
+    buf[sizeof(buf) - 1] = 0;
 
-    return out.str();
+    return buf;
 }
+
+#else
+
+static locale_t cLocale (void)
+{
+    static const locale_t c = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+
+    return c;
+}
+
+/* uselocale for the length of one conversion, on this thread. */
+class thCLocale
+{
+public:
+    thCLocale (void) : saved_(uselocale(cLocale())) { }
+    ~thCLocale (void) { uselocale(saved_); }
+
+private:
+    locale_t saved_;
+};
+
+double thUtil::parseDouble (const char *text)
+{
+    thCLocale c;
+
+    return strtod(text, NULL);
+}
+
+float thUtil::parseFloat (const char *text)
+{
+    thCLocale c;
+
+    return strtof(text, NULL);
+}
+
+string thUtil::formatFixed (double value, int precision)
+{
+    thCLocale c;
+    char buf[512];
+
+    snprintf(buf, sizeof(buf), "%.*f", precision, value);
+
+    return buf;
+}
+
+#endif

@@ -39,6 +39,14 @@
  * The comma locale is proved to be in force before the second pass: atof
  * has to read `0.5' as 0 there, or the pass would show nothing.
  *
+ * Then four threads convert at once, still under the comma locale, and
+ * every result has to be right and the locale still a comma afterwards.
+ * That is the host with several instances in it, and the host's own UI
+ * thread reading the locale. A conversion that sets the process's locale
+ * to "C" and back around itself -- which is what a stream imbued with the
+ * classic locale does under MinGW's libstdc++ -- loses to that: one thread
+ * puts the comma back while another is mid-parse.
+ *
  *   scripts/localecheck -p build/plugins/ $(find dsp -name '*.dsp')
  *
  * Says SKIP and exits 77 when no comma locale is installed; the ctest
@@ -55,12 +63,15 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "think.h"
 #include "thExpr.h"
 #include "thLexer.h"
+#include "thUtil.h"
 
 static int failed = 0;
 
@@ -195,6 +206,46 @@ static Pass run (const string &pluginPath, int argc, char **argv, int first)
     return p;
 }
 
+static void convertMany (std::atomic<unsigned> *wrong)
+{
+    for (int i = 0; i < 20000; i++)
+    {
+        if (thUtil::parseDouble("0.5") != 0.5 ||
+            thUtil::parseFloat("12.25") != 12.25f ||
+            thUtil::formatFixed(0.25, 2) != "0.25")
+            wrong->fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+/* Four threads converting at once. Called with the comma locale set. */
+static void threaded (const char *name)
+{
+    std::atomic<unsigned> wrong(0);
+    std::vector<std::thread> threads;
+
+    for (int i = 0; i < 4; i++)
+        threads.push_back(std::thread(convertMany, &wrong));
+
+    for (size_t i = 0; i < threads.size(); i++)
+        threads[i].join();
+
+    if (wrong.load() != 0)
+    {
+        printf("FAIL  %u of %d conversions wrong with four threads "
+               "converting under %s\n", wrong.load(), 4 * 20000 * 3, name);
+        failed++;
+    }
+
+    const char *point = localeconv()->decimal_point;
+
+    if (point[0] != ',')
+    {
+        printf("FAIL  four threads converting left the decimal point '%s', "
+               "not the ',' of %s\n", point, name);
+        failed++;
+    }
+}
+
 /* A locale whose decimal separator is a comma, set for LC_NUMERIC, or NULL
    if none is installed. */
 static const char *commaLocale (void)
@@ -262,6 +313,8 @@ int main (int argc, char **argv)
     printf("LC_NUMERIC=%s, where atof reads 0.5 as 0\n", name);
 
     const Pass comma = run(pluginPath, argc, argv, first);
+
+    threaded(name);
 
     setlocale(LC_NUMERIC, "C");
 
