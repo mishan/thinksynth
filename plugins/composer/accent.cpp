@@ -61,7 +61,7 @@
 
 /* The longest pattern the picture edits, and how many steps an empty one
    offers to be drawn into. */
-#define MAX_PATTERN 64
+#define MAX_PATTERN 256
 #define EMPTY_STEPS 16
 
 enum { P_PATTERN, P_GRID, P_STRONG, P_WEAK, P_BAR, P_FROM, P_TO,
@@ -345,7 +345,12 @@ composer_input (void *state, const thcInputEvent *ev)
     const int i = (int)floor(ev->x / (ev->w / len));
 
     if (i < 0 || i >= len)
+    {
+        if (strspn(st->drawn, ".") == (size_t)len)
+            st->drawn[0] = 0;
+
         return;
+    }
 
     const bool on = st->drawn[i] == 'x' || st->drawn[i] == 'X';
 
@@ -364,6 +369,11 @@ composer_input (void *state, const thcInputEvent *ev)
         st->drawn[k] = st->paintTo;
 
     st->paintAt = i;
+
+    /* No marks at all is no pattern: every note as it came, which is
+       what an empty one means and what a row of dots would not. */
+    if (strspn(st->drawn, ".") == (size_t)len)
+        st->drawn[0] = 0;
 }
 
 /* The drawn pattern, as the param's text. */

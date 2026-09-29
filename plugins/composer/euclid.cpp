@@ -514,6 +514,10 @@ composer_input (void *state, const thcInputEvent *ev)
         return;
     }
 
+    /* A press begins a gesture: whatever grab the last one left, its
+       release lost off the edge of the picture, is over. */
+    st->grabStep = -1;
+
     if (dist < radius * 0.6)
     {
         const int now = st->fills() < steps ? st->fills() : steps;

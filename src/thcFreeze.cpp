@@ -12,10 +12,6 @@
  * Public License for more details.
  */
 
-#include "thcAudition.h"
-
-#include <chrono>
-
 #include "config.h"
 
 #include <algorithm>
@@ -175,9 +171,18 @@ thcFreeze::fromChain (const thcScheduler &sched, size_t chain, int bars,
 
         row[h.step] = h.vel >= vel + 12 ? 'X' : 'x';
 
-        for (int k = 1; k < h.len && h.step + k < steps; k++)
-            if (row[h.step + k] == '.')
+        int k = 1;
+
+        for (; k < h.len && h.step + k < steps; k++)
+            if (row[h.step + k] == '.' || row[h.step + k] == '-')
                 row[h.step + k] = '-';
+            else
+                break;
+
+        /* An earlier note's tie that ran on past this one is over: the
+           cells after this note's own are not this note's. */
+        for (int j = h.step + k; j < steps && row[j] == '-'; j++)
+            row[j] = '.';
     }
 
     std::string text, notes;
@@ -201,6 +206,47 @@ thcFreeze::fromChain (const thcScheduler &sched, size_t chain, int bars,
     out.push_back({ "pass", "1" });
 
     return true;
+}
+
+thcGenEdit::Result
+thcFreeze::write (const std::string &path, const thcGenEdit::Chain &from,
+                  const thcScheduler &sched, const std::string &name,
+                  const Params &params, std::string &why)
+{
+    const thcGenEdit::Sink *sink = NULL;
+
+    for (const thcGenEdit::Sink &s : from.sinks)
+        if (s.chanarg.empty())
+        {
+            sink = &s;
+            break;
+        }
+
+    if (sink == NULL)
+    {
+        why = from.name + " plays no notes to freeze";
+        return thcGenEdit::REFUSED;
+    }
+
+    thcGenEdit::Result r =
+        thcGenEdit::addChain(path, name, sink->channel, sink->instrument,
+                             "frozen", "gen", "grid", params, why);
+
+    if (r == thcGenEdit::OK && !from.startText.empty())
+        r = thcGenEdit::setChainStart(path, name, from.startText, why);
+
+    const std::vector<thcSection> &secs = sched.sections();
+
+    for (size_t si = 0; r == thcGenEdit::OK && si < secs.size(); si++)
+    {
+        const double level = sched.sectionLevelOf(si, from.name);
+
+        if (level != 1)
+            r = thcGenEdit::setSectionLevel(path, secs[si].name, name, level,
+                                            why);
+    }
+
+    return r;
 }
 
 std::string

@@ -1729,21 +1729,6 @@ Composer::onCanvasFreeze (size_t chain)
         return;
 
     const thcGenEdit::Chain &c = doc_.chains[chain];
-    const thcGenEdit::Sink *sink = NULL;
-
-    for (const thcGenEdit::Sink &s : c.sinks)
-        if (s.chanarg.empty())
-        {
-            sink = &s;
-            break;
-        }
-
-    if (sink == NULL)
-    {
-        status_->set_text(c.name + " plays no notes to freeze");
-        return;
-    }
-
     thcFreeze::Params params;
     std::string why;
 
@@ -1760,10 +1745,19 @@ Composer::onCanvasFreeze (size_t chain)
 
     const std::string name = thcFreeze::frozenName(c.name, names);
 
-    if (!editOk(thcGenEdit::addChain(workPath_, name, sink->channel,
-                                     sink->instrument, "frozen", "gen",
-                                     "grid", params, why), why))
+    /* All or nothing: a refusal part way through the arrangement would
+       leave a frozen chain that plays where the original does not. */
+    const std::string before = readText(workPath_);
+
+    if (!editOk(thcFreeze::write(workPath_, c, *sched_, name, params, why),
+                why))
+    {
+        std::ofstream out(workPath_.c_str(),
+                          std::ios::trunc | std::ios::binary);
+
+        out << before;
         return;
+    }
 
     /* Kept by name across the reload the new chain needs. */
     sched_->setMuted(chain, true);
@@ -3080,11 +3074,15 @@ Composer::captureStage (size_t ci, size_t si, bool report)
         if (info == NULL)
             continue;
 
-        /* Quoted, because everything a plugin can hand back this way is
-           a string param -- a board, an axiom, a rule set. A numeric
-           param has nothing to capture that a knob does not already
-           say. */
-        if (info->type != THC_PARAM_STRING)
+        /* A string param -- a board, an axiom, a pattern -- quoted; a
+           whole number as it is, which is what the euclid ring hands back
+           for its fills and rotation. Nothing else is written: a float
+           may need a unit the plugin cannot know it was written in. */
+        const bool quoted = info->type == THC_PARAM_STRING;
+
+        if (!quoted && (info->type != THC_PARAM_INT ||
+                        text.find_first_not_of("-0123456789") !=
+                            std::string::npos))
             continue;
 
         /* A .gen string is "[^"\n]*" with no escapes at all, so a quote
@@ -3111,7 +3109,7 @@ Composer::captureStage (size_t ci, size_t si, bool report)
         if (!report && baseline_.count(key) && baseline_[key] == text)
             continue;
 
-        applyParam(ci, si, info->name, "\"" + text + "\"");
+        applyParam(ci, si, info->name, quoted ? "\"" + text + "\"" : text);
         baseline_[key] = text;
         written++;
     }
@@ -3141,7 +3139,8 @@ Composer::buildChainSelection (size_t ci)
     Gtk::CheckButton *mute = manage(new Gtk::CheckButton("mute"));
     Gtk::CheckButton *input = manage(new Gtk::CheckButton("MIDI in"));
     Gtk::Button *rm = manage(new Gtk::Button("Remove chain"));
-    Gtk::Button *freeze = manage(new Gtk::Button("Freeze last 2 bars"));
+    Gtk::Button *freeze = manage(new Gtk::Button(
+        sched_->usesBeats() ? "Freeze last 2 bars" : "Freeze last 4 seconds"));
 
     freeze->set_tooltip_text("What this chain just played, as a new chain "
                              "with a grid you can edit; this one is muted. "

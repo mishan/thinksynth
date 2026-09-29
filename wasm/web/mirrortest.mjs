@@ -126,9 +126,9 @@ function takeTape (p)
 /* The first stage whose picture is a control -- its module exports
    composer_input -- and which this file knows where to paint on
    (PAINT_AT): `life', in colony and glider, and `ca', in loom and cavern.
-   The euclid ring is a control too, whose gestures gencheck drives; a
-   press in the middle of a full ring changes nothing, so it is not one
-   this file's three gestures can say anything about. */
+   The euclid ring and accent's steps are controls too, whose gestures
+   gencheck drives; where on them a press is heard depends on the piece,
+   which is what PAINT_AT cannot say for them. */
 function clickable (M)
 {
     for (let c = 0; c < M._tw_chain_count(); c++)

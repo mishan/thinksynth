@@ -72,7 +72,9 @@ they drive. Everything is reachable from there:
   which is heard at once and written into the piece.
 - **F** on a chain freezes it: what it played in the last two bars becomes a
   new chain, `<name>_frozen`, with a `gen::grid` holding the phrase, and the
-  original is muted. Edit the grid, or unmute the original and keep both.
+  original is muted (on the room page it is left playing). The frozen chain
+  keeps the original's `start` and its level in every section. Edit the
+  grid, or unmute the original and keep both.
 - **Drawn controls**: besides grid, life, ca and evolve, the euclid ring is a
   control -- a click in its middle adds a hit (the other button takes one
   away) and dragging round the ring turns the pattern -- and accent's steps

@@ -234,7 +234,7 @@ ComposerCanvas::layoutRow (size_t ci, double x0, double y, double &h,
 
         b.what.kind = Selection::CHAIN;
         b.what.chain = ci;
-        /* Collapsed, M and S move up beside the name, and the box is
+        /* Collapsed, M, S and F move up beside the name, and the box is
            wider by them so the name keeps its room. */
         b.x = x; b.y = y; b.h = rowH;
         b.w = small ? LABEL_W + CHIPS * (CHIP_W + CHIP_GAP) : LABEL_W;
@@ -839,7 +839,7 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
         const double titleX = box.x + DISCLOSE + 6;
 
-        /* Collapsed, the name shares one line with M and S. */
+        /* Collapsed, the name shares one line with M, S and F. */
         const double titleW = small
             ? box.w - DISCLOSE - 8 - CHIPS * (CHIP_W + CHIP_GAP)
             : box.w - DISCLOSE - 8;

@@ -1741,11 +1741,17 @@ try
             () => page.evaluate(() => window.solo.mix()),
             (c) => c.length > 2 && c[2].muted);
 
+        /* And it plays where the hats play, as loud: the break has them
+           at 0.6. */
+        const brk = frozenText.slice(frozenText.indexOf('section break'));
+        const breakStmt = brk.slice(0, brk.indexOf('};'));
+
         check(/chain hats_frozen \{[^}]*gen::grid/.test(frozenText) &&
+              /hats_frozen = 0\.6;/.test(breakStmt) &&
               mixAfter[2].muted && mixAfter.length === before.levels[0]
                   .length + 1,
-              'F freezes what the hats played into hats_frozen, a grid, ' +
-              'and mutes the hats');
+              'F freezes what the hats played into hats_frozen, a grid at ' +
+              'the hats\' levels in the arrangement, and mutes the hats');
 
         await page.click('#stop');
 

@@ -2458,6 +2458,20 @@ thcScheduler::deliverFrom (const thcEvent &ev, int chain)
             played.pop_front();
     }
 
+    /* A held note's release, which is where its length is known. */
+    if (chain >= 0 && (size_t)chain < chains_.size() &&
+        ev.type == THC_EV_NOTEOFF)
+    {
+        std::deque<thcPlayed> &played = chains_[chain].played;
+
+        for (size_t i = played.size(); i-- > 0; )
+            if (played[i].note == ev.u.note.note && played[i].duration <= 0)
+            {
+                played[i].duration = std::max(ev.at - played[i].at, 0.0);
+                break;
+            }
+    }
+
     deliveringChain_ = chain;
     deliver(ev);
     deliveringChain_ = -1;

@@ -3943,21 +3943,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_freeze (const char *text, int chain,
     }
 
     const thcGenEdit::Chain &c = canvasDoc_.chains[(size_t)chain];
-    const thcGenEdit::Sink *sink = NULL;
-
-    for (const thcGenEdit::Sink &s : c.sinks)
-        if (s.chanarg.empty())
-        {
-            sink = &s;
-            break;
-        }
-
-    if (sink == NULL)
-    {
-        freezeWhy_ = c.name + " plays no notes to freeze";
-        return "";
-    }
-
     thcFreeze::Params params;
 
     if (!thcFreeze::fromChain(*sched_, (size_t)chain, bars, params,
@@ -3970,16 +3955,20 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_freeze (const char *text, int chain,
         names.push_back(other.name);
 
     const std::string name = thcFreeze::frozenName(c.name, names);
+    std::string refused;
     const char *out = spliceText(text, name.c_str(),
         [&](const std::string &path, std::string &why)
         {
-            return thcGenEdit::addChain(path, name, sink->channel,
-                                        sink->instrument, "frozen", "gen",
-                                        "grid", params, why);
+            const thcGenEdit::Result r =
+                thcFreeze::write(path, c, *sched_, name, params, why);
+
+            refused = why;
+            return r;
         });
 
     if (*out == 0)
-        freezeWhy_ = "the frozen chain could not be written";
+        freezeWhy_ = refused.empty() ? "the frozen chain could not be written"
+                                     : refused;
 
     return out;
 }

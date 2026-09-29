@@ -9331,6 +9331,18 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
              "to 6 of 8; captured '" +
              ring->plugin->capture(ring->state, rotate) + "'");
 
+    /* A grab whose release was lost is over at the next press: a press
+       in the middle and a drag from there leave the rotation alone. */
+    gesture(ring, THC_IN_PRESS, 50, 8, 1);
+    gesture(ring, THC_IN_PRESS, 50, 50, 1);
+    gesture(ring, THC_IN_DRAG, 92, 50, 1);
+
+    if (ring->plugin->capture(ring->state, rotate) != "6")
+        fail("a drag from the euclid ring's middle turned it, from a grab "
+             "whose release never came");
+
+    gesture(ring, THC_IN_RELEASE, 92, 50, 1);
+
     if (!acc->plugin->capture(acc->state, pattern).empty())
         fail("an untouched accent captured a pattern");
 
@@ -9405,6 +9417,91 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
         if (frozen != 16)
             fail("the frozen chain should double the original on the "
                  "beat; heard " + std::to_string(frozen) + " of 16");
+    }
+
+    /* A phrase with two pitches, a held note, and a note struck again
+       inside its own tie: the ladder bottom row last, the held note as
+       long as its release made it, and the tie ended by the second
+       strike. Played into an `input midi' chain at 120, so a step is
+       0.125 s and two bars are four seconds. */
+    {
+        const std::string keys = thUtil::tempFile("gencheck-keys-");
+
+        {
+            std::ofstream out(keys.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\n"
+                   "chain hands {\n"
+                   "  input midi;\n"
+                   "  sink { channel = 1; };\n"
+                   "};\n";
+        }
+
+        thcScheduler live(synth);
+        thcGenLoader reader(plugins);
+
+        live.setAuditionSynchronous(true);
+
+        if (keys.empty() || !reader.load(keys, &live))
+            fail("the live freeze piece did not load");
+        else
+        {
+            auto key = [&live](thcEventType type, int note)
+            {
+                thcEvent ev = {};
+
+                ev.type = type;
+                ev.at = live.now();
+                ev.channel = 0;
+                ev.u.note.note = note;
+                ev.u.note.velocity = 100;
+                ev.u.note.level = 1;
+                live.injectMidiEvent(ev);
+            };
+
+            live.start();
+
+            while (live.now() < 1.0 - 1e-9)
+                live.stepTransport(0.0625);
+
+            key(THC_EV_NOTE, 64);
+
+            while (live.now() < 1.5 - 1e-9)
+                live.stepTransport(0.0625);
+
+            key(THC_EV_NOTEOFF, 64);
+
+            while (live.now() < 4.0 - 1e-9)
+                live.stepTransport(0.0625);
+
+            drainSynth();
+
+            /* And two strikes of C4 by hand: a long one, and a short one
+               two steps into it. */
+            live.chain(0)->played.push_front({ 0.25, 0.125, 60, 100 });
+            live.chain(0)->played.push_front({ 0.0, 0.5, 60, 100 });
+
+            thcFreeze::Params held;
+
+            if (!thcFreeze::fromChain(live, 0, 2, held, why))
+                fail("the live phrase would not freeze: " + why);
+            else
+            {
+                std::map<std::string, std::string> got(held.begin(),
+                                                       held.end());
+                const std::string dots(16, '.');
+
+                if (got["cells"] != "\"........x---...." + dots +
+                                    "/x-x............." + dots + "\"" ||
+                    got["notes"] != "\"C4 E4\"" || got["rows"] != "2")
+                    fail("the live phrase froze as cells = " + got["cells"] +
+                         ", notes = " + got["notes"]);
+            }
+
+            live.stop();
+        }
+
+        remove(keys.c_str());
     }
 
     std::vector<std::string> taken = { "beat", "beat_frozen" };
