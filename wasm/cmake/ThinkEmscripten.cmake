@@ -130,8 +130,8 @@ endif()
 # ---------------------------------------------------------------------------
 
 # What libthink/CMakeLists.txt expects the top level to have said. Only its
-# think_objects is used; the shared library it would also make is never
-# built -- the main module is where libthink lives here.
+# think_objects and think_loader are used; the shared library they would
+# also make is never built -- the main module is where libthink lives here.
 set(THINK_LIB_MAJOR 8)
 set(THINK_LIB_MINOR 0)
 set(THINK_BUILD_STATIC_LIB OFF)

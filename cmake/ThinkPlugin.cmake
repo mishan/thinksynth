@@ -1,3 +1,5 @@
+include(ThinkStatic)
+
 # think_add_plugin(<category> <name>)
 #
 # One dlopen-able module per .cpp, laid out in the build tree exactly as
@@ -57,6 +59,11 @@ function(think_add_plugin category name)
   # So `plugins' can be built on its own, and so the app can depend on the
   # whole set existing.
   add_dependencies(plugins ${target})
+
+  # And compiled into think_embedded as well; see cmake/ThinkStatic.cmake.
+  if(THINK_EMBEDDED)
+    think_static_plugin("${category}" "${name}")
+  endif()
 endfunction()
 
 

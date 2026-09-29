@@ -55,6 +55,12 @@ option(THINK_ENABLE_DEBUG "Print debug messages to stdout" OFF)
 option(THINK_BUILD_HARNESSES "Build the scripts/ test harnesses" ON)
 option(THINK_BUILD_STATIC_LIB "Also build libthink as a static archive" ON)
 
+# libthink and every DSP plugin in one static archive, with the plugins
+# compiled in and found through a table instead of dlopened: what a host
+# links when it cannot count on a plugins/ directory beside it, such as an
+# audio plugin inside a DAW. See cmake/ThinkStatic.cmake.
+option(THINK_EMBEDDED "Also build think_embedded, libthink with the plugins compiled in" ON)
+
 # configure.ac:108 put -ffast-math on every object *and* the link line, which
 # sets FTZ/DAZ process-wide -- including for the GUI, and including for the
 # link, which is where it pulls in crtfastmath.o and makes the setting a
@@ -562,6 +568,42 @@ add_test(NAME icon-stamp
 
 add_subdirectory(libthink)
 add_subdirectory(plugins)
+
+if(THINK_EMBEDDED)
+  # The loader again, reading the table rather than the disk. The engine's
+  # objects are think_objects', compiled once for both.
+  think_loader_objects(think_embedded_loader)
+  target_compile_definitions(think_embedded_loader PUBLIC THINK_STATIC_PLUGINS)
+
+  think_static_registry("${PROJECT_BINARY_DIR}/static/registry.cpp")
+  get_property(THINK_EMBEDDED_SOURCES GLOBAL PROPERTY THINK_STATIC_SOURCES)
+
+  add_library(think_embedded STATIC
+      $<TARGET_OBJECTS:think_objects>
+      $<TARGET_OBJECTS:think_embedded_loader>
+      ${THINK_EMBEDDED_SOURCES}
+      "${PROJECT_BINARY_DIR}/static/registry.cpp")
+
+  # THINK_STATIC: nothing is imported from a DLL (thExport.h).
+  target_compile_definitions(think_embedded PUBLIC
+      THINK_STATIC_PLUGINS THINK_STATIC)
+
+  # What a plugin module is compiled with in cmake/ThinkPlugin.cmake, less
+  # PLUGIN_BUILD, which would declare every plugin's exports extern "C" --
+  # one definition for the whole archive, where the namespaces need one
+  # each.
+  target_include_directories(think_embedded
+      PUBLIC  "${PROJECT_SOURCE_DIR}/libthink"
+              "${PROJECT_BINARY_DIR}/libthink"
+      PRIVATE "${PROJECT_SOURCE_DIR}"
+              "${PROJECT_BINARY_DIR}")
+
+  target_link_libraries(think_embedded PUBLIC PkgConfig::SIGC m)
+
+  set_target_properties(think_embedded PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
+endif()
 add_subdirectory(src)
 
 if(THINK_BUILD_HARNESSES)
@@ -722,5 +764,6 @@ message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
 message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")
 message(STATUS "  sanitizers ............: ${THINK_SANITIZE}")
 message(STATUS "  libthink soversion ....: ${THINK_LIB_MAJOR}")
+message(STATUS "  think_embedded ........: ${THINK_EMBEDDED}")
 message(STATUS "  plugins install to ....: ${THINK_PLUGIN_PATH}")
 message(STATUS "")

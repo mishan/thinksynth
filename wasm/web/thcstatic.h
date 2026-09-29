@@ -18,7 +18,7 @@
 
 /*
  * Everything a composer plugin includes, included once, at file scope,
- * ahead of the plugin. thinkstatic.h, for the other ABI.
+ * ahead of the plugin. plugins/thinkstatic.h, for the other ABI.
  *
  * The composers are compiled into the one module the same way the DSP
  * plugins are, each inside a namespace of its own, so a header first seen

@@ -71,7 +71,7 @@ target_include_directories(thinksynth PRIVATE
 
 # Object libraries, not archives: an archive member nothing in the main
 # module calls would be left out, and a plugin might be what calls it.
-target_link_libraries(thinksynth PRIVATE think_objects sigc)
+target_link_libraries(thinksynth PRIVATE think_objects think_loader sigc)
 
 add_dependencies(thinksynth plugins)
 

@@ -8,7 +8,11 @@
 # invokes ctest.
 #
 # Required: -DHARNESS= -DCORPUS= -DPLUGIN_DIR= -DMODE=dsp|patch
-# Optional: -DEXTRA_ARGS=
+# Optional: -DEXTRA_ARGS= -DHARNESS_B=
+#
+# HARNESS_B is a second build of the same harness, run over the same files
+# with the same arguments. Both have to succeed and print exactly the same
+# thing; the lines that differ are the failure.
 
 if(NOT HARNESS OR NOT CORPUS OR NOT PLUGIN_DIR OR NOT MODE)
   message(FATAL_ERROR "RunHarness.cmake: HARNESS, CORPUS, PLUGIN_DIR and MODE are all required")
@@ -81,6 +85,50 @@ endif()
 
 if(DSP_PATH)
   set(ENV{THINK_DSP_PATH} "${DSP_PATH}")
+endif()
+
+if(HARNESS_B)
+  foreach(side A B)
+    if(side STREQUAL "A")
+      set(_h "${HARNESS}")
+    else()
+      set(_h "${HARNESS_B}")
+    endif()
+
+    execute_process(
+        COMMAND "${_h}" ${extra} -p "${PLUGIN_DIR}" ${files}
+        ${_wd}
+        RESULT_VARIABLE rc
+        OUTPUT_VARIABLE out_${side})
+
+    if(NOT rc EQUAL 0)
+      message("${out_${side}}")
+      message(FATAL_ERROR "${_h}: ${rc} failure(s) over ${count} ${MODE} files")
+    endif()
+  endforeach()
+
+  if(NOT out_A STREQUAL out_B)
+    string(REPLACE "\n" ";" lines_A "${out_A}")
+    string(REPLACE "\n" ";" lines_B "${out_B}")
+    list(LENGTH lines_A n)
+    math(EXPR last "${n} - 1")
+
+    set(differ 0)
+    foreach(i RANGE ${last})
+      list(GET lines_A ${i} a)
+      list(GET lines_B ${i} b)
+      if(NOT a STREQUAL b)
+        message("A  ${a}\nB  ${b}")
+        math(EXPR differ "${differ} + 1")
+      endif()
+    endforeach()
+
+    message(FATAL_ERROR "${differ} of ${count} ${MODE} files differ between "
+                        "${HARNESS} and ${HARNESS_B}")
+  endif()
+
+  message(STATUS "${count} ${MODE} files identical")
+  return()
 endif()
 
 execute_process(

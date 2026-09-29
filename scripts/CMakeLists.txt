@@ -155,6 +155,18 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(dspab)
+
+# The same harness twice: dlopened plugins, and think_embedded's compiled-in
+# ones. See the dsphash.embedded gate below.
+think_harness(dsphash)
+
+if(THINK_EMBEDDED)
+  add_executable(dsphash-embedded dsphash.cpp)
+  target_include_directories(dsphash-embedded PRIVATE "${PROJECT_SOURCE_DIR}")
+  target_link_libraries(dsphash-embedded PRIVATE think_embedded)
+  set_target_properties(dsphash-embedded PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+endif()
 think_harness(dspbench)
 
 # Arithmetic over signals: that a constant expression still folds, that one
@@ -504,6 +516,21 @@ add_test(NAME dspcheck.dsp
                  -DMODE=dsp
                  "-DEXTRA_ARGS=-q --shipped"
                  -P "${_runner}")
+
+# Every plugin compiled into think_embedded sounds the same as its module:
+# the corpus through both builds of dsphash, compared hash for hash.
+if(THINK_EMBEDDED)
+  add_test(NAME dsphash.embedded
+           COMMAND "${CMAKE_COMMAND}"
+                   -DHARNESS=$<TARGET_FILE:dsphash>
+                   -DHARNESS_B=$<TARGET_FILE:dsphash-embedded>
+                   -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                   -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                   -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                   -DMODE=dsp
+                   "-DEXTRA_ARGS=-i ${PROJECT_SOURCE_DIR}/dsp/supersaw.dsp"
+                   -P "${_runner}")
+endif()
 
 # The fixtures beside this harness, which are not in dsp/ and so are in no
 # corpus sweep. They still have to load: divergent.dsp is the only user of

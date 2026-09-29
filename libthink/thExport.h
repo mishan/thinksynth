@@ -45,7 +45,11 @@
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
-# ifdef THINK_BUILDING_LIB
+/* THINK_STATIC is think_embedded's: libthink linked from an archive, so
+   there is no DLL to import from. */
+# if defined(THINK_STATIC)
+#  define THINK_API
+# elif defined(THINK_BUILDING_LIB)
 #  define THINK_API __declspec(dllexport)
 # else
 #  define THINK_API __declspec(dllimport)

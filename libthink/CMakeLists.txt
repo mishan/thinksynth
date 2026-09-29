@@ -58,15 +58,24 @@ set(THINK_SOURCES
     thNode.cpp
     thProbe.cpp
     thPlugin.cpp
-    thPluginManager.cpp
     thMidiControllerConnection.cpp
     thMidiController.cpp
     thSoundFile.cpp
     thSynth.cpp
     thUtil.cpp
-    thDynLib.cpp
     ${BISON_ThinkParser_OUTPUTS}
     ${FLEX_ThinkLexer_OUTPUTS})
+
+# How a plugin is found and opened: dlopen here, a table the build generated
+# where THINK_STATIC_PLUGINS is defined (thDynLib.h). The only two sources
+# the macro changes, so they are kept apart from the rest -- a build that
+# wants both kinds compiles these twice and the engine once.
+# Absolute, and a global property rather than a variable, because
+# think_embedded is made from the top level, where this directory's
+# variables are out of scope.
+set_property(GLOBAL PROPERTY THINK_LOADER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/thDynLib.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thPluginManager.cpp")
 
 # Compiled once, linked into both the shared library and the static archive.
 add_library(think_objects OBJECT ${THINK_SOURCES})
@@ -86,7 +95,25 @@ set_target_properties(think_objects PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
 
-add_library(think SHARED $<TARGET_OBJECTS:think_objects>)
+# think_loader_objects(<target>): the loader sources as an object library
+# compiled the way think_objects is. Whatever think_objects says PUBLIC --
+# the browser build's THINK_STATIC_PLUGINS among it -- reaches it through
+# the link.
+function(think_loader_objects target)
+  get_property(sources GLOBAL PROPERTY THINK_LOADER_SOURCES)
+  add_library(${target} OBJECT ${sources})
+  target_link_libraries(${target} PUBLIC think_objects)
+  target_compile_definitions(${target} PRIVATE THINK_BUILDING_LIB)
+  set_target_properties(${target} PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
+endfunction()
+
+think_loader_objects(think_loader)
+
+add_library(think SHARED
+    $<TARGET_OBJECTS:think_objects>
+    $<TARGET_OBJECTS:think_loader>)
 
 target_include_directories(think PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -105,7 +132,9 @@ set_target_properties(think PROPERTIES
     SOVERSION "${THINK_LIB_MAJOR}")
 
 if(THINK_BUILD_STATIC_LIB)
-  add_library(think_static STATIC $<TARGET_OBJECTS:think_objects>)
+  add_library(think_static STATIC
+      $<TARGET_OBJECTS:think_objects>
+      $<TARGET_OBJECTS:think_loader>)
   target_include_directories(think_static PUBLIC
       "${CMAKE_CURRENT_SOURCE_DIR}"
       "${CMAKE_CURRENT_BINARY_DIR}")
