@@ -47,6 +47,12 @@ static const double TITLE_H  = 15;
 /* The params handle in a stage box's title bar. */
 static const double TWISTY   = 9;
 
+/* How long an activity flash takes to fade, in transport seconds. Longer
+ * than a beat's subdivision at most tempos, so a light is caught by the
+ * frames drawn between two events -- the browser's are a tape batch
+ * behind the ear. */
+static const double FLASH_S  = 0.5;
+
 /* The mute and solo buttons along the foot of a chain's name box. */
 static const double CHIP_W   = 22;
 static const double CHIP_H   = 16;
@@ -71,7 +77,7 @@ static const int    KNOB_COLS = 6;
 static const double PORT_GRAB = 9;
 
 ComposerCanvas::ComposerCanvas (void)
-    : doc_(NULL), sched_(NULL),
+    : doc_(NULL), sched_(NULL), chainHues_(false),
       feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
       wireX_(0), wireY_(0), dragBox_(-1), dragDx_(0), dropAt_(-1)
 {
@@ -582,6 +588,18 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
         const bool muted = mixFlag(box.what.chain, false);
         const bool soloed = mixFlag(box.what.chain, true);
 
+        /* The chain's own hue, when the roll beside this is coloring
+           notes by chain: the legend that tells which notes are whose. */
+        if (chainHues_)
+        {
+            double r, g, b;
+
+            gthChannelColor((int)box.what.chain, r, g, b);
+            cr->set_source_rgba(r, g, b, 0.9);
+            cr->rectangle(box.x - 5, box.y + 4, 3, box.h - 8);
+            cr->fill();
+        }
+
         cr->set_source_rgba(1, 1, 1, chainAudible(box.what.chain)
                                          ? 0.85 : 0.35);
         cr->set_font_size(12);
@@ -724,6 +742,21 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
             cr->arc(tx + ts * (i == 1 ? 0.65 : 0.3), ly, 1.4, 0, 2 * M_PI);
             cr->fill();
         }
+    }
+
+    /* The stage's activity light, beside the handle: lit as an event
+       comes out of it, and fading. A transformer whose input arrow
+       lights and whose light does not is one dropping what it is
+       given. */
+    if (box.what.kind == Selection::STAGE && box.live != NULL)
+    {
+        const double lit = flash(box.live->lastOut);
+
+        cr->arc(box.x + box.w - TWISTY - 11, box.y + TITLE_H / 2, 2.5, 0,
+                2 * M_PI);
+        cr->set_source_rgba(0.45 + 0.55 * lit, 0.85 + 0.15 * lit,
+                            0.5 + 0.5 * lit, 0.15 + 0.85 * lit);
+        cr->fill();
     }
 
     /* The algorithm's face: composer_draw inside the box, on instance
@@ -1108,10 +1141,12 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
     /* Wires under the arrows, and both under the boxes. */
     drawWires(cr);
 
-    /* Arrows first, boxes over them. */
-    cr->set_source_rgba(1, 1, 1, 0.25);
-    cr->set_line_width(1);
-
+    /* Arrows first, boxes over them. Each one lights as an event goes
+       along it: out of the stage it leaves, or into the stage it enters
+       where the one it leaves has no live stage behind it. The arrows
+       into the sinks light when the chain is heard, and red when what
+       reached the end was dropped by the mute, a solo or the
+       arrangement. */
     for (size_t i = 0; i + 1 < boxes_.size(); i++)
     {
         const Box &a = boxes_[i];
@@ -1140,7 +1175,44 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
 
         double y = rowY_[a.what.chain] + STAGE_H / 2;
         double x0 = a.x + a.w, x1 = b.x;
+        double lit = 0;
+        bool gated = false;
+        const thcChain *live =
+            sched_ != NULL ? sched_->chain(a.what.chain) : NULL;
 
+        if (b.what.kind == Selection::SINK)
+        {
+            /* By the kind the sink takes: notes, or a chanarg. */
+            const int kind = doc_ != NULL &&
+                b.what.chain < doc_->chains.size() &&
+                b.what.index < doc_->chains[b.what.chain].sinks.size() &&
+                !doc_->chains[b.what.chain].sinks[b.what.index]
+                     .chanarg.empty() ? 1 : 0;
+
+            if (live != NULL)
+            {
+                const double drop = flash(live->lastGated[kind]);
+
+                lit = flash(live->lastHeard[kind]);
+
+                if (drop > lit)
+                {
+                    lit = drop;
+                    gated = true;
+                }
+            }
+        }
+        else if (a.what.kind == Selection::STAGE && a.live != NULL)
+            lit = flash(a.live->lastOut);
+        else if (b.what.kind == Selection::STAGE && b.live != NULL)
+            lit = flash(b.live->lastIn);
+
+        if (gated)
+            cr->set_source_rgba(0.90, 0.35, 0.30, 0.25 + 0.7 * lit);
+        else
+            cr->set_source_rgba(1, 1, 1, 0.25 + 0.7 * lit);
+
+        cr->set_line_width(1 + 1.5 * lit);
         cr->move_to(x0 + 2, y);
         cr->line_to(x1 - 4, y);
         cr->stroke();
@@ -1206,6 +1278,24 @@ ComposerCanvas::chipRect (const Box &b, int which, double &x, double &y,
     h = CHIP_H;
     x = b.x + 2 + which * (CHIP_W + CHIP_GAP);
     y = b.y + b.h - CHIP_H - 4;
+}
+
+double
+ComposerCanvas::flash (double t) const
+{
+    if (sched_ == NULL || t < 0 || !sched_->running())
+        return 0.0;
+
+    const double d = sched_->now() - t;
+
+    if (d < 0 || d > FLASH_S)
+        return 0.0;
+
+    /* Slow off the top and quick at the end, so a light reads as lit
+       for most of its fade. */
+    const double f = d / FLASH_S;
+
+    return 1.0 - f * f;
 }
 
 bool

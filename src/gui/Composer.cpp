@@ -258,6 +258,7 @@ Composer::start (void)
        destructor, which is what frees it, before the scheduler it reads
        goes. */
     roll_ = manage(new PianoRoll(sched_));
+    roll_->setColorByChain(rollByChain_);
     roll_->set_hexpand(true);
     roll_->set_vexpand(true);
     rollBox_.append(*roll_);
@@ -1545,12 +1546,39 @@ Composer::buildActions (void)
        is anything then. */
     saveAct_->set_enabled(false);
 
+    /* The roll's notes in the hue of the chain that made them, and the
+       chains' names on the canvas striped to match. Held here as well as
+       in the action, since the roll is not made until start(). */
+    Glib::RefPtr<Gio::SimpleAction> byChain =
+        acts->add_action_bool("roll-by-chain", false);
+
+    byChain->signal_activate().connect(
+        [this, byChain](const Glib::VariantBase &)
+        {
+            bool on = false;
+
+            byChain->get_state(on);
+            on = !on;
+            byChain->change_state(on);
+            rollByChain_ = on;
+
+            if (roll_ != NULL)
+                roll_->setColorByChain(on);
+
+            canvas_->setChainHues(on);
+        });
+
     menu_ = Gio::Menu::create();
     menu_->append("Ne_w Piece", "composer.new");
     menu_->append("_Open Piece...", "composer.open");
     menu_->append("Sa_ve Piece", "composer.save");
     menu_->append("Save Piece _As...", "composer.saveas");
     menu_->append("Revert Pie_ce", "composer.revert");
+
+    Glib::RefPtr<Gio::Menu> roll = Gio::Menu::create();
+
+    roll->append("Color Notes by C_hain", "composer.roll-by-chain");
+    menu_->append_section(roll);
 
     transport_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 4));
     transport_->append(*playBtn_);

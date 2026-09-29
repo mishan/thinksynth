@@ -579,6 +579,26 @@ function receive (m)
                        m.chain, m.stage, w)) });
             break;
 
+        /* The transport and when each chain's first stage last emitted
+           and each chain was last heard: what the lights are drawn from. */
+        case 'activity':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ out: M._tw_stage_last_out(c, 0),
+                              heard: M._tw_chain_last_heard(c) });
+
+            post({ type: 'activity', now: M._tw_now(),
+                   running: M._tw_running() !== 0, chains });
+            break;
+        }
+
+        /* The roll by chain rather than channel, and the canvas to match. */
+        case 'bychain':
+            M._tw_color_by_chain(m.on ? 1 : 0);
+            break;
+
         /* Where a chain's M (which 0) or S (1) is, for the same page. */
         case 'chip':
             post({ type: 'chip', chain: m.chain, which: m.which,

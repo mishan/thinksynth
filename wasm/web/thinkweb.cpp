@@ -1083,6 +1083,10 @@ private:
 WebRollCanvas *roll_ = NULL;
 Cairo::RefPtr<Cairo::Context> rollContext_;
 
+/* Whether the roll colors notes by chain, and the canvas stripes the
+   chains to match; held here for a roll or canvas not made yet. */
+bool byChain_ = false;
+
 /* Made on the first call that needs it, and never by the worklet, which
  * makes none of them. That matters more here than it does for the composer
  * canvas: a RollCanvas connects thcScheduler::sigDelivered and keeps every
@@ -1091,10 +1095,14 @@ Cairo::RefPtr<Cairo::Context> rollContext_;
  *
  * NULL before a synth exists, which is what a call before tw_create looks
  * like. */
+
 WebRollCanvas *rollCanvas (void)
 {
     if (roll_ == NULL && sched_ != NULL)
+    {
         roll_ = new WebRollCanvas(sched_);
+        roll_->setColorByChain(byChain_);
+    }
 
     return roll_;
 }
@@ -2349,8 +2357,22 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
 
     mixPending_.clear();
     canvas_->SetPiece(&canvasDoc_, sched_);
+    canvas_->setChainHues(byChain_);
 
     return 1;
+}
+
+/* The roll's notes in their chain's hue rather than their channel's, and
+   the composer canvas's chain names striped to match. */
+EMSCRIPTEN_KEEPALIVE void tw_color_by_chain (int on)
+{
+    byChain_ = on != 0;
+
+    if (roll_ != NULL)
+        roll_->setColorByChain(byChain_);
+
+    if (canvas_ != NULL)
+        canvas_->setChainHues(byChain_);
 }
 
 /* Draw it at w x h, and answer with the length of the list. */
@@ -3419,6 +3441,24 @@ EMSCRIPTEN_KEEPALIVE int tw_chain_soloed (int chain)
         ? sched_->chain((size_t)chain) : NULL;
 
     return c == NULL ? -1 : c->soloed ? 1 : 0;
+}
+
+/* When a stage last emitted, and a chain was last heard, in transport
+ * seconds; -1 for never or for no such stage or chain. What the composer
+ * view's lights are drawn from. The stage in the scheduler's numbering. */
+EMSCRIPTEN_KEEPALIVE double tw_stage_last_out (int chain, int stage)
+{
+    const thcStage *st = stageAt(chain, stage);
+
+    return st == NULL ? -1.0 : st->lastOut;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_chain_last_heard (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1.0 : std::max(c->lastHeard[0], c->lastHeard[1]);
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_chain_audible (int chain)

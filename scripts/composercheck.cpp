@@ -695,6 +695,30 @@ run (const std::string &pluginPath, const char *genFile)
     else
         fail("the piece here has fewer than two chains to mute between");
 
+    /* Color Notes by Chain: the roll by chain, and the canvas's chain
+       names striped to match, together and back. */
+    {
+        win->acts_->activate_action("roll-by-chain");
+        pump(2);
+
+        if (win->roll_ != NULL && win->roll_->colorByChain() &&
+            win->canvas_->chainHues())
+            ok("Color Notes by Chain colors the roll and stripes the "
+               "canvas");
+        else
+            fail("Color Notes by Chain colors the roll and stripes the "
+                 "canvas");
+
+        win->acts_->activate_action("roll-by-chain");
+        pump(2);
+
+        if (win->roll_ != NULL && !win->roll_->colorByChain() &&
+            !win->canvas_->chainHues())
+            ok("...and turns both off again");
+        else
+            fail("...and turns both off again");
+    }
+
     /* The params handle on a stage box, pressed rather than read.
      *
        This is the section the coordinate conversions were missing. Every

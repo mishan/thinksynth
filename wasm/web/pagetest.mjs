@@ -1560,6 +1560,38 @@ try
               'text');
     }
 
+    /* What the lights are drawn from: played, some chain's first stage
+       has emitted, and been heard, within the last second or so of the
+       mirror's transport. */
+    await page.click('#play');
+
+    const lit = await until(
+        () => page.evaluate(() => window.solo.activity()),
+        (a) => a.running && a.now > 2 &&
+               a.chains.some((c) => c.out > a.now - 1.5 &&
+                                    c.heard > a.now - 1.5));
+
+    check(lit.running && lit.chains.some((c) => c.out > lit.now - 1.5),
+          `a playing chain's stage lights follow what it emits: ` +
+          JSON.stringify(lit));
+
+    await page.click('#stop');
+    await new Promise((r) => setTimeout(r, 500));
+
+    /* And the roll by chain, which stripes each chain's name on the
+       canvas in the hue its notes take. Stopped, so nothing else moves
+       the picture. */
+    const plain = await ink();
+
+    await page.check('#rollbychain');
+
+    const striped = await until(ink, (v) => v > plain);
+
+    check(striped > plain,
+          'coloring the roll by chain stripes the chains on the canvas');
+
+    await page.uncheck('#rollbychain');
+
     /* ---- the piano roll ----
      *
      * The other canvas the mirror draws, and the one this page did not
