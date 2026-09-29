@@ -9730,10 +9730,108 @@ checkProbes (const std::map<std::string, thcPlugin *> &plugins,
              "euclid, " + std::to_string(up.size()) + " out of transpose, " +
              std::to_string(some.size()) + " out of chance");
 
+    /* What went into the chance is what came out of the transpose. */
+    if (c->stages[2]->in.size() != up.size())
+        fail("a probe's outlines: " + std::to_string(c->stages[2]->in.size()) +
+             " into chance, against " + std::to_string(up.size()) +
+             " out of transpose");
+
     sched.reset();
 
-    if (!c->stages[0]->out.empty())
-        fail("a rewind should forget what the stages let out");
+    if (!c->stages[0]->out.empty() || !c->stages[2]->in.empty())
+        fail("a rewind should forget what the stages let out and took in");
+
+    /* A generator placed after another passes the first one's notes on,
+       and the arrow after it carries both: so does what a transformer
+       after it took in. And a transformer fed live notes takes them in,
+       each as long as its release made it. */
+    {
+        const std::string two = thUtil::tempFile("gencheck-probe2-");
+
+        {
+            std::ofstream out(two.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\n"
+                   "chain c {\n"
+                   "  stage a gen::euclid { steps = 1; fills = 1; "
+                   "rotate = 0;\n"
+                   "    notes = \"C3\"; period = 1 beats; hold = 0.1 beats;\n"
+                   "    vel = 100; };\n"
+                   "  stage b gen::euclid { steps = 1; fills = 1; "
+                   "rotate = 0;\n"
+                   "    notes = \"E3\"; period = 1 beats; hold = 0.1 beats;\n"
+                   "    vel = 100; };\n"
+                   "  stage up xform::transpose { semitones = 0; };\n"
+                   "  sink { channel = 1; };\n"
+                   "};\n"
+                   "chain keys {\n"
+                   "  input midi;\n"
+                   "  stage t xform::transpose { semitones = 0; };\n"
+                   "  sink { channel = 2; };\n"
+                   "};\n";
+        }
+
+        thcScheduler s2(synth);
+        thcGenLoader l2(plugins);
+
+        s2.setAuditionSynchronous(true);
+
+        if (two.empty() || !l2.load(two, &s2))
+            fail("the second probe piece did not load");
+        else
+        {
+            auto key = [&s2](thcEventType type)
+            {
+                thcEvent ev = {};
+
+                ev.type = type;
+                ev.at = s2.now();
+                ev.channel = 1;
+                ev.u.note.note = 62;
+                ev.u.note.velocity = 90;
+                ev.u.note.level = 1;
+                s2.injectMidiEvent(ev);
+            };
+
+            s2.start();
+
+            while (s2.now() < 2.0 - 1e-9)
+            {
+                if (std::fabs(s2.now() - 0.5) < 1e-9)
+                    key(THC_EV_NOTE);
+
+                if (std::fabs(s2.now() - 1.0) < 1e-9)
+                    key(THC_EV_NOTEOFF);
+
+                s2.stepTransport(0.02);
+                drainSynth();
+            }
+
+            auto pitches = [](const std::deque<thcPlayed> &d)
+            {
+                std::set<int> out;
+
+                for (const thcPlayed &p : d)
+                    out.insert(p.note);
+
+                return out;
+            };
+
+            const thcChain *pc = s2.chain(0), *kc = s2.chain(1);
+
+            if (pitches(pc->stages[1]->out) != std::set<int>{ 48, 52 } ||
+                pitches(pc->stages[2]->in) != std::set<int>{ 48, 52 })
+                fail("the arrow after a generator that passes another's "
+                     "notes should carry both");
+
+            if (kc->stages[0]->in.size() != 1 ||
+                std::fabs(kc->stages[0]->in.front().duration - 0.5) > 0.03)
+                fail("a transformer fed a held key should take it in, as "
+                     "long as its release made it");
+        }
+
+        remove(two.c_str());
+    }
 }
 
 static void

@@ -397,6 +397,8 @@ private:
 
     void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
     void drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    bool probeRect (double &px, double &py, double &w, double &h,
+                    double &ax, double &ay) const;
 
     void eachArrow (const std::function<bool (const Selection &, double,
                                               double, double)> &fn) const;
@@ -456,6 +458,7 @@ private:
 
     Selection sel_;
     Selection probe_;
+    std::string probeChain_, probeStage_;   /* the probe's, by name     */
 
     bool chainHues_;
 

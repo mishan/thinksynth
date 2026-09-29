@@ -334,7 +334,8 @@ struct thcInstrument
  * chain into a pattern reads, and what a probe on an arrow draws. */
 struct thcPlayed
 {
-    double at, duration;           /* transport seconds; 0 while held   */
+    double at, duration;           /* transport seconds; 0 until a held
+                                      note's release says               */
     int    note, velocity;
 };
 
@@ -379,9 +380,10 @@ struct thcStage
        counted; it is bookkeeping, not something the stage did. */
     double         lastIn, lastOut;
 
-    /* The notes it let out in the last few seconds, oldest first: what a
-       probe on the arrow after it draws. Eight seconds of them. */
-    std::deque<thcPlayed> out;
+    /* The notes that went along the arrow after it -- its own and any it
+       let pass -- and, for a stage that takes notes, the ones that came
+       into it: eight seconds of each, oldest first, what a probe draws. */
+    std::deque<thcPlayed> in, out;
 
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),

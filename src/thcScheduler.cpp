@@ -2245,28 +2245,48 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
     if (ev.type != THC_EV_NOTEOFF && !seeking_)
     {
         if (fromStage > 0 && fromStage <= c.stages.size() && !passed)
-        {
-            thcStage *from = c.stages[fromStage - 1].get();
-
-            from->lastOut = transportNow_;
-
-            /* And what it let out, for a probe on the arrow after it:
-               eight seconds of it, which a probe shows the last few of. */
-            if (ev.type == THC_EV_NOTE && !seeking_)
-            {
-                from->out.push_back({ ev.at, ev.u.note.duration,
-                                      ev.u.note.note, ev.u.note.velocity });
-
-                while (!from->out.empty() &&
-                       (from->out.front().at < transportNow_ - 8 ||
-                        from->out.size() > 512))
-                    from->out.pop_front();
-            }
-        }
+            c.stages[fromStage - 1]->lastOut = transportNow_;
 
         if (fromStage < c.stages.size() &&
             c.stages[fromStage]->plugin->hasReceive())
             c.stages[fromStage]->lastIn = transportNow_;
+    }
+
+    /* And what a probe on an arrow draws: every note that went along it,
+       whoever made it -- one that only passed through the stage before
+       it included -- and every note that went into a stage that takes
+       them, eight seconds of each. A held note's release gives it its
+       length. */
+    if (!seeking_ && (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF))
+    {
+        auto keep = [&](std::deque<thcPlayed> &d)
+        {
+            if (ev.type == THC_EV_NOTEOFF)
+            {
+                for (size_t i = d.size(); i-- > 0; )
+                    if (d[i].note == ev.u.note.note && d[i].duration <= 0)
+                    {
+                        d[i].duration = std::max(ev.at - d[i].at, 0.0);
+                        break;
+                    }
+
+                return;
+            }
+
+            d.push_back({ ev.at, ev.u.note.duration, ev.u.note.note,
+                          ev.u.note.velocity });
+
+            while (!d.empty() && (d.front().at < transportNow_ - 8 ||
+                                  d.size() > 512))
+                d.pop_front();
+        };
+
+        if (fromStage > 0 && fromStage <= c.stages.size())
+            keep(c.stages[fromStage - 1]->out);
+
+        if (fromStage < c.stages.size() &&
+            c.stages[fromStage]->plugin->hasReceive())
+            keep(c.stages[fromStage]->in);
     }
 
     const int chainIndex = (int)(&c - &chains_[0]);
@@ -2782,6 +2802,7 @@ thcScheduler::reset (void)
         for (auto &s : c.stages)
         {
             s->lastIn = s->lastOut = -1;
+            s->in.clear();
             s->out.clear();
         }
     }

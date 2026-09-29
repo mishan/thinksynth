@@ -76,6 +76,10 @@ static const double LANE_GAP     = 2;
 static const double COLUMN_GAP   = 28;
 static const int    COLUMNS_MAX  = 6;
 
+/* A probe's panel. */
+static const double PROBE_W  = 260;
+static const double PROBE_H  = 96;
+
 /* The mute, solo and freeze buttons along the foot of a chain's name
  * box. */
 static const int    CHIPS    = 3;
@@ -167,11 +171,24 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
     if (enlarged_.kind == Selection::STAGE && enlargedStage() == NULL)
         setEnlarged(Selection());
 
-    /* A probe on a stage the new piece does not have goes. */
-    if (probe_.kind == Selection::STAGE &&
-        (doc_ == NULL || probe_.chain >= doc_->chains.size() ||
-         probe_.index >= doc_->chains[probe_.chain].stages.size()))
-        probe_ = Selection();
+    /* A probe goes with its stage, found by name in the new piece, or
+       goes. */
+    if (probe_.kind == Selection::STAGE)
+    {
+        Selection found;
+
+        for (size_t ci = 0; doc_ != NULL && ci < doc_->chains.size(); ci++)
+            if (doc_->chains[ci].name == probeChain_)
+                for (size_t si = 0; si < doc_->chains[ci].stages.size(); si++)
+                    if (doc_->chains[ci].stages[si].name == probeStage_)
+                    {
+                        found.kind = Selection::STAGE;
+                        found.chain = ci;
+                        found.index = si;
+                    }
+
+        probe_ = found;
+    }
 
     /* The selection may name things the new piece does not have. */
     if (sel_.kind != Selection::NONE && sel_.kind != Selection::ADD_CHAIN)
@@ -2010,6 +2027,19 @@ void
 ComposerCanvas::setProbe (const Selection &at)
 {
     probe_ = at;
+    probeChain_.clear();
+    probeStage_.clear();
+
+    /* By name as well, so a reload that moves the stage -- a reorder, a
+       stage added before it -- moves the probe with it. */
+    if (probe_.kind == Selection::STAGE && doc_ != NULL &&
+        probe_.chain < doc_->chains.size() &&
+        probe_.index < doc_->chains[probe_.chain].stages.size())
+    {
+        probeChain_ = doc_->chains[probe_.chain].name;
+        probeStage_ = doc_->chains[probe_.chain].stages[probe_.index].name;
+    }
+
     requestRedraw();
 }
 
@@ -2019,14 +2049,18 @@ ComposerCanvas::setProbe (const Selection &at)
  * what a swing or a humanize did is a bar beside its outline, what a
  * chance dropped is an outline with no bar, and a transposition is a bar
  * above its outline. */
-void
-ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
+/* Where a probe's panel goes: under its arrow's row, clamped to the
+ * drawing's width, and above the row where below would run off the
+ * drawing's foot. The arrow's middle comes back too. False when the probe
+ * hangs from nothing drawn. */
+bool
+ComposerCanvas::probeRect (double &px, double &py, double &w, double &h,
+                           double &ax, double &ay) const
 {
-    if (probe_.kind != Selection::STAGE || sched_ == NULL || doc_ == NULL ||
-        probe_.chain >= doc_->chains.size())
-        return;
+    if (probe_.kind != Selection::STAGE || doc_ == NULL ||
+        probe_.chain >= rowY_.size())
+        return false;
 
-    double ax = 0, ay = 0;
     bool placed = false;
 
     eachArrow([&](const Selection &from, double x0, double x1, double y)
@@ -2041,21 +2075,48 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
         return placed;
     });
 
+    if (!placed)
+        return false;
+
+    double cw = 0, ch = 0;
+
+    contentExtent(cw, ch);
+
+    w = PROBE_W;
+    h = PROBE_H;
+    px = std::max(M, std::min(ax - w / 2, cw - w - M));
+    py = rowY_[probe_.chain] + rowH_[probe_.chain] + 4;
+
+    if (py + h > ch - M)
+        py = std::max(M, rowY_[probe_.chain] - h - 4);
+
+    return true;
+}
+
+void
+ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    if (probe_.kind != Selection::STAGE || sched_ == NULL || doc_ == NULL ||
+        probe_.chain >= doc_->chains.size())
+        return;
+
+    double px, py, W, H, ax, ay;
+
     thcChain *live = sched_->chain(probe_.chain);
     const int at = thcGenEdit::liveIndex(doc_->chains[probe_.chain],
                                          probe_.index);
 
-    if (!placed || live == NULL || at < 0 ||
+    if (!probeRect(px, py, W, H, ax, ay) || live == NULL || at < 0 ||
         (size_t)at >= live->stages.size())
         return;
 
+    /* What went into the stage, where it takes notes: its own record of
+       them, so a note that only passed the stage before it is here too,
+       and so is one played into it live. */
     const thcStage *st = live->stages[at].get();
-    const thcStage *before = at > 0 && st->plugin->hasReceive()
-        ? live->stages[at - 1].get() : NULL;
-
-    const double W = 260, H = 96, TITLE = 14;
-    double px = std::max(M, ax - W / 2);
-    const double py = rowY_[probe_.chain] + rowH_[probe_.chain] + 4;
+    const std::deque<thcPlayed> *before =
+        st->plugin->hasReceive() ? &st->in : NULL;
+    const double TITLE = 14;
     const double now = sched_->now();
     const double t0 = now - 3, t1 = now + 1;
 
@@ -2067,8 +2128,8 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
     cr->stroke();
 
     /* And the arrow it hangs from, lit. */
-    cr->move_to(ax, ay + 4);
-    cr->line_to(ax, py);
+    cr->move_to(ax, py > ay ? ay + 4 : ay - 4);
+    cr->line_to(ax, py > ay ? py : py + H);
     cr->stroke();
 
     cr->set_font_size(9);
@@ -2080,9 +2141,9 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
 
     int lo = 128, hi = -1;
 
-    auto span = [&](const thcStage *s)
+    auto span = [&](const std::deque<thcPlayed> &notes)
     {
-        for (const thcPlayed &p : s->out)
+        for (const thcPlayed &p : notes)
             if (p.at + std::max(p.duration, 0.05) >= t0 && p.at <= t1)
             {
                 lo = std::min(lo, p.note);
@@ -2090,10 +2151,10 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
             }
     };
 
-    span(st);
+    span(st->out);
 
     if (before != NULL)
-        span(before);
+        span(*before);
 
     const double gx = px + 6, gy = py + TITLE + 2;
     const double gw = W - 12, gh = H - TITLE - 8;
@@ -2101,8 +2162,7 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
     if (hi < lo)
     {
         cr->set_source_rgba(1, 1, 1, 0.4);
-        fitText(cr, "nothing in the last three seconds", gx, gy + gh / 2,
-                gw);
+        fitText(cr, "nothing in these four seconds", gx, gy + gh / 2, gw);
         return;
     }
 
@@ -2112,9 +2172,9 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
     const double laneH = gh / (hi - lo + 1);
     auto xOf = [&](double t) { return gx + (t - t0) / (t1 - t0) * gw; };
 
-    auto bars = [&](const thcStage *s, bool outline)
+    auto bars = [&](const std::deque<thcPlayed> &notes, bool outline)
     {
-        for (const thcPlayed &p : s->out)
+        for (const thcPlayed &p : notes)
         {
             const double a = p.at, b = p.at + std::max(p.duration, 0.05);
 
@@ -2144,9 +2204,9 @@ ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
     };
 
     if (before != NULL)
-        bars(before, true);
+        bars(*before, true);
 
-    bars(st, false);
+    bars(st->out, false);
 
     /* Now. */
     cr->set_source_rgba(1, 1, 1, 0.5);
@@ -2362,6 +2422,20 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
         return;
     }
 
+    /* A probe's panel lies over whatever is under it, and a press on it
+       is for it: it puts the probe away. */
+    {
+        double px, py, pw, ph, ax, ay;
+
+        if (enlarged_.kind == Selection::NONE &&
+            probeRect(px, py, pw, ph, ax, ay) && x >= px && x <= px + pw &&
+            y >= py && y <= py + ph)
+        {
+            setProbe(Selection());
+            return;
+        }
+    }
+
     const Box *box = hit(x, y);
 
     /* A section's block: the transport to where it begins, heard from
@@ -2385,8 +2459,10 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
         }
 
     /* An arrow: a probe on it, or off it again. Arrows are not boxes, so
-       only where no box was hit. */
-    if (box == NULL && button == 1 && enlarged_.kind == Selection::NONE)
+       only where no box was hit; once per click, so a double-click is not
+       on and off again. */
+    if (box == NULL && button == 1 && nPress == 1 &&
+        enlarged_.kind == Selection::NONE)
     {
         Selection at;
 

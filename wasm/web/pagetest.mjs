@@ -1874,13 +1874,18 @@ try
         await page.evaluate(() => window.solo.settled());
     }
 
-    /* A probe: the arrow out of colony's first stage, pressed while it
-       plays, hangs a small roll of what that stage let out under it --
+    /* A probe: the arrow out of colony's first stage, pressed after it
+       has played, hangs a small roll of what that stage let out under it --
        drawn by the mirror, which is where the notes are -- and Escape
        takes it away. */
     {
+        /* Played, and stopped: what the stage let out is kept, and with
+           the transport still nothing else moves the picture, so what the
+           press changes is the probe. */
         await page.click('#play');
         await new Promise((r) => setTimeout(r, 3000));
+        await page.click('#stop');
+        await new Promise((r) => setTimeout(r, 800));
 
         const arrow = { chain: 0, stage: 0 };
         const at = (await page.evaluate(
@@ -1907,8 +1912,6 @@ try
             (l) => l.probe.chain === -1);
 
         check(gone.probe.chain === -1, '...and Escape takes it away');
-
-        await page.click('#stop');
     }
 
     /* ---- the piano roll ----
