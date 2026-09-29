@@ -359,9 +359,10 @@ thExprLeaves (const thExprNode *e, vector<thExprLeaf> &out)
  * Widening until the parse agrees rather than picking a fixed precision: 9
  * digits round-trips every float but writes `0.100000001' for a tenth, and
  * the first precision that round-trips is both exact and what a reader
- * expects. A non-finite value matches at once and comes out `inf' or `nan',
- * which no .dsp can hold either -- but saying so is better than rounding it
- * to something that looks finite. */
+ * expects. An infinity matches at once and comes out `inf'; a NaN matches
+ * nothing, itself included, and comes out `nan' after the widest attempt.
+ * No .dsp can hold either -- but saying so is better than rounding it to
+ * something that looks finite. */
 static string
 number (float v)
 {

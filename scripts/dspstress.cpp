@@ -72,13 +72,14 @@
  * Each synth has its own plugin manager, but a plugin is one module per
  * process however many synths open it, so what is shared is whatever the
  * plugins and the loader keep at file scope. Each round also asks for a
- * plugin no build has, since a failed lookup is what writes the loader's
- * error text -- which was one std::string for the process until it was made
- * thread_local. The first quarter of the level runs the two with no other
- * synth alive, so that the first synth to come and the last to go -- the
- * ones that claim and release thSynth::instance() -- are theirs. Build
- * dspstress-embedded to run this against the compiled-in table
- * (think_embedded) rather than dlopen.
+ * plugin no build has, since a failed lookup is what writes the static
+ * loader's error text -- which was one std::string for the process until
+ * it was made thread_local. Only dspstress-embedded, the same levels over
+ * think_embedded's compiled-in table, reaches that: the dlopen build's
+ * plugin manager finds no file and never calls the loader. The first
+ * quarter of the level runs the two with no other synth alive, so that the
+ * first synth to come and the last to go -- the ones that claim and release
+ * thSynth::instance() -- are theirs.
  *
  * Confirmed to fail before it was trusted to pass, both of them. Taking the
  * manager's lock back out makes level 6 report a data race inside the map,
