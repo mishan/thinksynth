@@ -153,6 +153,7 @@ public:
     using Composer::sched_;
     using Composer::selBox_;
     using Composer::editorBox_;
+    using Composer::seq_;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -1323,6 +1324,159 @@ runRefused (const std::string &pluginPath)
     return failures;
 }
 
+/* The sequencer pane: one track per `gen::grid', as tall as its grid has
+ * rows, and a gesture on one written into the work file when it ends --
+ * which is what makes Save keep a pattern drawn there.
+ *
+ * Its own piece and its own window, beside the composer's rather than in
+ * it: the pane is packed by the main window, and the sections above lay
+ * the canvas out without it. */
+static int
+runSequencer (const std::string &pluginPath)
+{
+    const std::string tmp = stagePiece(
+            "name \"tracks\";\n"
+            "chain drum {\n"
+            "    stage seq gen::grid { steps = 4; rows = 1; "
+            "cells = \"x...\"; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n"
+            "chain line {\n"
+            "    stage seq gen::grid { steps = 4; rows = 6; "
+            "cells = \"..../..../..../..../..../x...\"; };\n"
+            "    sink { channel = 2; };\n"
+            "};\n"
+            "chain other {\n"
+            "    stage s gen::eno_line { notes = \"C4\"; };\n"
+            "    sink { channel = 3; };\n"
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    TestComposer *win = new TestComposer(&synth);
+    Gtk::Window *host = new Gtk::Window;
+
+    host->set_default_size(800, 500);
+    host->set_child(win->sequencerView());
+    host->set_visible(true);
+    win->setSequencerShown(true);
+    pump(10);
+
+    SeqView &seq = win->seq_;
+
+    if (seq.trackCount() == 2)
+        ok("the sequencer has a track for each grid, and none for the "
+           "chain without one");
+    else
+    {
+        printf("      %zu tracks\n", seq.trackCount());
+        fail("the sequencer has a track for each grid, and none for the "
+             "chain without one");
+    }
+
+    Gtk::DrawingArea *drum = seq.trackArea(0);
+    Gtk::DrawingArea *line = seq.trackArea(1);
+
+    if (drum != NULL && line != NULL &&
+        drum->get_content_height() == 26 && line->get_content_height() == 108)
+        ok("a one-row grid is a strip and a six-row one is six rows tall");
+    else
+        fail("a one-row grid is a strip and a six-row one is six rows tall");
+
+    /* A gesture that changed nothing -- off the end of the grid -- is
+       not an edit. */
+    if (drum != NULL && drum->get_width() > 0)
+    {
+        const double past = drum->get_width() + 10;
+
+        seq.input(0, THC_IN_PRESS, past, 5, 1);
+        seq.input(0, THC_IN_RELEASE, past, 5, 1);
+        seq.signal_edited().emit(0, 0);
+        pump(2);
+
+        if (!win->saveAct_->get_enabled())
+            ok("a gesture that changes nothing does not mark the piece "
+               "changed");
+        else
+            fail("a gesture that changes nothing does not mark the piece "
+                 "changed");
+    }
+
+    /* A press and a release on the drum's third step, where there is
+       nothing: a note. */
+    if (drum != NULL && drum->get_width() > 0)
+    {
+        const double x = drum->get_width() * 2.5 / 4;
+        const double y = drum->get_height() / 2.0;
+
+        seq.input(0, THC_IN_PRESS, x, y, 1);
+        seq.input(0, THC_IN_RELEASE, x, y, 1);
+        seq.signal_edited().emit(0, 0);
+        pump(2);
+
+        if (readAll(win->workPath_).find("\"x.x.\"") != std::string::npos)
+            ok("a note drawn on a track is written into the piece");
+        else
+            fail("a note drawn on a track is written into the piece");
+
+        if (win->saveAct_->get_enabled())
+            ok("...and the piece has something to save");
+        else
+            fail("...and the piece has something to save");
+    }
+    else
+        fail("the drum track was never laid out");
+
+    /* `rows' moved under the pane -- a knob, the Selection, the page's
+       fitting in a room -- and the track follows it on the next frame. */
+    thcChain *chain = win->sched_->chain(1);
+    thcStage *stage = chain != NULL && !chain->stages.empty()
+        ? chain->stages[0].get() : NULL;
+
+    if (stage != NULL && line != NULL)
+    {
+        stage->params.set(stage->plugin->paramIndex("rows"), 3);
+        seq.tick();
+
+        if (line->get_content_height() == 54)
+            ok("a track follows its grid's rows as they change");
+        else
+            fail("a track follows its grid's rows as they change");
+    }
+    else
+        fail("the six-row grid has no live stage");
+
+    /* A reload rebuilds the tracks over the new scheduler stages. */
+    win->structuralReload();
+    pump(6);
+
+    if (seq.trackCount() == 2 && seq.trackArea(0) != NULL)
+        ok("the tracks come back after a reload");
+    else
+        fail("the tracks come back after a reload");
+
+    /* The pane lets go of the composer's widget before the composer
+       goes, as the main window's panes do. */
+    host->unset_child();
+    delete host;
+    delete win;
+    pump(2);
+
+    {
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    return failures;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1370,6 +1524,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runRefused(pluginPath);
+
+            if (rc == 0)
+                rc = runSequencer(pluginPath);
 
             if (rc == 0)
                 closeWithIdlesPending(pluginPath);

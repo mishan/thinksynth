@@ -118,6 +118,21 @@ Composer::Composer (thSynth *synth)
     canvasScroll_.set_propagate_natural_height(true);
     canvasScroll_.set_propagate_natural_width(true);
 
+    /* A pattern drawn on a track goes into the work file when the
+       gesture ends, through the same capture the Selection's button
+       makes. The canvas keeps the two acts apart -- a click on a picture
+       is a performance, and writing it down a decision -- but a track's
+       pattern is what the sequencer is for writing, and without this
+       Save kept the file's pattern and dropped what was drawn over it. */
+    seq_.signal_edited().connect(
+        [this](size_t ci, size_t si) { captureStage(ci, si, false); });
+
+    /* A patch loaded onto a track's channel by hand changes what the
+       track's heading says. */
+    if (gthPatchManager *pm = gthPatchManager::instance())
+        pm->signal_patches_changed().connect(
+            sigc::mem_fun(seq_, &SeqView::refresh));
+
     /* The roll's place: the roll itself reads the scheduler, so it is made
        with it, in start(). */
     rollBox_.set_hexpand(true);
@@ -250,6 +265,9 @@ Composer::~Composer (void)
         rollBox_.remove(*roll_);
 
     roll_ = NULL;
+
+    /* The tracks point into the scheduler's stages. */
+    seq_.setPiece(NULL, NULL);
 
     /* Order matters: the scheduler's destructor flushes note-offs and
        destroys chain instances, which calls back into the plugins -- so
@@ -720,6 +738,7 @@ Composer::parseWork (void)
     }
 
     canvas_->SetPiece(&doc_, sched_);
+    seq_.setPiece(&doc_, sched_);
     rebuildEditor();
     updateTransportButtons();
 }
@@ -1180,6 +1199,9 @@ Composer::onDrawTimer (void)
 {
     if (canvas_ != NULL && canvasShown_)
         canvas_->queue_draw();
+
+    if (seqShown_)
+        seq_.tick();
 
     /* The transport can stop without anyone pressing Pause: a piece
        whose arrangement ends (`section end;') stops itself when its last
@@ -2513,7 +2535,7 @@ Composer::presetChanged (const std::string &preset)
  * all happen the way they do for a value typed by hand. Writing the file
  * behind thcGenEdit's back would be a second writer, and there is one. */
 void
-Composer::captureStage (size_t ci, size_t si)
+Composer::captureStage (size_t ci, size_t si, bool report)
 {
     thcStage *s = liveStage(ci, si);
 
@@ -2556,13 +2578,36 @@ Composer::captureStage (size_t ci, size_t si)
             continue;
         }
 
-        applyParam(ci, si, info->name, "\"" + text + "\"");
+        /* Unchanged, from a sequencer track: a gesture that ended where
+           it began is not an edit, and writing it would mark the piece
+           dirty for nothing. The button writes regardless, as it always
+           has. */
+        const std::string quoted = "\"" + text + "\"";
+
+        if (!report && ci < doc_.chains.size() &&
+            si < doc_.chains[ci].stages.size())
+        {
+            const std::vector<thcGenEdit::Param> &have =
+                doc_.chains[ci].stages[si].params;
+            bool same = false;
+
+            for (size_t k = 0; k < have.size(); k++)
+                if (have[k].name == info->name && have[k].valueText == quoted)
+                    same = true;
+
+            if (same)
+                continue;
+        }
+
+        applyParam(ci, si, info->name, quoted);
         written++;
     }
 
     if (!refused.empty())
         status_->set_text("'" + refused + "' cannot be written: a .gen "
                           "string holds no quotes or newlines");
+    else if (!report)
+        return;
     else if (written)
         status_->set_text("captured into the piece; Save to keep it");
     else

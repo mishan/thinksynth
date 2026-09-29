@@ -280,10 +280,10 @@ MainSynthWindow::~MainSynthWindow (void)
  * Ctrl+M away: Channels picks a channel, and the list is for loading and
  * saving whole patches.
  *
- * Piece: the canvas, with the piece's settings and the selection beside
- * it and the roll under both, the keys a tab behind the roll. The patch's
- * panes are in the drawer rather than gone: a piece is played on
- * channels, and looking at one is a click away.
+ * Piece: the canvas, with the sequencer a tab behind it and the piece's
+ * settings and the selection beside it, and the roll under both, the keys a
+ * tab behind the roll. The patch's panes are in the drawer rather than
+ * gone: a piece is played on channels, and looking at one is a click away.
  */
 static const char *PATCH_LAYOUT =
     "{\"dir\":\"col\",\"size\":[0.76,0.24],\"kids\":["
@@ -296,7 +296,7 @@ static const char *PATCH_LAYOUT =
 static const char *PIECE_LAYOUT =
     "{\"dir\":\"col\",\"size\":[0.66,0.34],\"kids\":["
       "{\"dir\":\"row\",\"size\":[0.58,0.42],\"kids\":["
-        "{\"tabs\":[\"composerview\"]},"
+        "{\"tabs\":[\"composerview\",\"seqview\"]},"
         "{\"tabs\":[\"pieceedit\",\"selection\"]}]},"
       "{\"tabs\":[\"roll\",\"keyboard\"]}]}";
 
@@ -306,7 +306,7 @@ static const char *OLD_LAYOUT_KEY = "desktop";
 
 /* The panes only a piece has. Everything else is in both modes. */
 static const char *const PIECE_PANES[] = {
-    "composerview", "roll", "pieceedit", "selection",
+    "composerview", "seqview", "roll", "pieceedit", "selection",
 };
 
 /* `content' in a scrolled window, sideways and, if `down', downward too.
@@ -374,6 +374,7 @@ void MainSynthWindow::buildPanes (void)
     panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 400);
     panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 400);
     panes_->add("composerview", "Piece", composer_->canvasView(), 360);
+    panes_->add("seqview", "Sequencer", composer_->sequencerView(), 360);
     panes_->add("roll", "Piano roll", composer_->rollView(), 320);
     panes_->add("pieceedit", "Piece settings", composer_->settingsView(), 300);
     panes_->add("selection", "Selection", composer_->selectionView(), 300);
@@ -492,8 +493,7 @@ void MainSynthWindow::onPaneShown (const string &id, bool visible)
     if (id == "nodeview" && visible)
         ensureEditor(chan_);
 
-    if (id == "composerview" || id == "roll" || id == "pieceedit" ||
-        id == "selection")
+    if (isPiecePane(id))
         syncComposer();
 }
 
@@ -503,16 +503,18 @@ void MainSynthWindow::syncComposer (void)
         return;
 
     const bool canvas = panes_->isVisible("composerview");
+    const bool tracks = panes_->isVisible("seqview");
     const bool editing = panes_->isVisible("pieceedit") ||
                          panes_->isVisible("selection");
 
     /* The first time any of them is looked at, and not before: starting
        loads the piece, and the piece's instruments go onto channels. */
     if (!composer_->started() &&
-        (canvas || editing || panes_->isVisible("roll")))
+        (canvas || tracks || editing || panes_->isVisible("roll")))
         composer_->start();
 
     composer_->setCanvasShown(canvas);
+    composer_->setSequencerShown(tracks);
     composer_->setEditing(editing && composer_->started());
 }
 
@@ -958,6 +960,7 @@ void MainSynthWindow::populateMenu (void)
         { "patches",    "Patch _Selector", "<Control>p" },
         { "midimap",    "_MIDI Routing",   "<Control>m" },
         { "composerview", "P_iece",        "<Control>g" },
+        { "seqview",    "Seq_uencer",      NULL },
         { "roll",       "Piano _Roll",     NULL },
         { "pieceedit",  "Piece Se_ttings", NULL },
         { "selection",  "S_election",      NULL },
