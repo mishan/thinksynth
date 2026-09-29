@@ -79,6 +79,30 @@ public:
     void start (void);
     bool started (void) const { return started_; }
 
+    /* Which of two pieces is loaded: the one piece mode opens, or the
+     * sequence, which starts as a copy of gen/scratch.gen with no file of
+     * its own -- so Save asks where, rather than writing over the shipped
+     * one. Each keeps its work and its unsaved edits while the other is
+     * up, and switching stops the transport and loads the other from the
+     * top. Before start() it only says which one start() loads.
+     */
+    enum Document { PIECE, SEQUENCE };
+
+    void useDocument (Document which);
+    Document document (void) const { return which_; }
+
+    /* The graph behind the instrument track `ci', `si' plays, and so
+       every track playing that instrument: its `dsp' line in the file,
+       and the track's `rows' -- one for a graph that ignores the note,
+       and a ladder for one that does not. Reloads, which rewinds. False
+       for a track whose sink is a channel rather than an instrument. */
+    bool setTrackInstrument (size_t ci, size_t si, const std::string &dsp,
+                             bool readsNote);
+
+    /* The tracks, for the host: which ones have a chooser, and what a
+       click on one asks for. */
+    SeqView &sequencer (void) { return seq_; }
+
     /* The panes' content. The host parents them, and has to let them go
        before this is destroyed. */
     Gtk::Widget &canvasView (void) { return canvasScroll_; }
@@ -122,6 +146,13 @@ public:
     /* start() has run: the transport has something to play. */
     sigc::signal<void ()> &signal_started (void) { return startedSig_; }
 
+    /* New or Open, about to act: they are about the piece, so the host
+       puts piece mode up -- and the piece back in -- before they do. */
+    sigc::signal<void ()> &signal_file_command (void)
+    {
+        return fileCommand_;
+    }
+
 protected:
     /* Scan <pluginroot>/composer/ exactly as NodeEditor scans visual/. */
     void loadComposers (void);
@@ -129,6 +160,15 @@ protected:
     /* Source-file lifecycle: find the default piece, keep a work copy,
        parse the work copy, publish on save. */
     void loadPiece (void);          /* (re)copy source -> work, parse    */
+
+    /* The file a document starts from: airports.gen for the piece, the
+       sequence's scratch.gen. Empty when it cannot be found. */
+    std::string startingFile (Document which) const;
+
+    /* Copy what `which' starts from into the work file, and say whether
+       that makes it the document's own file (the piece) or only its
+       starting text (the sequence). */
+    void startDocument (Document which);
     bool ensureWork (void);
     void parseWork (void);          /* work -> scheduler + all panels    */
 
@@ -357,6 +397,21 @@ protected:
     sigc::signal<void ()> showSelection_;
     sigc::signal<void ()> wanted_;
     sigc::signal<void ()> startedSig_;
+    sigc::signal<void ()> fileCommand_;
+
+    /* The document up, and what the other one was left holding: its file,
+       its work text and whether that had unsaved edits. `held' false for
+       one never loaded, which starts from its starting file. */
+    struct Held
+    {
+        bool held = false;
+        std::string genPath;
+        std::string text;
+        bool dirty = false;
+    };
+
+    Document which_ = PIECE;
+    Held held_[2];
     bool stale_ = false;
 
     Gtk::ScrolledWindow editorScroll_;

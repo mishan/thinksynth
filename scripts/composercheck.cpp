@@ -1336,6 +1336,7 @@ runSequencer (const std::string &pluginPath)
 {
     const std::string tmp = stagePiece(
             "name \"tracks\";\n"
+            "instrument bass { dsp \"ebass.dsp\"; };\n"
             "chain drum {\n"
             "    stage seq gen::grid { steps = 4; rows = 1; "
             "cells = \"x...\"; };\n"
@@ -1344,7 +1345,7 @@ runSequencer (const std::string &pluginPath)
             "chain line {\n"
             "    stage seq gen::grid { steps = 4; rows = 6; "
             "cells = \"..../..../..../..../..../x...\"; };\n"
-            "    sink { channel = 2; };\n"
+            "    sink { instrument = bass; };\n"
             "};\n"
             "chain other {\n"
             "    stage s gen::eno_line { notes = \"C4\"; };\n"
@@ -1460,6 +1461,41 @@ runSequencer (const std::string &pluginPath)
         ok("the tracks come back after a reload");
     else
         fail("the tracks come back after a reload");
+
+    /* The six-row line's instrument made a drum: its `dsp' line and a grid
+       one row tall, which keeps the bottom row -- the root the line is on
+       -- rather than the empty top one a reload would read. */
+    if (win->setTrackInstrument(1, 0, "kick909.dsp", false))
+    {
+        pump(6);
+
+        const std::string text = readAll(win->workPath_);
+
+        if (text.find("dsp \"kick909.dsp\"") != std::string::npos &&
+            text.find("rows = 1;") != std::string::npos &&
+            text.find("cells = \"x...\"") != std::string::npos)
+            ok("a track's instrument made a drum keeps its root row, one "
+               "row tall");
+        else
+        {
+            printf("%s\n", text.c_str());
+            fail("a track's instrument made a drum keeps its root row, one "
+                 "row tall");
+        }
+
+        if (seq.trackDsp(1) == "kick909.dsp" && seq.trackArea(1) != NULL &&
+            seq.trackArea(1)->get_content_height() == 26)
+            ok("...and the track is a strip after the reload");
+        else
+            fail("...and the track is a strip after the reload");
+    }
+    else
+        fail("a track playing an instrument could not have it changed");
+
+    if (!win->setTrackInstrument(0, 0, "kick909.dsp", false))
+        ok("a track playing a channel has no instrument to change");
+    else
+        fail("a track playing a channel has no instrument to change");
 
     /* The pane lets go of the composer's widget before the composer
        goes, as the main window's panes do. */

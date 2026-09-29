@@ -61,10 +61,16 @@
 
 bool chosen = false;
 
-/* The window's two modes, spelled as the web page spells them and as
+/* The window's three modes, spelled as the web page spells them and as
    thinkrc and panes.ini keep them. */
 static const char *PATCH_MODE = "patch";
 static const char *PIECE_MODE = "piece";
+static const char *SEQ_MODE = "seq";
+
+static bool isMode (const string &mode)
+{
+    return mode == PATCH_MODE || mode == PIECE_MODE || mode == SEQ_MODE;
+}
 
 MainSynthWindow::MainSynthWindow (gthAudio *audio)
 {
@@ -159,9 +165,16 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     pieceModeBtn_.set_action_name("win.mode");
     pieceModeBtn_.set_action_target_value(
         Glib::Variant<Glib::ustring>::create(PIECE_MODE));
+    seqModeBtn_.set_label("Sequence");
+    seqModeBtn_.set_tooltip_text("Sequence mode: grid tracks, what plays "
+                                 "each one, and the roll (Ctrl+3)");
+    seqModeBtn_.set_action_name("win.mode");
+    seqModeBtn_.set_action_target_value(
+        Glib::Variant<Glib::ustring>::create(SEQ_MODE));
     modeBox_.add_css_class("linked");
     modeBox_.append(patchModeBtn_);
     modeBox_.append(pieceModeBtn_);
+    modeBox_.append(seqModeBtn_);
     header_.pack_start(modeBox_);
     header_.pack_start(composer_->transport());
     header_.pack_end(menuBtn_);
@@ -271,8 +284,8 @@ MainSynthWindow::~MainSynthWindow (void)
 }
 
 /* The first layouts, for a first run and for Reset Layout, one for each
- * of the window's two modes. The web page has the same two and uses the
- * same ids, so a layout means the same on both.
+ * of the window's three modes. The web page has the same three and uses
+ * the same ids, so a layout means the same on both.
  *
  * Patch: the channels down the left, the graph of the one picked in the
  * middle and its parameters on the right, and the keys along the bottom.
@@ -284,6 +297,11 @@ MainSynthWindow::~MainSynthWindow (void)
  * settings and the selection beside it, and the roll under both, the keys a
  * tab behind the roll. The patch's panes are in the drawer rather than
  * gone: a piece is played on channels, and looking at one is a click away.
+ *
+ * Sequence: the tracks over the roll, and beside them what plays them --
+ * the channel's parameters, the keys and Channels. No canvas: somebody
+ * laying down a pattern does not need to be shown that it is a chain of
+ * stages, and the mode exists to not tell them.
  */
 static const char *PATCH_LAYOUT =
     "{\"dir\":\"col\",\"size\":[0.76,0.24],\"kids\":["
@@ -300,13 +318,28 @@ static const char *PIECE_LAYOUT =
         "{\"tabs\":[\"pieceedit\",\"selection\"]}]},"
       "{\"tabs\":[\"roll\",\"keyboard\"]}]}";
 
+static const char *SEQ_LAYOUT =
+    "{\"dir\":\"row\",\"size\":[0.62,0.38],\"kids\":["
+      "{\"dir\":\"col\",\"size\":[0.68,0.32],\"kids\":["
+        "{\"tabs\":[\"seqview\"]},"
+        "{\"tabs\":[\"roll\"]}]},"
+      "{\"dir\":\"col\",\"size\":[0.4,0.3,0.3],\"kids\":["
+        "{\"tabs\":[\"paramview\"]},"
+        "{\"tabs\":[\"keyboard\"]},"
+        "{\"tabs\":[\"channelbox\"]}]}]}";
+
 /* The key the window's one layout was kept under before there were two
    modes: read as the patch mode's, which is what it mostly was. */
 static const char *OLD_LAYOUT_KEY = "desktop";
 
-/* The panes only a piece has. Everything else is in both modes. */
+/* The composer's panes: the ones only piece mode has, and the two it
+   shares with sequence mode. Everything else is in all three. */
 static const char *const PIECE_PANES[] = {
-    "composerview", "seqview", "roll", "pieceedit", "selection",
+    "composerview", "pieceedit", "selection",
+};
+
+static const char *const COMPOSED_PANES[] = {
+    "seqview", "roll",
 };
 
 /* `content' in a scrolled window, sideways and, if `down', downward too.
@@ -399,6 +432,19 @@ void MainSynthWindow::buildPanes (void)
                 panes_->present("selection", false);
         });
 
+    /* New and Open are about the piece, whichever mode asked: piece mode
+       comes up, and the piece with it, before they act. */
+    composer_->signal_file_command().connect(
+        [this]
+        {
+            if (panes_ != NULL && mode_ != PIECE_MODE)
+                setDesktopMode(PIECE_MODE);
+        });
+
+    /* A track's graph, chosen from the same browser the channels use. */
+    composer_->sequencer().signal_choose().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onChooseTrack));
+
     /* A menu command for the piece before the piece is up: the canvas
        comes into view, which starts it, and the command acts on what it
        shows. */
@@ -422,6 +468,7 @@ void MainSynthWindow::buildPanes (void)
 
     panes_->setDefault(PATCH_MODE, PATCH_LAYOUT);
     panes_->setDefault(PIECE_MODE, PIECE_LAYOUT);
+    panes_->setDefault(SEQ_MODE, SEQ_LAYOUT);
 
     panes_->signal_pane_shown().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onPaneShown));
@@ -432,8 +479,10 @@ void MainSynthWindow::buildPanes (void)
 
     keptLayouts_[PATCH_MODE] = readLayout(PATCH_MODE);
     keptLayouts_[PIECE_MODE] = readLayout(PIECE_MODE);
+    keptLayouts_[SEQ_MODE] = readLayout(SEQ_MODE);
     hadLayout_ = !keptLayouts_[PATCH_MODE].empty() ||
-                 !keptLayouts_[PIECE_MODE].empty();
+                 !keptLayouts_[PIECE_MODE].empty() ||
+                 !keptLayouts_[SEQ_MODE].empty();
 
     /* Patch to begin with; applyPrefs puts the one last used back. */
     setDesktopMode(PATCH_MODE, false);
@@ -447,7 +496,37 @@ bool MainSynthWindow::isPiecePane (const string &id)
         if (id == PIECE_PANES[i])
             return true;
 
+    return isComposedPane(id);
+}
+
+bool MainSynthWindow::isComposedPane (const string &id)
+{
+    for (size_t i = 0; i < G_N_ELEMENTS(COMPOSED_PANES); i++)
+        if (id == COMPOSED_PANES[i])
+            return true;
+
     return false;
+}
+
+/* Where a pane asked for in a mode that has not got it is: the tracks in
+   the sequence, and the rest of the composer's in the piece. */
+string MainSynthWindow::modeFor (const string &id)
+{
+    if (id == "seqview")
+        return SEQ_MODE;
+
+    return isPiecePane(id) ? PIECE_MODE : mode_;
+}
+
+bool MainSynthWindow::inMode (const string &id, const string &mode)
+{
+    if (isComposedPane(id))
+        return mode != PATCH_MODE;
+
+    if (isPiecePane(id))
+        return mode == PIECE_MODE;
+
+    return true;
 }
 
 /* A pane the mode does not have is unavailable rather than closed: it
@@ -455,7 +534,7 @@ bool MainSynthWindow::isPiecePane (const string &id)
    back to the mode puts it back there. */
 void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
 {
-    if (panes_ == NULL || (mode != PATCH_MODE && mode != PIECE_MODE))
+    if (panes_ == NULL || !isMode(mode))
         return;
 
     if (mode == mode_)
@@ -464,7 +543,25 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     mode_ = mode;
 
     for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
-        panes_->setAvailable(PIECE_PANES[i], mode == PIECE_MODE);
+        panes_->setAvailable(PIECE_PANES[i], inMode(PIECE_PANES[i], mode));
+
+    for (size_t i = 0; i < G_N_ELEMENTS(COMPOSED_PANES); i++)
+        panes_->setAvailable(COMPOSED_PANES[i],
+                             inMode(COMPOSED_PANES[i], mode));
+
+    /* The piece and the sequence are two documents the composer keeps
+       apart; patch mode leaves whichever was up playing. The tracks offer
+       to change what plays them in the sequence only. Before the panes
+       are told, since a pane coming into view is what starts the
+       composer, and it starts on the document this says. */
+    if (mode == SEQ_MODE)
+        composer_->useDocument(Composer::SEQUENCE);
+    else if (mode == PIECE_MODE)
+        composer_->useDocument(Composer::PIECE);
+
+    composer_->sequencer().setChoosing(
+        mode == SEQ_MODE,
+        [this] (const string &dsp) { return dspTitle(dsp); });
 
     panes_->setMode(mode);
     panes_->load(keptLayouts_[mode]);
@@ -483,6 +580,18 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
 
     syncPaneActions();
     syncComposer();
+
+    /* The keys to the last track, which in the sequence is the one with a
+       keyboard instrument on it -- the others are a kit and a bass, and
+       the channel picked before was likely a patch no track plays. */
+    if (mode == SEQ_MODE && !tearingDown_)
+    {
+        const SeqView &seq = composer_->sequencer();
+        const size_t n = seq.trackCount();
+
+        if (n > 0 && seq.trackChannel(n - 1) >= 0)
+            selectChannel(seq.trackChannel(n - 1));
+    }
 }
 
 void MainSynthWindow::onPaneShown (const string &id, bool visible)
@@ -538,9 +647,9 @@ void MainSynthWindow::togglePane (const string &id)
     if (panes_ == NULL)
         return;
 
-    if (isPiecePane(id) && mode_ != PIECE_MODE)
+    if (!inMode(id, mode_))
     {
-        setDesktopMode(PIECE_MODE);
+        setDesktopMode(modeFor(id));
         panes_->present(id, true);
     }
     else if (panes_->isVisible(id))
@@ -600,7 +709,7 @@ string MainSynthWindow::readLayout (const string &mode)
 
 void MainSynthWindow::onLayoutKept (const string &mode, const string &text)
 {
-    if (mode != PATCH_MODE && mode != PIECE_MODE)
+    if (!isMode(mode))
         return;
 
     keptLayouts_[mode] = text;
@@ -1000,8 +1109,8 @@ void MainSynthWindow::populateMenu (void)
         sigc::mem_fun(*this, &MainSynthWindow::menuTheme),
         gthTheme::toString(gthTheme::current()));
 
-    /* The mode, the same way: the title bar's two toggles and the menu's
-       two items are views of one stateful action. */
+    /* The mode, the same way: the title bar's three toggles and the menu's
+       three items are views of one stateful action. */
     modeAction_ = actions_->add_action_radio_string(
         "mode",
         [this] (const Glib::ustring &target)
@@ -1014,14 +1123,17 @@ void MainSynthWindow::populateMenu (void)
                                      Glib::ustring("<Control>1")));
     accels_.push_back(std::make_pair(Glib::ustring("win.mode::piece"),
                                      Glib::ustring("<Control>2")));
+    accels_.push_back(std::make_pair(Glib::ustring("win.mode::seq"),
+                                     Glib::ustring("<Control>3")));
 
-    /* No mnemonics: every letter either name has is taken by an item
+    /* No mnemonics: every letter these names have is taken by an item
        below, and a shared one makes the key cycle between them rather
-       than choose. Ctrl+1 and Ctrl+2 are the keys for these. */
+       than choose. Ctrl+1, Ctrl+2 and Ctrl+3 are the keys for these. */
     Glib::RefPtr<Gio::Menu> modes = Gio::Menu::create();
 
     modes->append("Patch Mode", "win.mode::patch");
     modes->append("Piece Mode", "win.mode::piece");
+    modes->append("Sequence Mode", "win.mode::seq");
 
     Glib::RefPtr<Gio::Menu> layout = Gio::Menu::create();
 
@@ -2279,6 +2391,71 @@ void MainSynthWindow::openDspBrowser (bool effects, int chan)
         browser->signal_chosen().connect(
             sigc::bind(sigc::mem_fun(*this,
                                      &MainSynthWindow::onBrowseChosen), chan));
+
+    browser->present();
+}
+
+DspCatalog *MainSynthWindow::dspCatalog (void)
+{
+    if (!catalog_)
+    {
+        catalog_ = std::make_shared<DspCatalog>();
+        catalog_->scan(dspDir_);
+    }
+
+    return catalog_.get();
+}
+
+string MainSynthWindow::dspTitle (const string &dsp)
+{
+    const DspCatalog::Entry *e = dspCatalog()->find(dsp);
+
+    if (e != NULL && !e->name.empty())
+        return e->name;
+
+    return thUtil::basename(dsp.c_str());
+}
+
+/* The instrument browser, as Patch params' Browse opens it, over the graph
+ * the track plays now -- and the answer is an edit to the sequence rather
+ * than a patch on a channel: the instrument is the piece's, so the file is
+ * where it changes, and a channel loaded behind the piece's back would be
+ * taken to be somebody else's and moved off at the next reload.
+ */
+void MainSynthWindow::onChooseTrack (size_t chain, size_t stage, string dsp)
+{
+    dspCatalog();
+
+    std::shared_ptr<DspCatalog> catalog = catalog_;
+
+    ItemBrowser *browser = new ItemBrowser(
+        *this, "thinksynth - Instrument",
+        [catalog](const std::string &needle)
+        {
+            return dspRows(catalog.get(), false, needle);
+        },
+        prevDir_.empty() ? dspDir_ : prevDir_, dsp);
+
+    browser->setEmptyNote("<i>No graphs in</i>\n<tt>" +
+                          Glib::Markup::escape_text(dspDir_) + "</tt>\n"
+                          "<small>Set THINK_DSP_PATH, or use Other "
+                          "File...</small>");
+
+    browser->signal_chosen().connect(
+        [this, catalog, chain, stage] (string picked)
+        {
+            if (picked.empty() || composer_ == NULL)
+                return;
+
+            /* A graph the catalog has no row for -- one from Other
+               File... -- counts as pitched: a ladder that turns out to
+               do nothing is a smaller surprise than a pattern silently
+               cut to one row. */
+            const DspCatalog::Entry *e = catalog->find(picked);
+
+            composer_->setTrackInstrument(chain, stage, picked,
+                                          e == NULL || e->readsNote);
+        });
 
     browser->present();
 }

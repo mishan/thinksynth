@@ -53,6 +53,56 @@ copyOver (const std::string &from, const std::string &to)
     return !ec;
 }
 
+/* A grid's pattern -- rows top-down, `/' between them -- at `rows' rows,
+   keeping the bottom ones: the lowest degree is the root a line is written
+   on, and a taller grid grows empty rows above it. */
+static std::string
+bottomRows (const std::string &cells, int rows)
+{
+    std::vector<std::string> have;
+    size_t from = 0;
+
+    for (;;)
+    {
+        const size_t slash = cells.find('/', from);
+
+        have.push_back(cells.substr(from, slash == std::string::npos
+                                              ? std::string::npos
+                                              : slash - from));
+
+        if (slash == std::string::npos)
+            break;
+
+        from = slash + 1;
+    }
+
+    const std::string empty(have.back().size(), '.');
+    std::vector<std::string> out;
+
+    for (int i = 0; i < rows - (int)have.size(); i++)
+        out.push_back(empty);
+
+    for (size_t i = have.size() > (size_t)rows ? have.size() - rows : 0;
+         i < have.size(); i++)
+        out.push_back(have[i]);
+
+    std::string text;
+
+    for (size_t i = 0; i < out.size(); i++)
+        text += (i > 0 ? "/" : "") + out[i];
+
+    return text;
+}
+
+static std::string
+readText (const std::string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
+
 /* ---- construction ----------------------------------------------------- */
 
 Composer::Composer (thSynth *synth)
@@ -350,10 +400,6 @@ Composer::ensureWork (void)
 void
 Composer::loadPiece (void)
 {
-    if (genPath_.empty())
-        genPath_ = thUtil::findDataFile("airports.gen", "gen",
-                                        "THINK_GEN_PATH", "");
-
     if (!ensureWork())
     {
         pieceLabel_ = "could not create a working file";
@@ -362,6 +408,26 @@ Composer::loadPiece (void)
     }
 
     if (genPath_.empty() || !copyOver(genPath_, workPath_))
+        startDocument(which_);
+
+    setDirty(false);
+    parseWork();
+}
+
+std::string
+Composer::startingFile (Document which) const
+{
+    return thUtil::findDataFile(which == SEQUENCE ? "scratch.gen"
+                                                  : "airports.gen",
+                                "gen", "THINK_GEN_PATH", "");
+}
+
+void
+Composer::startDocument (Document which)
+{
+    const std::string from = startingFile(which);
+
+    if (from.empty() || !copyOver(from, workPath_))
     {
         /* No piece to load is a blank page, not an error: New starts
            here too. */
@@ -369,10 +435,137 @@ Composer::loadPiece (void)
 
         out << "name \"Untitled\";\n";
         genPath_.clear();
+        return;
     }
 
-    setDirty(false);
+    /* The piece is the file it came from. The sequence only starts from
+       one: it is somebody's own from the first cell they draw, and Save
+       writing it over the shipped scratch pad would be the wrong file. */
+    genPath_ = which == SEQUENCE ? std::string() : from;
+}
+
+void
+Composer::useDocument (Document which)
+{
+    if (which == which_)
+        return;
+
+    if (!started_ || !ensureWork())
+    {
+        which_ = which;
+        return;
+    }
+
+    Held &was = held_[which_];
+
+    was.held = true;
+    was.genPath = genPath_;
+    was.text = readText(workPath_);
+    was.dirty = dirty_;
+
+    which_ = which;
+
+    const Held &now = held_[which];
+    bool dirty = false;
+
+    /* Stopped, and from the top: what was playing is the other document,
+       and a sequence left running under a piece would be two pieces. */
+    sched_->halt();
+
+    if (now.held)
+    {
+        std::ofstream out(workPath_.c_str(),
+                          std::ios::trunc | std::ios::binary);
+
+        out << now.text;
+        genPath_ = now.genPath;
+        dirty = now.dirty;
+    }
+    else
+        startDocument(which);
+
     parseWork();
+    sched_->reset();
+    setDirty(dirty);
+}
+
+bool
+Composer::setTrackInstrument (size_t ci, size_t si, const std::string &dsp,
+                              bool readsNote)
+{
+    if (!started_ || ci >= doc_.chains.size() ||
+        si >= doc_.chains[ci].stages.size())
+        return false;
+
+    const thcGenEdit::Chain &chain = doc_.chains[ci];
+    std::string inst;
+
+    for (size_t k = 0; k < chain.sinks.size(); k++)
+        if (!chain.sinks[k].instrument.empty() &&
+            chain.sinks[k].chanarg.empty())
+        {
+            inst = chain.sinks[k].instrument;
+            break;
+        }
+
+    if (inst.empty())
+    {
+        status_->set_text("chain " + chain.name + " plays a channel, not one "
+                          "of the piece's instruments");
+        return false;
+    }
+
+    /* A kick, a hat, a clap ignores the note it is sent, so a ladder over
+       one is rows that all make the same sound: one row is all it has to
+       say. A graph that is played at pitch gets a ladder back if it was
+       down to one, and keeps the one it has otherwise. */
+    std::string rows;
+
+    for (size_t p = 0; p < chain.stages[si].params.size(); p++)
+        if (chain.stages[si].params[p].name == "rows")
+            rows = chain.stages[si].params[p].valueText;
+
+    std::string want = rows;
+
+    if (!readsNote)
+        want = "1";
+    else if (rows.empty() || rows == "1")
+        want = "6";
+
+    std::string why;
+
+    /* The pattern goes with it, reshaped here: a grid nobody has drawn on
+       reads its cells from the top when it is reloaded at another height,
+       which kept the empty row above a bass line and dropped the root
+       the line was written on. From the bottom instead, as the grid
+       itself does for one somebody has drawn on. */
+    if (want != rows)
+    {
+        thcStage *s = liveStage(ci, si);
+        const int at = s != NULL ? s->plugin->paramIndex("cells") : -1;
+        const std::string cells =
+            at >= 0 ? s->plugin->capture(s->state, at) : std::string();
+
+        if (!editOk(thcGenEdit::setParam(workPath_, chain.name, (int)si,
+                                         "rows", want, why), why))
+            return false;
+
+        if (!cells.empty() &&
+            !editOk(thcGenEdit::setParam(workPath_, chain.name, (int)si,
+                                         "cells",
+                                         "\"" + bottomRows(cells,
+                                                           atoi(want.c_str()))
+                                         + "\"", why), why))
+            return false;
+    }
+
+    if (!editOk(thcGenEdit::setInstrumentDsp(workPath_, inst, dsp, why),
+                why))
+        return false;
+
+    scheduleReload(true);
+
+    return true;
 }
 
 /* An instrument arriving on a channel, in the application's terms.
@@ -834,12 +1027,21 @@ Composer::onReload (void)
        may have appeared (or THINK_GEN_PATH been pointed somewhere
        real) since startup, and restarting the program is not a reload
        button. */
-    if (genPath_.empty())
-        genPath_ = thUtil::findDataFile("airports.gen", "gen",
-                                        "THINK_GEN_PATH", "");
+    if (genPath_.empty() && which_ == SEQUENCE)
+    {
+        /* The sequence has no file of its own until it is saved, so
+           Revert takes it back to what it started from. */
+        if (ensureWork())
+            startDocument(SEQUENCE);
+    }
+    else
+    {
+        if (genPath_.empty())
+            genPath_ = startingFile(PIECE);
 
-    if (!genPath_.empty() && ensureWork())
-        copyOver(genPath_, workPath_);
+        if (!genPath_.empty() && ensureWork())
+            copyOver(genPath_, workPath_);
+    }
 
     scheduleReload(false);
 }
@@ -1162,8 +1364,10 @@ Composer::buildActions (void)
     /* Each wakes the composer first: before start() there is no piece for
        it to act on, and New done then was undone by the load that
        followed. */
-    acts->add_action("new", [this] { wake(); onNew(); });
-    acts->add_action("open", [this] { wake(); onOpen(); });
+    acts->add_action("new",
+                     [this] { wake(); fileCommand_.emit(); onNew(); });
+    acts->add_action("open",
+                     [this] { wake(); fileCommand_.emit(); onOpen(); });
     saveAct_ = acts->add_action("save",
                                 sigc::mem_fun(*this, &Composer::onSave));
     acts->add_action("saveas", [this] { wake(); onSaveAs(); });

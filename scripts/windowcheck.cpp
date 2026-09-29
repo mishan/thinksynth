@@ -22,14 +22,14 @@
  *   windowcheck -p PLUGIN_DIR DSP_FILE
  *
  * The window is the channels, a patch's parameters and its graph, the keys,
- * the patch list, the MIDI routing and the piece's four, as panes
- * (src/gui/Panes.h), in two modes: patch and piece. This builds it the way
- * main() does, with a patch on a channel, and asks what a person would
- * see: which panes are up the first time, which channel they are about,
- * that each mode has its own panes and its own layout, that the View
- * menu's ticks put panes up and take them down, that the layouts are kept
- * in panes.ini and read back, and that the window comes down cleanly with
- * an editor built in it.
+ * the patch list, the MIDI routing and the piece's five, as panes
+ * (src/gui/Panes.h), in three modes: patch, piece and sequence. This
+ * builds it the way main() does, with a patch on a channel, and asks what
+ * a person would see: which panes are up the first time, which channel
+ * they are about, that each mode has its own panes and its own layout,
+ * that the View menu's ticks put panes up and take them down, that the
+ * layouts are kept in panes.ini and read back, and that the window comes
+ * down cleanly with an editor built in it.
  *
  * Needs a display, and skips itself without one, as editorcheck does.
  */
@@ -175,7 +175,7 @@ activate (TestWindow *win, const std::string &name)
     pump(4);
 }
 
-/* The title bar's toggles and the menu's two items, which are one
+/* The title bar's toggles and the menu's items, which are one
    action with the mode as its target. */
 static void
 pickMode (TestWindow *win, const char *mode)
@@ -491,6 +491,74 @@ run (const std::string &pluginPath, const std::string &dsp)
     }
 
     pickMode(win, "piece");
+
+    /* ---- the sequence ---- */
+
+    /* Sequence mode's piece is gen/scratch.gen, from the source tree the
+       graph under test came out of -- set here rather than for the whole
+       run, since a piece found at startup would put its instruments on
+       channels the sections above count. */
+    Glib::setenv("THINK_GEN_PATH",
+                 (std::filesystem::path(dsp).parent_path().parent_path() /
+                  "gen").string());
+
+    pickMode(win, "seq");
+    pump(8);
+
+    SeqView &seq = win->composer_->sequencer();
+
+    check(win->mode_ == "seq" && win->panes_->isVisible("seqview") &&
+          win->panes_->isVisible("roll") &&
+          !win->panes_->isVisible("composerview") &&
+          !isClosed(win, "composerview") && !isClosed(win, "selection"),
+          "sequence mode has the tracks and the roll, and not the canvas "
+          "or the piece's editors");
+
+    check(win->composer_->document() == Composer::SEQUENCE &&
+          seq.trackCount() == 5 &&
+          win->composer_->status().get_text().find("Scratch") !=
+              Glib::ustring::npos,
+          "...and opens on scratch.gen's five tracks");
+
+    check(seq.trackChooser(0) != NULL && seq.trackDsp(3) == "ebass.dsp",
+          "...each with a button for the graph that plays it");
+
+    check(win->chan_ == seq.trackChannel(4),
+          "...and the keys on the last track's channel");
+
+    /* The bass track, chain 3, played by a kick: a graph that ignores the
+       note gets a grid one row tall. */
+    check(win->composer_->setTrackInstrument(3, 0, "kick909.dsp", false),
+          "a track's graph can be changed");
+
+    pump(8);
+
+    check(seq.trackDsp(3) == "kick909.dsp" && seq.trackArea(3) != NULL &&
+          seq.trackArea(3)->get_content_height() == 26,
+          "...and the track is a one-row strip after the reload");
+
+    pickMode(win, "piece");
+    pump(8);
+
+    check(win->composer_->document() == Composer::PIECE &&
+          win->composer_->status().get_text().find("Untitled") !=
+              Glib::ustring::npos &&
+          seq.trackChooser(0) == NULL,
+          "piece mode puts the piece back, with no choosers on its tracks");
+
+    pickMode(win, "seq");
+    pump(8);
+
+    check(seq.trackDsp(3) == "kick909.dsp" &&
+          win->composer_->status().get_text().find("(edited)") !=
+              Glib::ustring::npos,
+          "...and sequence mode the sequence, edits and all");
+
+    win->composer_->signal_file_command().emit();
+    pump(4);
+
+    check(win->mode_ == "piece",
+          "New and Open in sequence mode go to piece mode first");
 
     /* ---- a pane in a window of its own ---- */
 
