@@ -68,6 +68,13 @@ drag a note to the right to tie it, and use the right button to erase. What
 you draw goes into the piece, so Save keeps it. `scratch.gen` is five tracks
 to start from.
 
+**Sequence** mode (Ctrl+3) is that pane on its own, over a sequence of its
+own: a copy of `scratch.gen`, kept apart from the piece open in piece mode.
+There each track's heading is a button naming the graph that plays it; pick
+another and the track follows — a graph that ignores the note, like a kick,
+gets a grid one row tall, and one played at pitch gets a ladder back. Save
+asks where, so the shipped scratch pad stays as it is.
+
 Every piece is gated: `scripts/gencheck` loads all of them on every build, and
 requires each one with a generator in it to deliver something inside a minute
 of virtual time — a piece that loads and then says nothing is a piece with a

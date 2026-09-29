@@ -19,6 +19,8 @@
 #ifndef MAIN_SYNTH_WINDOW_H
 #define MAIN_SYNTH_WINDOW_H
 
+#include <memory>
+
 /* For gthThemeChoice, which the Appearance menu handlers below take. */
 #include "../gthTheme.h"
 
@@ -32,6 +34,7 @@ class Composer;
 class KeyboardPanel;
 class PatchSelPanel;
 class Panes;
+class DspCatalog;
 typedef struct _MlnPanes MlnPanes;
 
 using namespace std;
@@ -165,12 +168,32 @@ protected:
     void syncPaneActions (void);
     void togglePane (const string &id);
 
-    /* Patch or piece: which panes the window has and the layout it has
-       them in, each mode's kept apart. A piece's pane asked for in patch
-       mode switches to piece mode first. `keep': remember it in thinkrc
-       as the mode to start in. */
+    /* Patch, piece or sequence: which panes the window has and the
+       layout it has them in, each mode's kept apart. A pane asked for in
+       a mode that has not got it switches to one that has first. `keep':
+       remember it in thinkrc as the mode to start in. */
     void setDesktopMode (const string &mode, bool keep = true);
+
+    /* The composer's panes, all of them; the two the sequence has as
+       well as the piece; whether `mode' has `id'; and the mode to go to
+       for one that is not up. */
     static bool isPiecePane (const string &id);
+    static bool isComposedPane (const string &id);
+    static bool inMode (const string &id, const string &mode);
+    string modeFor (const string &id);
+
+    /* A sequencer track's graph: the instrument browser over the shipped
+       graphs, and the choice written into the sequence. */
+    void onChooseTrack (size_t chain, size_t stage, string dsp);
+
+    /* What a graph calls itself -- `Kick 909' for kick909.dsp -- from
+       the catalog, or its file name when the catalog has no entry. */
+    string dspTitle (const string &dsp);
+    DspCatalog *dspCatalog (void);
+
+    /* The keys to the sequence's last track, the first time it has one. */
+    void aimKeysAtSequence (void);
+    bool keysAimed_ = false;
 
     /* The layout, kept in panes.ini beside thinkrc: written a moment after
        the last change rather than on every step of a divider's drag, and
@@ -241,10 +264,11 @@ protected:
     Gtk::HeaderBar header_;
     Gtk::MenuButton menuBtn_;
 
-    /* The two modes, as a pair of linked toggles bound to "win.mode". */
+    /* The three modes, as linked toggles bound to "win.mode". */
     Gtk::Box modeBox_{Gtk::Orientation::HORIZONTAL};
     Gtk::ToggleButton patchModeBtn_;
     Gtk::ToggleButton pieceModeBtn_;
+    Gtk::ToggleButton seqModeBtn_;
 
     std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;
 
@@ -328,6 +352,10 @@ protected:
     sigc::connection layoutWrite_;
 private:
     gthAudio *audio_;
+
+    /* The shipped graphs' headers: read when sequence mode is entered and
+       when a track's chooser opens, and kept for the buttons' titles. */
+    std::shared_ptr<DspCatalog> catalog_;
 
     /* The shipped tree, which is what the browser catalogs, and wherever a
        file chooser last was, which is not the same thing. */

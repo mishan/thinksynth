@@ -154,6 +154,8 @@ public:
     using Composer::selBox_;
     using Composer::editorBox_;
     using Composer::seq_;
+    using Composer::dirty_;
+    using Composer::genPath_;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -1336,6 +1338,7 @@ runSequencer (const std::string &pluginPath)
 {
     const std::string tmp = stagePiece(
             "name \"tracks\";\n"
+            "instrument bass { dsp \"ebass.dsp\"; };\n"
             "chain drum {\n"
             "    stage seq gen::grid { steps = 4; rows = 1; "
             "cells = \"x...\"; };\n"
@@ -1344,7 +1347,7 @@ runSequencer (const std::string &pluginPath)
             "chain line {\n"
             "    stage seq gen::grid { steps = 4; rows = 6; "
             "cells = \"..../..../..../..../..../x...\"; };\n"
-            "    sink { channel = 2; };\n"
+            "    sink { instrument = bass; };\n"
             "};\n"
             "chain other {\n"
             "    stage s gen::eno_line { notes = \"C4\"; };\n"
@@ -1461,8 +1464,307 @@ runSequencer (const std::string &pluginPath)
     else
         fail("the tracks come back after a reload");
 
+    /* The six-row line's instrument made a drum: its `dsp' line and a grid
+       one row tall, which keeps the bottom row -- the root the line is on
+       -- rather than the empty top one a reload would read. */
+    if (win->setTrackInstrument(1, 0, "kick909.dsp", false))
+    {
+        pump(6);
+
+        const std::string text = readAll(win->workPath_);
+
+        if (text.find("dsp \"kick909.dsp\"") != std::string::npos &&
+            text.find("rows = 1;") != std::string::npos &&
+            text.find("cells = \"x...\"") != std::string::npos)
+            ok("a track's instrument made a drum keeps its root row, one "
+               "row tall");
+        else
+        {
+            printf("%s\n", text.c_str());
+            fail("a track's instrument made a drum keeps its root row, one "
+                 "row tall");
+        }
+
+        if (seq.trackDsp(1) == "kick909.dsp" && seq.trackArea(1) != NULL &&
+            seq.trackArea(1)->get_content_height() == 26)
+            ok("...and the track is a strip after the reload");
+        else
+            fail("...and the track is a strip after the reload");
+    }
+    else
+        fail("a track playing an instrument could not have it changed");
+
+    if (!win->setTrackInstrument(0, 0, "kick909.dsp", false))
+        ok("a track playing a channel has no instrument to change");
+    else
+        fail("a track playing a channel has no instrument to change");
+
     /* The pane lets go of the composer's widget before the composer
        goes, as the main window's panes do. */
+    host->unset_child();
+    delete host;
+    delete win;
+    pump(2);
+
+    {
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    return failures;
+}
+
+/* The text of one chain's block in `text', from `chain NAME' to the next
+   chain or the end: what an edit to that chain is looked for in. */
+static std::string
+chainText (const std::string &text, const std::string &name)
+{
+    const size_t at = text.find("chain " + name + " ");
+
+    if (at == std::string::npos)
+        return std::string();
+
+    const size_t next = text.find("\nchain ", at + 1);
+
+    return text.substr(at, next == std::string::npos ? std::string::npos
+                                                     : next - at);
+}
+
+/* A widget made by a reload is not laid out until a frame has gone by,
+   and a gesture on one with no width is dropped by the plugin. Bounded. */
+static bool
+laidOut (Gtk::Widget *w)
+{
+    for (int i = 0; i < 200 && w != NULL && w->get_width() <= 0; i++)
+    {
+        pump(1);
+        g_usleep(5000);
+    }
+
+    return w != NULL && w->get_width() > 0;
+}
+
+static void
+check (bool cond, const char *what)
+{
+    if (cond)
+        ok(what);
+    else
+        fail(what);
+}
+
+/* The piece and the sequence: two documents, each kept while the other is
+ * up, and a track's graph changed in the sequence.
+ *
+ * A staged gen/ with both in it -- a piece as airports.gen, which the
+ * composer opens, and a sequence as scratch.gen. The sequence has what the
+ * instrument change has to be right about: a drum pattern written with bar
+ * lines, which the grid hands back without; a one-row pitched track on an
+ * instrument it shares with a six-row one; and a grid with no `rows' line
+ * at all, which is the plugin's eight.
+ */
+static int
+runDocuments (const std::string &pluginPath)
+{
+    const std::string scratch =
+        "name \"seq\";\n"
+        "instrument bass { dsp \"ebass.dsp\"; };\n"
+        "instrument lead { dsp \"ebass.dsp\"; };\n"
+        "chain drum {\n"
+        "    stage seq gen::grid { steps = 4; rows = 1; "
+        "cells = \"x.|..\"; };\n"
+        "    sink { channel = 1; };\n"
+        "};\n"
+        "chain line {\n"
+        "    stage seq gen::grid { steps = 4; rows = 1; cells = \"x...\"; };\n"
+        "    sink { instrument = bass; };\n"
+        "};\n"
+        "chain twin {\n"
+        "    stage seq gen::grid { steps = 4; rows = 6; "
+        "cells = \"..../..../..../..../..../.x..\"; };\n"
+        "    sink { instrument = bass; };\n"
+        "};\n"
+        "chain tall {\n"
+        "    stage seq gen::grid { steps = 4; cells = \"x...\"; };\n"
+        "    sink { instrument = lead; };\n"
+        "};\n";
+
+    const std::string tmp = stagePiece(
+            "name \"piece\";\n"
+            "chain c {\n"
+            "    stage s gen::eno_line { notes = \"C4\"; };\n"
+            "    sink { channel = 3; };\n"
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    {
+        std::ofstream out((tmp + "/scratch.gen").c_str(), std::ios::trunc);
+
+        out << scratch;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    TestComposer *win = new TestComposer(&synth);
+    Gtk::Window *host = new Gtk::Window;
+
+    host->set_default_size(800, 700);
+    host->set_child(win->sequencerView());
+    host->set_visible(true);
+    win->set_visible(true);
+    win->setSequencerShown(true);
+    pump(8);
+
+    const std::string piecePath = win->genPath_;
+    SeqView &seq = win->seq_;
+
+    win->useDocument(Composer::SEQUENCE);
+    pump(8);
+
+    check(win->document() == Composer::SEQUENCE &&
+          win->genPath_.empty() && seq.trackCount() == 4 &&
+          readAll(win->workPath_) == scratch,
+          "the sequence opens as a copy of scratch.gen with no file of its "
+          "own");
+
+    check(win->saveAct_->get_enabled() && !win->dirty_,
+          "...so Save is offered, and goes to Save As");
+
+    /* A gesture off the end of the drum's grid, whose file spells its
+       pattern with a bar line the grid does not hand back. */
+    if (Gtk::DrawingArea *drum = seq.trackArea(0))
+    {
+        const double past = drum->get_width() + 10;
+
+        seq.input(0, THC_IN_PRESS, past, 5, 1);
+        seq.input(0, THC_IN_RELEASE, past, 5, 1);
+        seq.signal_edited().emit(0, 0);
+        pump(2);
+    }
+
+    check(!win->dirty_ && readAll(win->workPath_) == scratch,
+          "a gesture that changes nothing on a pattern with bar lines "
+          "writes nothing");
+
+    /* A graph the name of which cannot be written: refused before any
+       track is reshaped. */
+    check(!win->setTrackInstrument(1, 0, "a\"b.dsp", true) &&
+          readAll(win->workPath_) == scratch,
+          "a graph whose name cannot be written leaves the file as it was");
+
+    /* The one-row line made pitched: a ladder of six, grown upward, its
+       note kept on the bottom row. Its twin plays the same instrument and
+       is six rows already, so it keeps them. */
+    check(win->setTrackInstrument(1, 0, "ebass.dsp", true),
+          "a pitched graph can be chosen for a one-row track");
+    pump(8);
+
+    {
+        const std::string text = readAll(win->workPath_);
+        const std::string line = chainText(text, "line");
+        const std::string twin = chainText(text, "twin");
+
+        check(line.find("rows = 6;") != std::string::npos &&
+              line.find("\"..../..../..../..../..../x...\"") !=
+                  std::string::npos &&
+              twin.find("rows = 6;") != std::string::npos,
+              "...and the track grows to six rows over its root, and the "
+              "one sharing its instrument keeps its six");
+    }
+
+    /* And a drum for the same instrument: both tracks on it go to a strip,
+       each keeping its own bottom row. */
+    check(win->setTrackInstrument(1, 0, "kick909.dsp", false),
+          "a drum can be chosen for a track");
+    pump(8);
+
+    {
+        const std::string text = readAll(win->workPath_);
+        const std::string line = chainText(text, "line");
+        const std::string twin = chainText(text, "twin");
+
+        check(text.find("dsp \"kick909.dsp\"") != std::string::npos &&
+              line.find("rows = 1;") != std::string::npos &&
+              line.find("\"x...\"") != std::string::npos &&
+              twin.find("rows = 1;") != std::string::npos &&
+              twin.find("\".x..\"") != std::string::npos,
+              "...and every track playing that instrument becomes a strip "
+              "over its own root row");
+    }
+
+    /* The grid with no `rows' line is eight rows, the plugin's own; a
+       pitched graph keeps them, and writes no line. */
+    check(win->setTrackInstrument(3, 0, "ebass.dsp", true),
+          "a pitched graph can be chosen for a grid with no rows line");
+    pump(8);
+
+    check(chainText(readAll(win->workPath_), "tall").find("rows") ==
+              std::string::npos &&
+          seq.trackArea(3) != NULL &&
+          seq.trackArea(3)->get_content_height() == 8 * 18,
+          "...and it keeps the eight rows it has");
+
+    /* A note drawn on the drum, never written down, and the document put
+       away: it goes into the sequence's text rather than with the
+       scheduler. */
+    if (Gtk::DrawingArea *drum = seq.trackArea(0); laidOut(drum))
+    {
+        const double x = drum->get_width() * 3.5 / 4;
+        const double y = drum->get_height() / 2.0;
+
+        seq.input(0, THC_IN_PRESS, x, y, 1);
+        seq.input(0, THC_IN_RELEASE, x, y, 1);
+    }
+
+    win->useDocument(Composer::PIECE);
+    pump(8);
+
+    check(win->document() == Composer::PIECE &&
+          win->genPath_ == piecePath && !win->dirty_ &&
+          win->doc_.name == "piece",
+          "piece mode's document comes back as it was left");
+
+    win->useDocument(Composer::SEQUENCE);
+    pump(8);
+
+    check(chainText(readAll(win->workPath_), "drum").find("\"x..x\"") !=
+              std::string::npos && win->dirty_,
+          "...and the sequence with the note drawn before the switch, and "
+          "its unsaved edits");
+
+    /* A change of graph and the document put away before its reload has
+       run: the reload is the sequence's, and so is the edit it marks. */
+    win->setTrackInstrument(3, 0, "kick909.dsp", false);
+    win->useDocument(Composer::PIECE);
+
+    check(!win->dirty_ && win->doc_.name == "piece",
+          "a switch with a reload still queued leaves the piece clean");
+
+    pump(8);
+    win->useDocument(Composer::SEQUENCE);
+    pump(8);
+
+    check(win->dirty_ &&
+          chainText(readAll(win->workPath_), "tall").find("rows = 1;") !=
+              std::string::npos,
+          "...and the sequence keeps the edit, marked unsaved");
+
+    /* Revert: the sequence has no file, so it goes back to what it
+       started from. */
+    win->activate_action("composer.revert");
+    pump(8);
+
+    check(readAll(win->workPath_) == scratch && !win->dirty_ &&
+          win->genPath_.empty(),
+          "Revert takes the sequence back to scratch.gen, still with no "
+          "file of its own");
+
     host->unset_child();
     delete host;
     delete win;
@@ -1527,6 +1829,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runSequencer(pluginPath);
+
+            if (rc == 0)
+                rc = runDocuments(pluginPath);
 
             if (rc == 0)
                 closeWithIdlesPending(pluginPath);

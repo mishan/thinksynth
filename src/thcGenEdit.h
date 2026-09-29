@@ -263,6 +263,17 @@ public:
                                const std::string &name, int &rewritten,
                                std::string &why);
 
+    /* ---- instruments -------------------------------------------------- */
+
+    /* The graph instrument `name' plays: its `dsp' line, and nothing else.
+       Its values stay as written -- they are the channel's args, and one
+       the new graph does not have is refused by the load, which names it.
+       NOT_FOUND for no such instrument, or one with no `dsp' line. */
+    static Result setInstrumentDsp (const std::string &filename,
+                                    const std::string &name,
+                                    const std::string &dsp,
+                                    std::string &why);
+
     /* ---- presets ------------------------------------------------------ */
 
     /* A preset arrives whole, with at least one component, because a

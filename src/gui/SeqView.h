@@ -15,6 +15,7 @@
 #ifndef SEQ_VIEW_H
 #define SEQ_VIEW_H
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -58,7 +59,45 @@ public:
        piece reloading, when somebody loads a patch onto it. */
     void refresh (void);
 
+    /* Whether a track that plays one of the piece's instruments offers to
+     * change it: a button naming the graph, in place of the name. On in
+     * the sequence, where choosing what plays a track is the point, and
+     * off for a piece, whose instruments are its author's -- the same
+     * rule the web page's tracks follow.
+     *
+     * `title' turns a .dsp's file name into what the button says. */
+    void setChoosing (bool on,
+                      std::function<std::string (const std::string &)> title =
+                          nullptr);
+
+    /* A track's button was pressed: choose a graph for the instrument
+       the track at doc chain `chain', doc stage `stage' plays, which is
+       playing `dsp' now. */
+    sigc::signal<void (size_t, size_t, std::string)> &signal_choose (void)
+    {
+        return choose_;
+    }
+
+    /* The graph track `i' plays, when it plays one of the piece's
+       instruments; empty otherwise. */
+    std::string trackDsp (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].dsp : std::string();
+    }
+
+    /* The chooser on track `i', or NULL where there is none. */
+    Gtk::Button *trackChooser (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].pick : NULL;
+    }
+
     size_t trackCount (void) const { return tracks_.size(); }
+
+    /* The channel track `i' is heard on, 0-15, or -1. */
+    int trackChannel (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].channel : -1;
+    }
 
     /* The grid of track `i', for its size. NULL out of range. */
     Gtk::DrawingArea *trackArea (size_t i) const
@@ -87,9 +126,11 @@ protected:
         int    liveStage;       /* and in the scheduler's list          */
         int    channel;         /* 0-15, or -1 for a chain with no sink */
         std::string name;       /* the chain's                          */
+        std::string dsp;        /* its instrument's graph, or empty     */
 
         Gtk::DrawingArea *area;
         Gtk::Label *what;
+        Gtk::Button *pick;      /* while choosing, for an instrument    */
 
         int rows;               /* what the height was last fitted to   */
         int button;             /* the press's, while a drag is on      */
@@ -117,7 +158,11 @@ protected:
     Gtk::Box list_{Gtk::Orientation::VERTICAL};
     Gtk::Label hint_;
 
+    bool choosing_ = false;
+    std::function<std::string (const std::string &)> title_;
+
     sigc::signal<void (size_t, size_t)> edited_;
+    sigc::signal<void (size_t, size_t, std::string)> choose_;
 };
 
 #endif /* SEQ_VIEW_H */

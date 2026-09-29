@@ -279,6 +279,7 @@ struct InstrumentIdx
     size_t bodyClose;
 
     std::string dsp;
+    size_t dspA, dspB;           /* the quoted file name, 0 when none  */
 
     std::vector<PIdx> values;
 
@@ -725,6 +726,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             in.name = t[i + 1].text;
             in.stmtA = t[i].off;
             in.bodyClose = 0;
+            in.dspA = in.dspB = 0;
 
             size_t j = i + 3;
             bool shaped = true;
@@ -735,6 +737,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     t[j + 1].kind == Tok::STRING && isPunct(t[j + 2], ';'))
                 {
                     in.dsp = t[j + 1].text;
+                    in.dspA = t[j + 1].off;
+                    in.dspB = t[j + 1].end;
                     j += 3;
                     continue;
                 }
@@ -2054,6 +2058,52 @@ thcGenEdit::removeScale (const std::string &filename, const std::string &name,
             }
 
     return finish(filename, text, edits, why);
+}
+
+/* ---- instruments ------------------------------------------------------ */
+
+R
+thcGenEdit::setInstrumentDsp (const std::string &filename,
+                              const std::string &name,
+                              const std::string &dsp, std::string &why)
+{
+    /* A .gen string has no escapes, so a name with a quote or a newline
+       in it cannot be written at all. */
+    if (dsp.empty() || dsp.find('"') != std::string::npos ||
+        dsp.find('\n') != std::string::npos)
+    {
+        why = "'" + dsp + "' cannot be written as a file name";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    std::vector<Edit> edits;
+
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+        if (ix.instruments[i].name == name)
+        {
+            const InstrumentIdx &in = ix.instruments[i];
+
+            if (in.dspB == 0)
+            {
+                why = "instrument " + name + " has no dsp line to change";
+                return NOT_FOUND;
+            }
+
+            if (in.dsp != dsp)
+                edits.push_back({ in.dspA, in.dspB, "\"" + dsp + "\"" });
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = "no instrument called " + name;
+    return NOT_FOUND;
 }
 
 /* ---- building blocks for chains and stages ---------------------------- */

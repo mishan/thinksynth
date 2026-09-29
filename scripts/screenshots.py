@@ -28,6 +28,9 @@ roll with nothing on it. This runs itself under headless.sh for that.
                       graph, its parameters and the keys
   desktop-piece.png   piece mode, with mirrorball.gen half a minute in:
                       the canvas, the piece's settings and the roll
+  desktop-sequence.png
+                      sequence mode, with scratch.gen's tracks playing
+                      and the roll under them
 """
 
 import os
@@ -61,8 +64,12 @@ BROWSER = "Open piece"
 # A screen with room around a first run's 1440x900.
 SCREEN = (1600, 1000)
 
-# Long enough for the roll to have a few bars of every part on it.
+# Long enough for the roll to have a few bars of every part on it, in
+# either piece.
 PLAY_SECONDS = 30
+
+# Play: the first of the transport's buttons, after the three modes'.
+PLAY = (275, 27)
 
 
 def session():
@@ -105,10 +112,23 @@ def piece(name):
         s.click(50, 80, window=BROWSER, double=True)
         s.wait_stable(window=WINDOW)
 
-        # Play: the first of the transport's buttons, after the mode's two.
-        s.click(180, 27, window=WINDOW)
+        s.click(*PLAY, window=WINDOW)
         time.sleep(PLAY_SECONDS)
         s.capture(os.path.join(OUT, "desktop-piece.png"), window=WINDOW,
+                  park=True)
+
+
+def sequence():
+    with session() as s:
+        start(s, "desktop-sequence.log")
+
+        # Sequence mode opens on its own copy of scratch.gen.
+        s.key("ctrl+3")
+        s.wait_stable(window=WINDOW)
+
+        s.click(*PLAY, window=WINDOW)
+        time.sleep(PLAY_SECONDS)
+        s.capture(os.path.join(OUT, "desktop-sequence.png"), window=WINDOW,
                   park=True)
 
 
@@ -116,8 +136,10 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     patch()
     piece("mirrorball")
+    sequence()
 
-    for log in ("desktop-patch.log", "desktop-piece.log"):
+    for log in ("desktop-patch.log", "desktop-piece.log",
+                "desktop-sequence.log"):
         try:
             os.remove(os.path.join(OUT, log))
         except OSError:

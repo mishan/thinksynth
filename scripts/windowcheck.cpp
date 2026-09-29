@@ -22,14 +22,14 @@
  *   windowcheck -p PLUGIN_DIR DSP_FILE
  *
  * The window is the channels, a patch's parameters and its graph, the keys,
- * the patch list, the MIDI routing and the piece's four, as panes
- * (src/gui/Panes.h), in two modes: patch and piece. This builds it the way
- * main() does, with a patch on a channel, and asks what a person would
- * see: which panes are up the first time, which channel they are about,
- * that each mode has its own panes and its own layout, that the View
- * menu's ticks put panes up and take them down, that the layouts are kept
- * in panes.ini and read back, and that the window comes down cleanly with
- * an editor built in it.
+ * the patch list, the MIDI routing and the piece's five, as panes
+ * (src/gui/Panes.h), in three modes: patch, piece and sequence. This
+ * builds it the way main() does, with a patch on a channel, and asks what
+ * a person would see: which panes are up the first time, which channel
+ * they are about, that each mode has its own panes and its own layout,
+ * that the View menu's ticks put panes up and take them down, that the
+ * layouts are kept in panes.ini and read back, and that the window comes
+ * down cleanly with an editor built in it.
  *
  * Needs a display, and skips itself without one, as editorcheck does.
  */
@@ -175,7 +175,7 @@ activate (TestWindow *win, const std::string &name)
     pump(4);
 }
 
-/* The title bar's toggles and the menu's two items, which are one
+/* The title bar's toggles and the menu's items, which are one
    action with the mode as its target. */
 static void
 pickMode (TestWindow *win, const char *mode)
@@ -492,6 +492,99 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     pickMode(win, "piece");
 
+    /* ---- the sequence ---- */
+
+    /* Sequence mode's piece is gen/scratch.gen, from the source tree the
+       graph under test came out of -- set here rather than for the whole
+       run, since a piece found at startup would put its instruments on
+       channels the sections above count. */
+    Glib::setenv("THINK_GEN_PATH",
+                 (std::filesystem::path(dsp).parent_path().parent_path() /
+                  "gen").string());
+
+    pickMode(win, "seq");
+    pump(8);
+
+    SeqView &seq = win->composer_->sequencer();
+
+    check(win->mode_ == "seq" && win->panes_->isVisible("seqview") &&
+          win->panes_->isVisible("roll") &&
+          !win->panes_->isVisible("composerview") &&
+          !isClosed(win, "composerview") && !isClosed(win, "selection"),
+          "sequence mode has the tracks and the roll, and not the canvas "
+          "or the piece's editors");
+
+    check(win->composer_->document() == Composer::SEQUENCE &&
+          seq.trackCount() == 5 &&
+          win->composer_->status().get_text().find("Scratch") !=
+              Glib::ustring::npos,
+          "...and opens on scratch.gen's five tracks");
+
+    check(seq.trackChooser(0) != NULL && seq.trackDsp(3) == "ebass.dsp",
+          "...each with a button for the graph that plays it");
+
+    check(win->chan_ == seq.trackChannel(4),
+          "...and the keys on the last track's channel");
+
+    /* The bass track, chain 3, played by a kick: a graph that ignores the
+       note gets a grid one row tall. */
+    check(win->composer_->setTrackInstrument(3, 0, "kick909.dsp", false),
+          "a track's graph can be changed");
+
+    pump(8);
+
+    check(seq.trackDsp(3) == "kick909.dsp" && seq.trackArea(3) != NULL &&
+          seq.trackArea(3)->get_content_height() == 26,
+          "...and the track is a one-row strip after the reload");
+
+    pickMode(win, "piece");
+    pump(8);
+
+    check(win->composer_->document() == Composer::PIECE &&
+          win->composer_->status().get_text().find("Untitled") !=
+              Glib::ustring::npos &&
+          seq.trackChooser(0) == NULL,
+          "piece mode puts the piece back, with no choosers on its tracks");
+
+    pickMode(win, "seq");
+    pump(8);
+
+    check(seq.trackDsp(3) == "kick909.dsp" &&
+          win->composer_->status().get_text().find("(edited)") !=
+              Glib::ustring::npos,
+          "...and sequence mode the sequence, edits and all");
+
+    win->composer_->signal_file_command().emit();
+    pump(4);
+
+    check(win->mode_ == "piece",
+          "New and Open in sequence mode go to piece mode first");
+
+    pickMode(win, "patch");
+    activate(win, "pane-seqview");
+
+    check(win->mode_ == "seq" && win->panes_->isVisible("seqview"),
+          "the Sequencer's tick in patch mode goes to sequence mode");
+
+    /* The keys went to the last track the first time; a channel picked
+       after that is somebody's, and stays through a trip elsewhere. */
+    win->selectChannel(0);
+    pickMode(win, "piece");
+    pickMode(win, "seq");
+
+    check(win->chan_ == 0,
+          "...and a channel picked there is kept through a trip to "
+          "another mode");
+
+    /* A change to sequence mode's layout, for the section that keeps
+       them. */
+    activate(win, "pane-roll");
+
+    check(isClosed(win, "roll") && win->mode_ == "seq",
+          "the roll closes in sequence mode");
+
+    pickMode(win, "piece");
+
     /* ---- a pane in a window of its own ---- */
 
     mln_panes_undock(win->panes_->gobj(), "keyboard");
@@ -547,6 +640,15 @@ run (const std::string &pluginPath, const std::string &dsp)
             patch == std::string::npos ? std::string()
                 : text.substr(patch, text.find('\n', patch) - patch);
 
+        const size_t seqAt = text.find("seq=");
+        const std::string seqLine =
+            seqAt == std::string::npos ? std::string()
+                : text.substr(seqAt, text.find('\n', seqAt) - seqAt);
+
+        check(!seqLine.empty() && seqLine.find("\"roll\"") ==
+                                      std::string::npos,
+              "sequence mode's layout is kept too, without its closed roll");
+
         check(text.find("[layouts]") != std::string::npos &&
               patch != std::string::npos && piece != std::string::npos &&
               patchLine.find("\"keyboard\"") == std::string::npos &&
@@ -574,6 +676,15 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(!isClosed(win, "keyboard"),
           "...and piece mode's, where the keys were not closed");
 
+    win->setDesktopMode("seq");
+    pump(4);
+
+    check(isClosed(win, "roll"),
+          "...and sequence mode's, with the roll it closed");
+
+    win->setDesktopMode("piece");
+    pump(4);
+
     delete win;
     pump(4);
 
@@ -585,6 +696,30 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     check(win->mode_ == "piece",
           "the mode last used is the one a new window starts in");
+
+    win->setDesktopMode("seq");
+    pump(4);
+    delete win;
+    pump(4);
+
+    /* ...sequence mode among them, which has no tracks until its pane is
+       in view and the composer starts -- and then the keys go to the
+       last one. */
+    win = new TestWindow;
+    win->applyPrefs();
+    win->set_visible(true);
+    pump(8);
+
+    {
+        SeqView &started = win->composer_->sequencer();
+        const size_t n = started.trackCount();
+
+        check(win->mode_ == "seq" &&
+              win->composer_->document() == Composer::SEQUENCE &&
+              n == 5 && win->chan_ == started.trackChannel(n - 1),
+              "a window that starts in sequence mode opens the sequence, "
+              "with the keys on its last track");
+    }
 
     win->setDesktopMode("patch");
     pump(4);

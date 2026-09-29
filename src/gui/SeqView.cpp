@@ -98,6 +98,17 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
                 break;
             }
 
+        /* The graph the chain's instrument plays, as the file names it: a
+           chain whose sink is a raw channel has none to change. */
+        std::string dsp;
+
+        for (size_t k = 0; k < chain.sinks.size() && dsp.empty(); k++)
+            if (!chain.sinks[k].instrument.empty() &&
+                chain.sinks[k].chanarg.empty())
+                for (size_t n = 0; n < doc_->instruments.size(); n++)
+                    if (doc_->instruments[n].name == chain.sinks[k].instrument)
+                        dsp = doc_->instruments[n].dsp;
+
         for (size_t si = 0; si < chain.stages.size(); si++)
         {
             const int at = thcGenEdit::liveIndex(chain, si);
@@ -118,8 +129,10 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
             t.liveStage = at;
             t.channel = channel;
             t.name = chain.name;
+            t.dsp = dsp;
             t.area = NULL;
             t.what = NULL;
+            t.pick = NULL;
             t.rows = 0;
             t.button = 0;
 
@@ -150,8 +163,35 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         t.what->set_ellipsize(Pango::EllipsizeMode::END);
 
         head->append(*num);
-        head->append(*t.what);
+
+        if (choosing_ && !t.dsp.empty())
+        {
+            const std::string title = title_ ? title_(t.dsp) : t.dsp;
+
+            t.pick = manage(new Gtk::Button);
+            t.pick->set_child(*t.what);
+            t.pick->set_valign(Gtk::Align::START);
+            t.pick->set_hexpand(true);
+            t.pick->set_tooltip_text(title + " (" + t.dsp + ") plays " +
+                                     t.name + ". Click to choose another.");
+            t.what->set_text(title.empty() ? t.dsp : title);
+            t.pick->signal_clicked().connect(
+                [this, i]
+                {
+                    if (i < tracks_.size())
+                        choose_.emit(tracks_[i].chain, tracks_[i].docStage,
+                                     tracks_[i].dsp);
+                });
+            head->append(*t.pick);
+        }
+        else
+            head->append(*t.what);
+
+        /* Its own width and no more: a button that fills the heading
+           would otherwise hand its expanding up, and the heading would
+           take half the row from the grid. */
         head->set_size_request(HEAD_W, -1);
+        head->set_hexpand(false);
 
         t.rows = rowsOf(t);
         t.area = manage(new Gtk::DrawingArea);
@@ -306,10 +346,26 @@ SeqView::describe (const Track &t) const
 }
 
 void
+SeqView::setChoosing (bool on,
+                      std::function<std::string (const std::string &)> title)
+{
+    if (title)
+        title_ = title;
+
+    if (on == choosing_)
+        return;
+
+    choosing_ = on;
+
+    /* The headings are made with the tracks, so they are made again. */
+    setPiece(doc_, sched_);
+}
+
+void
 SeqView::refresh (void)
 {
     for (size_t i = 0; i < tracks_.size(); i++)
-        if (tracks_[i].what != NULL)
+        if (tracks_[i].what != NULL && tracks_[i].pick == NULL)
         {
             const std::string what = describe(tracks_[i]);
 

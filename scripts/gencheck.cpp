@@ -1628,6 +1628,35 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     editOk(thcGenEdit::setScale(path, "pent", "C3 D3 E3 G3 A3", why),
            why, "setScale");
 
+    /* An instrument's graph, changed and changed back: the file loads
+       again further down, and it is amb01.dsp's `a' the pad sets. */
+    editOk(thcGenEdit::setInstrumentDsp(path, "pad", "amb02.dsp", why), why,
+           "setInstrumentDsp");
+
+    {
+        thcGenEdit::Doc swapped;
+
+        if (thcGenEdit::describe(path, swapped, why) != thcGenEdit::OK ||
+            swapped.instruments.size() != 1 ||
+            swapped.instruments[0].dsp != "amb02.dsp")
+            fail("setInstrumentDsp did not change the pad's dsp line");
+        else if (swapped.instruments[0].values.empty() ||
+                 swapped.instruments[0].values[0].valueText != "900 ms")
+            fail("setInstrumentDsp lost the pad's values");
+    }
+
+    editOk(thcGenEdit::setInstrumentDsp(path, "pad", "amb01.dsp", why), why,
+           "setInstrumentDsp back");
+
+    if (thcGenEdit::setInstrumentDsp(path, "nobody", "amb01.dsp", why) !=
+        thcGenEdit::NOT_FOUND)
+        fail("setInstrumentDsp on an instrument the piece does not declare "
+             "was not NOT_FOUND");
+
+    if (thcGenEdit::setInstrumentDsp(path, "pad", "a\"b.dsp", why) !=
+        thcGenEdit::REFUSED)
+        fail("setInstrumentDsp wrote a name with a quote in it");
+
     {
         std::vector<thcGenEdit::PresetValue> vals;
         thcGenEdit::PresetValue pv;
