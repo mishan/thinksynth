@@ -34,8 +34,12 @@ public:
     thSynth (const string &plugin_path, int windowlen, int samples);
     ~thSynth (void);
 
+    /* The first synth made in this process, until it is destroyed; NULL
+       after that, even if others are still alive. The application has one
+       synth and reaches it through this; libthink and the plugins never
+       do. */
     static thSynth *instance (void) {
-        return instance_;
+        return instance_.load();
     }
 
     thSynthTree *loadTree(const string &filename);
@@ -579,7 +583,9 @@ private:
      * does not name a type". */
     std::mutex synthMutex_;
 
-    static thSynth *instance_;
+    void claimInstance (void);
+
+    static std::atomic<thSynth *> instance_;
 };
 
 #endif /* TH_SYNTH_H */

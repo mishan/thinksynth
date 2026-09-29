@@ -74,8 +74,11 @@
  * plugins and the loader keep at file scope. Each round also asks for a
  * plugin no build has, since a failed lookup is what writes the loader's
  * error text -- which was one std::string for the process until it was made
- * thread_local. Build dspstress-embedded to run this against the compiled-in
- * table (think_embedded) rather than dlopen.
+ * thread_local. The first quarter of the level runs the two with no other
+ * synth alive, so that the first synth to come and the last to go -- the
+ * ones that claim and release thSynth::instance() -- are theirs. Build
+ * dspstress-embedded to run this against the compiled-in table
+ * (think_embedded) rather than dlopen.
  *
  * Confirmed to fail before it was trusted to pass, both of them. Taking the
  * manager's lock back out makes level 6 report a data race inside the map,
@@ -272,9 +275,38 @@ static void collectProbePoints (thSynth &synth, const char *file,
 }
 
 /* Runs one level to completion. Called in a forked child. */
+/* The instance threads with no other synth alive: the first and last
+   synth in a process are the ones that claim and release what is
+   process-wide, thSynth::instance() among it, and with the level's own
+   synth up the whole time neither ever happens. */
+static void instancesAlone (const string &pluginPath, const char *file,
+                            int milliseconds, StressCounters *counters)
+{
+    std::atomic<bool> running(true);
+    vector<std::thread> workers;
+
+    for (int i = 0; i < 2; i++)
+        workers.push_back(std::thread(instanceThread, &pluginPath, file,
+                                      &running, counters));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+    running.store(false, std::memory_order_relaxed);
+
+    for (size_t i = 0; i < workers.size(); i++)
+        workers[i].join();
+}
+
 static int runLevel (const string &pluginPath, const char *file, int level,
                      int milliseconds)
 {
+    StressCounters counters;
+
+    if (level >= LVL_INSTANCE)
+    {
+        instancesAlone(pluginPath, file, milliseconds / 4, &counters);
+        milliseconds -= milliseconds / 4;
+    }
+
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
     if (synth.loadTree(file, 0, 100) == NULL)
@@ -317,7 +349,6 @@ static int runLevel (const string &pluginPath, const char *file, int level,
                 swappable.push_back(i->first);
     }
 
-    StressCounters counters;
     std::atomic<bool> running(true);
 
     std::thread audio(audioThread, &synth, &running, &counters);

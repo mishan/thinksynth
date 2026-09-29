@@ -30,7 +30,7 @@
 #include "think.h"
 #include "parser.h"
 
-thSynth *thSynth::instance_ = NULL;
+std::atomic<thSynth *> thSynth::instance_(NULL);
 
 /* `-l N' reaches windowlen through atoi(), which has no opinion about what a
    sensible window is: it will hand back 0, a negative, or two billion just as
@@ -101,8 +101,7 @@ thSynth::thSynth (int windowlen, int samples)
 
     controllerHandler_ = new thMidiController();
 
-    if (instance_ == NULL)
-        instance_ = this;
+    claimInstance();
 }
 
 thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
@@ -158,8 +157,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 
     controllerHandler_ = new thMidiController();
 
-    if (instance_ == NULL)
-        instance_ = this;
+    claimInstance();
 }
 
 thSynth::~thSynth (void)
@@ -292,8 +290,20 @@ thSynth::~thSynth (void)
     delete controllerHandler_;
     delete pluginmanager_;
 
-    if (instance_ == this)
-        instance_ = NULL;
+    thSynth *self = this;
+
+    instance_.compare_exchange_strong(self, NULL);
+}
+
+/* The first synth made is instance() until it goes, and a synth made while
+   it is there does not replace it. A compare-and-swap rather than a test
+   and a store, because synths are made and destroyed on more than one
+   thread where a host runs several. */
+void thSynth::claimInstance (void)
+{
+    thSynth *none = NULL;
+
+    instance_.compare_exchange_strong(none, this);
 }
 
 /* ------------------------------------------------------------------------
