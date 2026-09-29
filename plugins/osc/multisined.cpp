@@ -40,7 +40,7 @@ void module_cleanup (thPlugin *plugin)
  * instance. */
 enum { IN_WAVES,OUT_ARG,OUT_SYNC,INOUT_LAST,INOUT_FREQ,IN_FREQ,IN_AMP,IN_DETUNEFREQ,IN_DETUNEAMT,IN_AMPMUL,IN_AMPADD };
 
-int args[IN_AMPADD + 1];
+std::atomic<int> args[IN_AMPADD + 1];
 
 int module_init (thPlugin *plugin)
 {

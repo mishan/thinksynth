@@ -96,7 +96,7 @@
 
 enum {IN_FREQ, IN_PARTIALS, IN_BANDWIDTH, IN_BWSCALE, IN_TILT, IN_STRETCH,
       OUT_ARG, OUT_ARG2, INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "PADsynth (partials with a bandwidth each)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

@@ -28,7 +28,10 @@
 
 namespace {
 
-std::string lastError_;
+/* Per thread, as dlerror() is: two synths loading plugins on two threads --
+   two instances of an audio plugin in one host -- would otherwise write one
+   std::string at once. */
+thread_local std::string lastError_;
 
 } /* namespace */
 
@@ -113,7 +116,8 @@ std::string win32Error (DWORD code)
     return std::filesystem::path(w).string();
 }
 
-DWORD lastCode = 0;
+/* Per thread, as GetLastError() itself is. See the static branch. */
+thread_local DWORD lastCode = 0;
 
 } /* namespace */
 

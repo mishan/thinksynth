@@ -95,7 +95,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 static const char *const colors[] = { "White", "Pink", "Brown" };
 
 enum {OUT_ARG, IN_COLOR, IN_AMP, INOUT_LAST};
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 void module_cleanup (thPlugin *plugin)
 {

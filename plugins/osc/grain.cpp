@@ -112,7 +112,7 @@ enum {IN_FILE, IN_POSITION, IN_SPREAD, IN_SIZE, IN_DENSITY, IN_PITCH,
       IN_JITTER, IN_WINDOW, IN_FREQ, IN_ROOT, IN_SEED, IN_SOURCE, IN_ARG,
       IN_FREEZE, OUT_ARG, OUT_ARG2, INOUT_RING, INOUT_STATE};
 
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Granular player (a file or a live ring)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

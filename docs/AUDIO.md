@@ -317,6 +317,11 @@ with it:
 | 3 `chanargs` | + `setChanArg` and slider-style `setValue` |
 | 4 `reload` | + `loadTree` onto a live channel, `removeChan` |
 | 5 `probes` | + arming and draining visualizer probes while the patch is replaced |
+| 6 `parse` | + four threads parsing the same `.dsp` over and over |
+| 7 `instances` | + two more synths made, loaded, played and destroyed on threads of their own |
+
+`dspstress-embedded` is the same harness over `think_embedded`, for the
+compiled-in plugin table level 7 exercises.
 
 ThreadSanitizer cannot be combined with AddressSanitizer, so it needs its own
 build tree:

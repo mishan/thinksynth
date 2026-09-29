@@ -48,7 +48,7 @@ void module_reset (thPlugin *plugin)
  * instance. */
 enum { OUT_ARG,INOUT_LAST,IN_SAMPLE };
 
-int args[IN_SAMPLE + 1];
+std::atomic<int> args[IN_SAMPLE + 1];
 
 int module_init (thPlugin *plugin)
 {

@@ -26,7 +26,7 @@
 #define CONSTANT TH_MAX/MIDIVALMAX
 
 enum {IN_ARG, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 static const char desc[] = "Maps a midi controller value from 0 to TH_MAX";
 thPlugin::State    mystate = thPlugin::PASSIVE;

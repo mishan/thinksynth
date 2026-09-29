@@ -27,7 +27,7 @@
 
 enum {IN_ARG, IN_CUTOFF, IN_RES, IN_SHAPE, OUT_ARG, OUT_BAND, OUT_HIGH,
       OUT_NOTCH, INOUT_LAST};
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "`INK Filter`  this algorithm was in my head when I woke up";
 thPlugin::State    mystate = thPlugin::ACTIVE;

@@ -32,7 +32,7 @@ void module_cleanup (thPlugin *plugin)
 
 enum { IN_LEN,IN_MAX,IN_PERCENT,OUT_ARG };
 
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {

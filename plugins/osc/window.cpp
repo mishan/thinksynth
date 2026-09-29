@@ -39,7 +39,7 @@ static inline float SQR (float x)
 enum {IN_FREQ, IN_PW, IN_WAVEFORM, IN_RESET, OUT_ARG, OUT_SYNC,
       OUT_SYNC2, INOUT_LAST};
 
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 /* osc::simple shipped with this same description. This one runs 0 to 1 and
    implements three of its six waveforms. */

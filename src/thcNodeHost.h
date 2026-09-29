@@ -89,12 +89,13 @@ public:
      *
        Shared and not one each, for a reason that is not only thrift.
        Every plugin keeps its registered arg indices in a file-scope
-       global (`int args[]' at the top of each one), which assumes one
-       thPlugin per module per process. A second thPluginManager
-       dlopen's the same .so and calls module_init again, and the two
-       thPlugins then overwrite each other's idea of which index is
-       which. It is benign while registration order is identical, and it
-       is not a thing to leave lying about. */
+       global (`std::atomic<int> args[]' at the top of each one), which
+       assumes one thPlugin per module per process. A second
+       thPluginManager dlopen's the same .so and calls module_init again,
+       and the two thPlugins then overwrite each other's idea of which
+       index is which. The table is atomic, so that is not a data race,
+       and it is benign while registration order is identical; it is
+       still not a thing to lean on. */
     thcNodeHost (thSynth *synth, long rate);
     ~thcNodeHost (void);
 

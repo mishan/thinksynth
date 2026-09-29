@@ -86,7 +86,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {IN_ARG, IN_FREQ, IN_FEEDBACK, IN_DAMP, IN_SIZE, OUT_ARG, INOUT_BUFFER,
       INOUT_BUFPOS, INOUT_DAMPED};
-int args[INOUT_DAMPED + 1];
+std::atomic<int> args[INOUT_DAMPED + 1];
 
 void module_cleanup (thPlugin *plugin)
 {

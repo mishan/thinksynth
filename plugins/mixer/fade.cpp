@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_0, IN_1, IN_FADE, OUT};
-int args[OUT+1];
+std::atomic<int> args[OUT+1];
 
 static const char desc[] = "Fades between two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;

@@ -86,7 +86,7 @@
 enum {IN_FREQ, IN_RATIO, IN_MOD, IN_INDEX, IN_FEEDBACK, IN_RESET,
       OUT_ARG, INOUT_STATE};
 
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "FM Operator (a sine whose phase is modulated)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

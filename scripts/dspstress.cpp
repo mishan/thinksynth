@@ -47,6 +47,8 @@
  *   4 reload    + loadTree onto a live channel, removeChan
  *   5 probes    + armProbe / disarmProbe, and draining the rings
  *   6 parse     + four threads parsing the same .dsp over and over
+ *   7 instances + two more synths, each made, loaded, played and destroyed
+ *                 over and over on a thread of its own
  *
  * Level 5 is where the visualizer tap gets looked at, and it deliberately sits
  * on top of level 4 rather than beside it: arming and disarming on a quiet
@@ -64,6 +66,16 @@
  * whose lookup was `plugins_[name]' -- an insert on every miss, from a call
  * that reads. Two parses of a file naming a plugin neither had loaded raced
  * on that insert. This level is what says so, and what would say so again.
+ *
+ * Level 7 is a host with more than one synth in it: an audio plugin that a
+ * DAW has put on two tracks, or has just been asked for another copy of.
+ * Each synth has its own plugin manager, but a plugin is one module per
+ * process however many synths open it, so what is shared is whatever the
+ * plugins and the loader keep at file scope. Each round also asks for a
+ * plugin no build has, since a failed lookup is what writes the loader's
+ * error text -- which was one std::string for the process until it was made
+ * thread_local. Build dspstress-embedded to run this against the compiled-in
+ * table (think_embedded) rather than dlopen.
  *
  * Confirmed to fail before it was trusted to pass, both of them. Taking the
  * manager's lock back out makes level 6 report a data race inside the map,
@@ -111,7 +123,8 @@ enum {
     LVL_RELOAD,
     LVL_PROBE,
     LVL_PARSE,
-    LVL_MAX = LVL_PARSE
+    LVL_INSTANCE,
+    LVL_MAX = LVL_INSTANCE
 };
 
 static const char *levelName (int level)
@@ -124,6 +137,7 @@ static const char *levelName (int level)
         case LVL_RELOAD:  return "reload   (+ loadTree/removeChan)";
         case LVL_PROBE:   return "probes   (+ arm/disarm/drain)";
         case LVL_PARSE:   return "parse    (+ concurrent parseTree)";
+        case LVL_INSTANCE: return "instances (+ more synths)";
         default:          return "?";
     }
 }
@@ -143,8 +157,9 @@ struct StressCounters {
     std::atomic<unsigned long> windows;
     std::atomic<unsigned long> ops;
     std::atomic<unsigned long> parses;
+    std::atomic<unsigned long> instances;
 
-    StressCounters () : windows(0), ops(0), parses(0) {}
+    StressCounters () : windows(0), ops(0), parses(0), instances(0) {}
 };
 
 /* Stands in for the JACK process callback. */
@@ -186,6 +201,30 @@ static void parserThread (thSynth *synth, const char *file,
         counters->parses.fetch_add(1, std::memory_order_relaxed);
 
         std::this_thread::yield();
+    }
+}
+
+/* Another synth in the same process, start to finish, over and over. */
+static void instanceThread (const string *pluginPath, const char *file,
+                            std::atomic<bool> *running,
+                            StressCounters *counters)
+{
+    while (running->load(std::memory_order_relaxed))
+    {
+        thSynth synth(*pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        synth.getPluginManager()->loadPlugin("dspstress/absent");
+
+        if (synth.loadTree(file, 0, 100) != NULL)
+        {
+            synth.addNote(0, 60, 100);
+
+            for (int w = 0; w < 4; w++)
+                synth.process();
+        }
+
+        counters->instances.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -287,12 +326,17 @@ static int runLevel (const string &pluginPath, const char *file, int level,
        and an insert is over quickly. More threads than cores is deliberate
        -- the scheduler's preemptions are half of what widens the window on a
        machine that is otherwise too fast to lose. */
-    vector<std::thread> parsers;
+    vector<std::thread> workers;
 
     if (level >= LVL_PARSE)
         for (int i = 0; i < 4; i++)
-            parsers.push_back(std::thread(parserThread, &synth, file, &running,
+            workers.push_back(std::thread(parserThread, &synth, file, &running,
                                           &counters));
+
+    if (level >= LVL_INSTANCE)
+        for (int i = 0; i < 2; i++)
+            workers.push_back(std::thread(instanceThread, &pluginPath, file,
+                                          &running, &counters));
 
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() +
@@ -424,16 +468,20 @@ static int runLevel (const string &pluginPath, const char *file, int level,
     running.store(false, std::memory_order_relaxed);
     audio.join();
 
-    for (size_t i = 0; i < parsers.size(); i++)
-        parsers[i].join();
+    for (size_t i = 0; i < workers.size(); i++)
+        workers[i].join();
 
-    if (parsers.empty())
+    if (workers.empty())
         printf("      %lu windows, %lu ops\n",
                counters.windows.load(), counters.ops.load());
-    else
+    else if (level < LVL_INSTANCE)
         printf("      %lu windows, %lu ops, %lu parses\n",
                counters.windows.load(), counters.ops.load(),
                counters.parses.load());
+    else
+        printf("      %lu windows, %lu ops, %lu parses, %lu instances\n",
+               counters.windows.load(), counters.ops.load(),
+               counters.parses.load(), counters.instances.load());
 
     return 0;
 }

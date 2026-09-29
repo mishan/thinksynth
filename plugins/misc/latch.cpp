@@ -31,7 +31,7 @@ void module_cleanup (thPlugin *plugin)
 
 enum { INOUT_LAST,IN_ARG,IN_LATCH,OUT_ARG };
 
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {

@@ -39,7 +39,7 @@ static inline float SQR (float x)
 enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL,
     OUT_ARG, OUT_SYNC, INOUT_LAST};
 
-int args[INOUT_LAST + 1];
+std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "Complex Oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;

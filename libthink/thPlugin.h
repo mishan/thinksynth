@@ -19,6 +19,8 @@
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
 
+#include <atomic>
+
 #include "thExport.h"
 
 class thSynthTree;
@@ -65,6 +67,15 @@ class thNode;
  * against a stale libthink.
  */
 #define MODULE_IFACE_VER 5
+
+/* Every plugin keeps the indices regArg() hands back in a file-scope table,
+ * `std::atomic<int> args[]', and reads it on every callback. There is one
+ * table per plugin per process, however many synths load the plugin, and
+ * each synth's module_init writes it again -- with the same values, since
+ * registration order is fixed. Atomic because that rewrite can land while
+ * another synth's audio thread is reading the table, or while a third synth
+ * is writing it: two instances of an audio plugin in one host. The loads
+ * are plain loads on x86 and ldar on ARM64, a few per node per window. */
 
 /* We don't want this to exist unless we're using a plugin.
  *

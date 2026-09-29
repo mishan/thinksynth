@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 /* "(dynamic)" as against env::map, whose four bounds were once read only at
    sample 0. They are not any more -- map fetches its args with getBuffer(),

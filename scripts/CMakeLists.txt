@@ -212,6 +212,18 @@ think_harness(dspsweep)
 # TSan for MinGW. So it is simply not built there.
 if(NOT WIN32)
   think_harness(dspstress THREADS)
+
+  # The same levels over think_embedded, whose loader reads a table rather
+  # than calling dlopen: the loader level 7 exercises is that one.
+  if(THINK_EMBEDDED)
+    find_package(Threads REQUIRED)
+    add_executable(dspstress-embedded dspstress.cpp)
+    target_include_directories(dspstress-embedded PRIVATE "${PROJECT_SOURCE_DIR}")
+    target_link_libraries(dspstress-embedded PRIVATE think_embedded
+                                                     Threads::Threads)
+    set_target_properties(dspstress-embedded PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+  endif()
 endif()
 
 # The audio path's block-size handling, without a sound card. gthSynthSource

@@ -23,7 +23,7 @@
 #include "think.h"
 
 enum {IN_0, IN_1, OUT_ARG};
-int args[OUT_ARG + 1];
+std::atomic<int> args[OUT_ARG + 1];
 
 /* math::add shipped with this same description and is the one that adds:
    this halves the result so two full-scale signals stay in range. */

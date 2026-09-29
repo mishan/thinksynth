@@ -42,7 +42,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_PAN, OUT_ARG0, OUT_ARG1};
-int args[OUT_ARG1 + 1];
+std::atomic<int> args[OUT_ARG1 + 1];
 
 static const char desc[] = "Pan (constant power)";
 thPlugin::State    mystate = thPlugin::ACTIVE;

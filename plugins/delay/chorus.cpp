@@ -90,7 +90,7 @@
 
 enum {IN_ARG, IN_RATE, IN_DEPTH, IN_DELAY, IN_MIX, IN_TAPS, IN_PHASE,
       IN_FEEDBACK, OUT_ARG, INOUT_BUFFER, INOUT_STATE};
-int args[INOUT_STATE + 1];
+std::atomic<int> args[INOUT_STATE + 1];
 
 static const char desc[] = "Chorus (moving taps on a short delay)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
