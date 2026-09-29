@@ -92,11 +92,14 @@ static void ok (bool cond, const char *fmt, ...)
    purpose: a test that imported the table would agree with it however it
    changed, including into something empty. */
 static const char *expected[] = {
-    "leads/SuperRes.patch",
-    "bass/FunkMachine.patch",
-    "organs/Organ1.patch",
-    "pads/SynString.patch",
+    "keys/Rhodes.patch",
+    "pads/Juno.patch",
+    "bass/ElectricBass.patch",
+    "leads/Pluck.patch",
 };
+
+/* And the level each goes on at, spelled out for the same reason. */
+static const int expectedAmp[] = { 30, 30, 60, 28 };
 
 static const size_t expectedCount = sizeof(expected) / sizeof(expected[0]);
 
@@ -289,6 +292,23 @@ int main (int argc, char **argv)
 
         ok(allRelative,
            "every patch it wrote is named relatively, so the file travels");
+
+        /* Each at its own level, which is what the file keeps. */
+        bool levels = lines.size() == expectedCount;
+
+        for (size_t i = 0; levels && i < lines.size(); i++)
+        {
+            const size_t b = lines[i].rfind(',');
+
+            if (b == string::npos ||
+                atoi(lines[i].c_str() + b + 1) != expectedAmp[i])
+            {
+                printf("      %s\n", lines[i].c_str());
+                levels = false;
+            }
+        }
+
+        ok(levels, "each default is written at its own amp");
     }
 
     /* ---- reading it back -------------------------------------------- */

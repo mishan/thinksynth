@@ -23,15 +23,30 @@
 
 #include "config.h"
 
+#include "think.h"
+
 #include "PatchSet.h"
 
 /* See the header. Index is the channel, which is what the application's
-   table of pairs always was. */
-static const char *const patchDefaults[] = {
-    "leads/SuperRes.patch",
-    "bass/FunkMachine.patch",
-    "organs/Organ1.patch",
-    "pads/SynString.patch",
+   table of pairs always was.
+
+   Ordered for the pieces that name channels rather than carrying their
+   own instruments, whose headers ask for something percussive or keys on
+   channel 1, a pad on 2, a bass on 3 and something plucked on 4.
+
+   The levels are each graph's own: at one amp the electric bass sat at
+   half the peak of the other three, and the pieces that play these graphs
+   give it two to three times the amp they give the Rhodes. Each is set so
+   a chord, or the bass's single notes, peaks between 0.4 and 0.5. */
+static const struct
+{
+    const char *patch;
+    float amp;
+} patchDefaults[] = {
+    { "keys/Rhodes.patch",       30 },
+    { "pads/Juno.patch",         30 },
+    { "bass/ElectricBass.patch", 60 },
+    { "leads/Pluck.patch",       28 },
 };
 
 int thPatchDefaultCount (void)
@@ -46,7 +61,17 @@ string thPatchDefaultFor (int channel)
     if (channel < 0 || n <= 0)
         return string();
 
-    return patchDefaults[channel % n];
+    return patchDefaults[channel % n].patch;
+}
+
+float thPatchDefaultAmp (int channel)
+{
+    const int n = thPatchDefaultCount();
+
+    if (channel < 0 || n <= 0)
+        return TH_DEFAULT_CHAN_AMP;
+
+    return patchDefaults[channel % n].amp;
 }
 
 /* Stamped on every slot, never reused, counted once across the program --
