@@ -417,10 +417,12 @@ struct thcChain
     bool         muted;
     bool         soloed;     /* while any chain is, only those are heard */
 
-    /* When a note or chanarg of this chain was last delivered, and when
-       one last reached the end of the chain and was dropped by the mute,
-       the solos or the arrangement; transport seconds, or -1. */
-    double       lastHeard, lastGated;
+    /* When a note ([0]) or a chanarg ([1]) of this chain was last
+       delivered, and when one was last dropped at the end of the chain
+       by the mute, the solos or the arrangement, at the time it would
+       have been heard; transport seconds, or -1. Apart, because a chain
+       with a note sink and a chanarg sink lights each by its own. */
+    double       lastHeard[2], lastGated[2];
     bool         inputMidi;  /* fed by live MIDI on the sink channel     */
     double       start;      /* first generator wake, seconds or beats  */
     bool         startBeats;
@@ -1204,6 +1206,10 @@ private:
     mutable std::vector<int>      peekChains_;
 
     int deliveringChain_;
+
+    /* Set by propagate() for the one call that carries an event past a
+       stage with no receive, so that stage is not lit as its source. */
+    bool passingThrough_;
 };
 
 #endif /* THCSCHEDULER_H */

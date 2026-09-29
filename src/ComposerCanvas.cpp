@@ -1182,11 +1182,18 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
 
         if (b.what.kind == Selection::SINK)
         {
+            /* By the kind the sink takes: notes, or a chanarg. */
+            const int kind = doc_ != NULL &&
+                b.what.chain < doc_->chains.size() &&
+                b.what.index < doc_->chains[b.what.chain].sinks.size() &&
+                !doc_->chains[b.what.chain].sinks[b.what.index]
+                     .chanarg.empty() ? 1 : 0;
+
             if (live != NULL)
             {
-                const double drop = flash(live->lastGated);
+                const double drop = flash(live->lastGated[kind]);
 
-                lit = flash(live->lastHeard);
+                lit = flash(live->lastHeard[kind]);
 
                 if (drop > lit)
                 {

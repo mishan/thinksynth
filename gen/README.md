@@ -56,6 +56,11 @@ they drive. Everything is reachable from there:
 - **M and S** at the foot of a chain's name mute it, or solo it so only the
   soloed chains are heard. Both are live and not saved; the chain keeps
   running underneath, so it comes back mid-phrase.
+- **The lights**: while the piece plays, each arrow lights as an event goes
+  along it and each stage's dot as it emits; the arrows into the sinks turn red
+  when the mute, a solo or the arrangement drops what reached them. *Color
+  Notes by Chain* colors the piano roll by the chain that made each note, and
+  stripes each chain's name to match.
 - **Ctrl+wheel** zooms.
 
 Beside the canvas, in piece mode, are two tabs: *Piece settings* for the

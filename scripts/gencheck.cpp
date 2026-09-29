@@ -8915,7 +8915,7 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
                "  stage src gen::euclid { steps = 4; fills = 4; "
                "rotate = 0;\n"
                "    notes = \"D4\"; period = 0.25 s; hold = 0.1 s;\n"
-               "    vel = 80; };\n"
+               "    vel = 80; ahead = 1; };\n"
                "  sink { channel = 1; };\n"
                "};\n";
     }
@@ -8985,8 +8985,11 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
              std::to_string(right + wrong) + " delivered notes named the "
              "wrong chain");
 
-    if (pendingWrong != 0)
-        fail("chain identity: a pending note named the wrong chain");
+    /* `ahead = 1' keeps a cycle of the second chain's notes pending. */
+    if (pendingRight == 0 || pendingWrong != 0)
+        fail("chain identity: " + std::to_string(pendingWrong) + " of " +
+             std::to_string(pendingRight + pendingWrong) + " pending "
+             "notes named the wrong chain");
 
     if (low == NULL || high == NULL || low->stages.size() != 2)
         fail("chain identity: the piece's chains are not what was written");
@@ -8998,12 +9001,20 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
             fail("chain identity: a stage's activity times did not follow "
                  "what it emitted");
 
-        if (!(low->lastHeard > now - 0.3))
+        if (!(low->lastHeard[0] > now - 0.3))
             fail("chain identity: a playing chain was not marked heard");
 
-        if (!(high->lastHeard < 1.1) || !(high->lastGated > now - 0.3))
+        if (!(high->lastHeard[0] < 2.1) || !(high->lastGated[0] > now - 0.3))
             fail("chain identity: a muted chain was marked heard, or its "
                  "drops were not marked");
+
+        /* A rewind forgets them, or the replay would light where the
+           last run did. */
+        sched.reset();
+
+        if (low->lastHeard[0] != -1 || low->stages[0]->lastOut != -1 ||
+            high->lastGated[0] != -1)
+            fail("chain identity: a rewind kept the activity times");
     }
 }
 

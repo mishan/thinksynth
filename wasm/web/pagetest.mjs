@@ -1560,8 +1560,8 @@ try
               'text');
     }
 
-    /* What the lights are drawn from: played, every chain's first stage
-       has emitted and been heard within the last second or so of the
+    /* What the lights are drawn from: played, some chain's first stage
+       has emitted, and been heard, within the last second or so of the
        mirror's transport. */
     await page.click('#play');
 
@@ -1584,9 +1584,8 @@ try
     const plain = await ink();
 
     await page.check('#rollbychain');
-    await new Promise((r) => setTimeout(r, 500));
 
-    const striped = await ink();
+    const striped = await until(ink, (v) => v > plain);
 
     check(striped > plain,
           'coloring the roll by chain stripes the chains on the canvas');

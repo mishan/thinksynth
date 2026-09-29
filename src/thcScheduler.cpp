@@ -390,7 +390,7 @@ thcScheduler::thcScheduler (thSynth *synth)
       auditioner_(NULL), running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
       masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
-      injectingLive_(false), deliveringChain_(-1)
+      injectingLive_(false), deliveringChain_(-1), passingThrough_(false)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -426,8 +426,8 @@ thcScheduler::addChain (const std::string &name)
     chains_.back().name = name;
     chains_.back().muted = false;
     chains_.back().soloed = false;
-    chains_.back().lastHeard = -1;
-    chains_.back().lastGated = -1;
+    chains_.back().lastHeard[0] = chains_.back().lastHeard[1] = -1;
+    chains_.back().lastGated[0] = chains_.back().lastGated[1] = -1;
     chains_.back().inputMidi = false;
     chains_.back().start = 0;
     chains_.back().startBeats = false;
@@ -2196,13 +2196,20 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
     const thcEvent &ev = *at;
 
     /* What the composer view flashes: the stage this came out of, and
-       the one it is going into. */
+       the one it is going into. Not a stage the event only passed
+       through -- a generator placed after another has no receive, and
+       what goes past it is not its doing. */
+    const bool passed = passingThrough_;
+
+    passingThrough_ = false;
+
     if (ev.type != THC_EV_NOTEOFF)
     {
-        if (fromStage > 0 && fromStage <= c.stages.size())
+        if (fromStage > 0 && fromStage <= c.stages.size() && !passed)
             c.stages[fromStage - 1]->lastOut = transportNow_;
 
-        if (fromStage < c.stages.size())
+        if (fromStage < c.stages.size() &&
+            c.stages[fromStage]->plugin->hasReceive())
             c.stages[fromStage]->lastIn = transportNow_;
     }
 
@@ -2239,8 +2246,12 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
         {
             if (level <= 0)
             {
+                /* At the event's own time, which is when it would have
+                   been heard: a chain that emits ahead is dropped ahead
+                   too, and would light before the notes it still plays. */
                 if (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG)
-                    c.lastGated = transportNow_;
+                    c.lastGated[ev.type == THC_EV_CHANARG] =
+                        std::max(transportNow_, ev.at);
 
                 return;
             }
@@ -2298,6 +2309,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     if (!s->plugin->hasReceive())               /* pass-through          */
     {
+        passingThrough_ = true;
         propagate(c, fromStage + 1, ev);
         return;
     }
@@ -2389,7 +2401,7 @@ thcScheduler::deliverFrom (const thcEvent &ev, int chain)
 {
     if (chain >= 0 && (size_t)chain < chains_.size() &&
         (ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG))
-        chains_[chain].lastHeard = transportNow_;
+        chains_[chain].lastHeard[ev.type == THC_EV_CHANARG] = transportNow_;
 
     deliveringChain_ = chain;
     deliver(ev);
@@ -2603,6 +2615,17 @@ thcScheduler::reset (void)
     for (size_t ci = 0; ci < chains_.size(); ci++)
         if (chains_[ci].nodes)
             chains_[ci].nodes->reset();
+
+    /* And what the lights remember: times from the last run would light
+       again when the replay reached them, whatever the replay did. */
+    for (thcChain &c : chains_)
+    {
+        c.lastHeard[0] = c.lastHeard[1] = -1;
+        c.lastGated[0] = c.lastGated[1] = -1;
+
+        for (auto &s : c.stages)
+            s->lastIn = s->lastOut = -1;
+    }
 
     /* And the instruments, if a structure edit has been anywhere near
        them.

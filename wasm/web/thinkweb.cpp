@@ -1083,6 +1083,10 @@ private:
 WebRollCanvas *roll_ = NULL;
 Cairo::RefPtr<Cairo::Context> rollContext_;
 
+/* Whether the roll colors notes by chain, and the canvas stripes the
+   chains to match; held here for a roll or canvas not made yet. */
+bool byChain_ = false;
+
 /* Made on the first call that needs it, and never by the worklet, which
  * makes none of them. That matters more here than it does for the composer
  * canvas: a RollCanvas connects thcScheduler::sigDelivered and keeps every
@@ -1091,9 +1095,6 @@ Cairo::RefPtr<Cairo::Context> rollContext_;
  *
  * NULL before a synth exists, which is what a call before tw_create looks
  * like. */
-/* Whether the roll colors notes by chain, and the canvas stripes the
-   chains to match; held here for a roll or canvas not made yet. */
-bool byChain_ = false;
 
 WebRollCanvas *rollCanvas (void)
 {
@@ -3457,7 +3458,7 @@ EMSCRIPTEN_KEEPALIVE double tw_chain_last_heard (int chain)
     const thcChain *c = sched_ != NULL && chain >= 0
         ? sched_->chain((size_t)chain) : NULL;
 
-    return c == NULL ? -1.0 : c->lastHeard;
+    return c == NULL ? -1.0 : std::max(c->lastHeard[0], c->lastHeard[1]);
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_chain_audible (int chain)
