@@ -28,6 +28,8 @@
 #include <clocale>
 #include <cstdio>
 #include <filesystem>
+#include <map>
+#include <mutex>
 #include <system_error>
 #include <vector>
 
@@ -517,3 +519,45 @@ string thUtil::formatFixed (double value, int precision)
 }
 
 #endif
+
+namespace {
+
+struct EmbeddedFiles
+{
+    std::mutex lock;
+    std::map<std::string, std::pair<const unsigned char *, size_t> > files;
+};
+
+EmbeddedFiles &embedded (void)
+{
+    static EmbeddedFiles e;
+
+    return e;
+}
+
+} /* namespace */
+
+void thUtil::addEmbeddedFile (const string &name, const unsigned char *data,
+                              size_t size)
+{
+    EmbeddedFiles &e = embedded();
+    std::lock_guard<std::mutex> hold(e.lock);
+
+    e.files[name] = std::make_pair(data, size);
+}
+
+bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,
+                               size_t &size)
+{
+    EmbeddedFiles &e = embedded();
+    std::lock_guard<std::mutex> hold(e.lock);
+    const auto i = e.files.find(name);
+
+    if (i == e.files.end())
+        return false;
+
+    data = i->second.first;
+    size = i->second.second;
+
+    return true;
+}

@@ -195,43 +195,71 @@ static inline unsigned long thWavU32 (const unsigned char *p)
  */
 #define THINK_SAMPLE_FRAMES_MAX ((size_t)TH_WAVELENGTH_MAX)
 
-/* Reads `path' into `out', mono, resampled to `rate'. False and an empty
-   `out' on anything it does not understand; `why' says which. */
-static inline bool thWavRead (const std::string &path, unsigned rate,
-                              thSampleData &out, std::string &why)
+/* What a wav is read from: an open file, or bytes already in memory -- a
+ * sample compiled into a plugin (thUtil::findEmbeddedFile). The four
+ * things the reader does with a file, and nothing else, so the parser
+ * below is one piece of code for both. */
+struct thWavIn
 {
-    FILE *f = fopen(path.c_str(), "rb");
+    FILE *f;
+    const unsigned char *data;
+    size_t size, pos;
 
+    size_t read (void *to, size_t n)
+    {
+        if (f != NULL)
+            return fread(to, 1, n, f);
+
+        const size_t k = (n < size - pos) ? n : size - pos;
+
+        memcpy(to, data + pos, k);
+        pos += k;
+
+        return k;
+    }
+
+    /* Forward by `n'. A file seeks past its end happily and the next read
+       comes back short, which is what ends the reader; memory does the
+       same by stopping at its end. */
+    bool skip (long n)
+    {
+        if (f != NULL)
+            return fseek(f, n, SEEK_CUR) == 0;
+
+        pos = (n < 0 || (size_t)n > size - pos) ? size : pos + (size_t)n;
+
+        return true;
+    }
+
+    long tell (void)
+    {
+        return f != NULL ? ftell(f) : (long)pos;
+    }
+
+    void close (void)
+    {
+        if (f != NULL)
+            fclose(f);
+
+        f = NULL;
+    }
+};
+
+/* Reads a wav from `in' into `out', mono, resampled to `rate'. `fileBytes'
+   is how many bytes `in' holds, so that a `data' chunk header claiming
+   more than there is cannot size an allocation. False and an empty `out'
+   on anything it does not understand; `why' says which. */
+static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
+                               thSampleData &out, std::string &why)
+{
     out.frames.clear();
-
-    if (f == NULL)
-    {
-        why = "could not be opened";
-        return false;
-    }
-
-    /* How many bytes there actually are, so that a `data' chunk header
-       claiming more than the file holds cannot size an allocation. A
-       truncated or corrupt wav is a thing that happens; reserving the
-       4 GB its length field asks for is not a thing that should. */
-    long fileBytes = 0;
-
-    if (fseek(f, 0, SEEK_END) == 0)
-        fileBytes = ftell(f);
-
-    if (fileBytes < 0 || fseek(f, 0, SEEK_SET) != 0)
-    {
-        fclose(f);
-        why = "could not be measured";
-        return false;
-    }
 
     unsigned char head[12];
 
-    if (fread(head, 1, 12, f) != 12 ||
+    if (in.read(head, 12) != 12 ||
         memcmp(head, "RIFF", 4) != 0 || memcmp(head + 8, "WAVE", 4) != 0)
     {
-        fclose(f);
+        in.close();
         why = "is not a RIFF/WAVE file";
         return false;
     }
@@ -244,7 +272,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
     {
         unsigned char ch[8];
 
-        if (fread(ch, 1, 8, f) != 8)
+        if (in.read(ch, 8) != 8)
             break;                              /* end of the chunks */
 
         const unsigned long len = thWavU32(ch + 4);
@@ -254,7 +282,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
             unsigned char fmt[40];
             const unsigned long want = (len > sizeof(fmt)) ? sizeof(fmt) : len;
 
-            if (fread(fmt, 1, want, f) != want)
+            if (in.read(fmt, want) != want)
                 break;
 
             format = thWavU16(fmt);
@@ -274,10 +302,10 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
             /* Chunks are padded to an even length, and a `fmt ' of 18 is
                common enough that skipping the pad matters. */
             if (want < len)
-                fseek(f, (long)(len - want), SEEK_CUR);
+                in.skip((long)(len - want));
 
             if (len & 1)
-                fseek(f, 1, SEEK_CUR);
+                in.skip(1);
 
             continue;
         }
@@ -286,14 +314,14 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
         {
             if (!haveFmt)
             {
-                fclose(f);
+                in.close();
                 why = "has its data before its format";
                 return false;
             }
 
             if (channels < 1 || channels > 8)
             {
-                fclose(f);
+                in.close();
                 why = "has a channel count this reader does not handle";
                 return false;
             }
@@ -301,7 +329,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
             if (!((format == 1 && (bits == 8 || bits == 16 || bits == 32)) ||
                   (format == 3 && bits == 32)))
             {
-                fclose(f);
+                in.close();
                 why = "is not 8-, 16- or 32-bit PCM or 32-bit float";
                 return false;
             }
@@ -322,7 +350,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
                own: a 244-byte file declaring 0xfffffff0 asked for 8.6 GB,
                which a host with overcommit hands over and a 32-bit
                emscripten heap does not. */
-            const long here = ftell(f);
+            const long here = in.tell();
             const unsigned long left =
                 (here >= 0 && fileBytes > here)
                     ? (unsigned long)(fileBytes - here) : 0;
@@ -331,7 +359,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
 
             if (count > THINK_SAMPLE_FRAMES_MAX)
             {
-                fclose(f);
+                in.close();
                 why = "is longer than this reader plays";
                 return false;
             }
@@ -344,7 +372,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
 
             for (unsigned long i = 0; i < count; i++)
             {
-                if (fread(&frame[0], 1, stride, f) != stride)
+                if (in.read(&frame[0], stride) != stride)
                     break;
 
                 /* Summed and then scaled by the channel count: a stereo
@@ -380,7 +408,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
                 raw.push_back((float)(sum / channels));
             }
 
-            fclose(f);
+            in.close();
 
             if (fileRate == 0 || fileRate == rate || raw.empty())
             {
@@ -423,14 +451,57 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
 
         /* Anything else -- LIST, fact, cue, a DAW's own -- skipped, plus
            the pad byte an odd length carries. */
-        if (fseek(f, (long)(len + (len & 1)), SEEK_CUR) != 0)
+        if (!in.skip((long)(len + (len & 1))))
             break;
     }
 
-    fclose(f);
+    in.close();
     why = "has no data chunk";
 
     return false;
+}
+
+/* Reads `path' into `out', mono, resampled to `rate'. */
+static inline bool thWavRead (const std::string &path, unsigned rate,
+                              thSampleData &out, std::string &why)
+{
+    thWavIn in = { fopen(path.c_str(), "rb"), NULL, 0, 0 };
+
+    out.frames.clear();
+
+    if (in.f == NULL)
+    {
+        why = "could not be opened";
+        return false;
+    }
+
+    /* How many bytes there actually are, so that a `data' chunk header
+       claiming more than the file holds cannot size an allocation. A
+       truncated or corrupt wav is a thing that happens; reserving the
+       4 GB its length field asks for is not a thing that should. */
+    long fileBytes = 0;
+
+    if (fseek(in.f, 0, SEEK_END) == 0)
+        fileBytes = ftell(in.f);
+
+    if (fileBytes < 0 || fseek(in.f, 0, SEEK_SET) != 0)
+    {
+        in.close();
+        why = "could not be measured";
+        return false;
+    }
+
+    return thWavParse(in, fileBytes, rate, out, why);
+}
+
+/* The same, from bytes in memory. */
+static inline bool thWavReadMemory (const unsigned char *data, size_t size,
+                                    unsigned rate, thSampleData &out,
+                                    std::string &why)
+{
+    thWavIn in = { NULL, data, size, 0 };
+
+    return thWavParse(in, (long)size, rate, out, why);
 }
 
 /* The frames for `name', reading it the first time it is asked for. NULL
@@ -464,10 +535,25 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
        you cannot mail anybody. `samples/' rather than the top of the
        search path so that `kick.wav' and a patch called `kick.dsp' do
        not share a namespace. */
+    std::string why;
+
+    /* A sample the host carries inside itself -- an audio plugin built
+       around one .dsp -- before anything on disk. */
+    const unsigned char *bytes = NULL;
+    size_t size = 0;
+
+    if (thUtil::findEmbeddedFile("samples/" + name, bytes, size))
+    {
+        if (!thWavReadMemory(bytes, size, rate, entry, why))
+            fprintf(stderr, "osc::sample: '%s' (embedded) %s\n",
+                    name.c_str(), why.c_str());
+
+        return &entry;
+    }
+
     const std::string path =
         thUtil::findDataFile("samples/" + name, "dsp", "THINK_DSP_PATH",
                              DSP_PATH);
-    std::string why;
 
     if (path.empty())
         fprintf(stderr, "osc::sample: '%s' not found on THINK_DSP_PATH "
