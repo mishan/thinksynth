@@ -1,0 +1,13 @@
+diff --git a/distrho/src/DistrhoPluginCLAP.cpp b/distrho/src/DistrhoPluginCLAP.cpp
+index 59390921..6b1aa687 100644
+--- a/distrho/src/DistrhoPluginCLAP.cpp
++++ b/distrho/src/DistrhoPluginCLAP.cpp
+@@ -760,7 +760,7 @@ public:
+          #endif
+          #if DISTRHO_PLUGIN_WANT_LATENCY
+           fLatencyChanged(false),
+-          fLastKnownLatency(0),
++          fLastKnownLatency(fPlugin.getLatency()),
+          #endif
+          #if DISTRHO_PLUGIN_WANT_MIDI_INPUT
+           fMidiEventCount(0),

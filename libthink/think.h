@@ -543,8 +543,16 @@ static inline float thClampSample (float sample)
 #define debug(...) ;
 #endif /* USE_DEBUG */
 
-#define likely(x)   __builtin_expect((x),1)
-#define unlikely(x) __builtin_expect((x),0)
+/* Guarded, for a host that includes this after a framework defining
+   either: DPF, in plugin/, defines unlikely. Included before one that
+   defines them unguarded, as DPF does, the framework's redefinition is
+   what warns, so plugin/ includes DPF first. */
+#ifndef likely
+# define likely(x)   __builtin_expect((x),1)
+#endif
+#ifndef unlikely
+# define unlikely(x) __builtin_expect((x),0)
+#endif
 
 #ifndef __GNUC__
 # define __builtin_expect(x, expected_value) (x)

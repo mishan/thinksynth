@@ -122,6 +122,20 @@ public:
 
     /* printf("%.*f", precision, value), up to 511 characters. */
     static string formatFixed (double value, int precision);
+
+    /* Data files a host carries inside itself, by the name a graph would
+     * find them under -- "samples/kick.wav".
+     *
+     * An audio plugin built around one .dsp has no directory beside it to
+     * find that .dsp's samples in, so it registers them, compiled in, before
+     * it loads the graph, and osc::sample asks here before it searches the
+     * disk. `data' is not copied and has to outlive every synth. Process-
+     * wide, which in a plugin means that plugin's own copy of libthink:
+     * each module links its own. Thread-safe. */
+    static void addEmbeddedFile (const string &name, const unsigned char *data,
+                                 size_t size);
+    static bool findEmbeddedFile (const string &name,
+                                  const unsigned char *&data, size_t &size);
 };
 
 #endif /* TH_UTIL_H */

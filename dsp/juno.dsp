@@ -38,84 +38,98 @@ category "Strings and pads";
     @pw.min = 0.05;
     @pw.max = 0.95;
     @pw.label = "Pulse Width";
+    @pw.group = "Oscillator";
 
     @pwdepth = 0.3;
     @pwdepth.widget = 1;
     @pwdepth.min = 0;
     @pwdepth.max = 0.45;
     @pwdepth.label = "PWM Depth";
+    @pwdepth.group = "Oscillator";
 
     @pwrate = 0.4;
     @pwrate.widget = 1;
     @pwrate.min = 0.05;
     @pwrate.max = 8;
     @pwrate.label = "PWM Rate (Hz)";
+    @pwrate.group = "Oscillator";
 
     @sub = 0.45;
     @sub.widget = 1;
     @sub.min = 0;
     @sub.max = 1;
     @sub.label = "Sub Octave";
+    @sub.group = "Oscillator";
 
     @cutoff = 700;
     @cutoff.widget = 1;
     @cutoff.min = 80;
     @cutoff.max = 8000;
     @cutoff.label = "Cutoff (Hz)";
+    @cutoff.group = "Filter";
 
     @depth = 2600;
     @depth.widget = 1;
     @depth.min = 0;
     @depth.max = 10000;
     @depth.label = "Envelope Depth (Hz)";
+    @depth.group = "Filter";
 
     @res = 0.5;
     @res.widget = 1;
     @res.min = 0;
     @res.max = 0.95;
     @res.label = "Resonance";
+    @res.group = "Filter";
 
     @fa = 180 ms;
     @fa.widget = 1;
     @fa.min = 0;
     @fa.max = 3000ms;
     @fa.label = "Filter Attack";
+    @fa.group = "Filter";
 
     @fd = 900 ms;
     @fd.widget = 1;
     @fd.min = 10ms;
     @fd.max = 6000ms;
     @fd.label = "Filter Decay";
+    @fd.group = "Filter";
 
     @fs = 0.35;
     @fs.widget = 1;
     @fs.min = 0.02;
     @fs.max = 1;
     @fs.label = "Filter Sustain";
+    @fs.group = "Filter";
 
     @chorus = 0.5;
     @chorus.widget = 1;
     @chorus.min = 0;
     @chorus.max = 1;
     @chorus.label = "Chorus";
+    @chorus.group = "Chorus";
 
     @chrate = 0.5;
     @chrate.widget = 1;
     @chrate.min = 0.1;
     @chrate.max = 8;
     @chrate.label = "Chorus Rate (Hz)";
+    @chrate.group = "Chorus";
 
     @a = 140 ms;
     @a.widget = 1;
     @a.min = 0;
     @a.max = 4000ms;
     @a.label = "Attack";
+    @a.group = "Envelope";
 
     @d = 700 ms;
     @d.widget = 1;
     @d.min = 20ms;
     @d.max = 6000ms;
     @d.label = "Decay";
+    @d.group = "Envelope";
 
     # See strings.dsp: a sustain of exactly zero ends the note and the
     # held key then restarts it.
@@ -124,12 +138,14 @@ category "Strings and pads";
     @s.min = 0.02;
     @s.max = 1;
     @s.label = "Sustain";
+    @s.group = "Envelope";
 
     @r = 600 ms;
     @r.widget = 1;
     @r.min = 10ms;
     @r.max = 5000ms;
     @r.label = "Release";
+    @r.group = "Envelope";
 
 node ionode {
     channels = 2;
