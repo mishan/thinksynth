@@ -17,13 +17,18 @@
  */
 
 /* The controls of the graph the plugin was built from, as a host and the
- * editor both see them. Read once, off a synth that loads the graph, and
- * shared by the DSP side (ThinkPlugin.cpp) and the editor (ThinkUI.cpp),
- * which may be in separate modules -- an LV2 UI is -- and so read it once
- * each. */
+ * editor both see them.
+ *
+ * Read off the engine at build time, by controlsgen (ReadControls.cpp),
+ * and compiled in as a table (thinksynth_controls.h), so the DSP side
+ * (ThinkPlugin.cpp) and the editor (ThinkUI.cpp) share one list without
+ * the editor -- a module of its own in LV2 -- having to carry the engine
+ * to parse the graph. plugincheck holds the table to a parse at run time. */
 
 #ifndef TH_PLUGIN_CONTROLS_H
 #define TH_PLUGIN_CONTROLS_H 1
+
+#include <string.h>
 
 #include <string>
 #include <vector>
@@ -48,8 +53,34 @@ struct Control
     std::vector<std::string> valueNames;
 };
 
+/* The row controlsgen writes per control: a Control with its value names
+   joined by newlines, so the table is plain data. */
+struct ControlRow
+{
+    const char *name, *label, *group, *units;
+    float min, max, def, step;
+    const char *valueNames;
+};
+
 /* Every control the graph declares with a widget, in the order it declares
- * them, and then the channel's level. Empty if the graph did not load. */
+ * them, and then the channel's level. */
 const std::vector<Control> &controls (void);
+
+/* The same, parsed off the engine: controlsgen's source, and plugincheck's
+   reference. Needs the engine linked; nothing in a host calls it. */
+std::vector<Control> readControls (void);
+
+/* Whether a control turns on a log scale: a range starting above zero and
+ * spanning more than a factor of twenty, which is where cutoffs and rates
+ * want their resolution. The editor's knobs, and the hint a host's own
+ * controls are given. */
+inline bool logScale (const Control &c)
+{
+    return c.valueNames.empty() && c.step != 1.0f && c.min > 0 &&
+           c.max / c.min >= 20;
+}
+
+/* What the graph says about itself, from the same table. */
+const char *controlsDescription (void);
 
 #endif /* TH_PLUGIN_CONTROLS_H */

@@ -57,32 +57,61 @@ void roundRect (cairo_t *cr, double x, double y, double w, double h, double r)
     cairo_close_path(cr);
 }
 
-/* `text' centred on x, its baseline at y, cut to `maxw' with an ellipsis. */
-void centred (cairo_t *cr, const std::string &text, double x, double y,
-              double maxw)
+/* `text' as it fits in `maxw': whole, or cut at a character boundary
+   with an ellipsis after. `width' is what is returned, drawn. */
+std::string fitted (cairo_t *cr, const std::string &text, double maxw,
+                    double &width)
 {
-    std::string t = text;
+    static const char ellipsis[] = "\xe2\x80\xa6";
     cairo_text_extents_t e;
 
-    cairo_text_extents(cr, t.c_str(), &e);
+    cairo_text_extents(cr, text.c_str(), &e);
 
-    while (e.x_advance > maxw && t.size() > 1)
+    if (e.x_advance <= maxw)
     {
-        t = t.substr(0, t.size() - 1);
-
-        while (!t.empty() && ((unsigned char)t.back() & 0xc0) == 0x80)
-            t = t.substr(0, t.size() - 1);
-
-        cairo_text_extents(cr, (t + "\xe2\x80\xa6").c_str(), &e);
-
-        if (e.x_advance <= maxw)
-        {
-            t += "\xe2\x80\xa6";
-            break;
-        }
+        width = e.x_advance;
+        return text;
     }
 
-    cairo_move_to(cr, x - e.x_advance / 2, y);
+    std::string t = text;
+
+    while (!t.empty())
+    {
+        t.erase(t.size() - 1);
+
+        while (!t.empty() && ((unsigned char)t.back() & 0xc0) == 0x80)
+            t.erase(t.size() - 1);
+
+        cairo_text_extents(cr, (t + ellipsis).c_str(), &e);
+
+        if (e.x_advance <= maxw || t.empty())
+            break;
+    }
+
+    width = e.x_advance;
+
+    return t + ellipsis;
+}
+
+/* `text' centered on x, its baseline at y, cut to `maxw'. */
+void centered (cairo_t *cr, const std::string &text, double x, double y,
+               double maxw)
+{
+    double w;
+    const std::string t = fitted(cr, text, maxw, w);
+
+    cairo_move_to(cr, x - w / 2, y);
+    cairo_show_text(cr, t.c_str());
+}
+
+/* `text' from x, its baseline at y, cut to `maxw'. */
+void leftAligned (cairo_t *cr, const std::string &text, double x, double y,
+                  double maxw)
+{
+    double w;
+    const std::string t = fitted(cr, text, maxw, w);
+
+    cairo_move_to(cr, x, y);
     cairo_show_text(cr, t.c_str());
 }
 
@@ -94,9 +123,10 @@ void font (cairo_t *cr, double size, bool bold)
     cairo_set_font_size(cr, size);
 }
 
+/* NaN goes to 0: both comparisons are false for it, and it would pass. */
 double clamp01 (double v)
 {
-    return v < 0 ? 0 : v > 1 ? 1 : v;
+    return !(v == v) ? 0 : v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 } /* namespace */
@@ -129,45 +159,57 @@ Panel::Panel (const std::vector<Control> &controls, const std::string &title,
         boxes_[b].controls.push_back((int)i);
     }
 
-    /* Flowed into rows no wider than kMaxWidth. */
+    /* A box that would be wider than kMaxWidth takes its knobs in rows of
+       as many as fit; boxes are flowed into rows no wider than kMaxWidth,
+       each row as tall as its tallest box. */
+    const size_t perRow =
+        (size_t)((kMaxWidth - 2 * kMargin - 2 * kPad) / kCell);
+
     knobs_.resize(controls_.size());
 
-    double x = kMargin, y = kHeader, right = 0;
+    double x = kMargin, y = kHeader, rowHeight = 0, right = 0;
 
     for (size_t b = 0; b < boxes_.size(); b++)
     {
         Box &box = boxes_[b];
+        const size_t n = box.controls.size();
+        const size_t across = n < perRow ? n : perRow;
+        const size_t rows = (n + perRow - 1) / perRow;
 
-        box.w = kPad * 2 + kCell * box.controls.size();
-        box.h = kBoxTitle + kCellHeight + kPad;
+        box.w = kPad * 2 + kCell * across;
+        box.h = kBoxTitle + kCellHeight * rows + kPad;
 
         if (x > kMargin && x + box.w > kMaxWidth - kMargin)
         {
             x = kMargin;
-            y += box.h + kGap;
+            y += rowHeight + kGap;
+            rowHeight = 0;
         }
 
         box.x = x;
         box.y = y;
 
-        for (size_t k = 0; k < box.controls.size(); k++)
+        for (size_t k = 0; k < n; k++)
         {
             Knob &knob = knobs_[box.controls[k]];
 
-            knob.x = box.x + kPad + kCell * (k + 0.5);
-            knob.y = box.y + kBoxTitle + kRadius + 6;
+            knob.x = box.x + kPad + kCell * (k % perRow + 0.5);
+            knob.y = box.y + kBoxTitle + kCellHeight * (k / perRow) +
+                     kRadius + 6;
             knob.box = (int)b;
         }
 
         x += box.w + kGap;
+
+        if (box.h > rowHeight)
+            rowHeight = box.h;
 
         if (box.x + box.w > right)
             right = box.x + box.w;
     }
 
     width_ = (int)ceil(right + kMargin);
-    height_ = (int)ceil((boxes_.empty() ? y : boxes_.back().y +
-                         boxes_.back().h) + kMargin);
+    height_ = (int)ceil(y + rowHeight + kMargin);
 
     if (width_ < 360)
         width_ = 360;
@@ -175,10 +217,7 @@ Panel::Panel (const std::vector<Control> &controls, const std::string &title,
 
 bool Panel::logScale (int i) const
 {
-    const Control &c = controls_[i];
-
-    return c.valueNames.empty() && c.step != 1.0f && c.min > 0 &&
-           c.max / c.min >= 20;
+    return ::logScale(controls_[i]);
 }
 
 /* The unit a value is shown in: the .dsp's own, or the one its label
@@ -188,7 +227,7 @@ std::string Panel::unitOf (int i) const
     const Control &c = controls_[i];
 
     if (!c.units.empty())
-        return c.units == "%" ? "%" : c.units;
+        return c.units;
 
     const std::string &l = c.label;
     const size_t open = l.rfind(" (");
@@ -213,6 +252,9 @@ std::string Panel::format (int i, float v) const
 {
     const Control &c = controls_[i];
     char buf[64];
+
+    if (!(v == v))
+        return "-";
 
     if (!c.valueNames.empty())
     {
@@ -254,7 +296,7 @@ double Panel::toTravel (int i, float v) const
         return 0;
 
     if (logScale(i))
-        return clamp01(log(v / c.min) / log(c.max / c.min));
+        return v <= c.min ? 0 : clamp01(log(v / c.min) / log(c.max / c.min));
 
     return clamp01((v - c.min) / (c.max - c.min));
 }
@@ -287,10 +329,15 @@ float Panel::wheel (int i, float v, double notches, bool fine) const
 {
     const Control &c = controls_[i];
 
-    /* A whole number moves by one a notch, whatever its range. */
+    /* A whole number moves by one a notch, whatever its range -- by at
+       least one for any turn at all, so a trackpad's small deltas still
+       step it, and by as many as a turn of several notches is. */
     if (c.step == 1.0f || !c.valueNames.empty())
     {
-        double n = floor(v + 0.5) + (notches > 0 ? 1 : notches < 0 ? -1 : 0);
+        const double r = floor(fabs(notches) + 0.5);
+        const double by = (notches > 0 ? 1 : notches < 0 ? -1 : 0) *
+                          (r < 1 ? 1 : r);
+        double n = floor(v + 0.5) + by;
 
         return (float)(n < c.min ? c.min : n > c.max ? c.max : n);
     }
@@ -313,7 +360,7 @@ int Panel::hit (double x, double y) const
     return -1;
 }
 
-bool Panel::centre (int i, double &x, double &y) const
+bool Panel::center (int i, double &x, double &y) const
 {
     if (i < 0 || i >= (int)knobs_.size())
         return false;
@@ -353,7 +400,7 @@ void Panel::draw (cairo_t *cr, const std::vector<float> &values, int hover,
             cairo_show_text(cr, subtitle_.c_str());
         }
         else
-            centred(cr, subtitle_, kMargin + maxw / 2, 47, maxw);
+            centered(cr, subtitle_, kMargin + maxw / 2, 47, maxw);
     }
 
     for (size_t b = 0; b < boxes_.size(); b++)
@@ -373,8 +420,8 @@ void Panel::draw (cairo_t *cr, const std::vector<float> &values, int hover,
 
             rgb(cr, 0x7d828c);
             font(cr, 10, true);
-            cairo_move_to(cr, box.x + kPad + 2, box.y + 17);
-            cairo_show_text(cr, t.c_str());
+            leftAligned(cr, t, box.x + kPad + 2, box.y + 17,
+                        box.w - 2 * kPad - 2);
         }
     }
 
@@ -431,11 +478,11 @@ void Panel::draw (cairo_t *cr, const std::vector<float> &values, int hover,
             cairo_text_extents(cr, text.c_str(), &e);
         }
 
-        centred(cr, text, k.x, k.y + kRadius + 20, kCell - 6);
+        centered(cr, text, k.x, k.y + kRadius + 20, kCell - 6);
 
         rgb(cr, (int)i == active ? 0xf2b84b : 0x8b909a);
         font(cr, 10, false);
-        centred(cr, format((int)i, v), k.x, k.y + kRadius + 35, kCell - 6);
+        centered(cr, format((int)i, v), k.x, k.y + kRadius + 35, kCell - 6);
     }
 
     cairo_restore(cr);

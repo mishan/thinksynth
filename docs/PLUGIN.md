@@ -31,8 +31,11 @@ ln -sfn "$PWD/build/bin/thinksynth-juno.vst3" ~/.vst3/
 ln -sfn "$PWD/build/bin/thinksynth-juno.lv2"  ~/.lv2/
 ```
 
-The plugin links the system's `libsigc++-3.0` and nothing else outside the
-C and C++ runtimes.
+Outside the C and C++ runtimes, the plugin links the system's
+`libsigc++-3.0`, and for its editor X11 (with Xcursor, Xext and Xrandr),
+D-Bus and cairo -- and what those pull in: fontconfig, freetype, libpng
+and xcb. The engine is only in the DSP side: an LV2 bundle's editor
+module, a file of its own, carries none of it.
 
 ## Trying it in Reaper
 
@@ -74,8 +77,17 @@ plain value. A value is shown in the `.dsp`'s units, and a label ending in
 one in brackets, `Cutoff (Hz)`, is drawn *Cutoff* over *700 Hz*.
 
 The drawing and the knob arithmetic are `plugin/Panel.cpp`, which knows
-nothing about windows; `plugin/ThinkUI.cpp` is the DPF window around it.
-`uicheck` renders the panel to `build/plugin/editor.png`.
+nothing about windows; `plugin/ThinkUI.cpp` is the DPF window around it,
+scaled by the desktop's scale factor or the one a host sets. The control
+list both sides use is read off the engine at build time by
+`plugin/controlsgen.cpp`, which also measures the panel, so the size a
+host is told before the editor opens is the editor's. A knob the editor
+turns on a log scale is hinted logarithmic to the host too, so its own
+controls agree. `uicheck` renders the panel to `build/plugin/editor.png`.
+
+One thing DPF does not pass on: the pointer leaving the window. A knob
+the pointer was over when it left stays lit until the pointer comes
+back.
 
 ## Parameters
 
@@ -129,10 +141,13 @@ With `THINK_BUILD_PLUGIN=ON`, ctest adds:
 
 | Test | Checks |
 |---|---|
-| `plugincheck` | a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; the parameter list; and a project's round trip, state saved from one instance and loaded into a fresh one |
+| `plugincheck` | the compiled-in control table against the engine's own parse; a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; the parameter list; and a project's round trip, state saved from one instance and loaded into a fresh one |
 | `plugin.clap-validator` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
 | `plugin.pluginval` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10, opening and automating the editor |
-| `uicheck` | the editor with no window: every knob found where it is drawn, drag and wheel arithmetic, the log scale, how values are spelled, and the panel drawn at 1x and 2x |
+| `uicheck` | the editor with no window: every knob found where it is drawn, drag and wheel arithmetic, the log scale, NaN and out-of-range values, a panel of ungrouped knobs wrapping, long group names clipped, how values are spelled, and the panel drawn at 1x and 2x |
+| `guicheck` | the editor through CLAP as a real window, at a scale of 1 and of 2: its size, its pixels read back off the X server against the panel's own drawing, and a knob dragged with XTest input landing where the panel's arithmetic says, as one gesture to the host |
 
-The validators are Linux builds, so those two are Linux only;
-`plugincheck` needs `dlopen`, so it is not built on Windows.
+The validators are Linux builds, and `guicheck` needs X11, so those three
+are Linux only; `plugincheck` needs `dlopen`, so it is not built on
+Windows. `guicheck` skips itself with no display; under ctest,
+`scripts/headless.sh` gives it one.

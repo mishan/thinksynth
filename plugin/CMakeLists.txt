@@ -72,6 +72,29 @@ static const char thPluginDspText[] = R\"thinksynth(${dsp_text})thinksynth\";
 configure_file("${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h.new"
                "${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h" COPYONLY)
 
+# The controls, read off the engine at build time (controlsgen.cpp) into a
+# table the plugin and its editor both compile in, and the editor's size
+# into the header DistrhoPluginInfo.h takes DPF's default UI size from.
+# So only the DSP side links the engine: an LV2 editor, a module of its
+# own, carries none of it.
+add_executable(controlsgen controlsgen.cpp ReadControls.cpp Panel.cpp)
+target_include_directories(controlsgen PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(controlsgen PRIVATE think_embedded PkgConfig::CAIRO)
+
+set(THINK_PLUGIN_GENERATED
+    "${CMAKE_CURRENT_BINARY_DIR}/thinksynth_controls.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/thinksynth_ui_size.h")
+
+add_custom_command(
+    OUTPUT ${THINK_PLUGIN_GENERATED}
+    COMMAND controlsgen ${THINK_PLUGIN_GENERATED}
+    DEPENDS controlsgen
+    COMMENT "Reading juno.dsp's controls")
+
+add_custom_target(thinksynth-juno-controls DEPENDS ${THINK_PLUGIN_GENERATED})
+
 dpf_add_plugin(thinksynth-juno
     TARGETS clap vst3 lv2
     UI_TYPE cairo
@@ -83,20 +106,37 @@ target_include_directories(thinksynth-juno PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}")
 
-target_link_libraries(thinksynth-juno PUBLIC think_embedded)
+target_link_libraries(thinksynth-juno-dsp PUBLIC think_embedded)
+
+# Everything DPF made here includes DistrhoPluginInfo.h, and with it the
+# generated size.
+foreach(t thinksynth-juno thinksynth-juno-dsp thinksynth-juno-ui
+          thinksynth-juno-clap thinksynth-juno-vst3 thinksynth-juno-lv2
+          thinksynth-juno-lv2-ui)
+  if(TARGET ${t})
+    add_dependencies(${t} thinksynth-juno-controls)
+  endif()
+endforeach()
 
 # DPF's LV2 generator, which runs the plugin at build time to write its
 # .ttl, casts away a const GCC warns about.
 target_compile_options(lv2_ttl_generator PRIVATE -Wno-discarded-qualifiers)
 
-# DPF's window library as DPF builds it on its own, in C++11: under this
-# tree's C++17 its pugl wrapper includes <cstdbool>, which warns there.
-set_target_properties(dgl-cairo PROPERTIES CXX_STANDARD 11)
+# DPF's own sources as DPF builds them on its own, in C++11: its pugl
+# wrapper, which its window library and the plugin entry points both
+# compile, includes <cstdbool>, and under this tree's C++17 that warns.
+# The entry points' only other include is DistrhoPluginInfo.h.
+foreach(t dgl-cairo thinksynth-juno-clap thinksynth-juno-vst3
+          thinksynth-juno-lv2 thinksynth-juno-lv2-ui)
+  if(TARGET ${t})
+    set_target_properties(${t} PROPERTIES CXX_STANDARD 11)
+  endif()
+endforeach()
 
-# And its file browser, which this plugin does not open, without the one
-# warning GCC has about its fixed-size path buffers.
-target_compile_options(dgl-cairo PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-Wno-format-overflow>)
+# And its file browser, which this plugin does not open and pugl.cpp
+# compiles in, without the one warning GCC has about its fixed-size path
+# buffers.
+target_compile_options(dgl-cairo PRIVATE -Wno-format-overflow)
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -108,19 +148,41 @@ add_executable(uicheck uicheck.cpp Controls.cpp Panel.cpp)
 target_include_directories(uicheck PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(uicheck PRIVATE think_embedded PkgConfig::CAIRO)
+target_link_libraries(uicheck PRIVATE PkgConfig::CAIRO)
+add_dependencies(uicheck thinksynth-juno-controls)
 
 add_test(NAME uicheck
          COMMAND uicheck "${CMAKE_CURRENT_BINARY_DIR}/editor.png")
 
 # The built CLAP against the engine: see plugincheck.cpp. dlopen, so Unix.
 if(NOT WIN32)
-  add_executable(plugincheck plugincheck.cpp)
+  add_executable(plugincheck plugincheck.cpp Controls.cpp ReadControls.cpp)
   target_include_directories(plugincheck PRIVATE
       "${CMAKE_CURRENT_BINARY_DIR}"
       "${dpf_SOURCE_DIR}/distrho/src")
   target_link_libraries(plugincheck PRIVATE think_embedded ${CMAKE_DL_LIBS})
+  target_include_directories(plugincheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_dependencies(plugincheck thinksynth-juno-controls)
   add_dependencies(plugincheck thinksynth-juno-clap)
+
+  # The editor through a host: see guicheck.cpp. X11, so Linux.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(X11 REQUIRED)
+
+    add_executable(guicheck guicheck.cpp Controls.cpp Panel.cpp)
+    target_include_directories(guicheck PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${dpf_SOURCE_DIR}/distrho/src")
+    target_link_libraries(guicheck PRIVATE X11::X11 X11::Xtst PkgConfig::CAIRO
+                                           ${CMAKE_DL_LIBS})
+    add_dependencies(guicheck thinksynth-juno-clap thinksynth-juno-controls)
+
+    add_test(NAME guicheck
+             COMMAND guicheck "${PROJECT_BINARY_DIR}/bin/thinksynth-juno.clap")
+    set_tests_properties(guicheck PROPERTIES
+                         SKIP_REGULAR_EXPRESSION "SKIP  no display")
+  endif()
 
   add_test(NAME plugincheck
            COMMAND plugincheck "${PROJECT_BINARY_DIR}/bin/thinksynth-juno.clap")

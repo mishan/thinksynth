@@ -156,6 +156,10 @@ protected:
         if (c.step == 1.0f)
             parameter.hints |= kParameterIsInteger;
 
+        /* So a host's own control turns it the way the editor's does. */
+        if (logScale(c))
+            parameter.hints |= kParameterIsLogarithmic;
+
         parameter.name = c.label.c_str();
         parameter.symbol = c.name.c_str();
         parameter.unit = c.units.c_str();

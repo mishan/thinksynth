@@ -32,9 +32,16 @@
  * does not jump. A second click on a knob within 350 ms puts it back to
  * the .dsp's value.
  *
- * Sizes are Panel's, in unscaled pixels: DPF sizes the window for the
- * desktop's scale factor, and the drawing and the mouse are scaled here
- * by the same.
+ * Sizes are Panel's, in unscaled pixels, and the scale factor -- the
+ * desktop's, or what a host sets -- is applied here, once, to all three
+ * of the window's size, the drawing and the mouse. DPF's own automatic
+ * scaling is not asked for: with a host that sets a scale it scaled the
+ * window twice over. guicheck opens the editor at 1x and 2x and holds the
+ * window's size and pixels to Panel's own drawing at each.
+ *
+ * A gesture begun is always ended: on release, and if the editor goes
+ * away mid-drag, on its way out, so a host is never left with automation
+ * recording a gesture nothing will close.
  */
 
 #include "DistrhoUI.hpp"
@@ -43,8 +50,6 @@
 
 #include "Controls.h"
 #include "Panel.h"
-
-#include "thinksynth_dsp.h"
 
 START_NAMESPACE_DISTRHO
 
@@ -55,7 +60,7 @@ namespace {
 const Panel &panel (void)
 {
     static const Panel p(controls(), DISTRHO_PLUGIN_NAME,
-                         thPluginDspDescription);
+                         controlsDescription());
 
     return p;
 }
@@ -68,12 +73,23 @@ class ThinkUI : public UI
 {
 public:
     ThinkUI (void)
-        : UI((uint)panel().width(), (uint)panel().height(), true),
+        : UI((uint)panel().width(), (uint)panel().height(), false),
           hover_(-1), active_(-1), fine_(false), anchorY_(0),
           anchorValue_(0), lastClick_(0), lastClicked_(-1)
     {
         for (size_t i = 0; i < controls().size(); i++)
             values_.push_back(controls()[i].def);
+
+        const double s = getScaleFactor();
+
+        if (s != 1.0)
+            setSize((uint)(panel().width() * s), (uint)(panel().height() * s));
+    }
+
+    ~ThinkUI (void) override
+    {
+        if (active_ >= 0)
+            editParameter((uint32_t)active_, false);
     }
 
 protected:

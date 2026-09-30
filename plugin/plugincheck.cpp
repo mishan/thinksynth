@@ -70,6 +70,8 @@
 
 #include "thinksynth_dsp.h"
 
+#include "Controls.h"
+
 static int failed = 0;
 
 static void check (bool ok, const std::string &what)
@@ -145,7 +147,7 @@ static bool eventsPush (const clap_output_events_t *,
 
 /* ---- the phrase ------------------------------------------------------- */
 
-const int kWindow = 64;           /* ThinkPlugin's, and its latency */
+/* kWindow, ThinkPlugin's window and its latency, is Controls.h's. */
 /* Long enough to hear a release: juno's envelopes play their attack and
    decay out before releasing, 840 ms at the most. */
 const int kWindows = 700;
@@ -582,6 +584,28 @@ int main (int argc, char **argv)
 
     if (desc == NULL)
         return failed;
+
+    /* ---- the table the plugin was built with, against the engine ---- */
+    {
+        const std::vector<Control> &table = controls();
+        const std::vector<Control> parsed = readControls();
+        bool same = table.size() == parsed.size() && !table.empty();
+
+        for (size_t i = 0; same && i < table.size(); i++)
+            same = table[i].name == parsed[i].name &&
+                   table[i].label == parsed[i].label &&
+                   table[i].group == parsed[i].group &&
+                   table[i].units == parsed[i].units &&
+                   table[i].min == parsed[i].min &&
+                   table[i].max == parsed[i].max &&
+                   table[i].def == parsed[i].def &&
+                   table[i].step == parsed[i].step &&
+                   table[i].valueNames == parsed[i].valueNames;
+
+        check(same, "the compiled-in control table is what the engine "
+                    "reads off the graph, " + std::to_string(table.size()) +
+                    " controls");
+    }
 
     /* ---- the parameters ---- */
 

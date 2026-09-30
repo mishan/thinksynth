@@ -25,7 +25,7 @@
  *
  * A panel is the controls in titled boxes, one box per group in the order
  * the groups are first seen, flowed left to right and wrapped at a fixed
- * width. A knob turns through 270 degrees; its label is under it and its
+ * width; a group with more knobs than fit across takes them in rows. A knob turns through 270 degrees; its label is under it and its
  * value under that, in the units the .dsp gives -- the ones it spells as
  * `ms' and the ones it spells in its labels, "Cutoff (Hz)" becoming
  * "Cutoff" and "700 Hz". A range that runs from above zero over more than
@@ -60,8 +60,8 @@ public:
     /* The control whose knob is at (x, y), or -1. */
     int hit (double x, double y) const;
 
-    /* Where a knob's centre is, for a test to aim at. */
-    bool centre (int control, double &x, double &y) const;
+    /* Where a knob's center is, for a test to aim at. */
+    bool center (int control, double &x, double &y) const;
 
     /* A value as a fraction of its knob's travel, and back, on the knob's
        scale and snapped to its step. */
@@ -92,7 +92,7 @@ private:
 
     struct Knob
     {
-        double x, y;    /* centre */
+        double x, y;    /* center */
         int box;
     };
 

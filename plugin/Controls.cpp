@@ -16,84 +16,37 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#include <string.h>
-
-#include "think.h"
-#include "thLexer.h"
-#include "thUnits.h"
-
-#include "thinksynth_dsp.h"
-
 #include "Controls.h"
 
-/* The graph's controls, read off a synth that loads it once. */
-static std::vector<Control> readControls (void)
+#include "thinksynth_controls.h"
+
+/* The table controlsgen wrote, as Controls. */
+static std::vector<Control> fromTable (void)
 {
     std::vector<Control> out;
-    thSynth synth("", kWindow, kReadRate);
 
-    if (synth.loadTreeText(thPluginDspName, thPluginDspText, 0,
-                           TH_DEFAULT_CHAN_AMP) == NULL)
-        return out;
-
-    const thArgMap args = synth.getChanArgs(0);
-
-    /* The order the .dsp first names each control in -- its declarations,
-       which come before any node reads one. The map is sorted by name. */
-    std::vector<thLexToken> tokens;
-    std::vector<std::string> order;
-
-    thLexString(thPluginDspText, tokens);
-
-    for (size_t i = 0; i + 1 < tokens.size(); i++)
+    for (size_t i = 0; i < sizeof(kControlTable) / sizeof(kControlTable[0]);
+         i++)
     {
-        if (tokens[i].kind != thLexToken::PUNCT || tokens[i].text != "@" ||
-            tokens[i + 1].kind != thLexToken::WORD)
-            continue;
-
-        const std::string &name = tokens[i + 1].text;
-        bool seen = false;
-
-        for (size_t k = 0; k < order.size() && !seen; k++)
-            seen = order[k] == name;
-
-        if (!seen)
-            order.push_back(name);
-    }
-
-    order.push_back("amp");
-
-    for (size_t k = 0; k < order.size(); k++)
-    {
-        thArgMap::const_iterator i = args.find(order[k]);
-
-        if (i == args.end() || i->second == NULL)
-            continue;
-
-        thArg *arg = i->second;
-
-        if (arg->widgetType() == thArg::HIDE ||
-            arg->type() != thArg::ARG_VALUE || arg->len() != 1)
-            continue;
-
+        const ControlRow &r = kControlTable[i];
         Control c;
-        const std::string &units = arg->units();
 
-        c.name = order[k];
-        c.label = arg->label().empty() ? c.name : arg->label();
-        c.group = arg->group();
-        c.units = units;
-        c.min = (float)thUnfoldUnit(arg->min(), units, kReadRate);
-        c.max = (float)thUnfoldUnit(arg->max(), units, kReadRate);
-        c.def = (float)thUnfoldUnit((*arg)[0], units, kReadRate);
-        c.step = arg->step();
-        c.valueNames = arg->valueNames();
+        c.name = r.name;
+        c.label = r.label;
+        c.group = r.group;
+        c.units = r.units;
+        c.min = r.min;
+        c.max = r.max;
+        c.def = r.def;
+        c.step = r.step;
 
-        /* The level is the channel's, not the graph's. */
-        if (c.name == "amp")
+        /* The value names, one per line. */
+        for (const char *p = r.valueNames; *p; )
         {
-            c.label = "Level";
-            c.group = "Output";
+            const char *e = strchr(p, '\n');
+
+            c.valueNames.push_back(std::string(p, e ? e - p : strlen(p)));
+            p = e ? e + 1 : p + strlen(p);
         }
 
         out.push_back(c);
@@ -104,8 +57,12 @@ static std::vector<Control> readControls (void)
 
 const std::vector<Control> &controls (void)
 {
-    static const std::vector<Control> c = readControls();
+    static const std::vector<Control> c = fromTable();
 
     return c;
 }
 
+const char *controlsDescription (void)
+{
+    return kControlDescription;
+}
