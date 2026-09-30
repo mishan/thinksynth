@@ -432,6 +432,37 @@ string **gthPrefs::Get (const string &key)
     return prefs_[key];
 }
 
+void gthPrefs::Remove (const string &key)
+{
+    map<string, string**>::iterator it = prefs_.find(key);
+
+    if (it == prefs_.end())
+        return;
+
+    if (it->second != NULL)
+    {
+        for (int i = 0; it->second[i] != NULL; i++)
+            delete it->second[i];
+
+        delete [] it->second;
+    }
+
+    prefs_.erase(it);
+}
+
+vector<string> gthPrefs::Keys (const string &prefix) const
+{
+    vector<string> out;
+
+    for (map<string, string**>::const_iterator it = prefs_.lower_bound(prefix);
+         it != prefs_.end() && it->first.compare(0, prefix.size(), prefix) == 0;
+         ++it)
+        if (it->second != NULL)
+            out.push_back(it->first);
+
+    return out;
+}
+
 /* Takes ownership of `vals', and lets go of whatever was under that key.
  *
  * It always took ownership -- nothing else keeps a pointer to the array -- but

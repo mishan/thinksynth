@@ -69,6 +69,7 @@
 #include "gthSignal.h"
 #include "gui/ComposerCanvasWidget.h"
 #include "gui/Composer.h"
+#include "gthMidiOut.h"
 #include "gui/ItemBrowser.h"
 #include "gui/PianoRoll.h"
 
@@ -1839,6 +1840,144 @@ check (bool cond, const char *what)
  * instrument it shares with a six-row one; and a grid with no `rows' line
  * at all, which is the plugin's eight.
  */
+/* A piece whose instrument names a MIDI port, in a window given an output
+ * whose one port answers to it: the instrument plays on the device, the
+ * editor has a MIDI out section, and choosing "This synth" there puts the
+ * instrument's dsp on and keeps the choice as a route. The output's port
+ * counts what it is sent instead of sending it, so nothing sounds. */
+class NullPort : public gthMidiOut::Port
+{
+public:
+    void send (const uint8_t *, size_t) override { sent++; }
+    static int sent;
+};
+
+int NullPort::sent = 0;
+
+template <typename W>
+static W *
+findWidget (Gtk::Widget *root)
+{
+    if (root == NULL)
+        return NULL;
+
+    if (W *w = dynamic_cast<W *>(root))
+        return w;
+
+    for (Gtk::Widget *c = root->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        if (W *w = findWidget<W>(c))
+            return w;
+
+    return NULL;
+}
+
+static Gtk::DropDown *
+midiPick (TestComposer *win)
+{
+    for (Gtk::Widget *c = win->editorBox_.get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        if (Gtk::Expander *e = dynamic_cast<Gtk::Expander *>(c))
+            if (e->get_label() == "MIDI out")
+                return findWidget<Gtk::DropDown>(e);
+
+    return NULL;
+}
+
+static int
+runMidiOut (const std::string &pluginPath)
+{
+    const std::string tmp = stagePiece(
+            "name \"device\";\n"
+            "tempo 120;\n"
+            "instrument ext { midi \"Surge\"; midichannel = 2;"
+            " dsp \"organ0.dsp\"; };\n"
+            "chain line {\n"
+            "    stage seq gen::grid { steps = 4; rows = 1; "
+            "cells = \"x.x.\"; };\n"
+            "    sink { instrument = ext; };\n"
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    gthMidiOut out([] { return std::vector<std::string>(
+                            { "Surge XT:Surge XT MIDI In 128:0" }); },
+                   [](const std::string &, std::string &) -> gthMidiOut::Port *
+                   { return new NullPort; });
+
+    TestComposer *win = new TestComposer(&synth, false);
+
+    win->setMidiOut(&out);
+    win->start();
+    win->set_visible(true);
+    pump(10);
+
+    int ch = -1;
+
+    for (const thcInstrument &inst : win->sched_->instruments())
+        if (inst.name == "ext")
+            ch = inst.channel;
+
+    if (ch >= 0 && win->sched_->playsOverMidi(ch) &&
+        synth.getChannel(ch) == NULL)
+        ok("an instrument whose port answers plays on the device");
+    else
+        fail("an instrument whose port answers plays on the device");
+
+    win->setEditing(true);
+    pump(10);
+
+    Gtk::DropDown *pick = midiPick(win);
+
+    if (pick != NULL)
+        ok("the editor has a MIDI out section with the instrument in it");
+    else
+        fail("the editor has a MIDI out section with the instrument in it");
+
+    if (pick != NULL)
+    {
+        pick->set_selected(pick->get_model()->get_n_items() - 1);
+        pump(10);
+
+        if (ch >= 0 && !win->sched_->playsOverMidi(ch) &&
+            synth.getChannel(ch) != NULL &&
+            out.route("Surge") == gthMidiOut::PLAY_ON_SYNTH)
+            ok("choosing this synth puts the dsp on and keeps the route");
+        else
+            fail("choosing this synth puts the dsp on and keeps the route");
+
+        /* And back to the pattern's own match, from the section as it
+           was rebuilt. */
+        Gtk::DropDown *again = midiPick(win);
+
+        if (again != NULL)
+        {
+            again->set_selected(0);
+            pump(10);
+        }
+
+        if (again != NULL && ch >= 0 && win->sched_->playsOverMidi(ch) &&
+            out.route("Surge").empty())
+            ok("and matching the pattern again puts it back on the device");
+        else
+            fail("and matching the pattern again puts it back on the device");
+    }
+
+    win->set_visible(false);
+    delete win;
+
+    std::error_code ec;
+
+    std::filesystem::remove_all(tmp, ec);
+
+    return failures;
+}
+
 static int
 runDocuments (const std::string &pluginPath)
 {
@@ -2107,6 +2246,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runDocuments(pluginPath);
+
+            if (rc == 0)
+                rc = runMidiOut(pluginPath);
 
             if (rc == 0)
                 closeWithIdlesPending(pluginPath);

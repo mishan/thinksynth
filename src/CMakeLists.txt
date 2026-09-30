@@ -188,6 +188,7 @@ set(THINKSYNTH_SOURCES
     gthGtkRuntime.cpp
     gthRtAudio.cpp
     gthRtMidi.cpp
+    gthMidiOut.cpp
     gthMidiQueue.cpp
     gui/AboutBox.cpp
     gthConsole.cpp

@@ -476,6 +476,34 @@ for a two-instruction window, it uses a drain hook to stand in it and pushes
 from another thread from there. Move the store down past that hook and the
 check fails every run.
 
+### MIDI out: stamped, then sent on a clock
+
+The composer can play an instrument on a device (`midi "port";` in a `.gen`,
+docs/GEN_FORMAT.md §4b). The scheduler stays toolkit-free: it talks to a
+`thcMidiOut` a host sets, and for a channel attached there it hands over
+notes, their offs and mapped chanargs instead of calling the synth. Each one
+carries the `g_get_monotonic_time()` it is due, worked out from the step's
+own clock (`stepTransportAt`) and the event's distance from the transport.
+
+```
+GUI thread (20 ms timer)            gthMidiOut sender thread       device
+------------------------            ------------------------       ------
+step -> deliver(ev)
+  noteOn(ch, note, vel, level,  ->  heap by due time + delay
+         due)                        wait until due + delay  ---->  RtMidiOut
+```
+
+`gthMidiOut` (the application's) keeps the messages in a heap and a thread
+of its own sends each at its due time plus a delay, 40 ms by default: enough
+to cover the step, so a line comes out evenly rather than with the timer's
+jitter in it, and about the synth's own output latency, so the two line up.
+It keeps what is sounding per port, channel and key, so a retrigger sends the
+key's note-off first and `flush()` — a pause, a stop, a route changing —
+ends exactly what the device holds. Where no port answers an instrument's
+pattern, or this machine's route says so, the scheduler loads its `dsp`
+instead. The browser has no `thcMidiOut`, so there every such instrument
+plays its `dsp` or nothing.
+
 ## Plugin linkage
 
 A plugin exports `apiversion`, `module_init`, `module_callback` and

@@ -43,6 +43,7 @@ typedef void (*sighandler_t)(int);
 #include "gthAudioRate.h"
 #include "gthRtAudio.h"
 #include "gthRtMidi.h"
+#include "gthMidiOut.h"
 
 #include "gthDummyAudio.h"
 
@@ -211,6 +212,18 @@ static void listAudio (void)
         printf("  %s\n", mports[i].c_str());
 
     if (mports.empty())
+        printf("  (none)\n");
+
+    /* What a piece's `midi "..."' is matched against. */
+    printf("\nMIDI output ports:\n");
+
+    const std::vector<std::string> oports =
+        gthMidiOut::probePorts(PACKAGE_NAME);
+
+    for (size_t i = 0; i < oports.size(); i++)
+        printf("  %s\n", oports[i].c_str());
+
+    if (oports.empty())
         printf("  (none)\n");
 }
 

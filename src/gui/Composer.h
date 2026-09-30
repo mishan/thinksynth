@@ -29,6 +29,8 @@
 /* By value in prevInstruments_ below, so a forward declaration will not
    do -- and it is the same header ComposerCanvas already pulls in. */
 #include "thcScheduler.h"
+
+class gthMidiOut;
 #include "ComposerCanvasWidget.h"
 #include "SeqView.h"
 #include "StageParamsView.h"
@@ -78,6 +80,9 @@ public:
        clock. Once; after that, it does nothing. */
     void start (void);
     bool started (void) const { return started_; }
+
+    /* Where instruments that name a MIDI port play; set before start(). */
+    void setMidiOut (gthMidiOut *out) { midiOut_ = out; }
 
     /* Which of two pieces is loaded: the one piece mode opens, or the
      * sequence, which starts as a copy of gen/scratch.gen with no file of
@@ -260,6 +265,11 @@ protected:
     Gtk::Widget *buildKnobsSection (void);
     Gtk::Widget *buildScalesSection (void);
     Gtk::Widget *buildPresetsSection (void);
+    Gtk::Widget *buildMidiSection (void);
+
+    /* Every instrument naming `pattern' taken off and applied again,
+       after its route changed. */
+    void reroute (const std::string &pattern);
 
     /* A preset's value changed: re-resolve it into every stage naming
        it. A value edit, not a structural one -- see the definition. */
@@ -328,6 +338,9 @@ protected:
        window the way editorcheck drives the node editor. */
     thSynth      *synth_;
     thcScheduler *sched_;
+
+    /* The window's MIDI output, or NULL (a harness); not owned. */
+    gthMidiOut   *midiOut_ = NULL;
 
     /* Loaded modules, keyed by name; this owns them. Chains hold
        bare pointers into this map, so it outlives them (clearChains runs

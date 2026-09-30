@@ -45,6 +45,13 @@ public:
     void Set (const string &key, string **vals);
     string **Get (const string &key);
 
+    /* One key and its values gone, so Save no longer writes it. */
+    void Remove (const string &key);
+
+    /* The keys that start with `prefix': a family of per-name keys, such
+       as a MIDI route per port pattern. */
+    vector<string> Keys (const string &prefix) const;
+
     void Load (void);
     void Save (void);
 
