@@ -715,6 +715,7 @@ add_test(NAME genwav.retrigger
                  -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/retrigger.gen
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DWORK=${PROJECT_BINARY_DIR}/genwav-retrigger
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavRetrigger.cmake")
 
 # A voice started over from the channel's pool renders as a new copy would,

@@ -2655,7 +2655,11 @@ thcScheduler::flushNoteOffs (void)
 /* The derived offs pending for one key, removed: see deliver(). The
    latest of those whose note was struck at `struck' -- within a
    microsecond, since two chains reach one beat through different
-   arithmetic -- or -HUGE_VAL where none was. */
+   arithmetic -- or -HUGE_VAL where none was.
+
+   A held note on the key is let go of too. Its voice is in release like
+   any other, and the key coming up later would otherwise release the
+   note that replaced it. */
 double
 thcScheduler::dropNoteOffs (int channel, int note, double struck)
 {
@@ -2682,6 +2686,14 @@ thcScheduler::dropNoteOffs (int channel, int note, double struck)
         std::make_heap(noteOffs_.begin(), noteOffs_.end(), Later());
     }
 
+    held_.erase(std::remove_if(held_.begin(), held_.end(),
+                               [&](const NoteOff &h)
+                               {
+                                   return h.channel == channel &&
+                                          h.note == note;
+                               }),
+                held_.end());
+
     return doubled;
 }
 
@@ -2696,9 +2708,10 @@ thcScheduler::releaseHeld (int channel, int note)
             return;
         }
 
-    /* An off for a note nobody holds: a release that raced a flush.
-       delNote copes; do the same. */
-    synth_->delNote(channel, note);
+    /* An off for a note nobody holds: a release that raced a flush,
+       whose voice the flush already ended, or a key a later note on it
+       took over (dropNoteOffs). Released here, it would end that later
+       note instead. */
 }
 
 /* A flush ends every held note, and an ending is not only the synth's

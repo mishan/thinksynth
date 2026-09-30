@@ -7938,6 +7938,158 @@ countOff (const std::vector<Sounded> &heard)
     return n;
 }
 
+/* ---- a key taken over by a later note --------------------------------- */
+
+/* A channel keys its voices by note number, so a note struck on a key
+ * that is already sounding takes the key over, and whatever was going to
+ * end the note before it must not end this one instead. Neither a
+ * derived off nor a key coming up reaches a tape as the voice it ends,
+ * so this listens: organ0 holds at full level until its off and lets go
+ * at once, and a window is loud exactly while a voice is keyed.
+ *
+ *   held under composed   key down 0-2 s, a composed note 1-4 s on it:
+ *                          the key coming up at 2 s must not end it
+ *   composed under held   a composed note 5-8 s, the key down 6-9 s:
+ *                          the composed off at 8 s must not end the key
+ */
+static void
+checkRetriggerAudio (const std::map<std::string, thcPlugin *> &plugins,
+                     thSynth *synth)
+{
+    const std::string body =
+        "tempo 60;\n"
+        "instrument org { dsp \"organ0.dsp\"; };\n"
+        "chain keys { input midi; sink { instrument = org; }; };\n"
+        "chain early {\n"
+        "    start = 1 beats;\n"
+        "    stage seq gen::grid { notes = \"C4\"; steps = 1; rows = 1;\n"
+        "        cells = \"x\"; period = 32 beats; hold = 3 beats; };\n"
+        "    sink { instrument = org; };\n"
+        "};\n"
+        "chain late {\n"
+        "    start = 5 beats;\n"
+        "    stage seq gen::grid { notes = \"C4\"; steps = 1; rows = 1;\n"
+        "        cells = \"x\"; period = 32 beats; hold = 3 beats; };\n"
+        "    sink { instrument = org; };\n"
+        "};\n";
+
+    const std::string path = thUtil::tempFile("gencheck-retrigger-");
+
+    if (path.empty())
+    {
+        fail("could not write the retrigger piece");
+        return;
+    }
+
+    {
+        std::ofstream f(path.c_str(), std::ios::trunc);
+
+        f << body;
+    }
+
+    clearChannels(synth);
+
+    thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail("the retrigger piece did not load");
+        remove(path.c_str());
+        return;
+    }
+
+    remove(path.c_str());
+
+    int channel = -1;
+
+    for (const thcInstrument &inst : sched.instruments())
+        if (inst.name == "org")
+            channel = inst.channel;
+
+    if (channel < 0)
+    {
+        fail("the retrigger piece's organ has no channel");
+        return;
+    }
+
+    struct Key { double at; bool down; };
+    const Key keys[] = { { 0, true }, { 2, false }, { 6, true }, { 9, false } };
+    size_t next = 0;
+
+    const int window = synth->getWindowlen();
+    const int outputs = synth->audioChannelCount();
+    const double dt = (double)window / TH_DEFAULT_SAMPLES;
+
+    /* Mix RMS over [from, to), by transport time. */
+    struct Span { double from, to, sumsq = 0; size_t n = 0; };
+    Span spans[] = { { 2.3, 3.8 }, { 4.3, 4.9 }, { 8.3, 8.8 }, { 9.3, 9.9 } };
+
+    sched.start();
+
+    while (sched.now() < 10.5)
+    {
+        const double t = sched.now();
+
+        while (next < sizeof keys / sizeof keys[0] && keys[next].at <= t)
+        {
+            thcEvent ev = {};
+
+            ev.type = keys[next].down ? THC_EV_NOTE : THC_EV_NOTEOFF;
+            ev.at = t;
+            ev.channel = channel;
+            ev.u.note.note = 60;
+            ev.u.note.velocity = 100;
+            ev.u.note.level = 1;
+            ev.u.note.duration = 0;
+
+            sched.injectMidiEvent(ev);
+            next++;
+        }
+
+        sched.stepTransport(dt);
+        synth->process();
+
+        const float *out = synth->getOutput();
+
+        for (Span &s : spans)
+            if (t >= s.from && t < s.to)
+                for (int i = 0; i < outputs * window; i++)
+                {
+                    s.sumsq += (double)out[i] * out[i];
+                    s.n++;
+                }
+    }
+
+    sched.stop();
+    clearChannels(synth);
+
+    auto rms = [](const Span &s)
+    { return s.n ? std::sqrt(s.sumsq / s.n) : 0.0; };
+
+    char buf[160];
+
+    snprintf(buf, sizeof buf, "%.4f / %.4f / %.4f / %.4f", rms(spans[0]),
+             rms(spans[1]), rms(spans[2]), rms(spans[3]));
+
+    if (rms(spans[0]) < 0.01)
+        fail(std::string("a key coming up ended the composed note that "
+                         "took it over (RMS ") + buf + ")");
+
+    if (rms(spans[2]) < 0.01)
+        fail(std::string("a composed note's off ended the key held down "
+                         "over it (RMS ") + buf + ")");
+
+    if (rms(spans[1]) > 0.001 || rms(spans[3]) > 0.001)
+        fail(std::string("a voice sounded past every off on its key (RMS ") +
+             buf + ")");
+}
+
 static void
 checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
                 thSynth *synth)
@@ -11999,6 +12151,7 @@ main (int argc, char *argv[])
     checkHarmonyKit(plugins, &synth);
     checkVoiceLeading(plugins, &synth);
     checkHeldNotes(plugins, &synth);
+    checkRetriggerAudio(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
     checkMuteSolo(plugins, &synth);
