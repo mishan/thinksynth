@@ -543,8 +543,10 @@ static inline float thClampSample (float sample)
 #define debug(...) ;
 #endif /* USE_DEBUG */
 
-/* Guarded: a host that includes this beside its own framework -- DPF, in
-   plugin/ -- may already have the same two. */
+/* Guarded, for a host that includes this after a framework defining
+   either: DPF, in plugin/, defines unlikely. Included before one that
+   defines them unguarded, as DPF does, the framework's redefinition is
+   what warns, so plugin/ includes DPF first. */
 #ifndef likely
 # define likely(x)   __builtin_expect((x),1)
 #endif
