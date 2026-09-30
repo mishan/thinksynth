@@ -19,8 +19,8 @@
 # without .dsp, and is the plugin's identity in a host's saved projects:
 # rename the file and it is another plugin.
 #
-# Samples the graph names are compiled in, found in samples/ beside the
-# .dsp and then in this tree's dsp/samples/. An effect graph -- one that
+# Samples the graph names are compiled in, found under samples/ beside
+# the .dsp and then under this tree's dsp/samples/. An effect graph -- one that
 # takes input -- is refused. The first build fetches DPF and needs the
 # network; later ones reuse the build.
 

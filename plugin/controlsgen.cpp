@@ -20,10 +20,14 @@
  * controlsgen -- what one .dsp's plugin compiles in, read off the engine
  * at build time.
  *
- *   controlsgen GRAPH.dsp ID OUTDIR [SAMPLEDIR...]
+ *   controlsgen GRAPH.dsp ID UID TEMPLATE OUTDIR [SAMPLEDIR...]
  *
  * Loads the graph and writes into OUTDIR:
  *
+ *   DistrhoPluginInfo.h    TEMPLATE (DistrhoPluginInfo.h.in) with the
+ *                          plugin's identity filled in: ID, the four
+ *                          characters UID, and the graph's own name and
+ *                          category
  *   thinksynth_dsp.h       the graph's text, its name, the plugin's label
  *                          (thinksynth_ID) and the graph's description
  *   thinksynth_controls.h  the control table (ReadControls.cpp) as data
@@ -33,11 +37,21 @@
  *                          function that registers them with libthink
  *                          (thUtil::addEmbeddedFile) under samples/, where
  *                          osc::sample looks before it looks on disk
+ *   generated.stamp        touched every run, which is what a build system
+ *                          hangs the command on
  *
- * A wav is looked for in each SAMPLEDIR in turn. The graph has to be an
- * instrument: an effect graph -- one that takes input -- is refused, as
- * is a sample that is not found, rather than built into a plugin that
- * would play silence.
+ * All of it at build time and none at configure time, so a graph whose
+ * name changes is a plugin whose name changes on the next build.
+ *
+ * What the graph says is read with libthink's lexer, not by pattern: a
+ * `#' inside a string is not a comment, and a pattern that thought so lost
+ * the string. A wav is any quoted string ending in .wav, in any case and
+ * in any folder under samples/ -- "sub/kick.wav" -- looked for in each
+ * SAMPLEDIR in turn and registered under the name the graph wrote. One
+ * that is absolute or climbs out with `..' cannot go in a plugin, and is
+ * refused; so is one that is not found, and so is an effect graph -- one
+ * that takes input -- rather than any of them being built into a plugin
+ * that plays silence.
  *
  * Each file is written only if what it would say differs from what it
  * says, so a build that changed nothing recompiles nothing. Exit status
@@ -47,12 +61,12 @@
 #include <stdio.h>
 
 #include <fstream>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "think.h"
+#include "thLexer.h"
 
 #include "Controls.h"
 #include "Panel.h"
@@ -125,23 +139,55 @@ static int fail (const std::string &why)
     return 1;
 }
 
-/* The graph with its comments taken out, for looking in. */
-static std::string uncommented (const std::string &text)
+/* `s' as it goes inside a C string literal's quotes. */
+static std::string escaped (const std::string &s)
 {
-    return std::regex_replace(text, std::regex("#[^\n]*"), "");
+    const std::string q = quoted(s);
+
+    return q.substr(1, q.size() - 2);
+}
+
+static bool endsWithWav (const std::string &s)
+{
+    if (s.size() < 5)
+        return false;
+
+    const std::string tail = s.substr(s.size() - 4);
+
+    return tail[0] == '.' && (tail[1] == 'w' || tail[1] == 'W') &&
+           (tail[2] == 'a' || tail[2] == 'A') &&
+           (tail[3] == 'v' || tail[3] == 'V');
+}
+
+/* Every `key' in `text' replaced by `value'. */
+static void fill (std::string &text, const std::string &key,
+                  const std::string &value)
+{
+    for (size_t at = text.find(key); at != std::string::npos;
+         at = text.find(key, at + value.size()))
+        text.replace(at, key.size(), value);
 }
 
 int main (int argc, char **argv)
 {
-    if (argc < 4)
+    if (argc < 6)
     {
-        fprintf(stderr, "usage: %s GRAPH.dsp ID OUTDIR [SAMPLEDIR...]\n",
-                argv[0]);
+        fprintf(stderr, "usage: %s GRAPH.dsp ID UID TEMPLATE OUTDIR "
+                        "[SAMPLEDIR...]\n", argv[0]);
         return 1;
     }
 
-    const std::string path = argv[1], id = argv[2], outdir = argv[3];
-    std::string text;
+    const std::string path = argv[1], id = argv[2], uid = argv[3];
+    const std::string templatePath = argv[4], outdir = argv[5];
+    const int firstSampleDir = 6;
+    std::string text, info;
+
+    if (uid.size() != 4)
+        return fail("the unique id is four characters, and " + uid +
+                    " is not");
+
+    if (!slurp(templatePath, info))
+        return fail("could not read " + templatePath);
 
     if (!slurp(path, text))
         return fail("could not read " + path);
@@ -173,13 +219,67 @@ int main (int argc, char **argv)
     if (c.empty())
         return fail(path + " did not load");
 
-    const std::string plain = uncommented(text);
-    std::smatch m;
-    std::string description;
+    /* What the graph says about itself, and the wavs it names, off the
+       lexer's tokens: `name "..."' and its kin are a word and a string. */
+    std::vector<thLexToken> tokens;
+    std::string graphName, description, category;
+    std::vector<std::string> wavs;
 
-    if (std::regex_search(plain, m,
-                          std::regex("(^|\n)[ \t]*description[ \t]+\"([^\"\n]*)\"")))
-        description = m[2];
+    thLexString(text, tokens);
+
+    for (size_t i = 0; i < tokens.size(); i++)
+    {
+        if (tokens[i].kind == thLexToken::WORD && i + 1 < tokens.size() &&
+            tokens[i + 1].kind == thLexToken::STRING)
+        {
+            const std::string &word = tokens[i].text;
+            const std::string &value = tokens[i + 1].text;
+
+            if (word == "name" && graphName.empty())
+                graphName = value;
+            else if (word == "description" && description.empty())
+                description = value;
+            else if (word == "category" && category.empty())
+                category = value;
+        }
+
+        if (tokens[i].kind != thLexToken::STRING ||
+            !endsWithWav(tokens[i].text))
+            continue;
+
+        const std::string &wav = tokens[i].text;
+
+        if (wav[0] == '/' || wav.find('\\') != std::string::npos ||
+            wav.find(':') != std::string::npos ||
+            wav.find("..") != std::string::npos)
+            return fail(path + " names " + wav + ", which is not under "
+                        "samples/ and cannot be compiled into a plugin");
+
+        bool seen = false;
+
+        for (size_t k = 0; k < wavs.size() && !seen; k++)
+            seen = wavs[k] == wav;
+
+        if (!seen)
+            wavs.push_back(wav);
+    }
+
+    if (graphName.empty())
+        graphName = id;
+
+    /* DistrhoPluginInfo.h */
+    const bool drum = category == "Drums";
+
+    fill(info, "@THINK_PLUGIN_DSP@", name);
+    fill(info, "@THINK_PLUGIN_ID@", id);
+    fill(info, "@THINK_PLUGIN_NAME@", escaped("thinksynth " + graphName));
+    fill(info, "@THINK_PLUGIN_UNIQUE_ID@", uid);
+    fill(info, "@THINK_PLUGIN_UNIQUE_ID_CHARS@",
+         std::string("'") + uid[0] + "', '" + uid[1] + "', '" + uid[2] +
+         "', '" + uid[3] + "'");
+    fill(info, "@THINK_PLUGIN_CLAP_KIND@",
+         drum ? "\"drum\"" : "\"synthesizer\"");
+    fill(info, "@THINK_PLUGIN_VST3_KIND@", drum ? "Drum" : "Synth");
 
     /* thinksynth_dsp.h */
     std::ostringstream d;
@@ -227,23 +327,8 @@ int main (int argc, char **argv)
       << "#define DISTRHO_UI_DEFAULT_WIDTH  " << panel.width() << "\n"
       << "#define DISTRHO_UI_DEFAULT_HEIGHT " << panel.height() << "\n";
 
-    /* thinksynth_samples.cpp: every quoted .wav the graph names. */
+    /* thinksynth_samples.cpp */
     std::ostringstream w;
-    std::vector<std::string> wavs;
-    const std::regex quotedWav("\"([^\"/\\\\]+\\.wav)\"");
-
-    for (std::sregex_iterator i(plain.begin(), plain.end(), quotedWav), e;
-         i != e; ++i)
-    {
-        const std::string wav = (*i)[1];
-        bool seen = false;
-
-        for (size_t k = 0; k < wavs.size() && !seen; k++)
-            seen = wavs[k] == wav;
-
-        if (!seen)
-            wavs.push_back(wav);
-    }
 
     w << "/* The samples " << name << " plays, embedded. Written by "
          "controlsgen. */\n"
@@ -254,7 +339,7 @@ int main (int argc, char **argv)
         std::string bytes;
         bool found = false;
 
-        for (int dir = 4; dir < argc && !found; dir++)
+        for (int dir = firstSampleDir; dir < argc && !found; dir++)
             found = slurp(std::string(argv[dir]) + "/" + wavs[k], bytes);
 
         if (!found)
@@ -283,11 +368,19 @@ int main (int argc, char **argv)
 
     w << "}\n";
 
-    if (!writeIfChanged(outdir + "/thinksynth_dsp.h", d.str()) ||
+    if (!writeIfChanged(outdir + "/DistrhoPluginInfo.h", info) ||
+        !writeIfChanged(outdir + "/thinksynth_dsp.h", d.str()) ||
         !writeIfChanged(outdir + "/thinksynth_controls.h", t.str()) ||
         !writeIfChanged(outdir + "/thinksynth_ui_size.h", u.str()) ||
         !writeIfChanged(outdir + "/thinksynth_samples.cpp", w.str()))
         return fail("could not write into " + outdir);
 
-    return 0;
+    /* Always, so the command's output is newer than its inputs whether or
+       not anything above changed. */
+    std::ofstream stamp((outdir + "/generated.stamp").c_str(),
+                        std::ios::trunc);
+
+    stamp << "\n";
+
+    return stamp ? 0 : fail("could not write into " + outdir);
 }

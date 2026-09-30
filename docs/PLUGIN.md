@@ -16,9 +16,9 @@ cmake --build build
 ```
 
 `THINK_PLUGIN_DSPS` names the graphs: a name in `dsp/` (`ebass` for
-`dsp/ebass.dsp`), a path to a `.dsp` anywhere, or `all` for every
-instrument in `dsp/` -- 65 of them, a couple of minutes on a many-core
-machine. It defaults to `juno`. For one `.dsp` from anywhere there is
+`dsp/ebass.dsp`), a path to a `.dsp` -- absolute, or from the top of the
+source tree -- or `all` for every instrument in `dsp/`, 65 of them, a
+couple of minutes on a many-core machine. It defaults to `juno`. For one `.dsp` from anywhere there is
 
 ```sh
 scripts/thinksynth-export path/to/pad.dsp OUTDIR
@@ -45,13 +45,17 @@ named for its file -- `ID` is `juno` for `juno.dsp`:
   characters hashed from `ID` (juno keeps the `TsJu` it had first). A
   host's saved project names the plugin by these, so they come from the
   file's name and renaming the file makes another plugin. `ID` has to be
-  letters, digits and `_`.
+  letters, digits and `_`, and two graphs with one file name cannot be
+  built together. The graph's `name` and category are read when the
+  plugin is built, so editing them and rebuilding is enough.
 - **Kind.** A graph filed under `category "Drums"` is a drum to a host; any
   other is a synth.
-- **Samples.** Every quoted `.wav` the graph names is compiled in, found in
+- **Samples.** Every quoted string ending in `.wav`, in any case and in
+  any folder under `samples/` (`"sub/kick.wav"`), is compiled in, found in
   `samples/` beside the `.dsp` and then in `dsp/samples/`; `osc::sample`
   finds the compiled-in copy before it looks on disk
-  (`thUtil::addEmbeddedFile`). A missing sample stops the build.
+  (`thUtil::addEmbeddedFile`). A sample that is missing, absolute, or
+  reached through `..` stops the build.
 - **Instruments only.** An effect graph -- one that takes input, like
   those in `dsp/fx/` -- is refused at build time.
 - **Output.** Subnormal samples in a decaying tail are flushed to zero on
@@ -178,11 +182,17 @@ above):
 
 | Test | Checks |
 |---|---|
-| `plugincheck.ID` | the plugin's parameters against the engine's own parse of the `.dsp` -- order, labels, ranges, defaults, the level last; a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a change to the first control, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the `.dsp` one window later, bit for bit, at 48 and 44.1 kHz, the engine reading the graph's samples off disk and the plugin its compiled-in copies; the reported latency; a chord gone after the host stops and starts; and a project's round trip, state saved from one instance and loaded into a fresh one |
-| `plugin.clap-validator.ID` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
+| `plugincheck.ID` | the plugin's parameters against the engine's own parse of the `.dsp` -- order, labels, ranges, defaults, the level last; a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a change to the first control that is a
+continuous one, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the `.dsp` one window later, bit for bit, at 48 and 44.1 kHz, the engine reading the graph's samples off disk and the plugin its compiled-in copies; the reported latency; a chord gone after the host stops and starts; and a project's round trip, state saved from one instance and loaded into a fresh one |
+| `plugin.clap-validator.ID` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP, less its `scan-time` test, which times the machine rather than the plugin |
 | `plugin.pluginval.ID` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10, opening and automating the editor |
 
-and, when juno is among them -- the editor is the same code whatever the
+`controlsgen.effect`, `.missing` and `.outside` hold the generator to its
+refusals, on `dsp/fx/echo.dsp` and two graphs in `plugin/testdata/`;
+`plugin/testdata/nested.dsp`, which CI builds as a plugin, keeps one sample
+in a folder and one named in capitals.
+
+And, when juno is among them -- the editor is the same code whatever the
 graph -- on juno's:
 
 | Test | Checks |

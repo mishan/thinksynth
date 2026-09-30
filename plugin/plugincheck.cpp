@@ -841,6 +841,10 @@ int main (int argc, char **argv)
                      "frame %zu)", rates[r], bad);
 
         check(same, what);
+        /* Any sound at all, with the peak printed for a person to judge:
+           a slow pad at the default level peaks under 0.01 where a kick
+           peaks at 0.7, and no one threshold is right for both. Silence
+           is exactly zero here, since subnormals are flushed. */
         char loud[64];
 
         snprintf(loud, sizeof(loud), "and it is not silence: peak %.4f",

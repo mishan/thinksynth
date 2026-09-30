@@ -76,13 +76,21 @@ function(think_plugin_unique_id id out)
   set(${out} "${code}" PARENT_SCOPE)
 endfunction()
 
-# think_add_dsp_plugin(<path to a .dsp>)
+# think_add_dsp_plugin(<absolute path to a .dsp>)
 #
 # thinksynth-ID-clap, -vst3 and -lv2 for the graph, ID being its file name
 # without .dsp. Its samples are looked for beside it in samples/ and then
 # in dsp/samples/.
+#
+# Nothing here reads the graph. Its name, its category, its controls and
+# its samples are all controlsgen's, at build time, so a graph that
+# changes is a plugin that changes on the next build, with no configure
+# in between. What is decided at configure time is only what the file's
+# name decides: the id, and the four characters hashed from it.
 function(think_add_dsp_plugin dsp)
-  get_filename_component(id "${dsp}" NAME_WE)
+  # NAME_WLE, the name less its last extension: `my.pad.dsp' is `my.pad',
+  # which the check below then refuses, rather than quietly `my'.
+  get_filename_component(id "${dsp}" NAME_WLE)
   get_filename_component(dir "${dsp}" DIRECTORY)
 
   if(NOT id MATCHES "^[A-Za-z0-9_]+$")
@@ -90,70 +98,58 @@ function(think_add_dsp_plugin dsp)
                         "`${id}' has more than letters, digits and _ in it")
   endif()
 
+  get_property(ids GLOBAL PROPERTY THINK_PLUGIN_IDS)
+
+  if(id IN_LIST ids)
+    message(FATAL_ERROR "plugin: two graphs named ${id}.dsp in "
+                        "THINK_PLUGIN_DSPS; a plugin's id is its file name, "
+                        "so they would be one plugin")
+  endif()
+
+  set_property(GLOBAL APPEND PROPERTY THINK_PLUGIN_IDS "${id}")
+
   set(target "thinksynth-${id}")
   set(gen "${CMAKE_CURRENT_BINARY_DIR}/${id}")
   file(MAKE_DIRECTORY "${gen}")
-
-  # The name, the category and the unique id, for DistrhoPluginInfo.h.
-  file(READ "${dsp}" text)
-  string(REGEX REPLACE "#[^\n]*" "" text "${text}")
-  string(REGEX MATCH "(^|\n)[ \t]*name[ \t]+\"([^\"\n]*)\"" _ "${text}")
-  set(name "${CMAKE_MATCH_2}")
-
-  if(name STREQUAL "")
-    set(name "${id}")
-  endif()
-
-  string(REPLACE "\\" "" name "${name}")
-  string(REPLACE "\"" "" name "${name}")
-  string(REGEX MATCH "(^|\n)[ \t]*category[ \t]+\"([^\"\n]*)\"" _ "${text}")
-
-  if(CMAKE_MATCH_2 STREQUAL "Drums")
-    set(THINK_PLUGIN_CLAP_KIND "\"drum\"")
-    set(THINK_PLUGIN_VST3_KIND "Drum")
-  else()
-    set(THINK_PLUGIN_CLAP_KIND "\"synthesizer\"")
-    set(THINK_PLUGIN_VST3_KIND "Synth")
-  endif()
 
   think_plugin_unique_id("${id}" uid)
 
   get_property(taken GLOBAL PROPERTY THINK_PLUGIN_UNIQUE_IDS)
 
-  if(uid IN_LIST taken)
+  # Against juno's as well, whether or not juno is in this build: a plugin
+  # exported on its own still shares a host with it.
+  if(uid IN_LIST taken OR (uid STREQUAL "TsJu" AND NOT id STREQUAL "juno"))
     message(FATAL_ERROR "plugin: ${id}'s unique id ${uid} is another "
                         "plugin's; add it to think_plugin_unique_id by hand")
   endif()
 
   set_property(GLOBAL APPEND PROPERTY THINK_PLUGIN_UNIQUE_IDS "${uid}")
 
-  set(THINK_PLUGIN_DSP "${dsp}")
-  set(THINK_PLUGIN_ID "${id}")
-  set(THINK_PLUGIN_NAME "thinksynth ${name}")
-  set(THINK_PLUGIN_UNIQUE_ID "${uid}")
-  string(REGEX REPLACE "(.)(.)(.)(.)" "'\\1', '\\2', '\\3', '\\4'"
-         THINK_PLUGIN_UNIQUE_ID_CHARS "${uid}")
-  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/DistrhoPluginInfo.h.in"
-                 "${gen}/DistrhoPluginInfo.h" @ONLY)
-
-  # What it compiles in, from the engine: see controlsgen.cpp.
+  # What it compiles in, from the engine: see controlsgen.cpp. The stamp
+  # is the command's output, because the files themselves are rewritten
+  # only when they change and would otherwise stay older than the .dsp.
   set(generated
+      "${gen}/DistrhoPluginInfo.h"
       "${gen}/thinksynth_dsp.h"
       "${gen}/thinksynth_controls.h"
       "${gen}/thinksynth_ui_size.h"
       "${gen}/thinksynth_samples.cpp")
 
-  file(GLOB samples "${dir}/samples/*.wav"
-                    "${PROJECT_SOURCE_DIR}/dsp/samples/*.wav")
+  file(GLOB_RECURSE samples CONFIGURE_DEPENDS
+       "${dir}/samples/*" "${PROJECT_SOURCE_DIR}/dsp/samples/*")
+  list(REMOVE_DUPLICATES samples)
 
   add_custom_command(
-      OUTPUT ${generated}
-      COMMAND controlsgen "${dsp}" "${id}" "${gen}"
+      OUTPUT "${gen}/generated.stamp"
+      BYPRODUCTS ${generated}
+      COMMAND controlsgen "${dsp}" "${id}" "${uid}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/DistrhoPluginInfo.h.in" "${gen}"
               "${dir}/samples" "${PROJECT_SOURCE_DIR}/dsp/samples"
       DEPENDS controlsgen "${dsp}" ${samples}
-      COMMENT "Reading ${id}'s controls and samples")
+              "${CMAKE_CURRENT_SOURCE_DIR}/DistrhoPluginInfo.h.in"
+      COMMENT "Reading ${id}'s name, controls and samples")
 
-  add_custom_target(${target}-generated DEPENDS ${generated})
+  add_custom_target(${target}-generated DEPENDS "${gen}/generated.stamp")
 
   dpf_add_plugin(${target}
       TARGETS clap vst3 lv2
@@ -183,20 +179,28 @@ function(think_add_dsp_plugin dsp)
   set_property(GLOBAL APPEND PROPERTY THINK_PLUGIN_BUILT "${id}|${dsp}")
 endfunction()
 
-# The list, to paths.
+# The list, to absolute paths. A relative path is relative to the top of
+# the source tree -- `plugin/testdata/nested.dsp' -- which is one place,
+# where the directory cmake happened to be run from is not; a bare name
+# is a graph in dsp/. `all' is asked again at every build, so a graph
+# added to dsp/ is a plugin added.
 if(THINK_PLUGIN_DSPS STREQUAL "all")
-  file(GLOB dsps "${PROJECT_SOURCE_DIR}/dsp/*.dsp")
+  file(GLOB dsps CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/dsp/*.dsp")
   list(SORT dsps)
 else()
   set(dsps "")
 
   foreach(d IN LISTS THINK_PLUGIN_DSPS)
-    if(EXISTS "${d}")
-      get_filename_component(d "${d}" ABSOLUTE)
+    if(IS_ABSOLUTE "${d}" AND EXISTS "${d}")
+      # as it is
+    elseif(d MATCHES "\\.dsp$" AND EXISTS "${PROJECT_SOURCE_DIR}/${d}")
+      set(d "${PROJECT_SOURCE_DIR}/${d}")
     elseif(EXISTS "${PROJECT_SOURCE_DIR}/dsp/${d}.dsp")
       set(d "${PROJECT_SOURCE_DIR}/dsp/${d}.dsp")
     else()
-      message(FATAL_ERROR "plugin: no such .dsp: ${d}")
+      message(FATAL_ERROR "plugin: no such .dsp: ${d} (a name in dsp/, a "
+                          "path from the top of the source tree, or an "
+                          "absolute path)")
     endif()
 
     list(APPEND dsps "${d}")
@@ -299,6 +303,31 @@ if(NOT WIN32)
   endforeach()
 endif()
 
+# What controlsgen refuses, rather than building a plugin that would play
+# silence: an effect graph, a sample that is not there, and a sample named
+# from outside samples/. testdata/ holds the two graphs that ask for those.
+add_test(NAME controlsgen.effect
+         COMMAND controlsgen "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp" echo Txxx
+                 "${CMAKE_CURRENT_SOURCE_DIR}/DistrhoPluginInfo.h.in"
+                 "${CMAKE_CURRENT_BINARY_DIR}"
+                 "${PROJECT_SOURCE_DIR}/dsp/samples")
+set_tests_properties(controlsgen.effect PROPERTIES
+    PASS_REGULAR_EXPRESSION "is an effect graph")
+
+foreach(bad missing outside)
+  add_test(NAME controlsgen.${bad}
+           COMMAND controlsgen
+                   "${CMAKE_CURRENT_SOURCE_DIR}/testdata/${bad}.dsp" ${bad}
+                   Txxx "${CMAKE_CURRENT_SOURCE_DIR}/DistrhoPluginInfo.h.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}"
+                   "${CMAKE_CURRENT_SOURCE_DIR}/testdata/samples")
+endforeach()
+
+set_tests_properties(controlsgen.missing PROPERTIES
+    PASS_REGULAR_EXPRESSION "which is in none of the sample directories")
+set_tests_properties(controlsgen.outside PROPERTIES
+    PASS_REGULAR_EXPRESSION "cannot be compiled into a plugin")
+
 # The formats' own validators, run on what was built: clap-validator on
 # each CLAP, pluginval on each VST3 at its strictest, its editor tests
 # included -- it opens the editor and automates it. Linux builds of both,
@@ -334,8 +363,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     string(REPLACE "|" ";" b "${b}")
     list(GET b 0 id)
 
+    # Without scan-time, which fails a plugin that takes 100 ms of wall
+    # clock to scan: a question about how busy the machine is, which with
+    # sixty-five of these and as many pluginvals running at once it is.
     add_test(NAME plugin.clap-validator.${id}
              COMMAND ${CMAKE_TEST_LAUNCHER} "${clapvalidator_bin}" validate
+                     --exclude "^scan-time$"
                      "${PROJECT_BINARY_DIR}/bin/thinksynth-${id}.clap")
 
     add_test(NAME plugin.pluginval.${id}
