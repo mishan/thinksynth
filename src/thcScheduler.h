@@ -1244,6 +1244,11 @@ private:
     bool                       overMidi_[16] = {};
     std::string                midiWhy_[16];
 
+    /* A MIDI channel's chanargs during a seek: the last of each, sent
+       when the seek is over. */
+    std::map<std::pair<int, std::string>, double> seekControls_;
+    bool takeGraphOff (const thcInstrument &inst);
+
     /* The wall-clock moment transportNow_ is, for stamping what goes to
        midiOut_: set by timerCallback before it steps. */
     gint64 stampAt (double at) const;

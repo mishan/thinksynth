@@ -22,7 +22,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <set>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -44,8 +43,14 @@
  *
  * MIDI has one voice per key per channel. A note-on for a key already
  * sounding on the device sends that key's note-off first; a note-off for a
- * key not sounding is not sent. So the device's picture of what is held is
- * the one kept here, and flush() can end exactly that.
+ * key not sounding, or sounding for another engine channel, is not sent.
+ * So the device's picture of what is held is the one kept here, with which
+ * engine channel holds each key, and flush() can end exactly one
+ * channel's -- two instruments can share a device's channel.
+ *
+ * The delay is applied when a message is sent, not when it is queued, so
+ * changing it while a piece plays moves every message still queued by the
+ * same amount and keeps them in order.
  *
  * Ports are matched by name: an instrument's `midi' pattern is compared
  * with each output port's name, exactly, then as a substring, then as a
@@ -66,6 +71,10 @@ public:
     public:
         virtual ~Port (void) {}
         virtual void send (const uint8_t *msg, size_t len) = 0;
+
+        /* True once a send has failed -- a device unplugged -- so the
+           next attach opens the port afresh rather than reusing this. */
+        virtual bool dead (void) const { return false; }
     };
 
     typedef std::function<std::vector<std::string> (void)> Lister;
@@ -181,8 +190,9 @@ private:
     std::vector<std::string>           portNames_;
     std::vector<std::unique_ptr<Port> > ports_;
 
-    /* (port, MIDI channel, key) sounding on a device. */
-    std::set<std::tuple<int, int, int> > sounding_;
+    /* (port, MIDI channel, key) sounding on a device -> the engine
+       channel that struck it. */
+    std::map<std::tuple<int, int, int>, int> sounding_;
 };
 
 #endif /* GTH_MIDIOUT_H */

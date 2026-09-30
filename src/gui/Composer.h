@@ -490,6 +490,7 @@ protected:
        it back. The main loop holds a slot, not this, so an idle that
        captured `this' and outlived it is a call into freed memory. */
     sigc::connection reloadIdle_;
+    sigc::connection midiIdle_;     /* the editor rebuilt after a reroute */
 
     /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
        input toggle -- the on-screen keyboard's hop into the same place. */

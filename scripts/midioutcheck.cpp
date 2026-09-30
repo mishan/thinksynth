@@ -67,10 +67,20 @@ struct Sent
 static std::mutex sentLock;
 static std::vector<Sent> sent;
 
+static int opened = 0;
+
 class RecordingPort : public gthMidiOut::Port
 {
 public:
-    explicit RecordingPort (const std::string &name) : name_(name) {}
+    explicit RecordingPort (const std::string &name) : name_(name)
+    {
+        opened++;
+    }
+
+    bool dead (void) const override { return killed; }
+
+    /* Set to have every port so far act unplugged. */
+    static bool killed;
 
     void send (const uint8_t *msg, size_t len) override
     {
@@ -83,6 +93,8 @@ public:
 private:
     std::string name_;
 };
+
+bool RecordingPort::killed = false;
 
 static std::vector<Sent> take (void)
 {
@@ -332,6 +344,106 @@ int main (void)
         check(s.size() == 1 && bytesAre(s[0], { 0x82, 72, 64 }) &&
               out.routeOf(5).empty(),
               "detach ends the channel's notes and its route", hex(s));
+    }
+
+    /* ---- the delay changing under queued notes ---- */
+
+    {
+        out.setDelay(200);
+
+        thcInstrument dev = instrument("Surge", 0);
+
+        out.attach(6, dev, why);
+        settle(10);
+        take();
+
+        const gint64 t0 = g_get_monotonic_time();
+
+        out.noteOn(6, 50, 100, 1, t0);
+        out.setDelay(0);                       /* turned down while it waits */
+        out.noteOff(6, 50, t0 + 50000);
+        settle(120);
+
+        const std::vector<Sent> s = take();
+        std::vector<Sent> notes;
+
+        for (const Sent &m : s)
+            if ((m.bytes[0] & 0xe0) == 0x80)
+                notes.push_back(m);
+
+        check(notes.size() == 2 && bytesAre(notes[0], { 0x90, 50, 100 }) &&
+              bytesAre(notes[1], { 0x80, 50, 64 }),
+              "turning the delay down keeps a note's off after its on",
+              hex(s));
+
+        out.detach(6);
+        out.setDelay(30);
+        take();
+    }
+
+    /* ---- two engine channels on one device channel ---- */
+
+    {
+        thcInstrument a = instrument("Surge", 7), b = instrument("Surge", 7);
+
+        out.attach(8, a, why);
+        out.attach(9, b, why);
+        settle(10);
+        take();
+
+        const gint64 now = g_get_monotonic_time() - 30000;
+
+        out.noteOn(9, 64, 100, 1, now);         /* b holds 64            */
+        out.noteOn(8, 67, 100, 1, now);         /* a holds 67            */
+        settle(20);
+        take();
+
+        out.detach(8);
+        settle(20);
+
+        std::vector<Sent> s = take();
+
+        check(s.size() == 1 && bytesAre(s[0], { 0x87, 67, 64 }),
+              "detaching one ends its notes, not another's on the channel",
+              hex(s));
+
+        /* a takes 64 over from b; b's off for its own 64 is stale. */
+        out.attach(8, a, why);
+        out.noteOn(8, 64, 90, 1, g_get_monotonic_time() - 30000);
+        out.noteOff(9, 64, g_get_monotonic_time() - 30000);
+        settle(20);
+        s = take();
+
+        bool stale = false;
+
+        for (size_t i = 0; i < s.size(); i++)
+            if (bytesAre(s[i], { 0x87, 64, 64 }) && i + 1 == s.size())
+                stale = true;
+
+        check(!stale && s.size() >= 2 &&
+              bytesAre(s[s.size() - 1], { 0x97, 64, 90 }),
+              "an off for a key another channel took over is not sent",
+              hex(s));
+
+        out.detach(8);
+        out.detach(9);
+        take();
+    }
+
+    /* ---- a port that died is opened again ---- */
+
+    {
+        const int before = opened;
+
+        RecordingPort::killed = true;
+        out.attach(10, instrument("Surge", 0), why);
+        RecordingPort::killed = false;
+
+        check(opened == before + 1, "a dead port is opened again on attach",
+              std::to_string(opened - before) + " opened");
+
+        out.detach(10);
+        take();
     }
 
     /* ---- through RtMidi, to a port of our own ---- */

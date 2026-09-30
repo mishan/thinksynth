@@ -1267,12 +1267,26 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
        which of the two is happening. */
     midiWhy_[inst.channel].clear();
 
+    /* Applied again over itself -- a rewind re-applies what was swapped
+       -- starts from nothing on the device, so a refusal below leaves
+       the channel a graph's and not both. */
+    if (overMidi_[inst.channel])
+    {
+        midiOut_->detach(inst.channel);
+        overMidi_[inst.channel] = false;
+    }
+
     if (!inst.midi.empty())
     {
         std::string mwhy = "no MIDI output in this host";
 
         if (midiOut_ != NULL && midiOut_->attach(inst.channel, inst, mwhy))
         {
+            /* And the fallback graph an earlier apply put on, if it is
+               still there, comes off: the device plays it now. */
+            if (synth_ != NULL && synth_->getChannel(inst.channel) != NULL)
+                takeGraphOff(inst);
+
             overMidi_[inst.channel] = true;
             return true;
         }
@@ -1775,7 +1789,10 @@ thcScheduler::takeOff (const thcInstrument &inst)
     if (inst.channel < 0)
         return true;                    /* never got there; nothing to do */
 
-    if (playsOverMidi(inst.channel))
+    /* This instrument's route, not whatever holds the channel now: a
+       graph stranded on it and retried here must not take off the
+       device another instrument has attached there since. */
+    if (!inst.midi.empty() && playsOverMidi(inst.channel))
     {
         midiOut_->detach(inst.channel);
         overMidi_[inst.channel] = false;
@@ -1783,6 +1800,12 @@ thcScheduler::takeOff (const thcInstrument &inst)
         return true;
     }
 
+    return takeGraphOff(inst);
+}
+
+bool
+thcScheduler::takeGraphOff (const thcInstrument &inst)
+{
     if (inst.dsp.empty())
         return true;                    /* MIDI with no graph: nothing on */
 
@@ -2660,7 +2683,17 @@ thcScheduler::deliver (const thcEvent &ev)
         {
             if (playsOverMidi(ev.channel))
             {
-                if (ev.u.chanarg.name != NULL)
+                /* A seek plays minutes of a piece in an instant; the
+                   device hears where each controller ended up, once,
+                   when it is over -- not every value on the way. */
+                if (ev.u.chanarg.name == NULL)
+                    ;
+                else if (seeking_)
+                    seekControls_[std::make_pair(ev.channel,
+                                                 std::string(
+                                                     ev.u.chanarg.name))] =
+                        ev.u.chanarg.value;
+                else
                     midiOut_->control(ev.channel, ev.u.chanarg.name,
                                       ev.u.chanarg.value, stampAt(ev.at));
                 break;
@@ -2915,6 +2948,7 @@ thcScheduler::seek (double t)
         if (!wasSync)
             setAuditionSynchronous(true);
 
+        seekControls_.clear();
         seeking_ = true;
         start();
 
@@ -2922,6 +2956,13 @@ thcScheduler::seek (double t)
             stepTransportTo(std::min(to, transportNow_ + 0.02));
 
         seeking_ = false;
+
+        for (const auto &c : seekControls_)
+            if (playsOverMidi(c.first.first))
+                midiOut_->control(c.first.first, c.first.second, c.second,
+                                  g_get_monotonic_time());
+
+        seekControls_.clear();
 
         if (!wasSync)
             setAuditionSynchronous(false);

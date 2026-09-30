@@ -1830,16 +1830,6 @@ check (bool cond, const char *what)
         fail(what);
 }
 
-/* The piece and the sequence: two documents, each kept while the other is
- * up, and a track's graph changed in the sequence.
- *
- * A staged gen/ with both in it -- a piece as airports.gen, which the
- * composer opens, and a sequence as scratch.gen. The sequence has what the
- * instrument change has to be right about: a drum pattern written with bar
- * lines, which the grid hands back without; a one-row pitched track on an
- * instrument it shares with a six-row one; and a grid with no `rows' line
- * at all, which is the plugin's eight.
- */
 /* A piece whose instrument names a MIDI port, in a window given an output
  * whose one port answers to it: the instrument plays on the device, the
  * editor has a MIDI out section, and choosing "This synth" there puts the
@@ -1962,10 +1952,12 @@ runMidiOut (const std::string &pluginPath)
         }
 
         if (again != NULL && ch >= 0 && win->sched_->playsOverMidi(ch) &&
-            out.route("Surge").empty())
-            ok("and matching the pattern again puts it back on the device");
+            synth.getChannel(ch) == NULL && out.route("Surge").empty())
+            ok("and matching the pattern again puts it back on the device, "
+               "with the dsp off");
         else
-            fail("and matching the pattern again puts it back on the device");
+            fail("and matching the pattern again puts it back on the device, "
+                 "with the dsp off");
     }
 
     win->set_visible(false);
@@ -1978,6 +1970,16 @@ runMidiOut (const std::string &pluginPath)
     return failures;
 }
 
+/* The piece and the sequence: two documents, each kept while the other is
+ * up, and a track's graph changed in the sequence.
+ *
+ * A staged gen/ with both in it -- a piece as airports.gen, which the
+ * composer opens, and a sequence as scratch.gen. The sequence has what the
+ * instrument change has to be right about: a drum pattern written with bar
+ * lines, which the grid hands back without; a one-row pitched track on an
+ * instrument it shares with a six-row one; and a grid with no `rows' line
+ * at all, which is the plugin's eight.
+ */
 static int
 runDocuments (const std::string &pluginPath)
 {

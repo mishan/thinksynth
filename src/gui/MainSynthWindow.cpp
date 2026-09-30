@@ -901,43 +901,7 @@ void MainSynthWindow::setTheme (gthThemeChoice choice)
 }
 
 /* A MIDI route per port pattern, as `midiroute.<pattern> <port>', and the
-   delay as `midioutdelay <ms>'. A preferences line splits its key at the
-   first space and its values at commas, and a pattern or a port name may
-   hold either, so both are escaped. */
-static std::string routeEscape (const std::string &s)
-{
-    std::string out;
-
-    for (char c : s)
-        if (c == '%' || c == ' ' || c == ',' || c == '\n')
-        {
-            char buf[4];
-
-            snprintf(buf, sizeof buf, "%%%02X", (unsigned char)c);
-            out += buf;
-        }
-        else
-            out += c;
-
-    return out;
-}
-
-static std::string routeUnescape (const std::string &s)
-{
-    std::string out;
-
-    for (size_t i = 0; i < s.size(); i++)
-        if (s[i] == '%' && i + 2 < s.size())
-        {
-            out += (char)strtol(s.substr(i + 1, 2).c_str(), NULL, 16);
-            i += 2;
-        }
-        else
-            out += s[i];
-
-    return out;
-}
-
+   delay as `midioutdelay <ms>'; both names escaped (gthPrefs::escape). */
 static const char *const ROUTE_KEY = "midiroute.";
 
 void MainSynthWindow::loadMidiRoutes (void)
@@ -949,8 +913,8 @@ void MainSynthWindow::loadMidiRoutes (void)
         string **vals = prefs->Get(key);
 
         if (vals != NULL && vals[0] != NULL)
-            midiOut_->setRoute(routeUnescape(key.substr(strlen(ROUTE_KEY))),
-                               routeUnescape(*vals[0]));
+            midiOut_->setRoute(gthPrefs::unescape(key.substr(strlen(ROUTE_KEY))),
+                               gthPrefs::unescape(*vals[0]));
     }
 
     string **delay = prefs->Get("midioutdelay");
@@ -970,9 +934,9 @@ void MainSynthWindow::saveMidiRoutes (void)
     {
         string **vals = new string *[2];
 
-        vals[0] = new string(routeEscape(r.second));
+        vals[0] = new string(gthPrefs::escape(r.second));
         vals[1] = NULL;
-        prefs->Set(ROUTE_KEY + routeEscape(r.first), vals);
+        prefs->Set(ROUTE_KEY + gthPrefs::escape(r.first), vals);
     }
 
     string **delay = new string *[2];

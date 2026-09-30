@@ -52,6 +52,12 @@ public:
        as a MIDI route per port pattern. */
     vector<string> Keys (const string &prefix) const;
 
+    /* A line splits its key at the first space and its values at commas,
+       so text holding either -- a port name, a pattern -- is stored with
+       them, and `%' and newlines, as %XX. */
+    static string escape (const string &s);
+    static string unescape (const string &s);
+
     void Load (void);
     void Save (void);
 

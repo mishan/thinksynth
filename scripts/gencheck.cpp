@@ -8369,6 +8369,85 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* A seek: the device hears where each controller ended up, once. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        if (!play(withDsp(""), &out, 0.02, sched))
+            fail("the MIDI piece did not load for a seek");
+        else
+        {
+            out.calls.clear();
+            sched.seek(60);
+
+            size_t ccs = 0;
+
+            for (const FakeMidiOut::Call &c : out.calls)
+                if (c.what == "cc")
+                    ccs++;
+
+            if (ccs != 1)
+                fail("a seek sent " + std::to_string(ccs) + " controller "
+                     "values for one chanarg, not its last");
+        }
+    }
+
+    /* Taking an instrument off is about its own route: another
+       instrument's graph, stranded on the channel a MIDI instrument has
+       attached since, comes off without detaching the device. And one
+       applied over itself starts from nothing on the device. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        if (!play(withDsp("dsp \"organ0.dsp\";"), &out, 0.02, sched))
+            fail("the MIDI piece did not load for the route checks");
+        else
+        {
+            const int ch = sched.instruments()[0].channel;
+            thcInstrument stranded = sched.instruments()[0];
+
+            stranded.name = "old";
+            stranded.midi.clear();
+            out.calls.clear();
+            sched.unapply(stranded);
+
+            if (out.count("detach") != 0 || !sched.playsOverMidi(ch))
+                fail("taking a graph off a channel detached the device "
+                     "another instrument plays there");
+
+            /* Applied again, and this time no port answers: the dsp
+               plays, and the device is not left attached as well. */
+            std::string why;
+
+            out.answer = false;
+            out.calls.clear();
+
+            if (!sched.applyInstrument(0, why) ||
+                out.count("detach") != 1 || sched.playsOverMidi(ch) ||
+                synth->getChannel(ch) == NULL)
+                fail("an instrument applied over itself was left half on "
+                     "the device: " + why);
+
+            /* And back: the fallback graph comes off. */
+            out.answer = true;
+            drainSynth();
+
+            if (!sched.applyInstrument(0, why) || !sched.playsOverMidi(ch))
+                fail("an instrument applied again did not return to the "
+                     "device: " + why);
+            else
+            {
+                drainSynth();
+
+                if (synth->getChannel(ch) != NULL)
+                    fail("the fallback graph stayed on the channel after "
+                         "the device took it back");
+            }
+        }
+    }
+
     /* No port: the dsp plays, and the reason is kept. */
     {
         FakeMidiOut out;

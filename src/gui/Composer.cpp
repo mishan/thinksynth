@@ -339,6 +339,7 @@ Composer::~Composer (void)
 {
     drawTimer_.disconnect();
     reloadIdle_.disconnect();
+    midiIdle_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
     kbdOnConn_.disconnect();
@@ -2636,7 +2637,9 @@ Composer::buildMidiSection (void)
 
                 /* Rebuilt after the handler returns: this dropdown is
                    one of the widgets a rebuild destroys. */
-                Glib::signal_idle().connect_once([this] { rebuildEditor(); });
+                midiIdle_.disconnect();
+                midiIdle_ = Glib::signal_idle().connect(
+                    [this] { rebuildEditor(); return false; });
             });
 
         grid->attach(*name, 0, row);
@@ -2677,7 +2680,15 @@ Composer::reroute (const std::string &pattern)
 
         std::string why;
 
-        sched_->unapplyInstrument(i);
+        /* Not applied over a graph that would not come off: the channel
+           is still that graph's, and the scheduler retries taking it off
+           on its own. */
+        if (!sched_->unapplyInstrument(i))
+        {
+            status_->set_text(sched_->instruments()[i].name + ": its graph "
+                              "could not be taken off; try again");
+            continue;
+        }
 
         if (!sched_->applyInstrument(i, why))
             status_->set_text(sched_->instruments()[i].name + ": " + why);

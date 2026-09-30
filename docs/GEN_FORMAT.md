@@ -445,7 +445,8 @@ instrument lead {
 `midi` names a MIDI output port by name. The application compares it with
 each port's full name, then as a substring, then as a substring ignoring case,
 and plays the instrument there when one answers. `midichannel` is required
-beside it; two instruments on one device need two channels. The instrument
+beside it. Two instruments may share a device's channel, and each ends only
+its own notes, but they share its program and controllers too. The instrument
 still gets an engine channel as above, because sinks and the scheduler address
 instruments by it, but nothing is loaded on that channel while a device plays
 it.
@@ -453,7 +454,9 @@ it.
 `dsp` is optional beside `midi`. It is what plays where no port answers: a
 machine without the device, `genwav`, the browser, which has no MIDI output.
 With no `dsp` such an instrument is silent there. Its chanarg values (`fmin =
-0.2;`) are the graph's, so they need a `dsp`.
+0.2;`) are the graph's, so they need a `dsp`, and they are not sent to the
+device, knob-bound ones included; only what a chain sends through a `cc`
+reaches it.
 
 A chain reaches a device through `cc`. `cc NAME = N;` maps chanarg `NAME` to
 controller `N` (0-119; 120-127 are channel mode messages); a chanarg sink on
@@ -466,13 +469,18 @@ fades, accents) goes as expression, CC 11, with 1 as 100, as in the MIDI file
 Timing: the composer delivers on a 20 ms step, so every event is stamped with
 the moment it is due and sent that long after it, plus a delay (40 ms by
 default). The delay covers the step and lines the device up with the synth's
-own output latency; it is set in the Composer's MIDI out section.
+own output latency; it is set in the Composer's MIDI out section, and
+changing it while a piece plays moves every note still waiting by the same
+amount. A seek sends each controller's last value once, not every value on
+the way.
 
 Where the instrument plays is also this machine's choice. The Composer's MIDI
 out section lists each MIDI instrument with the port its pattern matched and
 lets you pick any other port, or its `dsp`. The choice is kept in the
 preferences under the pattern, not in the piece, so the file still says what
-somebody else's machine should look for.
+somebody else's machine should look for. A channel played on a device loads
+no patch, so the rest of the program counts it as free: a patch loaded onto
+it by hand is replaced if the instrument is later switched to its `dsp`.
 
 A swap (`gen::swap`) onto or off an instrument played over MIDI is refused:
 a device is not a graph to rebuild.

@@ -50,15 +50,20 @@ public:
         }
         catch (RtMidiError &e)
         {
-            /* A device unplugged mid-piece. Said once per message, which
-               is noisy, and the alternative is a piece that goes quiet
-               with nothing on the terminal to say why. */
-            fprintf(stderr, "midi out: %s\n", e.getMessage().c_str());
+            /* A device unplugged mid-piece. Said once, and the port is
+               opened again by the next attach -- a reroute, a reload. */
+            if (!dead_)
+                fprintf(stderr, "midi out: %s\n", e.getMessage().c_str());
+
+            dead_ = true;
         }
     }
 
+    bool dead (void) const override { return dead_; }
+
 private:
     RtMidiOut *out_;
+    bool       dead_ = false;
 };
 
 std::string lower (std::string s)
@@ -180,6 +185,9 @@ gthMidiOut::setDelay (int ms)
         delayUs_ = (gint64)std::max(0, ms) * 1000;
     }
 
+    /* What the thread is waiting for is due at a different time now. */
+    wake_.notify_all();
+
     if (changed_)
         changed_();
 }
@@ -257,9 +265,14 @@ gthMidiOut::routes (void) const
 int
 gthMidiOut::openPort (const std::string &name, std::string &why)
 {
+    int at = -1;
+
     for (size_t i = 0; i < portNames_.size(); i++)
         if (portNames_[i] == name)
-            return (int)i;
+            at = (int)i;
+
+    if (at >= 0 && !ports_[at]->dead())
+        return at;
 
     Port *p = opener_ ? opener_(name, why) : NULL;
 
@@ -269,6 +282,19 @@ gthMidiOut::openPort (const std::string &name, std::string &why)
             why = "port '" + name + "' would not open";
 
         return -1;
+    }
+
+    /* A dead port is replaced where it stood, so the routes and keys
+       that name its index go on naming it. What it held died with the
+       connection. */
+    if (at >= 0)
+    {
+        ports_[at].reset(p);
+
+        for (auto k = sounding_.begin(); k != sounding_.end(); )
+            k = std::get<0>(k->first) == at ? sounding_.erase(k) : ++k;
+
+        return at;
     }
 
     portNames_.push_back(name);
@@ -332,7 +358,7 @@ gthMidiOut::queue (int channel, const Route &r, gint64 when, uint8_t status,
 {
     Msg m;
 
-    m.when = when + delayUs_;
+    m.when = when;
     m.seq = seq_++;
     m.channel = channel;
     m.port = r.port;
@@ -437,34 +463,21 @@ gthMidiOut::flush (int channel)
                 heap_.end());
     std::make_heap(heap_.begin(), heap_.end(), Later());
 
-    /* ...and what it has sounding ends now. */
-    std::vector<std::pair<int, int> > where;
-
-    if (channel < 0)
-        for (const auto &r : routes_)
-            where.push_back({ r.second.port, r.second.midiChannel });
-    else
-    {
-        auto r = routes_.find(channel);
-
-        if (r != routes_.end())
-            where.push_back({ r->second.port, r->second.midiChannel });
-    }
-
+    /* ...and what it has sounding ends now: its own notes, not another
+       channel's on the same device channel. */
     for (auto k = sounding_.begin(); k != sounding_.end(); )
     {
-        const std::pair<int, int> pc(std::get<0>(*k), std::get<1>(*k));
-
-        if (std::find(where.begin(), where.end(), pc) == where.end())
+        if (channel >= 0 && k->second != channel)
         {
             ++k;
             continue;
         }
 
-        const uint8_t off[3] = { (uint8_t)(0x80 | pc.second),
-                                 (uint8_t)std::get<2>(*k), 64 };
+        const uint8_t off[3] = {
+            (uint8_t)(0x80 | std::get<1>(k->first)),
+            (uint8_t)std::get<2>(k->first), 64 };
 
-        ports_[pc.first]->send(off, 3);
+        ports_[std::get<0>(k->first)]->send(off, 3);
         k = sounding_.erase(k);
     }
 
@@ -501,7 +514,9 @@ gthMidiOut::sendNow (const Msg &m)
 
     if (status == 0x90)
     {
-        /* One voice per key: a retrigger ends the note it replaces. */
+        /* One voice per key: a retrigger ends the note it replaces,
+           whichever engine channel struck that one, and the key is this
+           channel's now. */
         if (sounding_.count(key))
         {
             const uint8_t off[3] = { (uint8_t)(0x80 | (m.bytes[0] & 0x0f)),
@@ -510,14 +525,18 @@ gthMidiOut::sendNow (const Msg &m)
             port->send(off, 3);
         }
 
-        sounding_.insert(key);
+        sounding_[key] = m.channel;
     }
     else if (status == 0x80)
     {
-        if (!sounding_.count(key))
+        /* Only the note this channel struck: an off for a key another
+           channel has since taken over would end that one. */
+        auto held = sounding_.find(key);
+
+        if (held == sounding_.end() || held->second != m.channel)
             return;
 
-        sounding_.erase(key);
+        sounding_.erase(held);
     }
 
     port->send(m.bytes, m.len);
@@ -537,7 +556,7 @@ gthMidiOut::run (void)
         }
 
         const gint64 now = g_get_monotonic_time();
-        const gint64 due = heap_.front().when;
+        const gint64 due = heap_.front().when + delayUs_;
 
         if (due > now)
         {
