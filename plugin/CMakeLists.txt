@@ -46,18 +46,26 @@ endif()
 
 get_filename_component(dsp_name "${THINK_PLUGIN_DSP}" NAME)
 
-string(REGEX MATCH "description[ \t]+\"([^\"]*)\"" _ "${dsp_text}")
-set(dsp_description "${CMAKE_MATCH_1}")
+# The description statement: at the start of a line, so not one a comment
+# mentions, and escaped for a C string.
+string(REGEX MATCH "(^|\n)[ \t]*description[ \t]+\"([^\"\n]*)\"" _
+       "${dsp_text}")
+string(REPLACE "\\" "\\\\" dsp_description "${CMAKE_MATCH_2}")
 
 # `@' and `${' in a .dsp are text, not things for file(CONFIGURE) to expand,
-# so the header is assembled here and written with file(WRITE).
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h"
+# so the header is assembled here and written with file(WRITE) -- beside
+# it, and copied over it only if it differs, so a reconfigure that changed
+# nothing recompiles nothing.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h.new"
 "/* ${dsp_name}, embedded. Written by plugin/CMakeLists.txt. */
 static const char thPluginDspName[] = \"${dsp_name}\";
 static const char thPluginDspLabel[] = \"thinksynth_juno\";
 static const char thPluginDspDescription[] = \"${dsp_description}\";
 static const char thPluginDspText[] = R\"thinksynth(${dsp_text})thinksynth\";
 ")
+
+configure_file("${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h.new"
+               "${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h" COPYONLY)
 
 dpf_add_plugin(thinksynth-juno
     TARGETS clap vst3 lv2
@@ -88,8 +96,9 @@ endif()
 
 # The formats' own validators, run on what was built: clap-validator on the
 # CLAP, pluginval on the VST3 at its strictest. Linux builds of both, fetched
-# at pinned releases, so Linux only; pluginval runs the plugin headless, as
-# every test here does under scripts/headless.sh. The one warning
+# at pinned releases, so Linux only. CMAKE_TEST_LAUNCHER -- scripts/headless.sh
+# -- reaches only a test whose command is a target this build makes, and
+# these two are fetched binaries named by path, so it goes on them by hand. The one warning
 # clap-validator gives -- state that loads from random bytes -- is DPF's
 # state reader, not this plugin.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -115,11 +124,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   endif()
 
   add_test(NAME plugin.clap-validator
-           COMMAND "${clapvalidator_bin}" validate
+           COMMAND ${CMAKE_TEST_LAUNCHER} "${clapvalidator_bin}" validate
                    "${PROJECT_BINARY_DIR}/bin/thinksynth-juno.clap")
 
   add_test(NAME plugin.pluginval
-           COMMAND "${pluginval_SOURCE_DIR}/pluginval"
+           COMMAND ${CMAKE_TEST_LAUNCHER} "${pluginval_SOURCE_DIR}/pluginval"
                    --strictness-level 10 --skip-gui-tests
                    --validate-in-process
                    --validate "${PROJECT_BINARY_DIR}/bin/thinksynth-juno.vst3")
