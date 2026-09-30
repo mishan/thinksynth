@@ -38,10 +38,10 @@
  * printed at the end (peak, RMS, clipped samples, notes delivered) is the
  * number a level question wants.
  *
- * `--midi' writes the same delivered notes as a Standard MIDI File, a
- * track per channel at the piece's tempo, for taking a piece into a DAW
- * (thcMidiFile says what it keeps and what it leaves out). Its times are
- * the scheduled ones too, not the window boundaries.
+ * `--midi' writes the same delivered events as a Standard MIDI File, a
+ * track per chain at the piece's tempo, for taking a piece into a DAW
+ * (thcMidiFile says what each event becomes). Its times are the
+ * scheduled ones too, not the window boundaries.
  *
  * The clock steps one audio window at a time -- 1024 samples, about
  * twenty-three milliseconds at the default rate -- so an event lands on the
@@ -105,7 +105,8 @@ static void usage (const char *argv0)
            "  -s, --seconds N         how long to run the transport (default 120)\n"
            "  -o, --output FILE       write the audio here, 16-bit PCM WAV\n"
            "  -t, --tape FILE         write the delivered events here (- for stdout)\n"
-           "      --midi FILE         write the delivered notes here, as a MIDI file\n"
+           "      --midi FILE         write the delivered events here, as a MIDI file\n"
+           "      --midi-fine         14-bit controllers for chanargs in the MIDI file\n"
            "      --levels            peak and RMS by instrument channel\n"
            "      --sections          mix RMS by arrangement section\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
@@ -286,7 +287,7 @@ int main (int argc, char **argv)
 
     std::string pluginPath = PLUGIN_PATH;
     std::string genFile, wavFile, tapeFile, midiFile;
-    bool mono = false;
+    bool mono = false, midiFine = false;
     double seconds = 120;
     bool quiet = false;
     bool levels = false, sections = false;
@@ -318,6 +319,8 @@ int main (int argc, char **argv)
             if (++i >= argc) { usage(argv[0]); return 2; }
             midiFile = argv[i];
         }
+        else if (!strcmp(argv[i], "--midi-fine"))
+            midiFine = true;
         else if (!strcmp(argv[i], "-m") || !strcmp(argv[i], "--mono"))
             mono = true;
         else if (!strcmp(argv[i], "--levels"))
@@ -346,7 +349,8 @@ int main (int argc, char **argv)
         return 2;
     }
 
-    if (wavFile.empty() && tapeFile.empty() && midiFile.empty() && quiet && !levels && !sections)
+    if (wavFile.empty() && tapeFile.empty() && midiFile.empty() && quiet &&
+        !levels && !sections)
     {
         fprintf(stderr, "%s: nothing to write and nothing to say\n", argv[0]);
         return 2;
@@ -416,6 +420,23 @@ int main (int argc, char **argv)
     thcMidiFile midi(sched.tempo(), sched.meter());
 
     midi.setName(std::filesystem::path(genFile).stem().string());
+    midi.setFineControllers(midiFine);
+    midi.setRangeLookup(
+        [&synth](int channel, const std::string &name, double &min,
+                 double &max)
+        {
+            const thArg *arg = synth.getChanArg(channel, name);
+
+            if (arg == NULL)
+                return false;
+
+            min = arg->min();
+            max = arg->max();
+            return true;
+        });
+
+    for (size_t c = 0; c < sched.chainCount(); c++)
+        midi.setChainName((int)c, sched.chain(c)->name);
 
     for (int ch = 0; ch < synth.midiChanCount(); ch++)
     {
@@ -446,7 +467,7 @@ int main (int argc, char **argv)
             if (tape != NULL)
                 writeEvent(tape, ev);
 
-            midi.add(ev);
+            midi.add(ev, sched.deliveringChain());
         });
 
     const int channels = synth.audioChannelCount();
@@ -606,7 +627,8 @@ int main (int argc, char **argv)
     }
 
     if (!midiFile.empty() && !quiet && midi.skipped() > 0)
-        fprintf(stderr, "%s: %zu events that are not notes left out of %s\n",
+        fprintf(stderr, "%s: %zu events with no MIDI spelling left out of "
+                "%s\n",
                 genFile.c_str(), midi.skipped(), midiFile.c_str());
 
     /* Voices thMidiChan::mixNote dropped for going non-finite. Unreported,

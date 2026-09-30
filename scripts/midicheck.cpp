@@ -21,7 +21,9 @@
  * rather than a byte offset: the header, the conductor track, the length
  * of a note, and the cases MIDI cannot say as the engine played them -- a
  * retrigger before the off, two chains doubling a hit, a held note, a note
- * still sounding when the transport stopped.
+ * still sounding when the transport stopped -- and what the rest of a
+ * piece becomes: a track per chain, a level as expression, a chanarg as a
+ * labeled controller, a swap or an edit as text.
  */
 
 #include <stdio.h>
@@ -145,7 +147,8 @@ static Smf parse (const std::vector<uint8_t> &b)
                 at += len;
                 eot = type == 0x2f;
             }
-            else if ((b[at] & 0xe0) == 0x80)       /* 8n, 9n: three bytes */
+            else if ((b[at] & 0xf0) == 0x80 || (b[at] & 0xf0) == 0x90 ||
+                     (b[at] & 0xf0) == 0xb0)      /* 8n, 9n, Bn: three bytes */
             {
                 if (at + 3 > end)
                     return smf;
@@ -208,6 +211,48 @@ static std::string metaText (const std::vector<Event> &track, uint8_t type,
             return std::string(e.data.begin() + 2, e.data.end());
 
     return "<none>";
+}
+
+/* The controller changes on one track, as (tick, number, value). */
+struct Change
+{
+    uint32_t tick;
+    int number, value;
+};
+
+static std::vector<Change> changes (const std::vector<Event> &track)
+{
+    std::vector<Change> out;
+
+    for (const Event &e : track)
+        if ((e.data[0] & 0xf0) == 0xb0)
+            out.push_back({ e.tick, e.data[1], e.data[2] });
+
+    return out;
+}
+
+static std::string showChanges (const std::vector<Change> &v)
+{
+    std::string s;
+
+    for (const Change &c : v)
+        s += "[" + std::to_string(c.tick) + " cc" + std::to_string(c.number) +
+             "=" + std::to_string(c.value) + "]";
+
+    return s;
+}
+
+static thcEvent chanarg (double at, int channel, const char *name,
+                         float value)
+{
+    thcEvent ev = {};
+
+    ev.type = THC_EV_CHANARG;
+    ev.at = at;
+    ev.channel = channel;
+    ev.u.chanarg.name = name;
+    ev.u.chanarg.value = value;
+    return ev;
 }
 
 static thcEvent note (double at, int channel, int key, int velocity,
@@ -385,7 +430,7 @@ int main (void)
                   "and so does one still sounding", show(h[2]));
         }
 
-        check(f.skipped() == 2, "channel 16 and a chanarg are skipped",
+        check(f.skipped() == 1, "a note on channel 17 is skipped",
               std::to_string(f.skipped()));
     }
 
@@ -435,6 +480,210 @@ int main (void)
         check(h.size() == 1 && h[0].off == 2880000,
               "a fifty-minute note survives its delta",
               h.empty() ? "" : show(h[0]));
+    }
+
+    {
+        /* Two chains on one channel are two tracks, named for them, and a
+           doubled hit between them is two notes. */
+        thcMidiFile f(120);
+
+        f.setChainName(0, "hats");
+        f.setChainName(1, "hats_open");
+        f.add(note(0, 2, 54, 100, 0.25), 1);
+        f.add(note(0, 2, 54, 100, 0.05), 0);
+        f.end(1);
+
+        const Smf s = parse(f.bytes());
+
+        check(s.ok && s.tracks.size() == 3 &&
+              metaText(s.tracks[1], 0x03) == "hats" &&
+              metaText(s.tracks[2], 0x03) == "hats_open",
+              "a track per chain, in chain order");
+        check(s.tracks.size() == 3 && heard(s.tracks[1]).size() == 1 &&
+              heard(s.tracks[2]).size() == 1 &&
+              heard(s.tracks[1])[0].off == 48 &&
+              heard(s.tracks[2])[0].off == 240,
+              "a hit two chains double is a note in each");
+    }
+
+    {
+        /* Level as expression: 100 at the start, a change only where the
+           level moves, and nothing at all for a track at level 1. */
+        thcMidiFile f(120);
+
+        thcEvent a = note(0.5, 0, 60, 100, 0.25);
+        thcEvent b = note(1, 0, 62, 100, 0.25);
+        thcEvent c = note(1.5, 0, 64, 100, 0.25);
+        thcEvent d = note(2, 0, 65, 100, 0.25);
+
+        a.u.note.level = 0.7f;
+        b.u.note.level = 0.7f;
+        c.u.note.level = 1.15f;
+        d.u.note.level = 0;                   /* read as 1 */
+
+        f.add(a, 0);
+        f.add(b, 0);
+        f.add(c, 0);
+        f.add(d, 0);
+        f.add(note(0, 1, 36, 100, 0.25), 1);
+        f.end(3);
+
+        const Smf s = parse(f.bytes());
+        const std::vector<Change> e =
+            s.tracks.size() == 3 ? changes(s.tracks[1]) : std::vector<Change>();
+
+        check(e.size() == 4 &&
+              e[0].tick == 0   && e[0].number == 11 && e[0].value == 100 &&
+              e[1].tick == 480 && e[1].value == 70 &&
+              e[2].tick == 1440 && e[2].value == 115 &&
+              e[3].tick == 1920 && e[3].value == 100,
+              "level is CC 11, sent where it changes", showChanges(e));
+        check(s.tracks.size() == 3 && changes(s.tracks[2]).empty(),
+              "a track at level 1 sends none");
+
+        /* The controller goes ahead of the note it is for. */
+        bool before = false;
+
+        if (s.tracks.size() == 3)
+            for (size_t i = 0; i + 1 < s.tracks[1].size(); i++)
+                if (s.tracks[1][i].tick == 480)
+                {
+                    before = (s.tracks[1][i].data[0] & 0xf0) == 0xb0;
+                    break;
+                }
+
+        check(before, "expression goes before the note-on");
+    }
+
+    {
+        /* Chanargs: a CC each, in order of appearance, scaled through
+           the declared range where there is one and the values played
+           where there is not, a label for each, a repeat left out, and
+           every track playing the channel carrying them. */
+        thcMidiFile f(120);
+
+        f.setRangeLookup([](int, const std::string &name, double &min,
+                            double &max)
+                         {
+                             if (name != "cutoff")
+                                 return false;
+                             min = 100;
+                             max = 1100;
+                             return true;
+                         });
+        f.add(note(0, 3, 60, 100, 2), 0);
+        f.add(note(0, 3, 67, 100, 2), 1);
+        f.add(chanarg(0, 3, "cutoff", 600), 5);
+        f.add(chanarg(0.5, 3, "drive", 2), 5);
+        f.add(chanarg(1, 3, "cutoff", 600.001f), 5);  /* the same CC */
+        f.add(chanarg(1, 3, "drive", 4), 5);
+        f.add(chanarg(1.5, 3, "cutoff", 5000), 5);    /* past the max */
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+
+        check(s.ok && s.tracks.size() == 3,
+              "chanargs make no track where notes play the channel",
+              std::to_string(s.tracks.size()) + " tracks");
+
+        if (s.tracks.size() == 3)
+        {
+            const std::vector<Change> c = changes(s.tracks[1]);
+
+            check(c.size() == 4 &&
+                  c[0].tick == 0    && c[0].number == 20 && c[0].value == 64 &&
+                  c[1].tick == 480  && c[1].number == 21 && c[1].value == 0 &&
+                  c[2].tick == 960  && c[2].number == 21 && c[2].value == 127 &&
+                  c[3].tick == 1440 && c[3].number == 20 && c[3].value == 127,
+                  "scaled, numbered, repeats dropped", showChanges(c));
+            check(metaText(s.tracks[1], 0x01, 0) == "CC 20 = cutoff (100..1100)"
+                  && metaText(s.tracks[1], 0x01, 1) ==
+                     "CC 21 = drive (2..4, as played)",
+                  "a label per controller",
+                  metaText(s.tracks[1], 0x01, 0) + " / " +
+                  metaText(s.tracks[1], 0x01, 1));
+            check(showChanges(changes(s.tracks[2])) == showChanges(c),
+                  "every track on the channel carries them");
+        }
+    }
+
+    {
+        /* Controls for a channel no track plays get a track of their own;
+           fine controllers are MSB and LSB pairs; a channel runs out of
+           numbers after twelve of them. */
+        thcMidiFile f(120);
+        std::vector<std::string> names;
+
+        for (int i = 0; i < 13; i++)
+            names.push_back("k" + std::to_string(i));
+
+        f.setFineControllers(true);
+        f.setChannelName(5, "pad");
+        f.setRangeLookup([](int, const std::string &, double &min,
+                            double &max)
+                         { min = 0; max = 1; return true; });
+
+        for (int i = 0; i < 13; i++)
+            f.add(chanarg(0, 5, names[i].c_str(), 0.5f), 2);
+
+        const Smf s = parse(f.bytes());
+
+        check(s.ok && s.tracks.size() == 2 &&
+              metaText(s.tracks[1], 0x03) == "pad controls",
+              "a channel with no notes gets a controls track");
+
+        const std::vector<Change> c =
+            s.tracks.size() == 2 ? changes(s.tracks[1]) : std::vector<Change>();
+
+        check(c.size() == 24 && c[0].number == 20 && c[0].value == 64 &&
+              c[1].number == 52 && c[1].value == 0 &&
+              c[22].number == 31 && c[23].number == 63,
+              "fine: 8192 as 64 and 0, on 20-31 and 52-63",
+              c.size() >= 2 ? showChanges({ c[0], c[1] }) : "");
+        check(f.skipped() == 1, "the thirteenth has no controller left",
+              std::to_string(f.skipped()));
+        check(s.tracks.size() == 2 &&
+              metaText(s.tracks[1], 0x01, 0) == "CC 20/52 = k0 (0..1)",
+              "a fine label names both numbers");
+    }
+
+    {
+        thcMidiFile f(120);
+        thcEvent swap = {}, edit = {};
+
+        swap.type = THC_EV_PATCH;
+        swap.at = 1;
+        swap.channel = 0;
+        swap.u.patch.name = "pad2";
+
+        edit.type = THC_EV_NODEARG;
+        edit.at = 1.5;
+        edit.channel = 0;
+        edit.u.nodearg.node = "filt";
+        edit.u.nodearg.arg = "cutoff";
+        edit.u.nodearg.value = 440;
+
+        f.add(note(0, 0, 60, 100, 2), 0);
+        f.add(swap, 0);
+        f.add(edit, 0);
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+        bool swapAt = false, editAt = false;
+
+        if (s.tracks.size() == 2)
+            for (const Event &e : s.tracks[1])
+                if (e.data[0] == 0xff && e.data[1] == 0x01)
+                {
+                    const std::string t(e.data.begin() + 2, e.data.end());
+
+                    swapAt = swapAt || (t == "swap: pad2" && e.tick == 960);
+                    editAt = editAt ||
+                             (t == "edit: filt.cutoff = 440" && e.tick == 1440);
+                }
+
+        check(swapAt && editAt, "a swap and an edit are text where they land");
+        check(f.skipped() == 0, "and neither is skipped");
     }
 
     printf("\n%s\n", failures ? "midicheck FAILED" : "midicheck ok");
