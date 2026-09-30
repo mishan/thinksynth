@@ -22,12 +22,15 @@ include(FetchContent)
 # a known latency of 0, so a plugin whose latency is a constant it set in
 # its constructor is reported to the host as having changed it -- at the
 # first deactivate or state load, which CLAP forbids outside activate and
-# clap-validator fails. The patch starts it from the plugin's own.
+# clap-validator fails. The patch starts it from the plugin's own, and
+# ApplyPatch.cmake applies it once however often FetchContent asks.
 FetchContent_Declare(dpf
     GIT_REPOSITORY https://github.com/DISTRHO/DPF.git
     GIT_TAG        4238e1c7f0351bbe488d79f0899c540543ac7583
     GIT_SUBMODULES ""
-    PATCH_COMMAND  git apply "${CMAKE_CURRENT_SOURCE_DIR}/dpf-clap-latency.patch")
+    PATCH_COMMAND  "${CMAKE_COMMAND}"
+                   "-DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/dpf-clap-latency.patch"
+                   -P "${CMAKE_CURRENT_SOURCE_DIR}/ApplyPatch.cmake")
 
 FetchContent_MakeAvailable(dpf)
 
