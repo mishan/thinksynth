@@ -281,6 +281,9 @@ struct InstrumentIdx
     std::string dsp;
     size_t dspA, dspB;           /* the quoted file name, 0 when none  */
 
+    std::string midi;            /* `midi "port";', or empty           */
+    int midiChannel = -1;        /* 1-16 as written, -1 when none      */
+
     std::vector<PIdx> values;
 
     /* `fx.mix' -> `@w ms', for every value inside the `effect' block that
@@ -746,6 +749,59 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     in.dspA = t[j + 1].off;
                     in.dspB = t[j + 1].end;
                     j += 3;
+                    continue;
+                }
+
+                /* The MIDI statements: recorded, for a panel to say where
+                   the instrument plays, and stepped over rather than left
+                   to scanParam -- `midi "x";' and a `cc' block are shapes
+                   it refuses, and a refusal drops the whole block out of
+                   the index. Not edited from here. */
+                if (t[j].kind == Tok::WORD && t[j].text == "midi" &&
+                    t[j + 1].kind == Tok::STRING && isPunct(t[j + 2], ';'))
+                {
+                    in.midi = t[j + 1].text;
+                    j += 3;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD &&
+                    (t[j].text == "midichannel" ||
+                     t[j].text == "midiprogram") &&
+                    isPunct(t[j + 1], '=') && t[j + 2].kind == Tok::NUMBER &&
+                    isPunct(t[j + 3], ';'))
+                {
+                    if (t[j].text == "midichannel")
+                        in.midiChannel = (int)t[j + 2].num;
+
+                    j += 4;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD && t[j].text == "cc" &&
+                    t[j + 1].kind == Tok::WORD)
+                {
+                    size_t k = j + 2;
+                    int depth = 0;
+
+                    while (t[k].kind != Tok::END &&
+                           !(depth == 0 && isPunct(t[k], ';')))
+                    {
+                        if (isPunct(t[k], '{'))
+                            depth++;
+                        else if (isPunct(t[k], '}'))
+                            depth--;
+
+                        k++;
+                    }
+
+                    if (t[k].kind == Tok::END)
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    j = k + 1;
                     continue;
                 }
 
@@ -1416,6 +1472,8 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
 
         in.name = ix.instruments[i].name;
         in.dsp = ix.instruments[i].dsp;
+        in.midi = ix.instruments[i].midi;
+        in.midiChannel = ix.instruments[i].midiChannel;
 
         for (size_t k = 0; k < ix.instruments[i].values.size(); k++)
         {

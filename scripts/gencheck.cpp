@@ -8090,6 +8090,327 @@ checkRetriggerAudio (const std::map<std::string, thcPlugin *> &plugins,
              buf + ")");
 }
 
+/* ---- instruments played over MIDI ------------------------------------- */
+
+/* A thcMidiOut that records what the scheduler hands it, and answers
+ * attach() as told. */
+struct FakeMidiOut : public thcMidiOut
+{
+    struct Call
+    {
+        std::string what;       /* on, off, cc, attach, detach, flush     */
+        int channel, note, velocity;
+        std::string name;
+        double value;
+        gint64 when;
+    };
+
+    bool answer = true;
+    std::vector<Call> calls;
+    thcInstrument attached;
+
+    bool attach (int channel, const thcInstrument &inst,
+                 std::string &why) override
+    {
+        calls.push_back({ "attach", channel, 0, 0, inst.name, 0, 0 });
+        attached = inst;
+
+        if (!answer)
+            why = "no port matches '" + inst.midi + "'";
+
+        return answer;
+    }
+
+    void detach (int channel) override
+    {
+        calls.push_back({ "detach", channel, 0, 0, "", 0, 0 });
+    }
+
+    void noteOn (int channel, int note, int velocity, float level,
+                 gint64 when) override
+    {
+        calls.push_back({ "on", channel, note, velocity, "", level, when });
+    }
+
+    void noteOff (int channel, int note, gint64 when) override
+    {
+        calls.push_back({ "off", channel, note, 0, "", 0, when });
+    }
+
+    void control (int channel, const std::string &name, double value,
+                  gint64 when) override
+    {
+        calls.push_back({ "cc", channel, 0, 0, name, value, when });
+    }
+
+    void flush (int channel) override
+    {
+        calls.push_back({ "flush", channel, 0, 0, "", 0, 0 });
+    }
+
+    size_t count (const std::string &what) const
+    {
+        size_t n = 0;
+
+        for (const Call &c : calls)
+            if (c.what == what)
+                n++;
+
+        return n;
+    }
+};
+
+/* `midi "port"; midichannel = N;': the parse, the refusals, and the
+ * route -- notes, their offs and the chanargs a `cc' maps go to the
+ * host's thcMidiOut, stamped on the clock the step was given, and
+ * nothing reaches the synth; where no port answers the dsp plays, or
+ * nothing does. */
+static void
+checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth)
+{
+    expectReject(plugins, synth, "midi-no-channel",
+        "instrument ext { midi \"Fake\"; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "names a midi port and no midichannel");
+
+    expectReject(plugins, synth, "midi-channel-range",
+        "instrument ext { midi \"Fake\"; midichannel = 17; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "midichannel wants a whole number 1-16");
+
+    expectReject(plugins, synth, "midi-details-no-port",
+        "instrument pad { dsp \"organ0.dsp\"; midichannel = 2; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = pad; }; };",
+        "sets MIDI details but names no midi port");
+
+    expectReject(plugins, synth, "midi-cc-mode",
+        "instrument ext { midi \"Fake\"; midichannel = 1; cc x = 123; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "cc wants a whole number 0-119");
+
+    expectReject(plugins, synth, "midi-cc-twice",
+        "instrument ext { midi \"Fake\"; midichannel = 1; cc x = 20;"
+        " cc x = 21; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "maps 'x' twice");
+
+    expectReject(plugins, synth, "midi-cc-range",
+        "instrument ext { midi \"Fake\"; midichannel = 1;"
+        " cc x = 20 { min = 5; max = 5; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "wants a max above its min");
+
+    expectReject(plugins, synth, "midi-sink-unmapped",
+        "instrument ext { midi \"Fake\"; midichannel = 1; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = ext; chanarg = \"cutoff\"; }; };",
+        "maps no cc called 'cutoff'");
+
+    expectReject(plugins, synth, "midi-args-no-dsp",
+        "instrument ext { midi \"Fake\"; midichannel = 1; amp = 20; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "has no dsp to set it on");
+
+    const std::string body =
+        "tempo 60;\n"
+        "instrument ext {\n"
+        "    midi \"Fake\"; midichannel = 3; midiprogram = 5;\n"
+        "    cc cutoff = 74 { min = 100; max = 1100; };\n"
+        "    DSP\n"
+        "};\n"
+        "chain notes {\n"
+        "    stage g gen::grid { notes = \"C4\"; steps = 1; rows = 1;\n"
+        "        cells = \"x\"; period = 1 beats; hold = 0.5 beats; };\n"
+        "    sink { instrument = ext; };\n"
+        "};\n"
+        "chain sweep {\n"
+        "    stage s gen::steps { values = \"0 1\"; period = 1 beats;\n"
+        "        min = 100; max = 600; };\n"
+        "    sink { instrument = ext; chanarg = \"cutoff\"; };\n"
+        "};\n";
+
+    /* Loads `text' with `out' as the host's output, steps it `seconds'
+       on a clock of whole microseconds from `base', and stops. */
+    const gint64 base = 1000000000;
+
+    auto play = [&](const std::string &text, thcMidiOut *out,
+                    double seconds, thcScheduler &sched) -> bool
+    {
+        const std::string path = thUtil::tempFile("gencheck-midiout-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << text;
+        }
+
+        clearChannels(synth);
+        sched.setMidiOut(out);
+        sched.setAuditionSynchronous(true);
+
+        thcGenLoader loader(plugins);
+        const bool ok = loader.load(path, &sched);
+
+        std::filesystem::remove(path);
+
+        if (!ok)
+        {
+            for (size_t k = 0; k < loader.errors().size(); k++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+            return false;
+        }
+
+        sched.start();
+
+        for (int step = 1; step * 0.02 <= seconds + 1e-9; step++)
+            sched.stepTransportAt(0.02, base + (gint64)step * 20000);
+
+        sched.stop();
+        drainSynth();
+        return true;
+    };
+
+    auto withDsp = [&](const std::string &dsp)
+    {
+        std::string b = body;
+
+        b.replace(b.find("DSP"), 3, dsp);
+        return b;
+    };
+
+    /* Played on the device. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        if (!play(withDsp(""), &out, 2.1, sched))
+            fail("the MIDI piece did not load");
+        else
+        {
+            const int ch = sched.instruments()[0].channel;
+
+            if (out.count("attach") != 1 || out.attached.midi != "Fake" ||
+                out.attached.midiChannel != 2 ||
+                out.attached.midiProgram != 4 ||
+                out.attached.ccs.size() != 1 ||
+                out.attached.ccs[0].cc != 74 ||
+                out.attached.ccs[0].min != 100 ||
+                out.attached.ccs[0].max != 1100)
+                fail("the MIDI instrument was not attached as declared");
+
+            if (!sched.playsOverMidi(ch) || !sched.midiWhy(ch).empty())
+                fail("an attached instrument is not reported as played "
+                     "over MIDI");
+
+            if (synth->getChannel(ch) != NULL)
+                fail("an instrument played over MIDI loaded a graph too");
+
+            /* Notes at 0, 1, 2 s, each 0.5 s long; stamps on the step's
+               clock, whatever step delivered them. */
+            std::vector<gint64> ons, offs;
+
+            for (const FakeMidiOut::Call &c : out.calls)
+                if (c.what == "on" && c.channel == ch && c.note == 60)
+                    ons.push_back(c.when);
+                else if (c.what == "off" && c.channel == ch && c.note == 60)
+                    offs.push_back(c.when);
+
+            bool stamped = ons.size() == 3 && offs.size() >= 2;
+
+            for (size_t i = 0; stamped && i < 2; i++)
+                stamped = ons[i] == base + (gint64)i * 1000000 &&
+                          offs[i] == ons[i] + 500000;
+
+            if (!stamped)
+            {
+                std::string got;
+
+                for (gint64 w : ons)
+                    got += " on " + std::to_string(w - base);
+                for (gint64 w : offs)
+                    got += " off " + std::to_string(w - base);
+
+                fail("notes to a device were not stamped at their times:" +
+                     got);
+            }
+
+            size_t ccs = 0;
+
+            for (const FakeMidiOut::Call &c : out.calls)
+                if (c.what == "cc")
+                {
+                    ccs++;
+
+                    if (c.channel != ch || c.name != "cutoff" ||
+                        (c.value != 100 && c.value != 600))
+                        fail("a chanarg to a device arrived as " + c.name +
+                             " = " + std::to_string(c.value));
+                }
+
+            if (ccs < 2)
+                fail("the chanargs did not reach the device");
+
+            if (out.calls.empty() || out.calls.back().what != "flush" ||
+                out.calls.back().channel != ch)
+                fail("stopping did not flush the device");
+
+            std::string why;
+
+            if (sched.swapInstrument(ch, "ext", why) ||
+                why.find("does not swap") == std::string::npos)
+                fail("a swap onto a MIDI channel was not refused: " + why);
+
+            sched.clearChains();
+
+            if (out.calls.back().what != "detach" || sched.playsOverMidi(ch))
+                fail("the route did not go with the piece");
+        }
+    }
+
+    /* No port: the dsp plays, and the reason is kept. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        out.answer = false;
+
+        if (!play(withDsp("dsp \"organ0.dsp\";"), &out, 1.1, sched))
+            fail("the MIDI piece with a dsp did not load");
+        else
+        {
+            const int ch = sched.instruments()[0].channel;
+
+            if (sched.playsOverMidi(ch) || synth->getChannel(ch) == NULL ||
+                sched.midiWhy(ch).find("no port matches") == std::string::npos)
+                fail("with no port, the dsp did not play in its place");
+
+            if (out.count("on") != 0 || out.count("cc") != 0)
+                fail("with no port, notes still went to the device");
+        }
+    }
+
+    /* No port and no dsp: loads, and is silent. No output at all. */
+    {
+        thcScheduler sched(synth);
+
+        if (!play(withDsp(""), NULL, 1.1, sched))
+            fail("a MIDI-only piece did not load without a MIDI output");
+        else
+        {
+            const int ch = sched.instruments()[0].channel;
+
+            if (synth->getChannel(ch) != NULL ||
+                sched.midiWhy(ch) != "no MIDI output in this host")
+                fail("a MIDI-only instrument with no output was not left "
+                     "silent with its reason: " + sched.midiWhy(ch));
+        }
+    }
+
+    clearChannels(synth);
+}
+
 static void
 checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
                 thSynth *synth)
@@ -12151,6 +12472,7 @@ main (int argc, char *argv[])
     checkHarmonyKit(plugins, &synth);
     checkVoiceLeading(plugins, &synth);
     checkHeldNotes(plugins, &synth);
+    checkMidiOut(plugins, &synth);
     checkRetriggerAudio(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);

@@ -281,6 +281,20 @@ struct thcInstrumentArg
     std::string knob;
 };
 
+/* `cc cutoff = 74 { min = 60; max = 12000; };' in an instrument played
+ * over MIDI: what the chanarg `cutoff' becomes on the device. A value is
+ * scaled from [min, max] onto 0..127 and clamped; the default range is
+ * 0..127, so a chain that already speaks in controller values is sent
+ * as it is. */
+struct thcMidiCC
+{
+    std::string name;
+    int         cc;
+    double      min, max;
+
+    thcMidiCC (void) : cc(0), min(0), max(127) {}
+};
+
 /* An instrument the piece carries: a DSP graph named by file, the
  * chanarg values that make it this instrument rather than that graph's
  * defaults, and the channel it was given.
@@ -325,9 +339,62 @@ struct thcInstrument
        that writes a chanarg reaches either map. */
     std::vector<thcInstrumentArg> args;
 
+    /* `midi "Surge XT"; midichannel = 3;' -- played on a device rather
+     * than a graph: the port a host matches by name, and the device's
+     * channel, 0-15 here and 1-16 in the file. Empty where the instrument
+     * is a graph only. The channel above is still allocated, because the
+     * sinks and the scheduler address instruments by it; it is what the
+     * host's thcMidiOut routes. `dsp' is optional beside `midi', and is
+     * what plays where no port answers -- a host without MIDI, a machine
+     * without the device. */
+    std::string midi;
+    int midiChannel;            /* 0-15; -1 where `midi' is empty         */
+    int midiProgram;            /* 0-127 sent on apply; -1 none           */
+    std::vector<thcMidiCC> ccs;
+
     int channel;                /* 0-15, engine numbering; -1 unallocated */
 
-    thcInstrument (void) : sideChannel(-1), channel(-1) {}
+    thcInstrument (void)
+        : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}
+};
+
+/* Where the notes of an instrument played over MIDI go. The scheduler is
+ * toolkit-free and knows no port; a host that can send MIDI implements
+ * this and hands it to setMidiOut, and every instrument that names `midi'
+ * is offered to it on apply. Without one -- a harness, genwav, the
+ * browser -- such an instrument plays its `dsp', or nothing.
+ *
+ * Times are g_get_monotonic_time() microseconds at which the event is
+ * due: the scheduler delivers on a 20 ms timer, so an event arrives up to
+ * a step after its time, and the stamp is what lets an implementation
+ * send it on a steady clock anyway (see gthMidiOut). A time already
+ * passed means "now". Called on the thread the scheduler runs on. */
+class thcMidiOut
+{
+public:
+    virtual ~thcMidiOut (void) {}
+
+    /* Engine channel `channel' now plays `inst' on a device. False, with
+       `why', where no port answers for it, and the scheduler falls back
+       to the instrument's dsp. */
+    virtual bool attach (int channel, const thcInstrument &inst,
+                         std::string &why) = 0;
+
+    /* The channel is a graph again, or nothing: what is sounding on the
+       device stops now. */
+    virtual void detach (int channel) = 0;
+
+    virtual void noteOn (int channel, int note, int velocity, float level,
+                         gint64 when) = 0;
+    virtual void noteOff (int channel, int note, gint64 when) = 0;
+
+    /* A chanarg. One the instrument maps with no `cc' is dropped. */
+    virtual void control (int channel, const std::string &name,
+                          double value, gint64 when) = 0;
+
+    /* Stop: whatever is queued for the channel is dropped and every note
+       sounding on it is ended now. -1 is every channel. */
+    virtual void flush (int channel) = 0;
 };
 
 /* A note a chain was heard to play, or a stage let out: what freezing a
@@ -717,6 +784,26 @@ public:
     typedef std::function<bool (int channel)> ChannelTaken;
 
     void setChannelTaken (const ChannelTaken &fn) { taken_ = fn; }
+
+    /* The host's MIDI output, or NULL; see thcMidiOut. Set before a piece
+       is loaded: an instrument is offered to it when it is applied. */
+    void setMidiOut (thcMidiOut *out) { midiOut_ = out; }
+
+    /* Whether engine channel `channel' is being played on a device. */
+    bool playsOverMidi (int channel) const
+    {
+        return channel >= 0 && channel < 16 && overMidi_[channel];
+    }
+
+    /* Why an instrument that names `midi' is not being played on a
+       device -- no port matched, no MIDI in this host -- or empty where
+       it is, or never asked to be. */
+    const std::string &midiWhy (int channel) const
+    {
+        static const std::string none;
+
+        return channel >= 0 && channel < 16 ? midiWhy_[channel] : none;
+    }
     bool channelTaken (int channel) const
     {
         return taken_ ? taken_(channel) : false;
@@ -914,6 +1001,12 @@ public:
        In the app the timer owns time and nothing calls this. */
     void stepTransport (double dt);
 
+    /* stepTransport, with `mono' the g_get_monotonic_time() the step
+       lands on: what timerCallback does, and what stamps the events a
+       thcMidiOut is handed. A harness passes a clock of its own to read
+       the stamps back. */
+    void stepTransportAt (double dt, gint64 mono);
+
     /* The same step, to an absolute transport time rather than by a
        length. A host that knows where the transport should be -- the
        browser's, which counts frames from an origin -- says so, instead
@@ -1026,7 +1119,8 @@ private:
 
     /* deliver(), saying which chain the event came from while it does. */
     void deliverFrom (const thcEvent &ev, int chain);
-    void releaseHeld (int channel, int note);
+    void releaseHeld (int channel, int note, double at);
+    void endNote (int channel, int note, double at);
     void flushHeld (void);
     /* The body of a step, once the clock has been moved: the stages, the
        nodes, the deliveries and the offs, in that order. */
@@ -1145,6 +1239,15 @@ private:
     InstrumentUnloader         unloadDsp_;
     EffectLoader               loadEffect_;
     ChannelTaken               taken_;
+
+    thcMidiOut                *midiOut_ = NULL;
+    bool                       overMidi_[16] = {};
+    std::string                midiWhy_[16];
+
+    /* The wall-clock moment transportNow_ is, for stamping what goes to
+       midiOut_: set by timerCallback before it steps. */
+    gint64 stampAt (double at) const;
+    gint64                     stepMono_ = 0;
 
     /* Instruments whose channel would not go. Deliberately NOT cleared
        by clearChains: they do not belong to the piece any more -- the
