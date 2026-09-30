@@ -67,6 +67,14 @@ Level 30 is where the desktop's patch selector puts a patch, and leaves
 room for chords; a single note peaks near -28 dBFS. Turn it up for a lone
 line.
 
+## Saving
+
+A host saves the plugin's state in its project, and DPF writes it as each
+parameter's symbol -- the `.dsp`'s name for the control, `cutoff` -- and
+its value, in the C locale. So a saved project survives the controls being
+reordered, which automation does not; a control that is gone is skipped
+and a new one keeps its default.
+
 ## Timing
 
 The engine renders windows of 64 frames and applies an event only at a
@@ -94,7 +102,7 @@ With `THINK_BUILD_PLUGIN=ON`, ctest adds:
 
 | Test | Checks |
 |---|---|
-| `plugincheck` | a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; and the parameter list |
+| `plugincheck` | a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; the parameter list; and a project's round trip, state saved from one instance and loaded into a fresh one |
 | `plugin.clap-validator` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
 | `plugin.pluginval` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10 |
 

@@ -38,6 +38,11 @@
  * list itself: the .dsp's controls in its order, its labels and ranges,
  * ms as ms, and the level last.
  *
+ * And a project's round trip: controls set on one instance, its state
+ * saved, loaded into a fresh instance, and the values and the sound have
+ * to come back -- which is what a DAW does between saving a project and
+ * opening it again.
+ *
  * Headless and silent: nothing here opens a device. Exit status is the
  * number of failures.
  */
@@ -55,6 +60,7 @@
 #include "clap/events.h"
 #include "clap/ext/latency.h"
 #include "clap/ext/params.h"
+#include "clap/ext/state.h"
 #include "clap/host.h"
 #include "clap/plugin-factory.h"
 #include "clap/plugin.h"
@@ -216,13 +222,122 @@ struct Rendered
     std::vector<float> left, right;
 };
 
+/* ---- state ------------------------------------------------------------ */
+
+typedef std::vector<uint8_t> Blob;
+
+static int64_t blobWrite (const clap_ostream_t *s, const void *data,
+                          uint64_t size)
+{
+    Blob *b = (Blob *)s->ctx;
+    const uint8_t *p = (const uint8_t *)data;
+
+    b->insert(b->end(), p, p + size);
+
+    return (int64_t)size;
+}
+
+struct Reader
+{
+    const Blob *blob;
+    size_t pos;
+};
+
+static int64_t blobRead (const clap_istream_t *s, void *data, uint64_t size)
+{
+    Reader *r = (Reader *)s->ctx;
+    const uint64_t left = r->blob->size() - r->pos;
+    const uint64_t n = size < left ? size : left;
+
+    memcpy(data, r->blob->data() + r->pos, n);
+    r->pos += n;
+
+    return (int64_t)n;
+}
+
+/* Values set out of process, as a host's own controls or a preset do. */
+struct Setting
+{
+    clap_id id;
+    double value;
+};
+
+/* How an instance starts: from settings, from a saved state, or neither;
+   and whether to save its state once they are in. */
+struct Start
+{
+    std::vector<Setting> settings;
+    const Blob *load;
+    Blob *save;
+
+    Start (void) : load(NULL), save(NULL) { }
+};
+
+static void setOutOfProcess (const clap_plugin_t *plugin,
+                             const std::vector<Setting> &settings)
+{
+    const clap_plugin_params_t *params = (const clap_plugin_params_t *)
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS);
+    Events events;
+
+    for (size_t i = 0; i < settings.size(); i++)
+    {
+        clap_event_param_value_t e;
+
+        memset(&e, 0, sizeof(e));
+        e.header.size = sizeof(e);
+        e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        e.header.type = CLAP_EVENT_PARAM_VALUE;
+        e.param_id = settings[i].id;
+        e.note_id = -1;
+        e.port_index = -1;
+        e.channel = -1;
+        e.key = -1;
+        e.value = settings[i].value;
+        events.params.push_back(e);
+    }
+
+    events.index();
+
+    clap_input_events_t in = { &events, eventsSize, eventsGet };
+    clap_output_events_t out = { NULL, eventsPush };
+
+    params->flush(plugin, &in, &out);
+}
+
 static bool viaPlugin (const clap_plugin_factory_t *factory, const char *id,
-                       double rate, clap_id cutoffId, Rendered &out)
+                       double rate, clap_id cutoffId, Rendered &out,
+                       const Start &start = Start())
 {
     const clap_plugin_t *plugin = factory->create_plugin(factory, &host, id);
 
-    if (plugin == NULL || !plugin->init(plugin) ||
-        !plugin->activate(plugin, rate, 1, 4096) ||
+    if (plugin == NULL || !plugin->init(plugin))
+        return false;
+
+    const clap_plugin_state_t *state = (const clap_plugin_state_t *)
+        plugin->get_extension(plugin, CLAP_EXT_STATE);
+
+    if (!start.settings.empty())
+        setOutOfProcess(plugin, start.settings);
+
+    if (start.load != NULL)
+    {
+        Reader r = { start.load, 0 };
+        clap_istream_t in = { &r, blobRead };
+
+        if (state == NULL || !state->load(plugin, &in))
+            return false;
+    }
+
+    if (start.save != NULL)
+    {
+        clap_ostream_t os = { start.save, blobWrite };
+
+        if (state == NULL || !state->save(plugin, &os))
+            return false;
+    }
+
+    if (!plugin->activate(plugin, rate, 1, 4096) ||
         !plugin->start_processing(plugin))
         return false;
 
@@ -647,6 +762,103 @@ int main (int argc, char **argv)
 
         check(same, what);
         check(ran && peak(plugin.left) > 0.01, "and it is not silence");
+    }
+
+    /* ---- a project saved and opened again ---- */
+    {
+        const clap_plugin_t *probe =
+            factory->create_plugin(factory, &host, desc->id);
+
+        probe->init(probe);
+
+        const clap_plugin_params_t *params = (const clap_plugin_params_t *)
+            probe->get_extension(probe, CLAP_EXT_PARAMS);
+
+        /* Three controls away from their defaults: a plain one, one in ms
+           and the level. */
+        Start first;
+        std::vector<std::string> set;
+
+        for (uint32_t i = 0; i < params->count(probe); i++)
+        {
+            clap_param_info_t info;
+
+            params->get_info(probe, i, &info);
+
+            Setting st = { info.id, 0 };
+
+            if (!strcmp(info.name, "Resonance"))
+                st.value = 0.8;
+            else if (!strcmp(info.name, "Filter Decay"))
+                st.value = 2500;
+            else if (!strcmp(info.name, "Level"))
+                st.value = 90;
+            else
+                continue;
+
+            first.settings.push_back(st);
+            set.push_back(info.name);
+        }
+
+        probe->destroy(probe);
+
+        check(first.settings.size() == 3,
+              "Resonance, Filter Decay and Level to set");
+
+        Blob saved;
+        Rendered a, b, plain;
+
+        first.save = &saved;
+
+        Start second;
+
+        second.load = &saved;
+
+        const bool ran =
+            viaPlugin(factory, desc->id, 48000, cutoffId, a, first) &&
+            viaPlugin(factory, desc->id, 48000, cutoffId, b, second) &&
+            viaPlugin(factory, desc->id, 48000, cutoffId, plain);
+
+        check(ran && !saved.empty(),
+              "a state was saved, " + std::to_string(saved.size()) +
+              " bytes, and loaded into a fresh instance");
+
+        /* The values, read back off an instance that only loaded. */
+        const clap_plugin_t *reader =
+            factory->create_plugin(factory, &host, desc->id);
+
+        reader->init(reader);
+
+        Reader r = { &saved, 0 };
+        clap_istream_t in = { &r, blobRead };
+        const clap_plugin_state_t *state = (const clap_plugin_state_t *)
+            reader->get_extension(reader, CLAP_EXT_STATE);
+        const clap_plugin_params_t *rp = (const clap_plugin_params_t *)
+            reader->get_extension(reader, CLAP_EXT_PARAMS);
+
+        bool values = state != NULL && state->load(reader, &in);
+
+        for (size_t i = 0; values && i < first.settings.size(); i++)
+        {
+            double v = 0;
+
+            values = rp->get_value(reader, first.settings[i].id, &v) &&
+                     (float)v == (float)first.settings[i].value;
+        }
+
+        reader->destroy(reader);
+
+        check(values, "and every value came back exactly: " +
+                      set[0] + " 0.8, " + set[1] + " 2500 ms, " + set[2] +
+                      " 90");
+
+        size_t bad = 0;
+
+        check(ran && identical(a.left, b.left, bad) &&
+              identical(a.right, b.right, bad),
+              "the reopened instance plays what the saved one played");
+        check(ran && !identical(a.left, plain.left, bad),
+              "which is not what the defaults play");
     }
 
     entry->deinit();
