@@ -47,11 +47,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
 #include "clap/entry.h"
 #include "clap/events.h"
+#include "clap/ext/latency.h"
 #include "clap/ext/params.h"
 #include "clap/host.h"
 #include "clap/plugin-factory.h"
@@ -137,14 +139,13 @@ static bool eventsPush (const clap_output_events_t *,
 
 /* ---- the phrase ------------------------------------------------------- */
 
-const int kWindow = 64;           /* ThinkPlugin's */
-const int kWindows = 40;
-const int kNoteOnWindow = 0;
-const int kParamWindow = 8;
-const int kNoteOffWindow = 20;
+const int kWindow = 64;           /* ThinkPlugin's, and its latency */
+/* Long enough to hear a release: juno's envelopes play their attack and
+   decay out before releasing, 840 ms at the most. */
+const int kWindows = 700;
 const float kCutoff = 2400.0f;
 
-/* What happens at an absolute frame. */
+/* What happens at an absolute frame: a parameter change, or MIDI. */
 struct Cue
 {
     uint32_t frame;
@@ -152,26 +153,60 @@ struct Cue
     uint8_t midi[3];
 };
 
+static Cue midiCue (uint32_t frame, uint8_t a, uint8_t b, uint8_t c)
+{
+    Cue cue;
+
+    cue.frame = frame;
+    cue.param = false;
+    cue.midi[0] = a; cue.midi[1] = b; cue.midi[2] = c;
+
+    return cue;
+}
+
+/* Frames chosen to fall inside windows and inside blocks, not on either's
+   edge -- 959 is one frame into a three-frame block, in the tail of a
+   window rendered a block earlier -- and every one audible within the
+   render: notes on, a parameter change, all notes off once the envelopes
+   can release, and all sound off over a note played after it. */
 static std::vector<Cue> phrase (void)
 {
     std::vector<Cue> cues;
-    Cue c;
+    Cue param;
 
-    c.param = false;
-    c.frame = kNoteOnWindow * kWindow;
-    c.midi[0] = 0x90; c.midi[1] = 60; c.midi[2] = 100;
-    cues.push_back(c);
+    param.frame = 1300;
+    param.param = true;
 
-    c.param = true;
-    c.frame = kParamWindow * kWindow;
-    cues.push_back(c);
-
-    c.param = false;
-    c.frame = kNoteOffWindow * kWindow;
-    c.midi[0] = 0x80; c.midi[1] = 60; c.midi[2] = 0;
-    cues.push_back(c);
+    cues.push_back(midiCue(0, 0x90, 60, 100));
+    cues.push_back(midiCue(959, 0x90, 67, 90));
+    cues.push_back(param);
+    cues.push_back(midiCue(1793, 0x91, 64, 80));    /* another channel */
+    cues.push_back(midiCue(41003, 0xb0, 123, 0));   /* all notes off */
+    cues.push_back(midiCue(42017, 0x90, 72, 100));
+    cues.push_back(midiCue(43001, 0xb0, 120, 0));   /* all sound off */
 
     return cues;
+}
+
+/* The host's blocks: sizes no device would pick, as automation splits
+   make them. Enough to cover the render and the one window of latency. */
+static const uint32_t kSizes[] = { 100, 37, 256, 1, 64, 500, 3, 127, 800 };
+static const uint32_t kTotal = (kWindows + 1) * kWindow;
+
+/* The start of the block `frame' is in. */
+static uint32_t blockStart (uint32_t frame)
+{
+    uint32_t pos = 0;
+
+    for (uint32_t s = 0; ; s++)
+    {
+        const uint32_t n = kSizes[s % (sizeof(kSizes) / sizeof(kSizes[0]))];
+
+        if (frame < pos + n)
+            return pos;
+
+        pos += n;
+    }
 }
 
 /* ---- the plugin's render ---------------------------------------------- */
@@ -191,8 +226,7 @@ static bool viaPlugin (const clap_plugin_factory_t *factory, const char *id,
         !plugin->start_processing(plugin))
         return false;
 
-    static const uint32_t sizes[] = { 100, 37, 256, 1, 64, 500, 3, 127, 800 };
-    const uint32_t total = kWindows * kWindow;
+    const uint32_t total = kTotal;
     const std::vector<Cue> cues = phrase();
 
     std::vector<float> left(1024), right(1024);
@@ -203,7 +237,7 @@ static bool viaPlugin (const clap_plugin_factory_t *factory, const char *id,
 
     for (uint32_t pos = 0, s = 0; pos < total; s++)
     {
-        uint32_t n = sizes[s % (sizeof(sizes) / sizeof(sizes[0]))];
+        uint32_t n = kSizes[s % (sizeof(kSizes) / sizeof(kSizes[0]))];
 
         if (n > total - pos)
             n = total - pos;
@@ -284,8 +318,10 @@ static bool viaPlugin (const clap_plugin_factory_t *factory, const char *id,
     return true;
 }
 
-/* ---- the engine's ----------------------------------------------------- */
-
+/* The same phrase, each event applied at the start of the window it falls
+   in -- a parameter change at the window its block starts in, since that
+   is all the plugin is told of its timing. No latency here: the plugin's
+   output is this, one window later. */
 static bool viaEngine (double rate, Rendered &out)
 {
     thSynth synth("", kWindow, (int)rate);
@@ -295,15 +331,40 @@ static bool viaEngine (double rate, Rendered &out)
         return false;
 
     const int channels = synth.audioChannelCount();
+    const std::vector<Cue> cues = phrase();
+    bool held[128] = { false };
 
     for (int w = 0; w < kWindows; w++)
     {
-        if (w == kNoteOnWindow)
-            synth.addNote(0, 60, 100);
-        else if (w == kParamWindow)
-            synth.getChanArg(0, "cutoff")->setValue(kCutoff);
-        else if (w == kNoteOffWindow)
-            synth.delNote(0, 60);
+        for (size_t i = 0; i < cues.size(); i++)
+        {
+            const Cue &c = cues[i];
+            const uint32_t at = c.param ? blockStart(c.frame) : c.frame;
+
+            if ((int)(at / kWindow) != w)
+                continue;
+
+            if (c.param)
+                synth.getChanArg(0, "cutoff")->setValue(kCutoff);
+            else if ((c.midi[0] & 0xf0) == 0x90)
+            {
+                synth.addNote(0, c.midi[1], c.midi[2]);
+                held[c.midi[1]] = true;
+            }
+            else if ((c.midi[0] & 0xf0) == 0xb0 &&
+                     (c.midi[1] == 123 || c.midi[1] == 120))
+            {
+                for (int k = 0; k < 128; k++)
+                    if (held[k])
+                    {
+                        synth.delNote(0, k);
+                        held[k] = false;
+                    }
+
+                if (c.midi[1] == 120)
+                    synth.clearAll();
+            }
+        }
 
         synth.process();
 
@@ -313,6 +374,22 @@ static bool viaEngine (double rate, Rendered &out)
         out.right.insert(out.right.end(), buf + (channels > 1 ? kWindow : 0),
                          buf + (channels > 1 ? 2 * kWindow : kWindow));
     }
+
+    return true;
+}
+
+/* The plugin's output past its latency, which has to be silence. */
+static bool pastLatency (const Rendered &plugin, Rendered &out)
+{
+    if (plugin.left.size() < (size_t)kWindow)
+        return false;
+
+    for (int i = 0; i < kWindow; i++)
+        if (plugin.left[i] != 0 || plugin.right[i] != 0)
+            return false;
+
+    out.left.assign(plugin.left.begin() + kWindow, plugin.left.end());
+    out.right.assign(plugin.right.begin() + kWindow, plugin.right.end());
 
     return true;
 }
@@ -368,7 +445,7 @@ int main (int argc, char **argv)
 
     if (entry == NULL || !entry->init(argv[1]))
     {
-        printf("FAIL  no clap_entry, or it would not initialise\n");
+        printf("FAIL  no clap_entry, or it would not initialize\n");
         return 2;
     }
 
@@ -387,6 +464,9 @@ int main (int argc, char **argv)
     check(desc != NULL && !strcmp(desc->id, "org.thinksynth.juno"),
           std::string("its id is org.thinksynth.juno: ") +
           (desc ? desc->id : "(none)"));
+
+    if (desc == NULL)
+        return failed;
 
     /* ---- the parameters ---- */
 
@@ -438,40 +518,134 @@ int main (int argc, char **argv)
         plugin->destroy(plugin);
     }
 
+    /* ---- the latency it reports ---- */
+    {
+        const clap_plugin_t *plugin =
+            factory->create_plugin(factory, &host, desc->id);
+
+        plugin->init(plugin);
+        plugin->activate(plugin, 48000, 1, 4096);
+
+        const clap_plugin_latency_t *latency = (const clap_plugin_latency_t *)
+            plugin->get_extension(plugin, CLAP_EXT_LATENCY);
+
+        check(latency != NULL && latency->get(plugin) == (uint32_t)kWindow,
+              "a latency of one window, 64 frames");
+
+        plugin->deactivate(plugin);
+        plugin->destroy(plugin);
+    }
+
+    /* ---- stopped and started again ---- */
+    {
+        const clap_plugin_t *plugin =
+            factory->create_plugin(factory, &host, desc->id);
+
+        plugin->init(plugin);
+
+        std::vector<float> left(512), right(512);
+        float *channels[2] = { &left[0], &right[0] };
+        clap_audio_buffer_t buffer;
+        Events events;
+        clap_input_events_t in = { &events, eventsSize, eventsGet };
+        clap_output_events_t outEvents = { NULL, eventsPush };
+        clap_process_t process;
+
+        memset(&buffer, 0, sizeof(buffer));
+        buffer.data32 = channels;
+        buffer.channel_count = 2;
+
+        memset(&process, 0, sizeof(process));
+        process.frames_count = 512;
+        process.audio_outputs = &buffer;
+        process.audio_outputs_count = 1;
+        process.in_events = &in;
+        process.out_events = &outEvents;
+
+        /* A chord held when the host stops... */
+        plugin->activate(plugin, 48000, 1, 4096);
+        plugin->start_processing(plugin);
+
+        for (int k = 0; k < 3; k++)
+        {
+            clap_event_midi_t e;
+
+            memset(&e, 0, sizeof(e));
+            e.header.size = sizeof(e);
+            e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            e.header.type = CLAP_EVENT_MIDI;
+            e.data[0] = 0x90;
+            e.data[1] = (uint8_t)(60 + 4 * k);
+            e.data[2] = 100;
+            events.midi.push_back(e);
+        }
+
+        events.index();
+
+        for (int b = 0; b < 8; b++)
+        {
+            plugin->process(plugin, &process);
+            events.clear();
+        }
+
+        const bool sounding = peak(left) > 0.01;
+
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+
+        /* ...is not there when it starts again. */
+        plugin->activate(plugin, 48000, 1, 4096);
+        plugin->start_processing(plugin);
+
+        double after = 0;
+
+        for (int b = 0; b < 8; b++)
+        {
+            plugin->process(plugin, &process);
+            after = std::max(after, peak(left));
+        }
+
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+        plugin->destroy(plugin);
+
+        check(sounding && after == 0,
+              "a chord sounding when the host stops is gone when it starts "
+              "again");
+    }
+
     /* ---- the phrase, through both, at two rates ---- */
 
     const double rates[] = { 48000, 44100 };
 
     for (int r = 0; r < 2; r++)
     {
-        Rendered plugin, engine;
-        char what[128];
+        Rendered raw, plugin, engine;
+        char what[160];
 
         const bool ran = viaPlugin(factory, desc->id, rates[r], cutoffId,
-                                   plugin) && viaEngine(rates[r], engine);
+                                   raw) && viaEngine(rates[r], engine);
+        const bool silent = ran && pastLatency(raw, plugin);
+
+        check(silent, "its first window is silence, the latency");
 
         size_t bad = 0;
-        const bool same = ran && identical(plugin.left, engine.left, bad) &&
+        const bool same = silent &&
+                          identical(plugin.left, engine.left, bad) &&
                           identical(plugin.right, engine.right, bad);
 
-        snprintf(what, sizeof(what),
-                 "at %g Hz the plugin plays what the engine plays, bit for "
-                 "bit (%s)", rates[r],
-                 !ran ? "did not run"
-                      : same ? "peak " : ("first difference at frame " +
-                                          std::to_string(bad)).c_str());
-
-        std::string line = what;
-
         if (same)
-        {
-            char p[32];
+            snprintf(what, sizeof(what),
+                     "at %g Hz the plugin plays what the engine plays one "
+                     "window later, bit for bit (peak %.3f)", rates[r],
+                     peak(engine.left));
+        else
+            snprintf(what, sizeof(what),
+                     "at %g Hz the plugin plays what the engine plays one "
+                     "window later, bit for bit (first difference at "
+                     "frame %zu)", rates[r], bad);
 
-            snprintf(p, sizeof(p), "%.3f", peak(engine.left));
-            line = line.substr(0, line.size() - 1) + p + ")";
-        }
-
-        check(same, line);
+        check(same, what);
         check(ran && peak(plugin.left) > 0.01, "and it is not silence");
     }
 

@@ -46,12 +46,24 @@
  * processing stopped. The parameter values are the plugin's and outlive
  * it.
  *
- * TIMING. The synth renders windows of kWindow frames and a host asks for
- * blocks of any size, so a window is rendered when the last one runs out
- * and handed out across as many blocks as it takes; gthSynthSource does
- * the same for the desktop and tw_render for the browser. A MIDI event is
- * applied before the window its frame falls in, so it lands up to a
- * window early -- 1.3 ms at 48 kHz -- and never late.
+ * TIMING. The synth renders windows of kWindow frames and applies an
+ * event only at a window's start, so an event is applied at the start of
+ * the window its frame falls in -- which it can only be once the host has
+ * sent everything up to that window's end. So a window is rendered when
+ * the host reaches its end and heard from there: one window late, a
+ * latency the plugin reports and a host compensates. The output is the
+ * engine's, applying each event at its window, delayed by exactly
+ * kWindow frames (plugincheck holds it to that bit for bit). A MIDI event
+ * carries its frame. A parameter change does not: DPF sets it before
+ * run() with no frame, so it is timed to the start of the block it
+ * arrived with. Anything in the part of a block past the last window
+ * rendered waits, stamped, in pending_ for the block that renders its
+ * window.
+ *
+ * Every MIDI channel plays the one synth channel, a key counted across
+ * channels. All notes off (CC 123) releases what is held; all sound off
+ * (CC 120) cuts it too; and what was sounding when the host deactivated
+ * is gone when it activates again.
  */
 
 #include "DistrhoPlugin.hpp"
@@ -176,15 +188,19 @@ class ThinkPlugin : public Plugin
 public:
     ThinkPlugin (void)
         : Plugin((uint32_t)controls().size(), 0, 0),
-          synth_(NULL), held_(0), pos_(0)
+          synth_(NULL), held_(0), pos_(0), now_(0), rendered_(0),
+          active_(false), pendingHead_(0), pendingCount_(0)
     {
         values_.resize(controls().size());
+        dirty_.assign(controls().size(), 0);
+
+        /* One window: every event is applied at the start of the window
+           it falls in, which needs the whole window to have arrived. A
+           constant, so set here, where a host asks before it activates. */
+        setLatency(kWindow);
 
         for (size_t i = 0; i < values_.size(); i++)
             values_[i] = controls()[i].def;
-
-        window_[0].assign(kWindow, 0.0f);
-        window_[1].assign(kWindow, 0.0f);
 
         build(getSampleRate());
     }
@@ -271,8 +287,17 @@ protected:
 
     void setParameterValue (uint32_t index, float value) override
     {
-        values_[index] = value;
-        apply(index);
+        if (!(value == value))
+            return;             /* NaN: nothing to set */
+
+        values_[index] = clamp(index, value);
+
+        /* Between blocks, while processing: timed to the next block's
+           start, which is the nearest DPF gives. Otherwise now. */
+        if (active_)
+            dirty_[index] = 1;
+        else
+            apply(index);
     }
 
     /* A host changes the rate only with processing stopped. */
@@ -285,9 +310,21 @@ protected:
     {
         if (synth_ == NULL || synth_->getSampleRate() != (long)getSampleRate())
             build(getSampleRate());
+        else
+        {
+            /* Whatever was sounding when the host stopped does not come
+               back when it starts again. */
+            synth_->clearAll();
+            synth_->process();
+        }
 
-        held_ = 0;
-        pos_ = 0;
+        start();
+        active_ = true;
+    }
+
+    void deactivate (void) override
+    {
+        active_ = false;
     }
 
     void run (const float **, float **outputs, uint32_t frames,
@@ -297,21 +334,37 @@ protected:
         {
             memset(outputs[0], 0, frames * sizeof(float));
             memset(outputs[1], 0, frames * sizeof(float));
+            now_ += frames;
             return;
         }
 
-        uint32_t done = 0, next = 0;
+        /* This block's parameter changes and MIDI, stamped with the
+           absolute frame each is for: a change at the block's start,
+           since DPF sets them before run() without a frame, and MIDI at
+           its own. They wait in pending_ for the window they fall in. */
+        for (uint32_t i = 0; i < dirty_.size(); i++)
+            if (dirty_[i])
+            {
+                dirty_[i] = 0;
+                queue(now_, (int)i, NULL);
+            }
 
-        while (done < frames)
+        for (uint32_t i = 0; i < eventCount; i++)
+            queue(now_ + events[i].frame, -1, &events[i]);
+
+        for (uint32_t done = 0; done < frames; )
         {
+            /* The host has reached the end of window `rendered_' -- every
+               event in it has arrived -- so it can be rendered now, to be
+               heard from here on: one window late, which is the latency
+               the plugin reports. */
             if (held_ == 0)
             {
-                /* Everything due before this window ends. */
-                while (next < eventCount &&
-                       events[next].frame < done + (uint32_t)kWindow)
-                    midi(events[next++]);
+                const uint64_t end = (rendered_ + 1) * (uint64_t)kWindow;
 
+                applyBefore(end);
                 render();
+                rendered_++;
             }
 
             const uint32_t n = (frames - done < held_) ? frames - done
@@ -323,12 +376,8 @@ protected:
             done += n;
             pos_ += n;
             held_ -= n;
+            now_ += n;
         }
-
-        /* What falls in the part of the block the held window covered goes
-           to the next window, which is the earliest it can sound. */
-        while (next < eventCount)
-            midi(events[next++]);
     }
 
 private:
@@ -351,8 +400,80 @@ private:
         for (uint32_t i = 0; i < values_.size(); i++)
             apply(i);
 
-        held_ = 0;
+        start();
+    }
+
+    /* Processing from the top: the first window out is silence, the
+       latency, and window 0 is rendered when the host reaches frame
+       kWindow. */
+    void start (void)
+    {
+        window_[0].assign(kWindow, 0.0f);
+        window_[1].assign(kWindow, 0.0f);
+        held_ = kWindow;
         pos_ = 0;
+        now_ = 0;
+        rendered_ = 0;
+        pendingCount_ = 0;
+        pendingHead_ = 0;
+
+        for (int k = 0; k < 128; k++)
+            down_[k] = 0;
+
+        for (size_t i = 0; i < dirty_.size(); i++)
+            dirty_[i] = 0;
+    }
+
+    /* A value inside its control's range. A host keeps to the range it was
+       given, but an LV2 host need not. */
+    float clamp (uint32_t index, float value) const
+    {
+        const Control &c = controls()[index];
+
+        return value < c.min ? c.min : value > c.max ? c.max : value;
+    }
+
+    /* Onto the end of pending_, in arrival order, which is time order: a
+       block's parameter changes are stamped with its start and come first,
+       and a host hands over MIDI sorted. A full queue drops the event --
+       it holds more than a window of anything a host sends. */
+    void queue (uint64_t at, int param, const MidiEvent *ev)
+    {
+        if (pendingCount_ == kPending)
+            return;
+
+        Pending &p = pending_[(pendingHead_ + pendingCount_) % kPending];
+
+        p.at = at;
+        p.param = param;
+
+        if (ev != NULL)
+        {
+            const uint8_t *d = ev->size > MidiEvent::kDataSize ? ev->dataExt
+                                                               : ev->data;
+
+            p.size = ev->size < 3 ? ev->size : 3;
+            memcpy(p.data, d, p.size);
+        }
+
+        pendingCount_++;
+    }
+
+    /* Everything pending that falls before `end'. */
+    void applyBefore (uint64_t end)
+    {
+        while (pendingCount_ > 0 && pending_[pendingHead_].at < end)
+        {
+            const Pending &p = pending_[pendingHead_];
+
+            if (p.param >= 0)
+                apply((uint32_t)p.param);
+            else
+                midi(p.data, p.size);
+
+            pendingHead_ = (pendingHead_ + 1) % kPending;
+            pendingCount_--;
+        }
     }
 
     /* A parameter's value into the graph, folded at the synth's rate. A
@@ -387,40 +508,82 @@ private:
         pos_ = 0;
     }
 
-    /* Every MIDI channel plays the one synth channel. */
-    void midi (const MidiEvent &ev)
+    /* Every MIDI channel plays the one synth channel. A key is counted
+       across channels, so the same key held on two of them is released
+       when the last lets go and not the first. */
+    void midi (const uint8_t *d, uint32_t size)
     {
-        const uint8_t *d = ev.size > MidiEvent::kDataSize ? ev.dataExt
-                                                          : ev.data;
-
-        if (ev.size < 3)
+        if (size < 3)
             return;
+
+        const uint8_t key = d[1] & 0x7f;
 
         switch (d[0] & 0xf0)
         {
         case 0x90:
             if (d[2] > 0)
             {
-                synth_->addNote(0, d[1], d[2]);
+                if (down_[key] < 255)
+                    down_[key]++;
+
+                synth_->addNote(0, key, d[2]);
                 break;
             }
             /* velocity 0 is a note-off */
             /* fall through */
         case 0x80:
-            synth_->delNote(0, d[1]);
+            if (down_[key] > 0 && --down_[key] == 0)
+                synth_->delNote(0, key);
             break;
 
         case 0xb0:
-            synth_->handleMidiController(0, d[1], d[2]);
+            if (d[1] == 120)            /* all sound off: a cut */
+            {
+                releaseAll();
+                synth_->clearAll();
+            }
+            else if (d[1] == 123)       /* all notes off: a release */
+                releaseAll();
+            else
+                synth_->handleMidiController(0, d[1], d[2]);
             break;
         }
     }
 
+    void releaseAll (void)
+    {
+        for (int k = 0; k < 128; k++)
+            if (down_[k] > 0)
+            {
+                down_[k] = 0;
+                synth_->delNote(0, k);
+            }
+    }
+
+    /* One queued thing: a parameter's index, or MIDI bytes. */
+    struct Pending
+    {
+        uint64_t at;
+        int param;          /* -1 for MIDI */
+        uint8_t data[3];
+        uint32_t size;
+    };
+
+    static const uint32_t kPending = 1024;
+
     thSynth *synth_;
     std::vector<float> values_;
+    std::vector<char> dirty_;
     std::vector<float> window_[2];
     uint32_t held_;
     uint32_t pos_;
+    uint64_t now_;          /* frames handed to the host since start() */
+    uint64_t rendered_;     /* windows rendered since start() */
+    bool active_;
+    Pending pending_[kPending];
+    uint32_t pendingHead_;
+    uint32_t pendingCount_;
+    uint8_t down_[128];     /* note-ons outstanding per key */
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ThinkPlugin)
 };

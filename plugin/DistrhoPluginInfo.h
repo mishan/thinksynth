@@ -40,6 +40,7 @@
 #define DISTRHO_PLUGIN_NUM_INPUTS       0
 #define DISTRHO_PLUGIN_NUM_OUTPUTS      2
 #define DISTRHO_PLUGIN_WANT_MIDI_INPUT  1
+#define DISTRHO_PLUGIN_WANT_LATENCY     1
 
 /* Not real-time safe, and saying so: a note-on copies a voice's graph when
    the channel's voice pool has none spare, which allocates. */

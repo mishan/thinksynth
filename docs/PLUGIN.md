@@ -69,9 +69,24 @@ line.
 
 ## Timing
 
-The engine renders windows of 64 frames. A MIDI note or a parameter change
-takes effect at the start of the window its frame falls in: up to 1.3 ms
-early at 48 kHz, never late.
+The engine renders windows of 64 frames and applies an event only at a
+window's start. The plugin applies each event at the start of the window
+its frame falls in, which it can do only once the host has sent that whole
+window, so it renders each window when the host reaches its end: one window
+of latency, 64 frames (1.3 ms at 48 kHz), which it reports and a host
+compensates. The output is exactly the engine's, one window later.
+
+A MIDI event carries its frame. A parameter change does not -- DPF sets it
+before the block with no frame -- so it takes effect at the window its
+block starts in.
+
+## MIDI
+
+Every MIDI channel plays the one instrument, and a key held on two
+channels is released when the last of them lets go. Controllers go to the
+graph (the sustain pedal, CC 64, among them). All notes off (CC 123)
+releases whatever is held and all sound off (CC 120) cuts it; and what was
+sounding when the host stopped processing is gone when it starts again.
 
 ## Tests
 
@@ -79,7 +94,7 @@ With `THINK_BUILD_PLUGIN=ON`, ctest adds:
 
 | Test | Checks |
 |---|---|
-| `plugincheck` | a small CLAP host plays a phrase through the built plugin in uneven block sizes, with a note, a parameter change and a release, and requires it to match `thSynth` rendering the same graph bit for bit, at 48 and 44.1 kHz; and the parameter list |
+| `plugincheck` | a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; and the parameter list |
 | `plugin.clap-validator` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
 | `plugin.pluginval` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10 |
 
