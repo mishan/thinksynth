@@ -21,6 +21,7 @@
  *
  *   scripts/genwav -p plugins/ -s 180 -o ebb.wav gen/ebb.gen
  *   scripts/genwav -p plugins/ -t - gen/round.gen | head
+ *   scripts/genwav -p plugins/ -s 180 --midi anthem.mid gen/anthem.gen
  *
  * gencheck drives the scheduler through its virtual clock and keeps the
  * delivered events as a tape, which is how it proves a piece replays. This
@@ -36,6 +37,11 @@
  * actually delivered when the piano roll is not to hand. The summary
  * printed at the end (peak, RMS, clipped samples, notes delivered) is the
  * number a level question wants.
+ *
+ * `--midi' writes the same delivered notes as a Standard MIDI File, a
+ * track per channel at the piece's tempo, for taking a piece into a DAW
+ * (thcMidiFile says what it keeps and what it leaves out). Its times are
+ * the scheduled ones too, not the window boundaries.
  *
  * The clock steps one audio window at a time -- 1024 samples, about
  * twenty-three milliseconds at the default rate -- so an event lands on the
@@ -82,6 +88,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "thcMidiFile.h"
 
 /* Enough silence to call a tail finished, and the longest we will wait
    for one. amb01's release tops out at five seconds; anything longer than
@@ -91,12 +98,14 @@
 
 static void usage (const char *argv0)
 {
-    printf("usage: %s [-p PATH] [-s SECONDS] [-o FILE.wav] [-t FILE] file.gen\n"
+    printf("usage: %s [-p PATH] [-s SECONDS] [-o FILE.wav] [-t FILE] "
+           "[--midi FILE.mid] file.gen\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
            "  -s, --seconds N         how long to run the transport (default 120)\n"
            "  -o, --output FILE       write the audio here, 16-bit PCM WAV\n"
            "  -t, --tape FILE         write the delivered events here (- for stdout)\n"
+           "      --midi FILE         write the delivered notes here, as a MIDI file\n"
            "      --levels            peak and RMS by instrument channel\n"
            "      --sections          mix RMS by arrangement section\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
@@ -276,7 +285,7 @@ int main (int argc, char **argv)
     Glib::init();
 
     std::string pluginPath = PLUGIN_PATH;
-    std::string genFile, wavFile, tapeFile;
+    std::string genFile, wavFile, tapeFile, midiFile;
     bool mono = false;
     double seconds = 120;
     bool quiet = false;
@@ -303,6 +312,11 @@ int main (int argc, char **argv)
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
             tapeFile = argv[i];
+        }
+        else if (!strcmp(argv[i], "--midi"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            midiFile = argv[i];
         }
         else if (!strcmp(argv[i], "-m") || !strcmp(argv[i], "--mono"))
             mono = true;
@@ -332,7 +346,7 @@ int main (int argc, char **argv)
         return 2;
     }
 
-    if (wavFile.empty() && tapeFile.empty() && quiet && !levels && !sections)
+    if (wavFile.empty() && tapeFile.empty() && midiFile.empty() && quiet && !levels && !sections)
     {
         fprintf(stderr, "%s: nothing to write and nothing to say\n", argv[0]);
         return 2;
@@ -397,6 +411,30 @@ int main (int argc, char **argv)
                 fprintf(tape, "# channel %d = %s\n", inst.channel,
                         inst.name.c_str());
 
+    /* At the piece's tempo, which the loader set and nothing changes while
+       it plays; the sections at the times the scheduler gates them. */
+    thcMidiFile midi(sched.tempo(), sched.meter());
+
+    midi.setName(std::filesystem::path(genFile).stem().string());
+
+    for (int ch = 0; ch < synth.midiChanCount(); ch++)
+    {
+        const std::string name = sched.holding(ch);
+
+        if (!name.empty())
+            midi.setChannelName(ch, name);
+    }
+
+    {
+        double at = 0;
+
+        for (const thcSection &s : sched.sections())
+        {
+            midi.addMarker(at, s.name);
+            at += s.beats ? s.length * 60 / sched.tempo() : s.length;
+        }
+    }
+
     size_t notes = 0;
 
     sigc::connection conn = sched.sigDelivered.connect(
@@ -407,6 +445,8 @@ int main (int argc, char **argv)
 
             if (tape != NULL)
                 writeEvent(tape, ev);
+
+            midi.add(ev);
         });
 
     const int channels = synth.audioChannelCount();
@@ -488,8 +528,11 @@ int main (int argc, char **argv)
 
     /* stop() flushes the note-offs for whatever is still sounding; the
        releases that follow are part of the piece. */
+    const double stoppedAt = sched.now();
+
     sched.stop();
     conn.disconnect();
+    midi.end(stoppedAt);
 
     for (double tail = 0; tail < TAIL_MAX; tail += dt)
         if (renderWindow(false, 0) < TAIL_SILENT)
@@ -555,6 +598,16 @@ int main (int argc, char **argv)
         fprintf(stderr, "%s: cannot write %s\n", argv[0], wavFile.c_str());
         return 1;
     }
+
+    if (!midiFile.empty() && !midi.write(midiFile))
+    {
+        fprintf(stderr, "%s: cannot write %s\n", argv[0], midiFile.c_str());
+        return 1;
+    }
+
+    if (!midiFile.empty() && !quiet && midi.skipped() > 0)
+        fprintf(stderr, "%s: %zu events that are not notes left out of %s\n",
+                genFile.c_str(), midi.skipped(), midiFile.c_str());
 
     /* Voices thMidiChan::mixNote dropped for going non-finite. Unreported,
        the render is just quieter than it should be -- or silent, if the piece
