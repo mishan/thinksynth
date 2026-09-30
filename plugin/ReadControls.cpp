@@ -27,18 +27,16 @@
 #include "thLexer.h"
 #include "thUnits.h"
 
-#include "thinksynth_dsp.h"
-
 #include "Controls.h"
 
 /* The graph's controls, read off a synth that loads it once. */
-std::vector<Control> readControls (void)
+std::vector<Control> readControls (const std::string &name,
+                                   const std::string &text)
 {
     std::vector<Control> out;
     thSynth synth("", kWindow, kReadRate);
 
-    if (synth.loadTreeText(thPluginDspName, thPluginDspText, 0,
-                           TH_DEFAULT_CHAN_AMP) == NULL)
+    if (synth.loadTreeText(name, text, 0, TH_DEFAULT_CHAN_AMP) == NULL)
         return out;
 
     const thArgMap args = synth.getChanArgs(0);
@@ -48,7 +46,7 @@ std::vector<Control> readControls (void)
     std::vector<thLexToken> tokens;
     std::vector<std::string> order;
 
-    thLexString(thPluginDspText, tokens);
+    thLexString(text, tokens);
 
     for (size_t i = 0; i + 1 < tokens.size(); i++)
     {
@@ -56,14 +54,14 @@ std::vector<Control> readControls (void)
             tokens[i + 1].kind != thLexToken::WORD)
             continue;
 
-        const std::string &name = tokens[i + 1].text;
+        const std::string &control = tokens[i + 1].text;
         bool seen = false;
 
         for (size_t k = 0; k < order.size() && !seen; k++)
-            seen = order[k] == name;
+            seen = order[k] == control;
 
         if (!seen)
-            order.push_back(name);
+            order.push_back(control);
     }
 
     order.push_back("amp");

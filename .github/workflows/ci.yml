@@ -82,11 +82,17 @@ jobs:
           sudo locale-gen de_DE.UTF-8
           locale -a | grep -qix 'de_DE.utf8'
 
-      # The audio plugin too (plugin/), and with it plugincheck and the two
-      # format validators; see docs/PLUGIN.md. Here and not on every job:
-      # the validators are Linux builds.
+      # The audio plugins too (plugin/), and with them plugincheck and the
+      # two format validators; see docs/PLUGIN.md. Here and not on every
+      # job: the validators are Linux builds. Not every graph -- all 65 is
+      # half an hour of CPU -- but six, each for a reason: juno, with the
+      # editor's tests; linn and cloud, which carry their samples; kit_hat,
+      # a drum; ebass and waveguide, whose tails run down into the
+      # subnormals the validators refuse.
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON
+        run: |
+          cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON \
+            "-DTHINK_PLUGIN_DSPS=juno;linn;cloud;kit_hat;ebass;waveguide"
 
       - name: Build
         run: cmake --build build

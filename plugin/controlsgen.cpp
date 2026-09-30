@@ -17,32 +17,56 @@
  */
 
 /*
- * controlsgen -- the plugin's controls, read off the engine at build time.
+ * controlsgen -- what one .dsp's plugin compiles in, read off the engine
+ * at build time.
  *
- *   controlsgen thinksynth_controls.h thinksynth_ui_size.h
+ *   controlsgen GRAPH.dsp ID OUTDIR [SAMPLEDIR...]
  *
- * Loads the embedded graph (ReadControls.cpp) and writes what a host and
- * the editor need to know about it as plain data: the control table and
- * the graph's description into the first file, the editor's size into the
- * second -- which DistrhoPluginInfo.h includes for DPF's default UI size,
- * so the size a host is told before the editor exists is the panel's.
+ * Loads the graph and writes into OUTDIR:
+ *
+ *   thinksynth_dsp.h       the graph's text, its name, the plugin's label
+ *                          (thinksynth_ID) and the graph's description
+ *   thinksynth_controls.h  the control table (ReadControls.cpp) as data
+ *   thinksynth_ui_size.h   the editor's size, measured off its panel; what
+ *                          DistrhoPluginInfo.h gives DPF as the default
+ *   thinksynth_samples.cpp every wav the graph names, as bytes, and the
+ *                          function that registers them with libthink
+ *                          (thUtil::addEmbeddedFile) under samples/, where
+ *                          osc::sample looks before it looks on disk
+ *
+ * A wav is looked for in each SAMPLEDIR in turn. The graph has to be an
+ * instrument: an effect graph -- one that takes input -- is refused, as
+ * is a sample that is not found, rather than built into a plugin that
+ * would play silence.
  *
  * Each file is written only if what it would say differs from what it
  * says, so a build that changed nothing recompiles nothing. Exit status
- * is 1 if the graph did not load or a file could not be written.
+ * is 1 on any failure, with a line saying which.
  */
 
 #include <stdio.h>
 
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include "think.h"
+
 #include "Controls.h"
 #include "Panel.h"
 
-#include "thinksynth_dsp.h"
+static bool slurp (const std::string &path, std::string &out)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+    std::ostringstream text;
+
+    text << in.rdbuf();
+    out = text.str();
+
+    return (bool)in;
+}
 
 /* A C string literal of `s'. */
 static std::string quoted (const std::string &s)
@@ -81,45 +105,101 @@ static std::string exact (float v)
     return buf;
 }
 
-static bool writeIfChanged (const char *path, const std::string &text)
+static bool writeIfChanged (const std::string &path, const std::string &text)
 {
-    std::ifstream in(path, std::ios::binary);
-    std::ostringstream old;
+    std::string old;
 
-    old << in.rdbuf();
-
-    if (in && old.str() == text)
+    if (slurp(path, old) && old == text)
         return true;
 
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
 
     out << text;
 
     return (bool)out;
 }
 
+static int fail (const std::string &why)
+{
+    fprintf(stderr, "controlsgen: %s\n", why.c_str());
+    return 1;
+}
+
+/* The graph with its comments taken out, for looking in. */
+static std::string uncommented (const std::string &text)
+{
+    return std::regex_replace(text, std::regex("#[^\n]*"), "");
+}
+
 int main (int argc, char **argv)
 {
-    if (argc != 3)
+    if (argc < 4)
     {
-        fprintf(stderr, "usage: %s CONTROLS.h UISIZE.h\n", argv[0]);
+        fprintf(stderr, "usage: %s GRAPH.dsp ID OUTDIR [SAMPLEDIR...]\n",
+                argv[0]);
         return 1;
     }
 
-    const std::vector<Control> c = readControls();
+    const std::string path = argv[1], id = argv[2], outdir = argv[3];
+    std::string text;
+
+    if (!slurp(path, text))
+        return fail("could not read " + path);
+
+    const std::string name = path.substr(path.find_last_of("/\\") + 1);
+
+    if (text.find(")thinksynth\"") != std::string::npos)
+        return fail(path + " contains )thinksynth\", the raw string's "
+                    "closing delimiter");
+
+    /* An instrument, not an effect. */
+    {
+        thSynth synth("", kWindow, kReadRate);
+        thSynthTree *tree = synth.parseTree(path);
+        const bool effect = tree != NULL && tree->takesInput();
+
+        delete tree;
+
+        if (tree == NULL)
+            return fail(path + " does not load");
+
+        if (effect)
+            return fail(path + " is an effect graph -- it takes input -- "
+                        "and only instruments are built as plugins");
+    }
+
+    const std::vector<Control> c = readControls(name, text);
 
     if (c.empty())
-    {
-        fprintf(stderr, "controlsgen: %s did not load\n", thPluginDspName);
-        return 1;
-    }
+        return fail(path + " did not load");
 
+    const std::string plain = uncommented(text);
+    std::smatch m;
+    std::string description;
+
+    if (std::regex_search(plain, m,
+                          std::regex("(^|\n)[ \t]*description[ \t]+\"([^\"\n]*)\"")))
+        description = m[2];
+
+    /* thinksynth_dsp.h */
+    std::ostringstream d;
+
+    d << "/* " << name << ", embedded. Written by controlsgen. */\n"
+      << "static const char thPluginDspName[] = " << quoted(name) << ";\n"
+      << "static const char thPluginDspLabel[] = "
+      << quoted("thinksynth_" + id) << ";\n"
+      << "static const char thPluginDspDescription[] = "
+      << quoted(description) << ";\n"
+      << "static const char thPluginDspText[] = R\"thinksynth(" << text
+      << ")thinksynth\";\n";
+
+    /* thinksynth_controls.h */
     std::ostringstream t;
 
-    t << "/* " << thPluginDspName << "'s controls, read off the engine by "
+    t << "/* " << name << "'s controls, read off the engine by "
          "controlsgen. */\n\n"
-      << "static const char kControlDescription[] = "
-      << quoted(thPluginDspDescription) << ";\n\n"
+      << "static const char kControlDescription[] = " << quoted(description)
+      << ";\n\n"
       << "static const ControlRow kControlTable[] = {\n";
 
     for (size_t i = 0; i < c.size(); i++)
@@ -138,6 +218,7 @@ int main (int argc, char **argv)
 
     t << "};\n";
 
+    /* thinksynth_ui_size.h */
     const Panel panel(c, "", "");
     std::ostringstream u;
 
@@ -146,12 +227,67 @@ int main (int argc, char **argv)
       << "#define DISTRHO_UI_DEFAULT_WIDTH  " << panel.width() << "\n"
       << "#define DISTRHO_UI_DEFAULT_HEIGHT " << panel.height() << "\n";
 
-    if (!writeIfChanged(argv[1], t.str()) || !writeIfChanged(argv[2], u.str()))
+    /* thinksynth_samples.cpp: every quoted .wav the graph names. */
+    std::ostringstream w;
+    std::vector<std::string> wavs;
+    const std::regex quotedWav("\"([^\"/\\\\]+\\.wav)\"");
+
+    for (std::sregex_iterator i(plain.begin(), plain.end(), quotedWav), e;
+         i != e; ++i)
     {
-        fprintf(stderr, "controlsgen: could not write %s or %s\n", argv[1],
-                argv[2]);
-        return 1;
+        const std::string wav = (*i)[1];
+        bool seen = false;
+
+        for (size_t k = 0; k < wavs.size() && !seen; k++)
+            seen = wavs[k] == wav;
+
+        if (!seen)
+            wavs.push_back(wav);
     }
+
+    w << "/* The samples " << name << " plays, embedded. Written by "
+         "controlsgen. */\n"
+      << "#include <stddef.h>\n\n#include \"thUtil.h\"\n\n";
+
+    for (size_t k = 0; k < wavs.size(); k++)
+    {
+        std::string bytes;
+        bool found = false;
+
+        for (int dir = 4; dir < argc && !found; dir++)
+            found = slurp(std::string(argv[dir]) + "/" + wavs[k], bytes);
+
+        if (!found)
+            return fail(path + " names " + wavs[k] + ", which is in none of "
+                        "the sample directories");
+
+        w << "static const unsigned char sample" << k << "[] = {";
+
+        for (size_t b = 0; b < bytes.size(); b++)
+        {
+            if (b % 16 == 0)
+                w << "\n   ";
+
+            w << " " << (unsigned)(unsigned char)bytes[b] << ",";
+        }
+
+        w << "\n};\n\n";
+    }
+
+    w << "/* Before the first synth loads the graph. */\n"
+      << "void thPluginRegisterSamples (void)\n{\n";
+
+    for (size_t k = 0; k < wavs.size(); k++)
+        w << "    thUtil::addEmbeddedFile(" << quoted("samples/" + wavs[k])
+          << ", sample" << k << ", sizeof(sample" << k << "));\n";
+
+    w << "}\n";
+
+    if (!writeIfChanged(outdir + "/thinksynth_dsp.h", d.str()) ||
+        !writeIfChanged(outdir + "/thinksynth_controls.h", t.str()) ||
+        !writeIfChanged(outdir + "/thinksynth_ui_size.h", u.str()) ||
+        !writeIfChanged(outdir + "/thinksynth_samples.cpp", w.str()))
+        return fail("could not write into " + outdir);
 
     return 0;
 }

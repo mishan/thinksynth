@@ -68,6 +68,8 @@
 
 #include "DistrhoPlugin.hpp"
 
+#include <float.h>
+#include <math.h>
 #include <string.h>
 
 #include <string>
@@ -81,6 +83,9 @@
 
 #include "Controls.h"
 
+/* The graph's samples, compiled in; see controlsgen.cpp. */
+void thPluginRegisterSamples (void);
+
 START_NAMESPACE_DISTRHO
 
 
@@ -92,6 +97,12 @@ public:
           synth_(NULL), held_(0), pos_(0), now_(0), rendered_(0),
           active_(false), pendingHead_(0), pendingCount_(0)
     {
+        /* Before any synth loads the graph: osc::sample finds them there
+           rather than on a disk the plugin has nothing on. */
+        static const bool registered = (thPluginRegisterSamples(), true);
+
+        (void)registered;
+
         values_.resize(controls().size());
         dirty_.assign(controls().size(), 0);
 
@@ -144,7 +155,7 @@ protected:
 
     int64_t getUniqueId (void) const override
     {
-        return d_cconst('T', 's', 'J', 'u');
+        return d_cconst(THINK_PLUGIN_UNIQUE_ID_CHARS);
     }
 
     void initParameter (uint32_t index, Parameter &parameter) override
@@ -408,6 +419,16 @@ private:
         memcpy(&window_[0][0], out, kWindow * sizeof(float));
         memcpy(&window_[1][0], out + (channels > 1 ? kWindow : 0),
                kWindow * sizeof(float));
+
+        /* A decaying tail runs down through the subnormals, and a host is
+           entitled to refuse them -- they are slow to compute with, and
+           the validators fail a plugin that hands them over. Flushed to
+           zero here, on the way out, and not in the engine, whose output
+           stays what the engine computes. */
+        for (int c = 0; c < 2; c++)
+            for (int i = 0; i < kWindow; i++)
+                if (fabsf(window_[c][i]) < FLT_MIN)
+                    window_[c][i] = 0;
 
         held_ = kWindow;
         pos_ = 0;

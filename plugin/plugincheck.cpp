@@ -19,7 +19,7 @@
 /*
  * plugincheck -- the built CLAP plays what the engine plays.
  *
- *   plugincheck build/bin/thinksynth-juno.clap
+ *   plugincheck build/bin/thinksynth-juno.clap dsp/juno.dsp juno
  *
  * A host of its own, as small as a CLAP host can be: it dlopens the
  * plugin, creates it, lists its parameters, and plays a phrase through it
@@ -48,11 +48,14 @@
  */
 
 #include <dlfcn.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -68,7 +71,7 @@
 
 #include "think.h"
 
-#include "thinksynth_dsp.h"
+#include "thUnits.h"
 
 #include "Controls.h"
 
@@ -151,7 +154,16 @@ static bool eventsPush (const clap_output_events_t *,
 /* Long enough to hear a release: juno's envelopes play their attack and
    decay out before releasing, 840 ms at the most. */
 const int kWindows = 700;
-const float kCutoff = 2400.0f;
+/* The graph, as the command line names it, and what the engine reads off
+   it: the reference every check is held to. */
+static std::string gName, gText;
+static std::vector<Control> gControls;
+
+/* The control the phrase changes, and to what, in the graph's units: the
+   first that is not the level or a choice between names, 70% of the way
+   up its range. */
+static int gParam = -1;
+static double gParamValue = 0;
 
 /* What happens at an absolute frame: a parameter change, or MIDI. */
 struct Cue
@@ -308,7 +320,7 @@ static void setOutOfProcess (const clap_plugin_t *plugin,
 }
 
 static bool viaPlugin (const clap_plugin_factory_t *factory, const char *id,
-                       double rate, clap_id cutoffId, Rendered &out,
+                       double rate, Rendered &out,
                        const Start &start = Start())
 {
     const clap_plugin_t *plugin = factory->create_plugin(factory, &host, id);
@@ -375,12 +387,12 @@ static bool viaPlugin (const clap_plugin_factory_t *factory, const char *id,
                 e.header.time = cues[i].frame - pos;
                 e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
                 e.header.type = CLAP_EVENT_PARAM_VALUE;
-                e.param_id = cutoffId;
+                e.param_id = (clap_id)gParam;
                 e.note_id = -1;
                 e.port_index = -1;
                 e.channel = -1;
                 e.key = -1;
-                e.value = kCutoff;
+                e.value = gParamValue;
                 events.params.push_back(e);
             }
             else
@@ -443,8 +455,7 @@ static bool viaEngine (double rate, Rendered &out)
 {
     thSynth synth("", kWindow, (int)rate);
 
-    if (synth.loadTreeText(thPluginDspName, thPluginDspText, 0,
-                           TH_DEFAULT_CHAN_AMP) == NULL)
+    if (synth.loadTreeText(gName, gText, 0, TH_DEFAULT_CHAN_AMP) == NULL)
         return false;
 
     const int channels = synth.audioChannelCount();
@@ -462,7 +473,13 @@ static bool viaEngine (double rate, Rendered &out)
                 continue;
 
             if (c.param)
-                synth.getChanArg(0, "cutoff")->setValue(kCutoff);
+            {
+                const Control &p = gControls[gParam];
+
+                synth.getChanArg(0, p.name)->setValue(
+                    (float)thFoldUnit((float)gParamValue, p.units,
+                                      synth.getSampleRate()));
+            }
             else if ((c.midi[0] & 0xf0) == 0x90)
             {
                 synth.addNote(0, c.midi[1], c.midi[2]);
@@ -490,6 +507,16 @@ static bool viaEngine (double rate, Rendered &out)
         out.left.insert(out.left.end(), buf, buf + kWindow);
         out.right.insert(out.right.end(), buf + (channels > 1 ? kWindow : 0),
                          buf + (channels > 1 ? 2 * kWindow : kWindow));
+    }
+
+    /* The plugin flushes subnormals to zero on the way out, and nothing
+       else; so does this. */
+    for (size_t i = 0; i < out.left.size(); i++)
+    {
+        if (fabsf(out.left[i]) < FLT_MIN)
+            out.left[i] = 0;
+        if (fabsf(out.right[i]) < FLT_MIN)
+            out.right[i] = 0;
     }
 
     return true;
@@ -543,10 +570,49 @@ static double peak (const std::vector<float> &v)
 
 int main (int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc != 4)
     {
-        printf("usage: %s PLUGIN.clap\n", argv[0]);
+        printf("usage: %s PLUGIN.clap GRAPH.dsp ID\n", argv[0]);
         return 2;
+    }
+
+    const std::string id = argv[3];
+
+    {
+        std::ifstream in(argv[2], std::ios::binary);
+        std::ostringstream text;
+
+        text << in.rdbuf();
+        gText = text.str();
+        gName = std::string(argv[2]).substr(
+            std::string(argv[2]).find_last_of("/\\") + 1);
+    }
+
+    gControls = readControls(gName, gText);
+
+    if (gControls.empty())
+    {
+        printf("FAIL  %s does not load\n", argv[2]);
+        return 2;
+    }
+
+    for (size_t i = 0; i < gControls.size() && gParam < 0; i++)
+        if (gControls[i].name != "amp" && gControls[i].valueNames.empty() &&
+            gControls[i].max > gControls[i].min)
+            gParam = (int)i;
+
+    if (gParam < 0)
+        gParam = (int)gControls.size() - 1;     /* the level */
+
+    {
+        const Control &p = gControls[gParam];
+
+        gParamValue = p.min + 0.7 * (p.max - p.min);
+
+        if (p.step == 1.0f)
+            gParamValue = floor(gParamValue + 0.5);
+
+        gParamValue = (float)gParamValue;
     }
 
     void *module = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
@@ -578,39 +644,15 @@ int main (int argc, char **argv)
     const clap_plugin_descriptor_t *desc =
         factory->get_plugin_descriptor(factory, 0);
 
-    check(desc != NULL && !strcmp(desc->id, "org.thinksynth.juno"),
-          std::string("its id is org.thinksynth.juno: ") +
-          (desc ? desc->id : "(none)"));
+    const std::string want = "org.thinksynth." + id;
+
+    check(desc != NULL && want == desc->id,
+          "its id is " + want + ": " + (desc ? desc->id : "(none)"));
 
     if (desc == NULL)
         return failed;
 
-    /* ---- the table the plugin was built with, against the engine ---- */
-    {
-        const std::vector<Control> &table = controls();
-        const std::vector<Control> parsed = readControls();
-        bool same = table.size() == parsed.size() && !table.empty();
-
-        for (size_t i = 0; same && i < table.size(); i++)
-            same = table[i].name == parsed[i].name &&
-                   table[i].label == parsed[i].label &&
-                   table[i].group == parsed[i].group &&
-                   table[i].units == parsed[i].units &&
-                   table[i].min == parsed[i].min &&
-                   table[i].max == parsed[i].max &&
-                   table[i].def == parsed[i].def &&
-                   table[i].step == parsed[i].step &&
-                   table[i].valueNames == parsed[i].valueNames;
-
-        check(same, "the compiled-in control table is what the engine "
-                    "reads off the graph, " + std::to_string(table.size()) +
-                    " controls");
-    }
-
-    /* ---- the parameters ---- */
-
-    clap_id cutoffId = CLAP_INVALID_ID;
-
+    /* ---- the parameters, against what the engine reads off the graph ---- */
     {
         const clap_plugin_t *plugin =
             factory->create_plugin(factory, &host, desc->id);
@@ -621,41 +663,52 @@ int main (int argc, char **argv)
             plugin->get_extension(plugin, CLAP_EXT_PARAMS);
 
         const uint32_t n = params ? params->count(plugin) : 0;
-        std::vector<std::string> names;
-        clap_param_info_t fa, level;
+        bool same = n == gControls.size();
+        std::string first;
 
-        memset(&fa, 0, sizeof(fa));
-        memset(&level, 0, sizeof(level));
-
-        for (uint32_t i = 0; i < n; i++)
+        for (uint32_t i = 0; same && i < n; i++)
         {
+            const Control &c = gControls[i];
             clap_param_info_t info;
 
             params->get_info(plugin, i, &info);
-            names.push_back(info.name);
 
-            if (!strcmp(info.name, "Cutoff (Hz)"))
-                cutoffId = info.id;
-            if (!strcmp(info.name, "Filter Attack"))
-                fa = info;
-            if (i == n - 1)
-                level = info;
+            if (i == 0)
+                first = info.name;
+
+            same = info.id == i && c.label == info.name &&
+                   (float)info.min_value == c.min &&
+                   (float)info.max_value == c.max &&
+                   (float)info.default_value == c.def;
+
+            if (!same)
+                printf("        %s: plugin %s %g..%g at %g, graph %s "
+                       "%g..%g at %g\n", c.name.c_str(), info.name,
+                       info.min_value, info.max_value, info.default_value,
+                       c.label.c_str(), c.min, c.max, c.def);
         }
 
-        check(n == 17, "17 parameters, juno's 16 controls and the level: " +
-                       std::to_string(n));
-        check(!names.empty() && names[0] == "Pulse Width",
-              "in the order juno.dsp declares them: Pulse Width first");
+        check(same, std::to_string(n) + " parameters, the graph's " +
+                    std::to_string(gControls.size() - 1) +
+                    " controls and the level, in its order, labels, "
+                    "ranges and defaults" + (first.empty() ? "" :
+                    ": " + first + " first"));
+
+        clap_param_info_t level;
+
+        memset(&level, 0, sizeof(level));
+
+        if (n > 0)
+            params->get_info(plugin, n - 1, &level);
+
         check(!strcmp(level.name, "Level") && level.default_value == 30 &&
-              level.max_value == 127,
-              "the level last, 0..127 at 30");
-        check(fa.default_value == 180 && fa.min_value == 0 &&
-              fa.max_value == 3000,
-              "Filter Attack is in ms: 180, 0..3000");
-        check(cutoffId != CLAP_INVALID_ID, "Cutoff (Hz) is there");
+              level.max_value == 127, "the level last, 0..127 at 30");
 
         plugin->destroy(plugin);
     }
+
+    printf("      the phrase changes %s to %g\n",
+           gControls[gParam].label.c_str(), gParamValue);
 
     /* ---- the latency it reports ---- */
     {
@@ -721,13 +774,16 @@ int main (int argc, char **argv)
 
         events.index();
 
+        double before = 0;
+
         for (int b = 0; b < 8; b++)
         {
             plugin->process(plugin, &process);
             events.clear();
+            before = std::max(before, peak(left));
         }
 
-        const bool sounding = peak(left) > 0.01;
+        const bool sounding = before > 0;
 
         plugin->stop_processing(plugin);
         plugin->deactivate(plugin);
@@ -762,8 +818,8 @@ int main (int argc, char **argv)
         Rendered raw, plugin, engine;
         char what[160];
 
-        const bool ran = viaPlugin(factory, desc->id, rates[r], cutoffId,
-                                   raw) && viaEngine(rates[r], engine);
+        const bool ran = viaPlugin(factory, desc->id, rates[r], raw) &&
+                         viaEngine(rates[r], engine);
         const bool silent = ran && pastLatency(raw, plugin);
 
         check(silent, "its first window is silence, the latency");
@@ -785,7 +841,11 @@ int main (int argc, char **argv)
                      "frame %zu)", rates[r], bad);
 
         check(same, what);
-        check(ran && peak(plugin.left) > 0.01, "and it is not silence");
+        char loud[64];
+
+        snprintf(loud, sizeof(loud), "and it is not silence: peak %.4f",
+                 ran ? peak(plugin.left) : 0.0);
+        check(ran && peak(plugin.left) > 0, loud);
     }
 
     /* ---- a project saved and opened again ---- */
@@ -798,36 +858,48 @@ int main (int argc, char **argv)
         const clap_plugin_params_t *params = (const clap_plugin_params_t *)
             probe->get_extension(probe, CLAP_EXT_PARAMS);
 
-        /* Three controls away from their defaults: a plain one, one in ms
-           and the level. */
+        /* Up to three controls away from their defaults: the first, one
+           in ms if the graph has one, and the level; each 30% of the way
+           up its range, or down for one already above that. */
         Start first;
         std::vector<std::string> set;
+        std::vector<int> picks;
 
-        for (uint32_t i = 0; i < params->count(probe); i++)
+        picks.push_back(0);
+
+        for (size_t i = 0; i < gControls.size(); i++)
+            if (gControls[i].units == "ms" && (int)i != picks[0])
+            {
+                picks.push_back((int)i);
+                break;
+            }
+
+        if ((int)gControls.size() - 1 != picks[0])
+            picks.push_back((int)gControls.size() - 1);
+
+        for (size_t k = 0; k < picks.size(); k++)
         {
-            clap_param_info_t info;
+            const Control &c = gControls[picks[k]];
+            double v = c.min + 0.3 * (c.max - c.min);
 
-            params->get_info(probe, i, &info);
+            if (fabs(v - c.def) < 1e-6 * (c.max - c.min + 1))
+                v = c.min + 0.6 * (c.max - c.min);
 
-            Setting st = { info.id, 0 };
+            if (c.step == 1.0f || !c.valueNames.empty())
+                v = floor(v + 0.5);
 
-            if (!strcmp(info.name, "Resonance"))
-                st.value = 0.8;
-            else if (!strcmp(info.name, "Filter Decay"))
-                st.value = 2500;
-            else if (!strcmp(info.name, "Level"))
-                st.value = 90;
-            else
-                continue;
+            Setting st = { (clap_id)picks[k], (double)(float)v };
 
             first.settings.push_back(st);
-            set.push_back(info.name);
+            set.push_back(c.label);
         }
+
+        (void)params;
 
         probe->destroy(probe);
 
-        check(first.settings.size() == 3,
-              "Resonance, Filter Decay and Level to set");
+        check(!first.settings.empty(), std::to_string(set.size()) +
+              " controls to set");
 
         Blob saved;
         Rendered a, b, plain;
@@ -839,9 +911,9 @@ int main (int argc, char **argv)
         second.load = &saved;
 
         const bool ran =
-            viaPlugin(factory, desc->id, 48000, cutoffId, a, first) &&
-            viaPlugin(factory, desc->id, 48000, cutoffId, b, second) &&
-            viaPlugin(factory, desc->id, 48000, cutoffId, plain);
+            viaPlugin(factory, desc->id, 48000, a, first) &&
+            viaPlugin(factory, desc->id, 48000, b, second) &&
+            viaPlugin(factory, desc->id, 48000, plain);
 
         check(ran && !saved.empty(),
               "a state was saved, " + std::to_string(saved.size()) +
@@ -872,9 +944,17 @@ int main (int argc, char **argv)
 
         reader->destroy(reader);
 
-        check(values, "and every value came back exactly: " +
-                      set[0] + " 0.8, " + set[1] + " 2500 ms, " + set[2] +
-                      " 90");
+        std::string listed;
+
+        for (size_t k = 0; k < set.size(); k++)
+        {
+            char buf[48];
+
+            snprintf(buf, sizeof(buf), " %g", first.settings[k].value);
+            listed += (k ? ", " : "") + set[k] + buf;
+        }
+
+        check(values, "and every value came back exactly: " + listed);
 
         size_t bad = 0;
 

@@ -66,9 +66,12 @@ struct ControlRow
  * them, and then the channel's level. */
 const std::vector<Control> &controls (void);
 
-/* The same, parsed off the engine: controlsgen's source, and plugincheck's
-   reference. Needs the engine linked; nothing in a host calls it. */
-std::vector<Control> readControls (void);
+/* The same for the graph `text', named `name' in log lines, parsed off
+   the engine: controlsgen's source, and plugincheck's reference. Needs
+   the engine linked; nothing in a host calls it. Empty if the graph did
+   not load. */
+std::vector<Control> readControls (const std::string &name,
+                                   const std::string &text);
 
 /* Whether a control turns on a log scale: a range starting above zero and
  * spanning more than a factor of twenty, which is where cutoffs and rates

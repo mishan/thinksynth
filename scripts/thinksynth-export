@@ -1,0 +1,64 @@
+#!/bin/sh
+#
+# Copyright (C) 2004-2026 Metaphonic Labs
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+
+# thinksynth-export -- one .dsp, from anywhere, as a CLAP, a VST3 and an
+# LV2 instrument.
+#
+#   scripts/thinksynth-export path/to/pad.dsp [OUTDIR]
+#
+# Configures a build of its own beside this tree (build-export/, or
+# $THINK_EXPORT_BUILD) with the plugin on and only this graph in it,
+# builds it, and copies thinksynth-ID.clap, thinksynth-ID.vst3/ and
+# thinksynth-ID.lv2/ into OUTDIR (./, by default). ID is the file's name
+# without .dsp, and is the plugin's identity in a host's saved projects:
+# rename the file and it is another plugin.
+#
+# Samples the graph names are compiled in, found in samples/ beside the
+# .dsp and then in this tree's dsp/samples/. An effect graph -- one that
+# takes input -- is refused. The first build fetches DPF and needs the
+# network; later ones reuse the build.
+
+set -e
+
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+    echo "usage: $0 GRAPH.dsp [OUTDIR]" >&2
+    exit 2
+fi
+
+case "$1" in
+    *.dsp) ;;
+    *) echo "$0: $1 is not a .dsp" >&2; exit 2 ;;
+esac
+
+if [ ! -f "$1" ]; then
+    echo "$0: no such file: $1" >&2
+    exit 2
+fi
+
+top=$(cd "$(dirname "$0")/.." && pwd)
+dsp=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+id=$(basename "$1" .dsp)
+out=${2:-.}
+build=${THINK_EXPORT_BUILD:-$top/build-export}
+
+cmake -S "$top" -B "$build" -DCMAKE_BUILD_TYPE=Release \
+      -DTHINK_BUILD_PLUGIN=ON "-DTHINK_PLUGIN_DSPS=$dsp" >/dev/null
+
+cmake --build "$build" --target "thinksynth-$id-clap" "thinksynth-$id-vst3" \
+      "thinksynth-$id-lv2"
+
+mkdir -p "$out"
+
+for bundle in "thinksynth-$id.clap" "thinksynth-$id.vst3" \
+              "thinksynth-$id.lv2"; do
+    rm -rf "${out:?}/$bundle"
+    cp -R "$build/bin/$bundle" "$out/"
+done
+
+echo "$id: thinksynth-$id.clap, .vst3 and .lv2 in $out"

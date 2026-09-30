@@ -1,34 +1,69 @@
-# thinksynth as an audio plugin
+# thinksynth as audio plugins
 
-`plugin/` builds `dsp/juno.dsp` as an instrument plugin a DAW can load: a
-CLAP, a VST3 and an LV2, from one source, through
-[DPF](https://github.com/DISTRHO/DPF). The graph is compiled in, and so is
-the engine (`think_embedded`), so a plugin is one file or bundle with
-nothing beside it.
+`plugin/` builds any instrument `.dsp` as a plugin a DAW can load: a CLAP,
+a VST3 and an LV2, from one source, through
+[DPF](https://github.com/DISTRHO/DPF). The graph is compiled in, and so are
+the engine (`think_embedded`) and any samples the graph plays, so a plugin
+is one file or bundle with nothing beside it.
 
 ## Building
 
 ```sh
-cmake -S . -B build -DTHINK_BUILD_PLUGIN=ON
+cmake -S . -B build -DTHINK_BUILD_PLUGIN=ON                     # juno
+cmake -S . -B build -DTHINK_BUILD_PLUGIN=ON "-DTHINK_PLUGIN_DSPS=juno;ebass"
+cmake -S . -B build -DTHINK_BUILD_PLUGIN=ON -DTHINK_PLUGIN_DSPS=all
 cmake --build build
 ```
 
+`THINK_PLUGIN_DSPS` names the graphs: a name in `dsp/` (`ebass` for
+`dsp/ebass.dsp`), a path to a `.dsp` anywhere, or `all` for every
+instrument in `dsp/` -- 65 of them, a couple of minutes on a many-core
+machine. It defaults to `juno`. For one `.dsp` from anywhere there is
+
+```sh
+scripts/thinksynth-export path/to/pad.dsp OUTDIR
+```
+
+which builds it in `build-export/` and copies its three bundles into
+`OUTDIR`.
+
 The first configure fetches DPF (pinned to a commit), and on Linux the two
-validators the tests run. The bundles land in `build/bin/`:
+validators the tests run. For each graph the bundles land in `build/bin/`,
+named for its file -- `ID` is `juno` for `juno.dsp`:
 
 | Format | Path | Where a host looks on Linux |
 |---|---|---|
-| CLAP | `build/bin/thinksynth-juno.clap` | `~/.clap/` |
-| VST3 | `build/bin/thinksynth-juno.vst3/` | `~/.vst3/` |
-| LV2 | `build/bin/thinksynth-juno.lv2/` | `~/.lv2/` |
+| CLAP | `build/bin/thinksynth-ID.clap` | `~/.clap/` |
+| VST3 | `build/bin/thinksynth-ID.vst3/` | `~/.vst3/` |
+| LV2 | `build/bin/thinksynth-ID.lv2/` | `~/.lv2/` |
+
+## What a graph becomes
+
+- **Identity.** A plugin is named `thinksynth` and the graph's own `name`
+  ("thinksynth Juno"); its CLAP id is `org.thinksynth.ID`, its LV2 URI
+  `https://github.com/mishan/thinksynth/ID`, and its VST3 id four
+  characters hashed from `ID` (juno keeps the `TsJu` it had first). A
+  host's saved project names the plugin by these, so they come from the
+  file's name and renaming the file makes another plugin. `ID` has to be
+  letters, digits and `_`.
+- **Kind.** A graph filed under `category "Drums"` is a drum to a host; any
+  other is a synth.
+- **Samples.** Every quoted `.wav` the graph names is compiled in, found in
+  `samples/` beside the `.dsp` and then in `dsp/samples/`; `osc::sample`
+  finds the compiled-in copy before it looks on disk
+  (`thUtil::addEmbeddedFile`). A missing sample stops the build.
+- **Instruments only.** An effect graph -- one that takes input, like
+  those in `dsp/fx/` -- is refused at build time.
+- **Output.** Subnormal samples in a decaying tail are flushed to zero on
+  the way out; hosts and the validators refuse them.
 
 Symlinks are the easy way to keep a host pointed at the latest build:
 
 ```sh
 mkdir -p ~/.clap ~/.vst3 ~/.lv2
-ln -sfn "$PWD/build/bin/thinksynth-juno.clap" ~/.clap/
-ln -sfn "$PWD/build/bin/thinksynth-juno.vst3" ~/.vst3/
-ln -sfn "$PWD/build/bin/thinksynth-juno.lv2"  ~/.lv2/
+for b in build/bin/thinksynth-*.clap; do ln -sfn "$PWD/$b" ~/.clap/; done
+for b in build/bin/thinksynth-*.vst3; do ln -sfn "$PWD/$b" ~/.vst3/; done
+for b in build/bin/thinksynth-*.lv2;  do ln -sfn "$PWD/$b" ~/.lv2/;  done
 ```
 
 Outside the C and C++ runtimes, the plugin links the system's
@@ -91,7 +126,8 @@ back.
 
 ## Parameters
 
-One per control `juno.dsp` declares, in the order it declares them, with
+One per control the graph declares with a widget, in the order it declares
+them, with
 its label and range, and then *Level*, the channel's amplitude (0..127, at
 30). A time control is in milliseconds, as the file writes it, and is
 converted at the host's sample rate; a saved project means the same thing
@@ -137,13 +173,20 @@ sounding when the host stopped processing is gone when it starts again.
 
 ## Tests
 
-With `THINK_BUILD_PLUGIN=ON`, ctest adds:
+With `THINK_BUILD_PLUGIN=ON`, ctest adds, for every graph built (`ID` as
+above):
 
 | Test | Checks |
 |---|---|
-| `plugincheck` | the compiled-in control table against the engine's own parse; a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; the parameter list; and a project's round trip, state saved from one instance and loaded into a fresh one |
-| `plugin.clap-validator` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
-| `plugin.pluginval` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10, opening and automating the editor |
+| `plugincheck.ID` | the plugin's parameters against the engine's own parse of the `.dsp` -- order, labels, ranges, defaults, the level last; a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a change to the first control, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the `.dsp` one window later, bit for bit, at 48 and 44.1 kHz, the engine reading the graph's samples off disk and the plugin its compiled-in copies; the reported latency; a chord gone after the host stops and starts; and a project's round trip, state saved from one instance and loaded into a fresh one |
+| `plugin.clap-validator.ID` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
+| `plugin.pluginval.ID` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10, opening and automating the editor |
+
+and, when juno is among them -- the editor is the same code whatever the
+graph -- on juno's:
+
+| Test | Checks |
+|---|---|
 | `uicheck` | the editor with no window: every knob found where it is drawn, drag and wheel arithmetic, the log scale, NaN and out-of-range values, a panel of ungrouped knobs wrapping, long group names clipped, how values are spelled, and the panel drawn at 1x and 2x |
 | `guicheck` | the editor through CLAP as a real window, at a scale of 1 and of 2: its size, its pixels read back off the X server against the panel's own drawing, and a knob dragged with XTest input landing where the panel's arithmetic says, as one gesture to the host |
 
