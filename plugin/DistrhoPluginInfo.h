@@ -22,14 +22,15 @@
  *
  * The identities are forever once a host has saved a project with the
  * plugin in it: the LV2 URI, the CLAP id and the VST3 unique ID are what a
- * project names the plugin by. */
+ * project names the plugin by. The URI has no fragment because DPF makes
+ * the editor's from it by appending one. */
 
 #ifndef DISTRHO_PLUGIN_INFO_H_INCLUDED
 #define DISTRHO_PLUGIN_INFO_H_INCLUDED
 
 #define DISTRHO_PLUGIN_BRAND   "thinksynth"
 #define DISTRHO_PLUGIN_NAME    "thinksynth Juno"
-#define DISTRHO_PLUGIN_URI     "https://github.com/mishan/thinksynth#juno"
+#define DISTRHO_PLUGIN_URI     "https://github.com/mishan/thinksynth/juno"
 #define DISTRHO_PLUGIN_CLAP_ID "org.thinksynth.juno"
 
 #define DISTRHO_PLUGIN_BRAND_ID  Thnk
