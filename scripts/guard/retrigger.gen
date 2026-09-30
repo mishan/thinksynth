@@ -1,0 +1,63 @@
+# A key struck again while it still sounds, and a key struck twice at
+# once. Every note is C4 on one organ, which holds at full level until
+# its off, so a section reads loud exactly while a voice is keyed.
+#
+#   retrigger  a 0-3 s, b 1-4 s: b holds past 3 s
+#   doubled    c 5-8 s and d 5-5.25 s, d delivered second: 8 s wins
+#   reversed   e 10-10.25 s and f 10-13 s, f delivered second
+#
+# Before the scheduler dropped a retriggered key's pending off, a's off
+# ended b at 3 s, and d's (or e's) ended the doubled voice at 0.25 s.
+
+tempo 60;
+
+section one        3.3 s { };
+section retrigger  0.5 s { };
+section rest       1.7 s { };
+section doubled    2 s   { };
+section rest2      3 s   { };
+section reversed   2 s   { };
+section end;
+
+instrument org { dsp "organ0.dsp"; };
+
+chain a {
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 3 beats; };
+    sink { instrument = org; };
+};
+
+chain b {
+    start = 1 beats;
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 3 beats; };
+    sink { instrument = org; };
+};
+
+chain c {
+    start = 5 beats;
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 3 beats; };
+    sink { instrument = org; };
+};
+
+chain d {
+    start = 5 beats;
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 0.25 beats; };
+    sink { instrument = org; };
+};
+
+chain e {
+    start = 10 beats;
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 0.25 beats; };
+    sink { instrument = org; };
+};
+
+chain f {
+    start = 10 beats;
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 3 beats; };
+    sink { instrument = org; };
+};

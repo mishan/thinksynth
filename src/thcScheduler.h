@@ -1043,6 +1043,7 @@ private:
     void deliver (const thcEvent &ev);           /* -> synth addNote /
                                                     chanarg, derive off  */
     void flushNoteOffs (void);
+    double dropNoteOffs (int channel, int note, double struck);
     void rearmStage (size_t chain, size_t stage);
     unsigned stageSeed (size_t chain, size_t stage) const;
 
@@ -1164,7 +1165,9 @@ private:
 
     /* seq is push order, Later's tie-break; see there. */
     struct Wakeup  { double at; size_t chain, stage; unsigned long seq; };
-    struct NoteOff { double at; int channel, note; unsigned long seq; };
+    /* `from' is when the note it ends was struck; see dropNoteOffs. */
+    struct NoteOff { double at; int channel, note; unsigned long seq;
+                     double from; };
 
     /* A queued event. The chanarg name a composer emitted is a pointer
        into memory it owns and may rewrite on its next tick, so the copy
@@ -1238,7 +1241,7 @@ private:
     /* Notes delivered with duration <= 0: held until a THC_EV_NOTEOFF
        releases them, or until stop()/clearChains flushes them -- a
        pause must not hang a key any more than it hangs a note. */
-    std::vector<NoteOff> held_;      /* .at and .seq unused              */
+    std::vector<NoteOff> held_;      /* .at, .seq and .from unused       */
 
     /* True while an injectMidi* call is propagating on a stopped
        transport; what falls out of the chains is delivered immediately

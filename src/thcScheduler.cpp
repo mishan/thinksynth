@@ -21,6 +21,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "think.h"
@@ -2543,20 +2544,39 @@ thcScheduler::deliver (const thcEvent &ev)
     {
         case THC_EV_NOTE:
         {
-            synth_->addNote(ev.channel, ev.u.note.note,
-                            ev.u.note.velocity, ev.u.note.level,
-                            ev.u.note.aux);
+            const bool sounded =
+                synth_->addNote(ev.channel, ev.u.note.note,
+                                ev.u.note.velocity, ev.u.note.level,
+                                ev.u.note.aux);
+
+            /* A channel keys its voices by note number, so this note has
+               just put the one sounding on its key into release
+               (thMidiChan::insertNote), and an off still pending for
+               that key would find this note under it instead: the off
+               for a note 0-3 s retriggered at 1 s ended the retrigger at
+               3 s rather than 4. Those offs have nothing left to end.
+               Kept where addNote failed, since the old voice is then
+               still keyed and still needs its off. */
+            const double doubled =
+                sounded ? dropNoteOffs(ev.channel, ev.u.note.note, ev.at)
+                        : -HUGE_VAL;
 
             /* A composed note carries its whole life in the duration;
                the off lands exactly there, keyed off the event's own
                time so a replay derives an identical off stream. A held
                note (duration <= 0, live input's spelling of "who
-               knows") waits for its NOTEOFF instead. */
+               knows") waits for its NOTEOFF instead.
+
+               Two notes struck on one key at one instant -- two chains
+               doubling a hit -- are one voice however they arrive, and
+               it lasts as long as the longer of them, not as long as
+               whichever chain happened to deliver second. */
             if (ev.u.note.duration > 0)
             {
-                noteOffs_.push_back({ ev.at + ev.u.note.duration,
+                noteOffs_.push_back({ std::max(ev.at + ev.u.note.duration,
+                                               doubled),
                                       ev.channel, ev.u.note.note,
-                                      heapSeq_++ });
+                                      heapSeq_++, ev.at });
                 std::push_heap(noteOffs_.begin(), noteOffs_.end(),
                                Later());
             }
@@ -2630,6 +2650,39 @@ thcScheduler::flushNoteOffs (void)
         synth_->delNote(noteOffs_.back().channel, noteOffs_.back().note);
         noteOffs_.pop_back();
     }
+}
+
+/* The derived offs pending for one key, removed: see deliver(). The
+   latest of those whose note was struck at `struck' -- within a
+   microsecond, since two chains reach one beat through different
+   arithmetic -- or -HUGE_VAL where none was. */
+double
+thcScheduler::dropNoteOffs (int channel, int note, double struck)
+{
+    double doubled = -HUGE_VAL;
+    size_t kept = 0;
+
+    for (size_t i = 0; i < noteOffs_.size(); i++)
+    {
+        const NoteOff &off = noteOffs_[i];
+
+        if (off.channel != channel || off.note != note)
+        {
+            noteOffs_[kept++] = off;
+            continue;
+        }
+
+        if (fabs(off.from - struck) < 1e-6)
+            doubled = std::max(doubled, off.at);
+    }
+
+    if (kept != noteOffs_.size())
+    {
+        noteOffs_.resize(kept);
+        std::make_heap(noteOffs_.begin(), noteOffs_.end(), Later());
+    }
+
+    return doubled;
 }
 
 void
