@@ -13,8 +13,10 @@
 # into the three formats; it carries its own VST3 implementation, so the
 # Steinberg SDK is not a dependency. Pinned to a commit: DPF has no tags,
 # and a plugin's identity in a saved project is not a thing to let drift
-# with someone else's default branch. Its submodule, pugl, is for editors,
-# and this plugin has none.
+# with someone else's default branch. Its one submodule, pugl, is the window
+# the editor is drawn in; on Linux that wants X11, Xcursor, Xext, Xrandr,
+# D-Bus and cairo (libx11-dev libxcursor-dev libxext-dev libxrandr-dev
+# libdbus-1-dev libcairo2-dev).
 
 include(FetchContent)
 
@@ -27,7 +29,7 @@ include(FetchContent)
 FetchContent_Declare(dpf
     GIT_REPOSITORY https://github.com/DISTRHO/DPF.git
     GIT_TAG        4238e1c7f0351bbe488d79f0899c540543ac7583
-    GIT_SUBMODULES ""
+    GIT_SUBMODULES "dgl/src/pugl-upstream"
     PATCH_COMMAND  "${CMAKE_COMMAND}"
                    "-DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/dpf-clap-latency.patch"
                    -P "${CMAKE_CURRENT_SOURCE_DIR}/ApplyPatch.cmake")
@@ -72,7 +74,10 @@ configure_file("${CMAKE_CURRENT_BINARY_DIR}/thinksynth_dsp.h.new"
 
 dpf_add_plugin(thinksynth-juno
     TARGETS clap vst3 lv2
-    FILES_DSP ThinkPlugin.cpp)
+    UI_TYPE cairo
+    FILES_COMMON Controls.cpp
+    FILES_DSP ThinkPlugin.cpp
+    FILES_UI Panel.cpp ThinkUI.cpp)
 
 target_include_directories(thinksynth-juno PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -84,9 +89,29 @@ target_link_libraries(thinksynth-juno PUBLIC think_embedded)
 # .ttl, casts away a const GCC warns about.
 target_compile_options(lv2_ttl_generator PRIVATE -Wno-discarded-qualifiers)
 
+# DPF's window library as DPF builds it on its own, in C++11: under this
+# tree's C++17 its pugl wrapper includes <cstdbool>, which warns there.
+set_target_properties(dgl-cairo PROPERTIES CXX_STANDARD 11)
+
+# And its file browser, which this plugin does not open, without the one
+# warning GCC has about its fixed-size path buffers.
+target_compile_options(dgl-cairo PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:-Wno-format-overflow>)
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+# The editor with no window: see uicheck.cpp. It writes what it drew to
+# editor.png beside itself.
+add_executable(uicheck uicheck.cpp Controls.cpp Panel.cpp)
+target_include_directories(uicheck PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(uicheck PRIVATE think_embedded PkgConfig::CAIRO)
+
+add_test(NAME uicheck
+         COMMAND uicheck "${CMAKE_CURRENT_BINARY_DIR}/editor.png")
 
 # The built CLAP against the engine: see plugincheck.cpp. dlopen, so Unix.
 if(NOT WIN32)
@@ -102,12 +127,14 @@ if(NOT WIN32)
 endif()
 
 # The formats' own validators, run on what was built: clap-validator on the
-# CLAP, pluginval on the VST3 at its strictest. Linux builds of both, fetched
-# at pinned releases, so Linux only. CMAKE_TEST_LAUNCHER -- scripts/headless.sh
+# CLAP, pluginval on the VST3 at its strictest, its editor tests included --
+# it opens the editor and automates it. Linux builds of both, fetched at
+# pinned releases, so Linux only. CMAKE_TEST_LAUNCHER -- scripts/headless.sh
 # -- reaches only a test whose command is a target this build makes, and
-# these two are fetched binaries named by path, so it goes on them by hand.
-# The one warning clap-validator gives -- state that loads from random
-# bytes -- is DPF's state reader, not this plugin.
+# these two are fetched binaries named by path, so it goes on them by hand:
+# it is what keeps the editor on a private display. The one warning
+# clap-validator gives -- state that loads from random bytes -- is DPF's
+# state reader, not this plugin.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   FetchContent_Declare(clapvalidator
       URL https://github.com/free-audio/clap-validator/releases/download/0.4.1/clap-validator-0.4.1-127-g152b982-ubuntu-22.04.zip
@@ -136,7 +163,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
   add_test(NAME plugin.pluginval
            COMMAND ${CMAKE_TEST_LAUNCHER} "${pluginval_SOURCE_DIR}/pluginval"
-                   --strictness-level 10 --skip-gui-tests
+                   --strictness-level 10
                    --validate-in-process
                    --validate "${PROJECT_BINARY_DIR}/bin/thinksynth-juno.vst3")
 

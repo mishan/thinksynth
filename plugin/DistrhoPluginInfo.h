@@ -17,8 +17,8 @@
  */
 
 /* What DPF asks of a plugin at compile time: its names and identities in
- * each format, and its shape. One instrument, MIDI in, stereo out, no
- * editor of its own -- the host draws a control for each parameter.
+ * each format, and its shape. One instrument, MIDI in, stereo out, and an
+ * editor drawn with cairo (ThinkUI.cpp).
  *
  * The identities are forever once a host has saved a project with the
  * plugin in it: the LV2 URI, the CLAP id and the VST3 unique ID are what a
@@ -36,7 +36,14 @@
 #define DISTRHO_PLUGIN_BRAND_ID  Thnk
 #define DISTRHO_PLUGIN_UNIQUE_ID TsJu
 
-#define DISTRHO_PLUGIN_HAS_UI           0
+#define DISTRHO_PLUGIN_HAS_UI           1
+#define DISTRHO_UI_USE_CAIRO            1
+#define DISTRHO_UI_USER_RESIZABLE       0
+
+/* What a host that asks before the editor exists is told; the editor then
+   sizes itself to its panel (Panel.h). */
+#define DISTRHO_UI_DEFAULT_WIDTH        880
+#define DISTRHO_UI_DEFAULT_HEIGHT       340
 #define DISTRHO_PLUGIN_IS_SYNTH         1
 #define DISTRHO_PLUGIN_NUM_INPUTS       0
 #define DISTRHO_PLUGIN_NUM_OUTPUTS      2

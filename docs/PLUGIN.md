@@ -47,8 +47,35 @@ unrestricted.
 3. Arm the track for recording and set its input to *MIDI → All MIDI
    inputs*, then play a MIDI keyboard; or open *View → Virtual MIDI
    keyboard*.
-4. The plugin's window lists every parameter as a slider. Reaper draws
-   these itself -- the plugin has no editor of its own yet.
+4. The FX window shows the plugin's own editor (below). Reaper's *UI*
+   button switches to its generic list of sliders; in the VST3 that list
+   starts with 2,080 *MIDI Ch. n CC m* entries -- VST3 has no MIDI
+   controllers, so a plugin that wants them declares a hidden parameter
+   for each, and Reaper lists hidden ones. The CLAP has none of them.
+
+## The editor
+
+A panel of knobs, one per parameter, in titled boxes -- one per
+`@x.group` the `.dsp` declares, in the order it first names each, and
+*Output* for the level. `juno.dsp` groups its controls as *Oscillator*,
+*Filter*, *Chorus* and *Envelope*.
+
+| Gesture | Does |
+|---|---|
+| drag up / down | turns the knob; the full travel is 200 pixels |
+| Shift-drag | ten times finer |
+| mouse wheel | a fiftieth of the travel a notch (Shift: a five-hundredth); a whole-numbered control moves by one |
+| double-click | back to the `.dsp`'s value |
+
+A drag is one gesture to the host, so automation records it as one. A range
+that starts above zero and spans more than a factor of twenty -- *Cutoff*,
+the rates, *Filter Decay* -- turns on a log scale; the host still sees the
+plain value. A value is shown in the `.dsp`'s units, and a label ending in
+one in brackets, `Cutoff (Hz)`, is drawn *Cutoff* over *700 Hz*.
+
+The drawing and the knob arithmetic are `plugin/Panel.cpp`, which knows
+nothing about windows; `plugin/ThinkUI.cpp` is the DPF window around it.
+`uicheck` renders the panel to `build/plugin/editor.png`.
 
 ## Parameters
 
@@ -104,7 +131,8 @@ With `THINK_BUILD_PLUGIN=ON`, ctest adds:
 |---|---|
 | `plugincheck` | a small CLAP host plays a phrase through the built plugin in uneven block sizes -- notes on two channels, a parameter change, all notes off and all sound off, at frames inside windows and blocks -- and requires it to be `thSynth` rendering the same graph one window later, bit for bit, at 48 and 44.1 kHz; the reported latency; a chord gone after the host stops and starts; the parameter list; and a project's round trip, state saved from one instance and loaded into a fresh one |
 | `plugin.clap-validator` | [clap-validator](https://github.com/free-audio/clap-validator) on the CLAP |
-| `plugin.pluginval` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10 |
+| `plugin.pluginval` | [pluginval](https://github.com/Tracktion/pluginval) on the VST3, at strictness 10, opening and automating the editor |
+| `uicheck` | the editor with no window: every knob found where it is drawn, drag and wheel arithmetic, the log scale, how values are spelled, and the panel drawn at 1x and 2x |
 
 The validators are Linux builds, so those two are Linux only;
 `plugincheck` needs `dlopen`, so it is not built on Windows.
