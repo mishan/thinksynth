@@ -77,6 +77,10 @@ target_include_directories(thinksynth-juno PUBLIC
 
 target_link_libraries(thinksynth-juno PUBLIC think_embedded)
 
+# DPF's LV2 generator, which runs the plugin at build time to write its
+# .ttl, casts away a const GCC warns about.
+target_compile_options(lv2_ttl_generator PRIVATE -Wno-discarded-qualifiers)
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -98,9 +102,9 @@ endif()
 # CLAP, pluginval on the VST3 at its strictest. Linux builds of both, fetched
 # at pinned releases, so Linux only. CMAKE_TEST_LAUNCHER -- scripts/headless.sh
 # -- reaches only a test whose command is a target this build makes, and
-# these two are fetched binaries named by path, so it goes on them by hand. The one warning
-# clap-validator gives -- state that loads from random bytes -- is DPF's
-# state reader, not this plugin.
+# these two are fetched binaries named by path, so it goes on them by hand.
+# The one warning clap-validator gives -- state that loads from random
+# bytes -- is DPF's state reader, not this plugin.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   FetchContent_Declare(clapvalidator
       URL https://github.com/free-audio/clap-validator/releases/download/0.4.1/clap-validator-0.4.1-127-g152b982-ubuntu-22.04.zip
