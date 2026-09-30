@@ -70,7 +70,7 @@ jobs:
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
             libx11-dev libxcursor-dev libxext-dev libxrandr-dev \
-            libdbus-1-dev \
+            libxtst-dev libdbus-1-dev \
             xvfb
 
       # localecheck wants a locale whose decimal separator is a comma, and

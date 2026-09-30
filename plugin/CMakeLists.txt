@@ -165,9 +165,15 @@ if(NOT WIN32)
   add_dependencies(plugincheck thinksynth-juno-controls)
   add_dependencies(plugincheck thinksynth-juno-clap)
 
-  # The editor through a host: see guicheck.cpp. X11, so Linux.
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    find_package(X11 REQUIRED)
+  # The editor through a host: see guicheck.cpp. X11 and its XTest
+  # extension (libxtst-dev), so Linux, and only where XTest is there.
+  find_package(X11)
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT X11_Xtst_FOUND)
+    message(STATUS "plugin: no XTest (libxtst-dev), so no guicheck")
+  endif()
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND X11_Xtst_FOUND)
 
     add_executable(guicheck guicheck.cpp Controls.cpp Panel.cpp)
     target_include_directories(guicheck PRIVATE
