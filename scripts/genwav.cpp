@@ -446,13 +446,29 @@ int main (int argc, char **argv)
             midi.setChannelName(ch, name);
     }
 
+    /* The arrangement at the times the scheduler gates it, and round
+       again for as long as the render runs where it has no `section
+       end;' -- sectionAt() wraps. */
     {
-        double at = 0;
+        double cycle = 0;
 
         for (const thcSection &s : sched.sections())
+            cycle += s.beats ? s.length * 60 / sched.tempo() : s.length;
+
+        for (double start = 0; cycle > 0 && start < seconds; start += cycle)
         {
-            midi.addMarker(at, s.name);
-            at += s.beats ? s.length * 60 / sched.tempo() : s.length;
+            double at = start;
+
+            for (const thcSection &s : sched.sections())
+            {
+                if (at < seconds)
+                    midi.addMarker(at, s.name);
+
+                at += s.beats ? s.length * 60 / sched.tempo() : s.length;
+            }
+
+            if (sched.endsAfterSections())
+                break;
         }
     }
 
@@ -467,7 +483,8 @@ int main (int argc, char **argv)
             if (tape != NULL)
                 writeEvent(tape, ev);
 
-            midi.add(ev, sched.deliveringChain());
+            if (!midiFile.empty())
+                midi.add(ev, sched.deliveringChain());
         });
 
     const int channels = synth.audioChannelCount();

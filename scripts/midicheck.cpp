@@ -28,7 +28,11 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
+#include <math.h>
 
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -289,8 +293,57 @@ static std::string show (const Heard &h)
     return buf;
 }
 
-int main (void)
+/* `--read FILE': the file genwav wrote, one line per thing a check on
+   genwav's side names -- track names, markers, controller labels, note
+   counts -- for cmake/RunGenwavMidi.cmake to match. Exit 1 where it does
+   not parse. */
+static int read (const char *path)
 {
+    std::ifstream in(path, std::ios::binary);
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                     std::istreambuf_iterator<char>());
+    const Smf s = parse(bytes);
+
+    if (!s.ok)
+    {
+        printf("unparsed\n");
+        return 1;
+    }
+
+    printf("format %d division %d tracks %zu\n", s.format, s.division,
+           s.tracks.size());
+
+    for (size_t t = 0; t < s.tracks.size(); t++)
+    {
+        size_t ons = 0, ccs = 0;
+
+        for (const Event &e : s.tracks[t])
+        {
+            if ((e.data[0] & 0xf0) == 0x90)
+                ons++;
+            else if ((e.data[0] & 0xf0) == 0xb0)
+                ccs++;
+            else if (e.data[0] == 0xff && (e.data[1] == 0x01 ||
+                                           e.data[1] == 0x03 ||
+                                           e.data[1] == 0x06))
+                printf("track %zu %s %u %s\n", t,
+                       e.data[1] == 0x01 ? "text"
+                       : e.data[1] == 0x03 ? "name" : "marker",
+                       e.tick,
+                       std::string(e.data.begin() + 2, e.data.end()).c_str());
+        }
+
+        printf("track %zu notes %zu controls %zu\n", t, ons, ccs);
+    }
+
+    return 0;
+}
+
+int main (int argc, char **argv)
+{
+    if (argc == 3 && !strcmp(argv[1], "--read"))
+        return read(argv[2]);
+
     /* At 120 and 480 to the beat a second is 960 ticks, so every time
        below is a whole number of ticks. */
 
@@ -483,15 +536,19 @@ int main (void)
     }
 
     {
-        /* Two chains on one channel are two tracks, named for them, and a
-           doubled hit between them is two notes. */
+        /* Two chains on one channel are two tracks, named for them, and
+           one voice per key holds across them: a hit they double is one
+           note, in the longer one's track, and a retrigger from the other
+           chain cuts a note. */
         thcMidiFile f(120);
 
         f.setChainName(0, "hats");
         f.setChainName(1, "hats_open");
         f.add(note(0, 2, 54, 100, 0.25), 1);
-        f.add(note(0, 2, 54, 100, 0.05), 0);
-        f.end(1);
+        f.add(note(0, 2, 54, 90, 0.05), 0);
+        f.add(note(1, 2, 60, 100, 1), 0);
+        f.add(note(1.5, 2, 60, 100, 1), 1);
+        f.end(4);
 
         const Smf s = parse(f.bytes());
 
@@ -499,15 +556,27 @@ int main (void)
               metaText(s.tracks[1], 0x03) == "hats" &&
               metaText(s.tracks[2], 0x03) == "hats_open",
               "a track per chain, in chain order");
-        check(s.tracks.size() == 3 && heard(s.tracks[1]).size() == 1 &&
-              heard(s.tracks[2]).size() == 1 &&
-              heard(s.tracks[1])[0].off == 48 &&
-              heard(s.tracks[2])[0].off == 240,
-              "a hit two chains double is a note in each");
+
+        if (s.tracks.size() == 3)
+        {
+            const std::vector<Heard> a = heard(s.tracks[1]);
+            const std::vector<Heard> b = heard(s.tracks[2]);
+
+            check(a.size() == 1 && b.size() == 2 &&
+                  b[0].key == 54 && b[0].on == 0 && b[0].off == 240 &&
+                  b[0].velocity == 100,
+                  "a hit two chains double is one note, the longer's",
+                  b.empty() ? "" : show(b[0]));
+            check(a.size() == 1 && a[0].key == 60 && a[0].on == 960 &&
+                  a[0].off == 1439 && b.size() == 2 && b[1].on == 1440 &&
+                  b[1].off == 2400,
+                  "another chain's retrigger cuts it a tick early",
+                  a.empty() ? "" : show(a[0]));
+        }
     }
 
     {
-        /* Level as expression: 100 at the start, a change only where the
+        /* Level as expression: before the first note, then only where the
            level moves, and nothing at all for a track at level 1. */
         thcMidiFile f(120);
 
@@ -532,11 +601,10 @@ int main (void)
         const std::vector<Change> e =
             s.tracks.size() == 3 ? changes(s.tracks[1]) : std::vector<Change>();
 
-        check(e.size() == 4 &&
-              e[0].tick == 0   && e[0].number == 11 && e[0].value == 100 &&
-              e[1].tick == 480 && e[1].value == 70 &&
-              e[2].tick == 1440 && e[2].value == 115 &&
-              e[3].tick == 1920 && e[3].value == 100,
+        check(e.size() == 3 &&
+              e[0].tick == 480 && e[0].number == 11 && e[0].value == 70 &&
+              e[1].tick == 1440 && e[1].value == 115 &&
+              e[2].tick == 1920 && e[2].value == 100,
               "level is CC 11, sent where it changes", showChanges(e));
         check(s.tracks.size() == 3 && changes(s.tracks[2]).empty(),
               "a track at level 1 sends none");
@@ -684,6 +752,112 @@ int main (void)
 
         check(swapAt && editAt, "a swap and an edit are text where they land");
         check(f.skipped() == 0, "and neither is skipped");
+    }
+
+    {
+        /* Expression on a channel two tracks share: the one at level 1
+           still sends 100 before its note, since the other left 50. */
+        thcMidiFile f(120);
+        thcEvent quiet = note(0, 0, 60, 100, 0.5);
+
+        quiet.u.note.level = 0.5f;
+        f.add(quiet, 0);
+        f.add(note(1, 0, 62, 100, 0.5), 1);
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+
+        if (s.tracks.size() == 3)
+        {
+            const std::vector<Change> b = changes(s.tracks[2]);
+
+            check(b.size() == 1 && b[0].tick == 960 && b[0].value == 100,
+                  "a shared channel's level-1 track restores 100",
+                  showChanges(b));
+        }
+        else
+            check(false, "a shared channel's level-1 track restores 100");
+    }
+
+    {
+        /* A chord whose notes differ in level: one CC 11, the loudest. */
+        thcMidiFile f(120);
+        thcEvent a = note(0.5, 0, 60, 100, 0.5);
+        thcEvent b = note(0.5, 0, 64, 100, 0.5);
+
+        a.u.note.level = 0.6f;
+        b.u.note.level = 0.9f;
+        f.add(a, 0);
+        f.add(b, 0);
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+        const std::vector<Change> c =
+            s.tracks.size() == 2 ? changes(s.tracks[1]) : std::vector<Change>();
+
+        check(c.size() == 1 && c[0].tick == 480 && c[0].value == 90,
+              "a chord sends one level, the loudest", showChanges(c));
+    }
+
+    {
+        /* A held key struck again, then two releases: the first ends the
+           key, as the engine's release ends whatever holds it. */
+        thcMidiFile f(120);
+
+        f.add(note(0, 0, 60, 100, 0), 0);
+        f.add(note(1, 0, 60, 100, 0), 0);
+        f.add(noteOff(1.5, 0, 60));
+        f.add(noteOff(3, 0, 60));
+        f.end(4);
+
+        const Smf s = parse(f.bytes());
+        const std::vector<Heard> h =
+            s.tracks.size() == 2 ? heard(s.tracks[1]) : std::vector<Heard>();
+
+        check(h.size() == 2 && h[0].off == 960 && h[1].on == 960 &&
+              h[1].off == 1440,
+              "a held retrigger ends at the first release",
+              h.size() == 2 ? show(h[0]) + " / " + show(h[1]) : "");
+    }
+
+    {
+        /* A note shorter than half a tick is still a tick long. */
+        thcMidiFile f(120);
+
+        f.add(note(1, 0, 60, 100, 0.0004), 0);
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+        const std::vector<Heard> h =
+            s.tracks.size() == 2 ? heard(s.tracks[1]) : std::vector<Heard>();
+
+        check(h.size() == 1 && h[0].on == 960 && h[0].off == 961,
+              "a very short note is a tick long",
+              h.empty() ? "" : show(h[0]));
+    }
+
+    {
+        /* Below about 3.58 bpm the tempo would overflow its 24 bits; the
+           file says the slowest it can, and counts ticks at that. */
+        thcMidiFile f(2);
+
+        f.add(note(60, 0, 60, 100, 60), 0);
+        f.end(120);
+
+        const Smf s = parse(f.bytes());
+        const std::string t = s.ok ? metaText(s.tracks[0], 0x51) : "";
+
+        check(t.size() == 3 && (uint8_t)t[0] == 0xff &&
+              (uint8_t)t[1] == 0xff && (uint8_t)t[2] == 0xff,
+              "a tempo below the meta's range is clamped");
+
+        const std::vector<Heard> h =
+            s.tracks.size() == 2 ? heard(s.tracks[1]) : std::vector<Heard>();
+        const double beat = 0xffffff / 1e6;       /* seconds, clamped */
+
+        check(h.size() == 1 && h[0].on == (uint32_t)llround(60 / beat * 480),
+              "and the note lands at the same second",
+              h.empty() ? "" : show(h[0]));
     }
 
     printf("\n%s\n", failures ? "midicheck FAILED" : "midicheck ok");

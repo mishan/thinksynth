@@ -31,6 +31,11 @@ const int FINE_CCS[]   = { 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
 
 const int CC_EXPRESSION = 11;
 
+/* The slowest tempo the meta event can say: 0xffffff microseconds to the
+   beat. Times stay right below it, since ticks are counted at the tempo
+   the file says. */
+const double MIN_TEMPO = 60e6 / 0xffffff;
+
 /* At one tick: names and labels, then offs, then controllers, then ons,
    so a note ends before its key sounds again and starts at the level and
    the settings sent for it. */
@@ -135,7 +140,7 @@ std::string number (double v)
 }
 
 thcMidiFile::thcMidiFile (double tempo, double meter, int division)
-    : tempo_(tempo > 0 ? tempo : 120), meter_(meter),
+    : tempo_(tempo > 0 ? std::max(tempo, MIN_TEMPO) : 120), meter_(meter),
       division_(division > 0 && division < 0x8000 ? division : 480),
       skipped_(0), endAt_(0), ended_(false), fine_(false)
 {
@@ -227,6 +232,8 @@ thcMidiFile::add (const thcEvent &ev, int chain)
 
             Note n;
 
+            n.part     = chain >= 0 ? chain : -1 - ev.channel;
+            n.seq      = notes_.size();
             n.channel  = ev.channel;
             n.key      = ev.u.note.note;
             n.velocity = std::min(127, std::max(1, ev.u.note.velocity));
@@ -234,31 +241,30 @@ thcMidiFile::add (const thcEvent &ev, int chain)
             n.level    = ev.u.note.level > 0 ? ev.u.note.level : 1;
             n.on       = at;
             n.open     = !(ev.u.note.duration > 0);
-            n.off      = n.open ? at : ticks(ev.at + ev.u.note.duration);
+            /* A tick at least, or a note shorter than half of one would
+               round to nothing. */
+            n.off      = n.open ? at
+                                : std::max(ticks(ev.at + ev.u.note.duration),
+                                           at + 1);
 
-            parts_[chain >= 0 ? chain : -1 - ev.channel].notes.push_back(n);
+            notes_.push_back(n);
             return;
         }
         case THC_EV_NOTEOFF:
         {
-            /* The oldest held note on that key and channel, whichever
-               chain played it: the scheduler releases in the order it
-               holds. An off nobody holds is a release that raced a
-               flush, and ends nothing. */
-            Note *oldest = NULL;
-
-            for (auto &p : parts_)
-                for (Note &n : p.second.notes)
-                    if (n.open && n.channel == ev.channel &&
-                        n.key == ev.u.note.note &&
-                        (oldest == NULL || n.on < oldest->on))
-                        oldest = &n;
-
-            if (oldest != NULL)
-            {
-                oldest->off = at;
-                oldest->open = false;
-            }
+            /* Every open note on that key and channel, whichever chain
+               played it. The engine keys voices by note number, so a
+               release ends whatever holds the key -- the newest note on
+               it; the older ones resolve() cuts at the retrigger anyway.
+               An off nobody holds is a release that raced a flush, and
+               ends nothing. */
+            for (Note &n : notes_)
+                if (n.open && n.channel == ev.channel &&
+                    n.key == ev.u.note.note)
+                {
+                    n.off = std::max(at, n.on + 1);
+                    n.open = false;
+                }
 
             return;
         }
@@ -313,37 +319,45 @@ thcMidiFile::end (double at)
 
     const uint32_t last = ticks(at);
 
-    for (auto &p : parts_)
-        for (Note &n : p.second.notes)
-        {
-            if (n.open || n.off > last)
-                n.off = last;
+    /* A note struck at the stop or after it is left with no length, and
+       resolve() drops it. */
+    for (Note &n : notes_)
+    {
+        if (n.open || n.off > last)
+            n.off = last;
 
-            n.open = false;
-        }
+        n.open = false;
+    }
 }
 
-/* The notes a file can say: sorted by start within a channel and key,
-   each cut off at the next one's start there, and none of no length. Two
-   that start together on one key -- a doubled hit -- are one note, as
-   long and as loud as the longer and the louder. Ordered by start. */
+/* The notes a file can say, with the engine's one voice per key per
+   channel applied across every chain: each note is cut off at the next
+   one's start on its channel and key, whichever chain struck that one,
+   and none is left with no length. Notes struck together on one key --
+   a doubled hit, in one chain or across two -- are one note, as long and
+   as loud as the longest and the loudest, in the track of the longest
+   (the first delivered, of equals). Ordered by start. */
 std::vector<thcMidiFile::Note>
-thcMidiFile::playable (const std::vector<Note> &notes)
+thcMidiFile::resolve (void) const
 {
-    std::vector<Note> v = notes, out;
+    std::vector<Note> v = notes_, out;
 
-    std::stable_sort(v.begin(), v.end(),
-                     [](const Note &a, const Note &b)
-                     {
-                         if (a.channel != b.channel)
-                             return a.channel < b.channel;
-                         if (a.key != b.key)
-                             return a.key < b.key;
-                         return a.on < b.on;
-                     });
+    std::sort(v.begin(), v.end(),
+              [](const Note &a, const Note &b)
+              {
+                  if (a.channel != b.channel)
+                      return a.channel < b.channel;
+                  if (a.key != b.key)
+                      return a.key < b.key;
+                  if (a.on != b.on)
+                      return a.on < b.on;
+                  return a.seq < b.seq;
+              });
 
     auto sameKey = [](const Note &a, const Note &b)
     { return a.channel == b.channel && a.key == b.key; };
+
+    std::vector<Note> merged;
 
     for (size_t i = 0; i < v.size(); i++)
     {
@@ -352,126 +366,172 @@ thcMidiFile::playable (const std::vector<Note> &notes)
         while (i + 1 < v.size() && sameKey(v[i + 1], n) &&
                v[i + 1].on == n.on)
         {
-            i++;
-            n.off = std::max(n.off, v[i].off);
-            n.velocity = std::max(n.velocity, v[i].velocity);
-            n.level = std::max(n.level, v[i].level);
+            const Note &d = v[++i];
+
+            if (d.off > n.off)
+            {
+                n.off = d.off;
+                n.part = d.part;
+            }
+
+            n.velocity = std::max(n.velocity, d.velocity);
+            n.level = std::max(n.level, d.level);
         }
 
-        if (i + 1 < v.size() && sameKey(v[i + 1], n) && v[i + 1].on < n.off)
-            n.off = v[i + 1].on;
+        merged.push_back(n);
+    }
+
+    /* A note cut by one in another track ends a tick early where it can:
+       the order of two tracks' events at one tick is the reader's to
+       choose, and a merge that puts the new note-on first has the old
+       note-off end it at once. */
+    for (size_t i = 0; i < merged.size(); i++)
+    {
+        Note n = merged[i];
+
+        if (i + 1 < merged.size() && sameKey(merged[i + 1], n) &&
+            merged[i + 1].on < n.off)
+        {
+            const Note &next = merged[i + 1];
+
+            n.off = next.part == n.part ? next.on
+                                        : std::max(n.on + 1, next.on - 1);
+        }
 
         if (n.off > n.on)
             out.push_back(n);
     }
 
-    std::stable_sort(out.begin(), out.end(),
-                     [](const Note &a, const Note &b)
-                     { return a.on < b.on; });
+    std::sort(out.begin(), out.end(),
+              [](const Note &a, const Note &b)
+              {
+                  if (a.on != b.on)
+                      return a.on < b.on;
+                  if (a.channel != b.channel)
+                      return a.channel < b.channel;
+                  return a.seq < b.seq;
+              });
     return out;
 }
 
 size_t
 thcMidiFile::notes (void) const
 {
-    size_t count = 0;
-
-    for (const auto &p : parts_)
-        count += playable(p.second.notes).size();
-
-    return count;
+    return resolve().size();
 }
 
 std::vector<uint8_t>
 thcMidiFile::bytes (void) const
 {
     uint32_t last = ended_ ? ticks(endAt_) : 0;
+    const std::vector<Note> all = resolve();
 
     /* The note tracks: chains in their order, then what no chain made in
-       channel order -- keyed -1 - channel, so backwards through the map. */
-    std::vector<int> keys;
+       channel order (keyed -1 - channel). */
+    std::vector<int> parts;
 
-    for (const auto &p : parts_)
-        if (p.first >= 0)
-            keys.push_back(p.first);
+    for (const Note &n : all)
+        parts.push_back(n.part);
 
-    for (auto p = parts_.rbegin(); p != parts_.rend(); ++p)
-        if (p->first < 0)
-            keys.push_back(p->first);
+    std::sort(parts.begin(), parts.end(),
+              [](int a, int b)
+              {
+                  if ((a >= 0) != (b >= 0))
+                      return a >= 0;
+                  return a >= 0 ? a < b : a > b;
+              });
+    parts.erase(std::unique(parts.begin(), parts.end()), parts.end());
 
     struct Track
     {
         std::vector<TrackEvent> events;
         std::vector<bool> channels;     /* which ones it plays notes on */
+        std::vector<int> expression;    /* last CC 11 sent, per channel  */
     };
 
-    std::vector<Track> tracks;
+    std::vector<Track> tracks(parts.size());
+    std::map<int, size_t> trackOf;
 
-    for (int key : keys)
+    for (size_t i = 0; i < parts.size(); i++)
     {
-        const std::vector<Note> notes = playable(parts_.at(key).notes);
-
-        if (notes.empty())
-            continue;
-
-        Track t;
+        const int part = parts[i];
         std::string name;
 
-        t.channels.assign(16, false);
+        trackOf[part] = i;
+        tracks[i].channels.assign(16, false);
+        tracks[i].expression.assign(16, -1);
 
-        if (key >= 0)
+        if (part >= 0)
         {
-            auto n = chainNames_.find(key);
+            auto n = chainNames_.find(part);
 
             name = n != chainNames_.end() && !n->second.empty()
                        ? n->second
-                       : "chain " + std::to_string(key + 1);
+                       : "chain " + std::to_string(part + 1);
         }
         else
         {
-            auto n = channelNames_.find(-1 - key);
+            auto n = channelNames_.find(-1 - part);
 
             name = n != channelNames_.end() && !n->second.empty()
                        ? n->second
-                       : "channel " + std::to_string(-key);
+                       : "channel " + std::to_string(-part);
         }
 
-        t.events.push_back({ 0, AT_META, meta(0x03, name) });
+        tracks[i].events.push_back({ 0, AT_META, meta(0x03, name) });
+    }
 
-        bool levels = false;
+    /* Expression is a channel message, and a channel can be two tracks:
+       one DAW instrument per track, or one instrument hearing the merged
+       stream. A CC 11 goes before a note wherever either its own track's
+       last value or the channel's differs from the note's -- so before
+       each track's first note on the channel too -- and both hear the
+       note at its level. A channel whose notes are all at 1 sends none.
+       The notes struck together on one channel share one value, the
+       loudest's. */
+    std::vector<bool> levels(16, false);
+    std::vector<int> expression(16, -1);
 
-        for (const Note &n : notes)
-            levels = levels || n.level != 1;
+    for (const Note &n : all)
+        if (n.level != 1)
+            levels[n.channel] = true;
 
-        /* Expression per MIDI channel the track plays on: it is a channel
-           message, and one chain can feed two channels. -1 until the
-           channel's first note. */
-        std::vector<int> expression(16, -1);
+    for (size_t i = 0; i < all.size(); )
+    {
+        size_t j = i;
+        float loudest = 0;
 
-        for (const Note &n : notes)
+        while (j < all.size() && all[j].on == all[i].on &&
+               all[j].channel == all[i].channel)
+            loudest = std::max(loudest, all[j++].level);
+
+        const int value = (int)lrintf(100 * loudest);
+        const int ch = all[i].channel;
+
+        /* Where the channel's value moves, every track with a note here
+           says so, each ahead of its own note: which track's events a
+           merge takes first at one tick is the reader's choice. */
+        const bool moves = levels[ch] && expression[ch] != value;
+        std::vector<size_t> told;
+
+        for (; i < j; i++)
         {
+            const Note &n = all[i];
+            const size_t ti = trackOf[n.part];
+            Track &t = tracks[ti];
+            const bool tellTrack =
+                t.expression[ch] != value ||
+                (moves && std::find(told.begin(), told.end(), ti) ==
+                              told.end());
+
             t.channels[n.channel] = true;
 
-            if (levels)
+            if (levels[ch] && tellTrack)
             {
-                const int value = (int)lrintf(100 * n.level);
-
-                /* A track that sends expression starts at 100, so a DAW
-                   that remembers the last value it saw starts the piece
-                   where the piece starts. */
-                if (expression[n.channel] < 0 && n.on > 0)
-                {
-                    t.events.push_back({ 0, AT_CONTROL,
-                                         cc(n.channel, CC_EXPRESSION, 100) });
-                    expression[n.channel] = 100;
-                }
-
-                if (value != expression[n.channel])
-                    t.events.push_back({ n.on, AT_CONTROL,
-                                         cc(n.channel, CC_EXPRESSION,
-                                            value) });
-
-                expression[n.channel] = value;
+                t.events.push_back({ n.on, AT_CONTROL,
+                                     cc(ch, CC_EXPRESSION, value) });
+                t.expression[ch] = value;
+                told.push_back(ti);
             }
 
             const uint8_t key = (uint8_t)n.key;
@@ -485,7 +545,8 @@ thcMidiFile::bytes (void) const
             last = std::max(last, n.off);
         }
 
-        tracks.push_back(t);
+        if (levels[ch])
+            expression[ch] = value;
     }
 
     /* A channel's chanargs and edits, as the events every track playing

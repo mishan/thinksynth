@@ -760,6 +760,16 @@ add_test(NAME pathcheck COMMAND pathcheck)
 
 add_test(NAME midicheck COMMAND midicheck)
 
+add_test(NAME genwav.midi
+         COMMAND "${CMAKE_COMMAND}"
+                 -DGENWAV=$<TARGET_FILE:genwav>
+                 -DMIDICHECK=$<TARGET_FILE:midicheck>
+                 -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/midi.gen
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DOUT=${PROJECT_BINARY_DIR}/genwav-midi.mid
+                 -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMidi.cmake")
+
 # Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
 # its own config directory and points HOME at it, so it neither reads nor
 # writes the preferences of whoever runs it.

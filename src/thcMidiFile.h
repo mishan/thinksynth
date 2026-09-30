@@ -32,20 +32,29 @@
  * DAW's bar grid lines up with the piece's beats. Track 0 carries the
  * tempo, the meter and a marker per section; after it comes a track per
  * chain, named for the chain, so two chains sharing a channel (a closed
- * and an open hat) stay two parts.
+ * and an open hat) stay two parts to edit.
  *
  * What each event becomes:
  *
- *   note      a note-on and note-off on the event's channel. MIDI has one
- *             voice per key per channel, as the engine does: a retrigger
- *             ends the note before it, and two notes starting together on
- *             one key in one track are one note, as long and as loud as
- *             the longer and the louder.
+ *   note      a note-on and note-off on the event's channel, at least a
+ *             tick long. MIDI has one voice per key per channel, as the
+ *             engine does, and that is applied across tracks: a note
+ *             ends where the next on its channel and key starts, from
+ *             whichever chain, and notes struck together on one key are
+ *             one note, as long and as loud as the longest and loudest,
+ *             in the longest one's track. A note cut by another track's
+ *             ends a tick early, since readers order two tracks' events
+ *             at one tick as they like. So the merged stream is what
+ *             the engine sounded, and a hit two chains double is in one
+ *             of their tracks only.
  *   level     CC 11, expression, as round(100 * level): 1 is 100. Sent
- *             before a note whose level differs from the track's last,
- *             with 100 at the start of any track that sends one. A
+ *             before a note whose level differs from what its track or
+ *             its channel last sent -- so before each track's first note
+ *             on a channel that sends any -- and a DAW instrument per
+ *             track and one instrument per channel both hear it. A
  *             section fade is one step at the boundary; an accent moves
- *             the notes still sounding with it.
+ *             the notes still sounding with it, and notes struck together
+ *             on a channel share the loudest one's level.
  *   chanarg   a controller, scaled from the arg's range to 0..127. Each
  *             channel's chanargs take CC numbers in the order they first
  *             appear, from the ones MIDI leaves undefined (20-31, then
@@ -61,6 +70,12 @@
  *
  * end() closes every note still sounding at the time the transport
  * stopped, which is where the synth's own flush ends it too.
+ *
+ * Limits: a chanarg's range is asked for once, when it first appears, so
+ * after a swap puts a different graph on the channel its values are
+ * still scaled through the first one's. And an arg declared with no
+ * range has thArg's default of 0..127, which counts as declared; the
+ * range as played stands in only where the channel has no such arg.
  */
 class thcMidiFile
 {
@@ -98,15 +113,12 @@ public:
 private:
     struct Note
     {
+        int      part;       /* chain, or -1 - channel                 */
+        size_t   seq;        /* delivery order                         */
         int      channel, key, velocity;
         float    level;
         uint32_t on, off;
         bool     open;       /* a held note waiting for its NOTEOFF   */
-    };
-
-    struct Part
-    {
-        std::vector<Note> notes;
     };
 
     /* One of a channel's chanargs, and where it goes. */
@@ -129,7 +141,7 @@ private:
 
     uint32_t ticks (double seconds) const;
     int      control (int channel, const std::string &name);
-    static std::vector<Note> playable (const std::vector<Note> &notes);
+    std::vector<Note> resolve (void) const;
 
     double      tempo_, meter_;
     int         division_;
@@ -140,8 +152,7 @@ private:
     bool        fine_;
     RangeLookup range_;
 
-    /* Keyed by chain, and by -1 - channel for events no chain made. */
-    std::map<int, Part>        parts_;
+    std::vector<Note>          notes_;
     std::map<int, std::string> chainNames_, channelNames_;
 
     std::map<int, std::vector<Control> >      controls_;
