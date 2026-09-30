@@ -480,6 +480,10 @@ think_harness(gencheck COMPOSERHOST GENCATALOG)
 # for reading a level off a new instrument block. Not a test.
 think_harness(genwav COMPOSERHOST)
 
+# The MIDI file genwav --midi writes, read back: notes, tempo, meter,
+# markers, and the overlaps a MIDI channel cannot hold.
+think_harness(midicheck COMPOSERHOST)
+
 # The lexical layer .dsp and .gen now share: kinds, lines, byte spans, what it
 # refuses, and that .gen's tokenize() is still an adapter over that scan
 # rather than a second scanner growing back. Needs the composer host only to
@@ -762,6 +766,18 @@ add_test(NAME dspcapture
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 
 add_test(NAME pathcheck COMMAND pathcheck)
+
+add_test(NAME midicheck COMMAND midicheck)
+
+add_test(NAME genwav.midi
+         COMMAND "${CMAKE_COMMAND}"
+                 -DGENWAV=$<TARGET_FILE:genwav>
+                 -DMIDICHECK=$<TARGET_FILE:midicheck>
+                 -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/midi.gen
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DOUT=${PROJECT_BINARY_DIR}/genwav-midi.mid
+                 -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMidi.cmake")
 
 # Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
 # its own config directory and points HOME at it, so it neither reads nor
