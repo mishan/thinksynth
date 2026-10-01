@@ -2651,6 +2651,13 @@ async function exportMidi ()
         return;
     }
 
+    /* Mid-load, the text has moved on and the seed and name have not. */
+    if (loading > 0)
+    {
+        say('wait for the piece to load');
+        return;
+    }
+
     const id = ++exportId;
     const seconds = Math.max(1, Math.min(3600,
                                          Number($('exportlength').value) || 120));
@@ -2659,7 +2666,7 @@ async function exportMidi ()
     $('exportmidi').disabled = true;
     say('composing...');
     synth.toMirror({ type: 'exportmidi', id, text: loadedText, seconds,
-                     seed: piece.seed ?? -1 });
+                     seed: piece.seed ?? -1, name: piece.name ?? '' });
 
     const m = await done;
 

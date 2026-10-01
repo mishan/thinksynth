@@ -2562,6 +2562,9 @@ try
         check(bytes !== null && bytes.subarray(0, 4).toString() === 'MThd' &&
               bytes[9] === 1 && bytes[11] === 2 &&
               bytes.includes(Buffer.from('melody')) &&
+              /* Track 0 named for the piece: FF 03, its length, its name. */
+              bytes.includes(Buffer.concat([Buffer.from([0xff, 0x03, 8]),
+                                            Buffer.from('exported')])) &&
               download.suggestedFilename() === 'exported.mid',
               `Export MIDI downloads the piece as a .mid: ` +
               `${download?.suggestedFilename()} ${bytes?.length ?? 0} bytes`);

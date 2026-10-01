@@ -606,17 +606,31 @@ function receive (m)
            rendered. The bytes go back as a transfer. */
         case 'exportmidi':
         {
-            const n = M.ccall('tw_export_midi', 'number',
-                              ['string', 'number', 'number'],
-                              [m.text, m.seconds, m.seed]);
-            const bytes = n < 0 ? new Uint8Array(0)
-                : new Uint8Array(M.HEAP32.buffer, M._tw_export_bytes(), n)
-                      .slice();
+            /* Answered whatever happens: the page waits for the reply with
+               its button off. */
+            let reply;
 
-            self.postMessage({ type: 'exportedmidi', id: m.id, ok: n >= 0,
-                               why: M.UTF8ToString(M._tw_export_why()),
-                               length: M._tw_export_length(), bytes },
-                             [bytes.buffer]);
+            try
+            {
+                const n = M.ccall('tw_export_midi', 'number',
+                                  ['string', 'number', 'number', 'string'],
+                                  [m.text, m.seconds, m.seed, m.name ?? '']);
+                const bytes = n < 0 ? new Uint8Array(0)
+                    : new Uint8Array(M.HEAP32.buffer, M._tw_export_bytes(),
+                                     n).slice();
+
+                reply = { type: 'exportedmidi', id: m.id, ok: n >= 0,
+                          why: M.UTF8ToString(M._tw_export_why()),
+                          length: M._tw_export_length(), bytes };
+            }
+            catch (e)
+            {
+                reply = { type: 'exportedmidi', id: m.id, ok: false,
+                          why: `the export failed: ${e.message}`, length: 0,
+                          bytes: new Uint8Array(0) };
+            }
+
+            self.postMessage(reply, [reply.bytes.buffer]);
             break;
         }
 

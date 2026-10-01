@@ -71,6 +71,7 @@
 #include "gui/ComposerCanvasWidget.h"
 #include "gui/Composer.h"
 #include "gthMidiOut.h"
+#include "thcMidiFile.h"
 #include "gui/ItemBrowser.h"
 #include "gui/PianoRoll.h"
 
@@ -159,6 +160,7 @@ public:
     using Composer::dirty_;
     using Composer::genPath_;
     using Composer::exportMidi;
+    using Composer::exportOptions;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -1832,66 +1834,143 @@ check (bool cond, const char *what)
         fail(what);
 }
 
-/* Export MIDI: the window's piece, composed offline into a file. A piece
- * whose arrangement ends goes to its end; the file is a format 1 SMF with
- * a track per chain that played, named for it, and the window's own
- * transport is not moved. */
+/* Export MIDI: the window's piece, composed offline into a file.
+ *
+ * A piece whose arrangement ends goes to its end: a format 1 SMF named for
+ * the piece, with a track per chain that played, named for it. A piece
+ * that does not end goes for the length asked, and with the window's seed
+ * and mutes is the file of what the window plays -- byte for byte against
+ * the window's own scheduler stepped from the top -- while the window's
+ * transport, running, is not moved. */
+static std::string
+readBytes (const std::string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
+
 static int
 runExportMidi (const std::string &pluginPath)
 {
-    const std::string tmp = stagePiece(
-            "name \"exported\";\n"
-            "tempo 120;\n"
-            "section a 2 s { };\n"
-            "section end;\n"
-            "instrument org { dsp \"organ0.dsp\"; };\n"
-            "chain melody {\n"
-            "    stage seq gen::grid { steps = 4; rows = 1; "
-            "cells = \"x.x.\"; };\n"
-            "    sink { instrument = org; };\n"
-            "};\n");
-
-    if (tmp.empty())
     {
-        fail("could not make a scratch piece");
-        return failures;
+        const std::string tmp = stagePiece(
+                "name \"exported\";\n"
+                "tempo 120;\n"
+                "section a 2 s { };\n"
+                "section end;\n"
+                "instrument org { dsp \"organ0.dsp\"; };\n"
+                "chain melody {\n"
+                "    stage seq gen::grid { steps = 4; rows = 1; "
+                "cells = \"x.x.\"; };\n"
+                "    sink { instrument = org; };\n"
+                "};\n");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
+
+        pump(10);
+
+        const std::string out = tmp + "/exported.mid";
+        thcMidiExport::Options options = win->exportOptions();
+        std::string why;
+        double length = 0;
+
+        options.seconds = 600;
+
+        const bool ok = win->exportMidi(out, options, why, &length);
+        const std::string bytes = readBytes(out);
+
+        check(ok && bytes.compare(0, 4, "MThd") == 0 && bytes.size() > 22 &&
+              (unsigned char)bytes[9] == 1 && (unsigned char)bytes[11] == 2,
+              "Export MIDI writes a format 1 file, a conductor and a chain");
+        check(bytes.find("melody") != std::string::npos &&
+              bytes.find("exported") != std::string::npos &&
+              bytes.find("thinksynth-gen") == std::string::npos,
+              "named for the piece and its chain, not the working file");
+        check(ok && length > 1.99 && length < 2.01,
+              "a piece whose arrangement ends is exported to its end");
+
+        if (!ok)
+            printf("      %s\n", why.c_str());
+
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
     }
 
-    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
-    TestComposer *win = new TestComposer(&synth);
+    {
+        /* Two chains drawing from the seed, one of them muted. */
+        const std::string tmp = stagePiece(
+                "name \"wander\";\n"
+                "tempo 120;\n"
+                "instrument org { dsp \"organ0.dsp\"; };\n"
+                "chain high { stage s gen::eno_line { period = 0.1 s;"
+                " jitter = 0.05 s; hold = 0.05 s; };"
+                " sink { instrument = org; }; };\n"
+                "chain low { stage s gen::eno_line { period = 0.1 s; };"
+                " sink { instrument = org; }; };\n");
 
-    pump(10);
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
 
-    const std::string out = tmp + "/exported.mid";
-    thcMidiExport::Options options;
-    std::string why;
-    double length = 0;
+        pump(10);
+        win->sched_->setMuted(1, true);
 
-    options.seconds = 600;
+        /* What the window plays, from the top, into a file of its own. */
+        thcMidiFile played(win->sched_->tempo(), win->sched_->meter());
 
-    const bool ok = win->exportMidi(out, options, why, &length);
-    std::ifstream in(out.c_str(), std::ios::binary);
-    const std::string bytes((std::istreambuf_iterator<char>(in)),
-                            std::istreambuf_iterator<char>());
+        thcMidiExport::describe(played, *win->sched_, synth, "wander", 4);
 
-    check(ok && bytes.compare(0, 4, "MThd") == 0 && bytes.size() > 22 &&
-          (unsigned char)bytes[9] == 1 && (unsigned char)bytes[11] == 2,
-          "Export MIDI writes a format 1 file, a conductor and a chain");
-    check(bytes.find("melody") != std::string::npos,
-          "the chain's track is named for it");
-    check(ok && length > 1.99 && length < 2.01,
-          "a piece whose arrangement ends is exported to its end");
-    check(!win->sched_->running() && win->sched_->now() == 0,
-          "and the window's transport is not moved");
+        sigc::connection conn = win->sched_->sigDelivered.connect(
+            [&](const thcEvent &ev)
+            { played.add(ev, win->sched_->deliveringChain()); });
 
-    if (!ok)
-        printf("      %s\n", why.c_str());
+        win->sched_->start();
 
-    delete win;
+        while (win->sched_->now() < 4)
+            win->sched_->stepTransport(std::min(0.02,
+                                                4 - win->sched_->now()));
 
-    std::error_code ec;
+        conn.disconnect();
+        played.end(win->sched_->now());
 
-    std::filesystem::remove_all(tmp, ec);
+        const double nowBefore = win->sched_->now();
+        thcMidiExport::Options options = win->exportOptions();
+        std::string why;
+        double length = 0;
+
+        options.seconds = 4;
+
+        const std::string out = tmp + "/wander.mid";
+        const bool ok = win->exportMidi(out, options, why, &length);
+        const std::vector<uint8_t> want = played.bytes();
+        const std::string got = readBytes(out);
+
+        check(ok && length > 3.99 && length < 4.01,
+              "a piece that does not end is exported for the length asked");
+        check(ok && got == std::string(want.begin(), want.end()),
+              "with the window's seed and mutes, it is what the window "
+              "plays");
+        check(win->sched_->running() && win->sched_->now() == nowBefore,
+              "and the window's transport, running, is not moved");
+
+        options.seed = options.seed + 1;
+        win->exportMidi(out, options, why);
+        check(readBytes(out) != got, "another seed is another piece");
+
+        win->sched_->stop();
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
 
     return failures;
 }

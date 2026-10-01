@@ -21,10 +21,6 @@
 #include "thcMidiExport.h"
 #include "thcScheduler.h"
 
-/* The step render() takes: the desktop's own, which is what a stage that
-   is woken by a node moving is woken at the end of. */
-static const double STEP = 0.02;
-
 /* An arrangement that never ends is cut here whatever is asked. */
 static const double MOST = 3600;
 
@@ -99,6 +95,18 @@ thcMidiExport::render (const std::map<std::string, thcPlugin *> &plugins,
     if (options.seed >= 0)
         sched.setMasterSeed((unsigned)options.seed);
 
+    /* Every channel but the host's own taken, so the loader -- which
+       takes the lowest free one for each instrument, in order -- puts them
+       where the host has them. */
+    const std::vector<int> &mine = options.channels;
+
+    if (!mine.empty())
+        sched.setChannelTaken([&mine](int channel)
+                              {
+                                  return std::find(mine.begin(), mine.end(),
+                                                   channel) == mine.end();
+                              });
+
     thcGenLoader loader(plugins);
 
     if (!loader.load(genPath, &sched))
@@ -115,11 +123,28 @@ thcMidiExport::render (const std::map<std::string, thcPlugin *> &plugins,
             ? std::min(sched.sectionsLength(), MOST)
             : std::min(std::max(options.seconds, 0.0), MOST);
 
+    for (size_t c = 0; c < sched.chainCount(); c++)
+    {
+        const std::string &chain = sched.chain(c)->name;
+
+        if (std::find(options.muted.begin(), options.muted.end(), chain) !=
+            options.muted.end())
+            sched.setMuted(c, true);
+
+        if (std::find(options.soloed.begin(), options.soloed.end(), chain) !=
+            options.soloed.end())
+            sched.setSoloed(c, true);
+    }
+
     thcMidiFile midi(sched.tempo(), sched.meter());
+    const double step = options.step > 0 ? options.step : 0.02;
 
     midi.setFineControllers(options.fine);
     describe(midi, sched, *synth,
-             std::filesystem::path(genPath).stem().string(), seconds);
+             options.name.empty()
+                 ? std::filesystem::path(genPath).stem().string()
+                 : options.name,
+             seconds);
 
     sigc::connection conn = sched.sigDelivered.connect(
         [&](const thcEvent &ev) { midi.add(ev, sched.deliveringChain()); });
@@ -131,7 +156,7 @@ thcMidiExport::render (const std::map<std::string, thcPlugin *> &plugins,
        processed each step, which costs it nothing. */
     while (sched.running() && sched.now() < seconds)
     {
-        sched.stepTransport(std::min(STEP, seconds - sched.now()));
+        sched.stepTransport(std::min(step, seconds - sched.now()));
         synth->process();
     }
 

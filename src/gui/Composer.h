@@ -242,6 +242,8 @@ protected:
     void onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog);
     void onExportMidi (void);
 
+    thcMidiExport::Options exportOptions (void);
+
     /* The working piece to `path' as a .mid; see thcMidiExport. */
     bool exportMidi (const std::string &path,
                      const thcMidiExport::Options &options, std::string &why,

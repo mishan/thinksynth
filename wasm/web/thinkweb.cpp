@@ -5042,7 +5042,7 @@ std::string          exportWhy_;
 double               exportLength_;
 
 EMSCRIPTEN_KEEPALIVE int tw_export_midi (const char *text, double seconds,
-                                         double seed)
+                                         double seed, const char *name)
 {
     exported_.clear();
     exportWhy_.clear();
@@ -5060,6 +5060,23 @@ EMSCRIPTEN_KEEPALIVE int tw_export_midi (const char *text, double seconds,
     synth.setSilent(true);
     options.seconds = seconds;
     options.seed = seed;
+    options.name = name != NULL ? name : "";
+
+    /* Stepped as this page plays, a window at a time, and with the mutes
+       and solos this instance has been handed -- the mirror's, which are
+       the worklet's. */
+    options.step = synth_->getWindowlen() / rate_;
+
+    for (size_t c = 0; c < sched_->chainCount(); c++)
+    {
+        const thcChain *chain = sched_->chain(c);
+
+        if (chain->muted)
+            options.muted.push_back(chain->name);
+
+        if (chain->soloed)
+            options.soloed.push_back(chain->name);
+    }
 
     if (!thcMidiExport::render(plugins_, &synth, TW_EXPORT_FILE, options,
                                exported_, exportWhy_, &exportLength_))

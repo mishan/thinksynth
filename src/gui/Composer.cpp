@@ -1310,14 +1310,17 @@ Composer::onSaveAs (void)
 }
 
 /* The piece as it stands -- the working file, edits and all -- composed
- * offline into a .mid (thcMidiExport), with the seed it is playing with,
- * so the file is the piece being heard. As long as its arrangement where
- * it ends; otherwise a length chosen in the dialog. */
+ * offline into a .mid (thcMidiExport), with the seed it is playing with and
+ * its chains' mutes and solos. As long as its arrangement where it ends;
+ * otherwise a length chosen in the dialog. */
 void
 Composer::onExportMidi (void)
 {
-    if (sched_ == NULL || workPath_.empty())
+    if (sched_ == NULL || workPath_.empty() || sched_->chainCount() == 0)
+    {
+        status_->set_text("MIDI export: there is no piece to export");
         return;
+    }
 
     const bool ends = sched_->endsAfterSections() &&
                       sched_->sectionsLength() > 0;
@@ -1330,8 +1333,13 @@ Composer::onExportMidi (void)
     dialog->add_button("_Cancel", Gtk::ResponseType::CANCEL);
     dialog->add_button("_Export", Gtk::ResponseType::OK);
     dialog->set_modal(true);
-    dialog->set_current_name(doc_.name.empty() ? "untitled.mid"
-                                               : doc_.name + ".mid");
+    /* The piece's name as a file name: a slash in it would be a
+       directory. */
+    std::string stem = doc_.name.empty() ? "untitled" : doc_.name;
+
+    std::replace(stem.begin(), stem.end(), '/', '_');
+    std::replace(stem.begin(), stem.end(), '\\', '_');
+    dialog->set_current_name(stem + ".mid");
 
     if (!ends)
         dialog->add_choice("length", "Length",
@@ -1368,10 +1376,21 @@ Composer::onExportMidiResponse (int response, Gtk::FileChooserDialog *dialog,
     if (path.empty())
         return;
 
-    if (path.size() < 4 || path.compare(path.size() - 4, 4, ".mid") != 0)
-        path += ".mid";
+    {
+        std::string ext = std::filesystem::path(path).extension().string();
 
-    options.seed = sched_->masterSeed();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+        if (ext != ".mid" && ext != ".midi")
+            path += ".mid";
+    }
+
+    {
+        const double seconds = options.seconds;
+
+        options = exportOptions();
+        options.seconds = seconds;
+    }
 
     confirmOverwrite(windowOf(&canvasScroll_), path,
         [this, path, options]
@@ -1392,6 +1411,37 @@ Composer::onExportMidiResponse (int response, Gtk::FileChooserDialog *dialog,
         });
 }
 
+/* What is playing, as an export takes it: its seed, its name, and its
+   chains' mutes and solos. */
+thcMidiExport::Options
+Composer::exportOptions (void)
+{
+    thcMidiExport::Options options;
+
+    options.seed = sched_->masterSeed();
+    options.name = !doc_.name.empty() ? doc_.name
+                 : !genPath_.empty()
+                     ? std::filesystem::path(genPath_).stem().string()
+                     : "untitled";
+
+    for (size_t c = 0; c < sched_->chainCount(); c++)
+    {
+        const thcChain *chain = sched_->chain(c);
+
+        if (chain->muted)
+            options.muted.push_back(chain->name);
+
+        if (chain->soloed)
+            options.soloed.push_back(chain->name);
+    }
+
+    for (const thcInstrument &inst : sched_->instruments())
+        if (inst.channel >= 0)
+            options.channels.push_back(inst.channel);
+
+    return options;
+}
+
 bool
 Composer::exportMidi (const std::string &path,
                       const thcMidiExport::Options &options,
@@ -1409,7 +1459,15 @@ Composer::exportMidi (const std::string &path,
 
     if (!thcMidiExport::render(composers_, &synth, workPath_, options, bytes,
                                why, length))
+    {
+        /* The working copy is a temporary file nobody chose; an error
+           names the piece instead. */
+        for (size_t at; (at = why.find(workPath_)) != std::string::npos; )
+            why.replace(at, workPath_.size(),
+                        genPath_.empty() ? options.name : genPath_);
+
         return false;
+    }
 
     std::ofstream f(path.c_str(), std::ios::binary | std::ios::trunc);
 
