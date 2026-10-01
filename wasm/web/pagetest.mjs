@@ -2592,6 +2592,50 @@ try
               `an arrangement that ends is exported to its end: ${status}`);
     }
 
+    /* A piece that pins no seed, on a page that has loaded nothing else:
+     * the worklet that plays it and the mirror that draws it compose the
+     * same piece -- the tapes agree, event for event. Each used to draw a
+     * seed of its own, which only a fresh page shows: once any load has
+     * handed both a seed, they keep it. */
+    {
+        const fresh = await browser.newPage();
+
+        fresh.on('pageerror', (e) => errors.push(e.message));
+        await fresh.goto(url);
+        await fresh.click('#start');
+        await fresh.waitForFunction(() => window.solo?.settled, null,
+                                    { timeout: 20000 });
+        await fresh.selectOption('#mode', 'piece');
+        await fresh.evaluate(() => window.solo.settled());
+        await fresh.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, 'name "unseeded";\ntempo 120;\n' +
+           'instrument org { dsp "organ0.dsp"; };\n' +
+           'chain a { stage s gen::eno_line { period = 0.1 s; ' +
+           'hold = 0.05 s; }; sink { instrument = org; }; };\n');
+        await fresh.click('#loadpiece');
+        await fresh.evaluate(() => window.solo.settled());
+
+        const before = await fresh.evaluate(() => window.solo.tapeDiff());
+
+        await fresh.click('#rewind');
+        await fresh.click('#play');
+        await fresh.waitForTimeout(2500);
+        await fresh.click('#stop');
+        await fresh.waitForTimeout(500);
+
+        const after = await fresh.evaluate(() => window.solo.tapeDiff());
+        const compared = after.compared - before.compared;
+        const differ = after.disagreements - before.disagreements;
+
+        check(compared > 10 && differ === 0,
+              `an unseeded piece composes the same in the worklet and the ` +
+              `mirror: ${compared} events compared, ${differ} differ`);
+
+        await fresh.close();
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
