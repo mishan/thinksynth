@@ -456,7 +456,7 @@ machine without the device, `genwav`, a browser page with MIDI out off.
 With no `dsp` such an instrument is silent there. Its chanarg values (`fmin =
 0.2;`) are the graph's, so they need a `dsp`, and they are not sent to the
 device, knob-bound ones included; only what a chain sends through a `cc`
-reaches it.
+or a `bend` reaches it.
 
 A chain reaches a device through `cc`. `cc NAME = N;` maps chanarg `NAME` to
 controller `N` (0-119; 120-127 are channel mode messages); a chanarg sink on
@@ -465,6 +465,14 @@ onto 0..127 and clamped, and the default range is 0..127, so a chain that
 already speaks controller values is sent as it is. A note's level (section
 fades, accents) goes as expression, CC 11, with 1 as 100, as in the MIDI file
 `genwav --midi` writes.
+
+`bend NAME;` maps a chanarg to the pitch wheel instead, at its full 14 bits:
+`min` is all the way down, `max` all the way up and their middle is center,
+-1..1 unless a block says otherwise (`bend wheel { min = -2; max = 2; };`). How
+far that is in semitones is the device's bend range. One `bend` per
+instrument, and a stop puts a bent wheel back to center. `cc` and `bend` are
+mappings only with a name after them: `bend = 2;` is a chanarg of the graph's,
+as it always was.
 
 Timing: the composer delivers on a 20 ms step, so every event is stamped with
 the moment it is due and sent that long after it, plus a delay (40 ms by
@@ -480,7 +488,9 @@ the same choice of where it plays, kept in that browser rather than the
 piece, and the delay is beside the button. The worklet stamps each message
 for the frame it sounds at and the page schedules it with
 `MIDIOutput.send(bytes, time)`, so it lands with the audio rather than when
-the message arrived. Rooms (jam.html) play MIDI instruments on their `dsp`.
+the message arrived. A room (jam.html) has the same controls, with a row per
+MIDI instrument under them: every peer composes the same piece and sends it
+to devices of its own.
 
 Where the instrument plays is also this machine's choice. The Composer's MIDI
 out section lists each MIDI instrument with the port its pattern matched and
@@ -488,10 +498,17 @@ lets you pick any other port, or its `dsp`. The choice is kept in the
 preferences under the pattern, not in the piece, so the file still says what
 somebody else's machine should look for. A channel played on a device loads
 no patch, so the rest of the program counts it as free: a patch loaded onto
-it by hand is replaced if the instrument is later switched to its `dsp`.
+it by hand is replaced if the instrument is later switched to its `dsp`. An
+instrument that names a port and is not on one says so in the Composer's
+status line, with where to change it.
 
-A swap (`gen::swap`) onto or off an instrument played over MIDI is refused:
-a device is not a graph to rebuild.
+A swap (`gen::swap`) onto an instrument played over MIDI puts the channel on
+its device and takes the channel's graph off, ending what it was sounding --
+its notes' offs go to the device from then on; a swap off one ends what it
+holds on the device and loads the new instrument's graph. Where no port
+answers, a swap onto a MIDI instrument plays its `dsp`, as applying it would.
+When the ports or a route change, a swapped channel is decided again like
+any other.
 
 ## 5. Chains
 
@@ -861,6 +878,7 @@ instrstmt   : "dsp" STRING ";"
             | "midichannel" "=" NUMBER ";"              # 1-16; with midi
             | "midiprogram" "=" NUMBER ";"              # 1-128; optional
             | "cc" WORD "=" NUMBER ccrange? ";"         # 0-119
+            | "bend" WORD ccrange? ";"                  # the pitch wheel
             | instrval
 ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
 effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs

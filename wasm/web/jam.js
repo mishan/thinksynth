@@ -55,6 +55,7 @@ import { createKeyFocus } from './keyfocus.js';
 import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import { midiAvailable, midiToggle } from './midi.js';
+import { MidiOutControls } from './midioutui.js';
 import { keepOffline } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
@@ -454,6 +455,7 @@ async function loadFromDoc (seed = -1)
 
     await drawKnobs();
     showSeats();
+    showMidiOut();
     showNodeChannel();
     enable();
 
@@ -713,6 +715,32 @@ function showPeers ()
 
     /* Our seat, as the relay has it. */
     $('seat').value = room.seat === null ? '' : String(room.seat);
+}
+
+/* MIDI out's button, delay and pickers (midioutui.js). */
+let midiOutUI = null;
+
+/* A row per instrument the piece names a MIDI port for: where it plays on
+   this machine, and why. */
+function showMidiOut ()
+{
+    const box = $('midioutlist');
+
+    box.replaceChildren();
+
+    for (const inst of piece?.instruments ?? [])
+    {
+        if (!inst.midi)
+            continue;
+
+        const row = document.createElement('div');
+        const name = document.createElement('span');
+
+        row.className = 'row midiinst';
+        name.textContent = inst.name;
+        row.append(name, ...midiOutUI.picker(inst));
+        box.append(row);
+    }
 }
 
 /* The seats are the piece's instruments, by name with their channel. */
@@ -1171,6 +1199,9 @@ async function start ()
         synth = await createSynth(ctx, { windowlen: 256, onLog: log,
                                          onTape: tape,
                                          onParamEdits: paramsEdited,
+                                         onMidi: (msgs) => midiOutUI.take(msgs),
+                                         onMidiState: (list) =>
+                                             midiOutUI.state(list),
                                          onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
@@ -1189,6 +1220,7 @@ async function start ()
 
     audioClock = new AudioClock(ctx.sampleRate);
     transport = new TransportClock(ctx.sampleRate);
+    midiOutUI.start(synth, ctx, audioClock);
 
     $('midi').disabled = !midiAvailable();
 
@@ -1321,6 +1353,13 @@ function init ()
         button: $('midi'), status: $('midistatus'),
         onNoteOn: (note, velocity) => press(note, velocity, true),
         onNoteOff: (note) => release(note, true),
+    });
+
+    midiOutUI = new MidiOutControls({
+        button: $('midiout'), delay: $('midioutdelay'),
+        status: $('midioutstatus'),
+        instruments: () => piece?.instruments ?? [],
+        onChange: showMidiOut,
     });
 
     $('join').addEventListener('click', join);

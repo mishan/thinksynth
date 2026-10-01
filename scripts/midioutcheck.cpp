@@ -316,6 +316,63 @@ int main (void)
               "a cc is scaled, clamped and not repeated", hex(s));
     }
 
+    /* ---- the pitch wheel ---- */
+
+    {
+        thcInstrument wheel = instrument("Surge", 5);
+        thcMidiCC bend;
+
+        bend.name = "wheel";
+        bend.bend = true;
+        bend.cc = -1;
+        bend.min = -2;
+        bend.max = 2;
+        wheel.ccs.push_back(bend);
+
+        out.attach(11, wheel, why);
+        settle(250);
+        take();
+
+        const gint64 now = g_get_monotonic_time() - 30000;
+
+        out.control(11, "wheel", 0, now);       /* centered: 8192        */
+        out.control(11, "wheel", 2, now);       /* all the way up        */
+        out.control(11, "wheel", 9, now);       /* clamped: the same     */
+        settle(250);
+
+        std::vector<Sent> s = take();
+
+        check(s.size() == 2 && bytesAre(s[0], { 0xe5, 0, 64 }) &&
+              bytesAre(s[1], { 0xe5, 127, 127 }),
+              "a bend is the pitch wheel, 14 bits, and not repeated",
+              hex(s));
+
+        out.flush(11);
+        settle(250);
+        s = take();
+
+        check(s.size() == 1 && bytesAre(s[0], { 0xe5, 0, 64 }),
+              "a flush puts a bent wheel back to center", hex(s));
+
+        /* Bent and sent; then a center that is still queued when a flush
+           drops it: the device never heard it, so the flush centers. */
+        out.setDelay(200);
+        out.control(11, "wheel", 2, g_get_monotonic_time() - 200000);
+        settle(100);
+        take();
+        out.control(11, "wheel", 0, g_get_monotonic_time());
+        out.flush(11);
+        settle(400);
+        s = take();
+        out.setDelay(30);
+
+        check(s.size() == 1 && bytesAre(s[0], { 0xe5, 0, 64 }),
+              "a center a flush dropped is sent by the flush", hex(s));
+
+        out.detach(11);
+        take();
+    }
+
     /* ---- flush ---- */
 
     {

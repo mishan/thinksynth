@@ -289,10 +289,12 @@ struct thcInstrumentArg
 struct thcMidiCC
 {
     std::string name;
-    int         cc;
+    int         cc;             /* -1 for the pitch wheel (`bend')       */
     double      min, max;
+    bool        bend;           /* `bend NAME { ... };': 14-bit, min down,
+                                   max up, their middle centered          */
 
-    thcMidiCC (void) : cc(0), min(0), max(127) {}
+    thcMidiCC (void) : cc(0), min(0), max(127), bend(false) {}
 };
 
 /* An instrument the piece carries: a DSP graph named by file, the
@@ -854,6 +856,11 @@ public:
        instrument is remembered (see strandedCount) so the attempt can be
        made again rather than the graph being abandoned. */
     bool unapplyInstrument (size_t index);
+
+    /* Every channel a swap put a MIDI instrument naming `pattern' on
+       (any, where it is empty), swapped onto again, so it lands where the
+       ports and routes say now. Returns how many. */
+    int reapplySwapped (const std::string &pattern);
     bool unapply (const thcInstrument &what);
 
     /* ---- the graph on the mix ------------------------------------------

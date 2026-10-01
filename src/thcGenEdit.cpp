@@ -778,7 +778,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     continue;
                 }
 
-                if (t[j].kind == Tok::WORD && t[j].text == "cc" &&
+                if (t[j].kind == Tok::WORD &&
+                    (t[j].text == "cc" || t[j].text == "bend") &&
                     t[j + 1].kind == Tok::WORD)
                 {
                     size_t k = j + 2;

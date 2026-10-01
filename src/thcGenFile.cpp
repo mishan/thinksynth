@@ -697,7 +697,8 @@ thcGenLoader::checkSinkArgs (thcScheduler *sched)
 
             if (!mapped)
                 error(p.line, "instrument '" + p.instrument + "' is played "
-                      "over MIDI and maps no cc called '" + s.chanarg + "'");
+                      "over MIDI and maps no cc or bend called '" +
+                      s.chanarg + "'");
 
             continue;
         }
@@ -1644,6 +1645,8 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
  *   cc cutoff = 74;            chanarg `cutoff' as controller 74
  *   cc cutoff = 74 { min = 60; max = 12000; };
  *                              scaled from that range onto 0..127
+ *   bend wheel { min = -2; max = 2; };
+ *                              onto the pitch wheel, min down, max up
  *
  * Numbered from 1 as a device's front panel numbers them, as `channel =
  * N' in a sink is. Controllers stop at 119: 120-127 are the channel mode
@@ -1709,12 +1712,16 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
         return expectPunct(';');
     }
 
-    /* cc */
+    /* cc, or bend: the same mapping, onto a controller or onto the pitch
+       wheel. A bend's range is -1..1 unless it says, so a chain sending
+       -1, 0 and 1 is down, centered and up by whatever the device's bend
+       range is. */
+    const bool bend = key.text == "bend";
     const Token &nameTok = peek();
 
     if (nameTok.kind != Token::WORD)
     {
-        error(nameTok.line, where + ": cc wants a chanarg name");
+        error(nameTok.line, where + ": " + key.text + " wants a chanarg name");
         return false;
     }
 
@@ -1723,14 +1730,33 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
     cc.name = take().text;
 
     for (const thcMidiCC &other : inst.ccs)
+    {
         if (other.name == cc.name)
         {
             error(nameTok.line, where + " maps '" + cc.name + "' twice");
             return false;
         }
 
-    if (!expectPunct('=') || !wholeIn(take(), "cc", 0, 119, cc.cc))
+        if (bend && other.bend)
+        {
+            error(nameTok.line, where + " bends twice: '" + other.name +
+                  "' and '" + cc.name + "'");
+            return false;
+        }
+    }
+
+    if (bend)
+    {
+        cc.bend = true;
+        cc.cc = -1;
+        cc.min = -1;
+        cc.max = 1;
+    }
+    else if (!expectPunct('=') || !wholeIn(take(), "cc", 0, 119, cc.cc))
         return false;
+
+    /* "instrument lead: cc cutoff", for the errors below. */
+    const std::string mapping = where + ": " + key.text + " " + cc.name;
 
     if (peek().kind == Token::PUNCT && peek().text[0] == '{')
     {
@@ -1744,8 +1770,7 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
 
             if (k.kind != Token::WORD || (k.text != "min" && k.text != "max"))
             {
-                error(k.line, where + ": cc " + cc.name + " takes min and "
-                      "max");
+                error(k.line, mapping + " takes min and max");
                 return false;
             }
 
@@ -1754,8 +1779,8 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
 
             if (got)
             {
-                error(field.line, where + ": cc " + cc.name + " sets " +
-                      field.text + " twice");
+                error(field.line, mapping + " sets " + field.text +
+                      " twice");
                 return false;
             }
 
@@ -1766,7 +1791,7 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
 
             if (v.kind != Token::NUMBER)
             {
-                error(v.line, where + ": cc " + cc.name + " " + field.text +
+                error(v.line, mapping + " " + field.text +
                       " wants a number");
                 return false;
             }
@@ -1782,8 +1807,7 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
 
         if (!(cc.max > cc.min))
         {
-            error(nameTok.line, where + ": cc " + cc.name + " wants a max "
-                  "above its min");
+            error(nameTok.line, mapping + " wants a max above its min");
             return false;
         }
     }
@@ -1887,8 +1911,14 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
            to the name; see thcInstrument::midi. Keywords, like `dsp',
            because they say where the notes go rather than what a graph
            reads. */
+        /* `cc' and `bend' are mappings only with a name after them:
+           `bend = 2;' is a graph's chanarg of that name, as it always was,
+           and four shipped pieces set one. */
+        const bool mapping = (key.text == "cc" || key.text == "bend") &&
+                             peek().kind == Token::WORD;
+
         if (key.text == "midi" || key.text == "midichannel" ||
-            key.text == "midiprogram" || key.text == "cc")
+            key.text == "midiprogram" || mapping)
         {
             if (!parseInstrumentMidi(inst, "instrument " + nameTok.text,
                                      key))

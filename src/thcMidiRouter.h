@@ -35,8 +35,9 @@
  * channel, the `cc' mappings. noteOn, noteOff and control become MIDI
  * messages handed to the Emit given at construction, each with the stamp
  * it came with: a note's level as CC 11 (1 is 100) ahead of the note
- * where it moves, a chanarg scaled onto 0..127 and not repeated, a
- * program change on attach.
+ * where it moves, a chanarg scaled onto 0..127 -- or onto the pitch
+ * wheel's 14 bits, for a `bend' -- and not repeated, a program change on
+ * attach.
  *
  * What it does not do is send, so it keeps no account of what a device
  * holds: that is the sender's, which alone knows what has gone out. Not
@@ -98,9 +99,10 @@ public:
                   gint64 when);
 
     /* After a flush the device's expression and controllers are what it
-       last heard, and the next note or value sends them again. -1 is
-       every channel. */
-    void forget (int channel);
+       last heard, and the next note or value sends them again; a pitch
+       wheel bent away from center is centered, stamped `now'. -1 is every
+       channel. */
+    void forget (int channel, gint64 now);
 
 private:
     struct Route

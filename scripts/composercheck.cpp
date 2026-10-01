@@ -2086,6 +2086,18 @@ runMidiOut (const std::string &pluginPath)
         else
             fail("choosing this synth puts the dsp on and keeps the route");
 
+        /* And the status line says so, and where to change it. */
+        const std::string status = win->status_->get_text();
+
+        if (status.find("ext: set to play on this synth (Piece Settings, "
+                        "MIDI out)") != std::string::npos)
+            ok("the status line names an instrument off its device");
+        else
+        {
+            printf("      %s\n", status.c_str());
+            fail("the status line names an instrument off its device");
+        }
+
         /* And back to the pattern's own match, from the section as it
            was rebuilt. */
         Gtk::DropDown *again = midiPick(win);
