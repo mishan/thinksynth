@@ -510,6 +510,12 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        if (m.type === 'midiclock')
+        {
+            this.M._tw_midiout_clock(m.on ? 1 : 0);
+            return;
+        }
+
         if (m.type === 'midiroute')
         {
             this.M.ccall('tw_midiout_route', 'number', ['string', 'string'],

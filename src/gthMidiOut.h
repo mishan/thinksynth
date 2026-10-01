@@ -137,6 +137,15 @@ public:
        empty where it is not attached. */
     std::string routeOf (int channel) const;
 
+    /* The ports MIDI clock goes to, by stable name: none, and no clock is
+       asked of the scheduler. Opened here; one not plugged in is kept,
+       and opened when it is set again. */
+    void setClockPorts (const std::vector<std::string> &names);
+    std::vector<std::string> clockPorts (void) const;
+
+    bool wantsClock (void) const override;
+    void clock (int kind, int position, gint64 when) override;
+
 private:
     struct Msg
     {
@@ -179,6 +188,9 @@ private:
     /* Patterns to ports, engine channels to routes, and notes to MIDI
        messages: shared with the browser's output. */
     thcMidiRouter    router_;
+
+    std::vector<std::string> clockNames_;
+    std::vector<int>         clockPorts_;   /* into ports_, opened */
 
     std::vector<std::string>           portNames_;
     std::vector<std::unique_ptr<Port> > ports_;

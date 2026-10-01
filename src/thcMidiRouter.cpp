@@ -56,6 +56,25 @@ thcMidiRouter::stableName (const std::string &name)
     return name.substr(0, sp);
 }
 
+int
+thcMidiRouter::clockBytes (int kind, int position, uint8_t out[3])
+{
+    switch (kind)
+    {
+        case thcMidiOut::CLOCK_TICK:     out[0] = 0xf8; return 1;
+        case thcMidiOut::CLOCK_START:    out[0] = 0xfa; return 1;
+        case thcMidiOut::CLOCK_CONTINUE: out[0] = 0xfb; return 1;
+        case thcMidiOut::CLOCK_STOP:     out[0] = 0xfc; return 1;
+        case thcMidiOut::CLOCK_POSITION:
+            out[0] = 0xf2;
+            out[1] = (uint8_t)(position & 0x7f);
+            out[2] = (uint8_t)((position >> 7) & 0x7f);
+            return 3;
+    }
+
+    return 0;
+}
+
 void
 thcMidiRouter::setRoute (const std::string &pattern, const std::string &to)
 {

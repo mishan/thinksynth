@@ -47,6 +47,7 @@ import { midiAccess } from './midi.js';
 
 /* twMidiOut's record kinds. */
 const SEND = 0;
+const CLOCK = 3;
 
 /* How far ahead of its time a message is handed to send(). Enough for a
    timer that fires late; short enough that a stop takes back nearly
@@ -75,6 +76,9 @@ export class MidiSender
         this.queue = [];
         this.seq = 0;
         this.generation = 0;
+
+        /* The ids of the outputs MIDI clock goes to. */
+        this.clockIds = new Set();
 
         /* output id, MIDI channel and key, joined by SEP -> { channel, at } */
         this.held = new Map();
@@ -141,11 +145,33 @@ export class MidiSender
         this.onPorts(this.names, this.generation);
     }
 
+    /* Which outputs MIDI clock goes to, by id. */
+    setClock (ids)
+    {
+        this.clockIds = new Set(ids);
+    }
+
     /* What the worklet posted (host.js onMidi). */
     take (msgs)
     {
         for (const m of msgs)
         {
+            if (m.kind === CLOCK)
+            {
+                const at = this.clock.perfAt(m.when / 1e6);
+
+                for (const id of this.clockIds)
+                    this.queue.push({
+                        due: (Number.isNaN(at) ? this.now() : at) + this.delay,
+                        seq: this.seq++,
+                        channel: -2,
+                        output: id,
+                        bytes: m.bytes,
+                    });
+
+                continue;
+            }
+
             if (m.kind !== SEND)
             {
                 this.flush(m.channel);
@@ -185,6 +211,17 @@ export class MidiSender
 
     handOff (m, now)
     {
+        /* Clock: to the output it is for, as it is. */
+        if (m.output !== undefined)
+        {
+            const out = this.outputs.find((o) => o.id === m.output);
+
+            if (out !== undefined)
+                this.send(out, m.bytes, Math.max(m.due, now));
+
+            return;
+        }
+
         const out = this.outputs[m.port];
 
         if (out === undefined)

@@ -8148,6 +8148,16 @@ struct FakeMidiOut : public thcMidiOut
         calls.push_back({ "flush", channel, 0, 0, "", 0, 0 });
     }
 
+    bool clockOn = false;
+
+    bool wantsClock (void) const override { return clockOn; }
+
+    /* `note' is the kind, `velocity' the position. */
+    void clock (int kind, int position, gint64 when) override
+    {
+        calls.push_back({ "clock", -1, kind, position, "", 0, when });
+    }
+
     size_t count (const std::string &what) const
     {
         size_t n = 0;
@@ -8573,6 +8583,97 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
                 fail("a channel swapped onto a device did not leave it when "
                      "the device went");
         }
+    }
+
+    /* MIDI clock: Start from the top, a tick every 24th of a beat stamped
+       at its beat, Stop with the transport, and Song Position and Continue
+       from where it stopped, on the next sixteenth. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+        const std::string path = thUtil::tempFile("gencheck-clock-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\n"
+                 "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };\n";
+        }
+
+        out.clockOn = true;
+        sched.setMidiOut(&out);
+
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+            fail("the clock piece did not load");
+        else
+        {
+            std::vector<FakeMidiOut::Call> clocks;
+            const auto take = [&]()
+            {
+                for (const FakeMidiOut::Call &c : out.calls)
+                    if (c.what == "clock")
+                        clocks.push_back(c);
+
+                out.calls.clear();
+            };
+
+            sched.start();
+
+            for (int step = 1; step <= 51; step++)    /* to 1.02 s */
+                sched.stepTransportAt(0.02, base + (gint64)step * 20000);
+
+            sched.stop();
+            take();
+
+            /* 120 bpm: a tick each 1/48 s, 0 to 48 in 1.02 s. */
+            bool stamped = clocks.size() == 51 &&
+                           clocks[0].note == thcMidiOut::CLOCK_START &&
+                           clocks[50].note == thcMidiOut::CLOCK_STOP;
+
+            for (int k = 0; stamped && k < 49; k++)
+                stamped = clocks[k + 1].note == thcMidiOut::CLOCK_TICK &&
+                          clocks[k + 1].when ==
+                              base + (gint64)llround(k * 1e6 / 48);
+
+            if (!stamped)
+                fail("MIDI clock: not Start, 49 ticks at their beats and Stop "
+                     "(" + std::to_string(clocks.size()) + " messages)");
+
+            clocks.clear();
+            sched.start();
+            sched.stepTransportAt(0.2, base + 1220000);
+            sched.stop();
+            take();
+
+            /* Stopped at beat 2.04: on from the next sixteenth, 9, which
+               is tick 54. */
+            const bool resumed =
+                clocks.size() >= 3 &&
+                clocks[0].note == thcMidiOut::CLOCK_POSITION &&
+                clocks[0].velocity == 9 &&
+                clocks[1].note == thcMidiOut::CLOCK_CONTINUE &&
+                clocks[2].note == thcMidiOut::CLOCK_TICK &&
+                clocks[2].when == base + 1220000 -
+                                  (gint64)llround((2.44 - 54 / 24.0) *
+                                                  0.5 * 1e6);
+
+            if (!resumed)
+                fail("MIDI clock: a resume is not Song Position 9, Continue "
+                     "and the tick of that sixteenth");
+
+            out.clockOn = false;
+            out.calls.clear();
+            sched.start();
+            sched.stepTransportAt(0.2, base + 1420000);
+            sched.stop();
+
+            if (out.count("clock") != 0)
+                fail("MIDI clock sent to an output that did not ask for it");
+        }
+
+        std::filesystem::remove(path);
     }
 
     /* No port: the dsp plays, and the reason is kept. */

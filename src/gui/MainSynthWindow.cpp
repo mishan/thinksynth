@@ -921,6 +921,15 @@ void MainSynthWindow::loadMidiRoutes (void)
 
     if (delay != NULL && delay[0] != NULL)
         midiOut_->setDelay(atoi(delay[0]->c_str()));
+
+    string **clock = prefs->Get("midiclock");
+    std::vector<std::string> clockPorts;
+
+    for (int i = 0; clock != NULL && clock[i] != NULL; i++)
+        clockPorts.push_back(gthPrefs::unescape(*clock[i]));
+
+    if (!clockPorts.empty())
+        midiOut_->setClockPorts(clockPorts);
 }
 
 void MainSynthWindow::saveMidiRoutes (void)
@@ -944,6 +953,22 @@ void MainSynthWindow::saveMidiRoutes (void)
     delay[0] = new string(std::to_string(midiOut_->delay()));
     delay[1] = NULL;
     prefs->Set("midioutdelay", delay);
+
+    /* The clock ports, a value each. */
+    const std::vector<std::string> clock = midiOut_->clockPorts();
+
+    if (clock.empty())
+        prefs->Remove("midiclock");
+    else
+    {
+        string **vals = new string *[clock.size() + 1];
+
+        for (size_t i = 0; i < clock.size(); i++)
+            vals[i] = new string(gthPrefs::escape(clock[i]));
+
+        vals[clock.size()] = NULL;
+        prefs->Set("midiclock", vals);
+    }
 }
 
 void MainSynthWindow::applyPrefs (void)

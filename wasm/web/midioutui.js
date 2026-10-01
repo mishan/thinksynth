@@ -32,6 +32,9 @@ import { AudioClock } from './clock.js';
 const ROUTES = 'thinksynth:midiroutes';
 const DELAY = 'thinksynth:midioutdelay';
 
+/* The outputs MIDI clock goes to, by name. */
+const CLOCK = 'thinksynth:midiclock';
+
 function saved ()
 {
     try
@@ -39,25 +42,29 @@ function saved ()
         return {
             routes: JSON.parse(localStorage.getItem(ROUTES) ?? '{}'),
             delay: Number(localStorage.getItem(DELAY) ?? 0) || 0,
+            clock: JSON.parse(localStorage.getItem(CLOCK) ?? '[]'),
         };
     }
     catch
     {
-        return { routes: {}, delay: 0 };
+        return { routes: {}, delay: 0, clock: [] };
     }
 }
 
 export class MidiOutControls
 {
-    /* `button', `delay' and `status' are the page's elements. `instruments'
+    /* `button', `delay' and `status' are the page's elements, and `clock'
+       is where a check per output for MIDI clock goes. `instruments'
        answers the piece's instruments as the worklet described them, whose
        midiState this keeps current; `onChange' is told when a picker would
        read differently -- the outputs, or where an instrument plays. */
-    constructor ({ button, delay, status, instruments = () => [],
+    constructor ({ button, delay, status, clock = null, instruments = () => [],
                    onChange = () => {} })
     {
-        const { routes, delay: ms } = saved();
+        const { routes, delay: ms, clock: clockNames } = saved();
 
+        this.clockBox = clock;
+        this.clockNames = new Set(clockNames);
         this.button = button;
         this.delayInput = delay;
         this.statusLine = status;
@@ -139,9 +146,56 @@ export class MidiOutControls
         {
             localStorage.setItem(ROUTES, JSON.stringify(this.routes));
             localStorage.setItem(DELAY, String(this.delay));
+            localStorage.setItem(CLOCK, JSON.stringify([...this.clockNames]));
         }
         catch
         {
+        }
+    }
+
+    /* MIDI clock to the checked outputs, and the worklet asked for it only
+       where there is one. */
+    applyClock ()
+    {
+        const outputs = this.sender?.outputs ?? [];
+        const ids = outputs.filter((o) => this.clockNames.has(o.name))
+                           .map((o) => o.id);
+
+        this.sender?.setClock(ids);
+        this.synth?.midiClock(ids.length > 0);
+    }
+
+    /* A check per output for MIDI clock: any piece can drive a drum
+       machine, with or without an instrument of its own on one. */
+    showClock ()
+    {
+        if (this.clockBox === null)
+            return;
+
+        this.clockBox.replaceChildren();
+
+        for (const name of this.sender?.names ?? [])
+        {
+            const label = document.createElement('label');
+            const check = document.createElement('input');
+
+            check.type = 'checkbox';
+            check.className = 'midiclock';
+            check.checked = this.clockNames.has(name);
+            check.addEventListener('change', () =>
+            {
+                if (check.checked)
+                    this.clockNames.add(name);
+                else
+                    this.clockNames.delete(name);
+
+                this.save();
+                this.applyClock();
+            });
+
+            label.className = 'hint';
+            label.append(check, ` clock to ${name}`);
+            this.clockBox.append(label);
         }
     }
 
@@ -202,7 +256,9 @@ export class MidiOutControls
             this.sender = null;
             clearInterval(this.timer);
             this.timer = null;
+            this.synth?.midiClock(false);
             this.synth?.midiPorts([], false, 0);
+            this.showClock();
             this.button.textContent = 'MIDI out';
             this.say('');
             this.onChange();
@@ -235,6 +291,8 @@ export class MidiOutControls
                 this.synth.midiPorts(names, true, generation);
                 this.say(names.length > 0 ? names.join(', ')
                                           : 'no MIDI outputs; plug one in');
+                this.showClock();
+                this.applyClock();
                 this.onChange();
             },
         });

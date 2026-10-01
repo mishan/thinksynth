@@ -492,6 +492,16 @@ the message arrived. A room (jam.html) has the same controls, with a row per
 MIDI instrument under them: every peer composes the same piece and sends it
 to devices of its own.
 
+MIDI clock is a choice of this machine's too, and any piece can drive it,
+with or without an instrument on a device. The MIDI out section (the
+Composer's, the page's) has a check per output port; the checked ones are
+sent 24 ticks to the beat while the transport runs, each stamped at its beat
+and sent with the same delay as the notes, Start when it starts from the
+top, Song Position and Continue when it starts anywhere else -- a resume, a
+seek -- on the next sixteenth, and Stop when it stops. A drum machine or a
+DAW set to follow MIDI clock then keeps the piece's tempo, tempo changes
+included.
+
 Where the instrument plays is also this machine's choice. The Composer's MIDI
 out section lists each MIDI instrument with the port its pattern matched and
 lets you pick any other port, or its `dsp`. The choice is kept in the

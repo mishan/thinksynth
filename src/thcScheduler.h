@@ -397,6 +397,23 @@ public:
     /* Stop: whatever is queued for the channel is dropped and every note
        sounding on it is ended now. -1 is every channel. */
     virtual void flush (int channel) = 0;
+
+    /* MIDI clock, for a host that sends it somewhere: 24 ticks to the
+     * beat while the transport runs, Start when it starts from the top,
+     * Song Position and Continue when it starts anywhere else -- a resume,
+     * a seek -- and Stop when it stops. `position' is Song Position's, in
+     * sixteenths. Only asked for where wantsClock() says so: a tick is
+     * forty-eight messages a second at 120 bpm, for nobody otherwise. */
+    enum { CLOCK_TICK, CLOCK_START, CLOCK_CONTINUE, CLOCK_STOP,
+           CLOCK_POSITION };
+
+    virtual bool wantsClock (void) const { return false; }
+    virtual void clock (int kind, int position, gint64 when)
+    {
+        (void)kind;
+        (void)position;
+        (void)when;
+    }
 };
 
 /* A note a chain was heard to play, or a stage let out: what freezing a
@@ -1275,6 +1292,14 @@ private:
     /* A MIDI channel's chanargs during a seek: the last of each, sent
        when the seek is over. */
     std::map<std::pair<int, std::string>, double> seekControls_;
+
+    /* MIDI clock: the next tick to send, counted in 24ths of a beat from
+       the top, and the ticks between the beat a step started at and the
+       one it reached. */
+    double clockTick_ = 0;
+    bool   clocking (void) const;
+    void   clockTicks (void);
+    void   clockStart (void);
     bool takeGraphOff (const thcInstrument &inst);
 
     /* The wall-clock moment transportNow_ is, for stamping what goes to
