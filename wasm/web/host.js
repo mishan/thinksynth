@@ -340,7 +340,18 @@ export async function createSynth (ctx, { windowlen = 256,
            `errors', which is the loader's own complaints with line
            numbers, when it did not parse. `seed' is the master seed to
            compose from when the file pins none; left out, one is drawn. */
-        loadPiece: (text, seed = -1) => ask({ type: 'piece', text, seed }),
+        loadPiece: (text, seed = -1) =>
+        {
+            /* A piece that pins no seed composes from one drawn here, once,
+               and the same one is handed to both instances: left to draw
+               their own, the worklet would play one piece and the mirror
+               draw another on the canvas and the roll. A piece that pins
+               its own is not moved by this. */
+            if (!(seed >= 0))
+                seed = Math.floor(Math.random() * 0x100000000);
+
+            return ask({ type: 'piece', text, seed });
+        },
 
         /* 'start', 'stop', 'rewind' or 'tempo', the last with a value in
            beats per minute, at a frame; -1 is the next window. 'start'

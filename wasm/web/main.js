@@ -2817,6 +2817,10 @@ function showRoll (on)
    ended up showing. The layout is the canvas's, so asking it is the only
    honest way to press one. */
 window.solo = {
+    /* The worklet's tape against the mirror's (tapediff.js): how many
+       events both have delivered, and how many differ. */
+    tapeDiff: () => ({ compared: diff.compared,
+                       disagreements: diff.disagreements }),
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
     chipOf: (chain, which) => composer?.chipOf(chain, which),
     mix: () => composer?.mix(),
