@@ -26,15 +26,15 @@
 #include <gtkmm.h>
 
 #include "thcGenEdit.h"
+#include "thcMidiExport.h"
 /* By value in prevInstruments_ below, so a forward declaration will not
    do -- and it is the same header ComposerCanvas already pulls in. */
 #include "thcScheduler.h"
-
-class gthMidiOut;
 #include "ComposerCanvasWidget.h"
 #include "SeqView.h"
 #include "StageParamsView.h"
 
+class gthMidiOut;
 class thSynth;
 class thArg;
 class thcPlugin;
@@ -239,6 +239,16 @@ protected:
     void onSave (void);
     void onSaveAs (void);
     void onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog);
+    void onExportMidi (void);
+
+    thcMidiExport::Options exportOptions (void);
+
+    /* The working piece to `path' as a .mid; see thcMidiExport. */
+    bool exportMidi (const std::string &path,
+                     const thcMidiExport::Options &options, std::string &why,
+                     double *length = NULL);
+    void onExportMidiResponse (int response, Gtk::FileChooserDialog *dialog,
+                               bool ends);
     void onNew (void);
     void onOpen (void);
     void onOpenConfirmed (void);

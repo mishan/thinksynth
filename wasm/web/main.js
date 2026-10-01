@@ -2543,6 +2543,7 @@ async function start ()
     delete document.body.dataset.unstarted;
     $('load').disabled = false;
     $('loadpiece').disabled = false;
+    $('exportmidi').disabled = false;
 
     /* What the shipped patches are presets over, on its way. Not awaited:
        nothing on screen is waiting for it, and the panel that offers them
@@ -2621,10 +2622,69 @@ function fromMirror (m)
         return;
     }
 
+    if (m.type === 'exportedmidi')
+    {
+        exportWaiting.get(m.id)?.(m);
+        exportWaiting.delete(m.id);
+        return;
+    }
+
     if (m.type === 'tape')
         diff.take('mirror', m);
     else if (m.type === 'log')
         log(m.text);
+}
+
+/* Export MIDI: the piece being played -- the text it was loaded from and
+ * the seed it composes with -- composed offline by the mirror and handed
+ * back as a download. */
+const exportWaiting = new Map();
+let exportId = 0;
+
+async function exportMidi ()
+{
+    const say = (text) => { $('exportstatus').textContent = text; };
+
+    if (synth === null || piece === null)
+    {
+        say('load a piece first');
+        return;
+    }
+
+    /* Mid-load, the text has moved on and the seed and name have not. */
+    if (loading > 0)
+    {
+        say('wait for the piece to load');
+        return;
+    }
+
+    const id = ++exportId;
+    const seconds = Math.max(1, Math.min(3600,
+                                         Number($('exportlength').value) || 120));
+    const done = new Promise((resolve) => exportWaiting.set(id, resolve));
+
+    $('exportmidi').disabled = true;
+    say('composing...');
+    synth.toMirror({ type: 'exportmidi', id, text: loadedText, seconds,
+                     seed: piece.seed ?? -1, name: piece.name ?? '' });
+
+    const m = await done;
+
+    $('exportmidi').disabled = false;
+
+    if (!m.ok)
+    {
+        say(m.why);
+        return;
+    }
+
+    const a = document.createElement('a');
+
+    a.href = URL.createObjectURL(new Blob([m.bytes], { type: 'audio/midi' }));
+    a.download = `${(piece.name || 'piece').replace(/[^\w.-]+/g, '_')}.mid`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    say(`${Math.round(m.length)} s, ${m.bytes.length} bytes`);
 }
 
 /* ---- the instrument as a graph ----
@@ -3424,6 +3484,7 @@ async function init ()
     $('patch').addEventListener('change', pickPatch);
 
     $('loadpiece').addEventListener('click', loadPiece);
+    $('exportmidi').addEventListener('click', exportMidi);
     $('piece').addEventListener('change', pickPiece);
 
     showLineNumbers(savedLineNumbers());

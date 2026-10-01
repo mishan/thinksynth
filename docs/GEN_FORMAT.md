@@ -1059,3 +1059,14 @@ application shows, `engine` the zero-based one every event line carries.
 With `-t`, the tape begins with `# channel N = name` lines for the piece's
 instruments, where `N` is that engine number. The event lines keep their
 existing format.
+
+`genwav --midi FILE.mid` writes the delivered events as a Standard MIDI File
+(src/thcMidiFile.h says what each becomes). So do the Composer's **Export
+MIDI...** and the page's **Export MIDI** button, without a command line:
+they compose the loaded piece on a silent synth of their own
+(src/thcMidiExport.h), with the seed, the transport step and the chains
+muted and soloed that it is playing with, so the file is the piece as it
+plays from the top. What is not in the file is not in the export: a knob
+moved or a section's level changed while it plays. On the page that is the
+text last loaded, not edits in the box since. A piece whose arrangement
+ends is exported to its end; one that does not, for the length chosen.

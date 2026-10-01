@@ -27,16 +27,25 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
 
+#include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <string>
 #include <vector>
 
+#include "config.h"
+#include "think.h"
+
+#include "libthink/thDynLib.h"
+#include "thcMidiExport.h"
 #include "thcMidiFile.h"
+#include "thcPlugin.h"
 
 static int failures = 0;
 
@@ -339,10 +348,74 @@ static int read (const char *path)
     return 0;
 }
 
+/* `--export PLUGINS SECONDS GEN OUT': the piece through
+   thcMidiExport::render, as the Composer's Export MIDI and the page's run
+   it, written to OUT -- for cmake/RunGenwavMidi.cmake to read beside what
+   genwav --midi wrote of the same piece. */
+static int exportPiece (const std::string &pluginDir, double seconds,
+                        const std::string &gen, const std::string &out)
+{
+    std::map<std::string, thcPlugin *> plugins;
+    std::error_code ec;
+    const std::filesystem::path root =
+        std::filesystem::path(pluginDir) / "composer";
+
+    for (const auto &f : std::filesystem::directory_iterator(root, ec))
+    {
+        if (f.path().extension() != PLUGIN_SUFFIX)
+            continue;
+
+        thcPlugin *p = new thcPlugin(f.path().string());
+
+        if (p->state() != thcPlugin::LOADED)
+        {
+            delete p;
+            continue;
+        }
+
+        plugins[p->name()] = p;
+
+        /* genwav's reason: the mapping outlives ~thcPlugin. */
+        thDynLib::open(f.path().string());
+    }
+
+    int rc = 1;
+
+    {
+        thSynth synth(pluginDir, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        thcMidiExport::Options options;
+        std::vector<uint8_t> bytes;
+        std::string why;
+
+        synth.setSilent(true);
+        options.seconds = seconds;
+
+        if (!thcMidiExport::render(plugins, &synth, gen, options, bytes,
+                                   why))
+            fprintf(stderr, "midicheck: %s\n", why.c_str());
+        else
+        {
+            std::ofstream f(out.c_str(), std::ios::binary | std::ios::trunc);
+
+            f.write((const char *)bytes.data(), (std::streamsize)bytes.size());
+            rc = f.good() ? 0 : 1;
+        }
+    }
+
+    for (auto &p : plugins)
+        delete p.second;
+
+    return rc;
+}
+
 int main (int argc, char **argv)
 {
     if (argc == 3 && !strcmp(argv[1], "--read"))
         return read(argv[2]);
+
+    if (argc == 6 && !strcmp(argv[1], "--export"))
+        return exportPiece(argv[2], atof(argv[3]), argv[4], argv[5]);
 
     /* At 120 and 480 to the beat a second is 960 ticks, so every time
        below is a whole number of ticks. */

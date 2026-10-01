@@ -33,6 +33,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "thcMidiExport.h"
 #include "PianoRoll.h"
 #include "Dialogs.h"
 #include "GenCatalog.h"
@@ -1308,6 +1309,180 @@ Composer::onSaveAs (void)
     dialog->set_visible(true);
 }
 
+/* The piece as it stands -- the working file, edits and all -- composed
+ * offline into a .mid (thcMidiExport), with the seed it is playing with and
+ * its chains' mutes and solos. As long as its arrangement where it ends;
+ * otherwise a length chosen in the dialog. */
+void
+Composer::onExportMidi (void)
+{
+    if (sched_ == NULL || workPath_.empty() || sched_->chainCount() == 0)
+    {
+        status_->set_text("MIDI export: there is no piece to export");
+        return;
+    }
+
+    const bool ends = sched_->endsAfterSections() &&
+                      sched_->sectionsLength() > 0;
+    Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(
+        "Export piece as MIDI", Gtk::FileChooser::Action::SAVE);
+
+    if (Gtk::Window *win = windowOf(&canvasScroll_))
+        dialog->set_transient_for(*win);
+
+    dialog->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    dialog->add_button("_Export", Gtk::ResponseType::OK);
+    dialog->set_modal(true);
+    /* The piece's name as a file name: a slash in it would be a
+       directory. */
+    std::string stem = doc_.name.empty() ? "untitled" : doc_.name;
+
+    std::replace(stem.begin(), stem.end(), '/', '_');
+    std::replace(stem.begin(), stem.end(), '\\', '_');
+    dialog->set_current_name(stem + ".mid");
+
+    if (!ends)
+        dialog->add_choice("length", "Length",
+                           { "60", "120", "300", "600" },
+                           { "1 minute", "2 minutes", "5 minutes",
+                             "10 minutes" });
+
+    if (!ends)
+        dialog->set_choice("length", "120");
+
+    dialog->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &Composer::onExportMidiResponse),
+                   dialog, ends));
+
+    dialog->set_visible(true);
+}
+
+void
+Composer::onExportMidiResponse (int response, Gtk::FileChooserDialog *dialog,
+                                bool ends)
+{
+    std::string path;
+    thcMidiExport::Options options;
+
+    if (response == (int)Gtk::ResponseType::OK)
+    {
+        path = chosenPath(*dialog);
+        if (!ends)
+            options.seconds = atof(dialog->get_choice("length").c_str());
+    }
+
+    closeDialog(dialog);
+
+    if (path.empty())
+        return;
+
+    {
+        std::string ext = std::filesystem::path(path).extension().string();
+
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+        if (ext != ".mid" && ext != ".midi")
+            path += ".mid";
+    }
+
+    {
+        const double seconds = options.seconds;
+
+        options = exportOptions();
+        options.seconds = seconds;
+    }
+
+    confirmOverwrite(windowOf(&canvasScroll_), path,
+        [this, path, options]
+        {
+            std::string why;
+            double length = 0;
+
+            if (!exportMidi(path, options, why, &length))
+                status_->set_text("MIDI export: " + why);
+            else
+            {
+                char buf[64];
+
+                snprintf(buf, sizeof buf, "%.0f s", length);
+                status_->set_text("exported " + std::string(buf) + " to " +
+                                  path);
+            }
+        });
+}
+
+/* What is playing, as an export takes it: its seed, its name, and its
+   chains' mutes and solos. */
+thcMidiExport::Options
+Composer::exportOptions (void)
+{
+    thcMidiExport::Options options;
+
+    options.seed = sched_->masterSeed();
+    options.name = !doc_.name.empty() ? doc_.name
+                 : !genPath_.empty()
+                     ? std::filesystem::path(genPath_).stem().string()
+                     : "untitled";
+
+    for (size_t c = 0; c < sched_->chainCount(); c++)
+    {
+        const thcChain *chain = sched_->chain(c);
+
+        if (chain->muted)
+            options.muted.push_back(chain->name);
+
+        if (chain->soloed)
+            options.soloed.push_back(chain->name);
+    }
+
+    for (const thcInstrument &inst : sched_->instruments())
+        if (inst.channel >= 0)
+            options.channels.push_back(inst.channel);
+
+    return options;
+}
+
+bool
+Composer::exportMidi (const std::string &path,
+                      const thcMidiExport::Options &options,
+                      std::string &why, double *length)
+{
+    /* A synth of the export's own, silent: the piece's graphs are loaded
+       on it so a chanarg's range can be read, and the one playing is not
+       touched. */
+    thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+    thSynth synth(pm ? pm->pluginPath() : std::string(PLUGIN_PATH),
+                  TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    std::vector<uint8_t> bytes;
+
+    synth.setSilent(true);
+
+    if (!thcMidiExport::render(composers_, &synth, workPath_, options, bytes,
+                               why, length))
+    {
+        /* The working copy is a temporary file nobody chose; an error
+           names the piece instead. */
+        for (size_t at; (at = why.find(workPath_)) != std::string::npos; )
+            why.replace(at, workPath_.size(),
+                        genPath_.empty() ? options.name : genPath_);
+
+        return false;
+    }
+
+    std::ofstream f(path.c_str(), std::ios::binary | std::ios::trunc);
+
+    f.write((const char *)bytes.data(), (std::streamsize)bytes.size());
+    f.close();
+
+    if (!f)
+    {
+        why = "could not write " + path;
+        return false;
+    }
+
+    return true;
+}
+
 void
 Composer::onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog)
 {
@@ -1571,6 +1746,7 @@ Composer::buildActions (void)
     saveAct_ = acts->add_action("save",
                                 sigc::mem_fun(*this, &Composer::onSave));
     acts->add_action("saveas", [this] { wake(); onSaveAs(); });
+    acts->add_action("exportmidi", [this] { wake(); onExportMidi(); });
     acts->add_action("revert", [this] { wake(); onReload(); });
 
     /* Nothing to save until there is a piece; the load says whether there
@@ -1604,6 +1780,7 @@ Composer::buildActions (void)
     menu_->append("_Open Piece...", "composer.open");
     menu_->append("Sa_ve Piece", "composer.save");
     menu_->append("Save Piece _As...", "composer.saveas");
+    menu_->append("Export _MIDI...", "composer.exportmidi");
     menu_->append("Revert Pie_ce", "composer.revert");
 
     acts->add_action("collapse-chains",

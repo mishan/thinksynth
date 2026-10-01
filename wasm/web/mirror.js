@@ -601,6 +601,39 @@ function receive (m)
                    panel: panelOf(m.chain, m.stage) });
             break;
 
+        /* The piece composed offline into a .mid (tw_export_midi): here,
+           where the composers and instruments are and nothing is
+           rendered. The bytes go back as a transfer. */
+        case 'exportmidi':
+        {
+            /* Answered whatever happens: the page waits for the reply with
+               its button off. */
+            let reply;
+
+            try
+            {
+                const n = M.ccall('tw_export_midi', 'number',
+                                  ['string', 'number', 'number', 'string'],
+                                  [m.text, m.seconds, m.seed, m.name ?? '']);
+                const bytes = n < 0 ? new Uint8Array(0)
+                    : new Uint8Array(M.HEAP32.buffer, M._tw_export_bytes(),
+                                     n).slice();
+
+                reply = { type: 'exportedmidi', id: m.id, ok: n >= 0,
+                          why: M.UTF8ToString(M._tw_export_why()),
+                          length: M._tw_export_length(), bytes };
+            }
+            catch (e)
+            {
+                reply = { type: 'exportedmidi', id: m.id, ok: false,
+                          why: `the export failed: ${e.message}`, length: 0,
+                          bytes: new Uint8Array(0) };
+            }
+
+            self.postMessage(reply, [reply.bytes.buffer]);
+            break;
+        }
+
         /* Where a stage's params handle is, for a page that wants to
            press one without repeating the layout arithmetic. */
         case 'handle':
