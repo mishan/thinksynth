@@ -259,9 +259,9 @@ thcMidiRouter::forget (int channel, gint64 now)
         {
             /* A wheel left bent would bend the next note struck, after a
                stop, out of tune: it is put back. */
-            auto bent = r.second.sent.find(-1);
-
-            if (bent != r.second.sent.end() && bent->second != 8192)
+            /* Whatever was last recorded: a center still queued when a
+               stop drops it was never heard, and the device is bent. */
+            if (r.second.sent.count(-1))
                 emit(r.first, r.second, now, 0xe0, 0, 64);
 
             r.second.expression = -1;

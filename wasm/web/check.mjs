@@ -468,6 +468,32 @@ for (const name of names)
         drain();
     }
 
+    /* Bent again and then detached -- the ports going -- with no stop in
+       between: the detach centers it too. */
+    const before = msgs.length;
+
+    M._tw_transport(M._tw_frame(), 0, 0);
+
+    for (let done = 0; done < RATE / 2; done += 128)
+    {
+        M._tw_render(128);
+        drain();
+    }
+
+    M.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['', 0, 2]);
+    drain();
+
+    const tail = msgs.slice(before);
+    const detach = tail.findIndex((m) => m.kind === 2);
+    const centered = tail.findIndex((m, i) => i > detach && m.kind === 0 &&
+                                              m.bytes[0] === 0xe1 &&
+                                              m.bytes[2] === 64);
+
+    if (detach < 0 || centered < 0)
+        fail('midi out: a detach left the wheel bent: ' +
+             tail.map((m) => `${m.kind}:${m.bytes.join(' ')}`).join(', '));
+
     const shown = msgs.map((m) => `${m.kind}:${m.bytes.join(' ')}`).join(', ');
     const up = msgs.findIndex((m) => m.kind === 0 && m.bytes[0] === 0xe1 &&
                                      m.bytes[1] === 127 && m.bytes[2] === 127);

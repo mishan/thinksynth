@@ -1267,6 +1267,24 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
        which of the two is happening. */
     midiWhy_[inst.channel].clear();
 
+    /* What the channel holds now, which a swap may have made another
+       instrument: its graph is the one to take off below. And from here
+       it holds this one again, so the next swap away from it is a swap
+       and not "already there". */
+    const thcInstrument *held = instrument(holding(inst.channel));
+    const auto takeHeldOff = [&]()
+    {
+        if (synth_ == NULL || synth_->getChannel(inst.channel) == NULL)
+            return;
+
+        thcInstrument old = held != NULL ? *held : inst;
+
+        old.channel = inst.channel;
+        takeGraphOff(old);
+    };
+
+    holding_.erase(inst.channel);
+
     /* Applied again over itself -- a rewind re-applies what was swapped
        -- starts from nothing on the device, so a refusal below leaves
        the channel a graph's and not both. */
@@ -1285,23 +1303,20 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
             /* And the graph an earlier apply or a swap put on, if it is
                still there, comes off: the device plays it now. Whichever
                instrument's it is -- after a swap, not this one's. */
-            if (synth_ != NULL && synth_->getChannel(inst.channel) != NULL)
-            {
-                const thcInstrument *held = instrument(holding(inst.channel));
-                thcInstrument old = held != NULL ? *held : inst;
-
-                old.channel = inst.channel;
-                takeGraphOff(old);
-            }
-
+            takeHeldOff();
             overMidi_[inst.channel] = true;
             return true;
         }
 
         midiWhy_[inst.channel] = mwhy;
 
+        /* Silent until a port answers -- and so is the channel, whatever
+           a swap had put on it. */
         if (inst.dsp.empty())
-            return true;                /* silent until a port answers  */
+        {
+            takeHeldOff();
+            return true;
+        }
     }
 
     if (loadDsp_)
@@ -1573,6 +1588,9 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
 
         if (midiOut_ != NULL && midiOut_->attach(channel, put, mwhy))
         {
+            /* The graph comes off, notes and all: its pending offs go to
+               the device now, so a voice left on it would never be
+               released. And what drove its args goes with it. */
             if (was != NULL && synth_ != NULL &&
                 synth_->getChannel(channel) != NULL)
             {
@@ -1581,6 +1599,8 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
                 old.channel = channel;
                 takeGraphOff(old);
             }
+
+            dropKnobConns(channel);
 
             overMidi_[channel] = true;
             holding_[channel] = name;
@@ -1870,6 +1890,36 @@ thcScheduler::takeGraphOff (const thcInstrument &inst)
         return synth_->removeChan(inst.channel);
 
     return true;
+}
+
+/* Every swapped channel holding an instrument that names `pattern' (or
+   any MIDI instrument, where it is empty) swapped onto again: its place
+   -- a device, its dsp, nothing -- decided afresh, as applying a declared
+   instrument decides it. What a host calls when the ports, or a route,
+   change. */
+int
+thcScheduler::reapplySwapped (const std::string &pattern)
+{
+    int n = 0;
+
+    for (int ch : std::vector<int>(swapped_.begin(), swapped_.end()))
+    {
+        const std::string name = holding(ch);
+        const thcInstrument *inst = instrument(name);
+
+        if (inst == NULL || inst->midi.empty() || inst->channel == ch ||
+            (!pattern.empty() && inst->midi != pattern))
+            continue;
+
+        std::string why;
+
+        holding_.erase(ch);
+
+        if (swapInstrument(ch, name, why))
+            n++;
+    }
+
+    return n;
 }
 
 bool

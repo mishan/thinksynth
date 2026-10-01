@@ -1553,8 +1553,11 @@ Composer::updateTransportButtons (void)
     {
         std::vector<std::string> off;
 
+        /* An instrument whose channel a swap gave to another is not
+           off its device: it is not playing at all. */
         for (const thcInstrument &inst : sched_->instruments())
-            if (!inst.midi.empty() && !sched_->playsOverMidi(inst.channel))
+            if (!inst.midi.empty() && !sched_->playsOverMidi(inst.channel) &&
+                sched_->holding(inst.channel) == inst.name)
                 off.push_back(inst.name + ": " +
                               sched_->midiWhy(inst.channel));
 
@@ -2713,6 +2716,9 @@ Composer::reroute (const std::string &pattern)
         else if (!sched_->applyInstrument(i, why))
             failed = sched_->instruments()[i].name + ": " + why;
     }
+
+    /* And the channels a swap put an instrument naming it on. */
+    sched_->reapplySwapped(pattern);
 
     /* The status line says where the MIDI instruments are now, unless
        something here went wrong, which it says instead. */

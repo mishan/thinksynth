@@ -354,6 +354,21 @@ int main (void)
         check(s.size() == 1 && bytesAre(s[0], { 0xe5, 0, 64 }),
               "a flush puts a bent wheel back to center", hex(s));
 
+        /* Bent and sent; then a center that is still queued when a flush
+           drops it: the device never heard it, so the flush centers. */
+        out.setDelay(200);
+        out.control(11, "wheel", 2, g_get_monotonic_time() - 200000);
+        settle(100);
+        take();
+        out.control(11, "wheel", 0, g_get_monotonic_time());
+        out.flush(11);
+        settle(400);
+        s = take();
+        out.setDelay(30);
+
+        check(s.size() == 1 && bytesAre(s[0], { 0xe5, 0, 64 }),
+              "a center a flush dropped is sent by the flush", hex(s));
+
         out.detach(11);
         take();
     }

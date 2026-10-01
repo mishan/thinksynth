@@ -8494,6 +8494,87 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* Swaps against a device that answers and then does not, and a
+       rewind: a MIDI-only instrument with no port, swapped for a graph,
+       then applied again once a port answers, holds its channel again --
+       so the next swap is a swap; a rewind over the swapped graph takes it
+       off; and a channel a swap put on a device goes back to silence when
+       the device stops answering. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+        const std::string text =
+            "tempo 60;\n"
+            "instrument ext { midi \"Fake\"; midichannel = 4; };\n"
+            "instrument pad { dsp \"organ0.dsp\"; };\n"
+            "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };\n";
+
+        out.answer = false;
+
+        if (!play(text, &out, 0.02, sched))
+            fail("the swap-and-apply piece did not load");
+        else
+        {
+            const int ch = sched.instrument("ext")->channel;
+            const int padCh = sched.instrument("pad")->channel;
+            std::string why;
+
+            sched.swapInstrument(ch, "pad", why);
+            drainSynth();
+
+            if (synth->getChannel(ch) == NULL || sched.holding(ch) != "pad")
+                fail("a MIDI-only instrument with no port swapped for a "
+                     "graph did not load the graph");
+
+            /* A port answers now, and the declared instrument is applied
+               again, as a host's reroute does. */
+            out.answer = true;
+            sched.unapplyInstrument(0);
+            sched.applyInstrument(0, why);
+            drainSynth();
+
+            const bool back = sched.playsOverMidi(ch) &&
+                              synth->getChannel(ch) == NULL &&
+                              sched.holding(ch) == "ext";
+
+            sched.swapInstrument(ch, "pad", why);
+            drainSynth();
+
+            if (!back || sched.playsOverMidi(ch) ||
+                synth->getChannel(ch) == NULL)
+                fail("after applying an instrument again, a swap away from "
+                     "it did nothing");
+
+            /* A rewind with no port: the swapped graph comes off. */
+            out.answer = false;
+            sched.reset();
+            drainSynth();
+
+            if (synth->getChannel(ch) != NULL || sched.holding(ch) != "ext")
+                fail("a rewind left a swapped graph on a MIDI-only channel "
+                     "with no port");
+
+            /* A graph's channel swapped onto the device; then the device
+               goes, and the swap is decided again. */
+            out.answer = true;
+            sched.swapInstrument(padCh, "ext", why);
+
+            const bool onDevice = sched.playsOverMidi(padCh);
+
+            out.answer = false;
+            out.calls.clear();
+
+            const int again = sched.reapplySwapped("");
+
+            drainSynth();
+
+            if (!onDevice || again != 1 || sched.playsOverMidi(padCh) ||
+                out.count("detach") != 1 || synth->getChannel(padCh) != NULL)
+                fail("a channel swapped onto a device did not leave it when "
+                     "the device went");
+        }
+    }
+
     /* No port: the dsp plays, and the reason is kept. */
     {
         FakeMidiOut out;

@@ -1552,6 +1552,7 @@ public:
     void detach (int channel) override
     {
         record(TW_MIDI_DETACH, channel);
+        router_.forget(channel, now());
         router_.detach(channel);
     }
 
@@ -1736,6 +1737,9 @@ int reroute (const std::string &pattern)
         if (sched_->applyInstrument(i, why))
             n++;
     }
+
+    /* And the channels a swap put a MIDI instrument on. */
+    n += sched_->reapplySwapped(pattern);
 
     midiOut_.holdPorts();
     return n;
@@ -5018,9 +5022,14 @@ EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi_state (int k)
         return "";
 
     const int ch = sched_->instruments()[k].channel;
+    const std::string holds = sched_->holding(ch);
 
-    text = sched_->playsOverMidi(ch) ? "on " + midiOut_.portName(ch)
-                                     : sched_->midiWhy(ch);
+    /* Its channel swapped to another instrument: that is where it is. */
+    if (!holds.empty() && holds != sched_->instruments()[k].name)
+        text = "swapped for " + holds;
+    else
+        text = sched_->playsOverMidi(ch) ? "on " + midiOut_.portName(ch)
+                                         : sched_->midiWhy(ch);
     return text.c_str();
 }
 

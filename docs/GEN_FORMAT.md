@@ -503,9 +503,12 @@ instrument that names a port and is not on one says so in the Composer's
 status line, with where to change it.
 
 A swap (`gen::swap`) onto an instrument played over MIDI puts the channel on
-its device and takes the channel's graph off; a swap off one ends what it
+its device and takes the channel's graph off, ending what it was sounding --
+its notes' offs go to the device from then on; a swap off one ends what it
 holds on the device and loads the new instrument's graph. Where no port
 answers, a swap onto a MIDI instrument plays its `dsp`, as applying it would.
+When the ports or a route change, a swapped channel is decided again like
+any other.
 
 ## 5. Chains
 

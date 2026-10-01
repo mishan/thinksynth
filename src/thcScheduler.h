@@ -856,6 +856,11 @@ public:
        instrument is remembered (see strandedCount) so the attempt can be
        made again rather than the graph being abandoned. */
     bool unapplyInstrument (size_t index);
+
+    /* Every channel a swap put a MIDI instrument naming `pattern' on
+       (any, where it is empty), swapped onto again, so it lands where the
+       ports and routes say now. Returns how many. */
+    int reapplySwapped (const std::string &pattern);
     bool unapply (const thcInstrument &what);
 
     /* ---- the graph on the mix ------------------------------------------
