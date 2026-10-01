@@ -1799,8 +1799,12 @@ function midiStateChanged (instruments)
 
 /* MIDI out on and off. On asks for access, starts the audio clock the
  * stamps are read through, and hands the worklet the output ports, which
- * applies every MIDI instrument again onto them; off ends what the
- * devices hold and puts every instrument back on its dsp. */
+ * puts each MIDI instrument onto its device; off ends what the devices
+ * hold and puts every instrument back on its dsp.
+ *
+ * The button is off while access is asked for -- a permission prompt can
+ * sit there -- and a sender that is no longer the page's by the time its
+ * access arrives closes itself rather than going on alone. */
 async function toggleMidiOut ()
 {
     const button = $('midiout');
@@ -1812,7 +1816,7 @@ async function toggleMidiOut ()
         midiOut = null;
         clearInterval(clockTimer);
         clockTimer = null;
-        synth?.midiPorts([], false);
+        synth?.midiPorts([], false, 0);
         button.textContent = 'MIDI out';
         say('');
         return;
@@ -1833,9 +1837,12 @@ async function toggleMidiOut ()
     const sender = new MidiSender({
         clock: audioClock,
         delay: midiDelay,
-        onPorts: (names) =>
+        onPorts: (names, generation) =>
         {
-            synth.midiPorts(names, true);
+            if (midiOut !== sender)
+                return;
+
+            synth.midiPorts(names, true, generation);
             say(names.length > 0 ? names.join(', ')
                                  : 'no MIDI outputs; plug one in');
             showChannels();
@@ -1843,21 +1850,46 @@ async function toggleMidiOut ()
     });
 
     say('asking...');
+    button.disabled = true;
+    midiOut = sender;
 
     try
     {
+        /* A stamp is only as good as the clock it is read through, and a
+           context that has just started reports no time yet: a sample
+           first, waited for, so the first note is not sent a guess. */
         sampleClock();
         clockTimer = setInterval(sampleClock, 1000);
-        midiOut = sender;
+
+        for (let i = 0; i < 20 && audioClock.count === 0; i++)
+        {
+            await new Promise((r) => setTimeout(r, 50));
+            sampleClock();
+        }
+
         await sender.open();
+
+        if (midiOut !== sender)
+        {
+            sender.close();
+            return;
+        }
+
         button.textContent = 'MIDI out: on';
     }
     catch (e)
     {
-        midiOut = null;
-        clearInterval(clockTimer);
-        clockTimer = null;
-        say(e.message);
+        if (midiOut === sender)
+        {
+            midiOut = null;
+            clearInterval(clockTimer);
+            clockTimer = null;
+            say(e.message);
+        }
+    }
+    finally
+    {
+        button.disabled = false;
     }
 }
 

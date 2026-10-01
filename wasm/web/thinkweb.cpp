@@ -1511,7 +1511,7 @@ struct twMidiMsg
     int32_t port;
     int32_t len;
     uint8_t bytes[4];
-    int32_t pad;
+    int32_t generation;         /* the port list `port' indexes      */
 };
 
 static_assert(sizeof(twMidiMsg) == 32, "twMidiMsg is read at stride 32");
@@ -1590,10 +1590,58 @@ public:
         return (gint64)llround(frameOf(at) / rate_ * 1e6);
     }
 
-    void setPorts (const std::vector<std::string> &names, bool enabled)
+    void setPorts (const std::vector<std::string> &names, bool enabled,
+                   int generation)
     {
         ports_ = names;
         enabled_ = enabled;
+        generation_ = generation;
+    }
+
+    /* The port instrument `inst' would be attached to now, by name, or
+       empty where it would play its dsp. */
+    std::string wants (const thcInstrument &inst) const
+    {
+        if (!enabled_ ||
+            router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+            return "";
+
+        const int port = router_.resolve(inst.midi, ports_);
+
+        return port < 0 ? "" : ports_[port];
+    }
+
+    /* Why `inst' would play its dsp now: attach's answer, unasked. */
+    std::string whyNot (const thcInstrument &inst) const
+    {
+        if (!enabled_)
+            return "no MIDI access in this page";
+
+        if (router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+            return "set to play on this synth";
+
+        return "no MIDI output port matches '" + inst.midi + "'";
+    }
+
+    /* The port engine channel `channel' is on, by name, or empty. */
+    std::string on (int channel) const
+    {
+        const int port = router_.portOf(channel);
+
+        return port >= 0 && port < (int)held_.size() ? held_[port] : "";
+    }
+
+    /* The list the routes' indices are into: taken before a new list
+       replaces it, so reroute can tell where each route is, and again
+       once every route has been moved over. */
+    void holdPorts (void) { held_ = ports_; }
+
+    /* The same device, at its index in the new list. */
+    void renumber (int channel, const std::string &name)
+    {
+        for (size_t i = 0; i < ports_.size(); i++)
+            if (ports_[i] == name)
+                router_.renumber(channel, (int)i);
     }
 
     std::string portName (int channel) const
@@ -1623,6 +1671,7 @@ private:
         r.bytes[0] = m.bytes[0];
         r.bytes[1] = m.bytes[1];
         r.bytes[2] = m.bytes[2];
+        r.generation = generation_;
         out.push_back(r);
     }
 
@@ -1634,18 +1683,24 @@ private:
         r.kind = kind;
         r.channel = channel;
         r.port = -1;
+        r.generation = generation_;
         out.push_back(r);
     }
 
     thcMidiRouter            router_;
-    std::vector<std::string> ports_;
+    std::vector<std::string> ports_, held_;
     bool                     enabled_ = false;
+    int                      generation_ = 0;
 };
 
 twMidiOut midiOut_;
 
-/* Every instrument naming `pattern' (all of them, where it is empty) taken
-   off and put on again: its route, or the ports there are, changed. */
+/* Every instrument naming `pattern' (all of them, where it is empty) whose
+ * place has changed -- its route, or the ports there are -- taken off and
+ * put on again. One whose place has not is left alone: taking it off ends
+ * what it is sounding, and re-applies the file's instrument over a channel
+ * a swap may have changed. One still on the same device at a new index in
+ * the list is renumbered rather than detached. */
 int reroute (const std::string &pattern)
 {
     int n = 0;
@@ -1658,6 +1713,23 @@ int reroute (const std::string &pattern)
         if (inst.midi.empty() || (!pattern.empty() && inst.midi != pattern))
             continue;
 
+        const int ch = inst.channel;
+        const std::string now = sched_->playsOverMidi(ch) ? midiOut_.on(ch)
+                                                          : "";
+        const std::string want = midiOut_.wants(inst);
+
+        if (now == want)
+        {
+            if (!want.empty())
+                midiOut_.renumber(ch, want);
+            else
+                /* Still on its dsp, perhaps for a different reason: said
+                   again without touching the graph. */
+                sched_->setMidiWhy(ch, midiOut_.whyNot(inst));
+
+            continue;
+        }
+
         if (!sched_->unapplyInstrument(i))
             continue;
 
@@ -1665,6 +1737,7 @@ int reroute (const std::string &pattern)
             n++;
     }
 
+    midiOut_.holdPorts();
     return n;
 }
 
@@ -4870,7 +4943,8 @@ EMSCRIPTEN_KEEPALIVE double tw_frame (void)
 /* The page has MIDI access, and these are its output ports, one name to a
    line; or, with `enabled' 0, it has none. Every MIDI instrument is
    applied again, onto a port or back onto its dsp. Returns how many. */
-EMSCRIPTEN_KEEPALIVE int tw_midiout_ports (const char *names, int enabled)
+EMSCRIPTEN_KEEPALIVE int tw_midiout_ports (const char *names, int enabled,
+                                           int generation)
 {
     std::vector<std::string> list;
     std::string all = names != NULL ? names : "";
@@ -4892,7 +4966,8 @@ EMSCRIPTEN_KEEPALIVE int tw_midiout_ports (const char *names, int enabled)
         at = nl + 1;
     }
 
-    midiOut_.setPorts(list, enabled != 0);
+    midiOut_.holdPorts();
+    midiOut_.setPorts(list, enabled != 0, generation);
     return reroute("");
 }
 
@@ -4903,6 +4978,7 @@ EMSCRIPTEN_KEEPALIVE int tw_midiout_route (const char *pattern, const char *to)
     const std::string p = pattern != NULL ? pattern : "";
 
     midiOut_.router().setRoute(p, to != NULL ? to : "");
+    midiOut_.holdPorts();
     return reroute(p);
 }
 

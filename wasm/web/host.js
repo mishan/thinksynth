@@ -532,12 +532,15 @@ export async function createSynth (ctx, { windowlen = 256,
            To the worklet alone, and deliberately: a probe is a tap on
            what is being rendered, and the mirror renders nothing. */
         /* The page's MIDI output ports, by name, or none (enabled
-           false): every MIDI instrument is applied again, onto a device
-           or onto its dsp. And this browser's route for one pattern. To
+           false), and which list this is: the worklet stamps every
+           message with it, so one indexing an older list is dropped.
+           Each MIDI instrument whose place changed is applied again, onto
+           a device or onto its dsp. And this browser's route for one pattern. To
            the worklet alone: the mirror plays the dsp and composes the
            same. */
-        midiPorts: (names, enabled = true) =>
-            node.port.postMessage({ type: 'midiports', names, enabled }),
+        midiPorts: (names, enabled = true, generation = 0) =>
+            node.port.postMessage({ type: 'midiports', names, enabled,
+                                    generation }),
 
         midiRoute: (pattern, to) =>
             node.port.postMessage({ type: 'midiroute', pattern, to }),

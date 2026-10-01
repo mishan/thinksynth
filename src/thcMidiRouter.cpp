@@ -126,6 +126,15 @@ thcMidiRouter::detach (int channel)
     routes_.erase(channel);
 }
 
+void
+thcMidiRouter::renumber (int channel, int port)
+{
+    auto r = routes_.find(channel);
+
+    if (r != routes_.end())
+        r->second.port = port;
+}
+
 int
 thcMidiRouter::portOf (int channel) const
 {

@@ -501,8 +501,10 @@ class ThinkProcessor extends AudioWorkletProcessor
            page's output ports, or none; a route for one pattern. */
         if (m.type === 'midiports')
         {
-            this.M.ccall('tw_midiout_ports', 'number', ['string', 'number'],
-                         [m.names.join('\n'), m.enabled ? 1 : 0]);
+            this.M.ccall('tw_midiout_ports', 'number',
+                         ['string', 'number', 'number'],
+                         [m.names.join('\n'), m.enabled ? 1 : 0,
+                          m.generation ?? 0]);
             this.postMidi();
             this.postMidiState();
             return;
@@ -708,6 +710,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                 kind: M.HEAP32[(at + 8) >> 2],
                 channel: M.HEAP32[(at + 12) >> 2],
                 port: M.HEAP32[(at + 16) >> 2],
+                generation: M.HEAP32[(at + 28) >> 2],
                 /* Four bytes in one int: the module exports HEAP32 and
                    not HEAPU8. Little-endian, as wasm is. */
                 bytes: [0, 8, 16].slice(0, len)

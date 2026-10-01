@@ -811,6 +811,14 @@ public:
     /* Why an instrument that names `midi' is not being played on a
        device -- no port matched, no MIDI in this host -- or empty where
        it is, or never asked to be. */
+    /* The reason, said again by a host that knows it changed without
+       the instrument having to be applied again. */
+    void setMidiWhy (int channel, const std::string &why)
+    {
+        if (channel >= 0 && channel < 16 && !overMidi_[channel])
+            midiWhy_[channel] = why;
+    }
+
     const std::string &midiWhy (int channel) const
     {
         static const std::string none;

@@ -83,6 +83,10 @@ public:
     void attach (int channel, int port, const thcInstrument &inst,
                  gint64 now);
     void detach (int channel);
+
+    /* The same route, at a new index: the port list was made again and
+       the device is still in it. */
+    void renumber (int channel, int port);
     bool attached (int channel) const { return routes_.count(channel) > 0; }
     int  portOf (int channel) const;
     int  midiChannelOf (int channel) const;

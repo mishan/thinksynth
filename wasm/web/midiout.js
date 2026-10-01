@@ -28,12 +28,19 @@
  * back what has not sounded yet.
  *
  * What each device holds is kept here, since only here is it known what
- * went out: per port, MIDI channel and key, which engine channel struck
+ * went out: per output, MIDI channel and key, which engine channel struck
  * it. A note-on for a key already held ends it first; a note-off for a key
  * another channel has since taken over is not sent; and a flush -- a stop,
  * a rewind, a route changing, the worklet's FLUSH and DETACH records --
  * ends exactly one channel's notes, no earlier than they were scheduled to
  * start, so an off never overtakes its own on.
+ *
+ * The worklet names an output by its index in the list this last sent it,
+ * and every list has a generation the worklet stamps on what it sends; a
+ * message for an older list is dropped, since its index may now be another
+ * device. A list is only sent again when the outputs change: a port opening
+ * -- which send() does to it, the first time -- is a state change too, and
+ * not a new list.
  */
 
 import { midiAccess } from './midi.js';
@@ -47,6 +54,10 @@ const SEND = 0;
 const HORIZON = 30;
 
 const PUMP_EVERY = 5;
+
+/* Between the parts of a held key: an output's id is the browser's to
+   spell, and may hold anything printable. */
+const SEP = '\u0000';
 
 export class MidiSender
 {
@@ -63,8 +74,9 @@ export class MidiSender
         this.outputs = [];
         this.queue = [];
         this.seq = 0;
+        this.generation = 0;
 
-        /* `port:midichannel:key' -> { channel, at } */
+        /* output id, MIDI channel and key, joined by SEP -> { channel, at } */
         this.held = new Map();
         this.timer = null;
     }
@@ -108,13 +120,25 @@ export class MidiSender
     {
         const outputs = [...this.access.outputs.values()]
             .filter((o) => o.state !== 'disconnected');
+        const same = outputs.length === this.outputs.length &&
+                     outputs.every((o, i) => o.id === this.outputs[i].id);
 
-        /* What every queued message and held key names is an index into
-           the old list; they are not carried across. The worklet applies
-           every MIDI instrument again on the new list, flushing each. */
-        this.flush(-1);
+        if (same && this.generation > 0)
+            return;
+
+        /* What is queued indexes the old list, and goes; the worklet sends
+           it again on the new one, the instruments whose device moved. A
+           held key is the output's, by id, so a device still there keeps
+           sounding; one that went cannot be told anything. */
+        this.queue = [];
+
+        for (const key of [...this.held.keys()])
+            if (!outputs.some((o) => key.startsWith(o.id + SEP)))
+                this.held.delete(key);
+
         this.outputs = outputs;
-        this.onPorts(this.names);
+        this.generation++;
+        this.onPorts(this.names, this.generation);
     }
 
     /* What the worklet posted (host.js onMidi). */
@@ -127,6 +151,9 @@ export class MidiSender
                 this.flush(m.channel);
                 continue;
             }
+
+            if (m.generation !== this.generation)
+                continue;
 
             const at = this.clock.perfAt(m.when / 1e6);
 
@@ -165,7 +192,7 @@ export class MidiSender
 
         const at = Math.max(m.due, now);
         const status = m.bytes[0] & 0xf0;
-        const key = `${m.port}:${m.bytes[0] & 0x0f}:${m.bytes[1]}`;
+        const key = [out.id, m.bytes[0] & 0x0f, m.bytes[1]].join(SEP);
 
         if (status === 0x90)
         {
@@ -219,11 +246,11 @@ export class MidiSender
             if (channel >= 0 && held.channel !== channel)
                 continue;
 
-            const [port, midiChannel, note] = key.split(':').map(Number);
-            const out = this.outputs[port];
+            const [id, midiChannel, note] = key.split(SEP);
+            const out = this.outputs.find((o) => o.id === id);
 
             if (out !== undefined)
-                this.send(out, [0x80 | midiChannel, note, 64],
+                this.send(out, [0x80 | Number(midiChannel), Number(note), 64],
                           Math.max(now, held.at + 1));
 
             this.held.delete(key);

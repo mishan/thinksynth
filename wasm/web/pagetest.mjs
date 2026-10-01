@@ -164,13 +164,21 @@ try
 
             /* An output, which records what is sent to it: the bytes, the
                time they were scheduled for, and when they were handed
-               over. */
+               over. Closed until the first send opens it, which a browser
+               announces as a state change, as a real one does. */
             plugOut (id, name)
             {
                 const port = {
                     id, name, type: 'output', state: 'connected',
+                    connection: 'closed',
                     send (bytes, at)
                     {
+                        if (port.connection === 'closed')
+                        {
+                            port.connection = 'open';
+                            access.onstatechange?.({ port });
+                        }
+
                         window.midiSent.push({ port: name,
                                                bytes: [...bytes],
                                                at: at ?? performance.now(),
@@ -2428,6 +2436,18 @@ try
               `notes reach the output (${ons.length} note-ons, ` +
               `${sent.length} messages)`);
 
+        /* The first note too: a port opening on its first send is a state
+           change, and taking it for a new list of outputs flushed what was
+           held and queued -- the note cut to a millisecond. */
+        const firstOff = sent.find((m) => m.bytes[0] === 0x82 &&
+                                          m.bytes[1] === 60);
+
+        check(ons.length > 0 && firstOff !== undefined &&
+              Math.abs(firstOff.at - ons[0].at - 500) < 20,
+              `the first note lasts its half beat: ` +
+              `${firstOff && ons[0] ? (firstOff.at - ons[0].at).toFixed(1)
+                                    : '?'} ms`);
+
         if (ons.length >= 2)
         {
             const gap = ons[1].at - ons[0].at;
@@ -2455,6 +2475,36 @@ try
         check(count(after, 0x92) === count(after, 0x82),
               `a stop leaves nothing held: ${count(after, 0x92)} on, ` +
               `${count(after, 0x82)} off`);
+
+        /* With a delay, a message waits in the page until shortly before
+           it is due: a stop then takes back what has not been handed over
+           -- the note's off, and the next note -- and ends the note that
+           was. */
+        await page.fill('#midioutdelay', '200');
+        await page.dispatchEvent('#midioutdelay', 'change');
+        await page.evaluate(() => { window.midiSent.length = 0; });
+        await page.click('#play');
+        await page.waitForFunction(
+            () => window.midiSent.some((m) => m.bytes[0] === 0x92),
+            null, { timeout: 5000 }).catch(() => {});
+        await page.click('#stop');
+        await page.waitForTimeout(1500);
+
+        const delayed = await page.evaluate(() => window.midiSent);
+        const dOn = delayed.filter((m) => m.bytes[0] === 0x92);
+        const dOff = delayed.filter((m) => m.bytes[0] === 0x82);
+        const lead = dOn.length > 0 ? dOn[0].at - dOn[0].handed : NaN;
+
+        check(dOn.length === 1 && dOff.length === 1 &&
+              dOff[0].at >= dOn[0].at,
+              `a stop takes back what is queued and ends what was handed ` +
+              `over: ${dOn.length} on, ${dOff.length} off`);
+        check(lead > 1 && lead <= 31,
+              `a delayed note waits in the page until shortly before its ` +
+              `time: handed over ${lead.toFixed(1)} ms ahead`);
+
+        await page.fill('#midioutdelay', '0');
+        await page.dispatchEvent('#midioutdelay', 'change');
 
         await page.selectOption('select.midiroute', '@synth');
         await page.waitForFunction(

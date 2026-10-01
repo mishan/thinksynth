@@ -511,8 +511,13 @@ AudioContext time of the frame it sounds at (`setMidiClock`) and the
 worklet posts them to the page every quantum. The page (midiout.js) maps
 that time to `performance.now()` through getOutputTimestamp, hands each
 message to `MIDIOutput.send(bytes, time)` shortly before it is due, and keeps
-what each device holds, as `gthMidiOut` does on the desktop. The mirror is
-never given ports, so it plays the `dsp` and composes the same.
+what each device holds, as `gthMidiOut` does on the desktop. The worklet
+names an output by its index in the list the page last sent, and each list
+has a generation the worklet stamps on every message, so one posted against
+an older list is dropped rather than sent to whatever device now has its
+index; a list is only sent again when the outputs change, and only the
+instruments whose device changed are applied again. The mirror is never
+given ports, so it plays the `dsp` and composes the same.
 
 ## Plugin linkage
 
