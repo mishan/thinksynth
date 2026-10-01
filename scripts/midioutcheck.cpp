@@ -410,6 +410,44 @@ int main (void)
               "detach ends the channel's notes and its route", hex(s));
     }
 
+    /* ---- MIDI clock ---- */
+
+    {
+        check(!out.wantsClock(), "no clock is asked for with no clock port");
+
+        out.setClockPorts({ "Digitakt:Digitakt MIDI 1" });
+        take();
+
+        check(out.wantsClock() &&
+              out.clockPorts() == std::vector<std::string>(
+                                      { "Digitakt:Digitakt MIDI 1" }),
+              "a clock port, by its stable name, asks for clock");
+
+        const gint64 t = g_get_monotonic_time() + 50000;
+
+        out.clock(thcMidiOut::CLOCK_POSITION, 9, t);
+        out.clock(thcMidiOut::CLOCK_CONTINUE, 0, t);
+        out.clock(thcMidiOut::CLOCK_TICK, 0, t);
+        out.flush(5);                           /* a channel, not clock  */
+        settle(250);
+
+        const std::vector<Sent> s = take();
+        bool where = !s.empty();
+
+        for (const Sent &m : s)
+            where = where && m.port == names[2];
+
+        check(s.size() == 3 && where &&
+              bytesAre(s[0], { 0xf2, 9, 0 }) && bytesAre(s[1], { 0xfb }) &&
+              bytesAre(s[2], { 0xf8 }) &&
+              s[2].at >= t + 30000 - 1000,
+              "clock goes to the clock port only, at its stamp plus the "
+              "delay, and a channel's flush leaves it", hex(s));
+
+        out.setClockPorts({});
+        check(!out.wantsClock(), "and with none left, none is asked for");
+    }
+
     /* ---- the delay changing under queued notes ---- */
 
     {

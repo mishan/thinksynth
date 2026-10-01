@@ -2557,10 +2557,10 @@ Composer::rebuildSelection (void)
 
 /* Where the piece's MIDI instruments play on this machine: a row each,
  * with the port its `midi' pattern found, a choice of any other port or
- * of its dsp, and the delay that lines the devices up with the synth.
- * Only for a piece that has such an instrument. A choice is this
- * machine's, kept by the output's routes, and the file is not touched:
- * the pattern in it is what somebody else's machine matches. */
+ * of its dsp; the ports MIDI clock goes to, which any piece can drive; and
+ * the delay that lines the devices up with the synth. A choice is this
+ * machine's, kept by the output, and the file is not touched: the pattern
+ * in it is what somebody else's machine matches. */
 Gtk::Widget *
 Composer::buildMidiSection (void)
 {
@@ -2572,9 +2572,6 @@ Composer::buildMidiSection (void)
     for (size_t i = 0; i < sched_->instruments().size(); i++)
         if (!sched_->instruments()[i].midi.empty())
             midi.push_back(i);
-
-    if (midi.empty())
-        return NULL;
 
     Gtk::Expander *exp = manage(new Gtk::Expander("MIDI out"));
     Gtk::Grid *grid = manage(new Gtk::Grid());
@@ -2671,6 +2668,46 @@ Composer::buildMidiSection (void)
         grid->attach(*pick, 1, row);
         grid->attach(*state, 1, row + 1, 2, 1);
         row += 2;
+    }
+
+    /* Clock: a check per port, and the ones checked are sent 24 ticks a
+       beat, Start, Stop and Continue as the transport moves. */
+    {
+        Gtk::Label *cl = manage(new Gtk::Label("Clock to"));
+        Gtk::Box *checks = manage(new Gtk::Box(Gtk::Orientation::VERTICAL,
+                                               2));
+        const std::vector<std::string> on = midiOut_->clockPorts();
+
+        cl->set_xalign(0);
+        cl->set_valign(Gtk::Align::START);
+
+        for (const std::string &p : ports)
+        {
+            Gtk::CheckButton *check = manage(new Gtk::CheckButton(p));
+
+            check->set_active(std::find(on.begin(), on.end(), p) != on.end());
+            check->signal_toggled().connect(
+                [this, p, check]
+                {
+                    std::vector<std::string> now = midiOut_->clockPorts();
+
+                    now.erase(std::remove(now.begin(), now.end(), p),
+                              now.end());
+
+                    if (check->get_active())
+                        now.push_back(p);
+
+                    midiOut_->setClockPorts(now);
+                });
+            checks->append(*check);
+        }
+
+        if (ports.empty())
+            checks->append(*manage(new Gtk::Label("no MIDI output ports")));
+
+        grid->attach(*cl, 0, row);
+        grid->attach(*checks, 1, row);
+        row++;
     }
 
     Gtk::Label *dl = manage(new Gtk::Label("Delay (ms)"));

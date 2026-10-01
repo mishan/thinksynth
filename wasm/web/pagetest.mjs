@@ -2506,9 +2506,38 @@ try
         check((await rowState()) === 'set to play on this synth',
               `choosing this synth puts it on its dsp: ${await rowState()}`);
 
+        /* MIDI clock to the output: Start, a tick every 24th of a beat
+           -- 41.7 ms at 60 bpm -- and Stop. */
+        /* A click on the element rather than at a point: what is under
+           test is the check, and the row it sits in can move under a
+           pointer while a loaded machine catches up. */
+        await page.$eval('input.midiclock', (e) => e.click());
+        check(await page.$eval('input.midiclock', (e) => e.checked),
+              'a check per output turns MIDI clock on for it');
+        await page.evaluate(() => { window.midiSent.length = 0; });
+        await page.click('#rewind');
+        await page.click('#play');
+        await page.waitForTimeout(1100);
+        await page.click('#stop');
+        await page.waitForTimeout(300);
+
+        const clocked = await page.evaluate(
+            () => window.midiSent.filter((m) => m.bytes[0] >= 0xf0));
+        const ticks = clocked.filter((m) => m.bytes[0] === 0xf8);
+        const gaps = ticks.slice(1).map((m, i) => m.at - ticks[i].at)
+                          .sort((a, b) => a - b);
+        const gap = gaps[gaps.length >> 1] ?? NaN;
+
+        check(clocked[0]?.bytes[0] === 0xfa && clocked.at(-1)?.bytes[0] ===
+              0xfc && ticks.length >= 20 && Math.abs(gap - 1000 / 24) < 2,
+              `MIDI clock goes out: Start, ${ticks.length} ticks ` +
+              `${gap.toFixed(1)} ms apart, Stop`);
+
+        await page.$eval('input.midiclock', (e) => e.click());
         await page.evaluate(() =>
         {
             localStorage.removeItem('thinksynth:midiroutes');
+            localStorage.removeItem('thinksynth:midiclock');
         });
         await page.click('#midiout');
     }

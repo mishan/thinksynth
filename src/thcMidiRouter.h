@@ -63,6 +63,11 @@ public:
     /* A port name without ALSA's trailing " 128:0". */
     static std::string stableName (const std::string &name);
 
+    /* A thcMidiOut clock message's bytes: F8 tick, FA start, FB continue,
+       FC stop, F2 and two 7-bit halves for Song Position. Returns how
+       many, 0 for a kind that is none of them. */
+    static int clockBytes (int kind, int position, uint8_t out[3]);
+
     explicit thcMidiRouter (const Emit &emit) : emit_(emit) {}
 
     /* Where an instrument naming `pattern' plays on this machine: a port

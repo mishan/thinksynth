@@ -519,6 +519,13 @@ index; a list is only sent again when the outputs change, and only the
 instruments whose device changed are applied again. The mirror is never
 given ports, so it plays the `dsp` and composes the same.
 
+MIDI clock rides the same path. Where the host's `thcMidiOut` says it
+wants clock (`wantsClock`), the scheduler sends a tick for every 24th of a
+beat a step passes, stamped at that beat (`clockTicks`), and Start, Stop,
+Song Position and Continue as the transport starts and stops
+(`clockStart`); the output sends them to the ports chosen for clock, raw,
+at their stamps plus the delay.
+
 ## Plugin linkage
 
 A plugin exports `apiversion`, `module_init`, `module_callback` and

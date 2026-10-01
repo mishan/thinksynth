@@ -1941,6 +1941,34 @@ runMidiOut (const std::string &pluginPath)
         else
             fail("choosing this synth puts the dsp on and keeps the route");
 
+        /* A clock check per port: ticked, the output sends clock there. */
+        Gtk::CheckButton *clock = NULL;
+
+        for (Gtk::Widget *c = win->editorBox_.get_first_child(); c != NULL;
+             c = c->get_next_sibling())
+            if (Gtk::Expander *e = dynamic_cast<Gtk::Expander *>(c))
+                if (e->get_label() == "MIDI out")
+                    clock = findWidget<Gtk::CheckButton>(e);
+
+        if (clock != NULL)
+        {
+            clock->set_active(true);
+            pump(5);
+        }
+
+        if (clock != NULL && out.wantsClock() &&
+            out.clockPorts() == std::vector<std::string>(
+                                    { "Surge XT:Surge XT MIDI In" }))
+            ok("a clock check sends MIDI clock to that port");
+        else
+            fail("a clock check sends MIDI clock to that port");
+
+        if (clock != NULL)
+        {
+            clock->set_active(false);
+            pump(5);
+        }
+
         /* And the status line says so, and where to change it. */
         const std::string status = win->status_->get_text();
 

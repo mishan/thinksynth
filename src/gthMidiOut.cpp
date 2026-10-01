@@ -409,10 +409,90 @@ gthMidiOut::routeOf (int channel) const
 }
 
 void
+gthMidiOut::setClockPorts (const std::vector<std::string> &names)
+{
+    const std::vector<std::string> all = ports();
+
+    {
+        std::lock_guard<std::mutex> l(lock_);
+
+        clockNames_ = names;
+        clockPorts_.clear();
+
+        for (const std::string &want : names)
+            for (const std::string &name : all)
+                if (name == want || stableName(name) == want)
+                {
+                    std::string why;
+                    const int port = openPort(name, why);
+
+                    if (port >= 0)
+                        clockPorts_.push_back(port);
+
+                    break;
+                }
+    }
+
+    if (changed_)
+        changed_();
+}
+
+std::vector<std::string>
+gthMidiOut::clockPorts (void) const
+{
+    std::lock_guard<std::mutex> l(lock_);
+
+    return clockNames_;
+}
+
+bool
+gthMidiOut::wantsClock (void) const
+{
+    std::lock_guard<std::mutex> l(lock_);
+
+    return !clockPorts_.empty();
+}
+
+/* To every clock port, at its stamp plus the delay, as a note goes: the
+   clock and the notes it times have to arrive lined up. Channel -2, which
+   no flush of an engine channel drops. */
+void
+gthMidiOut::clock (int kind, int position, gint64 when)
+{
+    uint8_t bytes[3] = { 0, 0, 0 };
+    const int len = thcMidiRouter::clockBytes(kind, position, bytes);
+    std::lock_guard<std::mutex> l(lock_);
+
+    if (len == 0)
+        return;
+
+    for (int port : clockPorts_)
+    {
+        thcMidiRouter::Msg m;
+
+        m.when = when;
+        m.channel = -2;
+        m.port = port;
+        m.bytes[0] = bytes[0];
+        m.bytes[1] = bytes[1];
+        m.bytes[2] = bytes[2];
+        m.len = (uint8_t)len;
+        queue(m);
+    }
+}
+
+void
 gthMidiOut::sendNow (const Msg &m)
 {
     Port *port = ports_[m.port].get();
     const uint8_t status = m.bytes[0] & 0xf0;
+
+    /* System real-time and common messages: no channel, no key. */
+    if (m.bytes[0] >= 0xf0)
+    {
+        port->send(m.bytes, m.len);
+        return;
+    }
     const auto key = std::make_tuple(m.port, m.bytes[0] & 0x0f,
                                      (int)m.bytes[1]);
 

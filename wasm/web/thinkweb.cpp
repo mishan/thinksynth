@@ -1500,7 +1500,8 @@ bool writeFile (const char *path, const char *text)
  * are (tw_midiout_ports). The mirror is never told, so it plays every MIDI
  * instrument's dsp, or nothing -- which composes the same.
  */
-enum { TW_MIDI_SEND = 0, TW_MIDI_FLUSH = 1, TW_MIDI_DETACH = 2 };
+enum { TW_MIDI_SEND = 0, TW_MIDI_FLUSH = 1, TW_MIDI_DETACH = 2,
+       TW_MIDI_CLOCK = 3 };
 
 /* As the page reads it: see worklet.js readMidi. */
 struct twMidiMsg
@@ -1578,6 +1579,30 @@ public:
         record(TW_MIDI_FLUSH, channel);
         router_.forget(channel, now());
     }
+
+    /* Clock, where the page has outputs for it (tw_midiout_clock): a
+       record of its own, with no port, since which outputs hear it is the
+       page's. */
+    bool wantsClock (void) const override { return clock_; }
+
+    void clock (int kind, int position, gint64 when) override
+    {
+        twMidiMsg r = {};
+
+        r.len = thcMidiRouter::clockBytes(kind, position, r.bytes);
+
+        if (r.len == 0)
+            return;
+
+        r.when = (double)when;
+        r.kind = TW_MIDI_CLOCK;
+        r.channel = -2;
+        r.port = -1;
+        r.generation = generation_;
+        out.push_back(r);
+    }
+
+    void setClock (bool on) { clock_ = on; }
 
     /* The context time of the frame about to be rendered, in the stamps'
        microseconds: what a message due now is stamped with. */
@@ -1691,6 +1716,7 @@ private:
     thcMidiRouter            router_;
     std::vector<std::string> ports_, held_;
     bool                     enabled_ = false;
+    bool                     clock_ = false;
     int                      generation_ = 0;
 };
 
@@ -4984,6 +5010,12 @@ EMSCRIPTEN_KEEPALIVE int tw_midiout_route (const char *pattern, const char *to)
     midiOut_.router().setRoute(p, to != NULL ? to : "");
     midiOut_.holdPorts();
     return reroute(p);
+}
+
+/* Whether the page has outputs for MIDI clock. */
+EMSCRIPTEN_KEEPALIVE void tw_midiout_clock (int on)
+{
+    midiOut_.setClock(on != 0);
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_midiout_count (void)

@@ -174,7 +174,8 @@ whose name matches, and falls back to its `dsp` where none does
 output ports; the Composer's MIDI out section picks a different one on this
 machine and sets the delay that lines the device up with the synth. In the
 browser, the page's MIDI out button does the same through Web MIDI
-(Chromium and Firefox).
+(Chromium and Firefox). Either can also send MIDI clock, so a drum machine or
+a DAW follows the piece's tempo and transport.
 
 If you want JACK on Linux, start `jackd` before thinksynth — RtAudio will use
 the running server.

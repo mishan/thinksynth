@@ -545,6 +545,11 @@ export async function createSynth (ctx, { windowlen = 256,
         midiRoute: (pattern, to) =>
             node.port.postMessage({ type: 'midiroute', pattern, to }),
 
+        /* Whether the page has outputs for MIDI clock: the worklet sends
+           ticks only then. */
+        midiClock: (on) =>
+            node.port.postMessage({ type: 'midiclock', on }),
+
         probe: (channel, nodeName, arg) => new Promise((resolve) =>
         {
             const id = nextId++;

@@ -3208,7 +3208,7 @@ async function init ()
     });
     midiOutUI = new MidiOutControls({
         button: $('midiout'), delay: $('midioutdelay'),
-        status: $('midioutstatus'),
+        status: $('midioutstatus'), clock: $('midiclock'),
         instruments: () => piece?.instruments ?? [],
         onChange: showChannels,
     });

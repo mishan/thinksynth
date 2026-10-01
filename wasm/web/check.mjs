@@ -508,5 +508,106 @@ for (const name of names)
                              'centered again after the flush on stop\n');
 }
 
+/* MIDI clock in the browser module: asked for, Start and then a tick
+ * every 24th of a beat stamped at its frame's context time, Stop with the
+ * transport; not asked for, none. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+
+    const recs = [];
+    const drain = () =>
+    {
+        const base = M._tw_midiout_events() >>> 0;
+
+        for (let i = 0; i < M._tw_midiout_count(); i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            recs.push({
+                when: M.HEAPF64[at >> 3],
+                kind: M.HEAP32[(at + 8) >> 2],
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+    };
+    const render = (frames) =>
+    {
+        for (let done = 0; done < frames; done += 128)
+        {
+            M._tw_render(128);
+            drain();
+        }
+    };
+
+    M.ccall('tw_piece_load', 'number', ['string', 'number'],
+            ['tempo 120;\nchain c { stage s gen::eno_line { };' +
+             ' sink { channel = 1; }; };\n', 1]);
+    M._tw_midiout_clock(1);
+    M._tw_transport(0, 0, 0);
+    render(RATE / 2);
+    M._tw_transport(M._tw_frame(), 1, 0);
+    render(1024);
+
+    const origin = M._tw_origin();
+    const clock = recs.filter((r) => r.kind === 3);
+    const ticks = clock.filter((r) => r.bytes[0] === 0xf8);
+    const exact = ticks.every((r, k) =>
+        r.when === Math.round((origin + k * RATE / 48) / RATE * 1e6));
+
+    M._tw_midiout_clock(0);
+    recs.length = 0;
+    M._tw_transport(M._tw_frame(), 0, 0);
+    render(RATE / 4);
+
+    if (clock[0]?.bytes[0] !== 0xfa || clock.at(-1)?.bytes[0] !== 0xfc ||
+        ticks.length < 23 || !exact)
+        fail(`midi clock: ${clock.length} records, ${ticks.length} ticks, ` +
+             `exact ${exact}`);
+    else if (recs.some((r) => r.kind === 3))
+        fail('midi clock: sent with nobody asking for it');
+    else
+        process.stdout.write(`ok    midi clock     start, ${ticks.length} ticks ` +
+                             'at their frames, stop\n');
+}
+
+/* The page's sender: a clock record goes to the outputs checked for clock,
+   as it is, and to no other. */
+{
+    const { MidiSender } = await import('./midiout.js');
+    const sent = [];
+    const out = (id) => ({ id, name: id, type: 'output', state: 'connected',
+                           send: (bytes, at) => sent.push({ id, bytes: [...bytes],
+                                                            at }) });
+    const access = { inputs: new Map(), outputs: new Map([['a', out('a')],
+                                                          ['b', out('b')]]),
+                     onstatechange: null };
+
+    Object.defineProperty(globalThis, 'navigator', {
+        value: { requestMIDIAccess: async () => access }, configurable: true,
+    });
+
+    const sender = new MidiSender({ clock: { perfAt: (s) => s * 1000 },
+                                    now: () => 1000 });
+
+    await sender.open();
+    clearInterval(sender.timer);
+    sender.setClock(['b']);
+    sender.take([{ kind: 3, when: 1000 * 1000, channel: -2, port: -1,
+                   generation: 0, bytes: [0xf8] }]);
+    sender.close();
+
+    if (sent.length !== 1 || sent[0].id !== 'b' || sent[0].bytes[0] !== 0xf8 ||
+        sent[0].at !== 1000)
+        fail(`midi sender: clock went ${JSON.stringify(sent)}`);
+    else
+        process.stdout.write('ok    midi sender    clock to the checked output only\n');
+}
+
 process.stdout.write(`\n${failures === 0 ? 'all passed' : failures + ' failed'}\n`);
 process.exitCode = failures;

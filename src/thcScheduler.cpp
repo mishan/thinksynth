@@ -2182,6 +2182,7 @@ thcScheduler::stepTransport (double dt)
     transportNow_ += dt;
     beat_ += dt * tempo_ / 60.0;
 
+    clockTicks();
     runStep();
 }
 
@@ -2204,6 +2205,7 @@ thcScheduler::stepTransportTo (double t)
     beat_ += (t - transportNow_) * tempo_ / 60.0;
     transportNow_ = t;
 
+    clockTicks();
     runStep();
 }
 
@@ -3003,6 +3005,59 @@ thcScheduler::start (void)
 
     lastMono_ = g_get_monotonic_time();
     running_ = true;
+    clockStart();
+}
+
+bool
+thcScheduler::clocking (void) const
+{
+    return running_ && !seeking_ && midiOut_ != NULL &&
+           midiOut_->wantsClock();
+}
+
+/* Start from the top, or Song Position and Continue from anywhere else.
+ * Song Position counts sixteenths, six ticks each, so a resume between two
+ * of them goes on from the next one -- where the position says it is --
+ * and the clock lands on the beat grid the device counts. */
+void
+thcScheduler::clockStart (void)
+{
+    if (!clocking())
+        return;
+
+    const gint64 now = stampAt(transportNow_);
+
+    if (beat_ < 1e-9)
+    {
+        clockTick_ = 0;
+        midiOut_->clock(thcMidiOut::CLOCK_START, 0, now);
+        return;
+    }
+
+    const double sixteenth = std::ceil(beat_ * 4 - 1e-9);
+
+    clockTick_ = sixteenth * 6;
+    midiOut_->clock(thcMidiOut::CLOCK_POSITION, (int)sixteenth, now);
+    midiOut_->clock(thcMidiOut::CLOCK_CONTINUE, 0, now);
+}
+
+/* The ticks the step just passed, each stamped at its own beat: tick k is
+   at beat k/24, which was (beat_ - k/24) beats before where the step
+   brought the transport. */
+void
+thcScheduler::clockTicks (void)
+{
+    if (!clocking())
+        return;
+
+    while (clockTick_ <= beat_ * 24 + 1e-9)
+    {
+        const double at =
+            transportNow_ - (beat_ - clockTick_ / 24) * 60.0 / tempo_;
+
+        midiOut_->clock(thcMidiOut::CLOCK_TICK, 0, stampAt(at));
+        clockTick_ += 1;
+    }
 }
 
 /* stop() is a pause, but a pause must not hang notes: flush every
@@ -3013,6 +3068,9 @@ thcScheduler::start (void)
 void
 thcScheduler::stop (void)
 {
+    if (clocking())
+        midiOut_->clock(thcMidiOut::CLOCK_STOP, 0, stampAt(transportNow_));
+
     running_ = false;
     flushNoteOffs();
     flushHeld();
