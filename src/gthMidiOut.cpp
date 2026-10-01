@@ -22,12 +22,20 @@
 #include <glib.h>
 #include <RtMidi.h>
 
+#include "gthMidiOut.h"
+
+/* Last, and lean: windows.h defines macros (ERROR among them) that break
+   glibmm's headers if it comes before them. */
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #include <mmsystem.h>
 #endif
 
-#include "gthMidiOut.h"
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
 
 const char *const gthMidiOut::PLAY_ON_SYNTH = "@synth";
 
@@ -555,6 +563,13 @@ gthMidiOut::run (void)
        default, which is the jitter this thread exists to take out. One
        millisecond while it runs. */
     timeBeginPeriod(1);
+#endif
+
+#ifdef __APPLE__
+    /* macOS coalesces the timers of a thread at the default QoS class,
+       and a wake-up can come a hundred milliseconds late; a thread whose
+       whole job is being on time asks not to be. */
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #endif
 
     std::unique_lock<std::mutex> l(lock_);

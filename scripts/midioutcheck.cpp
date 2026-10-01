@@ -242,7 +242,7 @@ int main (void)
     {
         const std::vector<Sent> s = take();
         size_t ons = 0;
-        gint64 early = 0, late = 0, first = 0, last = 0;
+        gint64 early = 0, late = 0;
         int prev = 59;
         bool ordered = true;
 
@@ -255,23 +255,17 @@ int main (void)
                 late = std::max(late, m.at - want);
                 ordered = ordered && m.bytes[1] == prev + 1;
                 prev = m.bytes[1];
-
-                if (ons++ == 0)
-                    first = m.at;
-
-                last = m.at;
+                ons++;
             }
 
-        /* What is checked is what is not the machine's: never early,
-           which would be a wrong clock; in order; and spread over the
-           175 ms the stamps cover, where sending on arrival would put all
-           eight within a millisecond. How late a thread wakes is the
-           machine's, and a shared CI runner wakes one 20-70 ms late, so
-           that is reported, and bounded only against a message that
-           never goes. */
+        /* What is checked is what is not the machine's: never early --
+           which is also what sending on arrival would be, every note here
+           being queued up to 205 ms ahead of its time -- and in order.
+           How late a thread wakes is the machine's, and a shared CI
+           runner has woken one 150 ms late, so that is reported, and
+           bounded only against a message that never goes. */
         check(ons == 8, "every note-on is sent", std::to_string(ons));
-        check(early < 1000 && ordered && last - first > 150000 &&
-              late < 500000,
+        check(early < 1000 && ordered && late < 1000000,
               "each at its stamp plus the delay, in order",
               std::to_string(early / 1000.0) + " ms early, " +
               std::to_string(late / 1000.0) + " ms late at worst");
