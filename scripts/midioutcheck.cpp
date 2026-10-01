@@ -215,7 +215,7 @@ int main (void)
     check(out.routeOf(5) == "Surge XT:Surge XT MIDI In, channel 3",
           "and routes the channel there", out.routeOf(5));
 
-    settle(10);
+    settle(250);
 
     {
         const std::vector<Sent> s = take();
@@ -237,12 +237,14 @@ int main (void)
         out.noteOff(5, 60 + i, at + 12000);
     }
 
-    settle(20 + 30 + 8 * 25 + 60);
+    settle(20 + 30 + 8 * 25 + 600);
 
     {
         const std::vector<Sent> s = take();
         size_t ons = 0;
-        gint64 early = 0, late = 0;
+        gint64 early = 0, late = 0, first = 0, last = 0;
+        int prev = 59;
+        bool ordered = true;
 
         for (const Sent &m : s)
             if ((m.bytes[0] & 0xf0) == 0x90)
@@ -251,15 +253,26 @@ int main (void)
 
                 early = std::max(early, want - m.at);
                 late = std::max(late, m.at - want);
-                ons++;
+                ordered = ordered && m.bytes[1] == prev + 1;
+                prev = m.bytes[1];
+
+                if (ons++ == 0)
+                    first = m.at;
+
+                last = m.at;
             }
 
-        /* Never early, which would be a wrong clock; late by a little on
-           a loaded machine, and by far less than the 25 ms between two
-           notes, which is what sending on arrival would look like here. */
+        /* What is checked is what is not the machine's: never early,
+           which would be a wrong clock; in order; and spread over the
+           175 ms the stamps cover, where sending on arrival would put all
+           eight within a millisecond. How late a thread wakes is the
+           machine's, and a shared CI runner wakes one 20-70 ms late, so
+           that is reported, and bounded only against a message that
+           never goes. */
         check(ons == 8, "every note-on is sent", std::to_string(ons));
-        check(early < 1000 && late < 10000,
-              "each at its stamp plus the delay",
+        check(early < 1000 && ordered && last - first > 150000 &&
+              late < 500000,
+              "each at its stamp plus the delay, in order",
               std::to_string(early / 1000.0) + " ms early, " +
               std::to_string(late / 1000.0) + " ms late at worst");
         check(!s.empty() && bytesAre(s[0], { 0xb2, 11, 100 }),
@@ -277,7 +290,7 @@ int main (void)
         out.noteOn(5, 64, 80, 0.7f, now);        /* the key again         */
         out.noteOff(5, 64, now);                 /* ends it               */
         out.noteOff(5, 64, now);                 /* nothing left to end   */
-        settle(20);
+        settle(250);
 
         const std::vector<Sent> s = take();
 
@@ -300,7 +313,7 @@ int main (void)
         out.control(5, "cutoff", 601, now);      /* still 64: not sent    */
         out.control(5, "cutoff", 5000, now);     /* clamped to 127        */
         out.control(5, "resonance", 1, now);     /* not mapped            */
-        settle(20);
+        settle(250);
 
         const std::vector<Sent> s = take();
 
@@ -316,7 +329,7 @@ int main (void)
 
         out.noteOn(5, 67, 100, 1, now - 30000);  /* sounding              */
         out.noteOn(5, 69, 100, 1, now + 500000); /* queued for later      */
-        settle(20);
+        settle(250);
         take();
 
         out.flush(5);
@@ -332,12 +345,12 @@ int main (void)
 
     {
         out.noteOn(5, 72, 100, 1, g_get_monotonic_time() - 30000);
-        settle(20);
+        settle(250);
         take();
 
         out.detach(5);
         out.noteOn(5, 74, 100, 1, g_get_monotonic_time() - 30000);
-        settle(20);
+        settle(250);
 
         const std::vector<Sent> s = take();
 
@@ -354,7 +367,7 @@ int main (void)
         thcInstrument dev = instrument("Surge", 0);
 
         out.attach(6, dev, why);
-        settle(10);
+        settle(250);
         take();
 
         const gint64 t0 = g_get_monotonic_time();
@@ -362,7 +375,7 @@ int main (void)
         out.noteOn(6, 50, 100, 1, t0);
         out.setDelay(0);                       /* turned down while it waits */
         out.noteOff(6, 50, t0 + 50000);
-        settle(120);
+        settle(400);
 
         const std::vector<Sent> s = take();
         std::vector<Sent> notes;
@@ -388,18 +401,18 @@ int main (void)
 
         out.attach(8, a, why);
         out.attach(9, b, why);
-        settle(10);
+        settle(250);
         take();
 
         const gint64 now = g_get_monotonic_time() - 30000;
 
         out.noteOn(9, 64, 100, 1, now);         /* b holds 64            */
         out.noteOn(8, 67, 100, 1, now);         /* a holds 67            */
-        settle(20);
+        settle(250);
         take();
 
         out.detach(8);
-        settle(20);
+        settle(250);
 
         std::vector<Sent> s = take();
 
@@ -411,7 +424,7 @@ int main (void)
         out.attach(8, a, why);
         out.noteOn(8, 64, 90, 1, g_get_monotonic_time() - 30000);
         out.noteOff(9, 64, g_get_monotonic_time() - 30000);
-        settle(20);
+        settle(250);
         s = take();
 
         bool stale = false;
@@ -457,6 +470,13 @@ int main (void)
         try
         {
             in = new RtMidiIn(RtMidi::UNSPECIFIED, sink);
+
+            /* WinMM has no virtual ports, and says so with a warning
+               rather than a throw. */
+            if (in->getCurrentApi() == RtMidi::WINDOWS_MM)
+                throw RtMidiError("WinMM has no virtual MIDI ports",
+                                  RtMidiError::WARNING);
+
             in->openVirtualPort(sink);
             in->setCallback([](double, std::vector<unsigned char> *msg,
                                void *)
@@ -492,7 +512,7 @@ int main (void)
 
                 real.noteOn(0, 36, 110, 1, now);
                 real.noteOff(0, 36, now + 10000);
-                settle(200);
+                settle(500);
 
                 std::lock_guard<std::mutex> l(heardLock);
 

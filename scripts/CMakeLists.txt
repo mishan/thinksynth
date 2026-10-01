@@ -138,6 +138,11 @@ think_harness(midioutcheck COMPOSERHOST
               EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp")
 target_link_libraries(midioutcheck PRIVATE ${THINK_RTMIDI_LIB})
 
+# gthMidiOut's timeBeginPeriod, in every harness that compiles it.
+if(WIN32)
+  target_link_libraries(midioutcheck PRIVATE winmm)
+endif()
+
 # Which libthink headers stand on their own. The test is the compile; see the
 # header of includecheck.cpp for why the list is short and why it grows.
 think_harness(includecheck)
@@ -349,6 +354,10 @@ think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM ${THINK_RTMIDI_LIB})
 
+if(WIN32)
+  target_link_libraries(composercheck PRIVATE winmm)
+endif()
+
 # The main window, tiled: the whole GUI less main(), since the window is
 # made of all of it. Its own harness for composercheck's reason -- a failure
 # here is about how the window puts its panes together, and one binary for
@@ -386,6 +395,10 @@ think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
                     "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp")
 target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB}
                                           ${THINK_RTMIDI_LIB})
+
+if(WIN32)
+  target_link_libraries(windowcheck PRIVATE winmm)
+endif()
 
 # gthTheme reads the macOS appearance through CoreFoundation; see
 # src/CMakeLists.txt.

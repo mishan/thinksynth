@@ -22,6 +22,11 @@
 #include <glib.h>
 #include <RtMidi.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <mmsystem.h>
+#endif
+
 #include "gthMidiOut.h"
 
 const char *const gthMidiOut::PLAY_ON_SYNTH = "@synth";
@@ -545,6 +550,13 @@ gthMidiOut::sendNow (const Msg &m)
 void
 gthMidiOut::run (void)
 {
+#ifdef _WIN32
+    /* Windows wakes a waiting thread on its timer tick, 15.6 ms by
+       default, which is the jitter this thread exists to take out. One
+       millisecond while it runs. */
+    timeBeginPeriod(1);
+#endif
+
     std::unique_lock<std::mutex> l(lock_);
 
     while (!quit_)
@@ -570,4 +582,8 @@ gthMidiOut::run (void)
 
         sendNow(m);
     }
+
+#ifdef _WIN32
+    timeEndPeriod(1);
+#endif
 }

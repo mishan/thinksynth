@@ -311,6 +311,8 @@ add_executable(thinksynth
 # main() still works -- MinGW's runtime provides the WinMain that calls it --
 # so this is a link-time change and not a source-level one.
 if(WIN32)
+  # timeBeginPeriod, for gthMidiOut's sending thread.
+  target_link_libraries(thinksynth PRIVATE winmm)
   set_target_properties(thinksynth PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
