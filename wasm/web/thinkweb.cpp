@@ -1575,7 +1575,7 @@ public:
     void flush (int channel) override
     {
         record(TW_MIDI_FLUSH, channel);
-        router_.forget(channel);
+        router_.forget(channel, now());
     }
 
     /* The context time of the frame about to be rendered, in the stamps'

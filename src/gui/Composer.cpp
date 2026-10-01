@@ -1546,6 +1546,28 @@ Composer::updateTransportButtons (void)
     else if (running)
         text += " — playing";
 
+    /* An instrument meant for a device and not on one says so here, where
+       it is seen at once; where to change it is the Piece Settings pane's
+       MIDI out section. */
+    if (sched_ != NULL)
+    {
+        std::vector<std::string> off;
+
+        for (const thcInstrument &inst : sched_->instruments())
+            if (!inst.midi.empty() && !sched_->playsOverMidi(inst.channel))
+                off.push_back(inst.name + ": " +
+                              sched_->midiWhy(inst.channel));
+
+        if (off.size() == 1)
+            text += " — " + off[0];
+        else if (off.size() > 1)
+            text += " — " + std::to_string(off.size()) +
+                    " MIDI instruments are not on their devices";
+
+        if (!off.empty())
+            text += " (Piece Settings, MIDI out)";
+    }
+
     status_->set_text(text);
 }
 
@@ -2673,6 +2695,8 @@ Composer::buildMidiSection (void)
 void
 Composer::reroute (const std::string &pattern)
 {
+    std::string failed;
+
     for (size_t i = 0; i < sched_->instruments().size(); i++)
     {
         if (sched_->instruments()[i].midi != pattern)
@@ -2684,15 +2708,18 @@ Composer::reroute (const std::string &pattern)
            is still that graph's, and the scheduler retries taking it off
            on its own. */
         if (!sched_->unapplyInstrument(i))
-        {
-            status_->set_text(sched_->instruments()[i].name + ": its graph "
-                              "could not be taken off; try again");
-            continue;
-        }
-
-        if (!sched_->applyInstrument(i, why))
-            status_->set_text(sched_->instruments()[i].name + ": " + why);
+            failed = sched_->instruments()[i].name + ": its graph could "
+                     "not be taken off; try again";
+        else if (!sched_->applyInstrument(i, why))
+            failed = sched_->instruments()[i].name + ": " + why;
     }
+
+    /* The status line says where the MIDI instruments are now, unless
+       something here went wrong, which it says instead. */
+    if (failed.empty())
+        updateTransportButtons();
+    else
+        status_->set_text(failed);
 }
 
 Gtk::Widget *

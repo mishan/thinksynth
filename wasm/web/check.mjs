@@ -412,5 +412,75 @@ for (const name of names)
                              'list, a retrigger, a stale off, a flush\n');
 }
 
+/* The pitch wheel: a chain's `bend' mapping goes as 14-bit pitch bend,
+ * and a stop puts a bent wheel back to center -- after the flush record, so
+ * the page's flush, which drops what is queued, does not drop it. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+
+    const piece =
+        'tempo 60;\n' +
+        'instrument ext { midi "Surge"; midichannel = 2;\n' +
+        '    bend wheel { min = -1; max = 1; }; };\n' +
+        'chain w { stage s gen::steps { values = "1";\n' +
+        '    period = 1 beats; min = -1; max = 1; };\n' +
+        '    sink { instrument = ext; chanarg = "wheel"; }; };\n';
+    const msgs = [];
+    const drain = () =>
+    {
+        const base = M._tw_midiout_events() >>> 0;
+
+        for (let i = 0; i < M._tw_midiout_count(); i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            msgs.push({
+                kind: M.HEAP32[(at + 8) >> 2],
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+    };
+
+    const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                       [piece, 1]) !== 0;
+
+    M.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['Surge XT', 1, 1]);
+    M._tw_transport(0, 0, 0);
+
+    for (let done = 0; done < RATE / 2; done += 128)
+    {
+        M._tw_render(128);
+        drain();
+    }
+
+    M._tw_transport(M._tw_frame(), 1, 0);
+
+    for (let done = 0; done < 1024; done += 128)
+    {
+        M._tw_render(128);
+        drain();
+    }
+
+    const shown = msgs.map((m) => `${m.kind}:${m.bytes.join(' ')}`).join(', ');
+    const up = msgs.findIndex((m) => m.kind === 0 && m.bytes[0] === 0xe1 &&
+                                     m.bytes[1] === 127 && m.bytes[2] === 127);
+    const flush = msgs.findIndex((m) => m.kind === 1);
+    const center = msgs.findIndex((m) => m.kind === 0 && m.bytes[0] === 0xe1 &&
+                                         m.bytes[1] === 0 && m.bytes[2] === 64);
+
+    if (!ok || up < 0 || flush < up || center < flush)
+        fail(`midi out: the wheel up and back to center after a stop: ${shown}`);
+    else
+        process.stdout.write('ok    midi out       a bend is the pitch wheel, ' +
+                             'centered again after the flush on stop\n');
+}
+
 process.stdout.write(`\n${failures === 0 ? 'all passed' : failures + ' failed'}\n`);
 process.exitCode = failures;

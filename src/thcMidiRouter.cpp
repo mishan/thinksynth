@@ -221,6 +221,22 @@ thcMidiRouter::control (int channel, const std::string &name, double value,
 
         const double unit =
             std::min(1.0, std::max(0.0, (value - cc.min) / (cc.max - cc.min)));
+
+        /* The pitch wheel: fourteen bits, least significant first. */
+        if (cc.bend)
+        {
+            const int v = (int)lrint(unit * 16383);
+            auto last = r->second.sent.find(-1);
+
+            if (last != r->second.sent.end() && last->second == v)
+                return;
+
+            r->second.sent[-1] = v;
+            emit(channel, r->second, when, 0xe0, (uint8_t)(v & 0x7f),
+                 (uint8_t)(v >> 7));
+            return;
+        }
+
         const int v = (int)lrint(unit * 127);
         auto last = r->second.sent.find(cc.cc);
 
@@ -236,11 +252,18 @@ thcMidiRouter::control (int channel, const std::string &name, double value,
 }
 
 void
-thcMidiRouter::forget (int channel)
+thcMidiRouter::forget (int channel, gint64 now)
 {
     for (auto &r : routes_)
         if (channel < 0 || r.first == channel)
         {
+            /* A wheel left bent would bend the next note struck, after a
+               stop, out of tune: it is put back. */
+            auto bent = r.second.sent.find(-1);
+
+            if (bent != r.second.sent.end() && bent->second != 8192)
+                emit(r.first, r.second, now, 0xe0, 0, 64);
+
             r.second.expression = -1;
             r.second.sent.clear();
         }

@@ -1282,10 +1282,17 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
         if (midiOut_ != NULL && midiOut_->attach(inst.channel, inst, mwhy))
         {
-            /* And the fallback graph an earlier apply put on, if it is
-               still there, comes off: the device plays it now. */
+            /* And the graph an earlier apply or a swap put on, if it is
+               still there, comes off: the device plays it now. Whichever
+               instrument's it is -- after a swap, not this one's. */
             if (synth_ != NULL && synth_->getChannel(inst.channel) != NULL)
-                takeGraphOff(inst);
+            {
+                const thcInstrument *held = instrument(holding(inst.channel));
+                thcInstrument old = held != NULL ? *held : inst;
+
+                old.channel = inst.channel;
+                takeGraphOff(old);
+            }
 
             overMidi_[inst.channel] = true;
             return true;
@@ -1517,15 +1524,6 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
         return false;
     }
 
-    /* A device is not a graph to rebuild, and a swap that put a graph on
-       its channel would have nothing to say to the notes still sounding
-       on the device. */
-    if (playsOverMidi(channel) || !want->midi.empty())
-    {
-        why = "an instrument played over MIDI does not swap";
-        return false;
-    }
-
     /* Already this instrument? Then say so and touch nothing.
      *
        A gen::swap cannot know what its sink's channel is holding -- it
@@ -1551,6 +1549,62 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
        first so that a refusal below still leaves a rewind knowing there
        is something to put back. */
     swapped_.insert(channel);
+
+    /* Off a device: what it holds there ends now, and the channel is a
+       graph's again, or nothing's. */
+    const thcInstrument *was = instrument(holding(channel));
+
+    if (playsOverMidi(channel))
+    {
+        midiOut_->detach(channel);
+        overMidi_[channel] = false;
+    }
+
+    midiWhy_[channel].clear();
+
+    /* Onto a device, where one answers: the graph that was on the channel
+       comes off -- the device plays it now -- and nothing below applies,
+       since a device has no graph to load or values to set. Where none
+       answers the swap goes on to the instrument's dsp, as applying it
+       does, or leaves the channel silent. */
+    if (!put.midi.empty())
+    {
+        std::string mwhy = "no MIDI output in this host";
+
+        if (midiOut_ != NULL && midiOut_->attach(channel, put, mwhy))
+        {
+            if (was != NULL && synth_ != NULL &&
+                synth_->getChannel(channel) != NULL)
+            {
+                thcInstrument old = *was;
+
+                old.channel = channel;
+                takeGraphOff(old);
+            }
+
+            overMidi_[channel] = true;
+            holding_[channel] = name;
+            forgetNodeArgs(channel);
+            return true;
+        }
+
+        midiWhy_[channel] = mwhy;
+
+        if (put.dsp.empty())
+        {
+            if (was != NULL)
+            {
+                thcInstrument old = *was;
+
+                old.channel = channel;
+                takeGraphOff(old);
+            }
+
+            holding_[channel] = name;
+            forgetNodeArgs(channel);
+            return true;
+        }
+    }
 
     if (loadDsp_)
     {

@@ -67,8 +67,7 @@ import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { micAvailable, openMic } from './mic.js';
 import { midiAvailable, midiToggle } from './midi.js';
-import { MidiSender } from './midiout.js';
-import { AudioClock } from './clock.js';
+import { MidiOutControls } from './midioutui.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
@@ -86,13 +85,6 @@ const $ = (id) => document.getElementById(id);
 /* Line numbers in the two source boxes: one setting for both, kept across
    visits, with a checkbox under each. */
 const LINE_NUMBERS = 'thinksynth:linenumbers';
-
-/* This browser's MIDI out: a route per instrument pattern -- a port's
-   name, '@synth', or nothing for the pattern's own match -- and the delay
-   in milliseconds. Per browser because the ports are this machine's; the
-   piece names a pattern for every machine. */
-const MIDI_ROUTES = 'thinksynth:midiroutes';
-const MIDI_DELAY = 'thinksynth:midioutdelay';
 
 function showLineNumbers (on)
 {
@@ -127,41 +119,6 @@ function saveLineNumbers (on)
     {
     }
 }
-
-function savedMidi ()
-{
-    try
-    {
-        return {
-            routes: JSON.parse(localStorage.getItem(MIDI_ROUTES) ?? '{}'),
-            delay: Number(localStorage.getItem(MIDI_DELAY) ?? 0) || 0,
-        };
-    }
-    catch
-    {
-        return { routes: {}, delay: 0 };
-    }
-}
-
-function saveMidi ()
-{
-    try
-    {
-        localStorage.setItem(MIDI_ROUTES, JSON.stringify(midiRoutes));
-        localStorage.setItem(MIDI_DELAY, String(midiDelay));
-    }
-    catch
-    {
-    }
-}
-
-let { routes: midiRoutes, delay: midiDelay } = savedMidi();
-
-/* The sender while MIDI out is on, the audio clock it reads stamps
-   through, and the timer that keeps that clock sampled. */
-let midiOut = null;
-let audioClock = null;
-let clockTimer = null;
 
 const VELOCITY = 100;
 
@@ -433,6 +390,9 @@ const PATCH_CHANNEL = 0;
 
 let ctx = null;
 let synth = null;
+
+/* MIDI out's button, delay and pickers (midioutui.js). */
+let midiOutUI = null;
 let mic = null;                  /* what openMic returned, or null */
 let midiIn = null;               /* the MIDI in button (midi.js)    */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
@@ -1686,7 +1646,7 @@ function showChannels ()
             line.append(own);
 
             if (inst.midi)
-                line.append(...midiPicker(inst));
+                line.append(...midiOutUI.picker(inst));
         }
         else
         {
@@ -1735,162 +1695,6 @@ function showChannels ()
     /* The tracks name their channels' instruments, and this is every
        place that can change. */
     seq?.refresh();
-}
-
-/* An instrument that names a MIDI port: where it plays in this browser,
- * and why. The choices are the pattern's own match, each output port
- * there is, and its dsp; the choice is this browser's (MIDI_ROUTES), not
- * the piece's. */
-function midiPicker (inst)
-{
-    const pick = document.createElement('select');
-    const state = document.createElement('span');
-    const to = midiRoutes[inst.midi] ?? '';
-    const ports = midiOut?.names ?? [];
-
-    pick.className = 'midiroute';
-    pick.dataset.pattern = inst.midi;
-    pick.title = `Where ${inst.name} plays in this browser.`;
-    pick.append(new Option(`Match "${inst.midi}"`, ''));
-
-    for (const name of ports)
-        pick.append(new Option(name, name));
-
-    if (to !== '' && to !== '@synth' && !ports.includes(to))
-        pick.append(new Option(`${to} (not connected)`, to));
-
-    pick.append(new Option(inst.dsp ? `This synth: ${inst.dsp}`
-                                    : 'Nothing (no dsp)', '@synth'));
-    pick.value = to;
-
-    pick.addEventListener('change', () =>
-    {
-        if (pick.value === '')
-            delete midiRoutes[inst.midi];
-        else
-            midiRoutes[inst.midi] = pick.value;
-
-        saveMidi();
-        synth?.midiRoute(inst.midi, pick.value);
-    });
-
-    state.className = 'hint midistate';
-    state.textContent = inst.midiState;
-
-    return [pick, state];
-}
-
-/* Where the MIDI instruments play now (the worklet's midistate). */
-function midiStateChanged (instruments)
-{
-    if (piece === null)
-        return;
-
-    for (const i of instruments)
-    {
-        const mine = piece.instruments.find((p) => p.name === i.name);
-
-        if (mine !== undefined)
-            mine.midiState = i.midiState;
-    }
-
-    showChannels();
-}
-
-/* MIDI out on and off. On asks for access, starts the audio clock the
- * stamps are read through, and hands the worklet the output ports, which
- * puts each MIDI instrument onto its device; off ends what the devices
- * hold and puts every instrument back on its dsp.
- *
- * The button is off while access is asked for -- a permission prompt can
- * sit there -- and a sender that is no longer the page's by the time its
- * access arrives closes itself rather than going on alone. */
-async function toggleMidiOut ()
-{
-    const button = $('midiout');
-    const say = (text) => { $('midioutstatus').textContent = text; };
-
-    if (midiOut !== null)
-    {
-        midiOut.close();
-        midiOut = null;
-        clearInterval(clockTimer);
-        clockTimer = null;
-        synth?.midiPorts([], false, 0);
-        button.textContent = 'MIDI out';
-        say('');
-        return;
-    }
-
-    if (synth === null || ctx === null)
-        return;
-
-    audioClock ??= new AudioClock(ctx.sampleRate);
-
-    const sampleClock = () =>
-    {
-        const t = ctx.getOutputTimestamp();
-
-        audioClock.sample(t.contextTime, t.performanceTime);
-    };
-
-    const sender = new MidiSender({
-        clock: audioClock,
-        delay: midiDelay,
-        onPorts: (names, generation) =>
-        {
-            if (midiOut !== sender)
-                return;
-
-            synth.midiPorts(names, true, generation);
-            say(names.length > 0 ? names.join(', ')
-                                 : 'no MIDI outputs; plug one in');
-            showChannels();
-        },
-    });
-
-    say('asking...');
-    button.disabled = true;
-    midiOut = sender;
-
-    try
-    {
-        /* A stamp is only as good as the clock it is read through, and a
-           context that has just started reports no time yet: a sample
-           first, waited for, so the first note is not sent a guess. */
-        sampleClock();
-        clockTimer = setInterval(sampleClock, 1000);
-
-        for (let i = 0; i < 20 && audioClock.count === 0; i++)
-        {
-            await new Promise((r) => setTimeout(r, 50));
-            sampleClock();
-        }
-
-        await sender.open();
-
-        if (midiOut !== sender)
-        {
-            sender.close();
-            return;
-        }
-
-        button.textContent = 'MIDI out: on';
-    }
-    catch (e)
-    {
-        if (midiOut === sender)
-        {
-            midiOut = null;
-            clearInterval(clockTimer);
-            clockTimer = null;
-            say(e.message);
-        }
-    }
-    finally
-    {
-        button.disabled = false;
-    }
 }
 
 /* One channel's patch, downloaded.
@@ -2360,16 +2164,14 @@ async function start ()
                                              nodes?.feed(m.probes);
                                          },
                                          onParamEdits: paramsEdited,
-                                         onMidi: (msgs) => midiOut?.take(msgs),
-                                         onMidiState: midiStateChanged,
+                                         onMidi: (msgs) => midiOutUI.take(msgs),
+                                         onMidiState: (list) =>
+                                             midiOutUI.state(list),
                                          onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
 
-        /* This browser's routes, before there are ports to route onto,
-           so the first port list lands every instrument where it goes. */
-        for (const [pattern, to] of Object.entries(midiRoutes))
-            synth.midiRoute(pattern, to);
+        midiOutUI.start(synth, ctx);
     }
     catch (e)
     {
@@ -2399,7 +2201,6 @@ async function start ()
         $('micstatus').textContent = 'needs https, or localhost';
 
     $('midi').disabled = !midiAvailable();
-    $('midiout').disabled = !midiAvailable();
 
     if (!midiAvailable())
         $('midistatus').textContent = 'needs Chromium or Firefox, over https '
@@ -3405,18 +3206,11 @@ async function init ()
         onNoteOff: (note) => release(note, true),
         onPedal: pedal,
     });
-    $('midiout').addEventListener('click', toggleMidiOut);
-    $('midioutdelay').value = String(midiDelay);
-    $('midioutdelay').addEventListener('change', () =>
-    {
-        midiDelay = Math.max(0, Math.min(500,
-                                         Number($('midioutdelay').value) || 0));
-        $('midioutdelay').value = String(midiDelay);
-
-        if (midiOut !== null)
-            midiOut.delay = midiDelay;
-
-        saveMidi();
+    midiOutUI = new MidiOutControls({
+        button: $('midiout'), delay: $('midioutdelay'),
+        status: $('midioutstatus'),
+        instruments: () => piece?.instruments ?? [],
+        onChange: showChannels,
     });
     $('mode').addEventListener('change', pickMode);
 

@@ -392,7 +392,7 @@ gthMidiOut::flush (int channel)
 
     /* Whatever the device heard last is still what it has; a route
        starting again sends expression and controllers afresh. */
-    router_.forget(channel);
+    router_.forget(channel, g_get_monotonic_time() - delayUs_);
 }
 
 std::string

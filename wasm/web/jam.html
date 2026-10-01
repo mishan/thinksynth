@@ -110,7 +110,17 @@
            Offered once the synth has started. -->
       <button id="midi" disabled>MIDI in</button>
       <span id="midistatus" class="hint"></span>
+
+      <!-- The piece's MIDI instruments onto this machine's devices
+           (midioutui.js): every peer composes the same piece and sends it
+           to devices of its own. -->
+      <button id="midiout" disabled>MIDI out</button>
+      <label class="hint">delay
+        <input id="midioutdelay" type="number" min="0" max="500" step="1"
+               value="0"> ms</label>
+      <span id="midioutstatus" class="hint"></span>
     </div>
+    <div id="midioutlist"></div>
     <svg id="keys" role="application" aria-label="Keyboard"></svg>
   </section>
 

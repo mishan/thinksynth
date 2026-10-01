@@ -289,10 +289,12 @@ struct thcInstrumentArg
 struct thcMidiCC
 {
     std::string name;
-    int         cc;
+    int         cc;             /* -1 for the pitch wheel (`bend')       */
     double      min, max;
+    bool        bend;           /* `bend NAME { ... };': 14-bit, min down,
+                                   max up, their middle centered          */
 
-    thcMidiCC (void) : cc(0), min(0), max(127) {}
+    thcMidiCC (void) : cc(0), min(0), max(127), bend(false) {}
 };
 
 /* An instrument the piece carries: a DSP graph named by file, the

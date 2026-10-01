@@ -8205,7 +8205,12 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
         "instrument ext { midi \"Fake\"; midichannel = 1; };\n"
         "chain c { stage s gen::eno_line { };"
         " sink { instrument = ext; chanarg = \"cutoff\"; }; };",
-        "maps no cc called 'cutoff'");
+        "maps no cc or bend called 'cutoff'");
+
+    expectReject(plugins, synth, "midi-bend-twice",
+        "instrument ext { midi \"Fake\"; midichannel = 1; bend a; bend b; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = ext; }; };",
+        "bends twice");
 
     expectReject(plugins, synth, "midi-args-no-dsp",
         "instrument ext { midi \"Fake\"; midichannel = 1; amp = 20; };\n"
@@ -8356,12 +8361,6 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
                 out.calls.back().channel != ch)
                 fail("stopping did not flush the device");
 
-            std::string why;
-
-            if (sched.swapInstrument(ch, "ext", why) ||
-                why.find("does not swap") == std::string::npos)
-                fail("a swap onto a MIDI channel was not refused: " + why);
-
             sched.clearChains();
 
             if (out.calls.back().what != "detach" || sched.playsOverMidi(ch))
@@ -8445,6 +8444,53 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
                     fail("the fallback graph stayed on the channel after "
                          "the device took it back");
             }
+        }
+    }
+
+    /* A swap onto a device and off it again: the channel's graph comes
+       off when the device takes it, and a graph goes back on, with the
+       device detached, when a graph's instrument is swapped back. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+        const std::string text =
+            "tempo 60;\n"
+            "instrument pad { dsp \"organ0.dsp\"; };\n"
+            "instrument ext { midi \"Fake\"; midichannel = 4; };\n"
+            "chain c { stage g gen::grid { notes = \"C4\"; steps = 1;\n"
+            "    rows = 1; cells = \"x\"; period = 1 beats; hold = 0.5 beats; };\n"
+            "    sink { instrument = pad; }; };\n";
+
+        if (!play(text, &out, 0.02, sched))
+            fail("the swap piece did not load");
+        else
+        {
+            const int ch = sched.instrument("pad")->channel;
+            std::string why;
+
+            drainSynth();
+
+            const bool onDevice = sched.swapInstrument(ch, "ext", why) &&
+                                  sched.playsOverMidi(ch) &&
+                                  out.count("attach") == 2;
+
+            drainSynth();
+
+            if (!onDevice || synth->getChannel(ch) != NULL ||
+                sched.holding(ch) != "ext")
+                fail("a swap onto a MIDI instrument did not put the channel "
+                     "on the device: " + why);
+
+            out.calls.clear();
+
+            const bool back = sched.swapInstrument(ch, "pad", why);
+
+            drainSynth();
+
+            if (!back || sched.playsOverMidi(ch) ||
+                out.count("detach") != 1 || synth->getChannel(ch) == NULL)
+                fail("a swap off a MIDI instrument did not put the graph "
+                     "back: " + why);
         }
     }
 
