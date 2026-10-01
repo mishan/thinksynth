@@ -37,11 +37,9 @@
 #include <pthread.h>
 #endif
 
-const char *const gthMidiOut::PLAY_ON_SYNTH = "@synth";
+const char *const gthMidiOut::PLAY_ON_SYNTH = thcMidiRouter::PLAY_ON_SYNTH;
 
 namespace {
-
-const int CC_EXPRESSION = 11;
 
 RtMidi::Api apiByName (const std::string &api)
 {
@@ -79,36 +77,12 @@ private:
     bool       dead_ = false;
 };
 
-std::string lower (std::string s)
-{
-    for (char &c : s)
-        c = (char)tolower((unsigned char)c);
-
-    return s;
-}
-
 }
 
 std::string
 gthMidiOut::stableName (const std::string &name)
 {
-    /* "Surge XT:Surge XT MIDI In 128:0" -> "Surge XT:Surge XT MIDI In". */
-    size_t sp = name.find_last_of(' ');
-
-    if (sp == std::string::npos)
-        return name;
-
-    const std::string tail = name.substr(sp + 1);
-    const size_t colon = tail.find(':');
-
-    if (colon == std::string::npos || colon == 0 || colon + 1 == tail.size())
-        return name;
-
-    for (size_t i = 0; i < tail.size(); i++)
-        if (i != colon && !isdigit((unsigned char)tail[i]))
-            return name;
-
-    return name.substr(0, sp);
+    return thcMidiRouter::stableName(name);
 }
 
 std::vector<std::string>
@@ -132,6 +106,7 @@ gthMidiOut::probePorts (const std::string &clientName, const std::string &api)
 }
 
 gthMidiOut::gthMidiOut (const std::string &clientName, const std::string &api)
+    : router_([this](const thcMidiRouter::Msg &m) { queue(m); })
 {
     lister_ = [clientName, api] { return probePorts(clientName, api); };
 
@@ -164,7 +139,8 @@ gthMidiOut::gthMidiOut (const std::string &clientName, const std::string &api)
 }
 
 gthMidiOut::gthMidiOut (const Lister &lister, const Opener &opener)
-    : lister_(lister), opener_(opener)
+    : lister_(lister), opener_(opener),
+      router_([this](const thcMidiRouter::Msg &m) { queue(m); })
 {
     start();
 }
@@ -214,32 +190,11 @@ gthMidiOut::ports (void) const
 std::string
 gthMidiOut::resolve (const std::string &pattern) const
 {
-    std::string want = pattern;
-    const std::string to = route(pattern);
-
-    if (to == PLAY_ON_SYNTH)
-        return "";
-
-    if (!to.empty())
-        want = to;
-
     const std::vector<std::string> names = ports();
+    std::lock_guard<std::mutex> l(lock_);
+    const int at = router_.resolve(pattern, names);
 
-    for (const std::string &n : names)
-        if (n == want || stableName(n) == want)
-            return n;
-
-    for (const std::string &n : names)
-        if (n.find(want) != std::string::npos)
-            return n;
-
-    const std::string lw = lower(want);
-
-    for (const std::string &n : names)
-        if (lower(n).find(lw) != std::string::npos)
-            return n;
-
-    return "";
+    return at < 0 ? "" : names[at];
 }
 
 void
@@ -248,10 +203,7 @@ gthMidiOut::setRoute (const std::string &pattern, const std::string &to)
     {
         std::lock_guard<std::mutex> l(lock_);
 
-        if (to.empty())
-            patternRoutes_.erase(pattern);
-        else
-            patternRoutes_[pattern] = to;
+        router_.setRoute(pattern, to);
     }
 
     if (changed_)
@@ -262,9 +214,8 @@ std::string
 gthMidiOut::route (const std::string &pattern) const
 {
     std::lock_guard<std::mutex> l(lock_);
-    auto r = patternRoutes_.find(pattern);
 
-    return r == patternRoutes_.end() ? "" : r->second;
+    return router_.route(pattern);
 }
 
 std::map<std::string, std::string>
@@ -272,7 +223,7 @@ gthMidiOut::routes (void) const
 {
     std::lock_guard<std::mutex> l(lock_);
 
-    return patternRoutes_;
+    return router_.routes();
 }
 
 int
@@ -339,19 +290,8 @@ gthMidiOut::attach (int channel, const thcInstrument &inst, std::string &why)
     if (port < 0)
         return false;
 
-    Route r;
-
-    r.port = port;
-    r.midiChannel = inst.midiChannel & 0x0f;
-    r.ccs = inst.ccs;
-    routes_[channel] = r;
-
-    /* Now, not delayed: nothing sounds before the first note, and the
-       device wants the patch in place by then. */
-    if (inst.midiProgram >= 0)
-        queue(channel, r, g_get_monotonic_time() - delayUs_, 0xc0,
-              (uint8_t)inst.midiProgram, 0, 2);
-
+    /* Stamped back by the delay, so the program change goes now. */
+    router_.attach(channel, port, inst, g_get_monotonic_time() - delayUs_);
     return true;
 }
 
@@ -362,23 +302,23 @@ gthMidiOut::detach (int channel)
 
     std::lock_guard<std::mutex> l(lock_);
 
-    routes_.erase(channel);
+    router_.detach(channel);
 }
 
+/* With lock_ held: the router emits from inside the calls below. */
 void
-gthMidiOut::queue (int channel, const Route &r, gint64 when, uint8_t status,
-                   uint8_t d1, uint8_t d2, uint8_t len)
+gthMidiOut::queue (const thcMidiRouter::Msg &r)
 {
     Msg m;
 
-    m.when = when;
+    m.when = r.when;
     m.seq = seq_++;
-    m.channel = channel;
+    m.channel = r.channel;
     m.port = r.port;
-    m.bytes[0] = (uint8_t)(status | r.midiChannel);
-    m.bytes[1] = d1 & 0x7f;
-    m.bytes[2] = d2 & 0x7f;
-    m.len = len;
+    m.bytes[0] = r.bytes[0];
+    m.bytes[1] = r.bytes[1];
+    m.bytes[2] = r.bytes[2];
+    m.len = r.len;
 
     const bool first = heap_.empty() || Later()(heap_.front(), m);
 
@@ -396,38 +336,16 @@ gthMidiOut::noteOn (int channel, int note, int velocity, float level,
                     gint64 when)
 {
     std::lock_guard<std::mutex> l(lock_);
-    auto r = routes_.find(channel);
 
-    if (r == routes_.end() || note < 0 || note > 127)
-        return;
-
-    /* The note's level as expression, 1 as 100 -- the MIDI file's
-       mapping -- sent ahead of the note wherever it moves. */
-    const int expression =
-        std::min(127, std::max(0, (int)lrintf(100 * (level > 0 ? level
-                                                               : 1))));
-
-    if (expression != r->second.expression)
-    {
-        queue(channel, r->second, when, 0xb0, CC_EXPRESSION,
-              (uint8_t)expression);
-        r->second.expression = expression;
-    }
-
-    queue(channel, r->second, when, 0x90, (uint8_t)note,
-          (uint8_t)std::min(127, std::max(1, velocity)));
+    router_.noteOn(channel, note, velocity, level, when);
 }
 
 void
 gthMidiOut::noteOff (int channel, int note, gint64 when)
 {
     std::lock_guard<std::mutex> l(lock_);
-    auto r = routes_.find(channel);
 
-    if (r == routes_.end() || note < 0 || note > 127)
-        return;
-
-    queue(channel, r->second, when, 0x80, (uint8_t)note, 64);
+    router_.noteOff(channel, note, when);
 }
 
 void
@@ -435,30 +353,8 @@ gthMidiOut::control (int channel, const std::string &name, double value,
                      gint64 when)
 {
     std::lock_guard<std::mutex> l(lock_);
-    auto r = routes_.find(channel);
 
-    if (r == routes_.end())
-        return;
-
-    for (const thcMidiCC &cc : r->second.ccs)
-    {
-        if (cc.name != name)
-            continue;
-
-        const double unit =
-            std::min(1.0, std::max(0.0, (value - cc.min) / (cc.max - cc.min)));
-        const int v = (int)lrint(unit * 127);
-        auto last = r->second.sent.find(cc.cc);
-
-        /* A chain that sends the same value every step is not a stream
-           the device needs to hear. */
-        if (last != r->second.sent.end() && last->second == v)
-            return;
-
-        r->second.sent[cc.cc] = v;
-        queue(channel, r->second, when, 0xb0, (uint8_t)cc.cc, (uint8_t)v);
-        return;
-    }
+    router_.control(channel, name, value, when);
 }
 
 void
@@ -496,25 +392,20 @@ gthMidiOut::flush (int channel)
 
     /* Whatever the device heard last is still what it has; a route
        starting again sends expression and controllers afresh. */
-    for (auto &r : routes_)
-        if (channel < 0 || r.first == channel)
-        {
-            r.second.expression = -1;
-            r.second.sent.clear();
-        }
+    router_.forget(channel);
 }
 
 std::string
 gthMidiOut::routeOf (int channel) const
 {
     std::lock_guard<std::mutex> l(lock_);
-    auto r = routes_.find(channel);
+    const int port = router_.portOf(channel);
 
-    if (r == routes_.end())
+    if (port < 0)
         return "";
 
-    return stableName(portNames_[r->second.port]) + ", channel " +
-           std::to_string(r->second.midiChannel + 1);
+    return stableName(portNames_[port]) + ", channel " +
+           std::to_string(router_.midiChannelOf(channel) + 1);
 }
 
 void

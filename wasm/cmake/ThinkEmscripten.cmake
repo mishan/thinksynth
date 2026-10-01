@@ -151,6 +151,7 @@ set(THINK_COMPOSERHOST_SOURCES
     "${THINK_TOP}/src/thcGenFile.cpp"
     "${THINK_TOP}/src/thcGenEdit.cpp"
     "${THINK_TOP}/src/thcFreeze.cpp"
+    "${THINK_TOP}/src/thcMidiRouter.cpp"
     "${THINK_TOP}/wasm/glib.cpp")
 
 add_subdirectory("${THINK_TOP}/libthink" libthink EXCLUDE_FROM_ALL)

@@ -789,6 +789,19 @@ public:
        is loaded: an instrument is offered to it when it is applied. */
     void setMidiOut (thcMidiOut *out) { midiOut_ = out; }
 
+    /* The clock thcMidiOut's stamps are on, where it is not the monotonic
+       one: `at' turns a transport time into a stamp, `now' says what the
+       stamp is now. The browser's, whose clock is the AudioContext's and
+       whose transport runs at a speed of its own. Unset, a stamp is the
+       step's g_get_monotonic_time() moved by the event's distance from
+       the transport. */
+    void setMidiClock (const std::function<gint64 (double at)> &at,
+                       const std::function<gint64 (void)> &now)
+    {
+        midiAt_ = at;
+        midiNow_ = now;
+    }
+
     /* Whether engine channel `channel' is being played on a device. */
     bool playsOverMidi (int channel) const
     {
@@ -1253,6 +1266,8 @@ private:
        midiOut_: set by timerCallback before it steps. */
     gint64 stampAt (double at) const;
     gint64                     stepMono_ = 0;
+    std::function<gint64 (double)> midiAt_;
+    std::function<gint64 (void)>   midiNow_;
 
     /* Instruments whose channel would not go. Deliberately NOT cleared
        by clearChains: they do not belong to the piece any more -- the

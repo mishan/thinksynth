@@ -27,6 +27,7 @@
 #include <tuple>
 #include <vector>
 
+#include "thcMidiRouter.h"
 #include "thcScheduler.h"
 
 /* MIDI output: the application's thcMidiOut.
@@ -137,15 +138,6 @@ public:
     std::string routeOf (int channel) const;
 
 private:
-    struct Route
-    {
-        int port;                       /* into ports_                    */
-        int midiChannel;
-        std::vector<thcMidiCC> ccs;
-        int expression = -1;            /* last CC 11 queued              */
-        std::map<int, int> sent;        /* cc -> last value queued        */
-    };
-
     struct Msg
     {
         gint64        when;
@@ -166,8 +158,7 @@ private:
 
     void start (void);
     void run (void);
-    void queue (int channel, const Route &r, gint64 when, uint8_t status,
-                uint8_t d1, uint8_t d2, uint8_t len = 3);
+    void queue (const thcMidiRouter::Msg &m);
     void sendNow (const Msg &m);        /* with lock_ held                */
     int  openPort (const std::string &name, std::string &why);
 
@@ -175,7 +166,6 @@ private:
     Opener   opener_;
     gint64   delayUs_ = 40000;
 
-    std::map<std::string, std::string> patternRoutes_;
     std::function<void (void)>         changed_;
 
     mutable std::mutex      lock_;
@@ -185,7 +175,10 @@ private:
     unsigned long           seq_ = 0;
 
     std::vector<Msg> heap_;
-    std::map<int, Route> routes_;
+
+    /* Patterns to ports, engine channels to routes, and notes to MIDI
+       messages: shared with the browser's output. */
+    thcMidiRouter    router_;
 
     std::vector<std::string>           portNames_;
     std::vector<std::unique_ptr<Port> > ports_;

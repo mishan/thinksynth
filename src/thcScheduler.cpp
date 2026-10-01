@@ -2755,7 +2755,13 @@ thcScheduler::endNote (int channel, int note, double at)
 gint64
 thcScheduler::stampAt (double at) const
 {
-    if (!running_ || seeking_ || stepMono_ == 0)
+    if (!running_ || seeking_)
+        return midiNow_ ? midiNow_() : g_get_monotonic_time();
+
+    if (midiAt_)
+        return midiAt_(at);
+
+    if (stepMono_ == 0)
         return g_get_monotonic_time();
 
     return stepMono_ + (gint64)llround((at - transportNow_) * 1e6);
@@ -2960,7 +2966,8 @@ thcScheduler::seek (double t)
         for (const auto &c : seekControls_)
             if (playsOverMidi(c.first.first))
                 midiOut_->control(c.first.first, c.first.second, c.second,
-                                  g_get_monotonic_time());
+                                  midiNow_ ? midiNow_()
+                                           : g_get_monotonic_time());
 
         seekControls_.clear();
 
