@@ -26,16 +26,15 @@
 #include <gtkmm.h>
 
 #include "thcGenEdit.h"
+#include "thcMidiExport.h"
 /* By value in prevInstruments_ below, so a forward declaration will not
    do -- and it is the same header ComposerCanvas already pulls in. */
-#include "thcMidiExport.h"
 #include "thcScheduler.h"
-
-class gthMidiOut;
 #include "ComposerCanvasWidget.h"
 #include "SeqView.h"
 #include "StageParamsView.h"
 
+class gthMidiOut;
 class thSynth;
 class thArg;
 class thcPlugin;
