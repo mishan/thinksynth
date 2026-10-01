@@ -359,6 +359,16 @@
     <span class="hint">Loads the .gen in the box above.</span>
     <label class="numbered"><input type="checkbox"> Line numbers</label>
   </div>
+  <!-- The piece being played, composed offline into a .mid with the seed
+       it plays with (thcMidiExport). A piece whose arrangement ends goes
+       to its end; the length is for one that does not. -->
+  <div class="row">
+    <button id="exportmidi" disabled>Export MIDI</button>
+    <label class="hint">length
+      <input id="exportlength" type="number" min="1" max="3600" step="1"
+             value="120"> s</label>
+    <span id="exportstatus" class="hint"></span>
+  </div>
 </details>
 
 <details id="detail"

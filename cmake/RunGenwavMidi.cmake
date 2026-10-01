@@ -13,7 +13,7 @@ set(ENV{THINK_DSP_PATH} "${DSP_PATH}")
 file(REMOVE "${OUT}")
 
 execute_process(
-    COMMAND "${GENWAV}" -p "${PLUGIN_DIR}" -s 5 -q --midi "${OUT}" "${PIECE}"
+    COMMAND "${GENWAV}" -p "${PLUGIN_DIR}" -s 4.9 -q --midi "${OUT}" "${PIECE}"
     ERROR_VARIABLE report
     RESULT_VARIABLE rc)
 
@@ -33,7 +33,7 @@ if(NOT rc EQUAL 0)
 endif()
 
 # At 120 bpm and 480 to the beat a second is 960 ticks: two one-second
-# sections, round again, in five seconds.
+# sections, round again, in 4.9 seconds.
 set(expect
     "format 1 division 480 tracks 3"
     "track 0 name 0 midi"
@@ -54,6 +54,33 @@ foreach(line IN LISTS expect)
     message(FATAL_ERROR "expected `${line}' in:\n${dump}")
   endif()
 endforeach()
+
+# And the same piece through thcMidiExport::render -- the Composer's and
+# the page's Export MIDI -- which steps the piece on a silent synth of its
+# own: the same file. At 4.9 s, which no event lands on: genwav steps in
+# audio windows and stops a little past the time asked for, render stops
+# on it, and a note struck at the stop is one of no length.
+execute_process(
+    COMMAND "${MIDICHECK}" --export "${PLUGIN_DIR}" 4.9 "${PIECE}" "${OUT}.export"
+    ERROR_VARIABLE report
+    RESULT_VARIABLE rc)
+
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "midicheck --export exited ${rc}: ${report}")
+endif()
+
+execute_process(
+    COMMAND "${MIDICHECK}" --read "${OUT}.export"
+    OUTPUT_VARIABLE exported
+    RESULT_VARIABLE rc)
+
+file(REMOVE "${OUT}.export")
+
+if(NOT rc EQUAL 0 OR NOT exported STREQUAL dump)
+  message(FATAL_ERROR
+      "Export MIDI wrote a different file from genwav --midi:\n"
+      "genwav:\n${dump}\nexport:\n${exported}")
+endif()
 
 foreach(track 1 2)
   if(NOT dump MATCHES "track ${track} notes ([0-9]+) controls ([0-9]+)")

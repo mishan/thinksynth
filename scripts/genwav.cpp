@@ -88,6 +88,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "thcMidiExport.h"
 #include "thcMidiFile.h"
 
 /* Enough silence to call a tail finished, and the longest we will wait
@@ -419,58 +420,10 @@ int main (int argc, char **argv)
        it plays; the sections at the times the scheduler gates them. */
     thcMidiFile midi(sched.tempo(), sched.meter());
 
-    midi.setName(std::filesystem::path(genFile).stem().string());
     midi.setFineControllers(midiFine);
-    midi.setRangeLookup(
-        [&synth](int channel, const std::string &name, double &min,
-                 double &max)
-        {
-            const thArg *arg = synth.getChanArg(channel, name);
-
-            if (arg == NULL)
-                return false;
-
-            min = arg->min();
-            max = arg->max();
-            return true;
-        });
-
-    for (size_t c = 0; c < sched.chainCount(); c++)
-        midi.setChainName((int)c, sched.chain(c)->name);
-
-    for (int ch = 0; ch < synth.midiChanCount(); ch++)
-    {
-        const std::string name = sched.holding(ch);
-
-        if (!name.empty())
-            midi.setChannelName(ch, name);
-    }
-
-    /* The arrangement at the times the scheduler gates it, and round
-       again for as long as the render runs where it has no `section
-       end;' -- sectionAt() wraps. */
-    {
-        double cycle = 0;
-
-        for (const thcSection &s : sched.sections())
-            cycle += s.beats ? s.length * 60 / sched.tempo() : s.length;
-
-        for (double start = 0; cycle > 0 && start < seconds; start += cycle)
-        {
-            double at = start;
-
-            for (const thcSection &s : sched.sections())
-            {
-                if (at < seconds)
-                    midi.addMarker(at, s.name);
-
-                at += s.beats ? s.length * 60 / sched.tempo() : s.length;
-            }
-
-            if (sched.endsAfterSections())
-                break;
-        }
-    }
+    thcMidiExport::describe(midi, sched, synth,
+                            std::filesystem::path(genFile).stem().string(),
+                            seconds);
 
     size_t notes = 0;
 

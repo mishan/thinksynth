@@ -56,6 +56,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 #include <gtkmm.h>
 
@@ -157,6 +158,7 @@ public:
     using Composer::seq_;
     using Composer::dirty_;
     using Composer::genPath_;
+    using Composer::exportMidi;
 };
 
 /* Same arrangement, for the browser dialog: what it keeps is its own
@@ -1830,6 +1832,70 @@ check (bool cond, const char *what)
         fail(what);
 }
 
+/* Export MIDI: the window's piece, composed offline into a file. A piece
+ * whose arrangement ends goes to its end; the file is a format 1 SMF with
+ * a track per chain that played, named for it, and the window's own
+ * transport is not moved. */
+static int
+runExportMidi (const std::string &pluginPath)
+{
+    const std::string tmp = stagePiece(
+            "name \"exported\";\n"
+            "tempo 120;\n"
+            "section a 2 s { };\n"
+            "section end;\n"
+            "instrument org { dsp \"organ0.dsp\"; };\n"
+            "chain melody {\n"
+            "    stage seq gen::grid { steps = 4; rows = 1; "
+            "cells = \"x.x.\"; };\n"
+            "    sink { instrument = org; };\n"
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    TestComposer *win = new TestComposer(&synth);
+
+    pump(10);
+
+    const std::string out = tmp + "/exported.mid";
+    thcMidiExport::Options options;
+    std::string why;
+    double length = 0;
+
+    options.seconds = 600;
+
+    const bool ok = win->exportMidi(out, options, why, &length);
+    std::ifstream in(out.c_str(), std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(in)),
+                            std::istreambuf_iterator<char>());
+
+    check(ok && bytes.compare(0, 4, "MThd") == 0 && bytes.size() > 22 &&
+          (unsigned char)bytes[9] == 1 && (unsigned char)bytes[11] == 2,
+          "Export MIDI writes a format 1 file, a conductor and a chain");
+    check(bytes.find("melody") != std::string::npos,
+          "the chain's track is named for it");
+    check(ok && length > 1.99 && length < 2.01,
+          "a piece whose arrangement ends is exported to its end");
+    check(!win->sched_->running() && win->sched_->now() == 0,
+          "and the window's transport is not moved");
+
+    if (!ok)
+        printf("      %s\n", why.c_str());
+
+    delete win;
+
+    std::error_code ec;
+
+    std::filesystem::remove_all(tmp, ec);
+
+    return failures;
+}
+
 /* A piece whose instrument names a MIDI port, in a window given an output
  * whose one port answers to it: the instrument plays on the device, the
  * editor has a MIDI out section, and choosing "This synth" there puts the
@@ -2248,6 +2314,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runDocuments(pluginPath);
+
+            if (rc == 0)
+                rc = runExportMidi(pluginPath);
 
             if (rc == 0)
                 rc = runMidiOut(pluginPath);

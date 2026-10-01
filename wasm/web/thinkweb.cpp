@@ -77,6 +77,7 @@
 #include "gthSynthSource.h"
 
 #include "thcGenFile.h"
+#include "thcMidiExport.h"
 #include "thcMidiRouter.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
@@ -120,6 +121,10 @@
    a source tree. */
 #define TW_PATCH_FILE "/patch.dsp"
 #define TW_PIECE_FILE "/piece.gen"
+
+/* Where an export's piece is written to be loaded from: not the one being
+   played, which the export must not disturb. */
+#define TW_EXPORT_FILE "/export.gen"
 
 /* Where the shipped pieces are kept, for the menu's sake alone: the piece
    being played is written to TW_PIECE_FILE above and loaded from there. */
@@ -5022,6 +5027,60 @@ EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi_state (int k)
     text = sched_->playsOverMidi(ch) ? "on " + midiOut_.portName(ch)
                                      : sched_->midiWhy(ch);
     return text.c_str();
+}
+
+
+/* ---- Export MIDI (see thcMidiExport) ----
+ *
+ * The piece `text' composed offline into a .mid, on a silent synth and a
+ * scheduler of its own: the one playing is not touched. The mirror does it,
+ * since it holds the same composers and instruments and renders nothing.
+ * `seed' below zero is the piece's own, or drawn. Returns the file's
+ * length in bytes, or -1 with tw_export_why() saying why. */
+std::vector<uint8_t> exported_;
+std::string          exportWhy_;
+double               exportLength_;
+
+EMSCRIPTEN_KEEPALIVE int tw_export_midi (const char *text, double seconds,
+                                         double seed)
+{
+    exported_.clear();
+    exportWhy_.clear();
+    exportLength_ = 0;
+
+    if (!writeFile(TW_EXPORT_FILE, text != NULL ? text : ""))
+    {
+        exportWhy_ = "could not write the piece";
+        return -1;
+    }
+
+    thSynth synth("", synth_->getWindowlen(), (int)rate_);
+    thcMidiExport::Options options;
+
+    synth.setSilent(true);
+    options.seconds = seconds;
+    options.seed = seed;
+
+    if (!thcMidiExport::render(plugins_, &synth, TW_EXPORT_FILE, options,
+                               exported_, exportWhy_, &exportLength_))
+        return -1;
+
+    return (int)exported_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const uint8_t *tw_export_bytes (void)
+{
+    return exported_.data();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_export_why (void)
+{
+    return exportWhy_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_export_length (void)
+{
+    return exportLength_;
 }
 
 } /* extern "C" */

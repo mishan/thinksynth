@@ -601,6 +601,25 @@ function receive (m)
                    panel: panelOf(m.chain, m.stage) });
             break;
 
+        /* The piece composed offline into a .mid (tw_export_midi): here,
+           where the composers and instruments are and nothing is
+           rendered. The bytes go back as a transfer. */
+        case 'exportmidi':
+        {
+            const n = M.ccall('tw_export_midi', 'number',
+                              ['string', 'number', 'number'],
+                              [m.text, m.seconds, m.seed]);
+            const bytes = n < 0 ? new Uint8Array(0)
+                : new Uint8Array(M.HEAP32.buffer, M._tw_export_bytes(), n)
+                      .slice();
+
+            self.postMessage({ type: 'exportedmidi', id: m.id, ok: n >= 0,
+                               why: M.UTF8ToString(M._tw_export_why()),
+                               length: M._tw_export_length(), bytes },
+                             [bytes.buffer]);
+            break;
+        }
+
         /* Where a stage's params handle is, for a page that wants to
            press one without repeating the layout arithmetic. */
         case 'handle':

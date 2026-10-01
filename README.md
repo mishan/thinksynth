@@ -167,6 +167,11 @@ using whatever your platform uses for that (`aconnect` or a patchbay on Linux,
 Audio MIDI Setup on macOS). Assign a DSP to each channel the MIDI uses and turn
 up the amplitudes. The on-screen keyboard works without any of this.
 
+A piece can be taken into a DAW as a MIDI file: **Export MIDI** in the
+Composer's menu or under the page's piece source, or `genwav --midi`. Each
+chain is a track, sections are markers, and chanargs are labeled
+controllers.
+
 The composer can also play external instruments. An instrument in a piece that
 says `midi "Surge XT"; midichannel = 3;` is played on the MIDI output port
 whose name matches, and falls back to its `dsp` where none does

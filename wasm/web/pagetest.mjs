@@ -2522,6 +2522,53 @@ try
         await page.click('#midiout');
     }
 
+    /* Export MIDI: the piece being played, composed offline by the mirror
+     * and downloaded. One whose arrangement ends is exported to its end,
+     * and the file has a track for its chain, named for it. */
+    {
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, 'name "exported";\ntempo 120;\nsection a 2 s { };\nsection end;\n' +
+           'instrument org { dsp "organ0.dsp"; };\n' +
+           'chain melody { stage g gen::grid { notes = "C4"; steps = 2;\n' +
+           '    rows = 1; cells = "x."; period = 0.5 s; hold = 0.25 s; };\n' +
+           '    sink { instrument = org; }; };\n');
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+
+        const [download] = await Promise.all([
+            page.waitForEvent('download', { timeout: 15000 }).catch(() => null),
+            page.click('#exportmidi'),
+        ]);
+
+        let bytes = null;
+
+        if (download !== null)
+        {
+            const stream = await download.createReadStream();
+            const parts = [];
+
+            for await (const part of stream)
+                parts.push(part);
+
+            bytes = Buffer.concat(parts);
+        }
+
+        const status = await page.$eval('#exportstatus', (e) => e.textContent);
+
+        check(bytes !== null && bytes.subarray(0, 4).toString() === 'MThd' &&
+              bytes[9] === 1 && bytes[11] === 2 &&
+              bytes.includes(Buffer.from('melody')) &&
+              download.suggestedFilename() === 'exported.mid',
+              `Export MIDI downloads the piece as a .mid: ` +
+              `${download?.suggestedFilename()} ${bytes?.length ?? 0} bytes`);
+        check(status.startsWith('2 s,'),
+              `an arrangement that ends is exported to its end: ${status}`);
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
