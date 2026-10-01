@@ -240,7 +240,8 @@ target_link_options(thinkweb PRIVATE
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
-                engine.js mic.js midi.js mirror.js canvasview.js composerview.js
+                engine.js mic.js midi.js midiout.js clock.js mirror.js
+                canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
                 layouts.js manifest.json)
 set(SITE_OUTPUTS "")

@@ -452,7 +452,7 @@ instruments by it, but nothing is loaded on that channel while a device plays
 it.
 
 `dsp` is optional beside `midi`. It is what plays where no port answers: a
-machine without the device, `genwav`, the browser, which has no MIDI output.
+machine without the device, `genwav`, a browser page with MIDI out off.
 With no `dsp` such an instrument is silent there. Its chanarg values (`fmin =
 0.2;`) are the graph's, so they need a `dsp`, and they are not sent to the
 device, knob-bound ones included; only what a chain sends through a `cc`
@@ -473,6 +473,14 @@ own output latency; it is set in the Composer's MIDI out section, and
 changing it while a piece plays moves every note still waiting by the same
 amount. A seek sends each controller's last value once, not every value on
 the way.
+
+In the browser (Chromium and Firefox, which have Web MIDI) the solo page's
+MIDI out button asks for access; each MIDI instrument's channel row then has
+the same choice of where it plays, kept in that browser rather than the
+piece, and the delay is beside the button. The worklet stamps each message
+for the frame it sounds at and the page schedules it with
+`MIDIOutput.send(bytes, time)`, so it lands with the audio rather than when
+the message arrived. Rooms (jam.html) play MIDI instruments on their `dsp`.
 
 Where the instrument plays is also this machine's choice. The Composer's MIDI
 out section lists each MIDI instrument with the port its pattern matched and

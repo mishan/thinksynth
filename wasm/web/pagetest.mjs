@@ -161,9 +161,31 @@ try
                 access.inputs.get(id).onmidimessage?.(
                     { data: new Uint8Array(bytes) });
             },
+
+            /* An output, which records what is sent to it: the bytes, the
+               time they were scheduled for, and when they were handed
+               over. */
+            plugOut (id, name)
+            {
+                const port = {
+                    id, name, type: 'output', state: 'connected',
+                    send (bytes, at)
+                    {
+                        window.midiSent.push({ port: name,
+                                               bytes: [...bytes],
+                                               at: at ?? performance.now(),
+                                               handed: performance.now() });
+                    },
+                };
+
+                access.outputs.set(id, port);
+                access.onstatechange?.({ port });
+            },
         };
 
+        window.midiSent = [];
         fake.plug('k1', 'Fake Keys');
+        fake.plugOut('o1', 'Fake Synth');
         window.fakeMidi = fake;
 
         /* And the chanarg commands the page posts to the worklet, which is
@@ -2350,6 +2372,104 @@ try
                   `setting ${node.name}.${arg} rewrote the .dsp: ` +
                   `${(line ?? '').trim()}`);
         }
+    }
+
+    /* MIDI out (midiout.js): a piece whose instrument names a port. Before
+     * access it plays its dsp, and its row says why; with MIDI out on it
+     * plays on the fake output, every message scheduled for a time in
+     * performance.now()'s clock and handed over before it, notes a beat
+     * apart; a stop ends what it holds; and choosing this synth puts it
+     * back on its dsp. */
+    {
+        const MIDI_PIECE =
+            'name "device";\ntempo 60;\n' +
+            'instrument ext { midi "Fake"; midichannel = 3;' +
+            ' dsp "organ0.dsp"; };\n' +
+            'chain line { stage g gen::grid { notes = "C4"; steps = 1;' +
+            ' rows = 1; cells = "x"; period = 1 beats; hold = 0.5 beats; };\n' +
+            '    sink { instrument = ext; }; };\n';
+
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, MIDI_PIECE);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+
+        const rowState = () => page.evaluate(
+            () => document.querySelector('.midistate')?.textContent ?? null);
+
+        check((await rowState())?.includes('no MIDI access'),
+              `a MIDI instrument's row says why it plays its dsp: ` +
+              `${await rowState()}`);
+
+        await page.click('#midiout');
+        await page.waitForFunction(
+            () => document.querySelector('.midistate')?.textContent
+                      .startsWith('on '), null, { timeout: 10000 })
+            .catch(() => {});
+
+        check((await rowState()) === 'on Fake Synth, channel 3',
+              `with MIDI out on it plays on the device: ${await rowState()}`);
+        check(await page.$eval('#midioutstatus', (e) => e.textContent) ===
+              'Fake Synth', 'and the status names the output');
+
+        await page.evaluate(() => { window.midiSent.length = 0; });
+        await page.click('#play');
+        await page.waitForTimeout(2600);
+
+        const sent = await page.evaluate(() => window.midiSent);
+        const ons = sent.filter((m) => m.bytes[0] === 0x92 &&
+                                       m.bytes[1] === 60);
+
+        check(ons.length >= 2,
+              `notes reach the output (${ons.length} note-ons, ` +
+              `${sent.length} messages)`);
+
+        if (ons.length >= 2)
+        {
+            const gap = ons[1].at - ons[0].at;
+
+            check(Math.abs(gap - 1000) < 15,
+                  `scheduled a beat apart at 60 bpm: ${gap.toFixed(1)} ms`);
+            /* Ahead of time, which is the whole of the design: a note
+               reaches the page a window and the output's latency before it
+               sounds, and is handed to send() with that time, not sent
+               when it arrives. */
+            const ahead = ons.map((m) => m.at - m.handed);
+
+            check(ahead.every((a) => a >= -1) && ahead.some((a) => a > 1),
+                  'each handed over ahead of the time it is scheduled for: ' +
+                  ahead.map((a) => a.toFixed(1)).join(', ') + ' ms');
+        }
+
+        await page.click('#stop');
+        await page.waitForTimeout(300);
+
+        const after = await page.evaluate(() => window.midiSent);
+        const count = (s, b) => after.filter((m) => m.bytes[0] === b &&
+                                                    m.bytes[1] === 60).length;
+
+        check(count(after, 0x92) === count(after, 0x82),
+              `a stop leaves nothing held: ${count(after, 0x92)} on, ` +
+              `${count(after, 0x82)} off`);
+
+        await page.selectOption('select.midiroute', '@synth');
+        await page.waitForFunction(
+            () => document.querySelector('.midistate')?.textContent ===
+                      'set to play on this synth', null, { timeout: 10000 })
+            .catch(() => {});
+
+        check((await rowState()) === 'set to play on this synth',
+              `choosing this synth puts it on its dsp: ${await rowState()}`);
+
+        await page.evaluate(() =>
+        {
+            localStorage.removeItem('thinksynth:midiroutes');
+        });
+        await page.click('#midiout');
     }
 
     for (const e of errors)

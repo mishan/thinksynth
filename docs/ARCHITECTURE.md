@@ -501,8 +501,18 @@ It keeps what is sounding per port, channel and key, so a retrigger sends the
 key's note-off first and `flush()` — a pause, a stop, a route changing —
 ends exactly what the device holds. Where no port answers an instrument's
 pattern, or this machine's route says so, the scheduler loads its `dsp`
-instead. The browser has no `thcMidiOut`, so there every such instrument
-plays its `dsp` or nothing.
+instead.
+
+What turns notes into bytes is `thcMidiRouter`, shared with the browser:
+port matching, routes, the per-channel `cc` and expression state. In the
+browser the scheduler runs in the AudioWorklet, which cannot reach Web MIDI,
+so `twMidiOut` (wasm/web/thinkweb.cpp) stamps each message with the
+AudioContext time of the frame it sounds at (`setMidiClock`) and the
+worklet posts them to the page every quantum. The page (midiout.js) maps
+that time to `performance.now()` through getOutputTimestamp, hands each
+message to `MIDIOutput.send(bytes, time)` shortly before it is due, and keeps
+what each device holds, as `gthMidiOut` does on the desktop. The mirror is
+never given ports, so it plays the `dsp` and composes the same.
 
 ## Plugin linkage
 

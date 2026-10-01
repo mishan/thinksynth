@@ -172,7 +172,9 @@ says `midi "Surge XT"; midichannel = 3;` is played on the MIDI output port
 whose name matches, and falls back to its `dsp` where none does
 ([docs/GEN_FORMAT.md](docs/GEN_FORMAT.md) §4b). `thinksynth -L` lists the
 output ports; the Composer's MIDI out section picks a different one on this
-machine and sets the delay that lines the device up with the synth.
+machine and sets the delay that lines the device up with the synth. In the
+browser, the page's MIDI out button does the same through Web MIDI
+(Chromium and Firefox).
 
 If you want JACK on Linux, start `jackd` before thinksynth — RtAudio will use
 the running server.

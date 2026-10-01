@@ -182,6 +182,15 @@ export class AudioClock
         return this.contextTimeAt(performanceMs) * this.rate;
     }
 
+    /* The other way: the wall-clock moment, in performance.now()'s
+       milliseconds, at which the output is at context time `seconds' --
+       when a MIDI message stamped for that frame is due. NaN with no
+       sample. */
+    perfAt (seconds)
+    {
+        return (seconds - this.offset) * 1000;
+    }
+
     /* The worst a kept sample is from the offset believed, in seconds:
        how much to trust a frame it gives. A quantum or so is good. */
     get residual ()

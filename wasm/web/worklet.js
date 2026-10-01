@@ -496,6 +496,27 @@ class ThinkProcessor extends AudioWorkletProcessor
            which is the half a tape needs: the batch in hand may be short
            of TAPE_EVERY and would otherwise wait for a quantum that is
            not coming. */
+        /* MIDI out (twMidiOut): this instance alone, so the mirror goes on
+           playing every MIDI instrument's dsp and composes the same. The
+           page's output ports, or none; a route for one pattern. */
+        if (m.type === 'midiports')
+        {
+            this.M.ccall('tw_midiout_ports', 'number', ['string', 'number'],
+                         [m.names.join('\n'), m.enabled ? 1 : 0]);
+            this.postMidi();
+            this.postMidiState();
+            return;
+        }
+
+        if (m.type === 'midiroute')
+        {
+            this.M.ccall('tw_midiout_route', 'number', ['string', 'string'],
+                         [m.pattern, m.to]);
+            this.postMidi();
+            this.postMidiState();
+            return;
+        }
+
         if (m.type === 'ping')
         {
             this.postTape();
@@ -543,6 +564,10 @@ class ThinkProcessor extends AudioWorkletProcessor
                    document to a channel in the synth. */
                 dsp: this.M.UTF8ToString(this.M._tw_instrument_dsp(i)),
                 channel: this.M._tw_instrument_channel(i),
+                /* The device it names, and where it plays now. */
+                midi: this.M.UTF8ToString(this.M._tw_instrument_midi(i)),
+                midiState: this.M.UTF8ToString(
+                    this.M._tw_instrument_midi_state(i)),
             });
 
         const listens = [];
@@ -648,11 +673,67 @@ class ThinkProcessor extends AudioWorkletProcessor
         drain(this.M, this.events);
         this.drainProbes();
         this.postParamEdits();
+        this.postMidi();
 
         if (++this.quanta >= TAPE_EVERY)
             this.postTape();
 
         return true;
+    }
+
+    /* MIDI out, every quantum it has any rather than with the tape: a
+     * message is stamped for the frame it sounds at, and this frame is a
+     * window ahead of that -- the time there is to get it to the page and
+     * into MIDIOutput.send before it is due, which a 43 ms tape batch would
+     * spend. See twMidiOut in thinkweb.cpp for what the records are.
+     */
+    postMidi ()
+    {
+        const M = this.M;
+        const n = M._tw_midiout_count();
+
+        if (n === 0)
+            return;
+
+        const base = M._tw_midiout_events() >>> 0;
+        const msgs = [];
+
+        for (let i = 0; i < n; i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            msgs.push({
+                when: M.HEAPF64[at >> 3],
+                kind: M.HEAP32[(at + 8) >> 2],
+                channel: M.HEAP32[(at + 12) >> 2],
+                port: M.HEAP32[(at + 16) >> 2],
+                /* Four bytes in one int: the module exports HEAP32 and
+                   not HEAPU8. Little-endian, as wasm is. */
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+        this.port.postMessage({ type: 'midi', msgs });
+    }
+
+    /* Where each MIDI instrument plays now, after the ports or a route
+       changed what it is applied onto. */
+    postMidiState ()
+    {
+        const instruments = [];
+
+        for (let i = 0; i < this.M._tw_instrument_count(); i++)
+            instruments.push({
+                name: this.M.UTF8ToString(this.M._tw_instrument_name(i)),
+                midi: this.M.UTF8ToString(this.M._tw_instrument_midi(i)),
+                midiState: this.M.UTF8ToString(
+                    this.M._tw_instrument_midi_state(i)),
+            });
+
+        this.port.postMessage({ type: 'midistate', instruments });
     }
 
     /* The stage params this quantum wrote to the piece, and the piece as
