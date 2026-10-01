@@ -634,6 +634,18 @@ thcScheduler::clearChains (void)
        host's business rather than this table's. */
     instruments_.clear();
 
+    /* A device is not a patch a person loaded: its route goes with the
+       piece that named it. */
+    for (int ch = 0; ch < 16; ch++)
+        if (overMidi_[ch])
+        {
+            midiOut_->detach(ch);
+            overMidi_[ch] = false;
+        }
+
+    for (int ch = 0; ch < 16; ch++)
+        midiWhy_[ch].clear();
+
     /* The master effect goes with the piece for the same reason the table
        does. What is *loaded* on the mix is taken off by the next load
        rather than here, because this runs while a piece is being replaced
@@ -1250,6 +1262,41 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
         return false;
     }
 
+    /* Played on a device where a port answers; its dsp, if it has one,
+       where none does. The reason is kept either way, for a host to show
+       which of the two is happening. */
+    midiWhy_[inst.channel].clear();
+
+    /* Applied again over itself -- a rewind re-applies what was swapped
+       -- starts from nothing on the device, so a refusal below leaves
+       the channel a graph's and not both. */
+    if (overMidi_[inst.channel])
+    {
+        midiOut_->detach(inst.channel);
+        overMidi_[inst.channel] = false;
+    }
+
+    if (!inst.midi.empty())
+    {
+        std::string mwhy = "no MIDI output in this host";
+
+        if (midiOut_ != NULL && midiOut_->attach(inst.channel, inst, mwhy))
+        {
+            /* And the fallback graph an earlier apply put on, if it is
+               still there, comes off: the device plays it now. */
+            if (synth_ != NULL && synth_->getChannel(inst.channel) != NULL)
+                takeGraphOff(inst);
+
+            overMidi_[inst.channel] = true;
+            return true;
+        }
+
+        midiWhy_[inst.channel] = mwhy;
+
+        if (inst.dsp.empty())
+            return true;                /* silent until a port answers  */
+    }
+
     if (loadDsp_)
     {
         /* Nothing was installed, so there is nothing to take back --
@@ -1467,6 +1514,15 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
     {
         why = "channel " + std::to_string(channel + 1) + " is not one this "
               "piece declares an instrument for";
+        return false;
+    }
+
+    /* A device is not a graph to rebuild, and a swap that put a graph on
+       its channel would have nothing to say to the notes still sounding
+       on the device. */
+    if (playsOverMidi(channel) || !want->midi.empty())
+    {
+        why = "an instrument played over MIDI does not swap";
         return false;
     }
 
@@ -1733,6 +1789,26 @@ thcScheduler::takeOff (const thcInstrument &inst)
     if (inst.channel < 0)
         return true;                    /* never got there; nothing to do */
 
+    /* This instrument's route, not whatever holds the channel now: a
+       graph stranded on it and retried here must not take off the
+       device another instrument has attached there since. */
+    if (!inst.midi.empty() && playsOverMidi(inst.channel))
+    {
+        midiOut_->detach(inst.channel);
+        overMidi_[inst.channel] = false;
+        midiWhy_[inst.channel].clear();
+        return true;
+    }
+
+    return takeGraphOff(inst);
+}
+
+bool
+thcScheduler::takeGraphOff (const thcInstrument &inst)
+{
+    if (inst.dsp.empty())
+        return true;                    /* MIDI with no graph: nothing on */
+
     if (unloadDsp_)
         return unloadDsp_(inst);
 
@@ -1971,7 +2047,7 @@ thcScheduler::timerCallback (void)
     gint64 mono = g_get_monotonic_time();
 
     if (running_)
-        stepTransport((mono - lastMono_) / 1e6);
+        stepTransportAt((mono - lastMono_) / 1e6, mono);
     else
         sendDueNoteOffs(transportNow_);   /* offs drain even when paused */
 
@@ -2003,6 +2079,14 @@ thcScheduler::stepTransport (double dt)
     beat_ += dt * tempo_ / 60.0;
 
     runStep();
+}
+
+void
+thcScheduler::stepTransportAt (double dt, gint64 mono)
+{
+    stepMono_ = mono;
+    stepTransport(dt);
+    stepMono_ = 0;
 }
 
 void
@@ -2544,10 +2628,16 @@ thcScheduler::deliver (const thcEvent &ev)
     {
         case THC_EV_NOTE:
         {
-            const bool sounded =
-                synth_->addNote(ev.channel, ev.u.note.note,
-                                ev.u.note.velocity, ev.u.note.level,
-                                ev.u.note.aux);
+            bool sounded = true;
+
+            if (playsOverMidi(ev.channel))
+                midiOut_->noteOn(ev.channel, ev.u.note.note,
+                                 ev.u.note.velocity, ev.u.note.level,
+                                 stampAt(ev.at));
+            else
+                sounded = synth_->addNote(ev.channel, ev.u.note.note,
+                                          ev.u.note.velocity,
+                                          ev.u.note.level, ev.u.note.aux);
 
             /* A channel keys its voices by note number, so this note has
                just put the one sounding on its key into release
@@ -2586,11 +2676,29 @@ thcScheduler::deliver (const thcEvent &ev)
         }
         case THC_EV_NOTEOFF:
         {
-            releaseHeld(ev.channel, ev.u.note.note);
+            releaseHeld(ev.channel, ev.u.note.note, ev.at);
             break;
         }
         case THC_EV_CHANARG:
         {
+            if (playsOverMidi(ev.channel))
+            {
+                /* A seek plays minutes of a piece in an instant; the
+                   device hears where each controller ended up, once,
+                   when it is over -- not every value on the way. */
+                if (ev.u.chanarg.name == NULL)
+                    ;
+                else if (seeking_)
+                    seekControls_[std::make_pair(ev.channel,
+                                                 std::string(
+                                                     ev.u.chanarg.name))] =
+                        ev.u.chanarg.value;
+                else
+                    midiOut_->control(ev.channel, ev.u.chanarg.name,
+                                      ev.u.chanarg.value, stampAt(ev.at));
+                break;
+            }
+
             /* The route the sliders use: a single-float setValue is safe
                from the GUI thread, and a chanarg the patch does not
                declare simply is not there to set. */
@@ -2629,6 +2737,36 @@ thcScheduler::deliver (const thcEvent &ev)
         sigDelivered.emit(ev);                  /* piano roll, keyboard  */
 }
 
+/* A note's end, to wherever it sounds: the synth, or the device for an
+   instrument played over MIDI, stamped with the time it is due. */
+void
+thcScheduler::endNote (int channel, int note, double at)
+{
+    if (playsOverMidi(channel))
+        midiOut_->noteOff(channel, note, stampAt(at));
+    else
+        synth_->delNote(channel, note);
+}
+
+/* Transport time `at' on the monotonic clock: the step's own moment,
+   moved by how far `at' is from where the step brought the transport.
+   Anything outside a running step -- a paused transport, a seek, a
+   harness stepping without a clock -- is now. */
+gint64
+thcScheduler::stampAt (double at) const
+{
+    if (!running_ || seeking_)
+        return midiNow_ ? midiNow_() : g_get_monotonic_time();
+
+    if (midiAt_)
+        return midiAt_(at);
+
+    if (stepMono_ == 0)
+        return g_get_monotonic_time();
+
+    return stepMono_ + (gint64)llround((at - transportNow_) * 1e6);
+}
+
 void
 thcScheduler::sendDueNoteOffs (double now)
 {
@@ -2638,7 +2776,7 @@ thcScheduler::sendDueNoteOffs (double now)
         NoteOff off = noteOffs_.back();
         noteOffs_.pop_back();
 
-        synth_->delNote(off.channel, off.note);
+        endNote(off.channel, off.note, off.at);
     }
 }
 
@@ -2647,7 +2785,8 @@ thcScheduler::flushNoteOffs (void)
 {
     while (!noteOffs_.empty())
     {
-        synth_->delNote(noteOffs_.back().channel, noteOffs_.back().note);
+        endNote(noteOffs_.back().channel, noteOffs_.back().note,
+                transportNow_);
         noteOffs_.pop_back();
     }
 }
@@ -2698,12 +2837,12 @@ thcScheduler::dropNoteOffs (int channel, int note, double struck)
 }
 
 void
-thcScheduler::releaseHeld (int channel, int note)
+thcScheduler::releaseHeld (int channel, int note, double at)
 {
     for (size_t i = 0; i < held_.size(); i++)
         if (held_[i].channel == channel && held_[i].note == note)
         {
-            synth_->delNote(channel, note);
+            endNote(channel, note, at);
             held_.erase(held_.begin() + i);
             return;
         }
@@ -2735,7 +2874,7 @@ thcScheduler::flushHeld (void)
         thcEvent off = {};
 
         held_.pop_back();
-        synth_->delNote(h.channel, h.note);
+        endNote(h.channel, h.note, transportNow_);
 
         off.type            = THC_EV_NOTEOFF;
         off.at              = transportNow_;
@@ -2773,6 +2912,14 @@ thcScheduler::stop (void)
     running_ = false;
     flushNoteOffs();
     flushHeld();
+
+    /* The offs above were stamped now; this also drops whatever was
+       queued ahead of them for later, so a pause is silent on the device
+       at once. */
+    if (midiOut_ != NULL)
+        for (int ch = 0; ch < 16; ch++)
+            if (overMidi_[ch])
+                midiOut_->flush(ch);
 }
 
 void
@@ -2807,6 +2954,7 @@ thcScheduler::seek (double t)
         if (!wasSync)
             setAuditionSynchronous(true);
 
+        seekControls_.clear();
         seeking_ = true;
         start();
 
@@ -2814,6 +2962,14 @@ thcScheduler::seek (double t)
             stepTransportTo(std::min(to, transportNow_ + 0.02));
 
         seeking_ = false;
+
+        for (const auto &c : seekControls_)
+            if (playsOverMidi(c.first.first))
+                midiOut_->control(c.first.first, c.first.second, c.second,
+                                  midiNow_ ? midiNow_()
+                                           : g_get_monotonic_time());
+
+        seekControls_.clear();
 
         if (!wasSync)
             setAuditionSynchronous(false);

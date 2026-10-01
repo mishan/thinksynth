@@ -61,6 +61,28 @@ export function midiAvailable ()
            typeof navigator.requestMIDIAccess === 'function';
 }
 
+/* The browser's MIDIAccess, asked for without sysex: what MIDI in and MIDI
+ * out (midiout.js) both start from. Rejects with a message fit to put on
+ * the page. */
+export async function midiAccess ()
+{
+    if (!midiAvailable())
+        throw new Error('this browser has no Web MIDI here -- it needs ' +
+                        'Chromium or Firefox, over https or on localhost');
+
+    try
+    {
+        return await navigator.requestMIDIAccess({ sysex: false });
+    }
+    catch (e)
+    {
+        if (e.name === 'NotAllowedError' || e.name === 'SecurityError')
+            throw new Error('MIDI access was refused');
+
+        throw new Error(`MIDI did not open: ${e.message || e.name}`);
+    }
+}
+
 /* A button that opens MIDI input and closes it again, and a line beside it
  * naming the inputs. Both pages have one; the button is left disabled for
  * the page to enable once there is a synth to play.
@@ -131,23 +153,7 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
 export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
                                   onChange = () => {} })
 {
-    if (!midiAvailable())
-        throw new Error('this browser has no Web MIDI here -- it needs ' +
-                        'Chromium or Firefox, over https or on localhost');
-
-    let access;
-
-    try
-    {
-        access = await navigator.requestMIDIAccess({ sysex: false });
-    }
-    catch (e)
-    {
-        if (e.name === 'NotAllowedError' || e.name === 'SecurityError')
-            throw new Error('MIDI access was refused');
-
-        throw new Error(`MIDI did not open: ${e.message || e.name}`);
-    }
+    const access = await midiAccess();
 
     /* input id -> the notes it holds */
     const held = new Map();

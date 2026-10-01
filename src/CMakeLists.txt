@@ -59,7 +59,8 @@ add_library(think_composerhost OBJECT
     thcGenEdit.cpp
     thcFreeze.cpp
     thcAudition.cpp
-    thcMidiFile.cpp)
+    thcMidiFile.cpp
+    thcMidiRouter.cpp)
 
 target_include_directories(think_composerhost PUBLIC
     "${PROJECT_SOURCE_DIR}"
@@ -188,6 +189,7 @@ set(THINKSYNTH_SOURCES
     gthGtkRuntime.cpp
     gthRtAudio.cpp
     gthRtMidi.cpp
+    gthMidiOut.cpp
     gthMidiQueue.cpp
     gui/AboutBox.cpp
     gthConsole.cpp
@@ -310,6 +312,8 @@ add_executable(thinksynth
 # main() still works -- MinGW's runtime provides the WinMain that calls it --
 # so this is a link-time change and not a source-level one.
 if(WIN32)
+  # timeBeginPeriod, for gthMidiOut's sending thread.
+  target_link_libraries(thinksynth PRIVATE winmm)
   set_target_properties(thinksynth PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 

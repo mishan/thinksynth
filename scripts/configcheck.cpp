@@ -571,6 +571,52 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- long lines, and a family of keys ----------------------------- */
+
+    /* A MIDI route's line is its escaped pattern and port name, and a port
+     * name runs long: a line past the 256 bytes the reader took at a time
+     * came back cut, with its tail as a line of its own. And the last line
+     * of a file edited by hand may have no newline. */
+    {
+        const string path = (fs::path(tmp) / "long-thinkrc").string();
+        const string port(300, 'x');
+        const string odd = "Surge XT:Surge, MIDI In 100%";
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "midiroute." << gthPrefs::escape("Surge XT") << " "
+              << gthPrefs::escape(port) << "\n";
+            f << "midiroute." << gthPrefs::escape("odd one") << " "
+              << gthPrefs::escape(odd) << "\n";
+            f << "midioutdelay 55";
+        }
+
+        gthPrefs prefs(path);
+
+        prefs.Load();
+
+        string **a = prefs.Get("midiroute." + gthPrefs::escape("Surge XT"));
+        string **b = prefs.Get("midiroute." + gthPrefs::escape("odd one"));
+        string **d = prefs.Get("midioutdelay");
+
+        ok(a != NULL && a[0] != NULL && gthPrefs::unescape(*a[0]) == port,
+           "a line past 256 bytes is read whole");
+        ok(b != NULL && b[0] != NULL && b[1] == NULL &&
+           gthPrefs::unescape(*b[0]) == odd,
+           "a value with a space, a comma and a %% is one value, as written");
+        ok(d != NULL && d[0] != NULL && *d[0] == "55",
+           "and the last line needs no newline");
+        ok(prefs.Keys("midiroute.").size() == 2,
+           "the keys under a prefix are listed (%zu)",
+           prefs.Keys("midiroute.").size());
+
+        prefs.Remove("midiroute." + gthPrefs::escape("odd one"));
+
+        ok(prefs.Keys("midiroute.").size() == 1,
+           "and one removed is gone (%zu)", prefs.Keys("midiroute.").size());
+    }
+
     delete synth;
 
     std::error_code ec;

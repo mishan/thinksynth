@@ -56,6 +56,7 @@
 
 
 #include "../gthPrefs.h"
+#include "../gthMidiOut.h"
 #include "../gthPatchfile.h"
 
 
@@ -126,6 +127,13 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
        started: see Composer::start. */
     composer_ = new Composer(thSynth::instance());
     insert_action_group("composer", composer_->actions());
+
+    /* Before the composer starts: its scheduler is handed this, and a
+       piece's MIDI instruments are routed through it as they load. */
+    midiOut_ = new gthMidiOut(PACKAGE_NAME);
+    loadMidiRoutes();
+    midiOut_->onChanged([this] { saveMidiRoutes(); });
+    composer_->setMidiOut(midiOut_);
 
     populateMenu();
 
@@ -273,9 +281,11 @@ MainSynthWindow::~MainSynthWindow (void)
        widgets, and before the synth its scheduler plays into. */
     delete aboutBox_;
     delete composer_;
+    delete midiOut_;
 
     aboutBox_ = NULL;
     composer_ = NULL;
+    midiOut_ = NULL;
 
     /* Not shutdown(): the loop has already ended by the time this runs, and
        asking a torn-down application to quit again is not a thing to do in a
@@ -888,6 +898,52 @@ void MainSynthWindow::setTheme (gthThemeChoice choice)
     vals[1] = NULL;
 
     gthPrefs::instance()->Set("theme", vals);
+}
+
+/* A MIDI route per port pattern, as `midiroute.<pattern> <port>', and the
+   delay as `midioutdelay <ms>'; both names escaped (gthPrefs::escape). */
+static const char *const ROUTE_KEY = "midiroute.";
+
+void MainSynthWindow::loadMidiRoutes (void)
+{
+    gthPrefs *prefs = gthPrefs::instance();
+
+    for (const std::string &key : prefs->Keys(ROUTE_KEY))
+    {
+        string **vals = prefs->Get(key);
+
+        if (vals != NULL && vals[0] != NULL)
+            midiOut_->setRoute(gthPrefs::unescape(key.substr(strlen(ROUTE_KEY))),
+                               gthPrefs::unescape(*vals[0]));
+    }
+
+    string **delay = prefs->Get("midioutdelay");
+
+    if (delay != NULL && delay[0] != NULL)
+        midiOut_->setDelay(atoi(delay[0]->c_str()));
+}
+
+void MainSynthWindow::saveMidiRoutes (void)
+{
+    gthPrefs *prefs = gthPrefs::instance();
+
+    for (const std::string &key : prefs->Keys(ROUTE_KEY))
+        prefs->Remove(key);
+
+    for (const auto &r : midiOut_->routes())
+    {
+        string **vals = new string *[2];
+
+        vals[0] = new string(gthPrefs::escape(r.second));
+        vals[1] = NULL;
+        prefs->Set(ROUTE_KEY + gthPrefs::escape(r.first), vals);
+    }
+
+    string **delay = new string *[2];
+
+    delay[0] = new string(std::to_string(midiOut_->delay()));
+    delay[1] = NULL;
+    prefs->Set("midioutdelay", delay);
 }
 
 void MainSynthWindow::applyPrefs (void)

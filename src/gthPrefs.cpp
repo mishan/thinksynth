@@ -124,10 +124,36 @@ gthPrefs::~gthPrefs (void)
         instance_ = NULL;
 }
 
+/* One line of the file, without its newline, however long: a MIDI route's
+   port name, escaped, runs past the 256 bytes a line used to be read in,
+   and the rest of it came back as a line of its own. */
+static bool readLine (FILE *f, std::string &line)
+{
+    char chunk[256];
+
+    line.clear();
+
+    while (fgets(chunk, sizeof chunk, f) != NULL)
+    {
+        line += chunk;
+
+        if (!line.empty() && line.back() == '\n')
+        {
+            line.pop_back();
+
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+
+            return true;
+        }
+    }
+
+    return !line.empty();
+}
+
 void gthPrefs::Load (void)
 {
     FILE *prefsFile;
-    char buffer[256];
 
     debug("loading preferences");
 
@@ -163,10 +189,17 @@ void gthPrefs::Load (void)
         }
     }
 
-    while (fgets(buffer, 256, prefsFile) != NULL)
+    std::string line;
+
+    while (readLine(prefsFile, line))
     {
+        std::vector<char> text(line.begin(), line.end());
+
+        text.push_back('\0');
+
+        char *buffer = text.data();
+
         trim_leadspc(buffer);
-        buffer[strlen(buffer)-1] = '\0';
 
         if (buffer[0] == '\n' || buffer[0] == '#')
             continue;
@@ -430,6 +463,72 @@ void gthPrefs::Save (void)
 string **gthPrefs::Get (const string &key)
 {
     return prefs_[key];
+}
+
+void gthPrefs::Remove (const string &key)
+{
+    map<string, string**>::iterator it = prefs_.find(key);
+
+    if (it == prefs_.end())
+        return;
+
+    if (it->second != NULL)
+    {
+        for (int i = 0; it->second[i] != NULL; i++)
+            delete it->second[i];
+
+        delete [] it->second;
+    }
+
+    prefs_.erase(it);
+}
+
+string gthPrefs::escape (const string &s)
+{
+    string out;
+
+    for (char c : s)
+        if (c == '%' || c == ' ' || c == ',' || c == '\n' || c == '\r')
+        {
+            char buf[4];
+
+            snprintf(buf, sizeof buf, "%%%02X", (unsigned char)c);
+            out += buf;
+        }
+        else
+            out += c;
+
+    return out;
+}
+
+string gthPrefs::unescape (const string &s)
+{
+    string out;
+
+    for (size_t i = 0; i < s.size(); i++)
+        if (s[i] == '%' && i + 2 < s.size() && isxdigit((unsigned char)s[i + 1])
+            && isxdigit((unsigned char)s[i + 2]))
+        {
+            out += (char)strtol(s.substr(i + 1, 2).c_str(), NULL, 16);
+            i += 2;
+        }
+        else
+            out += s[i];
+
+    return out;
+}
+
+vector<string> gthPrefs::Keys (const string &prefix) const
+{
+    vector<string> out;
+
+    for (map<string, string**>::const_iterator it = prefs_.lower_bound(prefix);
+         it != prefs_.end() && it->first.compare(0, prefix.size(), prefix) == 0;
+         ++it)
+        if (it->second != NULL)
+            out.push_back(it->first);
+
+    return out;
 }
 
 /* Takes ownership of `vals', and lets go of whatever was under that key.

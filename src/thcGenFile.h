@@ -153,6 +153,8 @@ private:
     bool parseScale (void);
     bool parsePreset (void);
     bool parseInstrument (thcScheduler *sched);
+    bool parseInstrumentMidi (thcInstrument &inst, const std::string &where,
+                              const Token &key);
 
     /* `section drop 16 bars { lead = 1.2; };' and `section end;' --
        the arrangement, docs/GEN_FORMAT.md. */

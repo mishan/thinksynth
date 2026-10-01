@@ -98,6 +98,11 @@ public:
     {
         std::string name, dsp;
         std::vector<InstrumentValue> values;
+
+        /* `midi "port"; midichannel = N;' as written (1-16), or empty
+           and -1: where the instrument plays when a port answers. */
+        std::string midi;
+        int midiChannel = -1;
     };
 
     struct Chain

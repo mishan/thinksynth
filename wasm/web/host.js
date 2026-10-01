@@ -78,6 +78,8 @@ export async function createSynth (ctx, { windowlen = 256,
                                           onLog = () => {},
                                           onTape = () => {},
                                           onParamEdits = () => {},
+                                          onMidi = () => {},
+                                          onMidiState = () => {},
                                           onMirror = null } = {})
 {
     /* A browser offers the worklet only in a secure context: https, or
@@ -186,6 +188,17 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'paramedits':
                 onParamEdits(m);
                 break;
+            /* MIDI out: the stamped messages for the page to send
+               (midiout.js), and where each MIDI instrument plays after the
+               ports or a route changed. */
+            case 'midi':
+                onMidi(m.msgs);
+                break;
+
+            case 'midistate':
+                onMidiState(m.instruments);
+                break;
+
             case 'tape':
                 /* And the mirror is told how far this has got: it steps
                    to there, which is tw_render without the render. So its
@@ -518,6 +531,20 @@ export async function createSynth (ctx, { windowlen = 256,
          *
            To the worklet alone, and deliberately: a probe is a tap on
            what is being rendered, and the mirror renders nothing. */
+        /* The page's MIDI output ports, by name, or none (enabled
+           false), and which list this is: the worklet stamps every
+           message with it, so one indexing an older list is dropped.
+           Each MIDI instrument whose place changed is applied again, onto
+           a device or onto its dsp. And this browser's route for one pattern. To
+           the worklet alone: the mirror plays the dsp and composes the
+           same. */
+        midiPorts: (names, enabled = true, generation = 0) =>
+            node.port.postMessage({ type: 'midiports', names, enabled,
+                                    generation }),
+
+        midiRoute: (pattern, to) =>
+            node.port.postMessage({ type: 'midiroute', pattern, to }),
+
         probe: (channel, nodeName, arg) => new Promise((resolve) =>
         {
             const id = nextId++;

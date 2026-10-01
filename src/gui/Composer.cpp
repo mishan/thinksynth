@@ -39,6 +39,7 @@
 #include "ItemBrowser.h"
 #include "gthPatchfile.h"
 #include "gthSignal.h"
+#include "gthMidiOut.h"
 #include "Composer.h"
 
 /* ---- little local helpers --------------------------------------------- */
@@ -281,6 +282,7 @@ Composer::start (void)
         { return loadEffect(channel, effect, side, why); });
     sched_->setChannelTaken(
         [this](int channel) { return channelTaken(channel); });
+    sched_->setMidiOut(midiOut_);
 
     /* Managed, and in rollBox_, which is this's: taken out of it in the
        destructor, which is what frees it, before the scheduler it reads
@@ -337,6 +339,7 @@ Composer::~Composer (void)
 {
     drawTimer_.disconnect();
     reloadIdle_.disconnect();
+    midiIdle_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
     kbdOnConn_.disconnect();
@@ -2454,6 +2457,9 @@ Composer::rebuildEditor (void)
     editorBox_.append(*buildScalesSection());
     editorBox_.append(*buildPresetsSection());
 
+    if (Gtk::Widget *midi = buildMidiSection())
+        editorBox_.append(*midi);
+
     /* The Selection pane follows the canvas: whatever is selected up
        there is editable in here. */
     selBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 4));
@@ -2521,6 +2527,171 @@ Composer::rebuildSelection (void)
         case ComposerCanvas::Selection::ADD_CHAIN:
             buildAddChain();
             break;
+    }
+}
+
+/* Where the piece's MIDI instruments play on this machine: a row each,
+ * with the port its `midi' pattern found, a choice of any other port or
+ * of its dsp, and the delay that lines the devices up with the synth.
+ * Only for a piece that has such an instrument. A choice is this
+ * machine's, kept by the output's routes, and the file is not touched:
+ * the pattern in it is what somebody else's machine matches. */
+Gtk::Widget *
+Composer::buildMidiSection (void)
+{
+    if (sched_ == NULL || midiOut_ == NULL)
+        return NULL;
+
+    std::vector<size_t> midi;
+
+    for (size_t i = 0; i < sched_->instruments().size(); i++)
+        if (!sched_->instruments()[i].midi.empty())
+            midi.push_back(i);
+
+    if (midi.empty())
+        return NULL;
+
+    Gtk::Expander *exp = manage(new Gtk::Expander("MIDI out"));
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_column_spacing(6);
+    grid->set_row_spacing(4);
+    grid->set_margin(4);
+
+    std::vector<std::string> ports;
+
+    for (const std::string &p : midiOut_->ports())
+        ports.push_back(gthMidiOut::stableName(p));
+
+    int row = 0;
+
+    for (size_t i : midi)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+        const std::string pattern = inst.midi;
+        const std::string to = midiOut_->route(pattern);
+
+        /* The choices, and what each stores as the route: the pattern's
+           own match, every port there is, and the dsp. A route to a port
+           that is not plugged in now is kept as a choice of its own, so
+           looking at this does not lose it. */
+        std::vector<Glib::ustring> shown;
+        std::vector<std::string> routes;
+
+        shown.push_back("Match \"" + pattern + "\"");
+        routes.push_back("");
+
+        for (const std::string &p : ports)
+        {
+            shown.push_back(p);
+            routes.push_back(p);
+        }
+
+        if (!to.empty() && to != gthMidiOut::PLAY_ON_SYNTH &&
+            std::find(ports.begin(), ports.end(), to) == ports.end())
+        {
+            shown.push_back(to + " (not connected)");
+            routes.push_back(to);
+        }
+
+        shown.push_back(inst.dsp.empty() ? "Nothing (no dsp)"
+                                         : "This synth: " + inst.dsp);
+        routes.push_back(gthMidiOut::PLAY_ON_SYNTH);
+
+        Gtk::Label *name = manage(new Gtk::Label(inst.name));
+        Gtk::DropDown *pick = manage(new Gtk::DropDown(shown));
+        Gtk::Label *state = manage(new Gtk::Label());
+
+        name->set_xalign(0);
+        state->set_xalign(0);
+        state->add_css_class("dim-label");
+        pick->set_tooltip_text("Where " + inst.name + " plays on this "
+                               "machine. Kept here, not in the piece.");
+
+        const int ch = inst.channel;
+
+        state->set_text(sched_->playsOverMidi(ch)
+                        ? "on " + midiOut_->routeOf(ch)
+                        : sched_->midiWhy(ch) +
+                          (inst.dsp.empty() ? "; silent"
+                                            : "; playing " + inst.dsp));
+
+        guint at = 0;
+
+        for (size_t k = 0; k < routes.size(); k++)
+            if (routes[k] == to)
+                at = (guint)k;
+
+        pick->set_selected(at);
+
+        pick->property_selected().signal_changed().connect(
+            [this, pick, routes, pattern]
+            {
+                const guint k = pick->get_selected();
+
+                if (k >= routes.size())
+                    return;
+
+                midiOut_->setRoute(pattern, routes[k]);
+                reroute(pattern);
+
+                /* Rebuilt after the handler returns: this dropdown is
+                   one of the widgets a rebuild destroys. */
+                midiIdle_.disconnect();
+                midiIdle_ = Glib::signal_idle().connect(
+                    [this] { rebuildEditor(); return false; });
+            });
+
+        grid->attach(*name, 0, row);
+        grid->attach(*pick, 1, row);
+        grid->attach(*state, 1, row + 1, 2, 1);
+        row += 2;
+    }
+
+    Gtk::Label *dl = manage(new Gtk::Label("Delay (ms)"));
+    Gtk::SpinButton *delay = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(midiOut_->delay(), 0, 500, 1, 10)));
+
+    dl->set_xalign(0);
+    delay->set_tooltip_text("How long after its time a note is sent to a "
+                            "device. At least the composer's 20 ms step, so "
+                            "notes go out evenly; about the synth's own "
+                            "output latency, so the two line up.");
+    delay->signal_value_changed().connect(
+        [this, delay]
+        { midiOut_->setDelay(delay->get_value_as_int()); });
+
+    grid->attach(*dl, 0, row);
+    grid->attach(*delay, 1, row);
+
+    exp->set_child(*grid);
+    exp->set_expanded(true);
+
+    return exp;
+}
+
+void
+Composer::reroute (const std::string &pattern)
+{
+    for (size_t i = 0; i < sched_->instruments().size(); i++)
+    {
+        if (sched_->instruments()[i].midi != pattern)
+            continue;
+
+        std::string why;
+
+        /* Not applied over a graph that would not come off: the channel
+           is still that graph's, and the scheduler retries taking it off
+           on its own. */
+        if (!sched_->unapplyInstrument(i))
+        {
+            status_->set_text(sched_->instruments()[i].name + ": its graph "
+                              "could not be taken off; try again");
+            continue;
+        }
+
+        if (!sched_->applyInstrument(i, why))
+            status_->set_text(sched_->instruments()[i].name + ": " + why);
     }
 }
 

@@ -132,6 +132,17 @@ endfunction()
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
 
+# MIDI output through recording ports: routing, timing, retriggers,
+# controllers and flushes, with no device or MIDI system needed.
+think_harness(midioutcheck COMPOSERHOST
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp")
+target_link_libraries(midioutcheck PRIVATE ${THINK_RTMIDI_LIB})
+
+# gthMidiOut's timeBeginPeriod, in every harness that compiles it.
+if(WIN32)
+  target_link_libraries(midioutcheck PRIVATE winmm)
+endif()
+
 # Which libthink headers stand on their own. The test is the compile; see the
 # header of includecheck.cpp for why the list is short and why it grows.
 think_harness(includecheck)
@@ -332,6 +343,7 @@ think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
               PATCH GENCATALOG PANEL STAGEPANEL
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp"
@@ -340,7 +352,11 @@ think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
                     "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
-target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM)
+target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM ${THINK_RTMIDI_LIB})
+
+if(WIN32)
+  target_link_libraries(composercheck PRIVATE winmm)
+endif()
 
 # The main window, tiled: the whole GUI less main(), since the window is
 # made of all of it. Its own harness for composercheck's reason -- a failure
@@ -358,6 +374,7 @@ think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
                     "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
@@ -376,7 +393,12 @@ think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
                     "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp")
-target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB})
+target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB}
+                                          ${THINK_RTMIDI_LIB})
+
+if(WIN32)
+  target_link_libraries(windowcheck PRIVATE winmm)
+endif()
 
 # gthTheme reads the macOS appearance through CoreFoundation; see
 # src/CMakeLists.txt.
@@ -778,6 +800,8 @@ add_test(NAME genwav.midi
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DOUT=${PROJECT_BINARY_DIR}/genwav-midi.mid
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMidi.cmake")
+
+add_test(NAME midioutcheck COMMAND midioutcheck)
 
 # Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
 # its own config directory and points HOME at it, so it neither reads nor

@@ -476,6 +476,49 @@ for a two-instruction window, it uses a drain hook to stand in it and pushes
 from another thread from there. Move the store down past that hook and the
 check fails every run.
 
+### MIDI out: stamped, then sent on a clock
+
+The composer can play an instrument on a device (`midi "port";` in a `.gen`,
+docs/GEN_FORMAT.md §4b). The scheduler stays toolkit-free: it talks to a
+`thcMidiOut` a host sets, and for a channel attached there it hands over
+notes, their offs and mapped chanargs instead of calling the synth. Each one
+carries the `g_get_monotonic_time()` it is due, worked out from the step's
+own clock (`stepTransportAt`) and the event's distance from the transport.
+
+```
+GUI thread (20 ms timer)            gthMidiOut sender thread       device
+------------------------            ------------------------       ------
+step -> deliver(ev)
+  noteOn(ch, note, vel, level,  ->  heap by due time + delay
+         due)                        wait until due + delay  ---->  RtMidiOut
+```
+
+`gthMidiOut` (the application's) keeps the messages in a heap and a thread
+of its own sends each at its due time plus a delay, 40 ms by default: enough
+to cover the step, so a line comes out evenly rather than with the timer's
+jitter in it, and about the synth's own output latency, so the two line up.
+It keeps what is sounding per port, channel and key, so a retrigger sends the
+key's note-off first and `flush()` — a pause, a stop, a route changing —
+ends exactly what the device holds. Where no port answers an instrument's
+pattern, or this machine's route says so, the scheduler loads its `dsp`
+instead.
+
+What turns notes into bytes is `thcMidiRouter`, shared with the browser:
+port matching, routes, the per-channel `cc` and expression state. In the
+browser the scheduler runs in the AudioWorklet, which cannot reach Web MIDI,
+so `twMidiOut` (wasm/web/thinkweb.cpp) stamps each message with the
+AudioContext time of the frame it sounds at (`setMidiClock`) and the
+worklet posts them to the page every quantum. The page (midiout.js) maps
+that time to `performance.now()` through getOutputTimestamp, hands each
+message to `MIDIOutput.send(bytes, time)` shortly before it is due, and keeps
+what each device holds, as `gthMidiOut` does on the desktop. The worklet
+names an output by its index in the list the page last sent, and each list
+has a generation the worklet stamps on every message, so one posted against
+an older list is dropped rather than sent to whatever device now has its
+index; a list is only sent again when the outputs change, and only the
+instruments whose device changed are applied again. The mirror is never
+given ports, so it plays the `dsp` and composes the same.
+
 ## Plugin linkage
 
 A plugin exports `apiversion`, `module_init`, `module_callback` and

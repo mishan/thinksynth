@@ -428,6 +428,71 @@ was played; `genwav` and `gencheck` have the host answer inside the tick, and
 that is the host on which a piece that listens replays exactly. In the
 browser there is no ear, and a `target` is ignored.
 
+### Instruments played over MIDI
+
+An instrument can name a device instead of a graph, or as well as one:
+
+```
+instrument lead {
+    midi "Surge XT";          # an output port, matched by name
+    midichannel = 3;          # the device's channel, 1-16
+    midiprogram = 12;         # optional: a program change on load, 1-128
+    cc cutoff = 74 { min = 60; max = 12000; };
+    dsp "lead.dsp";           # optional: what plays where no port answers
+};
+```
+
+`midi` names a MIDI output port by name. The application compares it with
+each port's full name, then as a substring, then as a substring ignoring case,
+and plays the instrument there when one answers. `midichannel` is required
+beside it. Two instruments may share a device's channel, and each ends only
+its own notes, but they share its program and controllers too. The instrument
+still gets an engine channel as above, because sinks and the scheduler address
+instruments by it, but nothing is loaded on that channel while a device plays
+it.
+
+`dsp` is optional beside `midi`. It is what plays where no port answers: a
+machine without the device, `genwav`, a browser page with MIDI out off.
+With no `dsp` such an instrument is silent there. Its chanarg values (`fmin =
+0.2;`) are the graph's, so they need a `dsp`, and they are not sent to the
+device, knob-bound ones included; only what a chain sends through a `cc`
+reaches it.
+
+A chain reaches a device through `cc`. `cc NAME = N;` maps chanarg `NAME` to
+controller `N` (0-119; 120-127 are channel mode messages); a chanarg sink on
+the instrument has to name a mapped one. A value is scaled from `min`..`max`
+onto 0..127 and clamped, and the default range is 0..127, so a chain that
+already speaks controller values is sent as it is. A note's level (section
+fades, accents) goes as expression, CC 11, with 1 as 100, as in the MIDI file
+`genwav --midi` writes.
+
+Timing: the composer delivers on a 20 ms step, so every event is stamped with
+the moment it is due and sent that long after it, plus a delay (40 ms by
+default). The delay covers the step and lines the device up with the synth's
+own output latency; it is set in the Composer's MIDI out section, and
+changing it while a piece plays moves every note still waiting by the same
+amount. A seek sends each controller's last value once, not every value on
+the way.
+
+In the browser (Chromium and Firefox, which have Web MIDI) the solo page's
+MIDI out button asks for access; each MIDI instrument's channel row then has
+the same choice of where it plays, kept in that browser rather than the
+piece, and the delay is beside the button. The worklet stamps each message
+for the frame it sounds at and the page schedules it with
+`MIDIOutput.send(bytes, time)`, so it lands with the audio rather than when
+the message arrived. Rooms (jam.html) play MIDI instruments on their `dsp`.
+
+Where the instrument plays is also this machine's choice. The Composer's MIDI
+out section lists each MIDI instrument with the port its pattern matched and
+lets you pick any other port, or its `dsp`. The choice is kept in the
+preferences under the pattern, not in the piece, so the file still says what
+somebody else's machine should look for. A channel played on a device loads
+no patch, so the rest of the program counts it as free: a patch loaded onto
+it by hand is replaced if the instrument is later switched to its `dsp`.
+
+A swap (`gen::swap`) onto or off an instrument played over MIDI is refused:
+a device is not a graph to rebuild.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of
@@ -787,11 +852,17 @@ preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
 mastereffect: "effect" STRING effectblock? ";"           # at most one,
                                                        #   on the mix
-instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
+instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # one dsp, or a
+                                                       #   midi, or both
 instrstmt   : "dsp" STRING ";"
             | "effect" STRING effectblock? ";"          # at most one
             | "send" "=" (NUMBER | CHANARG) ";"         # fx.send, 0..1
+            | "midi" STRING ";"                         # an output port
+            | "midichannel" "=" NUMBER ";"              # 1-16; with midi
+            | "midiprogram" "=" NUMBER ";"              # 1-128; optional
+            | "cc" WORD "=" NUMBER ccrange? ";"         # 0-119
             | instrval
+ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
 effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs
 effectside  : "side" "=" WORD ";"                      # at most one; an
                                                        #   instrument, and

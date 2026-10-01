@@ -77,6 +77,7 @@
 #include "gthSynthSource.h"
 
 #include "thcGenFile.h"
+#include "thcMidiRouter.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 
@@ -1483,6 +1484,263 @@ bool writeFile (const char *path, const char *text)
     return fclose(f) == 0;
 }
 
+/* ---- MIDI out ----
+ *
+ * The browser's thcMidiOut. The worklet cannot reach Web MIDI -- only the
+ * page can -- so this turns what the scheduler hands it into stamped
+ * messages for the page to send: the bytes thcMidiRouter makes of a note,
+ * an off or a mapped chanarg, as on the desktop, each stamped in
+ * microseconds of the AudioContext's own clock at the frame it sounds
+ * (frameOf, so a changed speed is in it), plus a record where the
+ * scheduler flushes or detaches a channel. The worklet posts them every
+ * quantum; the page turns the stamp into performance.now() and keeps what
+ * each device holds, which only it knows, since only it sends.
+ *
+ * Off until the page has MIDI access and says which output ports there
+ * are (tw_midiout_ports). The mirror is never told, so it plays every MIDI
+ * instrument's dsp, or nothing -- which composes the same.
+ */
+enum { TW_MIDI_SEND = 0, TW_MIDI_FLUSH = 1, TW_MIDI_DETACH = 2 };
+
+/* As the page reads it: see worklet.js readMidi. */
+struct twMidiMsg
+{
+    double  when;               /* microseconds, context time        */
+    int32_t kind;
+    int32_t channel;
+    int32_t port;
+    int32_t len;
+    uint8_t bytes[4];
+    int32_t generation;         /* the port list `port' indexes      */
+};
+
+static_assert(sizeof(twMidiMsg) == 32, "twMidiMsg is read at stride 32");
+
+class twMidiOut : public thcMidiOut
+{
+public:
+    twMidiOut (void)
+        : router_([this](const thcMidiRouter::Msg &m) { emit(m); }) {}
+
+    bool attach (int channel, const thcInstrument &inst,
+                 std::string &why) override
+    {
+        if (!enabled_)
+        {
+            why = "no MIDI access in this page";
+            return false;
+        }
+
+        if (router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+        {
+            why = "set to play on this synth";
+            return false;
+        }
+
+        const int port = router_.resolve(inst.midi, ports_);
+
+        if (port < 0)
+        {
+            why = "no MIDI output port matches '" + inst.midi + "'";
+            return false;
+        }
+
+        router_.attach(channel, port, inst, now());
+        return true;
+    }
+
+    void detach (int channel) override
+    {
+        record(TW_MIDI_DETACH, channel);
+        router_.detach(channel);
+    }
+
+    void noteOn (int channel, int note, int velocity, float level,
+                 gint64 when) override
+    {
+        router_.noteOn(channel, note, velocity, level, when);
+    }
+
+    void noteOff (int channel, int note, gint64 when) override
+    {
+        router_.noteOff(channel, note, when);
+    }
+
+    void control (int channel, const std::string &name, double value,
+                  gint64 when) override
+    {
+        router_.control(channel, name, value, when);
+    }
+
+    void flush (int channel) override
+    {
+        record(TW_MIDI_FLUSH, channel);
+        router_.forget(channel);
+    }
+
+    /* The context time of the frame about to be rendered, in the stamps'
+       microseconds: what a message due now is stamped with. */
+    static gint64 now (void)
+    {
+        return (gint64)llround(rendered_ / rate_ * 1e6);
+    }
+
+    static gint64 stamp (double at)
+    {
+        return (gint64)llround(frameOf(at) / rate_ * 1e6);
+    }
+
+    void setPorts (const std::vector<std::string> &names, bool enabled,
+                   int generation)
+    {
+        ports_ = names;
+        enabled_ = enabled;
+        generation_ = generation;
+    }
+
+    /* The port instrument `inst' would be attached to now, by name, or
+       empty where it would play its dsp. */
+    std::string wants (const thcInstrument &inst) const
+    {
+        if (!enabled_ ||
+            router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+            return "";
+
+        const int port = router_.resolve(inst.midi, ports_);
+
+        return port < 0 ? "" : ports_[port];
+    }
+
+    /* Why `inst' would play its dsp now: attach's answer, unasked. */
+    std::string whyNot (const thcInstrument &inst) const
+    {
+        if (!enabled_)
+            return "no MIDI access in this page";
+
+        if (router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+            return "set to play on this synth";
+
+        return "no MIDI output port matches '" + inst.midi + "'";
+    }
+
+    /* The port engine channel `channel' is on, by name, or empty. */
+    std::string on (int channel) const
+    {
+        const int port = router_.portOf(channel);
+
+        return port >= 0 && port < (int)held_.size() ? held_[port] : "";
+    }
+
+    /* The list the routes' indices are into: taken before a new list
+       replaces it, so reroute can tell where each route is, and again
+       once every route has been moved over. */
+    void holdPorts (void) { held_ = ports_; }
+
+    /* The same device, at its index in the new list. */
+    void renumber (int channel, const std::string &name)
+    {
+        for (size_t i = 0; i < ports_.size(); i++)
+            if (ports_[i] == name)
+                router_.renumber(channel, (int)i);
+    }
+
+    std::string portName (int channel) const
+    {
+        const int port = router_.portOf(channel);
+
+        return port >= 0 && port < (int)ports_.size()
+                   ? thcMidiRouter::stableName(ports_[port]) + ", channel " +
+                     std::to_string(router_.midiChannelOf(channel) + 1)
+                   : "";
+    }
+
+    thcMidiRouter &router (void) { return router_; }
+
+    std::vector<twMidiMsg> out;
+
+private:
+    void emit (const thcMidiRouter::Msg &m)
+    {
+        twMidiMsg r = {};
+
+        r.when = (double)m.when;
+        r.kind = TW_MIDI_SEND;
+        r.channel = m.channel;
+        r.port = m.port;
+        r.len = m.len;
+        r.bytes[0] = m.bytes[0];
+        r.bytes[1] = m.bytes[1];
+        r.bytes[2] = m.bytes[2];
+        r.generation = generation_;
+        out.push_back(r);
+    }
+
+    void record (int kind, int channel)
+    {
+        twMidiMsg r = {};
+
+        r.when = (double)now();
+        r.kind = kind;
+        r.channel = channel;
+        r.port = -1;
+        r.generation = generation_;
+        out.push_back(r);
+    }
+
+    thcMidiRouter            router_;
+    std::vector<std::string> ports_, held_;
+    bool                     enabled_ = false;
+    int                      generation_ = 0;
+};
+
+twMidiOut midiOut_;
+
+/* Every instrument naming `pattern' (all of them, where it is empty) whose
+ * place has changed -- its route, or the ports there are -- taken off and
+ * put on again. One whose place has not is left alone: taking it off ends
+ * what it is sounding, and re-applies the file's instrument over a channel
+ * a swap may have changed. One still on the same device at a new index in
+ * the list is renumbered rather than detached. */
+int reroute (const std::string &pattern)
+{
+    int n = 0;
+
+    for (size_t i = 0; i < sched_->instruments().size(); i++)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+        std::string why;
+
+        if (inst.midi.empty() || (!pattern.empty() && inst.midi != pattern))
+            continue;
+
+        const int ch = inst.channel;
+        const std::string now = sched_->playsOverMidi(ch) ? midiOut_.on(ch)
+                                                          : "";
+        const std::string want = midiOut_.wants(inst);
+
+        if (now == want)
+        {
+            if (!want.empty())
+                midiOut_.renumber(ch, want);
+            else
+                /* Still on its dsp, perhaps for a different reason: said
+                   again without touching the graph. */
+                sched_->setMidiWhy(ch, midiOut_.whyNot(inst));
+
+            continue;
+        }
+
+        if (!sched_->unapplyInstrument(i))
+            continue;
+
+        if (sched_->applyInstrument(i, why))
+            n++;
+    }
+
+    midiOut_.holdPorts();
+    return n;
+}
+
 } /* namespace */
 
 extern "C" {
@@ -1508,6 +1766,8 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     openComposers();
 
     sched_ = new thcScheduler(synth_);
+    sched_->setMidiOut(&midiOut_);
+    sched_->setMidiClock(twMidiOut::stamp, twMidiOut::now);
     loader_ = new thcGenLoader(plugins_);
 
     return synth_->getWindowlen();
@@ -4675,6 +4935,93 @@ EMSCRIPTEN_KEEPALIVE double tw_dropped (void)
 EMSCRIPTEN_KEEPALIVE double tw_frame (void)
 {
     return rendered_;
+}
+
+
+/* ---- MIDI out (see twMidiOut) ---- */
+
+/* The page has MIDI access, and these are its output ports, one name to a
+   line; or, with `enabled' 0, it has none. Every MIDI instrument is
+   applied again, onto a port or back onto its dsp. Returns how many. */
+EMSCRIPTEN_KEEPALIVE int tw_midiout_ports (const char *names, int enabled,
+                                           int generation)
+{
+    std::vector<std::string> list;
+    std::string all = names != NULL ? names : "";
+    size_t at = 0;
+
+    while (at < all.size())
+    {
+        const size_t nl = all.find('\n', at);
+        const std::string name =
+            all.substr(at, nl == std::string::npos ? std::string::npos
+                                                   : nl - at);
+
+        if (!name.empty())
+            list.push_back(name);
+
+        if (nl == std::string::npos)
+            break;
+
+        at = nl + 1;
+    }
+
+    midiOut_.holdPorts();
+    midiOut_.setPorts(list, enabled != 0, generation);
+    return reroute("");
+}
+
+/* This browser's route for `pattern': a port's name, "@synth", or empty
+   for the pattern's own match. Its instruments are applied again. */
+EMSCRIPTEN_KEEPALIVE int tw_midiout_route (const char *pattern, const char *to)
+{
+    const std::string p = pattern != NULL ? pattern : "";
+
+    midiOut_.router().setRoute(p, to != NULL ? to : "");
+    midiOut_.holdPorts();
+    return reroute(p);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_midiout_count (void)
+{
+    return (int)midiOut_.out.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const twMidiMsg *tw_midiout_events (void)
+{
+    return midiOut_.out.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_midiout_clear (void)
+{
+    midiOut_.out.clear();
+}
+
+/* Instrument k's `midi' pattern, or empty. */
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].midi.c_str() : "";
+}
+
+/* Where instrument k is playing, for the page to say: "on <port>,
+   channel N", or why it is not on a device. Empty for an instrument
+   that names no port. */
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi_state (int k)
+{
+    static std::string text;
+
+    text.clear();
+
+    if (k < 0 || k >= (int)sched_->instruments().size() ||
+        sched_->instruments()[k].midi.empty())
+        return "";
+
+    const int ch = sched_->instruments()[k].channel;
+
+    text = sched_->playsOverMidi(ch) ? "on " + midiOut_.portName(ch)
+                                     : sched_->midiWhy(ch);
+    return text.c_str();
 }
 
 } /* extern "C" */

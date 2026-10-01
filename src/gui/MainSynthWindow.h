@@ -39,6 +39,8 @@ typedef struct _MlnPanes MlnPanes;
 
 using namespace std;
 
+class gthMidiOut;
+
 class MainSynthWindow : public Gtk::Window
 {
 public:
@@ -317,6 +319,11 @@ protected:
     /* The piece: its canvas, roll, settings and selection are panes, and
        its transport is in the title bar. */
     Composer *composer_;
+    /* Where the piece's MIDI instruments play; the composer's scheduler
+       sends through it, so it outlives the composer. */
+    gthMidiOut *midiOut_ = NULL;
+    void loadMidiRoutes (void);
+    void saveMidiRoutes (void);
     Gtk::Box titleBox_{Gtk::Orientation::VERTICAL};
     /* Each channel's node editor, built the first time its graph is
        looked at. Building one scans the whole plugin directory for the

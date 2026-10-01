@@ -684,6 +684,24 @@ thcGenLoader::checkSinkArgs (thcScheduler *sched)
         if (!s.isChanarg() || s.namesItsOwn())
             continue;
 
+        /* An instrument played over MIDI takes the names its `cc'
+           statements map. Those are what the device hears; its dsp, where
+           it has one, plays only where no port answers, and a name it
+           does not declare is then simply not heard. */
+        if (!inst->midi.empty())
+        {
+            bool mapped = false;
+
+            for (const thcMidiCC &cc : inst->ccs)
+                mapped = mapped || cc.name == s.chanarg;
+
+            if (!mapped)
+                error(p.line, "instrument '" + p.instrument + "' is played "
+                      "over MIDI and maps no cc called '" + s.chanarg + "'");
+
+            continue;
+        }
+
         if (!sched->chanArgExists(inst->channel, s.chanarg))
         {
             /* Which of the two graphs the name was aimed at. `fx.mix' is
@@ -1618,6 +1636,162 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
     return expectPunct(';');
 }
 
+/* One of an instrument's MIDI statements, its keyword already taken:
+ *
+ *   midi "Surge XT";           the port, matched by name by the host
+ *   midichannel = 3;           the device's channel, 1-16
+ *   midiprogram = 12;          a program change sent on apply, 1-128
+ *   cc cutoff = 74;            chanarg `cutoff' as controller 74
+ *   cc cutoff = 74 { min = 60; max = 12000; };
+ *                              scaled from that range onto 0..127
+ *
+ * Numbered from 1 as a device's front panel numbers them, as `channel =
+ * N' in a sink is. Controllers stop at 119: 120-127 are the channel mode
+ * messages, and a chain sending All Notes Off by accident is not a
+ * mapping anybody meant. */
+bool
+thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
+                                   const std::string &where,
+                                   const Token &key)
+{
+    if (key.text == "midi")
+    {
+        if (!inst.midi.empty())
+        {
+            error(key.line, where + " names two midi ports");
+            return false;
+        }
+
+        const Token &v = peek();
+
+        if (v.kind != Token::STRING || v.text.empty())
+        {
+            error(v.line, where + ": midi wants a quoted port name");
+            return false;
+        }
+
+        inst.midi = take().text;
+        return expectPunct(';');
+    }
+
+    auto wholeIn = [this, &where](const Token &v, const std::string &what,
+                                  int lo, int hi, int &out) -> bool
+    {
+        if (v.kind != Token::NUMBER || v.num != std::floor(v.num) ||
+            v.num < lo || v.num > hi)
+        {
+            error(v.line, where + ": " + what + " wants a whole number " +
+                  std::to_string(lo) + "-" + std::to_string(hi));
+            return false;
+        }
+
+        out = (int)v.num;
+        return true;
+    };
+
+    if (key.text == "midichannel" || key.text == "midiprogram")
+    {
+        const bool chan = key.text == "midichannel";
+        int &field = chan ? inst.midiChannel : inst.midiProgram;
+        int n;
+
+        if (field >= 0)
+        {
+            error(key.line, where + " sets " + key.text + " twice");
+            return false;
+        }
+
+        if (!expectPunct('=') ||
+            !wholeIn(take(), key.text, 1, chan ? 16 : 128, n))
+            return false;
+
+        field = n - 1;
+        return expectPunct(';');
+    }
+
+    /* cc */
+    const Token &nameTok = peek();
+
+    if (nameTok.kind != Token::WORD)
+    {
+        error(nameTok.line, where + ": cc wants a chanarg name");
+        return false;
+    }
+
+    thcMidiCC cc;
+
+    cc.name = take().text;
+
+    for (const thcMidiCC &other : inst.ccs)
+        if (other.name == cc.name)
+        {
+            error(nameTok.line, where + " maps '" + cc.name + "' twice");
+            return false;
+        }
+
+    if (!expectPunct('=') || !wholeIn(take(), "cc", 0, 119, cc.cc))
+        return false;
+
+    if (peek().kind == Token::PUNCT && peek().text[0] == '{')
+    {
+        take();
+
+        bool gotMin = false, gotMax = false;
+
+        while (!(peek().kind == Token::PUNCT && peek().text[0] == '}'))
+        {
+            const Token &k = peek();
+
+            if (k.kind != Token::WORD || (k.text != "min" && k.text != "max"))
+            {
+                error(k.line, where + ": cc " + cc.name + " takes min and "
+                      "max");
+                return false;
+            }
+
+            Token field = take();
+            bool &got = field.text == "min" ? gotMin : gotMax;
+
+            if (got)
+            {
+                error(field.line, where + ": cc " + cc.name + " sets " +
+                      field.text + " twice");
+                return false;
+            }
+
+            if (!expectPunct('='))
+                return false;
+
+            const Token &v = peek();
+
+            if (v.kind != Token::NUMBER)
+            {
+                error(v.line, where + ": cc " + cc.name + " " + field.text +
+                      " wants a number");
+                return false;
+            }
+
+            (field.text == "min" ? cc.min : cc.max) = take().num;
+            got = true;
+
+            if (!expectPunct(';'))
+                return false;
+        }
+
+        take();
+
+        if (!(cc.max > cc.min))
+        {
+            error(nameTok.line, where + ": cc " + cc.name + " wants a max "
+                  "above its min");
+            return false;
+        }
+    }
+
+    inst.ccs.push_back(cc);
+    return expectPunct(';');
+}
+
 bool
 thcGenLoader::parseInstrument (thcScheduler *sched)
 {
@@ -1709,6 +1883,20 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             continue;
         }
 
+        /* The device this instrument is played on, where a port answers
+           to the name; see thcInstrument::midi. Keywords, like `dsp',
+           because they say where the notes go rather than what a graph
+           reads. */
+        if (key.text == "midi" || key.text == "midichannel" ||
+            key.text == "midiprogram" || key.text == "cc")
+        {
+            if (!parseInstrumentMidi(inst, "instrument " + nameTok.text,
+                                     key))
+                return false;
+
+            continue;
+        }
+
         /* A keyword for the same reason `dsp' is one: what it names is a
            file, and an instrument that declared a chanarg called @effect
            would otherwise shadow it. */
@@ -1741,7 +1929,7 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             return false;
     }
 
-    if (inst.dsp.empty())
+    if (inst.dsp.empty() && inst.midi.empty())
     {
         /* An instrument with values and no graph is half an edit. It
            would allocate a channel, load nothing onto it, and then fail
@@ -1749,6 +1937,34 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
            the one true one. */
         error(nameTok.line, "instrument '" + nameTok.text +
               "' names no dsp");
+        return false;
+    }
+
+    if (inst.midi.empty() &&
+        (inst.midiChannel >= 0 || inst.midiProgram >= 0 || !inst.ccs.empty()))
+    {
+        error(nameTok.line, "instrument '" + nameTok.text + "' sets MIDI "
+              "details but names no midi port");
+        return false;
+    }
+
+    /* No default: two instruments on one device would both land on its
+       channel 1 and play each other's notes. */
+    if (!inst.midi.empty() && inst.midiChannel < 0)
+    {
+        error(nameTok.line, "instrument '" + nameTok.text + "' names a "
+              "midi port and no midichannel");
+        return false;
+    }
+
+    /* The args are the graph's. With no graph to read them, they would be
+       refused at apply as chanargs nothing declares -- and a chanarg a
+       chain sends is what `cc' maps. */
+    if (inst.dsp.empty() && !inst.args.empty())
+    {
+        error(nameTok.line, "instrument '" + nameTok.text + "' sets '" +
+              inst.args[0].name + "' and has no dsp to set it on; a chain's "
+              "chanarg reaches a device through `cc'");
         return false;
     }
 

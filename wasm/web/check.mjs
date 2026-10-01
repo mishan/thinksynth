@@ -162,5 +162,255 @@ for (const name of names)
                              `${applied}, first sound at ${first}\n`);
 }
 
+/* MIDI out (twMidiOut): a piece whose instrument names a port, given a
+ * port list that matches. The program change goes when it attaches; every
+ * note, its off and a mapped chanarg come out as bytes for the page, each
+ * stamped with the AudioContext time of its frame -- frameOf(at), in
+ * microseconds -- and a stop is a flush record. With the ports taken away
+ * the instrument is detached and plays its dsp. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+    M.ccall('tw_instrument', 'number', ['string', 'string'],
+            ['organ0.dsp', fs.readFileSync(path.join(dspDir, 'organ0.dsp'),
+                                           'utf8')]);
+
+    const piece =
+        'tempo 60;\n' +
+        'instrument ext { midi "Surge"; midichannel = 3; midiprogram = 5;\n' +
+        '    cc cutoff = 74 { min = 100; max = 1100; }; dsp "organ0.dsp"; };\n' +
+        'chain notes { stage g gen::grid { notes = "C4"; steps = 1;\n' +
+        '    rows = 1; cells = "x"; period = 1 beats; hold = 0.5 beats; };\n' +
+        '    sink { instrument = ext; }; };\n' +
+        'chain sweep { stage s gen::steps { values = "0 1";\n' +
+        '    period = 1 beats; min = 100; max = 600; };\n' +
+        '    sink { instrument = ext; chanarg = "cutoff"; }; };\n';
+
+    const state = () => M.UTF8ToString(M._tw_instrument_midi_state(0));
+    const msgs = [];
+
+    const drainMidi = () =>
+    {
+        const base = M._tw_midiout_events() >>> 0;
+
+        for (let i = 0; i < M._tw_midiout_count(); i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            msgs.push({
+                when: M.HEAPF64[at >> 3],
+                kind: M.HEAP32[(at + 8) >> 2],
+                channel: M.HEAP32[(at + 12) >> 2],
+                port: M.HEAP32[(at + 16) >> 2],
+                generation: M.HEAP32[(at + 28) >> 2],
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+    };
+
+    const render = (frames) =>
+    {
+        for (let done = 0; done < frames; done += 128)
+        {
+            M._tw_render(128);
+            drainMidi();
+        }
+    };
+
+    const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                       [piece, 1]) !== 0;
+    const before = state();
+
+    const ports = (names, enabled, generation) =>
+        M.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+                [names, enabled, generation]);
+
+    ports('Dev A\nSurge XT Out', 1, 1);
+    drainMidi();
+
+    const on = state();
+    const program = msgs.shift();
+
+    M._tw_transport(0, 0, 0);
+    render(Math.round(2.2 * RATE));
+
+    const origin = M._tw_origin();
+    const us = (at) => Math.round((origin + at * RATE) / RATE * 1e6);
+    const of = (status, d1) =>
+        msgs.filter((m) => m.kind === 0 && m.bytes[0] === status &&
+                           m.bytes[1] === d1);
+
+    const ons = of(0x92, 60), offs = of(0x82, 60), ccs = of(0xb2, 74);
+
+    if (!ok)
+        fail('midi out: the piece did not load');
+    else if (!before.includes('no MIDI access') ||
+             on !== 'on Surge XT Out, channel 3')
+        fail(`midi out: state "${before}" then "${on}"`);
+    else if (program === undefined ||
+             JSON.stringify(program.bytes) !== '[194,4]' || program.port !== 1 ||
+             program.generation !== 1)
+        fail(`midi out: no program change on attach (${JSON.stringify(program)})`);
+    else if (ons.length !== 3 || offs.length < 2 ||
+             ons.some((m, k) => m.when !== us(k)) ||
+             offs.slice(0, 2).some((m, k) => m.when !== us(k + 0.5)))
+        fail('midi out: notes not stamped at their frames: ' +
+             JSON.stringify({ origin, ons: ons.map((m) => m.when),
+                              offs: offs.map((m) => m.when) }));
+    else if (ccs.length < 2 || ccs[0].bytes[2] !== 0 || ccs[1].bytes[2] !== 64)
+        fail(`midi out: cutoff as CC 74 ${JSON.stringify(ccs.map((m) => m.bytes))}`);
+    else
+    {
+        /* The same list again, then the same device at another index: the
+           instrument is left on it, not detached and attached again --
+           which would end what it is sounding -- and only renumbered. */
+        msgs.length = 0;
+        const same = ports('Dev A\nSurge XT Out', 1, 2);
+        const moved = ports('Surge XT Out\nDev B\nDev A', 1, 3);
+
+        drainMidi();
+        render(Math.round(1.1 * RATE));
+
+        const next = msgs.find((m) => m.kind === 0 && m.bytes[0] === 0x92);
+
+        if (same !== 0 || moved !== 0 || msgs.some((m) => m.kind !== 0) ||
+            next === undefined || next.port !== 0 || next.generation !== 3)
+            fail('midi out: an unchanged device was applied again, or not ' +
+                 `renumbered: ${same} ${moved} ` +
+                 JSON.stringify(msgs.map((m) => [m.kind, m.port,
+                                                 m.generation])));
+
+        msgs.length = 0;
+        M._tw_transport(M._tw_frame(), 1, 0);
+        render(1024);
+
+        const flush = msgs.find((m) => m.kind === 1);
+
+        ports('', 0, 4);
+        drainMidi();
+
+        const detach = msgs.find((m) => m.kind === 2);
+
+        if (flush === undefined || detach === undefined)
+            fail(`midi out: stop and losing access did not flush and detach ` +
+                 JSON.stringify(msgs.map((m) => m.kind)));
+        else if (!state().includes('no MIDI access'))
+            fail(`midi out: back on its dsp, state "${state()}"`);
+        else
+            process.stdout.write(`ok    midi out       program, ${ons.length} ` +
+                                 `notes stamped at their frames, cc, a moved ` +
+                                 `port renumbered, flush, detach\n`);
+    }
+}
+
+/* The page's sender (midiout.js), on a clock of its own: a fake MIDIAccess
+ * whose output opens on its first send and says so, as a browser's does;
+ * a clock that is the identity; and the pump driven by hand.
+ *
+ *   - a port opening is not a new list: what is queued stays queued, and
+ *     the worklet is not told again;
+ *   - a message for an older list is dropped;
+ *   - a retrigger ends the key first; an off for a key another channel
+ *     took over is not sent;
+ *   - a flush drops what is queued and ends what was handed over, no
+ *     earlier than it was to start. */
+{
+    const { MidiSender } = await import('./midiout.js');
+
+    let now = 1000;
+    const sent = [];
+    let told = 0;
+    const access = { inputs: new Map(), outputs: new Map(),
+                     onstatechange: null };
+    const plug = (id, name) =>
+    {
+        const port = {
+            id, name, type: 'output', state: 'connected',
+            connection: 'closed',
+            send (bytes, at)
+            {
+                if (port.connection === 'closed')
+                {
+                    port.connection = 'open';
+                    access.onstatechange?.({ port });
+                }
+
+                sent.push({ id, bytes: [...bytes], at });
+            },
+        };
+
+        access.outputs.set(id, port);
+        return port;
+    };
+
+    plug('a', 'Synth A');
+    Object.defineProperty(globalThis, 'navigator', {
+        value: { requestMIDIAccess: async () => access },
+        configurable: true,
+    });
+
+    const sender = new MidiSender({
+        clock: { perfAt: (s) => s * 1000 },
+        now: () => now,
+        onPorts: () => { told++; },
+    });
+
+    await sender.open();
+    clearInterval(sender.timer);           /* pumped by hand below */
+
+    const gen = sender.generation;
+    const msg = (ms, bytes, channel = 0, generation = gen) =>
+        ({ kind: 0, when: ms * 1000, channel, port: 0, generation, bytes });
+
+    /* A note now, its off and the next note later: the first send opens
+       the port. */
+    sender.take([msg(1000, [0x90, 60, 100]), msg(1500, [0x80, 60, 64]),
+                 msg(2000, [0x90, 62, 100]),
+                 msg(1000, [0x90, 70, 100], 0, gen - 1)]);
+
+    const queuedAfterOpen = sender.queue.length;
+    const toldAfterOpen = told;
+
+    for (now = 1005; now <= 2000; now += 5)
+        sender.pump();
+
+    /* Channel 1 retriggers 62, which channel 0 holds; channel 0's off for
+       it is then stale. */
+    now = 2100;
+    sender.take([msg(2100, [0x90, 62, 90], 1), msg(2200, [0x80, 62, 64], 0)]);
+
+    for (now = 2105; now <= 2200; now += 5)
+        sender.pump();
+
+    now = 2200;
+
+    /* A note handed over for later, a flush before it starts. */
+    sender.take([msg(2220, [0x90, 64, 100], 1), msg(2400, [0x90, 65, 100], 1)]);
+    sender.flush(1);
+    now = 3000;
+    sender.pump();
+    sender.close();
+
+    const show = (m) => `${m.bytes.map((b) => b.toString(16)).join(' ')}@${m.at}`;
+    const got = sent.map(show).join(', ');
+    const want = ['90 3c 64@1000', '80 3c 40@1500', '90 3e 64@2000',
+                  '80 3e 40@2100', '90 3e 5a@2100', '90 40 64@2220',
+                  '80 3e 40@2200', '80 40 40@2221'].join(', ');
+
+    if (queuedAfterOpen !== 2 || toldAfterOpen !== 1)
+        fail(`midi sender: a port opening was taken for a new list ` +
+             `(${queuedAfterOpen} queued, told ${toldAfterOpen} times)`);
+    else if (got !== want)
+        fail(`midi sender: sent ${got}\n      wanted ${want}`);
+    else
+        process.stdout.write('ok    midi sender    a port opening, an old ' +
+                             'list, a retrigger, a stale off, a flush\n');
+}
+
 process.stdout.write(`\n${failures === 0 ? 'all passed' : failures + ' failed'}\n`);
 process.exitCode = failures;
