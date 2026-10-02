@@ -144,7 +144,10 @@ KeyboardPanel::KeyboardPanel (thSynth *synth)
 void KeyboardPanel::keyboardReset (void)
 {
     synth_->clearAll();
-    /* keyboardResetKeys is called somewhere along the way */
+
+    /* Everything is silent now, held keys and MIDI notes whose off may
+       never come: what draws them as down is told so. */
+    m_sigNoteClear();
 }
 
 void KeyboardPanel::keyboardResetKeys (void)

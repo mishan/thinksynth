@@ -567,6 +567,16 @@ function receive (m)
                 post({ type: 'chains', chains: chainsNow() });
             }
 
+            /* The worklet's keys and not this instance's own, which it
+               applied a step late (tw_roll_key); and none from a run this
+               one has already left. */
+            M._tw_keys_clear();
+
+            if (m.epoch === M._tw_epoch())
+                for (const k of m.keys ?? [])
+                    M._tw_roll_key(k.at, k.channel, k.note, k.velocity,
+                                   k.on ? 1 : 0);
+
             /* The worklet tells the page what its param edits wrote; the
                same edits here are only forgotten, or they would pile up. */
             if (M._tw_param_edit_count() > 0)
@@ -774,6 +784,12 @@ function receive (m)
             post({ type: 'chip', chain: m.chain, which: m.which,
                    x: M._tw_canvas_chip_x(m.chain, m.which),
                    y: M._tw_canvas_chip_y(m.chain, m.which) });
+            break;
+
+        /* The played keys the roll keeps, for a harness. */
+        case 'rollplayed':
+            post({ type: 'rollplayed', id: m.id, keys: JSON.parse(
+                M.ccall('tw_roll_played_json', 'string')) });
             break;
 
         /* Each chain's mute, solo, and whether it is heard after both. */

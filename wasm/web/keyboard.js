@@ -98,6 +98,7 @@ export class Keyboard
         this.aspect = 0;                /* height / width, as laid out     */
         this.keys = new Map();          /* note -> the <rect> drawn for it */
         this.held = new Set();          /* what is painted as held         */
+        this.heard = new Map();         /* note -> channels sounding it    */
         this.touching = new Map();      /* pointerId -> the note it is on  */
 
         svg.addEventListener('pointerdown', (e) => this.down(e));
@@ -189,6 +190,38 @@ export class Keyboard
         this.keys.get(note)?.classList.toggle('held', on);
     }
 
+    /* Paint a note as sounding on `channel', or not: a key the synth
+       played, whoever pressed it -- in a room, any seat. By channel,
+       because two seats can hold one note and the first to let go must
+       not put out the other's. */
+    sound (channel, note, on)
+    {
+        const channels = this.heard.get(note) ?? new Set();
+
+        if (on)
+            channels.add(channel);
+        else
+            channels.delete(channel);
+
+        if (channels.size > 0)
+            this.heard.set(note, channels);
+        else
+            this.heard.delete(note);
+
+        this.keys.get(note)?.classList.toggle('heard', channels.size > 0);
+    }
+
+    /* Put out what is sounding on every channel but those in `keep': a
+       new run, which no off from the last one will reach, or a seat that
+       nobody is in now. */
+    silence (keep = new Set())
+    {
+        for (const [note, channels] of [...this.heard])
+            for (const channel of [...channels])
+                if (!keep.has(channel))
+                    this.sound(channel, note, false);
+    }
+
     draw ()
     {
         const { svg } = this;
@@ -257,6 +290,9 @@ export class Keyboard
         /* Whatever was held is still held; it just has a new rectangle. */
         for (const note of this.held)
             this.keys.get(note)?.classList.add('held');
+
+        for (const note of this.heard.keys())
+            this.keys.get(note)?.classList.add('heard');
     }
 
     /* The note under a point, or undefined. elementFromPoint rather than

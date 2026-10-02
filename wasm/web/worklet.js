@@ -88,6 +88,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.quanta = 0;        /* since the last post to the page */
         this.edits = 0;         /* tw_edit_count when last told */
         this.events = [];
+        this.keys = [];         /* played since the last post (drainKeys) */
 
         /* The probes armed here, by slot, and what each has published
            since the last batch. A probe is a tap on one arg of one node
@@ -684,7 +685,7 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         if (epoch !== this.epoch)
         {
-            if (this.events.length > 0)
+            if (this.events.length > 0 || this.keys.length > 0)
                 this.postTape();
 
             this.epoch = epoch;
@@ -695,6 +696,7 @@ class ThinkProcessor extends AudioWorkletProcessor
            of a busy piece pile up there would be a megabyte nobody asked
            for. */
         drain(this.M, this.events);
+        this.drainKeys();
         this.drainProbes();
         this.postParamEdits();
         this.postMidi();
@@ -908,6 +910,33 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
     }
 
+    /* The keys this synth played, each where it sounded (thinkweb.cpp,
+       twKey), for the roll and the keyboard: apart from `events', which
+       is what the piece composed and what every tape is compared on. */
+    drainKeys ()
+    {
+        const n = this.M._tw_key_count();
+
+        if (n === 0)
+            return;
+
+        const base = this.M._tw_keys() >>> 0;
+        const i32 = this.M.HEAP32;
+
+        for (let i = 0; i < n; i++)
+        {
+            const at = base + i * 24;
+
+            this.keys.push({ at: this.M.HEAPF64[at >> 3],
+                             channel: i32[(at + 8) >> 2],
+                             note: i32[(at + 12) >> 2],
+                             velocity: i32[(at + 16) >> 2],
+                             on: i32[(at + 20) >> 2] !== 0 });
+        }
+
+        this.M._tw_keys_clear();
+    }
+
     postTape ()
     {
         this.quanta = 0;
@@ -950,10 +979,12 @@ class ThinkProcessor extends AudioWorkletProcessor
             capture: this.micPeak,
             captureDropped: this.M._tw_capture_dropped(),
             events: this.events,
+            keys: this.keys,
             probes: [...this.taps].map(([slot, samples]) => ({ slot,
                                                                samples })),
         }, [...this.taps.values()].map((s) => s.buffer));
         this.events = [];
+        this.keys = [];
         this.taps.clear();
         this.micPeak = 0;
     }

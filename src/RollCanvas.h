@@ -96,6 +96,28 @@ public:
     void setColorByChain (bool on);
     bool colorByChain (void) const { return byChain_; }
 
+    /* A key somebody played -- the on-screen keyboard, a computer key,
+       MIDI in, a peer in a room -- that sounded at transport time `at'.
+       Held until its off, like live input into a chain, and drawn
+       outlined so it reads apart from what the piece composed; in a room
+       the channel is the seat, so its hue says whose it was. */
+    void keyPlayed (double at, int channel, int note, int velocity, bool on);
+
+    /* Every played key still held, ended at `at': the synth was cleared,
+       and an off that never arrives must not leave a bar growing. */
+    void endPlayed (double at);
+
+    /* The played keys kept, ended and then held, for a harness: the
+       drawing cannot say which of its bars were played. */
+    struct Played
+    {
+        double at;
+        int    channel, note;
+        bool   held;
+    };
+
+    std::vector<Played> played (void) const;
+
     /* Draws everything, having first taken this frame's view of the
      * scheduler -- the transport's time while following, one copy of the
      * pending queue, the prune and the pitch-range ease.
@@ -164,6 +186,7 @@ private:
         double start, duration;
         int    channel, note, velocity;
         int    chain;             /* which made it, or -1               */
+        bool   played;            /* a key, not the piece (keyPlayed)   */
     };
 
     /* A scheduled event and the chain it came from. */

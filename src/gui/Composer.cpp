@@ -254,6 +254,17 @@ Composer::Composer (thSynth *synth)
     midiOffConn_ = m_sigNoteOff.connect(
         sigc::mem_fun(*this, &Composer::injectOff));
 
+    playedConns_[0] = m_sigNoteOn.connect(
+        sigc::mem_fun(*this, &Composer::playedOn));
+    playedConns_[1] = m_sigNoteOff.connect(
+        sigc::mem_fun(*this, &Composer::playedOff));
+    playedConns_[2] = m_sigKbdNoteOn.connect(
+        sigc::mem_fun(*this, &Composer::playedOn));
+    playedConns_[3] = m_sigKbdNoteOff.connect(
+        sigc::mem_fun(*this, &Composer::playedOff));
+    playedConns_[4] = m_sigNoteClear.connect(
+        sigc::mem_fun(*this, &Composer::playedCleared));
+
     updateTransportButtons();
 }
 
@@ -345,6 +356,9 @@ Composer::~Composer (void)
     midiOffConn_.disconnect();
     kbdOnConn_.disconnect();
     kbdOffConn_.disconnect();
+
+    for (sigc::connection &c : playedConns_)
+        c.disconnect();
 
     /* The roll reads the scheduler, so it goes first: out of its box,
        which frees it. */
@@ -1892,6 +1906,27 @@ Composer::injectOff (int chan, float note)
     ev.u.note.note = (int)note;
 
     sched_->injectMidiEvent(ev);
+}
+
+void
+Composer::playedOn (int chan, float note, float veloc)
+{
+    if (roll_ != NULL)
+        roll_->keyPlayed(sched_->now(), chan, (int)note, (int)veloc, true);
+}
+
+void
+Composer::playedOff (int chan, float note)
+{
+    if (roll_ != NULL)
+        roll_->keyPlayed(sched_->now(), chan, (int)note, 0, false);
+}
+
+void
+Composer::playedCleared (void)
+{
+    if (roll_ != NULL)
+        roll_->endPlayed(sched_->now());
 }
 
 /* The on-screen keyboard as a performance input, if wished for: the

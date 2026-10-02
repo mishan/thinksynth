@@ -456,6 +456,37 @@ try
     check(await page.evaluate(() => window.solo.drawing().seq),
           'and the tracks draw again on the way back');
 
+    /* A key played into a track is on the roll, as played and apart from
+       what the track made of it: held while it is down, ended once it is
+       let go. The roll learns of it from the worklet's next tape, so it
+       is asked until it says. */
+    const rollHas = async (note, held) =>
+    {
+        for (let i = 0; i < 40; i++)
+        {
+            const played = await page.evaluate(() => window.solo.rollPlayed());
+
+            if (played?.some(([, , n, h]) => n === note && h === held))
+                return true;
+
+            await new Promise((r) => setTimeout(r, 100));
+        }
+
+        return false;
+    };
+
+    await page.keyboard.press('Escape');
+    await page.keyboard.down('z');
+
+    const keyNote = (await page.evaluate(() => window.solo.sounding()))[0]
+        ?.note;
+    const keyHeld = await rollHas(keyNote, true);
+
+    await page.keyboard.up('z');
+
+    check(keyHeld && await rollHas(keyNote, false),
+          `a key played into a track is on the roll as played: ${keyNote}`);
+
     /* ---- the tempo ---- */
 
     /* A sequencer with no tempo is a sequencer that plays at one speed,

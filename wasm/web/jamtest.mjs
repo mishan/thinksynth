@@ -837,10 +837,11 @@ async function playTogether (pages)
     const results = [];
 
     for (const { label, page } of pages)
-        results.push({ label, ...(await page.evaluate(() => ({
+        results.push({ label, ...(await page.evaluate(async () => ({
             tape: window.jam.tape(),
             sent: window.jam.sent(),
             late: window.jam.late(),
+            played: await window.jam.rollPlayed(),
         }))) });
 
     const sent = results.flatMap((r) => r.sent).filter((c) => c.at >= 0);
@@ -898,6 +899,25 @@ async function playTogether (pages)
         if (r.late.worklet !== 0 || r.late.seen !== 0)
             fail(`${r.label} applied ${r.late.worklet} late in the room ` +
                  'played into');
+
+    /* Every seat's keys on each page's roll, at the time each was stamped
+       for, which is when it sounded there -- not when it was pressed. */
+    for (const r of results)
+    {
+        const played = r.played ?? [];
+        const missing = keys.filter((c) => !played.some(
+            ([at, channel, note, held]) => channel === c.seat &&
+                note === c.note && !held && Math.abs(at - c.at) < 1e-3));
+
+        if (missing.length === 0 && played.length === keys.length)
+            ok(`${r.label}'s roll shows all ${keys.length} keys, both ` +
+               'seats\', where they were stamped for');
+        else
+            fail(`${r.label}'s roll has ${played.length} played keys ` +
+                 `of ${keys.length}; missing ` +
+                 missing.map((c) => `${c.seat}:${c.note}@${c.at.toFixed(3)}`)
+                     .join(', '));
+    }
 }
 
 /* A room on cloud.gen, whose cloud.dsp plays two of dsp/samples/ through
@@ -934,6 +954,83 @@ async function sampleTogether (pages)
         else
             fail(`${label}: ${missing.join('; ')}`);
     }
+}
+
+/* Keys seen from the other seat, in the room playTogether left stopped:
+ * a direct key on the roll and lit on the keyboard while it is down, and
+ * a bar-ahead key whose stamped off a Play throws away not left lit.
+ */
+async function keysSeen (pages)
+{
+    const [A, B] = pages;
+
+    /* `test' of what A's page says, asked until it holds or time is up. */
+    const until = async (test, ms = 8000) =>
+    {
+        for (const end = Date.now() + ms; Date.now() < end;)
+        {
+            const seen = await A.page.evaluate(async () => ({
+                played: await window.jam.rollPlayed() ?? [],
+                heard: window.jam.heard(),
+            }));
+
+            if (test(seen))
+                return true;
+
+            await new Promise((r) => setTimeout(r, 100));
+        }
+
+        return false;
+    };
+
+    const onRoll = (seen, note, held) => seen.played.some(
+        ([, channel, n, h]) => channel === 0 && n === note && h === held);
+
+    await B.page.evaluate(() =>
+    {
+        window.jam.mode('direct');
+        window.jam.press(70, 90);
+    });
+
+    const down = await until((s) => onRoll(s, 70, true) &&
+                                    s.heard.includes(70));
+
+    await B.page.evaluate(() => window.jam.release(70));
+
+    const up = await until((s) => onRoll(s, 70, false) &&
+                                  !s.heard.includes(70));
+
+    if (down && up)
+        ok('a direct key from the other seat is on the roll and lit while ' +
+           'it is down, and ended and out once it is let go');
+    else
+        fail(`a direct key from the other seat: down ${down}, up ${up}`);
+
+    await A.page.evaluate(() => window.jam.play());
+    await A.page.waitForFunction(() => window.jam.probe().running, null,
+                                 { timeout: 10000 }).catch(() => {});
+    await B.page.evaluate(() =>
+    {
+        window.jam.mode('ahead');
+        window.jam.press(72, 90);
+    });
+
+    const lit = await until((s) => s.heard.includes(72));
+
+    /* Its off goes out a bar on, and the Play is there first. */
+    await B.page.evaluate(() => window.jam.release(72));
+    await A.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const left = await A.page.evaluate(() => window.jam.heard());
+
+    if (lit && !left.includes(72))
+        ok('a key whose off a Play threw away is not left lit');
+    else
+        fail(`a key whose off a Play threw away: lit ${lit}, then ` +
+             `${JSON.stringify(left)}`);
+
+    await A.page.evaluate(() => window.jam.stop());
 }
 
 /* A stage's parameter, typed into the popover beside its box.
@@ -1633,6 +1730,10 @@ try
     /* ---- and plays into a piece from both ---- */
 
     await playTogether(pages);
+
+    /* ---- and sees the other seat's keys ---- */
+
+    await keysSeen(pages);
 
     /* ---- and plays recordings ---- */
 

@@ -2941,6 +2941,9 @@ window.solo = {
        harness that dragged on it can say that it scrubbed. */
     roll: () => roll?.where() ?? null,
 
+    /* And the keys it is drawing as played. */
+    rollPlayed: () => roll?.played() ?? null,
+
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
     node: () => (nodes === null ? null : {

@@ -1021,6 +1021,9 @@ function showPeers ()
     /* Our seat, as the relay has it. */
     $('seat').value = room.seat === null ? '' : String(room.seat);
     showInstrument();
+
+    /* A seat left with a key down sends no off for it. */
+    keyboard?.silence(new Set([...room.peers.values()].map((p) => p.seat)));
 }
 
 /* MIDI out's button, delay and pickers (midioutui.js). */
@@ -1345,10 +1348,16 @@ function tape (m)
     {
         tapeEpoch = m.epoch;
         tapeText = '';
+        keyboard?.silence();
     }
 
     for (const e of m.events)
         tapeText += tapeLine(e);
+
+    /* Every seat's keys where they sounded here, a stamped one's at its
+       time and not at its press. */
+    for (const k of m.keys ?? [])
+        keyboard?.sound(k.channel, k.note, k.on);
 }
 
 /* ---- the composer view ---- */
@@ -1988,6 +1997,9 @@ function init ()
             $('playmode').value = m;
             $('playmode').dispatchEvent(new Event('change'));
         },
+        /* The keys the roll draws as played, every seat's. */
+        rollPlayed: () => roll?.played() ?? null,
+        heard: () => [...(keyboard?.heard.keys() ?? [])],
         /* A knob by name, or by its row's id as the panel numbers it. */
         knob: (knob, value) => send(maker.knob(
             typeof knob === 'string' ? knob

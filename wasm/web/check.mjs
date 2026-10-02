@@ -162,6 +162,52 @@ for (const name of names)
                              `${applied}, first sound at ${first}\n`);
 }
 
+/* Played keys (tw_keys): a key is recorded where it is played, and one
+ * played in the window a rewind lands in, ahead of it, is the old run's
+ * and goes with it -- the page would draw it at the old run's time on the
+ * new run's roll. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+
+    const keys = () =>
+    {
+        const base = M._tw_keys() >>> 0;
+
+        return Array.from({ length: M._tw_key_count() }, (_, i) =>
+            [M.HEAP32[(base + i * 24 + 12) >> 2],
+             M.HEAP32[(base + i * 24 + 20) >> 2]]);
+    };
+
+    const render = () =>
+    {
+        for (let done = 0; done < 2048; done += 128)
+            M._tw_render(128);
+    };
+
+    M._tw_note_on(1000, 0, 60, 100);
+    render();
+
+    const played = JSON.stringify(keys());
+    const epoch = M._tw_epoch();
+
+    M._tw_keys_clear();
+    M._tw_note_off(4000, 0, 60);
+    M._tw_transport(4000, 2, 0);
+    M._tw_note_on(4000, 0, 62, 100);
+    render();
+
+    const after = JSON.stringify(keys());
+
+    if (played !== '[[60,1]]' || M._tw_epoch() === epoch ||
+        after !== '[[62,1]]')
+        fail(`keys: played ${played}, then across a rewind ${after}`);
+    else
+        process.stdout.write('ok    keys           a key is recorded, and ' +
+                             'one ahead of a rewind in its window is not\n');
+}
+
 /* MIDI out (twMidiOut): a piece whose instrument names a port, given a
  * port list that matches. The program change goes when it attaches; every
  * note, its off and a mapped chanarg come out as bytes for the page, each

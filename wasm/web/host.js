@@ -217,8 +217,10 @@ export async function createSynth (ctx, { windowlen = 256,
                 /* And the mirror is told how far this has got: it steps
                    to there, which is tw_render without the render. So its
                    picture is one batch behind the ear, which is about the
-                   desktop's 50 ms draw timer. */
-                mirror?.postMessage({ type: 'step', frame: m.frame });
+                   desktop's 50 ms draw timer. The keys this one played
+                   go with it, for the roll the mirror draws. */
+                mirror?.postMessage({ type: 'step', frame: m.frame,
+                                      epoch: m.epoch, keys: m.keys });
                 onTape(m);
                 break;
         }
