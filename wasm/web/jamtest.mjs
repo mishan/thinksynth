@@ -49,6 +49,8 @@
  * Then a room on hands.gen, played from both pages -- one quantised, one a
  * bar ahead -- whose tape has to be one tape and genwav's.
  *
+ * Then a room on cloud.gen, whose recordings both pages have to load.
+ *
  * And then the other half of that gate: one page opens an instrument on
  * the .dsp canvas, clicks a node and types a number into it. The document
  * changes, the other page has the same file, and the text is what native
@@ -106,6 +108,10 @@ const PAINT_SECONDS = 14;
 /* The third: a piece nothing plays but people, played from both pages. */
 const HANDS_PIECE = 'hands.gen';
 const PLAY_SECONDS = 10;
+
+/* The fourth: a piece whose instrument plays recordings. */
+const SAMPLE_PIECE = 'cloud.gen';
+const SAMPLE_SECONDS = 4;
 
 let failures = 0;
 
@@ -475,6 +481,42 @@ async function playTogether (pages)
         if (r.late.worklet !== 0 || r.late.seen !== 0)
             fail(`${r.label} applied ${r.late.worklet} late in the room ` +
                  'played into');
+}
+
+/* A room on cloud.gen, whose cloud.dsp plays two of dsp/samples/ through
+   osc::sample. A wav the page did not hand over is a line in the log and
+   a voice that plays nothing. */
+async function sampleTogether (pages)
+{
+    const [A] = pages;
+
+    for (const { label, page } of pages)
+    {
+        await page.goto(`${url}&room=jamkit&name=${label}` +
+                        `&piece=${SAMPLE_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+        await page.waitForFunction(() => window.jam.ready(), null,
+                                   { timeout: 20000 });
+    }
+
+    await A.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, SAMPLE_SECONDS * 1000));
+    await A.page.evaluate(() => window.jam.stop());
+
+    for (const { label, page } of pages)
+    {
+        const missing = (await page.evaluate(
+            () => document.getElementById('log').textContent))
+            .split('\n').filter((line) => /osc::sample/.test(line));
+
+        if (missing.length === 0)
+            ok(`${label} loaded ${SAMPLE_PIECE}'s samples`);
+        else
+            fail(`${label}: ${missing.join('; ')}`);
+    }
 }
 
 /* A stage's parameter, typed into the popover beside its box.
@@ -1174,6 +1216,10 @@ try
     /* ---- and plays into a piece from both ---- */
 
     await playTogether(pages);
+
+    /* ---- and plays recordings ---- */
+
+    await sampleTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);
