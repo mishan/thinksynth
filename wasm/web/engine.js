@@ -20,11 +20,11 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
- * `transport', `begin', `at', `knob', `paneledit', `stageparam', `param',
- * `mute', `solo', `section', `knobwrite', `input', `midion', `midioff',
- * `on', `off' or `alloff' message, turned into the tw_ call that applies
- * it. It used to live in worklet.js, and moved here when there were two
- * instances to apply it to.
+ * `transport', `begin', `batch', `edit', `noteat', `at', `knob', `paneledit',
+ * `stageparam', `param', `mute', `solo', `section', `knobwrite', `input',
+ * `midion', `midioff', `on', `off' or `alloff' message, turned into the tw_
+ * call that applies it. It used to live in worklet.js, and moved here when
+ * there were two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -59,6 +59,11 @@ const NOWHERE = {
 export function apply (M, m, host = NOWHERE)
 {
     const { loaded, patched, piece, log } = { ...NOWHERE, ...host };
+
+    /* The edits the maker had seen, for a command that names something by
+       index (thinkweb.cpp, Scheduled's `rev'). */
+    if (typeof m.rev === 'number')
+        M._tw_command_rev(m.rev);
 
     switch (m.type)
     {
@@ -138,8 +143,21 @@ export function apply (M, m, host = NOWHERE)
 
         case 'begin':
             /* From the top, with transport zero at this frame exactly
-               (thinkweb.cpp, tw_begin). */
-            M._tw_begin(m.frame, m.from ?? 0);
+               (thinkweb.cpp, tw_begin). `catchUp' is a late joiner's: a
+               frame gone by stays where it is and the transport is
+               stepped up to the output from there. */
+            M._tw_begin(m.frame, m.from ?? 0, m.catchUp ? 1 : 0);
+            return true;
+
+        case 'batch':
+            /* Several messages that must land together, between two
+               renders: a late joiner's begin and the room's commands since
+               the start, which the begin would drop if it came after them
+               and the catching up would miss if they came a render late. */
+            for (const each of m.messages)
+                if (!apply(M, each, host))
+                    log(`no message '${each.type}' in a batch`);
+
             return true;
 
         case 'at':
@@ -155,7 +173,28 @@ export function apply (M, m, host = NOWHERE)
             return true;
 
         case 'knob':
-            M._tw_knob(m.at, m.knob, m.value);
+            /* A room's command names the knob; the solo page's numbers it.
+               A name is looked up when the command applies, after any edit
+               stamped before it (thinkweb.cpp, TW_KNOB). */
+            if (typeof m.knob === 'string')
+                M.ccall('tw_knob_named', null,
+                        ['number', 'string', 'number'],
+                        [m.at, m.knob, m.value]);
+            else if (typeof m.knob === 'number')
+                M._tw_knob(m.at, m.knob, m.value);
+
+            return true;
+
+        case 'edit':
+            /* A new text for the piece at a transport time, and the other
+               files the edit changed, which go in with it at its stamp and
+               only if it loads (thinkweb.cpp, applyEdit). */
+            for (const [name, text] of Object.entries(m.files ?? {}))
+                M.ccall('tw_edit_file', null, ['string', 'string'],
+                        [name, text]);
+
+            M.ccall('tw_edit', null, ['number', 'string', 'number'],
+                    [m.at, m.text, m.tie ?? 0]);
             return true;
 
         case 'speed':
@@ -213,9 +252,19 @@ export function apply (M, m, host = NOWHERE)
              * the person touched. What it completes to is worked out on
              * arrival against the file this instance holds, by every
              * instance (src/StagePanel.h). */
-            M.ccall('tw_param', null,
-                    ['number', 'number', 'number', 'string', 'string'],
-                    [m.at ?? -1, m.chain, m.stage, m.row, m.text]);
+            /* By name as well when the command carries names, which a room's
+               does: an edit stamped before it may have moved the stage. */
+            if (m.chainName && m.stageName)
+                M.ccall('tw_param_named', null,
+                        ['number', 'string', 'string', 'number', 'number',
+                         'string', 'string'],
+                        [m.at ?? -1, m.chainName, m.stageName, m.chain,
+                         m.stage, m.row, m.text]);
+            else
+                M.ccall('tw_param', null,
+                        ['number', 'number', 'number', 'string', 'string'],
+                        [m.at ?? -1, m.chain, m.stage, m.row, m.text]);
+
             return true;
 
         case 'mute':
@@ -256,8 +305,23 @@ export function apply (M, m, host = NOWHERE)
             if (m.tag)
                 M.ccall('tw_command_tag', null, ['string'], [m.tag]);
 
-            M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
-                        m.button ?? 1);
+            if (m.chainName && m.stageName)
+                M.ccall('tw_input_named', null,
+                        ['number', 'string', 'string', 'number', 'number',
+                         'number', 'number', 'number', 'number', 'number',
+                         'number'],
+                        [m.at, m.chainName, m.stageName, m.chain, m.stage,
+                         m.kind, m.x, m.y, m.w, m.h, m.button ?? 1]);
+            else
+                M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w,
+                            m.h, m.button ?? 1);
+
+            return true;
+
+        case 'noteat':
+            /* A key at a transport time (thinkweb.cpp, TW_NOTE). */
+            M._tw_note_at(m.at, m.channel, m.note, m.velocity, m.on ? 1 : 0,
+                          m.heard ? 1 : 0, m.tie);
             return true;
 
         case 'midion':

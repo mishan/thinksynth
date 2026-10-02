@@ -22,7 +22,8 @@
  * the mesh could not carry.
  *
  * One object, events out, a few calls in. It knows nothing about music:
- * `transport' and `relayed' carry whatever they are given.
+ * `transport', `relayed', `log' and `catchup' carry whatever they are
+ * given.
  */
 
 import { RelayClock } from './clock.js';
@@ -32,6 +33,11 @@ export const PROTOCOL = 1;
 /* How often the relay is pinged, in milliseconds. Once a second is what a
    background tab is throttled to anyway. */
 const PING_EVERY = 1000;
+
+/* How long a catchup is waited for: past the relay's own wait for the
+   document (relay.mjs, SNAPSHOT_WAIT), so an answer that is coming has
+   come. A relay from before `catchup' never answers. */
+const CATCHUP_WAIT = 15 * 1000;
 
 export class Room
 {
@@ -53,6 +59,7 @@ export class Room
         this.handlers = new Map();
         this.pinger = null;
         this.ws = null;
+        this.catchups = [];             /* { resolve, reject } of catchUp() */
     }
 
     on (type, fn)
@@ -99,6 +106,9 @@ export class Room
                     reject(new Error(
                         refused ?? `the relay at ${this.url} closed the ` +
                                    'connection before welcoming us'));
+
+                for (const c of this.catchups.splice(0))
+                    c.reject(new Error('the relay closed the connection'));
 
                 this.emit('close');
             });
@@ -187,6 +197,11 @@ export class Room
                         this.emit('transport', m.from, m.data);
                         break;
 
+                    case 'catchup':
+                        for (const c of this.catchups.splice(0))
+                            c.resolve(m);
+                        break;
+
                     case 'error':
                         refused = m.text;
                         this.emit('error', m.text);
@@ -231,10 +246,56 @@ export class Room
                                    : { type: 'relayed', to, data });
     }
 
-    /* A transport command, kept by the relay for whoever arrives next. */
+    /* The run this page believes is playing, as the relay keys it: the
+       start's sender and counter (relay.mjs, runKeyOf). */
+    get runKey ()
+    {
+        return this.playing ? `${this.playing.from}#${this.playing.seq}`
+                            : null;
+    }
+
+    /* A transport command, kept by the relay for whoever arrives next. A
+       start begins a run and a stop ends it; this page's own are what it
+       knows first. */
     transport (data)
     {
-        this.send({ type: 'transport', data });
+        if (data?.op === 'start')
+            this.playing = data;
+        else if (data?.op === 'stop')
+            this.playing = null;
+
+        this.send({ type: 'transport', data, run: this.runKey });
+    }
+
+    /* A copy of a stamped command the mesh carried, for the relay to keep
+       for whoever joins while this run plays. */
+    log (data)
+    {
+        this.send({ type: 'log', data, run: this.runKey });
+    }
+
+    /* What a peer joining a playing room needs: resolves to `{ start,
+       files, log, overflowed }' -- the run's start, the document as that
+       start named it, and the stamped commands since -- or `{ start: null
+       }' when nothing is playing. Rejects if the relay closes or has not
+       answered in `wait' milliseconds. */
+    catchUp (wait = CATCHUP_WAIT)
+    {
+        return new Promise((resolve, reject) =>
+        {
+            const c = {
+                resolve: (m) => { clearTimeout(timer); resolve(m); },
+                reject: (e) => { clearTimeout(timer); reject(e); },
+            };
+            const timer = setTimeout(() =>
+            {
+                this.catchups.splice(this.catchups.indexOf(c), 1);
+                reject(new Error('the relay did not answer a catchup'));
+            }, wait);
+
+            this.catchups.push(c);
+            this.send({ type: 'catchup' });
+        });
     }
 
     /* Relay time now, from the offset: NaN until a pong has come. */

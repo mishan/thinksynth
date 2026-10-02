@@ -40,11 +40,11 @@ import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
-import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, commandTag,
-         isLate }
+import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
+         commandTag, isLate, keyAt, nextBar, replayable, tieOf }
     from './commands.js';
-import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
-         readFile, spliceFile } from './doc.js';
+import { docOf, fileNames, files, hashOf, instrumentTexts, pieceName,
+         pieceText, readFile, snapshot, spliceFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
@@ -165,10 +165,44 @@ let maker = null;
 const dedupe = new Dedupe();
 
 let piece = null;               /* the worklet's word on the loaded piece */
+
+/* The text this page's worklet is playing, as { piece, files }: what was
+   loaded, with every edit applied since. What Apply sends the difference
+   from -- a .dsp the document has changed since then goes with the edit. */
+let playing = null;
+
+/* The edits handed to the worklet and not yet answered for, by their tie.
+   Its `edited' message says which went in, and only those change
+   `playing'. */
+const pendingEdits = new Map();
+
+/* Edits this page's worklet has applied since the load: what a command
+   that names something by index was made against (commands.js, Maker). */
+let editsSeen = 0;
+
+/* The synth as the room's commands reach it: what edits it is handed is
+   noted on the way through, from wherever the edit came -- a peer's, this
+   page's own, or one a late joiner steps through. */
+let roomSynth = null;
+
+/* The last tape message: where the transport was, in seconds and beats,
+   which is what Apply picks the next bar from. */
+let lastTape = null;
+
+/* The knob panel's rows, by name and by row id: a command names a knob by
+   name, and the panel knows its sliders by id. */
+const knobIds = new Map();
+const knobNames = new Map();
 let listens = new Set();        /* channels the piece takes input on */
 
-/* note -> { count, midi, seat }: how many hands are on it, how many of
-   those are MIDI keys, and the seat it went out on. */
+/* How this page's keys reach the room: 'direct', 'quantised' or 'ahead'
+   (commands.js, keyAt). */
+let playMode = 'direct';
+
+/* note -> { count, midi, seat, mode, at, local, epoch }: how many hands are
+   on it, how many of those are MIDI keys, the seat it went out on, the mode
+   and time it was stamped with, whether this page played it itself, and the
+   run it was pressed in -- a release goes the way its press went. */
 const sounding = new Map();
 
 /* What the numbers panel and the harness read back. Bounded, the way
@@ -185,6 +219,16 @@ let sentCount = 0;
 let lateSeen = 0;
 let lateCount = 0;              /* the worklet's count */
 let tapeText = '';              /* the tape since the last epoch, as text */
+/* A late joiner's begin is on its way to the worklet or being stepped up
+   to the room; cleared once the worklet reports it caught up. */
+let catching = false;
+
+/* Stamped commands that came while there was no worklet to apply them to:
+   a room joined, Start not yet pressed. The relay keeps the same ones for a
+   late joiner, but a command can reach this page by the mesh before its
+   copy reaches the relay, so these are merged with what it hands over. */
+const early = [];
+const EARLY_MAX = 10000;
 let tapeEpoch = -1;
 let numbersDirty = false;       /* the panel is behind; the frame repaints */
 
@@ -255,12 +299,22 @@ async function send (cmd)
 {
     sentCount++;
     keep(sent, cmd);
-    mesh.broadcast(cmd);
+
+    /* An edit goes by the room socket alone: a peer that missed one plays
+       another piece from there, and it can be larger than a data channel
+       takes. In order behind the start it was made in, too, which is what
+       the run check in applyOne relies on. */
+    if (cmd.type !== 'edit')
+        mesh.broadcast(cmd);
 
     /* A start goes by the room socket too: the one command a peer must
-       not miss, and what a joiner is told. */
-    if (cmd.type === 'transport')
+       not miss, and what a joiner is told. Every other stamped command
+       goes as a copy, which the relay keeps for whoever joins while this
+       run plays. */
+    if (cmd.type === 'transport' || cmd.type === 'edit')
         room.transport(cmd);
+    else if (replayable(cmd))
+        room.log(cmd);
 
     await receive(room.peer, cmd);
 }
@@ -292,12 +346,30 @@ async function applyOne (from, cmd)
     if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd))
         return;
 
+    /* The run this page is in, as soon as it is: a knob moved from here
+       on is logged under it (room.log), whichever path brought the Play,
+       and what was kept for catching up belongs to the run being left. */
+    const startOrStop = cmd.type === 'transport' &&
+                        (cmd.op === 'start' || cmd.op === 'stop');
+
+    if (startOrStop)
+    {
+        room.playing = cmd.op === 'start' ? cmd : null;
+        early.length = 0;
+    }
+
+    /* An edit made in a run that has since been replaced: a peer that
+       applied it before the new start would load over it anyway, so none
+       does. */
+    if (cmd.type === 'edit' && cmd.run !== room.runKey)
+        return;
+
     if (synth === null)
     {
-        /* Nothing to apply it to yet: a room joined before Start. A
-           start is remembered so Start can catch up. */
-        if (cmd.type === 'transport' && cmd.op === 'start')
-            room.playing = cmd;
+        /* Nothing to apply it to yet: a room joined before Start. What
+           came after the start is kept for the catching up. */
+        if (!startOrStop && replayable(cmd) && early.length < EARLY_MAX)
+            early.push(cmd);
 
         return;
     }
@@ -314,12 +386,21 @@ async function applyOne (from, cmd)
         keep(margins, { from, seq: cmd.seq, type: cmd.type,
                         margin: cmd.at - transportNow() });
 
-    await apply(cmd, { synth, frameOfOrigin, listens, load: loadFor });
+    /* A Play or Stop ends any catching up: the run being caught up with
+       is over, and the report that would have said so never comes. */
+    if (startOrStop)
+        catching = false;
+
+    await apply(cmd, { synth: roomSynth, frameOfOrigin, listens,
+                       load: loadFor, self: room.peer });
 
     /* And what the page shows follows. */
     /* Ours moved its own slider as it was dragged. */
     if (cmd.type === 'knob' && from !== room.peer)
-        setKnobValue(String(cmd.knob), cmd.value);
+        setKnobValue(String(knobIds.get(cmd.knob) ?? cmd.knob), cmd.value);
+    else if (cmd.type === 'edit')
+        status(`${room.peers.get(from)?.name ?? from}'s edit` +
+               (cmd.at >= 0 ? ` applies at ${cmd.at.toFixed(2)} s.` : '.'));
     else if (cmd.type === 'transport')
     {
         if (cmd.op === 'start')
@@ -383,12 +464,106 @@ async function loadFor (cmd)
    with, so it is the same piece from there. */
 let runSeed = null;
 
+/* A room already playing when this page pressed Start: the run as the
+ * relay kept it, stepped through from its origin to now (commands.js,
+ * catchUp). Queued behind whatever is being applied, and ahead of whatever
+ * arrives while the relay answers, so a command the mesh brings in the
+ * meantime is applied after the catching up rather than lost under it --
+ * or dropped as a duplicate of the copy the relay had.
+ */
+function joinRun ()
+{
+    const wanted = room.runKey;
+
+    const done = applying.then(async () =>
+    {
+        /* The origin is a relay-clock time, and turning it into a frame of
+           this output needs both clocks: the same samples Play waits for. */
+        if (!clocksReady())
+        {
+            status('The room is playing; waiting for the clocks...');
+
+            while (!clocksReady())
+                await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
+        /* A Play or Stop applied since Start has put this page where the
+           room is already. */
+        if (room.runKey !== wanted)
+            return;
+
+        let run;
+
+        try
+        {
+            run = await room.catchUp();
+        }
+        catch (e)
+        {
+            log(`catching up: ${e.message}`);
+            status('Could not catch up with the room; you will hear the ' +
+                   'next Play.');
+            return;
+        }
+
+        if (run.start === null || room.runKey !== wanted)
+            return;
+
+        if (run.overflowed)
+        {
+            status('The room has been playing too long to catch up with; ' +
+                   'you will hear the next Play.');
+            return;
+        }
+
+        if (!run.files.matched)
+            log('the relay never saw the document the room is playing; ' +
+                'catching up with what it has');
+
+        /* The relay's log and what the mesh brought before Start, once
+           each. Every one is marked seen, so a copy still in flight on the
+           mesh is a duplicate when it lands. */
+        const byKey = new Map();
+
+        for (const c of [...run.log, ...early])
+            byKey.set(`${c.from}#${c.seq}`, c);
+
+        early.length = 0;
+
+        for (const c of [run.start, ...byKey.values()])
+            dedupe.accept(c);
+
+        status(`Catching up with ${room.peers.get(run.start.from)?.name ??
+                                   run.start.from}'s Play...`);
+        await catchUp(run.start, [...byKey.values()], {
+            synth: roomSynth, listens,
+            frameOfOrigin: (ms) =>
+            {
+                catching = true;
+                return frameOfOrigin(ms);
+            },
+            load: (start) =>
+            {
+                runSeed = start.seed;
+                return loadFromDoc(start.seed, docOf(run.files));
+            },
+        });
+
+    });
+
+    applying = done.catch((e) => log(`catching up: ${e.message}`));
+
+    return done;
+}
+
 /* The piece from the document into the worklet, and what the page shows
    of it: the knobs, the seats, the channels it listens on. `seed' is
-   the master seed, or -1 to draw one. */
-async function loadFromDoc (seed = -1)
+   the master seed, or -1 to draw one. `from' is the document to read, the
+   room's own unless a late joiner is loading the revision a run started
+   from. */
+async function loadFromDoc (seed = -1, from = doc)
 {
-    const gen = pieceText(doc);
+    const gen = pieceText(from);
 
     if (gen === null)
     {
@@ -396,7 +571,7 @@ async function loadFromDoc (seed = -1)
         return false;
     }
 
-    for (const [name, text] of Object.entries(instrumentTexts(doc)))
+    for (const [name, text] of Object.entries(instrumentTexts(from)))
         synth.instrument(name, text);
 
     /* Not suspended around the load, as the solo page does it. Every
@@ -410,6 +585,9 @@ async function loadFromDoc (seed = -1)
     const it = await synth.loadPiece(gen, seed);
 
     loadedGen = gen;
+    playing = snapshot(from);
+    editsSeen = 0;
+    pendingEdits.clear();
 
     /* And then the aiming, in that order, for the reason the solo page
        aims in that order: a channel the piece named and put nothing on
@@ -436,7 +614,7 @@ async function loadFromDoc (seed = -1)
 
     if (piece === null)
     {
-        status(`${pieceName(doc)} did not parse; see the numbers.`);
+        status(`${pieceName(from)} did not parse; see the numbers.`);
         it.errors.forEach(log);
 
         /* The fold, for the document, and the pane, for the layout: a
@@ -462,14 +640,15 @@ async function loadFromDoc (seed = -1)
     return piece !== null;
 }
 
-/* The piece text this peer last loaded, which is what its canvas draws
-   and what a drop on the canvas is numbered against. */
+/* The piece text this peer last loaded, with the edits applied since,
+   which is what its canvas draws and what a drop on the canvas is numbered
+   against. */
 let loadedGen = null;
 
 /* A stage box dropped elsewhere in its chain: the document spliced, by
- * this peer, the way its own param edits are, and applied at once if the
- * room is playing -- a structural edit is a reload, and the room's reload
- * is Apply. Stopped, the next Play takes it.
+ * this peer, the way its own param edits are, and applied if the room is
+ * playing -- a structural edit is an edit, and the room's edit is Apply, at
+ * the next bar. Stopped, the next Play takes it.
  *
  * Only against the document as this peer loaded it: the drop is numbered
  * by the canvas, and a document that has moved on since -- a peer's edit,
@@ -504,7 +683,7 @@ async function moveStage (chainName, from, to)
     spliceFile(doc, name, text);
 
     if (transport?.running)
-        await play();
+        await applyEdit();
     else
         log('stage moved; Play applies it');
 }
@@ -541,15 +720,89 @@ async function freezeChain (chain, chainName)
     spliceFile(doc, name, text);
 
     if (transport?.running)
-        await play();
+        await applyEdit();
     else
         log(`${chainName} frozen; Play applies it`);
 }
 
 /* ---- transport ---- */
 
-/* Play, and Apply: a start from a new origin, with the document as it
-   stands, from a seed the file pins or this peer picks. */
+/* Apply: the document as it stands, into the piece that is playing, at the
+ * next bar -- what a stage keeps and what is built again is thcGenDiff's
+ * rule, the same on every peer. With the .gen goes every .dsp the document
+ * has changed since this page's worklet last loaded one. While stopped
+ * there is no bar to wait for, and it is a Play from the top.
+ */
+async function applyEdit ()
+{
+    if (doc === null || synth === null)
+        return;
+
+    if (!transport?.running || lastTape === null || playing === null ||
+        piece === null)
+        return play();
+
+    const text = pieceText(doc);
+
+    if (text === null)
+        return;
+
+    const changed = {};
+
+    for (const [name, t] of Object.entries(instrumentTexts(doc)))
+        if (playing.files[name] !== t)
+            changed[name] = t;
+
+    const at = nextBar(transportNow(), lastTape, maker.transportLead);
+
+    await send({ ...maker.edit(at, text, changed), run: room.runKey });
+}
+
+/* An edit has been applied here: the piece is what it now says, and the
+   knobs, the seats and the channels it listens on follow. The text this
+   page believes is playing moves by the edits that went in, and not by one
+   that was refused -- whose files then still count as changed at the next
+   Apply. */
+async function edited (m)
+{
+    editsSeen = m.count;
+
+    for (const { tie, went } of m.results ?? [])
+    {
+        const e = pendingEdits.get(tie);
+
+        pendingEdits.delete(tie);
+
+        if (e === undefined || !went || playing === null)
+            continue;
+
+        playing.files = { ...playing.files, ...e.files };
+        playing.files[playing.piece] = e.text;
+        loadedGen = e.text;
+    }
+
+    m.errors.forEach((e) => log(`edit: ${e}`));
+
+    if (m.errors.length > 0)
+        status('The edit did not go in whole; see the log.');
+    else
+        status('Edited.');
+
+    piece = m;
+    listens = new Set(m.listens);
+    $('about').textContent = m.description;
+
+    (await patch.aim(synth, m.sinks)).failed.forEach(log);
+
+    await drawKnobs();
+    showSeats();
+    showMidiOut();
+    showNodeChannel();
+    enable();
+}
+
+/* Play: a start from a new origin, with the document as it stands, from a
+   seed the file pins or this peer picks. */
 async function play ()
 {
     if (!clocksReady() || doc === null)
@@ -599,7 +852,9 @@ async function tempo ()
    holding the note, which releaseKeys leaves down. */
 function press (note, velocity = VELOCITY, midi = false)
 {
-    if (synth === null || room.seat === null)
+    /* Catching up, the worklet would play it at the past transport time
+       it has stepped to, silently, into a piece the room has gone past. */
+    if (synth === null || room.seat === null || catching)
         return;
 
     const already = sounding.get(note);
@@ -614,8 +869,21 @@ function press (note, velocity = VELOCITY, midi = false)
         return;
     }
 
-    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat: room.seat });
-    send(maker.note(room.seat, note, velocity));
+    const seat = room.seat;
+    const at = keyAt(playMode, transportNow(), lastTape, maker.knobLead);
+    const mode = at < 0 ? 'direct' : playMode;
+
+    /* A bar ahead onto a channel: heard here now, and by everyone else a
+       bar from now. Into the piece it waits for its time here too, or
+       this page's piece would compose from it a bar early. */
+    const local = mode === 'ahead' && !listens.has(seat);
+
+    if (local)
+        synth.noteOn(note, velocity, -1, seat);
+
+    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat, mode, at, local,
+                         epoch: lastTape?.epoch });
+    send(maker.note(seat, note, velocity, mode, at < 0 ? null : at, local));
     keyboard.hold(note, true);
 }
 
@@ -638,7 +906,23 @@ function release (note, midi = false)
         return;
 
     sounding.delete(note);
-    send(maker.noteoff(held.seat, note));
+
+    /* A quantised release a grid line after its press at the least, so
+       a quick tap is a sixteenth and not a note let go before it began.
+       A press from a run since replaced by a Play or a seek is no floor:
+       its time is in that run's seconds. */
+    const grid = lastTape?.tempo > 0 ? GRID * 60 / lastTape.tempo : 0;
+    const after = held.epoch !== lastTape?.epoch ? -1
+                : held.mode === 'quantised' ? held.at + grid : held.at;
+    const at = held.mode === 'direct'
+        ? -1
+        : keyAt(held.mode, transportNow(), lastTape, maker.knobLead, after);
+
+    if (held.local)
+        synth.noteOff(note, -1, held.seat);
+
+    send(maker.noteoff(held.seat, note, at < 0 ? 'direct' : held.mode,
+                       at < 0 ? null : at));
     keyboard.hold(note, false);
 }
 
@@ -751,9 +1035,28 @@ function showSeats ()
 
     sel.replaceChildren(new Option('none', ''));
 
+    /* Every channel the piece plays, each once: its instruments by name,
+       then the channels it takes input on, then the rest its sinks name.
+       A piece built on `input midi' declares no instruments and would
+       otherwise offer nobody a seat. */
+    const offered = new Set();
+    const offer = (channel, label) =>
+    {
+        if (offered.has(channel))
+            return;
+
+        offered.add(channel);
+        sel.add(new Option(`${label} (channel ${channel})`, String(channel)));
+    };
+
     for (const inst of piece?.instruments ?? [])
-        sel.add(new Option(`${inst.name} (channel ${inst.channel})`,
-                           String(inst.channel)));
+        offer(inst.channel, inst.name);
+
+    for (const channel of piece?.listens ?? [])
+        offer(channel, 'input');
+
+    for (const channel of piece?.sinks ?? [])
+        offer(channel, 'part');
 
     sel.value = was;
 
@@ -776,6 +1079,8 @@ async function drawKnobs ()
         ? { shape: 0 } : await synth.panel(1 /* thPanel::KNOB */, 0, 0);
 
     setKnobValue = () => {};
+    knobIds.clear();
+    knobNames.clear();
 
     if (answer.shape === 0)
     {
@@ -783,16 +1088,26 @@ async function drawKnobs ()
         return;
     }
 
+    const panel = JSON.parse(answer.json);
+
+    for (const row of panel.rows)
+    {
+        knobIds.set(row.knob, String(row.id));
+        knobNames.set(String(row.id), row.knob);
+    }
+
     /* Held before it is sent, and not after: this one goes out to the room
        as a stamped command and every peer applies it to the same knob. See
-       the same handler in main.js. */
-    setKnobValue = showPanel($('knobs'), JSON.parse(answer.json),
+       the same handler in main.js. By name, which survives an edit that
+       adds a knob or takes one away (commands.js). */
+    setKnobValue = showPanel($('knobs'), panel,
                              (row, text) =>
                              {
                                  const value = numberIn(text);
 
                                  if (value !== null)
-                                     send(maker.knob(Number(row), value));
+                                     send(maker.knob(knobNames.get(String(row)),
+                                                     value));
                              },
                              (row, text) =>
                              {
@@ -803,10 +1118,34 @@ async function drawKnobs ()
                              });
 }
 
+/* Beside the choice, what it costs: the round trip to the relay, which is
+   about what a direct key takes to reach the others, and what the other two
+   add at the tempo playing. */
+function showModeNote ()
+{
+    const rtt = room?.clock.rtt;
+    const tempo = lastTape?.tempo > 0 ? lastTape.tempo : 0;
+    const said = [Number.isNaN(rtt) || rtt === undefined
+                      ? 'round trip not yet'
+                      : `round trip ${rtt.toFixed(0)} ms`];
+
+    if (tempo > 0 && playMode === 'quantised')
+        said.push(`a key lands on the next sixteenth, up to ` +
+                  `${(maker.knobLead * 1000 +
+                      GRID * 60000 / tempo).toFixed(0)} ms on`);
+    else if (tempo > 0 && playMode === 'ahead')
+        said.push(`the others hear a key ` +
+                  `${(lastTape.meter * 60 / tempo).toFixed(2)} s later`);
+
+    $('modenote').textContent = said.join('; ');
+}
+
 function showNumbers ()
 {
     if (room === null)
         return;
+
+    showModeNote();
 
     const ms = (x) => Number.isNaN(x) ? 'not yet' : `${x.toFixed(2)} ms`;
     const lines = [
@@ -857,11 +1196,21 @@ function enable ()
 
 function tape (m)
 {
+    lastTape = m;
     diff.take('worklet', m);
     showClock($('clock'), m);
     nodes?.feed(m.probes);
     transport.report(m, performance.now());
     lateCount = m.late;
+
+    /* Caught up: the begin has landed and the stepping is done, or a stop
+       in the log ended the run. The load ahead of the begin unpinned the
+       origin, so a report from before the begin has none. */
+    if (catching && Number.isFinite(m.origin) && !m.catching)
+    {
+        catching = false;
+        status('Caught up with the room.');
+    }
 
     if (m.epoch !== tapeEpoch)
     {
@@ -966,6 +1315,10 @@ async function paramsEdited ({ edits })
         else
             released.add(key);
 
+        /* Its stage was edited away or renamed: nothing was written. */
+        if (e.param === '')
+            continue;
+
         const name = pieceName(doc);
 
         /* The document may move while the worklet works: a splice is made
@@ -1026,7 +1379,9 @@ function showComposer (on)
         onGesture: (g) =>
         {
             const cmd = maker.input(g.chain, g.stage, g.kind, g.x, g.y, g.w,
-                                    g.h, g.button);
+                                    g.h, g.button,
+                                    { chainName: g.chainName,
+                                      stageName: g.stageName });
 
             /* A gesture's end is where a picture that edits its params
                writes them (THC_INPUT_EDITS); what it writes, this peer
@@ -1040,9 +1395,9 @@ function showComposer (on)
         /* A stage's param, out to the room and back at its time -- to this
            peer as to every other, which is what keeps one piece one
            piece. */
-        onParamEdit: (chain, stage, row, text) =>
+        onParamEdit: (chain, stage, row, text, names) =>
         {
-            const cmd = maker.param(chain, stage, row, text);
+            const cmd = maker.param(chain, stage, row, text, names);
 
             ownParams.push(paramKey(cmd));
             send(cmd);
@@ -1054,7 +1409,7 @@ function showComposer (on)
 
         /* A knob node dragged on the canvas: the room's knob command. The
            release repeats the last value and is not sent. */
-        onKnob: (knob, value, commit) =>
+        onKnob: (knob, value, commit, name) =>
         {
             if (commit)
             {
@@ -1062,11 +1417,11 @@ function showComposer (on)
                 return;
             }
 
-            send(maker.knob(knob, value));
+            send(maker.knob(name, value));
 
             /* A peer's own move does not come back through the strip's
                follower (it skips this peer), so it is shown here. */
-            setKnobValue(String(knob), value);
+            setKnobValue(knobIds.get(name) ?? String(knob), value);
         },
 
         onMove: moveStage,
@@ -1146,7 +1501,7 @@ async function join ()
         return;
     }
 
-    maker = new Maker(room.peer, transportNow);
+    maker = new Maker(room.peer, transportNow, { edits: () => editsSeen });
     $('knoblead').value = maker.knobLead;
     $('transportlead').value = maker.transportLead;
 
@@ -1179,7 +1534,7 @@ async function join ()
 
     status(`In ${roomName} as ${name}. Press Start.` +
            (room.playing !== null
-                ? ' The room is playing; you will hear the next Play.'
+                ? ' The room is playing; Start joins it where it is.'
                 : ''));
 
     history.replaceState(null, '', `?${new URLSearchParams(
@@ -1202,7 +1557,16 @@ async function start ()
                                          onMidi: (msgs) => midiOutUI.take(msgs),
                                          onMidiState: (list) =>
                                              midiOutUI.state(list),
+                                         onEdited: edited,
                                          onMirror: fromMirror });
+        roomSynth = {
+            ...synth,
+            edit: (at, text, files, tie) =>
+            {
+                pendingEdits.set(tie, { text, files });
+                synth.edit(at, text, files, tie);
+            },
+        };
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }
@@ -1325,6 +1689,9 @@ async function start ()
 
     await loadFromDoc();
     status(`Started. Claim a seat and press Play.`);
+
+    if (room.playing !== null)
+        await joinRun();
 }
 
 function init ()
@@ -1365,7 +1732,7 @@ function init ()
     $('join').addEventListener('click', join);
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
-    $('apply').addEventListener('click', play);
+    $('apply').addEventListener('click', applyEdit);
     $('stop').addEventListener('click', stop);
     $('tempo').addEventListener('change', tempo);
     $('export').addEventListener('click', exportTape);
@@ -1373,6 +1740,14 @@ function init ()
     {
         releaseAll();
         room.claim($('seat').value === '' ? null : Number($('seat').value));
+    });
+    $('playmode').addEventListener('change', () =>
+    {
+        /* Whatever is held was stamped the old way and is let go that
+           way; the next key goes the new one. */
+        releaseAll();
+        playMode = $('playmode').value;
+        showModeNote();
     });
     $('knoblead').addEventListener('change', () =>
     {
@@ -1436,9 +1811,30 @@ function init ()
        nothing here that a person could not do with the page. */
     window.jam = {
         join, start, play, stop,
-        knob: (knob, value) => send(maker.knob(knob, value)),
+
+        /* A key, as the on-screen keys press one, and the way keys go. */
+        press: (note, velocity) => press(note, velocity),
+        release: (note) => release(note),
+        mode: (m) =>
+        {
+            $('playmode').value = m;
+            $('playmode').dispatchEvent(new Event('change'));
+        },
+        /* A knob by name, or by its row's id as the panel numbers it. */
+        knob: (knob, value) => send(maker.knob(
+            typeof knob === 'string' ? knob
+                                     : knobNames.get(String(knob)), value)),
+        apply: () => applyEdit(),
+
+        /* A file of the document replaced, as a splice (doc.js): what a
+           harness types with, without a keyboard. */
+        setFile: (name, text) => spliceFile(doc, name, text),
+
+        /* Edits this page's worklet has applied since the load. */
+        edits: () => lastTape?.edits ?? 0,
         tempo: (bpm) => send(maker.tempo(bpm)),
         seat: (seat) => room.claim(seat),
+        seatNow: () => room.seat,
         tape: () => tapeText,
 
         /* The panes this page has and the layout they are in, for
@@ -1449,6 +1845,9 @@ function init ()
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
         ready: () => synth !== null && piece !== null && clocksReady(),
+
+        /* A late joiner still stepping up to the room (joinRun). */
+        catching: () => catching,
 
         /* A file as the document has it now. What a harness checks an
            edit against, and what one page holds the other's document

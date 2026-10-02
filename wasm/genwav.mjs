@@ -76,8 +76,10 @@ function usage (argv0)
         '      --levels            peak and RMS by instrument channel\n' +
         '      --sections          mix RMS by arrangement section\n' +
         '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
-        '                          time AT: "AT knob NAME VALUE", "AT tempo BPM"\n' +
-        '                          or "AT stop"; repeatable\n' +
+        '                          time AT: "AT knob NAME VALUE", "AT tempo BPM",\n' +
+        '                          "AT edit FILE.gen", "AT midi CH NOTE VEL",\n' +
+        '                          "AT midioff CH NOTE" or "AT stop";\n' +
+        '                          repeatable\n' +
         '  -q, --quiet             no summary\n');
 }
 
@@ -170,6 +172,9 @@ async function main (argv0, args)
             if (!(c.at >= 0) ||
                 !((op === 'knob' && rest.length === 2) ||
                   (op === 'tempo' && rest.length === 1) ||
+                  (op === 'edit' && rest.length === 1) ||
+                  (op === 'midi' && rest.length === 3) ||
+                  (op === 'midioff' && rest.length === 2) ||
                   (op === 'stop' && rest.length === 0)))
             {
                 process.stderr.write(`${argv0}: cannot read command ` +
@@ -380,24 +385,12 @@ async function main (argv0, args)
         return peak;
     };
 
-    /* The commands, in order of their time; a knob's name resolved to
-       the index the browser host would use, so an unknown one is an
-       error here rather than a silent no-op. */
+    /* The commands, in order of their time. A knob's name is resolved
+       when it applies, since an edit before it can add or take away a
+       knob and move every index after it; an unknown one is an error
+       rather than a silent no-op. Sorted stably, so two commands at one
+       time apply in the order they were given. */
     commands.sort((a, b) => a.at - b.at);
-
-    for (const c of commands)
-        if (c.op === 'knob')
-        {
-            c.knob = M.ccall('tw_knob_index', 'number', ['string'],
-                             [c.rest[0]]);
-
-            if (c.knob < 0)
-            {
-                process.stderr.write(`${argv0}: ${genFile} declares no ` +
-                                     `knob '${c.rest[0]}'\n`);
-                return 1;
-            }
-        }
 
     let next = 0;
     let stopped = false;
@@ -413,12 +406,9 @@ async function main (argv0, args)
      *
        Stepping *to* a time rather than *by* one leaves the transport on
        the same double: the target is `now + dt', which is the sum the
-       old step made. The beat counter is not quite so: stepTransportTo
-       accumulates (target - now) * tempo / 60, and (now + dt) - now is
-       not dt to the last bit, so beat_ here parts from native genwav's
-       by ulps over a long piece. Nothing reads thcTransport::beat, and
-       anything that starts to should derive it rather than compare two
-       hosts' accumulations for equality. */
+       old step made. The beat counter is read off the last tempo change
+       rather than added up a step at a time (thcScheduler), so it does
+       not depend on the steps either. */
     /* `_tw_running()' as well as the clock: a piece that ends itself --
        `section end;' -- stops the transport where it says, and nothing
        after that would move. */
@@ -435,7 +425,38 @@ async function main (argv0, args)
                 M._tw_step_to(c.at);
 
             if (c.op === 'knob')
-                M._tw_knob(c.knob, parseFloat(c.rest[1]));
+            {
+                const k = M.ccall('tw_knob_index', 'number', ['string'],
+                                  [c.rest[0]]);
+
+                if (k < 0)
+                {
+                    process.stderr.write(`${argv0}: ${genFile} declares no ` +
+                                         `knob '${c.rest[0]}' at ${c.at}\n`);
+                    return 1;
+                }
+
+                M._tw_knob(k, parseFloat(c.rest[1]));
+            }
+            else if (c.op === 'edit')
+            {
+                if (!M.ccall('tw_edit', 'number', ['string'], [c.rest[0]]))
+                {
+                    process.stderr.write(`${argv0}: the edit at ${c.at} ` +
+                                         'did not load:\n');
+
+                    for (let k = 0; k < M._tw_edit_error_count(); k++)
+                        process.stderr.write(
+                            `  ${M.ccall('tw_edit_error', 'string',
+                                         ['number'], [k])}\n`);
+
+                    return 1;
+                }
+            }
+            else if (c.op === 'midi' || c.op === 'midioff')
+                M._tw_midi(parseInt(c.rest[0], 10), parseInt(c.rest[1], 10),
+                           c.op === 'midi' ? parseInt(c.rest[2], 10) : 0,
+                           c.op === 'midi' ? 1 : 0);
             else if (c.op === 'tempo')
                 M._tw_tempo(parseFloat(c.rest[0]));
             else

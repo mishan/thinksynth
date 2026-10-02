@@ -229,7 +229,7 @@ export class TransportClock
     constructor (sampleRate)
     {
         this.rate = sampleRate;
-        this.origin = -1;
+        this.origin = NaN;          /* no transport zero yet */
         this.speed = 1;
         this.running = false;
         this.reported = 0;      /* the worklet's `now' in its last message */
@@ -259,7 +259,7 @@ export class TransportClock
      * two is still the less stale. */
     now (contextTime, wallMs = NaN)
     {
-        if (!this.running || this.origin < 0)
+        if (!this.running || Number.isNaN(this.origin))
             return this.reported;
 
         const fromContext =

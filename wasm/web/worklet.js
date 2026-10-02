@@ -86,6 +86,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.aligned = false;   /* the module's frames put on ours */
         this.early = [];        /* messages that arrived before the module */
         this.quanta = 0;        /* since the last post to the page */
+        this.edits = 0;         /* tw_edit_count when last told */
         this.events = [];
 
         /* The probes armed here, by slot, and what each has published
@@ -683,6 +684,37 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.postParamEdits();
         this.postMidi();
 
+        /* An edit applied in this quantum: what the piece is now -- its
+           knobs, its instruments, the channels it listens on -- and what
+           the edit had to say, which is nothing when it went in whole. */
+        const edits = this.M._tw_edit_count();
+
+        if (edits !== this.edits)
+        {
+            this.edits = edits;
+
+            if (edits > 0)
+            {
+                const errors = [];
+                const results = [];
+
+                for (let k = 0; k < this.M._tw_edit_error_count(); k++)
+                    errors.push(this.M.UTF8ToString(this.M._tw_edit_error(k)));
+
+                /* Which of the edits since the last word went in, in the
+                   order they were applied. */
+                for (let k = 0; k < this.M._tw_edit_result_count(); k++)
+                    results.push({ tie: this.M._tw_edit_result_tie(k),
+                                   went: this.M._tw_edit_result(k) !== 0 });
+
+                this.M._tw_edit_results_clear();
+
+                this.port.postMessage({ type: 'edited', count: edits,
+                                        ...this.piece(true), errors,
+                                        results });
+            }
+        }
+
         if (++this.quanta >= TAPE_EVERY)
             this.postTape();
 
@@ -881,6 +913,20 @@ class ThinkProcessor extends AudioWorkletProcessor
             origin: this.M._tw_origin(),
             speed: this.M._tw_speed_now(),
             late: this.M._tw_late(),
+
+            /* A late joiner's transport, still being stepped up to the
+               output: silent until it is (thinkweb.cpp, catchUp). */
+            catching: this.M._tw_catching() !== 0,
+
+            /* Edits applied since the load (thinkweb.cpp, applyEdit): a
+               count that moved is the page's cue to read the piece again. */
+            edits: this.M._tw_edit_count(),
+
+            /* Where `now' falls in beats, at what tempo, and how many
+               beats a bar is: the next bar, for an edit. */
+            beat: this.M._tw_beat(),
+            tempo: this.M._tw_tempo(),
+            meter: this.M._tw_meter(),
 
             /* The loudest capture frame since the last batch, and what the
                accumulator had to throw away. A peak held over a batch rather

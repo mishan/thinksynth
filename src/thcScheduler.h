@@ -616,6 +616,11 @@ public:
     thArg *addKnob (const std::string &name, float value);
     thArg *knob (const std::string &name);
 
+    /* Where the loader writes `@name.min' and the rest: the knob itself,
+       except in a staged edit, where a lent knob's metadata waits in a
+       stand-in for adopt(), as its value waits in pendingValues_. */
+    thArg *knobMeta (const std::string &name);
+
     /* thcAudition's entry points, with a stage for ctx. */
     static int cbHear (void *ctx, const char *target,
                        const char *const *names, const double *values, int n);
@@ -999,6 +1004,68 @@ public:
     void setMasterSeed (unsigned seed);
     unsigned masterSeed (void) const { return masterSeed_; }
 
+    /* ---- an edit while playing ----
+     *
+     * A new text for the piece, applied at one transport time on every
+     * peer. What it keeps is decided by name: a stage whose chain and
+     * stage names are the same in both texts, and whose text did not
+     * change, keeps its instance -- its state, its wake, its bindings --
+     * and everything else is built from the new text, with the seed the
+     * new text gives it. thcGenDiff decides which stages those are; this
+     * is the mechanism.
+     *
+     * Two schedulers, because the new text has to be read before
+     * anything is taken away: a text that does not load changes nothing.
+     * The staged one is made by the host, handed to prepareEdit, loaded
+     * by an ordinary thcGenLoader, and then adopted:
+     *
+     *     thcScheduler next(synth);
+     *     live.prepareEdit(next, keepKnobValues);
+     *     next.setMasterSeed(seed);          // for an unpinned piece
+     *     if (loader.load(path, &next))
+     *         live.adopt(next, plan, why);
+     *
+     * A staged scheduler touches no channel: its instruments are
+     * recorded and not loaded, and adopt() loads the ones that changed.
+     * It builds its stages at the live transport's time, so a new
+     * generator's first wake is the edit's time or its chain's start,
+     * whichever is later. And its knobs are the live ones, by name, so a
+     * kept stage's binding and a new stage's binding are the same knob;
+     * a knob whose declaration did not change keeps the value it has,
+     * and one whose declaration did takes the new text's.
+     */
+    void prepareEdit (thcScheduler &next,
+                      const std::set<std::string> &keepKnobValues);
+
+    bool staging (void) const { return staging_; }
+
+    struct EditPlan
+    {
+        /* (chain, stage) names whose instances survive the edit. */
+        std::set<std::pair<std::string, std::string> > keep;
+
+        /* Chains unchanged as a whole. A chain with embedded nodes keeps
+           its stages only when it is one of these, because what a stage
+           reads from a node is a pointer into the chain's node host, and
+           that host is kept or rebuilt whole. */
+        std::set<std::string> keepChains;
+
+        /* Files the edit changed besides the piece: an instrument whose
+           .dsp or effect is one of these is loaded again although its
+           declaration is the same. */
+        std::set<std::string> changedFiles;
+
+        /* The new text's tempo where its `tempo' line changed, else 0. */
+        double tempo = 0;
+    };
+
+    /* `next', loaded, becomes the piece, at the transport's time now.
+       Leaves `next' empty. False, having applied the edit anyway, when
+       an instrument would not load; `why' says which. */
+    bool adopt (thcScheduler &next, const EditPlan &plan, std::string &why);
+
+    thSynth *synth (void) const { return synth_; }
+
     /* ---- transport ----
      *
      * now() freezes across pause; tempo changes take effect from the
@@ -1070,6 +1137,11 @@ public:
        playing if it was, and otherwise waits at `t'. */
     void seek (double t);
 
+    /* MIDI clock from where the transport is: Start at the top, or Song
+       Position and Continue. For a host that kept the clock from its
+       devices while it stepped the transport silently. */
+    void clockStart (void);
+
     /* Route a live MIDI note into a chain's receive() path (Markov
      * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
      * same thread, so it is a plain call into propagate(). On a stopped
@@ -1080,8 +1152,8 @@ public:
     /* The `input midi;' route: hand the event to every chain that
      * declared the input and whose sink channel matches the event's.
      * What dispatchmidi (or anything else) calls when it does not know
-     * chain indices -- which is always. */
-    void injectMidiEvent (const thcEvent &ev);
+     * chain indices -- which is always. False where no chain took it. */
+    bool injectMidiEvent (const thcEvent &ev);
 
     /* ---- for the tier-one piano roll ----
      *
@@ -1137,6 +1209,10 @@ public:
 
 private:
     double chainStartTime (const thcChain &chain) const;
+
+    /* The same declaration: what an edit leaves on its channel. */
+    static bool sameInstrument (const thcInstrument &a,
+                                const thcInstrument &b);
     /* The values half of applyInstrument, on a channel whose graph is
        already up. Split out so every refusal has one caller, and that
        caller can take the graph back down. */
@@ -1166,7 +1242,8 @@ private:
     void deliverFrom (const thcEvent &ev, int chain);
     void releaseHeld (int channel, int note, double at);
     void endNote (int channel, int note, double at);
-    void flushHeld (void);
+    /* Every held note, or only those the chains in `chains' made. */
+    void flushHeld (const std::set<int> *chains = NULL);
     /* The body of a step, once the clock has been moved: the stages, the
        nodes, the deliveries and the offs, in that order. */
     void runStep (void);
@@ -1209,10 +1286,43 @@ private:
     {
         int              channel;
         sigc::connection conn;
+
+        /* The store it notifies, for a stage param's; NULL for a
+           channel's. What lets an edit drop the connections of the
+           stages it throws away and keep the rest. */
+        const thcParamStore *store;
     };
 
     std::map<std::string, thArg *>  knobs_;
     std::vector<KnobConn>           knobConns_;
+
+    /* ---- a staged edit (prepareEdit, adopt) ----
+     *
+     * staging_: loads here touch no channel. lent_: the live knobs this
+     * one may hand out by name, and keepValues_ the ones whose value
+     * stays; a lent knob is the live scheduler's and is never deleted
+     * here. retired_: knobs an edit stopped declaring, kept alive until
+     * the piece goes, since a pending announcement may still hold one. */
+    bool                            staging_;
+    std::map<std::string, thArg *>  lent_;
+    std::set<std::string>           keepValues_;
+
+    /* A lent knob's value from a changed declaration, held until adopt():
+       the load may yet fail, and a text that does not load changes
+       nothing -- a knob's value included. */
+    std::map<std::string, float>    pendingValues_;
+    std::map<std::string, thArg *>  pendingMeta_;
+    std::vector<thArg *>            retired_;
+
+    /* Borrowed from the live scheduler by a staged one, so the stages
+       it builds are the live one's to keep: not deleted here. */
+    bool                            ownsControl_;
+    bool                            ownsAuditioner_;
+
+    /* Has the transport ever started? What decides whether an edit's new
+       stages are frozen, as start() freezes every stage: from then on a
+       rewind replays their load and not what came after. */
+    bool                            started_;
 
     /* Disconnect and forget every knob binding that pushes into this
        channel. Called by applyValues before it wires the new set, which
@@ -1299,7 +1409,6 @@ private:
     double clockTick_ = 0;
     bool   clocking (void) const;
     void   clockTicks (void);
-    void   clockStart (void);
     bool takeGraphOff (const thcInstrument &inst);
 
     /* The wall-clock moment transportNow_ is, for stamping what goes to
@@ -1320,17 +1429,25 @@ private:
     /* transport */
     bool     running_;
     double   transportNow_;    /* integrated musical seconds             */
-    double   beat_;            /* integrated beats                       */
+    double   beat_;            /* beats at transportNow_                 */
     double   meter_ = 4;       /* beats to the bar                       */
+
+    /* Where the tempo last changed, in seconds and in beats: beat_ is
+       worked out from there rather than added up a step at a time, so it
+       is the same number at the same time whatever the steps were -- a
+       stage an edit creates starts from it. */
+    double   tempoAt_;
+    double   beatAtTempo_;
     double   tempo_;
     gint64   lastMono_;        /* g_get_monotonic_time at last tick      */
     unsigned masterSeed_;      /* stage seeds derive from this           */
 
     /* seq is push order, Later's tie-break; see there. */
     struct Wakeup  { double at; size_t chain, stage; unsigned long seq; };
-    /* `from' is when the note it ends was struck; see dropNoteOffs. */
+    /* `from' is when the note it ends was struck; see dropNoteOffs.
+       `chain', a held note's, is the chain that delivered it, or -1. */
     struct NoteOff { double at; int channel, note; unsigned long seq;
-                     double from; };
+                     double from; int chain = -1; };
 
     /* A queued event. The chanarg name a composer emitted is a pointer
        into memory it owns and may rewrite on its next tick, so the copy

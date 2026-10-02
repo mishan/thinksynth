@@ -306,7 +306,7 @@ export function createComposerView ({ root = document, toMirror,
 
             /* A knob node's track dragged: a knob command, by index. */
             case 'canvasknob':
-                onKnob?.(m.knob, m.value, m.commit);
+                onKnob?.(m.knob, m.value, m.commit, m.name);
                 return true;
 
             /* A stage box dropped elsewhere in its chain. */
@@ -453,7 +453,9 @@ export function createComposerView ({ root = document, toMirror,
         params.panel = panel;
         params.setValue = showPanel(
             body, panel,
-            (row, text) => onParamEdit(about.chain, about.stage, row, text));
+            (row, text) => onParamEdit(about.chain, about.stage, row, text,
+                                       { chainName: about.chainName,
+                                         stageName: about.stageName }));
     };
 
     const showParams = (m) =>
@@ -461,6 +463,7 @@ export function createComposerView ({ root = document, toMirror,
         const box = $('composerparams');
 
         params = { chain: m.chain, stage: m.stage, chainName: m.chainName,
+                   stageName: m.stageName,
                    panel: null, setValue: () => {} };
 
         draw(m.panel === null ? null : JSON.parse(m.panel));
@@ -515,7 +518,9 @@ export function createComposerView ({ root = document, toMirror,
             button.addEventListener('click', () =>
             {
                 box.hidden = true;
-                onParamEdit(m.chain, m.stage, row.id, `@${m.knob}`);
+                onParamEdit(m.chain, m.stage, row.id, `@${m.knob}`,
+                            { chainName: m.chainName,
+                              stageName: m.stageName });
             });
             box.append(button);
         }
@@ -552,8 +557,21 @@ export function createComposerView ({ root = document, toMirror,
      */
     const followParams = (m) =>
     {
-        if (params === null || m.panel === null ||
-            m.chain !== params.chain || m.stage !== params.stage)
+        if (params === null || m.chain !== params.chain ||
+            m.stage !== params.stage)
+            return;
+
+        /* An edit has put another stage at this index: its values under
+           this title would be wrong, and a write goes by name. */
+        if (m.chainName !== params.chainName ||
+            m.stageName !== params.stageName)
+        {
+            $('composerparams').hidden = true;
+            params = null;
+            return;
+        }
+
+        if (m.panel === null)
             return;
 
         const panel = JSON.parse(m.panel);

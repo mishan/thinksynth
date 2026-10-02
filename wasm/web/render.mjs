@@ -221,7 +221,10 @@ const AT_OP = { stop: 1, tempo: 3 };
  * passes while comparing different commands. */
 export function schedule (M, c)
 {
-    if (c.op === 'knob')
+    if (c.op === 'knob' && typeof c.knob === 'string')
+        M.ccall('tw_knob_named', null, ['number', 'string', 'number'],
+                [c.at, c.knob, c.value]);
+    else if (c.op === 'knob')
         M._tw_knob(c.at, c.knob, c.value);
     else if (Object.hasOwn(AT_OP, c.op))
         M._tw_at(c.at, AT_OP[c.op], c.value ?? 0);

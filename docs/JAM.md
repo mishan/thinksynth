@@ -243,7 +243,132 @@ On `jam-m3`, which starts where `jam-m2` ends. Where it stands:
   stale by fifty milliseconds in headless Firefox, which makes a stamp
   earlier than it means to be and eats the lead; the page takes the
   fresher of two readings.
-- Not yet: gate 8.3, two machines on a LAN, by hand.
+- Gate 8.3 passes, by hand: two machines on a LAN, one wired and one on
+  Wi-Fi, the relay on the wired one, playing a piece together at a
+  latency of 3 to 15 ms.
+
+### M4, so far
+
+On `latejoin`, the first of M4's three parts. Where it stands:
+
+- **Late join by fast-forward.** A page that presses Start in a room
+  already playing asks the relay for the run: the start, the document as
+  that start named it, and every stamped command since. It loads that
+  revision, puts transport zero at the start's origin -- a frame its own
+  output went past before the page existed, so a frame below zero is now
+  a frame and not "never started" -- and hands the worklet the begin and
+  the commands in one message. The worklet steps the transport from zero
+  to the present window by window, each command applied at its stamp,
+  with the synth silent: the tape is the room's from the top, and nothing
+  of the past reaches `addNote`.
+- The stepping is spread over windows, two milliseconds of each, and the
+  windows it spans are silent. Stepping ninety seconds of `tide` on a
+  silent synth is under ten milliseconds of work, so it is caught up in
+  a few windows; a single long process() would stall the context, and a
+  stalled context falls behind the relay's clock for good. The mirror
+  takes it in one step.
+- The relay keeps the run. A start begins one, a stop ends it, and every
+  page sends a copy of each stamped command beside its mesh broadcast.
+  The document is snapshotted at the revision the start names, waiting
+  for the starter's edit to arrive on the other socket if it has to: the
+  document moves on during a run -- a param edit is spliced into it by the
+  peer that made it -- and a joiner has to load what the others loaded.
+  Keys in direct mode are not replayed; they were played where they
+  arrived, and no two peers heard them at the same point in the piece.
+- **The gate passes.** `protocoltest.mjs` adds a third peer, at 44.1 kHz
+  and a window of 256, joining ninety seconds into a two-minute run of
+  the four busiest seeded pieces, with knobs and a tempo change on either
+  side of its arrival and knobs of its own once it has caught up. Its
+  whole tape is the other two's and genwav's, nothing late, caught up
+  about 100 ms after its Start. `jamtest.mjs` puts a third page into the
+  room eighteen seconds in; it catches up once its clocks have their
+  samples and its tape is the room's.
+- **The edit harness**, on `editbar`, which starts where `latejoin` ends.
+  An edit is a new text applied at one transport time. It is read into a
+  staged scheduler first, so a text that does not load changes nothing,
+  and the live one adopts it (`thcScheduler::adopt`, `src/thcGenDiff.h`
+  for the rule): a stage whose chain, name and text are the same in both
+  keeps its instance, its next wake and its bindings; everything else is
+  built from the new text, with the seed its place there gives it. The
+  knobs are the live ones, by name, so a moved knob stays where it was
+  moved unless its declaration changed. An instrument whose declaration
+  or files changed is loaded again; one that did not keeps sounding.
+  Queued notes and the offs of sounding ones are delivered as composed.
+- `scripts/editcheck` holds it: every seeded piece, two peers -- windows
+  of 1024 against jittered steps of 2 to 60 ms -- given a comment, a
+  changed param, a chain added and the chain taken away, at times on no
+  grid. One tape through every edit; the channels no edited chain plays
+  on deliver exactly the unedited run's tape, which is what "kept its
+  state" means; the added chain is heard only between its edits; and a
+  rewind afterwards plays what a fresh load of the final text plays.
+- Found on the way, both in the scheduler and both invisible until two
+  chains ticked out of phase. `beat_` was added up a step at a time, so
+  its last bits depended on the steps, and a stage an edit created
+  inherited them (`mirrorball`); it is now read off the last tempo
+  change. And every delivery waited for the end of the step, so a note
+  `xform::humanize` moved to before the tick that made it landed on the
+  tape before or after another chain's notes depending on where the step
+  ended (`loosen`); what is due is now delivered before each tick. Over
+  two minutes of every seeded piece, 24 tapes are unchanged and 9 have
+  lines in a different order; no event is added, lost or moved.
+- **Apply is an edit**, on `editcmd`, which starts where `editbar` ends.
+  While the transport runs, Apply sends the document's `.gen`, and every
+  `.dsp` it has changed since the worklet last loaded one, as an `edit`
+  command stamped for the first bar line past the transport lead. The
+  text rides in the command rather than being read off the document by
+  each peer: the document goes on moving, and every peer has to apply the
+  one revision the sender pressed Apply on. The worklet and the mirror
+  apply it through the same `TW_EDIT`, the relay logs it, and a late
+  joiner steps through it. It goes by the room socket and not the mesh:
+  a peer that missed one would play another piece from there. One made
+  in a run a newer Play has replaced is dropped on arrival. Stopped,
+  Apply is still Play from the top.
+- A knob command names its knob now, and the name is looked up when the
+  command applies. An index was a place in a list an edit can reorder.
+- `genwav.mjs -c "AT edit FILE"` is the reference. `protocoltest.mjs`
+  sends an Apply from one peer ten seconds into every seeded piece, and in
+  the late-join run one edit before the joiner arrives and one after;
+  `jamtest.mjs` changes a chain from one page mid-run. Every peer applies
+  every edit, one tape, genwav's, and not the tape of the run nobody
+  edited.
+- A command that names a chain, a stage, a section or a knob by index --
+  `mute`, `solo`, `section`, `knobwrite`, `param`, `input` -- carries the
+  number of edits its maker had seen, and is dropped where another edit
+  has applied since: an edit that adds a stage above it moves the index.
+- **The three ways to play**, on `playmodes`, which starts where
+  `editcmd` ends: a mode beside the seat, with the relay round trip and
+  what the mode costs at the tempo playing. Direct is unchanged. A
+  quantised key is stamped for the first sixteenth at least the knob
+  lead away, its release at least a sixteenth after that; a key a bar
+  ahead is stamped exactly one bar on. Both are applied at their stamp on
+  every peer, the player included, through a key command the worklet
+  applies inside the step (`TW_NOTE`) -- so a key into a piece's
+  `input midi` composes the same thing everywhere, and is logged for a
+  late joiner. A key a bar ahead onto a plain channel is heard by its
+  player at once and by everyone else a bar later.
+- Keys stamped for one time are applied in an order made from the
+  sender's id and counter, not in the order they arrived: two quantised
+  seats meet on grid lines all the time, and a quantizer passes on what
+  it is handed in the order it is handed it. `protocoltest.mjs` holds two
+  peers' chords on one channel of `hands.gen`, eleven grid lines where
+  they meet, to one tape and genwav's -- and fails with the tie taken
+  out. `jamtest.mjs` plays `hands.gen` from two pages, one quantised and
+  one a bar ahead.
+- A seat is any channel the piece plays -- its instruments, the channels
+  it takes `input midi` on, and the ones its sinks name -- where it was
+  the instruments alone, which gave a piece like `hands.gen` no seats.
+- A gesture on a composer's picture and a stage's param name the stage
+  by chain and stage name as well as by index, and the worklet finds it
+  by name when the command applies: an edit that adds a chain or a stage
+  above it moves every index after it. A command whose stage an edit
+  removed or renamed is dropped, and its sender stops waiting for the
+  edit it would have written. One whose stage is still there is not
+  dropped for an edit its maker had not seen, as one by index is. Stage
+  names are unique within a chain.
+  `protocoltest.mjs` sends a param and a gesture numbered for the piece
+  before such an edit; by name each reaches its stage, and the same
+  command without its names reaches the neighbor.
+- Not yet: by hand across two machines.
 
 ### M6, so far
 
@@ -395,12 +520,10 @@ Then three ways to play, chosen per seat, with the measured round trip shown
 next to the choice so nobody has to guess:
 
 - **Direct.** Notes are scheduled on arrival. Right for peers in one city.
-- **Quantised.** The seat's live input feeds a chain with an
-  `xform::quantize` stage before its sink. A note lands on the grid slot it
-  was played into, on every peer, and jitter shorter than the grid vanishes.
-  With a 16th at 120 bpm that is 125 ms of tolerance. This is free: a live
-  note is an event with a time entering a chain, which `arp` already
-  consumes, and `thcChain::inputMidi` already exists.
+- **Quantised.** The key is stamped for the next grid line at least the
+  knob lead away and applied there on every peer. A note lands on the
+  grid, on every peer, and jitter shorter than the lead vanishes. With a
+  16th at 120 bpm the player hears it up to the lead plus 125 ms late.
 - **Play-ahead.** Every seat hears every *other* seat one beat or one bar
   late, NINJAM's trick. Coherent against the grid, useless for
   call-and-response, and the only thing that works across an ocean.
@@ -572,6 +695,7 @@ beat it applies at; every peer applies it at that beat.
 ```
 transport   { at, op: start | stop | tempo, origin, seed, bpm }
 knob        { at, name, value, from }                latest at wins
+edit        { at, text, files }                     the piece, at a bar
 param       { at, chain, stage, row, text }         a stage's line, spliced
 note        { at, seat, note, velocity, mode }       mode: direct | quantised | ahead
 noteoff     { at, seat, note }

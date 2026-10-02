@@ -32,10 +32,22 @@
  * other and to genwav.mjs's for the same piece and the same command stream,
  * and the late count on both is zero.
  *
+ * Ten seconds in, the first page changes a chain in the document and
+ * presses Apply: the edit goes out stamped for the next bar, and every
+ * peer puts the new text into the piece there.
+ *
+ * Partway through, a third page -- another Chromium -- joins the room that
+ * is already playing and presses Start. It catches up from the relay's log
+ * of the run, moves the knob itself once it has, and its tape, from the
+ * top and not only from its arrival, has to be the other two's.
+ *
  * Then a second room on a piece whose picture is a control: one page
  * plays, the other enlarges gen::life's board and paints a line across it
  * with a pointer, and the two tapes have to be one tape -- and not the
  * tape of the run nobody painted on.
+ *
+ * Then a room on hands.gen, played from both pages -- one quantised, one a
+ * bar ahead -- whose tape has to be one tape and genwav's.
  *
  * And then the other half of that gate: one page opens an instrument on
  * the .dsp canvas, clicks a node and types a number into it. The document
@@ -80,11 +92,20 @@ const nativeBuild = path.resolve(process.argv[4] ?? path.join(top, 'build'));
 const PIECE = 'airports.gen';
 const SECONDS = 30;
 
+/* When the third page arrives, and when it moves the knob, in seconds
+   from Play. */
+const JOIN_AT = 18;
+const JOINER_KNOB_AT = 26;
+
 /* The second half: a piece whose picture is a control, painted on from one
    page while the other listens. Shorter, because what is under test is
    agreement and not endurance. */
 const PAINT_PIECE = 'colony.gen';
 const PAINT_SECONDS = 14;
+
+/* The third: a piece nothing plays but people, played from both pages. */
+const HANDS_PIECE = 'hands.gen';
+const PLAY_SECONDS = 10;
 
 let failures = 0;
 
@@ -315,6 +336,145 @@ async function paintTogether (pages)
         ok('and it is not the tape of the run nobody painted on');
     else
         fail('painting the board changed nothing about what it played');
+}
+
+/* Keys into a piece, from both pages: hands.gen, which composes nothing
+ * but what it is played. One page sits on the quantizer's channel and
+ * plays quantised, the other on an arpeggiator's and plays a bar ahead. A
+ * direct key into a piece would reach the two peers' pieces at two
+ * different points, which is what the other two modes are for -- so the
+ * two tapes have to be one tape, and genwav's under the same keys.
+ */
+async function playTogether (pages)
+{
+    const [A, B] = pages;
+
+    for (const { label, page } of pages)
+    {
+        await page.goto(`${url}&room=jamhands&name=${label}` +
+                        `&piece=${HANDS_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+        await page.waitForFunction(() => window.jam.ready(), null,
+                                   { timeout: 20000 });
+    }
+
+    for (const { page } of pages)
+        await page.waitForFunction(
+            () => window.jam.peers().every((p) => p.path !== 'connecting'),
+            null, { timeout: 15000 }).catch(() => {});
+
+    /* The quantizer takes input on hands.gen's second channel, the first
+       arpeggiator on its first. */
+    const seats = [[A, 1, 'quantised'], [B, 0, 'ahead']];
+
+    for (const [who, seat, mode] of seats)
+    {
+        await who.page.evaluate(([s, m]) =>
+        {
+            window.jam.seat(s);
+            window.jam.mode(m);
+        }, [seat, mode]);
+        await who.page.waitForFunction((s) => window.jam.seatNow() === s,
+                                       seat, { timeout: 5000 })
+            .catch(() => fail(`${who.label} did not get seat ${seat}`));
+    }
+
+    await A.page.evaluate(() => window.jam.play());
+
+    const t0 = Date.now();
+    const at = (ms) => new Promise((r) =>
+        setTimeout(r, Math.max(0, t0 + ms - Date.now())));
+
+    for (let k = 0; k < 6; k++)
+    {
+        await at(2000 + k * 1100);
+        await A.page.evaluate((k) =>
+        {
+            for (const n of [53, 56, 60])
+                window.jam.press(n + (k % 3), 90);
+        }, k);
+        await B.page.evaluate((k) => window.jam.press(65 + k, 90), k);
+
+        await at(2000 + k * 1100 + 450);
+        await A.page.evaluate((k) =>
+        {
+            for (const n of [53, 56, 60])
+                window.jam.release(n + (k % 3));
+        }, k);
+        await B.page.evaluate((k) => window.jam.release(65 + k), k);
+    }
+
+    await at(PLAY_SECONDS * 1000);
+    await A.page.evaluate(() => window.jam.stop());
+    await at(PLAY_SECONDS * 1000 + 3000);
+
+    const results = [];
+
+    for (const { label, page } of pages)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+            late: window.jam.late(),
+        }))) });
+
+    const sent = results.flatMap((r) => r.sent).filter((c) => c.at >= 0);
+    const keys = sent.filter((c) => c.type === 'note');
+    const stopAt = sent.find((c) => c.op === 'stop')?.at;
+
+    const quantised = keys.filter((c) => c.mode === 'quantised');
+    const ahead = keys.filter((c) => c.mode === 'ahead');
+
+    if (quantised.length === 0 || ahead.length === 0)
+    {
+        fail(`${quantised.length} quantised and ${ahead.length} bar-ahead ` +
+             'keys went out; both are wanted');
+        return;
+    }
+
+    /* A sixteenth at 120 is an eighth of a second, and the grid starts at
+       transport zero. */
+    const offGrid = quantised.filter(
+        (c) => Math.abs(c.at * 8 - Math.round(c.at * 8)) > 1e-6);
+
+    if (offGrid.length === 0)
+        ok(`${quantised.length} quantised keys, every one on a sixteenth`);
+    else
+        fail(`quantised keys off the grid: ` +
+             offGrid.map((c) => c.at.toFixed(4)).join(', '));
+
+    ok(`${ahead.length} keys a bar ahead`);
+
+    if (stopAt === undefined)
+    {
+        fail('no stop was sent in the room played into');
+        return;
+    }
+
+    const tapes = results.map((r) => tapeBefore(r.tape, stopAt));
+
+    if (tapes[0] === tapes[1])
+        ok('keys played into the piece from two pages are one tape: ' +
+           `${tapes[0].split('\n').length - 1} events`);
+    else
+        fail(`the played tapes differ: ` +
+             `${firstDifference(tapes[0], tapes[1])}`);
+
+    const want = reference(HANDS_PIECE, nodeBuild,
+                           { commands: sent, knobs: {}, stopAt });
+
+    if (tapes[0] === want)
+        ok('and it is the tape genwav delivers under the same keys');
+    else
+        fail(`the played tape differs from genwav's: ` +
+             `${firstDifference(want, tapes[0])}`);
+
+    for (const r of results)
+        if (r.late.worklet !== 0 || r.late.seen !== 0)
+            fail(`${r.label} applied ${r.late.worklet} late in the room ` +
+                 'played into');
 }
 
 /* A stage's parameter, typed into the popover beside its box.
@@ -803,10 +963,80 @@ try
     }
     await at(8000);
     await B.page.evaluate(() => window.jam.knob(0, 0.77));
+
+    /* An edit, applied while it plays: the wildcard chain always plays,
+       and louder. */
+    await at(10000);
+    {
+        const edited = await A.page.evaluate(() =>
+        {
+            const name = window.jam.piece();
+            const was = window.jam.file(name);
+            const next = was.replace('prob = 0.6; hold = 5 s; vel = 50;',
+                                     'prob = 1; hold = 5 s; vel = 90;');
+
+            if (next === was)
+                return false;
+
+            window.jam.setFile(name, next);
+            window.jam.apply();
+
+            return true;
+        });
+
+        if (!edited)
+            fail('the edit found nothing to change in the piece');
+    }
+
     await at(12000);
     await B.page.evaluate(() => window.jam.tempo(100));
     await at(16000);
     await A.page.evaluate(() => window.jam.knob(0, 0.05));
+
+    /* The late joiner. */
+    await at(JOIN_AT * 1000);
+
+    let C = null;
+
+    {
+        const label = 'joiner';
+        const page = await browsers[0].newPage();
+
+        page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
+        page.on('console', (m) =>
+        {
+            if (m.type() === 'error')
+                errors.push(`${label} console: ${m.text()}`);
+        });
+
+        await page.goto(`${url}&room=jamtest&name=${label}&piece=${PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+
+        try
+        {
+            await page.waitForFunction(
+                () => window.jam.ready() && !window.jam.catching() &&
+                      window.jam.probe().running,
+                null, { timeout: (JOINER_KNOB_AT - JOIN_AT) * 1000 });
+            ok(`a third page joined ${((Date.now() - t0) / 1000 - JOIN_AT)
+                .toFixed(1)} s after arriving, caught up with the room`);
+            C = { label, page };
+        }
+        catch
+        {
+            fail(`the late joiner never caught up -- ${await why(page)}`);
+            await page.close();
+        }
+    }
+
+    await at(JOINER_KNOB_AT * 1000);
+
+    if (C !== null)
+        await C.page.evaluate(() => window.jam.knob(0, 0.6));
+
     await at(SECONDS * 1000);
     await A.page.evaluate(() => window.jam.stop());
     await at(SECONDS * 1000 + 3000);
@@ -814,11 +1044,12 @@ try
     /* What each delivered, and what each saw. */
     const results = [];
 
-    for (const { label, page } of pages)
+    for (const { label, page } of C === null ? pages : [...pages, C])
         results.push({ label, ...(await page.evaluate(() => ({
             tape: window.jam.tape(),
             late: window.jam.late(),
             sent: window.jam.sent(),
+            edits: window.jam.edits(),
             peers: window.jam.peers(),
             margins: window.jam.margins(),
             log: document.getElementById('log').textContent,
@@ -841,8 +1072,8 @@ try
        belongs to no run, and the load a Play does puts the piece back to
        what the file says whatever was moved before it. */
     const sent = results.flatMap((r) => r.sent)
-        .filter((c) => (c.type === 'knob' || c.type === 'transport') &&
-                       c.at >= 0)
+        .filter((c) => (c.type === 'knob' || c.type === 'transport' ||
+                        c.type === 'edit') && c.at >= 0)
         .sort((a, b) => a.at - b.at);
     const stopAt = sent.find((c) => c.op === 'stop')?.at;
 
@@ -857,6 +1088,12 @@ try
                `${tapes[0].split('\n').length - 1} events`);
         else
             fail(`the tapes differ: ${firstDifference(tapes[0], tapes[1])}`);
+
+        if (C !== null && tapes[2] === tapes[0])
+            ok('and the late joiner\'s is the same tape, from the top');
+        else if (C !== null)
+            fail(`the late joiner's tape differs: ` +
+                 `${firstDifference(tapes[0], tapes[2])}`);
 
         /* The knob names, for genwav, by the index a command names one
            by -- which is the module's numbering over every knob the piece
@@ -874,7 +1111,23 @@ try
         else
             fail(`chromium's tape differs from genwav's: ` +
                  `${firstDifference(want, tapes[0])}`);
+
+        /* And the edit is heard: without it, genwav composes something
+           else. */
+        const unedited = reference(PIECE, nodeBuild, {
+            commands: sent.filter((c) => c.type !== 'edit'), knobs, stopAt });
+
+        if (unedited !== want)
+            ok('and not the tape of the run nobody edited');
+        else
+            fail('the edit made no difference to the tape');
     }
+
+    for (const r of results)
+        if (r.edits === 1)
+            ok(`${r.label} applied the edit`);
+        else
+            fail(`${r.label} applied ${r.edits} edits, not 1`);
 
     for (const r of results)
     {
@@ -908,6 +1161,8 @@ try
             fail(`${r.label}: tape against mirror is "${line}"`);
     }
 
+    await C?.page.close();
+
     /* ---- and now somebody paints on a Life board ---- */
 
     await paintTogether(pages);
@@ -915,6 +1170,10 @@ try
     /* ---- and edits an instrument on the canvas ---- */
 
     await editTogether(pages);
+
+    /* ---- and plays into a piece from both ---- */
+
+    await playTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);

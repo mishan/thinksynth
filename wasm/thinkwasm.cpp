@@ -39,6 +39,7 @@
 
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,7 @@
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
+#include "thcGenDiff.h"
 #include "thcGenFile.h"
 
 #include "twevent.h"
@@ -58,6 +60,10 @@ static thcScheduler *sched_;
 static thcGenLoader *loader_;
 
 static sigc::connection conn_;
+
+/* The text the scheduler is playing: the file loaded, or the last edit's. */
+static std::string      current_;
+static std::vector<std::string> editErrors_;
 static twTape           tape_;
 
 /* genwav.cpp's loadComposers, as it stands. */
@@ -113,7 +119,34 @@ EMSCRIPTEN_KEEPALIVE int tw_open (const char *pluginPath)
 
 EMSCRIPTEN_KEEPALIVE int tw_load (const char *genFile)
 {
+    current_ = genFile;
+
     return loader_->load(genFile, sched_) ? 1 : 0;
+}
+
+/* The piece replaced by `genFile', now (thcGenDiff): what the browser
+   host's TW_EDIT does at its stamp. 1 if it is the piece now; the errors,
+   if any, through tw_edit_error. */
+EMSCRIPTEN_KEEPALIVE int tw_edit (const char *genFile)
+{
+    if (!thcGenDiff::apply(*sched_, plugins_, current_, genFile,
+                           std::set<std::string>(), editErrors_))
+        return 0;
+
+    current_ = genFile;
+
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_error_count (void)
+{
+    return (int)editErrors_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_edit_error (int k)
+{
+    return k >= 0 && k < (int)editErrors_.size() ? editErrors_[k].c_str()
+                                                   : "";
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_error_count (void)
@@ -264,6 +297,41 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (int k, double value)
             knob.second->setValue((float)value);
             return;
         }
+    }
+}
+
+/* A key into the piece, now: what the browser host's TW_NOTE does at its
+   stamp for a key on a channel the piece listens on. An off goes in only
+   where its on did, as TW_NOTE's does, whatever an edit since has made of
+   the channel. */
+static std::map<std::pair<int, int>, bool> keyIntoPiece_;
+
+EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
+                                   int on)
+{
+    thcEvent ev = {};
+
+    ev.type = on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+    ev.at = sched_->now();
+    ev.channel = channel;
+    ev.u.note.note = note;
+    ev.u.note.velocity = velocity;
+    ev.u.note.duration = 0;
+    ev.u.note.level = 1;
+
+    const std::pair<int, int> key(channel, note);
+    const auto was = keyIntoPiece_.find(key);
+
+    if (on)
+        keyIntoPiece_[key] = sched_->injectMidiEvent(ev);
+    else if (was == keyIntoPiece_.end())
+        sched_->injectMidiEvent(ev);
+    else
+    {
+        if (was->second)
+            sched_->injectMidiEvent(ev);
+
+        keyIntoPiece_.erase(was);
     }
 }
 

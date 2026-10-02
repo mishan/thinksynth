@@ -60,13 +60,16 @@
 
 #include "config.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <deque>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -76,6 +79,7 @@
 
 #include "gthSynthSource.h"
 
+#include "thcGenDiff.h"
 #include "thcGenFile.h"
 #include "thcMidiExport.h"
 #include "thcMidiRouter.h"
@@ -125,6 +129,8 @@
 /* Where an export's piece is written to be loaded from: not the one being
    played, which the export must not disturb. */
 #define TW_EXPORT_FILE "/export.gen"
+/* Where an edit's new text is put while it is read (applyEdit). */
+#define TW_EDIT_FILE "/piece-edit.gen"
 
 /* Where the shipped pieces are kept, for the menu's sake alone: the piece
    being played is written to TW_PIECE_FILE above and loaded from there. */
@@ -175,6 +181,8 @@ enum TransportOp
     TW_SECTION,
     TW_KNOBWRITE,
     TW_SEEK,
+    TW_EDIT,
+    TW_NOTE,
 };
 
 struct Command
@@ -208,7 +216,8 @@ struct Scheduled
 {
     double at;
     int    op;
-    int    knob;                /* TW_KNOB: an index into knobs_       */
+    int    knob;                /* TW_KNOB: an index into knobs_, when
+                                   `row' does not name the knob       */
     double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's,
                                    TW_MUTE's and TW_SOLO's (0 or 1) */
 
@@ -237,8 +246,48 @@ struct Scheduled
        Strings, unlike every other field here, because a param is named by
        name: the plugin's own registration order is the only index there
        would be, and a peer a revision behind would then set its
-       neighbour. */
+       neighbour.
+
+       TW_NOTE: a key, at a transport time -- a quantised or a play-ahead
+       seat's, which lands where it is stamped on every peer. Into the
+       piece through `input midi' if the piece takes it on that channel
+       when the key applies, straight onto the channel if not; `heard'
+       drops it in the second case, for the player who already heard it.
+       `value' is the velocity.
+
+       TW_KNOB: `row' is the knob's name, when the command named one.
+       TW_EDIT: `text' is the piece's new text; `files' below are the other
+       files it changed. */
     std::string row, text;
+
+    /* TW_EDIT: the other files it carries, as name and text, written only
+       once its text has loaded (applyEdit). */
+    std::vector<std::pair<std::string, std::string> > files;
+
+    /* TW_INPUT, TW_PARAM: the stage by chain and stage name as well, when
+       the command carries them. Looked up when it applies (namedStage):
+       an edit that adds a chain or a stage above this one moves every
+       index after it, and a command made before the edit and applied
+       after it would otherwise reach a neighbor. */
+    std::string chainName, stageName;
+
+    int    channel, note;       /* TW_NOTE                             */
+    bool   on, heard;           /* TW_NOTE                             */
+
+    /* The order among commands stamped for one time: lower first, and
+       arrival order within one. Zero but for an edit and a key, whose
+       sender makes it from its own id and counter. Two Applies land on
+       one bar line, and which is applied last is which text plays; two
+       quantised seats put keys on one grid line all the time, and the
+       order they reach the piece in is what it composes from. Neither can
+       be the order they happened to reach this peer in. */
+    double tie;
+
+    /* The edit count (edits_) of the piece its maker was looking at, or -1
+       for a command that does not say. One that names a chain, a stage, a
+       section or a knob by index alone is dropped when an edit has applied
+       since: the index may name a neighbor now. */
+    int rev;
 };
 
 /* A chain's mute or solo the canvas has asked for and the command has not
@@ -246,8 +295,12 @@ struct Scheduled
    toggles. Dropped when the command lands with that value, and at a load. */
 std::map<std::pair<int, bool>, bool> mixPending_;
 
-/* See tw_command_tag. */
+/* See tw_command_tag and tw_command_rev. */
 std::string nextTag_;
+int         nextRev_ = -1;
+
+/* Edits applied since the load (applyEdit). */
+int         edits_;
 
 /* The same for an arrangement cell, by (section, chain): the level asked
    for, until the `section' command lands with it. */
@@ -269,12 +322,15 @@ double                rate_;
 /* The scheduler's commands, in order of `at' and in arrival order within
    one: the ones for the top of the next window carry an `at' below zero
    and so come first, and the stamped ones follow in the order the step
-   will want them. */
-std::vector<Scheduled> scheduled_;
+   will want them. A deque, since a late joiner's catching up takes the
+   whole room's log off the front one at a time. */
+std::deque<Scheduled>  scheduled_;
 int                    late_;
 
-/* Where the transport clock is pinned to the output, or -1 on originFrame_
- * while the transport has never been started: transport time originAt_ is
+/* Where the transport clock is pinned to the output, when pinned_ says it
+ * is -- it is not while the transport has never been started. A frame can
+ * be below zero: a peer that joins a room already playing has its
+ * transport zero before its own context existed. Transport time originAt_ is
  * frame originFrame_, and a second of transport takes rate_/speed_ frames
  * from there.
  *
@@ -296,7 +352,8 @@ int                    late_;
  * and where that time came from is the host's business. The desktop's own
  * timer would scale its dt instead; it has no such control today.
  */
-double originFrame_ = -1;
+bool   pinned_;
+double originFrame_;
 double originAt_ = 0;
 double speed_ = 1;
 
@@ -324,6 +381,43 @@ bool   armed_;
 double armFrom_ = 0;
 double armFrame_;
 
+/* A late joiner's begin: transport zero at a frame already gone by, and the
+ * transport brought up to the present rather than started now and counted.
+ *
+ * The run from zero to here is stepped as it was stepped on the peers that
+ * were playing it -- window by window, the room's logged commands applied at
+ * their stamps inside the step -- with the synth silent, so a note composed
+ * in the first minute reaches the tape and never reaches addNote. Nothing
+ * of the past is heard: a drone that started before the join is not
+ * sounding here, and every note from the join on is.
+ *
+ * In the worklet the catching up is spread over windows, a slice of CPU
+ * each, and the windows it spans are silent. All of it in one process()
+ * would stall the audio thread for as long as the piece has been playing
+ * takes to step, and a context that stalls falls behind the relay's clock
+ * for good. The mirror has no audio thread to stall and takes it in one. */
+bool   catchUp_;            /* the armed begin may lie in the past */
+bool   catching_;           /* the transport is behind the output */
+double catchFrame_;         /* how far the stepping has got */
+bool   mirror_;             /* silent for good (tw_silent) */
+
+/* A MIDI channel's chanargs while catching up: the last of each, sent once
+   it is over (midiCaughtUp), as a seek sends them. */
+std::map<std::pair<int, std::string>, double> catchControls_;
+void midiCaughtUp (void);
+
+/* Milliseconds of stepping a window may spend catching up. A window is
+   5.3 ms at 256 and 48 kHz; this leaves the render itself most of it. */
+double catchBudget_ = 2.0;
+
+/* performance.now() where there is one. An AudioWorkletGlobalScope need
+   not have it; Date.now() is a millisecond coarse, which a budget of two
+   of them can live with. */
+EM_JS(double, tw_clock_ms, (), {
+    return typeof performance !== 'undefined' && performance.now
+        ? performance.now() : Date.now();
+});
+
 /* The piece as thcGenEdit reads it back: the authored spellings, the chains
  * and their stages in order.
  *
@@ -347,7 +441,7 @@ thcGenEdit::Doc canvasDoc_;
 struct AppliedParam
 {
     double      at;
-    int         chain, stage;       /* the scheduler's numbering */
+    int         chain, stage;       /* TW_PARAM: the sender's numbering */
     std::string row, text;          /* as the command carried them */
 
     std::string chainName;          /* the document's, for a splice */
@@ -402,6 +496,17 @@ sigc::connection     delivery_;
    the times. */
 int epoch_;
 
+/* Where each stamped key's on went, by channel and note, so that its off
+   goes the same way (TW_NOTE): an edit between the two can change whether
+   the piece takes input on the channel, and an off sent the other way
+   leaves the note held. Emptied at each begin, where a late joiner's
+   catching up starts from too. */
+enum KeyRoute { KEY_PIECE, KEY_CHANNEL, KEY_HEARD };
+std::map<std::pair<int, int>, KeyRoute> keyRoutes_;
+
+void keyOnChannel (int channel, float note, float velocity, bool on,
+                   double at);
+
 /* Whatever was stamped for the run that is ending names a transport time
    that is about to mean something else, so it goes. What is stamped for
    "the top of the next window" -- an `at' below zero -- is not for a run
@@ -438,11 +543,9 @@ void applyDue (double start, int len)
         switch (c.type)
         {
             case CMD_NOTE_ON:
-                synth_->addNote(c.channel, c.note, c.velocity);
-                break;
-
             case CMD_NOTE_OFF:
-                synth_->delNote(c.channel, c.note);
+                keyOnChannel(c.channel, c.note, c.velocity,
+                             c.type == CMD_NOTE_ON, -1);
                 break;
 
             case CMD_MIDI_ON:
@@ -483,6 +586,7 @@ void applyDue (double start, int len)
                         sched_->start();
                         originAt_ = sched_->now();
                         originFrame_ = start;
+                        pinned_ = true;
                         break;
 
                     /* The page's Stop: everything down in a few tens of
@@ -543,6 +647,7 @@ void beginDue (double start, int len)
        that at the load (tw_piece_load). */
     sched_->reset();
     epoch_++;
+    keyRoutes_.clear();
 
     /* From the top, or from where a seek said: played up to there without
        a sound, and the frame below pinned to wherever that is. */
@@ -554,8 +659,20 @@ void beginDue (double start, int len)
     /* A begin whose frame has already gone by -- it arrived late, or was
        stamped for a frame this synth had already rendered -- starts now,
        and is counted: the peers that started on time are ahead of this
-       one by the difference, for good. */
-    if (armFrame_ < start)
+       one by the difference, for good. Unless it was asked to catch up,
+       which is a late joiner's begin: then zero stays where the room put
+       it and the stepping from there is catchUp's. */
+    pinned_ = true;
+
+    if (armFrame_ < start && catchUp_)
+    {
+        originFrame_ = armFrame_;
+        catching_ = true;
+        catchFrame_ = armFrame_;
+        catchControls_.clear();
+        synth_->setSilent(true);
+    }
+    else if (armFrame_ < start)
     {
         originFrame_ = start;
         late_++;
@@ -564,6 +681,16 @@ void beginDue (double start, int len)
         originFrame_ = armFrame_;
 
     sched_->start();
+}
+
+/* Not behind any more, or never was: the synth sounds again, unless it is
+   a mirror's, which never does. */
+void endCatching (void)
+{
+    if (catching_ && !mirror_)
+        synth_->setSilent(false);
+
+    catching_ = false;
 }
 
 /* A stage by chain and stage index, or NULL. The index pair is the
@@ -586,15 +713,16 @@ thcStage *stageAt (int chain, int stage)
 /* A stage's parameter, set: the piece's own text spliced, and the running
  * stage poked so that the new line is heard from here. What TW_PARAM does,
  * and what a gesture's end does for a THC_INPUT_EDITS picture (`input'),
- * whose record says so and carries the command's tag. `row' is the param,
- * `text' the part of the line to complete against the file
+ * whose record says so and carries the command's tag. `sent' numbers the
+ * stage as a TW_PARAM's sender did, `c' as the piece now does. `row' is the
+ * param, `text' the part of the line to complete against the file
  * (src/StagePanel.h). False when there was nothing to write.
  *
  * Both halves here and nowhere else, so that there is one door: a second
  * one opening at a different moment is exactly the divergence the stamp
  * exists to stop. */
 static bool
-writeParam (const Scheduled &c, const std::string &row,
+writeParam (const Scheduled &c, const Scheduled &sent, const std::string &row,
             const std::string &text, bool input)
 {
     StagePanel target;
@@ -642,9 +770,12 @@ writeParam (const Scheduled &c, const std::string &row,
 
     AppliedParam done;
 
+    /* As the command carried them, which is how the page that sent it
+       knows it for its own -- not where namedStage found the stage, which
+       an edit may have moved. */
     done.at = c.at;
-    done.chain = c.chain;
-    done.stage = c.stage;
+    done.chain = sent.chain;
+    done.stage = sent.stage;
     done.row = row;
     done.text = text;
     done.chainName = canvasDoc_.chains[(size_t)c.chain].name;
@@ -716,12 +847,116 @@ captureEdits (const Scheduled &c, thcStage *st)
                 same = true;
 
         if (!same)
-            writeParam(c, info->name, text, true);
+            writeParam(c, c, info->name, text, true);
     }
 }
 
-void applyScheduled (const Scheduled &c)
+void applyEdit (const Scheduled &c);
+
+/* Does a chain take `input midi' on this channel? */
+bool listensOn (int channel)
 {
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        if (!c->inputMidi)
+            continue;
+
+        if (c->sinks.empty())
+            return true;
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+            if (c->sinks[k].channel == channel)
+                return true;
+    }
+
+    return false;
+}
+
+/* `c' with its chain and stage indices made the ones its names give, in the
+ * piece as it is now. True if it names a stage that is there -- by name
+ * when it has names, by index when it has none -- and false, having said
+ * so, when the names find nothing: the stage has been edited away or
+ * renamed, and a command meant for it is dropped rather than handed to
+ * whatever stands in its place.
+ */
+bool namedStage (Scheduled &c)
+{
+    if (c.chainName.empty() || c.stageName.empty())
+        return true;
+
+    for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+    {
+        const thcChain *ch = sched_->chain(ci);
+
+        if (ch->name != c.chainName)
+            continue;
+
+        for (size_t si = 0; si < ch->stages.size(); si++)
+            if (ch->stages[si]->name == c.stageName)
+            {
+                c.chain = (int)ci;
+                c.stage = (int)si;
+                return true;
+            }
+
+        break;
+    }
+
+    /* Once per stage, not per command: a drag on a stage renamed under it
+       sends one for every move. */
+    static std::string lastDropped;
+    const std::string which = c.chainName + " " + c.stageName;
+
+    if (which != lastDropped)
+        fprintf(stderr, "no stage %s in chain %s now; commands for it are "
+                "dropped\n", c.stageName.c_str(), c.chainName.c_str());
+
+    lastDropped = which;
+
+    return false;
+}
+
+void applyScheduled (const Scheduled &given)
+{
+    Scheduled c = given;
+
+    /* A command that names its stage is found by name (namedStage), so an
+       edit since it was made moves nothing it depends on. */
+    const bool named = !c.chainName.empty() && !c.stageName.empty();
+
+    if (c.rev >= 0 && c.rev != edits_ && !named)
+        switch (c.op)
+        {
+            case TW_MUTE: case TW_SOLO: case TW_SECTION: case TW_KNOBWRITE:
+            case TW_PARAM: case TW_INPUT:
+                return;
+        }
+
+    if ((c.op == TW_INPUT || c.op == TW_PARAM) && !namedStage(c))
+    {
+        /* Reported as an edit that wrote nothing (an empty `param'): the
+           page that sent a param or a gesture's end waits for its edit. */
+        if (c.op == TW_PARAM || c.kind == THC_IN_RELEASE)
+        {
+            AppliedParam none;
+
+            none.at = c.at;
+            none.chain = c.chain;
+            none.stage = c.stage;
+            none.row = c.row;
+            none.text = c.text;
+            none.docStage = -1;
+            none.input = c.op == TW_INPUT;
+            none.tag = none.input ? c.text : std::string();
+
+            applied_.push_back(none);
+        }
+
+        return;
+    }
+
     switch (c.op)
     {
         case TW_STOP:
@@ -751,7 +986,7 @@ void applyScheduled (const Scheduled &c)
             if (c.value <= 0)
                 break;
 
-            if (originFrame_ >= 0)
+            if (pinned_)
             {
                 const double at = c.at < 0 ? sched_->now() : c.at;
 
@@ -770,8 +1005,17 @@ void applyScheduled (const Scheduled &c)
                (thcScheduler::bindKnob). By index into the list the page
                was handed at the load: a name would have to be copied into
                the command, and a copy has a length, and a knob whose name
-               ran past it was silently never moved. */
-            if (c.knob >= 0 && c.knob < (int)knobs_.size())
+               ran past it was silently never moved.
+
+               By name when the command carries one, and looked up here,
+               when it applies: an edit can add a knob or take one away, and
+               an index made before that names a different knob after it. */
+            if (!c.row.empty())
+            {
+                if (thArg *k = sched_->knob(c.row))
+                    k->setValue((float)c.value);
+            }
+            else if (c.knob >= 0 && c.knob < (int)knobs_.size())
                 knobs_[c.knob]->setValue((float)c.value);
 
             break;
@@ -855,6 +1099,55 @@ void applyScheduled (const Scheduled &c)
             break;
         }
 
+        case TW_EDIT:
+            applyEdit(c);
+            break;
+
+        case TW_NOTE:
+        {
+            /* An on goes into the piece or onto the channel by the piece
+               as it is when the key applies, not as a page saw it earlier:
+               an edit stamped before the key can change it. Its off follows
+               it. */
+            const std::pair<int, int> key(c.channel, c.note);
+            const auto was = keyRoutes_.find(key);
+            KeyRoute route = listensOn(c.channel) ? KEY_PIECE
+                             : c.heard            ? KEY_HEARD
+                                                  : KEY_CHANNEL;
+
+            if (c.on)
+                keyRoutes_[key] = route;
+            else if (was != keyRoutes_.end())
+            {
+                route = was->second;
+                keyRoutes_.erase(was);
+            }
+
+            if (route == KEY_PIECE)
+            {
+                /* CMD_MIDI_ON's event, at the time it was stamped for
+                   rather than the top of whichever window it arrived
+                   in -- which is what makes a key into the piece compose
+                   the same thing on every peer. */
+                thcEvent ev = {};
+
+                ev.type = c.on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+                ev.at = sched_->now();
+                ev.channel = c.channel;
+                ev.u.note.note = c.note;
+                ev.u.note.velocity = (int)c.value;
+                ev.u.note.duration = 0;
+                ev.u.note.level = 1;
+
+                sched_->injectMidiEvent(ev);
+            }
+            else if (route == KEY_CHANNEL)
+                keyOnChannel(c.channel, (float)c.note, (float)c.value, c.on,
+                             sched_->now());
+
+            break;
+        }
+
         case TW_STAGEPARAM:
         {
             /* One numeric param of one stage, set at `at' inside the step
@@ -909,7 +1202,7 @@ void applyScheduled (const Scheduled &c)
          * the divergence the stamp exists to stop.
          */
         case TW_PARAM:
-            writeParam(c, c.row, c.text, false);
+            writeParam(c, given, c.row, c.text, false);
             break;
 
         case TW_INPUT:
@@ -997,7 +1290,7 @@ void applyScheduled (const Scheduled &c)
 
 /* The transport across the window whose first frame is `start', with the
    scheduler's commands applied where they fall in it. */
-void step (double start, int len)
+void step (double start, double len)
 {
     /* The ones for the top of this window, in arrival order: they sort
        ahead of everything stamped, they are what "now" means to a solo
@@ -1056,16 +1349,68 @@ void step (double start, int len)
     sched_->stepTransportTo(target);
 }
 
+/* A late joiner's transport, stepped from where it has got to toward
+ * `start', the first frame of the window about to be rendered: the room's
+ * windows as they were, the commands in them applied at their stamps, and
+ * the silent synth given its process() after each so its command ring is
+ * drained as a rendering one's would be. Stops after `budgetMs' of it, or
+ * never for a budget below zero.
+ *
+ * True once there -- the window at `start' is then stepped as any other --
+ * or once there is nothing to catch up to: a stop in the log ends the run
+ * wherever it said. */
+bool catchUp (double start, int len, double budgetMs)
+{
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+
+    /* Two slices a window whatever they cost: a budget smaller than one
+       slice would otherwise step one window per window rendered, which is
+       the output's own pace, and the transport would never catch it. */
+    int slices = 0;
+
+    while (catchFrame_ < start && sched_->running())
+    {
+        /* Not rounded: the origin is wherever the room's clock put it,
+           a fraction of a frame and all, and a last slice rounded down
+           to nothing would never arrive. */
+        const double n = std::min<double>(len, start - catchFrame_);
+
+        step(catchFrame_, n);
+        synth_->process();
+        catchFrame_ += n;
+
+        if (budgetMs >= 0 && ++slices >= 2 && tw_clock_ms() - t0 >= budgetMs)
+            break;
+    }
+
+    if (catchFrame_ < start && sched_->running())
+        return false;
+
+    endCatching();
+
+    if (sched_->running() && !mirror_)
+        midiCaughtUp();
+
+    return true;
+}
+
 /* In order of `at', arrival order within one, like push(). An `at' below
    zero is "the top of the next window", and every one of those is below
    every stamped one, so they land at the front in the order they came. */
-void schedule (const Scheduled &c)
+void schedule (Scheduled c)
 {
+    c.rev = nextRev_;
+    nextRev_ = -1;
+
     scheduled_.insert(std::upper_bound(scheduled_.begin(), scheduled_.end(),
                                        c,
                                        [](const Scheduled &a,
                                           const Scheduled &b)
-                                       { return a.at < b.at; }),
+                                       {
+                                           return a.at != b.at
+                                               ? a.at < b.at
+                                               : a.tie < b.tie;
+                                       }),
                       c);
 }
 
@@ -1389,6 +1734,7 @@ std::vector<CanvasMix> canvasMixes_;
 struct CanvasKnob
 {
     int    knob;
+    std::string name;
     double value;
     bool   commit;
 };
@@ -1576,7 +1922,10 @@ public:
     void control (int channel, const std::string &name, double value,
                   gint64 when) override
     {
-        router_.control(channel, name, value, when);
+        if (catching_)
+            catchControls_[std::make_pair(channel, name)] = value;
+        else
+            router_.control(channel, name, value, when);
     }
 
     void flush (int channel) override
@@ -1592,6 +1941,9 @@ public:
 
     void clock (int kind, int position, gint64 when) override
     {
+        if (catching_)
+            return;
+
         twMidiMsg r = {};
 
         r.len = thcMidiRouter::clockBytes(kind, position, r.bytes);
@@ -1690,8 +2042,14 @@ public:
     std::vector<twMidiMsg> out;
 
 private:
+    /* Nothing while a late joiner catches up: the run's past is as
+       silent on a device as on the synth (catchUp), where it would
+       otherwise go out all at once, stamped long gone. */
     void emit (const thcMidiRouter::Msg &m)
     {
+        if (catching_)
+            return;
+
         twMidiMsg r = {};
 
         r.when = (double)m.when;
@@ -1726,6 +2084,42 @@ private:
 };
 
 twMidiOut midiOut_;
+
+/* A device heard none of the run a late joiner stepped through: not the
+   Start, so it is told where the run is now and to go on from there, and
+   not the controllers, so it is sent where each ended up. */
+void midiCaughtUp (void)
+{
+    sched_->clockStart();
+
+    for (const auto &c : catchControls_)
+        midiOut_.control(c.first.first, c.first.second, c.second,
+                         twMidiOut::now());
+
+    catchControls_.clear();
+}
+
+/* A key straight onto a channel, wherever the channel sounds: the synth,
+   or the device an instrument played over MIDI is on, as the scheduler's
+   own notes do (thcScheduler::deliver, endNote). At transport time `at',
+   or at the window about to be rendered where it is below zero. */
+void keyOnChannel (int channel, float note, float velocity, bool on,
+                   double at)
+{
+    const gint64 when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
+
+    if (!sched_->playsOverMidi(channel))
+    {
+        if (on)
+            synth_->addNote(channel, note, velocity);
+        else
+            synth_->delNote(channel, note);
+    }
+    else if (on)
+        midiOut_.noteOn(channel, (int)note, (int)velocity, 1, when);
+    else
+        midiOut_.noteOff(channel, (int)note, when);
+}
 
 /* Every instrument naming `pattern' (all of them, where it is empty) whose
  * place has changed -- its route, or the ports there are -- taken off and
@@ -1776,6 +2170,103 @@ int reroute (const std::string &pattern)
     return n;
 }
 
+/* What the last edit had to say. */
+std::vector<std::string> editErrors_;
+
+/* Each edit applied since the page last asked, by its tie, and whether it
+   went in: what the page keeps its idea of the playing text by (jam.js). */
+std::vector<std::pair<double, int> > editResults_;
+
+/* A .dsp into the module's files, where an instrument is looked up. */
+bool installDsp (const std::string &name, const std::string &text)
+{
+    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
+
+    /* An effect graph is `fx/echo.dsp': a name with a directory in it,
+       looked up under dsp/ the way a piece's `effect' clause spells it.
+       MEMFS does not make parents on a write, so each one is made here,
+       and one that already exists is not an error. */
+    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
+         slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+
+    return writeFile(path.c_str(), text.c_str());
+}
+
+/* A new text for the piece, at the time the command was stamped for
+ * (thcGenDiff): what it keeps and what it builds is the same answer on
+ * every instance handed the same two texts at the same time. The piece's
+ * own file is the text it is replacing -- param edits spliced in and all,
+ * which is what the stages were built from -- and becomes the new one if
+ * it loads.
+ *
+ * What the host holds about the piece follows: the knobs by index, the
+ * sinks' channels, the text as read back, and the canvas's stages, which
+ * point at instances an edit may just have destroyed. */
+void applyEdit (const Scheduled &c)
+{
+    std::set<std::string> changed;
+
+    for (const auto &f : c.files)
+        changed.insert(f.first);
+
+    editErrors_.clear();
+
+    /* A press made before this and stamped after it is dropped (`rev'), and
+       would otherwise show as asked for until the next load. */
+    mixPending_.clear();
+    sectionPending_.clear();
+
+    if (!writeFile(TW_EDIT_FILE, c.text.c_str()))
+    {
+        editErrors_.push_back("the edit could not be written down");
+        editResults_.push_back(std::make_pair(c.tie, 0));
+        edits_++;
+        return;
+    }
+
+    /* The files it carries go in only once its text has loaded: a refused
+       edit leaves every instrument's .dsp as it was, so the next Apply
+       still finds them changed. */
+    if (!thcGenDiff::apply(*sched_, plugins_, TW_PIECE_FILE, TW_EDIT_FILE,
+                           changed, editErrors_,
+                           [&c]
+                           {
+                               for (const auto &f : c.files)
+                                   installDsp(f.first, f.second);
+                           }))
+    {
+        editResults_.push_back(std::make_pair(c.tie, 0));
+        edits_++;
+        return;
+    }
+
+    editResults_.push_back(std::make_pair(c.tie, 1));
+
+    writeFile(TW_PIECE_FILE, c.text.c_str());
+
+    canvasDoc_ = thcGenEdit::Doc();
+
+    std::string why;
+
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+        editErrors_.push_back("the edit cannot be read back: " + why);
+
+    knobs_.clear();
+
+    for (const auto &k : sched_->knobs())
+        knobs_.push_back(k.second);
+
+    collectSinks();
+
+    if (canvas_ != NULL)
+        canvas_->SetPiece(canvasDoc_.chains.empty() ? NULL : &canvasDoc_,
+                          sched_);
+
+    edits_++;
+}
+
 } /* namespace */
 
 extern "C" {
@@ -1794,7 +2285,6 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
     incoming_.assign(maxFrames > 0 ? (size_t)maxFrames : 1, 0.0f);
     pending_.reserve(TW_PENDING);
-    scheduled_.reserve(TW_PENDING);
 
     mkdir(TW_DSP_DIR, 0777);
 
@@ -1891,17 +2381,7 @@ EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
    over before the first piece is loaded; a worklet cannot fetch. */
 EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
 {
-    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
-
-    /* An effect graph is `fx/echo.dsp': a name with a directory in it,
-       looked up under dsp/ the way a piece's `effect' clause spells it.
-       MEMFS does not make parents on a write, so each one is made here,
-       and one that already exists is not an error. */
-    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
-         slash != std::string::npos; slash = path.find('/', slash + 1))
-        mkdir(path.substr(0, slash).c_str(), 0777);
-
-    return writeFile(path.c_str(), text) ? 1 : 0;
+    return name != NULL && text != NULL && installDsp(name, text) ? 1 : 0;
 }
 
 /* What the page's menus are drawn from: every .dsp this module has been
@@ -2051,13 +2531,17 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
        alone: it is what the listener asked for, not what the last piece
        was, and a load that quietly put it back to 1 would be a control
        that forgot itself every time somebody chose a piece. */
-    originFrame_ = -1;
+    pinned_ = false;
     originAt_ = 0;
+    endCatching();
 
     tape_.clear();
     knobs_.clear();
     sinks_.clear();
     applied_.clear();
+    edits_ = 0;
+    editErrors_.clear();
+    editResults_.clear();
 
     sched_->stop();
 
@@ -2197,6 +2681,18 @@ EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
     return sched_->tempo();
 }
 
+/* Beats at the transport's now, and beats to a bar: what a room page picks
+   the next bar with, for an edit. */
+EMSCRIPTEN_KEEPALIVE double tw_beat (void)
+{
+    return sched_->beat();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_meter (void)
+{
+    return sched_->meter();
+}
+
 /* Whether the tempo means anything to this piece.
  *
  * It scales beat-valued durations and nothing else, so a piece written
@@ -2308,22 +2804,7 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int k)
    keys, answered by the piece rather than guessed at. */
 EMSCRIPTEN_KEEPALIVE int tw_listens (int channel)
 {
-    for (size_t i = 0; i < sched_->chainCount(); i++)
-    {
-        const thcChain *c = sched_->chain(i);
-
-        if (!c->inputMidi)
-            continue;
-
-        if (c->sinks.empty())
-            return 1;
-
-        for (size_t k = 0; k < c->sinks.size(); k++)
-            if (c->sinks[k].channel == channel)
-                return 1;
-    }
-
-    return 0;
+    return listensOn(channel) ? 1 : 0;
 }
 
 /* ---- the channels the piece is asking somebody to aim ---- */
@@ -2744,6 +3225,15 @@ EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
     return c != NULL ? (int)c->stages.size() : 0;
 }
 
+/* What the piece calls a stage -- `stage a gen::arp' is "a" -- as opposed to
+   tw_stage_name's plugin. Empty for a stage the piece did not name. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_label (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL ? s->name.c_str() : "";
+}
+
 EMSCRIPTEN_KEEPALIVE const char *tw_stage_name (int chain, int stage)
 {
     const thcStage *s = stageAt(chain, stage);
@@ -2838,15 +3328,16 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 mixPending_[{ (int)chain, true }] = on;
             });
 
-        /* A knob node's track, dragged: by index, which is how a knob
-           command names one. */
+        /* A knob node's track, dragged: by index, which is how the solo
+           page's knob command names one, and by name, which is a room's. */
         canvas_->sigKnob.connect(
             [](std::string name, double value, bool commit)
             {
                 for (size_t i = 0; i < knobs_.size(); i++)
                     if (knobs_[i]->name() == name)
                     {
-                        canvasKnobs_.push_back({ (int)i, value, commit });
+                        canvasKnobs_.push_back({ (int)i, name, value,
+                                                 commit });
                         break;
                     }
             });
@@ -3109,6 +3600,13 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_index (int k)
 {
     return k >= 0 && k < (int)canvasKnobs_.size() ? canvasKnobs_[k].knob
                                                   : -1;
+}
+
+/* And its name, which is what a room's knob command carries. */
+EMSCRIPTEN_KEEPALIVE const char *tw_canvas_knob_name (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size()
+        ? canvasKnobs_[k].name.c_str() : "";
 }
 
 EMSCRIPTEN_KEEPALIVE double tw_canvas_knob_value (int k)
@@ -4038,8 +4536,11 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
 }
 
 /* A start from the top, with transport zero at `originFrame' exactly. A
-   frame already rendered, or below zero, starts at the next window and
-   counts as late.
+   frame already rendered starts at the next window and counts as late --
+   unless `catchUp' is set, which is a late joiner's begin: zero stays at
+   that frame, however long ago, and the transport is stepped silently up
+   to the output before anything sounds (catchUp above). The room's logged
+   commands go in after this call, not before: it empties the queue.
  *
  * The queue is emptied here and not when the frame comes round, because
  * between the two a peer whose transport is already running goes on
@@ -4049,12 +4550,28 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
  * away with the old run's and counted as nothing. What is in the queue
  * now is the old run's, and the load that a start always comes with has
  * dropped it already. */
-EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from)
+EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from,
+                                    int catchUp)
 {
     dropStamped();
+    endCatching();
     armed_ = true;
     armFrame_ = originFrame;
     armFrom_ = from > 0 ? from : 0;
+    catchUp_ = catchUp != 0;
+}
+
+/* Whether a late joiner's transport is still being brought up to the
+   output (catchUp above): its windows are silent until it is. */
+EMSCRIPTEN_KEEPALIVE int tw_catching (void)
+{
+    return catching_ ? 1 : 0;
+}
+
+/* The milliseconds of stepping a window may spend catching up. */
+EMSCRIPTEN_KEEPALIVE void tw_catch_budget (double ms)
+{
+    catchBudget_ = ms;
 }
 
 /* A stop or a tempo, at transport time `at', inside the step. TW_START and
@@ -4081,6 +4598,130 @@ EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
  * knob's place in the list this module built at the load; tw_knob_index
  * reads it the other way round, for a command arriving by name. An index
  * outside the list is ignored. */
+/* A knob by name, which is what a room's command carries: resolved when it
+   applies, after any edit stamped before it. */
+EMSCRIPTEN_KEEPALIVE void tw_knob_named (double at, const char *name,
+                                         double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_KNOB;
+    c.knob = -1;
+    c.row = name ? name : "";
+    c.value = value;
+
+    schedule(c);
+}
+
+/* A key at transport time `at': pressed when `on', released when not, into
+ * the piece through `input midi' if it takes input on `channel' by then, and
+ * straight onto the channel if not -- unless `heard', which says its player
+ * played it live already. `tie' orders it among commands stamped for the
+ * same time.
+ * What a quantised or play-ahead seat sends; a direct seat's key is
+ * frame-stamped and goes by tw_note_on and tw_midi_on.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_note_at (double at, int channel, int note,
+                                      double velocity, int on, int heard,
+                                      double tie)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_NOTE;
+    c.channel = channel;
+    c.note = note;
+    c.value = velocity;
+    c.on = on != 0;
+    c.heard = heard != 0;
+    c.tie = tie;
+
+    schedule(c);
+}
+
+/* A new text for the piece at transport time `at', carrying the files
+ * handed over through tw_edit_file since the last one. Applied inside the
+ * step, like any stamped command (applyEdit), and ordered by `tie' among
+ * commands stamped for the same time. `at' below zero is the next window,
+ * as for a knob.
+ *
+ * A file the next tw_edit carries is handed over one at a time, since a
+ * list of strings is not something ccall passes, and taken by that edit
+ * whole.
+ */
+static std::vector<std::pair<std::string, std::string> > editFiles_;
+
+EMSCRIPTEN_KEEPALIVE void tw_edit_file (const char *name, const char *text)
+{
+    if (name != NULL && text != NULL)
+        editFiles_.push_back(std::make_pair(std::string(name),
+                                            std::string(text)));
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_edit (double at, const char *text, double tie)
+{
+    if (text == NULL)
+    {
+        editFiles_.clear();
+        return;
+    }
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_EDIT;
+    c.text = text;
+    c.files.swap(editFiles_);
+    c.tie = tie;
+
+    schedule(c);
+}
+
+/* Whether each edit applied since the last clear went in, in the order
+   they were applied: 1 for one that is the piece now, 0 for one refused. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_result_count (void)
+{
+    return (int)editResults_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_result (int k)
+{
+    return k >= 0 && k < (int)editResults_.size() ? editResults_[k].second
+                                                    : 0;
+}
+
+/* And which edit it was: the tie it was sent with. */
+EMSCRIPTEN_KEEPALIVE double tw_edit_result_tie (int k)
+{
+    return k >= 0 && k < (int)editResults_.size() ? editResults_[k].first
+                                                    : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_edit_results_clear (void)
+{
+    editResults_.clear();
+}
+
+/* How many edits have been applied since the load, and what the last one
+   said: nothing when it went in whole. The page reads the count off the
+   tape message to know its knobs and seats want drawing again. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_count (void)
+{
+    return edits_;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_error_count (void)
+{
+    return (int)editErrors_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_edit_error (int k)
+{
+    return k >= 0 && k < (int)editErrors_.size() ? editErrors_[k].c_str()
+                                                   : "";
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
 {
     Scheduled c = {};
@@ -4143,6 +4784,13 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_write (double at, int k, double value)
 EMSCRIPTEN_KEEPALIVE void tw_command_tag (const char *tag)
 {
     nextTag_ = tag != NULL ? tag : "";
+}
+
+/* The edit count the next stamped command was made against (Scheduled's
+ * `rev'). Set just before that call, and used once. */
+EMSCRIPTEN_KEEPALIVE void tw_command_rev (int rev)
+{
+    nextRev_ = rev;
 }
 
 /* A chain's level in one section, at a transport time: the arrangement
@@ -4324,6 +4972,29 @@ EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
     c.stage = stage;
     c.row = row;
     c.text = text;
+
+    schedule(c);
+}
+
+/* The same, with the stage named as well (tw_input_named). */
+EMSCRIPTEN_KEEPALIVE void tw_param_named (double at, const char *chainName,
+                                          const char *stageName, int chain,
+                                          int stage, const char *row,
+                                          const char *text)
+{
+    if (row == NULL || text == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.row = row;
+    c.text = text;
+    c.chainName = chainName ? chainName : "";
+    c.stageName = stageName ? stageName : "";
 
     schedule(c);
 }
@@ -4561,9 +5232,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
         });
 }
 
-EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
-                                    int kind, double x, double y, double w,
-                                    double h, int button)
+static Scheduled inputOf (double at, int chain, int stage, int kind,
+                          double x, double y, double w, double h, int button)
 {
     Scheduled c = {};
 
@@ -4579,6 +5249,29 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
     c.button = button;
     c.text = nextTag_;
     nextTag_.clear();
+
+    return c;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
+                                    int kind, double x, double y, double w,
+                                    double h, int button)
+{
+    schedule(inputOf(at, chain, stage, kind, x, y, w, h, button));
+}
+
+/* The same, with the stage named as well: what a room's command carries,
+   since an edit stamped before it can move the indices (namedStage). */
+EMSCRIPTEN_KEEPALIVE void tw_input_named (double at, const char *chainName,
+                                          const char *stageName, int chain,
+                                          int stage, int kind, double x,
+                                          double y, double w, double h,
+                                          int button)
+{
+    Scheduled c = inputOf(at, chain, stage, kind, x, y, w, h, button);
+
+    c.chainName = chainName ? chainName : "";
+    c.stageName = stageName ? stageName : "";
 
     schedule(c);
 }
@@ -4707,7 +5400,7 @@ EMSCRIPTEN_KEEPALIVE int tw_late (void)
  * subtraction from the other end. */
 EMSCRIPTEN_KEEPALIVE double tw_origin (void)
 {
-    return originFrame_ < 0 ? -1 : frameOf(0);
+    return pinned_ ? frameOf(0) : NAN;
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
@@ -4815,7 +5508,10 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
         {
             applyDue(rendered_, len);
             beginDue(rendered_, len);
-            step(rendered_, len);
+
+            if (!catching_ || catchUp(rendered_, len, catchBudget_))
+                step(rendered_, len);
+
             held = (unsigned)len;
         }
 
@@ -4923,6 +5619,7 @@ EMSCRIPTEN_KEEPALIVE const float *tw_probe_samples (void)
    running one flips. */
 EMSCRIPTEN_KEEPALIVE void tw_silent (void)
 {
+    mirror_ = true;
     synth_->setSilent(true);
 }
 
@@ -4949,6 +5646,10 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
     {
         applyDue(rendered_, len);
         beginDue(rendered_, len);
+
+        if (catching_)
+            catchUp(rendered_, len, -1);
+
         step(rendered_, len);
         synth_->process();
 

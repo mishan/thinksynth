@@ -80,6 +80,7 @@ export async function createSynth (ctx, { windowlen = 256,
                                           onParamEdits = () => {},
                                           onMidi = () => {},
                                           onMidiState = () => {},
+                                          onEdited = () => {},
                                           onMirror = null } = {})
 {
     /* A browser offers the worklet only in a secure context: https, or
@@ -130,8 +131,17 @@ export async function createSynth (ctx, { windowlen = 256,
         mirror.onmessage = (e) => onMirror(e.data);
 
     /* One message, both ports. See the top of this file. */
+    /* Collecting, inside batch() below. */
+    let batching = null;
+
     const post = (m) =>
     {
+        if (batching !== null)
+        {
+            batching.push(m);
+            return;
+        }
+
         node.port.postMessage(m);
         mirror?.postMessage(m);
     };
@@ -199,6 +209,9 @@ export async function createSynth (ctx, { windowlen = 256,
                 onMidiState(m.instruments);
                 break;
 
+            case 'edited':
+                onEdited(m);
+                break;
             case 'tape':
                 /* And the mirror is told how far this has got: it steps
                    to there, which is tw_render without the render. So its
@@ -361,8 +374,31 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* From the top, with transport zero at `frame' exactly: what a
            room's Play is, on every peer, at the frame its origin falls
-           on. */
-        begin: (frame, from = 0) => post({ type: 'begin', frame, from }),
+           on. `catchUp' for a peer joining a room already playing: a
+           frame gone by is kept, and the transport stepped up to the
+           output silently from there (thinkweb.cpp, tw_begin). */
+        begin: (frame, from = 0, catchUp = false) =>
+            post({ type: 'begin', frame, from, catchUp }),
+
+        /* Everything `fn' posts, as one message: applied together, between
+           two renders, in the order posted (engine.js). A late joiner's
+           begin and the commands it catches up through are the reason. */
+        batch: (fn) =>
+        {
+            batching = [];
+
+            try
+            {
+                fn();
+            }
+            finally
+            {
+                const messages = batching;
+
+                batching = null;
+                post({ type: 'batch', messages });
+            }
+        },
 
         /* 'stop' or 'tempo' at a transport time, applied inside the step
            at that time; -1 is the next window. */
@@ -409,19 +445,37 @@ export async function createSynth (ctx, { windowlen = 256,
            seconds has where the tempo is the one it has not. */
         speed: (value, at = -1) => post({ type: 'speed', value, at }),
 
-        /* `knob' is the index loadPiece reported the knob under; `at' a
+        /* `knob' is the index loadPiece reported the knob under, or its
+           name, which is looked up when the command applies; `at' a
            transport time, or -1 for the next window. */
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
 
         /* The same knob's value written into the piece, at the end of a
            drag; it comes back with the param edits. */
-        knobWrite: ({ at = -1, knob, value, tag = '' }) =>
-            post({ type: 'knobwrite', at, knob, value, tag }),
+        knobWrite: ({ at = -1, knob, value, tag = '', rev }) =>
+            post({ type: 'knobwrite', at, knob, value, tag, rev }),
 
         /* A knob's value in `text', for a room's document. Resolves to
            { text }, "" when refused. */
         genSetKnob: (text, name, value) =>
             ask({ type: 'genknob', text, name, value }),
+
+        /* A new text for the piece at transport time `at', and the other
+           files the edit changed, as { name: text }. What it keeps of the
+           piece playing is thcGenDiff's rule; `onEdited' hears what the
+           piece is afterwards. */
+        edit: (at, text, files = {}, tie = 0) =>
+            post({ type: 'edit', at, text, files, tie }),
+
+        /* A key at a transport time: pressed when `on', into the piece or
+           onto the channel as the piece stands when it applies, dropped in
+           the second case when `heard' says its player played it live, and
+           ordered among commands stamped for the same time by `tie'
+           (commands.js, tieOf). What a quantised or play-ahead seat's key
+           is. */
+        noteAt: (at, channel, note, velocity, on, heard, tie) =>
+            post({ type: 'noteat', at, channel, note, velocity, on, heard,
+                   tie }),
 
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a
@@ -482,30 +536,33 @@ export async function createSynth (ctx, { windowlen = 256,
          * something a composer is heard through. `row' is the param's name
          * and `text' is the part of the line the person touched; every
          * instance completes it against the piece it holds. */
-        param: ({ at = -1, chain, stage, row, text }) =>
-            post({ type: 'param', at, chain, stage, row, text }),
+        param: ({ at = -1, chain, stage, chainName, stageName, row, text,
+                  rev }) =>
+            post({ type: 'param', at, chain, stage, chainName, stageName, row,
+                   text, rev }),
 
         /* A chain's live mute or solo, at a transport time or -1 for the
            next window. Not written into the piece. */
-        mute: ({ at = -1, chain, on }) =>
-            post({ type: 'mute', at, chain, on }),
+        mute: ({ at = -1, chain, on, rev }) =>
+            post({ type: 'mute', at, chain, on, rev }),
 
-        solo: ({ at = -1, chain, on }) =>
-            post({ type: 'solo', at, chain, on }),
+        solo: ({ at = -1, chain, on, rev }) =>
+            post({ type: 'solo', at, chain, on, rev }),
 
         /* A chain's level in one section, at a transport time or -1 for
            the next window. Written into the piece; the splice comes back
            with the param edits. */
-        section: ({ at = -1, section, chain, level }) =>
-            post({ type: 'section', at, section, chain, level }),
+        section: ({ at = -1, section, chain, level, rev }) =>
+            post({ type: 'section', at, section, chain, level, rev }),
 
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
-           of it is one the module wants. */
-        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1,
-                  tag = '' }) =>
-            post({ type: 'input', at, chain, stage, kind, x, y, w, h,
-                   button, tag }),
+           of it is one the module wants -- the stage's names too, which
+           it finds the stage by after an edit has moved it. */
+        input: ({ at = -1, chain, stage, chainName, stageName, kind, x, y, w,
+                  h, button = 1, tag = '', rev }) =>
+            post({ type: 'input', at, chain, stage, chainName, stageName, kind,
+                   x, y, w, h, button, tag, rev }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

@@ -571,7 +571,9 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
             error(0, "the master effect: " + why);
     }
 
-    if (errors_.empty())
+    /* Not for a staged edit: its instruments are not on their channels
+       yet, so the graph a sink would be checked against is the old one. */
+    if (errors_.empty() && !sched->staging())
         checkSinkArgs(sched);
 
     if (errors_.empty())
@@ -928,7 +930,7 @@ thcGenLoader::parseKnobStatement (thcScheduler *sched)
         if (!expectPunct('='))
             return false;
 
-        thArg *knob = sched->knob(kname);
+        thArg *knob = sched->knobMeta(kname);
 
         if (knob == NULL)
         {
@@ -3049,6 +3051,18 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
     stage->line = stageName.line;
 
     bool ok = true;
+
+    /* A room's input and param commands find their stage by name, after
+       an edit may have moved its index (wasm/web/thinkweb.cpp). */
+    const auto &stages = sched->chain(chain)->stages;
+
+    for (size_t i = 0; i + 1 < stages.size(); i++)
+        if (stages[i]->name == stageName.text)
+        {
+            error(stageName.line, "chain " + chainName + " names stage " +
+                  stageName.text + " twice");
+            ok = false;
+        }
 
     while (true)
     {

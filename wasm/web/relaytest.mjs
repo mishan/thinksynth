@@ -324,6 +324,40 @@ try
               'with the relay\'s reason');
     }
 
+    /* A relay from before `catchup' welcomes and never answers one: the
+       wait ends, or Start would queue every command behind it for good.
+       So does the socket closing under it. */
+    {
+        const old = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+
+        await new Promise((r) => old.on('listening', r));
+
+        old.on('connection', (ws) => ws.on('message', (data) =>
+        {
+            if (JSON.parse(data).type === 'hello')
+                ws.send(JSON.stringify({ type: 'welcome', peer: 'p',
+                                         peers: [], playing: null }));
+        }));
+
+        const room = new Room(`ws://127.0.0.1:${old.address().port}`,
+                              'test', 'Eve');
+
+        await room.connect();
+
+        const timedOut = await room.catchUp(200).then(() => false,
+                                                       () => true);
+        const pending = room.catchUp(60 * 1000).then(() => false,
+                                                     () => true);
+
+        for (const ws of old.clients)
+            ws.close();
+
+        check(timedOut && await pending,
+              'a catchup the relay never answers rejects, at the wait or ' +
+              'when the socket closes');
+        old.close();
+    }
+
     /* ---- the document socket ---- */
 
     const docA = new Y.Doc();
@@ -364,6 +398,102 @@ try
 
     check(ha === hb && ha !== before,
           'both hash the document to the same revision, and it moved');
+
+    /* The run a late joiner catches up with: the start, the document as
+       the start named it, and the stamped commands since. The start names
+       a revision the relay has not seen yet -- the starter's edit is still
+       on its way over the other socket -- and the relay waits for it
+       rather than keeping what it has. */
+    {
+        const ahead = new Y.Doc();
+
+        Y.applyUpdate(ahead, Y.encodeStateAsUpdate(docA));
+        ahead.getMap('files').get('airports.gen').insert(0, '# at Play\n');
+
+        const hash = await hashOf(ahead);
+        const f = new Client(`${base}/room/test`, 'F');
+        const g = new Client(`${base}/room/test`, 'G');
+
+        await Promise.all([f.open(), g.open()]);
+        f.send({ type: 'hello', name: 'Fay', protocol: PROTOCOL });
+        g.send({ type: 'hello', name: 'Gil', protocol: PROTOCOL });
+
+        const wf = await f.next('welcome');
+
+        await g.next('welcome');
+
+        const key = `${wf.peer}#0`;
+
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 777,
+                         piece: { hash }, seed: 5, from: wf.peer,
+                         seq: 0, at: -1 } });
+        f.send({ type: 'log', data: { type: 'knob', at: 1.5, knob: 0,
+                                      value: 0.3, from: wf.peer, seq: 1 },
+                 run: key });
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'tempo', bpm: 90, at: 2,
+                         from: wf.peer, seq: 2 }, run: key });
+
+        /* A straggler from a run that is over: kept out. */
+        f.send({ type: 'log', data: { type: 'knob', at: 9, knob: 0,
+                                      value: 0.9, from: wf.peer, seq: 3 },
+                 run: 'somebody#41' });
+
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+        docA.getMap('files').get('airports.gen').insert(0, '# at Play\n');
+
+        const run = await g.next('catchup');
+
+        check(run.start?.origin === 777 && run.files?.matched === true &&
+              run.files.files['airports.gen']?.startsWith('# at Play\n') &&
+              run.files.piece === 'airports.gen',
+              'a late joiner is handed the document at the revision the ' +
+              'start named, once the relay has it');
+        check(run.log?.map((c) => c.seq).join() === '1,2',
+              'and the stamped commands since, a copied knob and a tempo, ' +
+              'and not one stamped for another run');
+
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop', at: 3,
+                         from: wf.peer, seq: 3 } });
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+
+        const none = await g.next('catchup');
+
+        check(none.start === null, 'and nothing once the run has stopped');
+
+        /* A Play while the joiner waits for the last one's document: the
+           answer is the run playing now. */
+        const later = new Y.Doc();
+
+        Y.applyUpdate(later, Y.encodeStateAsUpdate(docA));
+        later.getMap('files').get('airports.gen').insert(0, '# later\n');
+
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 888,
+                         piece: { hash: await hashOf(later) }, seed: 5,
+                         from: wf.peer, seq: 4, at: -1 } });
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+        await new Promise((r) => setTimeout(r, 200));
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 999,
+                         piece: { hash: await hashOf(docA) }, seed: 5,
+                         from: wf.peer, seq: 5, at: -1 } });
+        await new Promise((r) => setTimeout(r, 200));
+        docA.getMap('files').get('airports.gen').insert(0, '# later\n');
+
+        const current = await g.next('catchup');
+
+        check(current.start?.origin === 999 && current.files?.matched,
+              'a Play during the wait is answered with that Play\'s run');
+
+        f.close();
+        g.close();
+    }
 
     /* Awareness: a cursor set on one is seen on the other. */
     provA.awareness.setLocalStateField('user', { name: 'Ann' });
