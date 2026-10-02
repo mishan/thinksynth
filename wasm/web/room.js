@@ -18,8 +18,8 @@
 
 /*
  * room.js -- the page's side of the relay's room socket: hello, who is
- * here, seats, the clock, signalling, and the relayed path for gestures
- * the mesh could not carry.
+ * here, seats, the clock, signalling, chat, and the relayed path for
+ * gestures the mesh could not carry.
  *
  * One object, events out, a few calls in. It knows nothing about music:
  * `transport', `relayed', `log' and `catchup' carry whatever they are
@@ -197,6 +197,14 @@ export class Room
                         this.emit('transport', m.from, m.data);
                         break;
 
+                    case 'chat':
+                        this.emit('chat', m);
+                        break;
+
+                    case 'refused':
+                        this.emit('refused', m);
+                        break;
+
                     case 'catchup':
                         for (const c of this.catchups.splice(0))
                             c.resolve(m);
@@ -272,6 +280,15 @@ export class Room
     log (data)
     {
         this.send({ type: 'log', data, run: this.runKey });
+    }
+
+    /* A line of chat. The relay says who sent it and sends it back to us
+       as well; `bar' is where our transport is, or null while stopped. */
+    chat (text, bar = null)
+    {
+        this.send(bar === null ? { type: 'chat', channel: 'stage', text }
+                               : { type: 'chat', channel: 'stage', text,
+                                   bar });
     }
 
     /* What a peer joining a playing room needs: resolves to `{ start,

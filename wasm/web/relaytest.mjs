@@ -27,7 +27,9 @@
  * here and told to the others; a seat is first-claim and released on
  * close; a ping is answered with the relay's clock; a signal reaches the
  * one peer it names and nobody else; a relayed gesture reaches one or
- * everyone; a transport start is kept for a joiner; and the document a
+ * everyone; a transport start is kept for a joiner; a chat line reaches
+ * the room under the name the relay knows its sender by, within a length
+ * and a rate, and is kept for nobody; and the document a
  * room is seeded with reaches both providers, an edit on one reaches the
  * other, and both hash to the same revision.
  *
@@ -493,6 +495,78 @@ try
 
         f.close();
         g.close();
+    }
+
+    /* Chat: to everyone in the room, its sender included, under the
+       name the relay knows the sender by; to nobody in another room; and
+       kept for nobody who arrives later. */
+    {
+        const h = new Client(`${base}/room/chat`, 'H');
+        const i = new Client(`${base}/room/chat`, 'I');
+        const o = new Client(`${base}/room/elsewhere`, 'O');
+
+        await Promise.all([h.open(), i.open(), o.open()]);
+        h.send({ type: 'hello', name: 'Hal', protocol: PROTOCOL });
+        i.send({ type: 'hello', name: 'Ida', protocol: PROTOCOL });
+        o.send({ type: 'hello', name: 'Oz', protocol: PROTOCOL });
+
+        const wh = await h.next('welcome');
+
+        await i.next('welcome');
+        await o.next('welcome');
+
+        h.send({ type: 'chat', channel: 'stage', from: 'nobody',
+                 name: 'Ida', text: '  switch at 17  ', bar: '12.3' });
+
+        const [mh, mi] = await Promise.all([h.next('chat'), i.next('chat')]);
+
+        check([mh, mi].every((m) => m.from === wh.peer && m.name === 'Hal' &&
+                                    m.text === 'switch at 17' &&
+                                    m.bar === '12.3' &&
+                                    m.channel === 'stage'),
+              'a chat line reaches everyone in the room, its sender too, ' +
+              'trimmed and under the name the relay gave it');
+        check(await o.none('chat'), 'and nobody in another room');
+
+        for (const [what, text] of [['an empty', '   '],
+                                    ['a 501-character', 'x'.repeat(501)]])
+        {
+            h.send({ type: 'chat', channel: 'stage', text });
+
+            const r = await h.next('refused');
+
+            check(r.of === 'chat' && typeof r.why === 'string' &&
+                  await i.none('chat', 100),
+                  `${what} line is refused with a reason: ${r.why}`);
+        }
+
+        h.send({ type: 'chat', channel: 'stage', text: 'y'.repeat(500) });
+        await i.next('chat');
+        await h.next('chat');
+
+        for (let k = 0; k < 10; k++)
+            h.send({ type: 'chat', channel: 'stage', text: `burst ${k}` });
+
+        const refusal = await h.next('refused');
+
+        await new Promise((r) => setTimeout(r, 300));
+
+        const reached = i.got.filter((m) => m.type === 'chat').length;
+
+        check(reached > 0 && reached <= 5 && /fast/.test(refusal.why),
+              `a burst is cut off past the rate: ${reached} of 10 went, ` +
+              `and the rest were refused (${refusal.why})`);
+
+        const late = new Client(`${base}/room/chat`, 'L');
+
+        await late.open();
+        late.send({ type: 'hello', name: 'Lou', protocol: PROTOCOL });
+        await late.next('welcome');
+        check(await late.none('chat'),
+              'and a peer who arrives later is handed none of it');
+
+        for (const c of [h, i, o, late])
+            c.close();
     }
 
     /* Awareness: a cursor set on one is seen on the other. */
