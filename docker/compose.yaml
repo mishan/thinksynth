@@ -1,0 +1,22 @@
+# The relay behind nginx on the host (docker/nginx.conf).
+#
+#   docker compose -f docker/compose.yaml pull
+#   docker compose -f docker/compose.yaml up -d
+#
+# CI publishes the image from master; `up -d --build' builds it here
+# instead.
+
+name: thinksynth
+
+services:
+  relay:
+    image: ghcr.io/mishan/thinksynth-relay:latest
+    build:
+      context: ..
+      dockerfile: docker/relay.Dockerfile
+    container_name: thinksynth-relay
+    restart: unless-stopped
+    # node as PID 1 ignores SIGTERM; a stop would wait out the timeout.
+    init: true
+    ports:
+      - "127.0.0.1:8787:8787"   # only the proxy on this host reaches it
