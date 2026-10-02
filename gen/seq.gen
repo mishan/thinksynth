@@ -1,0 +1,125 @@
+# seq.gen -- a step sequencer, for a room.
+#
+# Six `gen::grid' tracks: four drums one row tall, a bass and a pad on a
+# D minor pentatonic ladder. It is scratch.gen's idea with a room in
+# mind -- open it in one (?piece=seq.gen) and every person there clicks
+# on the same pattern from the Sequencer pane. A click is a stamped
+# command, so a cell lands on the same step for everybody, and whoever
+# made it writes it into the shared document, so a late joiner opens the
+# pattern as it now is rather than as it started.
+#
+# Every instrument here is synthesized. A sampled kit is silent in a room
+# for now, and a sequencer whose drums nobody hears is not one.
+#
+# WHERE TO START. The clap has one hit, at the end of the bar: put
+# another on the snare's beats and hear the backbeat thicken. Fill in a
+# row of the hat. Then drag a note in the pad to the right and it holds
+# over the steps you cover -- that is how a chord lasts a bar here.
+#
+# Nothing in it varies, so the seed below is only what lets the tape
+# gates replay it: the pattern is the pattern.
+
+name "Step sequencer";
+author "Misha Nasledov";
+category "Playing it yourself";
+description "Six grids for a room to click on together: drums, bass and a pad.";
+
+tempo 118;
+seed 1979;
+
+# The bass's ladder, top row the highest; the pad's is an octave up and
+# one degree longer, so a chord can have its root at either end.
+scale dpent "D2 F2 G2 A2 C3";
+
+instrument kick  { dsp "kick909.dsp";  amp = 34; };
+instrument snare { dsp "snare808.dsp"; amp = 24; };
+instrument clap  { dsp "clap.dsp";     amp = 30; };
+instrument hat   { dsp "hat808.dsp";   amp = 15; };
+instrument bass  { dsp "fmbass.dsp";   amp = 26; };
+instrument pad   { dsp "juno.dsp";     amp = 14; };
+
+chain kick {
+    stage seq gen::grid {
+        notes  = "C2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "x...|...x|..x.|....";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 104;
+        listen = 0;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage seq gen::grid {
+        notes  = "D2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "....|x...|....|x...";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 92;
+        listen = 0;
+    };
+    sink { instrument = snare; };
+};
+
+chain clap {
+    stage seq gen::grid {
+        notes  = "D#2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "....|....|....|...x";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 84;
+        listen = 0;
+    };
+    sink { instrument = clap; };
+};
+
+chain hat {
+    stage seq gen::grid {
+        notes  = "F#2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "X.x.|X.x.|X.x.|X.xx";
+        period = 0.25 beats;
+        hold   = 0.1 beats;
+        vel    = 64;
+        accent = 30;
+        listen = 0;
+    };
+    sink { instrument = hat; };
+};
+
+chain bass {
+    stage seq gen::grid {
+        notes  = dpent;
+        steps  = 16;
+        rows   = 5;
+        cells  = "................/..........x...../........x......./................/x--.x.....x--.x.";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 96;
+        listen = 0;
+    };
+    sink { instrument = bass; };
+};
+
+# Ties are length: `x-------' is half a bar of one chord.
+chain pad {
+    stage seq gen::grid {
+        notes  = "D3 F3 G3 A3 C4 D4";
+        steps  = 16;
+        rows   = 6;
+        cells  = "................/........x-------/x-------......../........x-------/x-------......../x-------........";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 70;
+        listen = 0;
+    };
+    sink { instrument = pad; };
+};
