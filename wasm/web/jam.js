@@ -377,7 +377,7 @@ async function applyOne (from, cmd)
         return;
 
     if (cmd.type === 'transport' || cmd.type === 'edit')
-        chat.command(room.peers.get(from)?.name ?? from, cmd, lastTape);
+        chat.command(room.peers.get(from)?.name ?? from, cmd);
 
     if (synth === null)
     {
@@ -404,7 +404,7 @@ async function applyOne (from, cmd)
     /* A Play or Stop ends any catching up: the run being caught up with
        is over, and the report that would have said so never comes. */
     if (startOrStop)
-        catching = false;
+        stopCatching('stopped catching up: the room has moved on');
 
     await apply(cmd, { synth: roomSynth, frameOfOrigin, listens,
                        load: loadFor, self: room.peer });
@@ -552,11 +552,13 @@ function joinRun ()
 
         status(`Catching up with ${room.peers.get(run.start.from)?.name ??
                                    run.start.from}'s Play...`);
-        chat.activity('catching up with the room');
         await catchUp(run.start, [...byKey.values()], {
             synth: roomSynth, listens,
             frameOfOrigin: (ms) =>
             {
+                if (!catching)
+                    chat.activity('catching up with the room');
+
                 catching = true;
                 return frameOfOrigin(ms);
             },
@@ -1332,6 +1334,16 @@ function enable ()
 
 /* ---- the tape ---- */
 
+/* The end of a late joiner's catching up, however it ends: the feed said
+   it began, so it says it is over. */
+function stopCatching (line)
+{
+    if (catching)
+        chat.activity(line);
+
+    catching = false;
+}
+
 function tape (m)
 {
     lastTape = m;
@@ -1346,9 +1358,8 @@ function tape (m)
        origin, so a report from before the begin has none. */
     if (catching && Number.isFinite(m.origin) && !m.catching)
     {
-        catching = false;
+        stopCatching('caught up with the room');
         status('Caught up with the room.');
-        chat.activity('caught up with the room');
     }
 
     if (m.epoch !== tapeEpoch)
@@ -1651,7 +1662,7 @@ async function join ()
     room = new Room(url, roomName, name, { piece: params.get('piece') });
     room.on('peers', () => { showPeers(); chat.peers(room.peers); })
         .on('chat', (m) => chat.said(m))
-        .on('refused', (m) => m.of === 'chat' && chat.refused(m.why))
+        .on('refused', (m) => m.of === 'chat' && chat.refused(m))
         .on('clock', () => { showNumbers(); enable(); })
         .on('transport', (from, data) => receive(from, data))
         .on('error', (text) => log(`relay: ${text}`))
@@ -1905,7 +1916,8 @@ function init ()
     chat = createChat({
         feed: $('chatfeed'), form: $('chatform'), input: $('chatinput'),
         note: $('chatnote'), self: () => room?.peer,
-        send: (text) => room.chat(text, barBeat(lastTape, transportNow())),
+        send: (text, n) => room.chat(text, n,
+                                     barBeat(lastTape, transportNow())),
         colorOf: (name) => colourOf(name).color,
         visible: () => panes.visible('chat'),
         title: (text) =>
@@ -1976,6 +1988,10 @@ function init ()
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor', reset: 'Reset layout',
+
+        /* A layout kept before the chat came would open with it in the
+           drawer, where nobody looks for it. */
+        version: 1,
         onShow: (id, on) =>
         {
             if (id === 'composerview')

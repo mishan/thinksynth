@@ -622,7 +622,8 @@ class Room
                    sender, whose copy is how it knows the line went. Who
                    sent it is the relay's to say, and nothing is kept: a
                    peer who arrives later sees what is said after. `bar'
-                   is where the sender's transport was, as it read it. */
+                   is where the sender's transport was, as it read it, and
+                   `n' the sender's own count, which only it is told. */
                 case 'chat':
                 {
                     const text = typeof m.text === 'string' ? m.text.trim()
@@ -634,8 +635,13 @@ class Room
                                           1000);
                     chatAt = now;
 
+                    const n = Number.isSafeInteger(m.n) ? m.n : undefined;
+
+                    /* Format characters alone are a line that shows as
+                       nothing, or reorders the lines around it. */
                     const why = m.channel !== 'stage' ? 'no such channel'
-                              : text === '' ? 'nothing to send'
+                              : text.replace(/\p{Cf}/gu, '') === ''
+                                  ? 'nothing to send'
                               : text.length > CHAT_MAX
                                   ? `longer than ${CHAT_MAX} characters`
                               : chatTokens < 1 ? 'too fast; wait a moment'
@@ -643,7 +649,7 @@ class Room
 
                     if (why !== null)
                     {
-                        send({ type: 'refused', of: 'chat', why });
+                        send({ type: 'refused', of: 'chat', why, n });
                         break;
                     }
 
@@ -656,7 +662,7 @@ class Room
                         /^\d{1,6}\.\d{1,2}$/.test(m.bar))
                         line.bar = m.bar;
 
-                    send(line);
+                    send({ ...line, n });
                     others(line);
                     break;
                 }

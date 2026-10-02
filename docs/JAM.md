@@ -736,12 +736,13 @@ worklet, no tape and no run a late joiner is handed. The relay stamps the
 sender's id and name, sends the line to everyone in the room and back to
 its sender, whose copy is how the page knows it went, and keeps none of
 it, so a late joiner sees only what is said after it arrives. It refuses
-an empty line, one over 500 characters and a peer past five lines a
-second, with a reason the page shows under the box. A line carries the
+a line with nothing in it but spaces and format characters, one over 500
+characters and a peer past five lines a second, with a reason the page
+shows under the box. A line carries the
 bar.beat the sender's transport was at, when it was running. Between the
 lines the page writes its own: who came and went, who took or left a
-seat, Play, Stop, a seek, a tempo and an Apply with the bar it lands at,
-and a late joiner's catching up -- what this page saw, from messages it
+seat, Play, Stop, a seek, a tempo, an Apply, and a late joiner's
+catching up -- what this page saw, from messages it
 already gets. `channel` is `stage` for now; the house is the other one
 (`JAM_BACKLOG.md`, 3.2).
 

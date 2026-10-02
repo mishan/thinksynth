@@ -516,7 +516,7 @@ try
         await o.next('welcome');
 
         h.send({ type: 'chat', channel: 'stage', from: 'nobody',
-                 name: 'Ida', text: '  switch at 17  ', bar: '12.3' });
+                 name: 'Ida', text: '  switch at 17  ', bar: '12.3', n: 1 });
 
         const [mh, mi] = await Promise.all([h.next('chat'), i.next('chat')]);
 
@@ -526,16 +526,30 @@ try
                                     m.channel === 'stage'),
               'a chat line reaches everyone in the room, its sender too, ' +
               'trimmed and under the name the relay gave it');
+        check(mh.n === 1 && mi.n === undefined,
+              'and only its sender is told which of its lines it was');
         check(await o.none('chat'), 'and nobody in another room');
 
-        for (const [what, text] of [['an empty', '   '],
-                                    ['a 501-character', 'x'.repeat(501)]])
+        h.send({ type: 'chat', channel: 'stage', text: 'where', bar: '<b>' });
+
+        const unbarred = await i.next('chat');
+
+        check(unbarred.text === 'where' && !('bar' in unbarred),
+              'a bar that is not a bar.beat is dropped, and the line goes');
+        await h.next('chat');
+
+        for (const [what, line] of [
+            ['an empty', { text: '   ' }],
+            ['a 501-character', { text: 'x'.repeat(501) }],
+            ['a non-string', { text: { toString: 'hi' } }],
+            ['a format-characters-only', { text: '\u202e\u200b\u2066' }],
+            ['another channel\'s', { channel: 'house', text: 'hi' }]])
         {
-            h.send({ type: 'chat', channel: 'stage', text });
+            h.send({ type: 'chat', channel: 'stage', n: 7, ...line });
 
             const r = await h.next('refused');
 
-            check(r.of === 'chat' && typeof r.why === 'string' &&
+            check(r.of === 'chat' && typeof r.why === 'string' && r.n === 7 &&
                   await i.none('chat', 100),
                   `${what} line is refused with a reason: ${r.why}`);
         }

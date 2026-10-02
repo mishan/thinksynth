@@ -859,6 +859,13 @@ jobs:
         working-directory: wasm/web
         run: node keycheck.mjs
 
+      # The chat box against a relay the script plays: a slow echo, a
+      # refusal, no connection.
+      - name: The chat box
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node chatcheck.mjs
+
       # The page as an installed app. Everything above serves http, where
       # the page does not register its service worker, so this is the one
       # run with it: Chromium's installability check, the page loaded and

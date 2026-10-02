@@ -52,20 +52,27 @@ export function barBeat (tape, at)
 /* The seconds of a seek, as the page's clock shows them. */
 function clock (secs)
 {
-    return `${Math.floor(secs / 60)}:${(secs % 60).toFixed(1).padStart(4, '0')}`;
+    const t = Math.round(secs * 10) / 10;
+
+    return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 }
 
 /*
  * `feed' is the list lines go into, `form' and `input' what one is typed
- * into, and `note' where a refusal is said. `send(text)' hands a line to
- * the relay, `self()' is this peer's id, `colorOf(name)' a name's color,
- * `visible()' whether anybody can see the feed, and `title(text)' puts the
- * unread count where the pane's name is.
+ * into, and `note' where a refusal is said. `send(text, n)' hands line n
+ * to the relay and says whether there was a connection to hand it to,
+ * `self()' is this peer's id, `colorOf(name)' a name's color, `visible()'
+ * whether anybody can see the feed, and `title(text)' puts the unread
+ * count where the pane's name is.
  */
 export function createChat ({ feed, form, input, note, send, self, colorOf,
-                              visible, title })
+                              visible, title, wait = ECHO_WAIT })
 {
-    const pending = [];         /* { text, timer } awaiting their echo */
+    /* n -> { text, timer, late }: lines sent and not yet sent back. A late
+       one has been given up on and put back in the box, and is kept in
+       case the relay was only slow. */
+    const pending = new Map();
+    let sent = 0;
     let unread = 0;
     let known = null;           /* id -> { name, seat }, as last seen */
 
@@ -94,20 +101,11 @@ export function createChat ({ feed, form, input, note, send, self, colorOf,
         add(li);
     };
 
-    /* A line that did not go: back into the box if nothing else is being
-       typed there, so it is not lost. */
-    const unsent = (why) =>
+    /* A line that did not go, back into the box -- after whatever is
+       being typed there, so neither is lost. */
+    const restore = (text) =>
     {
-        const p = pending.shift();
-
-        if (p === undefined)
-            return;
-
-        clearTimeout(p.timer);
-        note.textContent = why;
-
-        if (input.value === '')
-            input.value = p.text;
+        input.value = input.value === '' ? text : `${input.value} ${text}`;
     };
 
     form.addEventListener('submit', (e) =>
@@ -119,22 +117,39 @@ export function createChat ({ feed, form, input, note, send, self, colorOf,
         if (text === '')
             return;
 
-        pending.push({ text, timer: setTimeout(
-            () => unsent('The relay did not send that back; it may have ' +
-                         'no chat.'), ECHO_WAIT) });
+        const n = ++sent;
+
+        if (!send(text, n))
+        {
+            note.textContent = 'Not connected to the relay.';
+            return;
+        }
+
+        const p = { text, late: false };
+
+        p.timer = setTimeout(() =>
+        {
+            p.late = true;
+            restore(text);
+            note.textContent = 'The relay did not send that back; it may ' +
+                               'have no chat.';
+        }, wait);
+        pending.set(n, p);
         note.textContent = '';
         input.value = '';
-        send(text);
     });
 
     return {
         activity,
 
         /* A line from the relay, ours included. */
-        said ({ from, name, text, bar })
+        said ({ from, name, text, bar, n })
         {
             const li = document.createElement('li');
-            const who = document.createElement('span');
+
+            /* Isolated, so a name full of direction marks cannot turn the
+               line after it round. */
+            const who = document.createElement('bdi');
 
             li.className = 'chatline';
 
@@ -155,10 +170,21 @@ export function createChat ({ feed, form, input, note, send, self, colorOf,
 
             if (from === self())
             {
-                const p = pending.shift();
+                const p = pending.get(n);
 
-                if (p !== undefined)
-                    clearTimeout(p.timer);
+                if (p === undefined)
+                    return;
+
+                clearTimeout(p.timer);
+                pending.delete(n);
+
+                /* Given up on and put back, and it went after all: out of
+                   the box again, unless it has been typed over since. */
+                if (p.late && input.value === p.text)
+                {
+                    input.value = '';
+                    note.textContent = '';
+                }
             }
             else if (!visible())
             {
@@ -167,7 +193,22 @@ export function createChat ({ feed, form, input, note, send, self, colorOf,
             }
         },
 
-        refused: unsent,
+        /* The relay's no to line n, and why. */
+        refused ({ n, why })
+        {
+            const p = pending.get(n);
+
+            note.textContent = why;
+
+            if (p === undefined)
+                return;
+
+            clearTimeout(p.timer);
+            pending.delete(n);
+
+            if (!p.late)
+                restore(p.text);
+        },
 
         /* The feed has come into view, or gone out of it. */
         shown (on)
@@ -215,18 +256,14 @@ export function createChat ({ feed, form, input, note, send, self, colorOf,
             }
         },
 
-        /* A transport command or an edit, by `name', as this page got it;
-           `tape' is the last report, for the bar an edit lands on. */
-        command (name, cmd, tape)
+        /* A transport command or an edit, by `name', as this page got it.
+           An edit is stamped for the next bar (jam.js, applyEdit), and
+           which bar that is depends on tempo changes still to come. */
+        command (name, cmd)
         {
             if (cmd.type === 'edit')
-            {
-                const at = barBeat(tape, cmd.at);
-
-                activity(at === null ? `${name} applied an edit`
-                                     : `${name}'s edit lands at bar ` +
-                                       at.split('.')[0]);
-            }
+                activity(cmd.at >= 0 ? `${name}'s edit lands at the next bar`
+                                     : `${name} applied an edit`);
             else if (cmd.op === 'start')
                 activity(cmd.seek > 0 ? `${name} played from ` +
                                         clock(cmd.seek)

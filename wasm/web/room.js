@@ -282,13 +282,18 @@ export class Room
         this.send({ type: 'log', data, run: this.runKey });
     }
 
-    /* A line of chat. The relay says who sent it and sends it back to us
-       as well; `bar' is where our transport is, or null while stopped. */
-    chat (text, bar = null)
+    /* Line `n' of our chat. The relay says who sent it and sends it back
+       to us as well, with `n'; `bar' is where our transport is, or null
+       while stopped. False if there is no connection to send it on. */
+    chat (text, n, bar = null)
     {
-        this.send(bar === null ? { type: 'chat', channel: 'stage', text }
-                               : { type: 'chat', channel: 'stage', text,
+        if (this.ws?.readyState !== WebSocket.OPEN)
+            return false;
+
+        this.send(bar === null ? { type: 'chat', channel: 'stage', text, n }
+                               : { type: 'chat', channel: 'stage', text, n,
                                    bar });
+        return true;
     }
 
     /* What a peer joining a playing room needs: resolves to `{ start,
