@@ -1216,9 +1216,11 @@ async function movedSession (createThinkWeb, piece, dsps, named = true,
         await A.send(cmd);
     });
 
-    /* Well after the edit's bar, stamped for later still. */
+    /* Well after the edit's bar, stamped for later still. Named, it is
+       made as before the edit too (rev 0): its names, not that, decide
+       where it lands. */
     const names = !named ? {}
-        : { chainName: 'corrected', stageName: input ? 'src' : 'h' };
+        : { chainName: 'corrected', stageName: input ? 'src' : 'h', rev: 0 };
 
     sim.at(10000, async () =>
         B.send(input ? B.maker.input(2, 0, 0, 50, 50, 100, 100, 1, names)

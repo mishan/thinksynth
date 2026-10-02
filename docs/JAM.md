@@ -362,7 +362,9 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   by name when the command applies: an edit that adds a chain or a stage
   above it moves every index after it. A command whose stage an edit
   removed or renamed is dropped, and its sender stops waiting for the
-  edit it would have written. Stage names are unique within a chain.
+  edit it would have written. One whose stage is still there is not
+  dropped for an edit its maker had not seen, as one by index is. Stage
+  names are unique within a chain.
   `protocoltest.mjs` sends a param and a gesture numbered for the piece
   before such an edit; by name each reaches its stage, and the same
   command without its names reaches the neighbor.

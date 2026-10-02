@@ -285,8 +285,8 @@ struct Scheduled
 
     /* The edit count (edits_) of the piece its maker was looking at, or -1
        for a command that does not say. One that names a chain, a stage, a
-       section or a knob by index is dropped when an edit has applied since:
-       the index may name a neighbor now. */
+       section or a knob by index alone is dropped when an edit has applied
+       since: the index may name a neighbor now. */
     int rev;
 };
 
@@ -922,7 +922,11 @@ void applyScheduled (const Scheduled &given)
 {
     Scheduled c = given;
 
-    if (c.rev >= 0 && c.rev != edits_)
+    /* A command that names its stage is found by name (namedStage), so an
+       edit since it was made moves nothing it depends on. */
+    const bool named = !c.chainName.empty() && !c.stageName.empty();
+
+    if (c.rev >= 0 && c.rev != edits_ && !named)
         switch (c.op)
         {
             case TW_MUTE: case TW_SOLO: case TW_SECTION: case TW_KNOBWRITE:
