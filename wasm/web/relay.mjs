@@ -610,26 +610,33 @@ class Room
                     break;
 
                 /* A late joiner, ready to play: the run as the relay has
-                   it, or `start: null' when nothing is playing. */
+                   it, or `start: null' when nothing is playing. A Play
+                   while the snapshot is awaited makes the answer that
+                   run, which is what the joiner should hear. */
                 case 'catchup':
                 {
-                    const run = this.run;
-
-                    if (run === null)
+                    const answer = () =>
                     {
-                        send({ type: 'catchup', start: null });
-                        break;
-                    }
+                        const run = this.run;
 
-                    run.files.then((files) =>
-                    {
-                        if (this.run !== run)
+                        if (run === null)
+                        {
                             send({ type: 'catchup', start: null });
-                        else
-                            send({ type: 'catchup', start: run.start, files,
-                                   log: run.log,
-                                   overflowed: run.overflowed });
-                    });
+                            return;
+                        }
+
+                        run.files.then((files) =>
+                        {
+                            if (this.run !== run)
+                                answer();
+                            else
+                                send({ type: 'catchup', start: run.start,
+                                       files, log: run.log,
+                                       overflowed: run.overflowed });
+                        });
+                    };
+
+                    answer();
                     break;
                 }
             }

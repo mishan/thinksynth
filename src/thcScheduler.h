@@ -1070,6 +1070,11 @@ public:
        playing if it was, and otherwise waits at `t'. */
     void seek (double t);
 
+    /* MIDI clock from where the transport is: Start at the top, or Song
+       Position and Continue. For a host that kept the clock from its
+       devices while it stepped the transport silently. */
+    void clockStart (void);
+
     /* Route a live MIDI note into a chain's receive() path (Markov
      * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
      * same thread, so it is a plain call into propagate(). On a stopped
@@ -1299,7 +1304,6 @@ private:
     double clockTick_ = 0;
     bool   clocking (void) const;
     void   clockTicks (void);
-    void   clockStart (void);
     bool takeGraphOff (const thcInstrument &inst);
 
     /* The wall-clock moment transportNow_ is, for stamping what goes to

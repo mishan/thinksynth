@@ -184,9 +184,9 @@ let sentCount = 0;
 let lateSeen = 0;
 let lateCount = 0;              /* the worklet's count */
 let tapeText = '';              /* the tape since the last epoch, as text */
-/* The frame a late joiner's transport zero was put on, until the worklet
-   reports it has caught up with the room from there; null otherwise. */
-let catchingFrom = null;
+/* A late joiner's begin is on its way to the worklet or being stepped up
+   to the room; cleared once the worklet reports it caught up. */
+let catching = false;
 
 /* Stamped commands that came while there was no worklet to apply them to:
    a room joined, Start not yet pressed. The relay keeps the same ones for a
@@ -305,22 +305,23 @@ async function applyOne (from, cmd)
     if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd))
         return;
 
+    /* The run this page is in, as soon as it is: a knob moved from here
+       on is logged under it (room.log), whichever path brought the Play,
+       and what was kept for catching up belongs to the run being left. */
+    const startOrStop = cmd.type === 'transport' &&
+                        (cmd.op === 'start' || cmd.op === 'stop');
+
+    if (startOrStop)
+    {
+        room.playing = cmd.op === 'start' ? cmd : null;
+        early.length = 0;
+    }
+
     if (synth === null)
     {
-        /* Nothing to apply it to yet: a room joined before Start. A
-           start is remembered so Start can catch up, and what came after
-           it kept for the catching up. */
-        if (cmd.type === 'transport' && cmd.op === 'start')
-        {
-            room.playing = cmd;
-            early.length = 0;
-        }
-        else if (cmd.type === 'transport' && cmd.op === 'stop')
-        {
-            room.playing = null;
-            early.length = 0;
-        }
-        else if (replayable(cmd) && early.length < EARLY_MAX)
+        /* Nothing to apply it to yet: a room joined before Start. What
+           came after the start is kept for the catching up. */
+        if (!startOrStop && replayable(cmd) && early.length < EARLY_MAX)
             early.push(cmd);
 
         return;
@@ -338,10 +339,10 @@ async function applyOne (from, cmd)
         keep(margins, { from, seq: cmd.seq, type: cmd.type,
                         margin: cmd.at - transportNow() });
 
-    /* A new Play ends any catching up: its begin replaces the one being
-       caught up with, and the origin that would have said so never comes. */
-    if (cmd.type === 'transport' && cmd.op === 'start')
-        catchingFrom = null;
+    /* A Play or Stop ends any catching up: the run being caught up with
+       is over, and the report that would have said so never comes. */
+    if (startOrStop)
+        catching = false;
 
     await apply(cmd, { synth, frameOfOrigin, listens, load: loadFor });
 
@@ -421,6 +422,8 @@ let runSeed = null;
  */
 function joinRun ()
 {
+    const wanted = room.runKey;
+
     const done = applying.then(async () =>
     {
         /* The origin is a relay-clock time, and turning it into a frame of
@@ -433,9 +436,26 @@ function joinRun ()
                 await new Promise((resolve) => setTimeout(resolve, 250));
         }
 
-        const run = await room.catchUp();
+        /* A Play or Stop applied since Start has put this page where the
+           room is already. */
+        if (room.runKey !== wanted)
+            return;
 
-        if (run.start === null)
+        let run;
+
+        try
+        {
+            run = await room.catchUp();
+        }
+        catch (e)
+        {
+            log(`catching up: ${e.message}`);
+            status('Could not catch up with the room; you will hear the ' +
+                   'next Play.');
+            return;
+        }
+
+        if (run.start === null || room.runKey !== wanted)
             return;
 
         if (run.overflowed)
@@ -466,14 +486,10 @@ function joinRun ()
                                    run.start.from}'s Play...`);
         await catchUp(run.start, [...byKey.values()], {
             synth, listens,
-            /* Where transport zero is, which is what the worklet reports:
-               a start from a time has its origin at that time, not zero. */
             frameOfOrigin: (ms) =>
             {
-                const frame = frameOfOrigin(ms);
-
-                catchingFrom = frame - (run.start.seek ?? 0) * ctx.sampleRate;
-                return frame;
+                catching = true;
+                return frameOfOrigin(ms);
             },
             load: (start) =>
             {
@@ -706,7 +722,9 @@ async function tempo ()
    holding the note, which releaseKeys leaves down. */
 function press (note, velocity = VELOCITY, midi = false)
 {
-    if (synth === null || room.seat === null)
+    /* Catching up, the worklet would play it at the past transport time
+       it has stepped to, silently, into a piece the room has gone past. */
+    if (synth === null || room.seat === null || catching)
         return;
 
     const already = sounding.get(note);
@@ -970,13 +988,12 @@ function tape (m)
     transport.report(m, performance.now());
     lateCount = m.late;
 
-    /* Caught up: the begin has landed -- the origin is the one it was
-       given, which a report from before it cannot have -- and the
-       stepping is done. */
-    if (catchingFrom !== null && m.running && !m.catching &&
-        Math.abs(m.origin - catchingFrom) < 1)
+    /* Caught up: the begin has landed and the stepping is done, or a stop
+       in the log ended the run. The load ahead of the begin unpinned the
+       origin, so a report from before the begin has none. */
+    if (catching && Number.isFinite(m.origin) && !m.catching)
     {
-        catchingFrom = null;
+        catching = false;
         status('Caught up with the room.');
     }
 
@@ -1571,7 +1588,7 @@ function init ()
         ready: () => synth !== null && piece !== null && clocksReady(),
 
         /* A late joiner still stepping up to the room (joinRun). */
-        catching: () => catchingFrom !== null,
+        catching: () => catching,
 
         /* A file as the document has it now. What a harness checks an
            edit against, and what one page holds the other's document

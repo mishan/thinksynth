@@ -34,6 +34,11 @@ export const PROTOCOL = 1;
    background tab is throttled to anyway. */
 const PING_EVERY = 1000;
 
+/* How long a catchup is waited for: past the relay's own wait for the
+   document (relay.mjs, SNAPSHOT_WAIT), so an answer that is coming has
+   come. A relay from before `catchup' never answers. */
+const CATCHUP_WAIT = 15 * 1000;
+
 export class Room
 {
     /* `url' is the relay, ws://host:port; `name' is what the others see.
@@ -54,7 +59,7 @@ export class Room
         this.handlers = new Map();
         this.pinger = null;
         this.ws = null;
-        this.catchups = [];             /* resolvers for catchUp() */
+        this.catchups = [];             /* { resolve, reject } of catchUp() */
     }
 
     on (type, fn)
@@ -101,6 +106,9 @@ export class Room
                     reject(new Error(
                         refused ?? `the relay at ${this.url} closed the ` +
                                    'connection before welcoming us'));
+
+                for (const c of this.catchups.splice(0))
+                    c.reject(new Error('the relay closed the connection'));
 
                 this.emit('close');
             });
@@ -190,8 +198,8 @@ export class Room
                         break;
 
                     case 'catchup':
-                        for (const resolve of this.catchups.splice(0))
-                            resolve(m);
+                        for (const c of this.catchups.splice(0))
+                            c.resolve(m);
                         break;
 
                     case 'error':
@@ -269,12 +277,23 @@ export class Room
     /* What a peer joining a playing room needs: resolves to `{ start,
        files, log, overflowed }' -- the run's start, the document as that
        start named it, and the stamped commands since -- or `{ start: null
-       }' when nothing is playing. */
-    catchUp ()
+       }' when nothing is playing. Rejects if the relay closes or has not
+       answered in `wait' milliseconds. */
+    catchUp (wait = CATCHUP_WAIT)
     {
-        return new Promise((resolve) =>
+        return new Promise((resolve, reject) =>
         {
-            this.catchups.push(resolve);
+            const c = {
+                resolve: (m) => { clearTimeout(timer); resolve(m); },
+                reject: (e) => { clearTimeout(timer); reject(e); },
+            };
+            const timer = setTimeout(() =>
+            {
+                this.catchups.splice(this.catchups.indexOf(c), 1);
+                reject(new Error('the relay did not answer a catchup'));
+            }, wait);
+
+            this.catchups.push(c);
             this.send({ type: 'catchup' });
         });
     }

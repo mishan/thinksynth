@@ -652,7 +652,7 @@ function firstKnob (M)
  * either side of it, and once it has caught up it moves the knob too --
  * the joiner as a musician rather than a listener.
  */
-async function lateSession (createThinkWeb, piece, dsps, seed)
+async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0)
 {
     const sim = new Sim();
     const net = new Net(sim, NETWORKS.lan, seed);
@@ -697,7 +697,7 @@ async function lateSession (createThinkWeb, piece, dsps, seed)
     sim.at(3000, async () =>
     {
         const cmd = A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
-                                  'no-document-here', seed);
+                                  'no-document-here', seed, seek);
 
         await A.send(cmd, true);
         note(cmd);
@@ -1023,6 +1023,28 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                 `${after} after the join; caught up ` +
                 `${r.caughtUp.toFixed(0)} ms after Start, ` +
                 `${r.stamped.length} commands\n`);
+    }
+
+    /* A Play from a time: the joiner's transport zero is where the seek
+       put the room's, and the sender's id is not a time. */
+    {
+        const piece = all.find((p) => p.name === 'orrery.gen');
+        const r = await lateSession(createThinkWeb, piece, dsps, 3, 30);
+        const [a, b, c] = r.ok ? r.peers.map((p) => tapeBefore(p.tape,
+                                                               r.stopAt))
+                               : [];
+
+        if (!r.ok || a !== b || c !== a)
+        {
+            failures++;
+            process.stdout.write(
+                `FAIL  a seek 30 s in: ${!r.ok ? r.errors.join('; ')
+                                     : a !== b ? firstDifference(a, b)
+                                     : firstDifference(a, c)}\n`);
+        }
+        else
+            process.stdout.write('ok    a seek 30 s in, joined and caught ' +
+                                 'up with\n');
     }
 
     process.stdout.write(

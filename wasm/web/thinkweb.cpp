@@ -66,6 +66,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <deque>
 #include <functional>
 #include <map>
 #include <string>
@@ -270,8 +271,9 @@ double                rate_;
 /* The scheduler's commands, in order of `at' and in arrival order within
    one: the ones for the top of the next window carry an `at' below zero
    and so come first, and the stamped ones follow in the order the step
-   will want them. */
-std::vector<Scheduled> scheduled_;
+   will want them. A deque, since a late joiner's catching up takes the
+   whole room's log off the front one at a time. */
+std::deque<Scheduled>  scheduled_;
 int                    late_;
 
 /* Where the transport clock is pinned to the output, when pinned_ says it
@@ -347,6 +349,11 @@ bool   catchUp_;            /* the armed begin may lie in the past */
 bool   catching_;           /* the transport is behind the output */
 double catchFrame_;         /* how far the stepping has got */
 bool   mirror_;             /* silent for good (tw_silent) */
+
+/* A MIDI channel's chanargs while catching up: the last of each, sent once
+   it is over (midiCaughtUp), as a seek sends them. */
+std::map<std::pair<int, std::string>, double> catchControls_;
+void midiCaughtUp (void);
 
 /* Milliseconds of stepping a window may spend catching up. A window is
    5.3 ms at 256 and 48 kHz; this leaves the render itself most of it. */
@@ -601,6 +608,7 @@ void beginDue (double start, int len)
         originFrame_ = armFrame_;
         catching_ = true;
         catchFrame_ = armFrame_;
+        catchControls_.clear();
         synth_->setSilent(true);
     }
     else if (armFrame_ < start)
@@ -1152,6 +1160,10 @@ bool catchUp (double start, int len, double budgetMs)
         return false;
 
     endCatching();
+
+    if (sched_->running() && !mirror_)
+        midiCaughtUp();
+
     return true;
 }
 
@@ -1675,7 +1687,10 @@ public:
     void control (int channel, const std::string &name, double value,
                   gint64 when) override
     {
-        router_.control(channel, name, value, when);
+        if (catching_)
+            catchControls_[std::make_pair(channel, name)] = value;
+        else
+            router_.control(channel, name, value, when);
     }
 
     void flush (int channel) override
@@ -1835,6 +1850,20 @@ private:
 
 twMidiOut midiOut_;
 
+/* A device heard none of the run a late joiner stepped through: not the
+   Start, so it is told where the run is now and to go on from there, and
+   not the controllers, so it is sent where each ended up. */
+void midiCaughtUp (void)
+{
+    sched_->clockStart();
+
+    for (const auto &c : catchControls_)
+        midiOut_.control(c.first.first, c.first.second, c.second,
+                         twMidiOut::now());
+
+    catchControls_.clear();
+}
+
 /* Every instrument naming `pattern' (all of them, where it is empty) whose
  * place has changed -- its route, or the ports there are -- taken off and
  * put on again. One whose place has not is left alone: taking it off ends
@@ -1902,7 +1931,6 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
     incoming_.assign(maxFrames > 0 ? (size_t)maxFrames : 1, 0.0f);
     pending_.reserve(TW_PENDING);
-    scheduled_.reserve(TW_PENDING);
 
     mkdir(TW_DSP_DIR, 0777);
 

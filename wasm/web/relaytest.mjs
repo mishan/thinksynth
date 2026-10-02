@@ -324,6 +324,40 @@ try
               'with the relay\'s reason');
     }
 
+    /* A relay from before `catchup' welcomes and never answers one: the
+       wait ends, or Start would queue every command behind it for good.
+       So does the socket closing under it. */
+    {
+        const old = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+
+        await new Promise((r) => old.on('listening', r));
+
+        old.on('connection', (ws) => ws.on('message', (data) =>
+        {
+            if (JSON.parse(data).type === 'hello')
+                ws.send(JSON.stringify({ type: 'welcome', peer: 'p',
+                                         peers: [], playing: null }));
+        }));
+
+        const room = new Room(`ws://127.0.0.1:${old.address().port}`,
+                              'test', 'Eve');
+
+        await room.connect();
+
+        const timedOut = await room.catchUp(200).then(() => false,
+                                                       () => true);
+        const pending = room.catchUp(60 * 1000).then(() => false,
+                                                     () => true);
+
+        for (const ws of old.clients)
+            ws.close();
+
+        check(timedOut && await pending,
+              'a catchup the relay never answers rejects, at the wait or ' +
+              'when the socket closes');
+        old.close();
+    }
+
     /* ---- the document socket ---- */
 
     const docA = new Y.Doc();
@@ -430,6 +464,32 @@ try
         const none = await g.next('catchup');
 
         check(none.start === null, 'and nothing once the run has stopped');
+
+        /* A Play while the joiner waits for the last one's document: the
+           answer is the run playing now. */
+        const later = new Y.Doc();
+
+        Y.applyUpdate(later, Y.encodeStateAsUpdate(docA));
+        later.getMap('files').get('airports.gen').insert(0, '# later\n');
+
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 888,
+                         piece: { hash: await hashOf(later) }, seed: 5,
+                         from: wf.peer, seq: 4, at: -1 } });
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+        await new Promise((r) => setTimeout(r, 200));
+        f.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 999,
+                         piece: { hash: await hashOf(docA) }, seed: 5,
+                         from: wf.peer, seq: 5, at: -1 } });
+        await new Promise((r) => setTimeout(r, 200));
+        docA.getMap('files').get('airports.gen').insert(0, '# later\n');
+
+        const current = await g.next('catchup');
+
+        check(current.start?.origin === 999 && current.files?.matched,
+              'a Play during the wait is answered with that Play\'s run');
 
         f.close();
         g.close();
