@@ -1815,6 +1815,7 @@ async function join ()
     $('joinrow').hidden = true;
     $('roompanel').hidden = false;
     $('roomname').textContent = `\u2014 ${roomName}`;
+    $('invite').hidden = false;
     showPeers();
     showNumbers();
 
@@ -1823,10 +1824,44 @@ async function join ()
                 ? ' The room is playing; Start joins it where it is.'
                 : ''));
 
+    /* The name stays in the address, which is how a reload comes back as
+       the same person; the invite leaves it out, or whoever follows the
+       link would come in as you. */
+    const where = { room: roomName, ...(params.get('relay')
+                                            ? { relay: params.get('relay') }
+                                            : {}) };
+
     history.replaceState(null, '', `?${new URLSearchParams(
-        { room: roomName, name, ...(params.get('relay')
-                                        ? { relay: params.get('relay') }
-                                        : {}) })}`);
+        { ...where, name })}`);
+    invite = new URL(`?${new URLSearchParams(where)}`, location.href).href;
+}
+
+/* The room's address without the name in it (join). */
+let invite = '';
+
+/* How long "Copied" stays on the invite button. */
+const COPIED_MS = 1500;
+
+async function copyInvite ()
+{
+    const button = $('invite');
+
+    try
+    {
+        await navigator.clipboard.writeText(invite);
+    }
+    catch
+    {
+        /* Refused, or no clipboard over plain http: the link, selected,
+           for whoever is there to copy it by hand. */
+        $('invitelink').value = invite;
+        $('invitelink').hidden = false;
+        $('invitelink').select();
+        return;
+    }
+
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = 'Copy invite link'; }, COPIED_MS);
 }
 
 async function start ()
@@ -2043,6 +2078,7 @@ function init ()
 
     $('join').addEventListener('click', join);
     $('room').addEventListener('input', showNewPiece);
+    $('invite').addEventListener('click', copyInvite);
     showRooms();
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);

@@ -20,6 +20,10 @@
   <p id="about"></p>
   <!-- Who is here, and by which path. -->
   <span id="peers" class="peers"></span>
+  <!-- The room's address without your name in it (jam.js, copyInvite),
+       and the link itself where the clipboard is refused. -->
+  <button id="invite" hidden>Copy invite link</button>
+  <input id="invitelink" readonly hidden aria-label="Invite link">
 </header>
 
 <!-- A new version, ready and not taken because something was going
