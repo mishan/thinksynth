@@ -359,6 +359,11 @@ checkValidation (const std::map<std::string, thcPlugin *> &plugins,
         " stage t xform::quantize { }; };",
         "stage after sink");
 
+    expectReject(plugins, synth, "stage-named-twice",
+        "chain c { stage s gen::eno_line { }; stage h xform::quantize { };"
+        " stage h xform::quantize { }; sink { channel = 1; }; };",
+        "names stage h twice");
+
     /* All transformers and no input: nothing would ever flow. */
     expectReject(plugins, synth, "no-source",
         "chain c { stage s xform::quantize { };"

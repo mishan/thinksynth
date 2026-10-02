@@ -360,9 +360,12 @@ On `latejoin`, the first of M4's three parts. Where it stands:
 - A gesture on a composer's picture and a stage's param name the stage
   by chain and stage name as well as by index, and the worklet finds it
   by name when the command applies: an edit that adds a chain or a stage
-  above it moves every index after it. `protocoltest.mjs` sends a param
-  numbered for the piece before such an edit; by name it reaches its
-  stage, and the same command without its names reaches the neighbour.
+  above it moves every index after it. A command whose stage an edit
+  removed or renamed is dropped, and its sender stops waiting for the
+  edit it would have written. Stage names are unique within a chain.
+  `protocoltest.mjs` sends a param and a gesture numbered for the piece
+  before such an edit; by name each reaches its stage, and the same
+  command without its names reaches the neighbor.
 - Not yet: by hand across two machines.
 
 ### M6, so far

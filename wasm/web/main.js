@@ -2623,8 +2623,8 @@ function showComposer (on)
            round: out as a command, back in at its time, applied by every
            instance including this one. One path, whether or not there is
            anybody else in the room. */
-        onParamEdit: (chain, stage, row, text) =>
-            synth?.param({ at: -1, chain, stage, row, text }),
+        onParamEdit: (chain, stage, row, text, names) =>
+            synth?.param({ at: -1, chain, stage, row, text, ...names }),
 
         /* A chain's M or S, for the next window like a knob -- and put
            back after a load of the same piece, as the desktop does. */

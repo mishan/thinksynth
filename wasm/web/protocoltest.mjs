@@ -1158,9 +1158,11 @@ async function handsSession (createThinkWeb, piece, dsps)
  * for corrected's `h' arrives, stamped for after the edit and numbered as
  * the piece was before it -- what a page whose composer view had not
  * caught up would send. By its numbers it would set breathed's; by its
- * names, corrected's.
+ * names, corrected's. With `input', a press in the middle of corrected's
+ * euclid ring and its release instead, which writes one more fill.
  */
-async function movedSession (createThinkWeb, piece, dsps, named = true)
+async function movedSession (createThinkWeb, piece, dsps, named = true,
+                             input = false)
 {
     const sim = new Sim();
     const net = new Net(sim, NETWORKS.still, 7);
@@ -1215,11 +1217,16 @@ async function movedSession (createThinkWeb, piece, dsps, named = true)
     });
 
     /* Well after the edit's bar, stamped for later still. */
+    const names = !named ? {}
+        : { chainName: 'corrected', stageName: input ? 'src' : 'h' };
+
     sim.at(10000, async () =>
-        B.send(B.maker.param(2, 1, 'vel', '20',
-                             named ? { chainName: 'corrected',
-                                       stageName: 'h' }
-                                   : {})));
+        B.send(input ? B.maker.input(2, 0, 0, 50, 50, 100, 100, 1, names)
+                     : B.maker.param(2, 1, 'vel', '20', names)));
+
+    if (input)
+        sim.at(10100, async () =>
+            B.send(B.maker.input(2, 0, 2, 50, 50, 100, 100, 1, names)));
 
     sim.at(14000, async () =>
     {
@@ -1244,18 +1251,21 @@ async function movedSession (createThinkWeb, piece, dsps, named = true)
     return { ok: true, peers, editAt, stopAt };
 }
 
-/* The humanize stage's `vel' in one chain of a piece's text. */
-function velOf (text, chain)
+/* A stage's param in one chain of a piece's text. */
+function settingOf (text, chain, stage, param)
 {
     const start = text.indexOf(`chain ${chain} {`);
     const body = text.slice(start, text.indexOf('\n};', start));
-    const h = body.slice(body.indexOf('stage h '));
+    const at = body.slice(body.indexOf(`stage ${stage} `));
 
-    return /\bvel\s*=\s*([\d.]+)/.exec(h)?.[1] ?? null;
+    const value = new RegExp(`\\b${param}\\s*=\\s*([\\d.]+)`).exec(at);
+
+    return value?.[1] ?? null;
 }
 
-/* What movedSession's param did, as complaints. */
-function movedComplaints (r)
+/* What movedSession's command did, as complaints: `param' of `stage' is
+   `set' in corrected and still `was' in breathed. */
+function movedComplaints (r, { stage, param, set, was })
 {
     const complaints = [];
 
@@ -1268,13 +1278,15 @@ function movedComplaints (r)
     if (texts[0] !== texts[1])
         complaints.push('the two peers hold different texts');
 
-    if (velOf(texts[0], 'corrected') !== '20')
-        complaints.push(`corrected's h has vel ` +
-                        `${velOf(texts[0], 'corrected')}, not 20`);
+    const corrected = settingOf(texts[0], 'corrected', stage, param);
+    const breathed = settingOf(texts[0], 'breathed', stage, param);
 
-    if (velOf(texts[0], 'breathed') !== '14')
-        complaints.push(`breathed's h was changed to ` +
-                        `${velOf(texts[0], 'breathed')}`);
+    if (corrected !== set)
+        complaints.push(`corrected's ${stage} has ${param} ${corrected}, ` +
+                        `not ${set}`);
+
+    if (breathed !== was)
+        complaints.push(`breathed's ${stage} was changed to ${breathed}`);
 
     if (tapeBefore(A.tape, r.stopAt) !== tapeBefore(B.tape, r.stopAt))
         complaints.push('the two tapes differ');
@@ -1586,33 +1598,39 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
     }
 
     /* A command for a stage an edit moved: by name it reaches it, and the
-       same command without its names reaches the neighbour -- the second
+       same command without its names reaches the neighbor -- the second
        run is what says the first one tested anything. */
+    process.stdout.write('\na param and a gesture numbered for the piece ' +
+                         'before an edit that moved their stage\n\n');
+
+    for (const [what, input, want] of [
+        ['param', false, { stage: 'h', param: 'vel', set: '20', was: '14' }],
+        ['gesture', true,
+         { stage: 'src', param: 'fills', set: '8', was: '7' }],
+    ])
     {
         const piece = pieces(build).find((p) => p.name === 'loosen.gen');
-
-        process.stdout.write('\na param numbered for the piece before an ' +
-                             'edit that moved its stage\n\n');
-
-        const r = await movedSession(createThinkWeb, piece, dsps);
-        const complaints = movedComplaints(r);
+        const r = await movedSession(createThinkWeb, piece, dsps, true,
+                                     input);
+        const complaints = movedComplaints(r, want);
         const unnamed = movedComplaints(
-            await movedSession(createThinkWeb, piece, dsps, false));
+            await movedSession(createThinkWeb, piece, dsps, false, input),
+            want);
 
-        if (!unnamed.some((c) => /breathed's h was changed/.test(c)))
-            complaints.push('without its names the param did not go astray, ' +
-                            'so this proves nothing');
+        if (!unnamed.some((c) => /breathed's .* was changed/.test(c)))
+            complaints.push(`without its names the ${what} did not go ` +
+                            'astray, so this proves nothing');
 
         if (complaints.length > 0)
         {
             failures++;
-            process.stdout.write(`FAIL  loosen.gen     ` +
+            process.stdout.write(`FAIL  loosen.gen     ${what}: ` +
                                  `${complaints.join('; ')}\n`);
         }
         else
             process.stdout.write(
                 `ok    loosen.gen     the edit at ${r.editAt.toFixed(3)} ` +
-                `moved corrected from chain 2 to 3; the param numbered 2 ` +
+                `moved corrected from chain 2 to 3; the ${what} numbered 2 ` +
                 `reached it by name, and without its names reached ` +
                 `breathed\n`);
     }

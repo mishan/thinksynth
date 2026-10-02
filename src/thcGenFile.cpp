@@ -3052,6 +3052,18 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
 
     bool ok = true;
 
+    /* A room's input and param commands find their stage by name, after
+       an edit may have moved its index (wasm/web/thinkweb.cpp). */
+    const auto &stages = sched->chain(chain)->stages;
+
+    for (size_t i = 0; i + 1 < stages.size(); i++)
+        if (stages[i]->name == stageName.text)
+        {
+            error(stageName.line, "chain " + chainName + " names stage " +
+                  stageName.text + " twice");
+            ok = false;
+        }
+
     while (true)
     {
         const Token &t = peek();

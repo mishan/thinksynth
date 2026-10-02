@@ -557,8 +557,21 @@ export function createComposerView ({ root = document, toMirror,
      */
     const followParams = (m) =>
     {
-        if (params === null || m.panel === null ||
-            m.chain !== params.chain || m.stage !== params.stage)
+        if (params === null || m.chain !== params.chain ||
+            m.stage !== params.stage)
+            return;
+
+        /* An edit has put another stage at this index: its values under
+           this title would be wrong, and a write goes by name. */
+        if (m.chainName !== params.chainName ||
+            m.stageName !== params.stageName)
+        {
+            $('composerparams').hidden = true;
+            params = null;
+            return;
+        }
+
+        if (m.panel === null)
             return;
 
         const panel = JSON.parse(m.panel);

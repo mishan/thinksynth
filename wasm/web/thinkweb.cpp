@@ -268,7 +268,7 @@ struct Scheduled
        the command carries them. Looked up when it applies (namedStage):
        an edit that adds a chain or a stage above this one moves every
        index after it, and a command made before the edit and applied
-       after it would otherwise reach a neighbour. */
+       after it would otherwise reach a neighbor. */
     std::string chainName, stageName;
 
     int    channel, note;       /* TW_NOTE                             */
@@ -441,7 +441,7 @@ thcGenEdit::Doc canvasDoc_;
 struct AppliedParam
 {
     double      at;
-    int         chain, stage;       /* the scheduler's numbering */
+    int         chain, stage;       /* TW_PARAM: the sender's numbering */
     std::string row, text;          /* as the command carried them */
 
     std::string chainName;          /* the document's, for a splice */
@@ -713,8 +713,8 @@ thcStage *stageAt (int chain, int stage)
 /* A stage's parameter, set: the piece's own text spliced, and the running
  * stage poked so that the new line is heard from here. What TW_PARAM does,
  * and what a gesture's end does for a THC_INPUT_EDITS picture (`input'),
- * whose record says so and carries the command's tag. `sent' is the
- * command as it arrived, `c' with its stage found by name. `row' is the
+ * whose record says so and carries the command's tag. `sent' numbers the
+ * stage as a TW_PARAM's sender did, `c' as the piece now does. `row' is the
  * param, `text' the part of the line to complete against the file
  * (src/StagePanel.h). False when there was nothing to write.
  *
@@ -877,9 +877,9 @@ bool listensOn (int channel)
 /* `c' with its chain and stage indices made the ones its names give, in the
  * piece as it is now. True if it names a stage that is there -- by name
  * when it has names, by index when it has none -- and false, having said
- * so, when the names find nothing: the stage has been edited away, and a
- * command meant for it is dropped rather than handed to whatever stands in
- * its place.
+ * so, when the names find nothing: the stage has been edited away or
+ * renamed, and a command meant for it is dropped rather than handed to
+ * whatever stands in its place.
  */
 bool namedStage (Scheduled &c)
 {
@@ -904,8 +904,16 @@ bool namedStage (Scheduled &c)
         break;
     }
 
-    fprintf(stderr, "no stage %s in chain %s now; a command for it is "
-            "dropped\n", c.stageName.c_str(), c.chainName.c_str());
+    /* Once per stage, not per command: a drag on a stage renamed under it
+       sends one for every move. */
+    static std::string lastDropped;
+    const std::string which = c.chainName + " " + c.stageName;
+
+    if (which != lastDropped)
+        fprintf(stderr, "no stage %s in chain %s now; commands for it are "
+                "dropped\n", c.stageName.c_str(), c.chainName.c_str());
+
+    lastDropped = which;
 
     return false;
 }
@@ -923,7 +931,27 @@ void applyScheduled (const Scheduled &given)
         }
 
     if ((c.op == TW_INPUT || c.op == TW_PARAM) && !namedStage(c))
+    {
+        /* Reported as an edit that wrote nothing (an empty `param'): the
+           page that sent a param or a gesture's end waits for its edit. */
+        if (c.op == TW_PARAM || c.kind == THC_IN_RELEASE)
+        {
+            AppliedParam none;
+
+            none.at = c.at;
+            none.chain = c.chain;
+            none.stage = c.stage;
+            none.row = c.row;
+            none.text = c.text;
+            none.docStage = -1;
+            none.input = c.op == TW_INPUT;
+            none.tag = none.input ? c.text : std::string();
+
+            applied_.push_back(none);
+        }
+
         return;
+    }
 
     switch (c.op)
     {

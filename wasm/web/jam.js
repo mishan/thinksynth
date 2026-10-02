@@ -1315,6 +1315,10 @@ async function paramsEdited ({ edits })
         else
             released.add(key);
 
+        /* Its stage was edited away or renamed: nothing was written. */
+        if (e.param === '')
+            continue;
+
         const name = pieceName(doc);
 
         /* The document may move while the worklet works: a splice is made

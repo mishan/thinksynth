@@ -611,6 +611,7 @@ function receive (m)
            have changed. */
         case 'panel':
             post({ type: 'panel', chain: m.chain, stage: m.stage,
+                   ...namesOf(m.chain, m.stage),
                    panel: panelOf(m.chain, m.stage) });
             break;
 

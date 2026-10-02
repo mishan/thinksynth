@@ -544,7 +544,8 @@ A chain body holds, in order:
 - zero or more `stage` blocks. A stage whose plugin exports `tick` is a
   generator; one exporting `receive` is a transformer; the loader checks that
   what the file asks of a plugin matches what it exports and rejects the
-  file otherwise, by name and line.
+  file otherwise, by name and line. No two `gen::` or `xform::` stages
+  in a chain share a name: a jam room's commands find a stage by it.
 - one or more `sink` blocks, always last:
 
 ```
