@@ -741,9 +741,20 @@ try
               !document.getElementById('composerview').checkVisibility()),
           'the room\'s Sequencer comes in front of the composers by its tab');
 
+    /* The chat sits behind the knobs, where its tab can count what came
+       while nobody was reading it. */
+    check(await room.evaluate(() =>
+              document.getElementById('pane-chat').closest('.paneleaf') ===
+              document.getElementById('pane-knobs').closest('.paneleaf')),
+          'the chat is a tab beside the knobs');
+
     await room.setViewportSize(NARROW);
     await room.waitForFunction(
         () => !document.body.classList.contains('tiled'));
+
+    check(await room.evaluate(() =>
+              document.getElementById('chatinput').checkVisibility()),
+          'and the chat box is on the narrow page, to type into');
 
     check(await room.evaluate(() =>
               window.jam.panes().every(

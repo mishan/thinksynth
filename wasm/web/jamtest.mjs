@@ -64,6 +64,9 @@
  * pane after an edit has moved the track: the same tape on both pages, not
  * the untouched one, and the same cell in both documents.
  *
+ * Last, the two pages talk: a line each way through the room's chat, and
+ * a Play from one reported in the other's feed.
+ *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
  * but it renders an AudioContext in real time all the same, and real time
@@ -1033,6 +1036,87 @@ async function keysSeen (pages)
     await A.page.evaluate(() => window.jam.stop());
 }
 
+/* Chat between the two pages: a line typed into one is on the other under
+ * its sender's name and the bar.beat it was sent at, the other's Play is a
+ * line in the feed, and letters typed into the box are text -- on a page
+ * with a seat, where the same letters are otherwise notes.
+ */
+async function chatTogether (pages)
+{
+    const [A, B] = pages;
+
+    for (const { page } of pages)
+    {
+        await page.goto(`${url}&room=jamchat&name=${
+            page === A.page ? A.label : B.label}&piece=${HANDS_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+        await page.waitForFunction(() => window.jam.ready(), null,
+                                   { timeout: 20000 });
+    }
+
+    const feed = (who) => who.page.evaluate(() =>
+        [...document.querySelectorAll('#chatfeed li')]
+            .map((li) => li.textContent).join(' | '));
+    const shows = (who, cls, src) => who.page.waitForFunction(
+        ([c, s]) => [...document.querySelectorAll(`#chatfeed .${c}`)]
+            .some((li) => new RegExp(s).test(li.textContent)),
+        [cls, src], { timeout: 5000 }).then(() => true, () => false);
+
+    await B.page.evaluate(() => window.jam.seat(0));
+    await B.page.waitForFunction(() => window.jam.seatNow() === 0, null,
+                                 { timeout: 5000 });
+    await A.page.evaluate(() => window.jam.play());
+
+    if (await shows(B, 'chatactivity', `^${A.label} pressed Play$`))
+        ok(`${B.label}'s feed says ${A.label} pressed Play`);
+    else
+        fail(`${B.label}'s feed never said ${A.label} pressed Play: ` +
+             await feed(B));
+
+    await A.page.waitForFunction(() => window.jam.transportNow() > 0.5,
+                                 null, { timeout: 10000 });
+    await A.page.click('#chatinput');
+    await A.page.keyboard.type('switch at 17');
+    await A.page.keyboard.press('Enter');
+
+    if (await shows(B, 'chatline', `^\\d+\\.\\d+ ${A.label}: switch at 17$`))
+        ok(`a line typed on ${A.label} is on ${B.label} with its name and ` +
+           'bar.beat');
+    else
+        fail(`${A.label}'s line never reached ${B.label}: ${await feed(B)}`);
+
+    const notes = () => B.page.evaluate(
+        () => window.jam.sent().filter((c) => c.type === 'note').length);
+
+    await B.page.evaluate(() => document.activeElement?.blur());
+
+    const before = await notes();
+
+    await B.page.keyboard.press('z');
+    await new Promise((r) => setTimeout(r, 300));
+
+    const held = await notes();
+
+    await B.page.click('#chatinput');
+    await B.page.keyboard.type('zsxdcvgbhnjm');
+    await B.page.keyboard.press('Enter');
+
+    const went = await shows(A, 'chatline', `${B.label}: zsxdcvgbhnjm$`);
+    const after = await notes();
+
+    if (held > before && after === held && went)
+        ok('letters typed into the chat box are a line and not notes, ' +
+           'where the same letter outside it is a note');
+    else
+        fail(`a key outside the box sent ${held - before} notes, typing in ` +
+             `it ${after - held}, and the line ${went ? 'went' : 'did not'}`);
+
+    await A.page.evaluate(() => window.jam.stop());
+}
+
 /* A stage's parameter, typed into the popover beside its box.
  *
  * The panel is the module's description of the stage (src/StagePanel.cpp)
@@ -1747,6 +1831,10 @@ try
 
     await pickTogether(pages);
     await pickRefused(pages);
+
+    /* ---- and talks ---- */
+
+    await chatTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);

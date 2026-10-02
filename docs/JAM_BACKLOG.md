@@ -147,6 +147,13 @@ say things it did not expect to be kept.
 Voice for musicians is M7's WebRTC audio track and stays separate: chat
 is the text half and works for spectators, who are never in the mesh.
 
+**Built:** the stage. A Chat pane on the room page, a `chat` message on
+the room socket stamped and forwarded by the relay and kept by nobody,
+limits on length and rate at the relay, the bar.beat a line was sent at,
+the room's own activity between the lines, and an unread count on the
+pane while it is out of sight (`JAM.md`, section 4). Not yet: the house,
+spectators, muting a peer, clearing, and anything to do with recording.
+
 ### 3.3 Tipping
 
 **What.** A way for musicians to earn from an audience. Not planned.

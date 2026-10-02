@@ -39,6 +39,7 @@
 import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
+import { barBeat, createChat } from './chat.js';
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
          commandTag, isLate, keyAt, nextBar, replayable, tieOf }
@@ -138,7 +139,7 @@ let nodes = null;
  * things and catalogcheck.mjs holds them to it.
  */
 const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
-               'documentbox', 'nodeview', 'detail'];
+               'documentbox', 'nodeview', 'detail', 'chat'];
 
 /* Where they go, the first time somebody opens a room in a window with
  * room to tile. Data, and this page's: panes.js knows how to divide a
@@ -154,7 +155,7 @@ const ROOM_LAYOUT = {
         { dir: 'col', size: [0.44, 0.28, 0.28], kids: [
             { tabs: ['composerview', 'seqview'] },
             { tabs: ['roll'] },
-            { tabs: ['knobs'] }] },
+            { tabs: ['knobs', 'chat'] }] },
         { dir: 'col', size: [0.42, 0.34, 0.24], kids: [
             { tabs: ['nodeview'] },
             { tabs: ['documentbox'] },
@@ -168,6 +169,7 @@ let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
 let keyfocus = null;            /* and who has it, the page or the keys  */
 let midiIn = null;              /* the MIDI in button (midi.js)          */
+let chat = null;                /* the room's text (chat.js)             */
 let maker = null;
 const dedupe = new Dedupe();
 
@@ -374,6 +376,9 @@ async function applyOne (from, cmd)
         cmd.run !== room.runKey)
         return;
 
+    if (cmd.type === 'transport' || cmd.type === 'edit')
+        chat.command(room.peers.get(from)?.name ?? from, cmd, lastTape);
+
     if (synth === null)
     {
         /* Nothing to apply it to yet: a room joined before Start. What
@@ -547,6 +552,7 @@ function joinRun ()
 
         status(`Catching up with ${room.peers.get(run.start.from)?.name ??
                                    run.start.from}'s Play...`);
+        chat.activity('catching up with the room');
         await catchUp(run.start, [...byKey.values()], {
             synth: roomSynth, listens,
             frameOfOrigin: (ms) =>
@@ -1342,6 +1348,7 @@ function tape (m)
     {
         catching = false;
         status('Caught up with the room.');
+        chat.activity('caught up with the room');
     }
 
     if (m.epoch !== tapeEpoch)
@@ -1642,7 +1649,9 @@ async function join ()
     status(`Joining ${roomName} at ${url}...`);
 
     room = new Room(url, roomName, name, { piece: params.get('piece') });
-    room.on('peers', showPeers)
+    room.on('peers', () => { showPeers(); chat.peers(room.peers); })
+        .on('chat', (m) => chat.said(m))
+        .on('refused', (m) => m.of === 'chat' && chat.refused(m.why))
         .on('clock', () => { showNumbers(); enable(); })
         .on('transport', (from, data) => receive(from, data))
         .on('error', (text) => log(`relay: ${text}`))
@@ -1893,6 +1902,19 @@ function init ()
         onChange: showMidiOut,
     });
 
+    chat = createChat({
+        feed: $('chatfeed'), form: $('chatform'), input: $('chatinput'),
+        note: $('chatnote'), self: () => room?.peer,
+        send: (text) => room.chat(text, barBeat(lastTape, transportNow())),
+        colorOf: (name) => colourOf(name).color,
+        visible: () => panes.visible('chat'),
+        title: (text) =>
+        {
+            $('chat').querySelector('summary').textContent = text;
+            panes.setTitle('chat', text);
+        },
+    });
+
     $('join').addEventListener('click', join);
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
@@ -1964,6 +1986,8 @@ function init ()
                 showRoll(on);
             else if (id === 'nodeview')
                 nodes?.show(on);
+            else if (id === 'chat')
+                chat.shown(on);
         },
     });
 

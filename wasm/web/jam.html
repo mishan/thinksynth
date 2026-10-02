@@ -188,6 +188,21 @@
     <pre id="numbers"></pre>
     <pre id="log"></pre>
   </details>
+
+  <!-- Text, for the people in the room, between lines this page writes
+       about what the room did: who came, who sat down, who pressed Play
+       (chat.js). Through the relay, and kept by nobody. -->
+  <details id="chat" open
+           data-pane data-pane-min="240">
+    <summary>Chat</summary>
+    <ul id="chatfeed"></ul>
+    <form id="chatform" class="row">
+      <input id="chatinput" type="text" maxlength="500" autocomplete="off"
+             aria-label="Say something to the room">
+      <button>Send</button>
+    </form>
+    <p id="chatnote" class="hint" aria-live="polite"></p>
+  </details>
 </section>
 
 <!-- What a stage's params handle asks for, and what a right-click on a
