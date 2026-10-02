@@ -1648,6 +1648,50 @@ function exportTape ()
 
 /* ---- joining, and starting ---- */
 
+/* How often the rooms are asked for while the page has not joined one. */
+const ROOMS_EVERY = 5000;
+
+/* The relay's rooms under the join row: its health line over http(s),
+   which lists them. A room is a button that names it in the box. */
+async function showRooms ()
+{
+    const list = $('rooms');
+
+    if ($('joinrow').hidden)
+        return;
+
+    let rooms = [];
+
+    try
+    {
+        const health = (await relayUrl(new URLSearchParams(location.search)))
+            .replace(/^ws/, 'http').replace(/\/*$/, '/');
+
+        rooms = (await (await fetch(health)).json()).rooms ?? [];
+    }
+    catch
+    {
+        /* No relay, or one that will not say: no list. */
+    }
+
+    rooms.sort((a, b) => b.peers - a.peers || a.name.localeCompare(b.name));
+    list.replaceChildren(...rooms.map((r) =>
+    {
+        const li = document.createElement('li');
+        const b = document.createElement('button');
+
+        b.textContent = r.name;
+        b.addEventListener('click', () => { $('room').value = r.name; });
+        li.append(b, ` ${r.peers === 0 ? 'empty'
+                        : r.peers === 1 ? '1 person' : `${r.peers} people`}` +
+                     (r.piece ? `, ${r.piece}` : '') +
+                     (r.playing ? ', playing' : ''));
+        return li;
+    }));
+    list.hidden = rooms.length === 0;
+    setTimeout(showRooms, ROOMS_EVERY);
+}
+
 async function join ()
 {
     const params = new URLSearchParams(location.search);
@@ -1930,6 +1974,7 @@ function init ()
     });
 
     $('join').addEventListener('click', join);
+    showRooms();
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
     $('apply').addEventListener('click', applyEdit);
