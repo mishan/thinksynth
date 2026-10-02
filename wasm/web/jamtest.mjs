@@ -56,6 +56,10 @@
  * changes, the other page has the same file, and the text is what native
  * NodeEdit writes for the same edit.
  *
+ * And last a room on seq.gen, where one page clicks a cell in its Sequencer
+ * pane: the same tape on both pages, not the untouched one, and the same
+ * cell in both documents.
+ *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
  * but it renders an AudioContext in real time all the same, and real time
@@ -104,6 +108,10 @@ const JOINER_KNOB_AT = 26;
    agreement and not endurance. */
 const PAINT_PIECE = 'colony.gen';
 const PAINT_SECONDS = 14;
+
+/* A piece of grids, clicked on from the Sequencer pane. */
+const SEQ_PIECE = 'seq.gen';
+const SEQ_SECONDS = 10;
 
 /* The third: a piece nothing plays but people, played from both pages. */
 const HANDS_PIECE = 'hands.gen';
@@ -342,6 +350,150 @@ async function paintTogether (pages)
         ok('and it is not the tape of the run nobody painted on');
     else
         fail('painting the board changed nothing about what it played');
+}
+
+/*
+ * A room on seq.gen, and a click in one page's Sequencer pane: an empty
+ * step of the snare's track. The pane is a second door to the same
+ * command as the composer canvas's, so the same three things have to hold
+ * -- one tape, which is not the tape of the run nobody clicked in, and the
+ * cell written into the document once, the same on both pages. And the
+ * command has to carry the stage's names, which is what lets it reach its
+ * stage across an edit.
+ */
+async function sequenceTogether (pages)
+{
+    const [A, B] = pages;
+
+    for (const { label, page } of pages)
+    {
+        await page.goto(`${url}&room=jamseq&name=${label}` +
+                        `&piece=${SEQ_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+        await page.waitForFunction(() => window.jam.ready(), null,
+                                   { timeout: 20000 });
+    }
+
+    for (const { page } of pages)
+        await page.waitForFunction(
+            () => window.jam.peers().every((p) => p.path !== 'connecting'),
+            null, { timeout: 15000 }).catch(() => {});
+
+    /* In view, which is what has the pane asking for frames -- and a track
+       is sized by its first frame, so a click before one is a click on a
+       picture of no size. The default canvas is 150 tall and no track is. */
+    await B.page.locator('#seqview').scrollIntoViewIfNeeded();
+
+    const sized = await B.page.waitForFunction(() =>
+    {
+        const grids = document.querySelectorAll('#tracks canvas.trackgrid');
+
+        return grids.length === 6 &&
+               [...grids].every((c) => c.height !== 150);
+    }, null, { timeout: 15000 }).then(() => true, () => false);
+
+    if (!sized)
+    {
+        fail(`${B.label}'s Sequencer pane did not show seq.gen's six tracks`);
+        return;
+    }
+
+    const pieceFile = await A.page.evaluate(() => window.jam.piece());
+    const docWas = await A.page.evaluate(
+        (name) => window.jam.file(name), pieceFile);
+
+    await A.page.evaluate(() => window.jam.play());
+
+    const t0 = Date.now();
+    const at = (ms) => new Promise((r) =>
+        setTimeout(r, Math.max(0, t0 + ms - Date.now())));
+
+    await at(3000);
+
+    /* The snare's third step, which the file leaves empty. */
+    const box = await B.page.$eval('#tracks .track:nth-child(2) canvas',
+                                   (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+
+    await B.page.mouse.click(box.x + box.w * 2.5 / 16, box.y + box.h / 2);
+
+    await at(SEQ_SECONDS * 1000);
+    await A.page.evaluate(() => window.jam.stop());
+    await at(SEQ_SECONDS * 1000 + 3000);
+
+    const results = [];
+
+    for (const { label, page } of pages)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+        }))) });
+
+    const sent = results.flatMap((r) => r.sent)
+        .filter((c) => c.at >= 0)
+        .sort((a, b) => a.at - b.at);
+    const clicked = sent.filter((c) => c.type === 'input');
+    const stopAt = sent.find((c) => c.op === 'stop')?.at;
+
+    if (clicked.length === 0 || stopAt === undefined)
+    {
+        fail(`the Sequencer pane sent ${clicked.length} gestures and the ` +
+             `room ${stopAt === undefined ? 'no' : 'a'} stop`);
+        return;
+    }
+
+    if (clicked.every((c) => c.chainName === 'snare' &&
+                             c.stageName === 'seq' && c.rev >= 0))
+        ok(`a click on the snare's track went out as ${clicked.length} ` +
+           'gestures naming snare.seq');
+    else
+        fail(`the Sequencer's gestures name ${JSON.stringify(
+            clicked.map((c) => [c.chainName, c.stageName, c.rev]))}`);
+
+    const tapes = results.map((r) => tapeBefore(r.tape, stopAt));
+
+    if (tapes[0] === tapes[1])
+        ok('a cell clicked in one Sequencer is heard on both pages: ' +
+           `${tapes[0].split('\n').length - 1} events`);
+    else
+        fail(`the sequenced tapes differ: ` +
+             `${firstDifference(tapes[0], tapes[1])}`);
+
+    const untouched = reference(SEQ_PIECE, nodeBuild,
+                                { commands: sent.filter(
+                                      (c) => c.type !== 'input'),
+                                  knobs: {}, stopAt });
+
+    if (tapes[0] !== untouched)
+        ok('and it is not the tape of the run nobody clicked in');
+    else
+        fail('clicking the snare\'s track changed nothing about what played');
+
+    const docs = await Promise.all(pages.map(({ page }) =>
+        page.waitForFunction(([name, was]) =>
+            window.jam.file(name) !== was, [pieceFile, docWas],
+            { timeout: 15000 }).catch(() => {})
+            .then(() => page.evaluate(
+                (name) => window.jam.file(name), pieceFile))));
+
+    const wasLines = docWas.split('\n');
+    const changed = docs[0].split('\n').filter((l, i) => l !== wasLines[i]);
+
+    if (docs[0] !== docs[1])
+        fail(`the two pages' documents differ after the click: ` +
+             `${firstDifference(docs[0], docs[1])}`);
+    else if (changed.length !== 1 || !/^\s*cells\s*=\s*"..x/.test(changed[0]))
+        fail(`the click is not the snare's cells in ${pieceFile}: ` +
+             JSON.stringify(changed));
+    else
+        ok(`and ${pieceFile} carries it on both pages: ${changed[0].trim()}`);
 }
 
 /* Keys into a piece, from both pages: hands.gen, which composes nothing
@@ -1220,6 +1372,10 @@ try
     /* ---- and plays recordings ---- */
 
     await sampleTogether(pages);
+
+    /* ---- and clicks a cell in a Sequencer ---- */
+
+    await sequenceTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);

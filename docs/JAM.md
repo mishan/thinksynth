@@ -451,6 +451,11 @@ On `jam-m6`. Where it stands:
   copy of the `.gen` off that one command, so no text crosses and the
   copies cannot part. Two browsers in a room are held to one tape across
   one of these by `wasm/web/jamtest.mjs`.
+- The solo page's Sequencer in a room: a track per `gen::grid`, and a
+  click on one the same stamped `input` command as a click on the
+  composers' picture, names and all, written into the document by the
+  peer who made it. `gen/seq.gen` is a piece for it; `jamtest.mjs` clicks
+  a cell from one page and holds both tapes and both documents to it.
 - Not yet: the by-hand pass in two browsers (M6's gate 8.4).
 
 ## 1. The three kinds of state
