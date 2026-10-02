@@ -837,10 +837,11 @@ async function playTogether (pages)
     const results = [];
 
     for (const { label, page } of pages)
-        results.push({ label, ...(await page.evaluate(() => ({
+        results.push({ label, ...(await page.evaluate(async () => ({
             tape: window.jam.tape(),
             sent: window.jam.sent(),
             late: window.jam.late(),
+            played: await window.jam.rollPlayed(),
         }))) });
 
     const sent = results.flatMap((r) => r.sent).filter((c) => c.at >= 0);
@@ -898,6 +899,25 @@ async function playTogether (pages)
         if (r.late.worklet !== 0 || r.late.seen !== 0)
             fail(`${r.label} applied ${r.late.worklet} late in the room ` +
                  'played into');
+
+    /* Every seat's keys on each page's roll, at the time each was stamped
+       for, which is when it sounded there -- not when it was pressed. */
+    for (const r of results)
+    {
+        const played = r.played ?? [];
+        const missing = keys.filter((c) => !played.some(
+            ([at, channel, note, held]) => channel === c.seat &&
+                note === c.note && !held && Math.abs(at - c.at) < 1e-3));
+
+        if (missing.length === 0 && played.length === keys.length)
+            ok(`${r.label}'s roll shows all ${keys.length} keys, both ` +
+               'seats\', where they were stamped for');
+        else
+            fail(`${r.label}'s roll has ${played.length} played keys ` +
+                 `of ${keys.length}; missing ` +
+                 missing.map((c) => `${c.seat}:${c.note}@${c.at.toFixed(3)}`)
+                     .join(', '));
+    }
 }
 
 /* A room on cloud.gen, whose cloud.dsp plays two of dsp/samples/ through

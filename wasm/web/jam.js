@@ -1349,6 +1349,11 @@ function tape (m)
 
     for (const e of m.events)
         tapeText += tapeLine(e);
+
+    /* Every seat's keys where they sounded here, a stamped one's at its
+       time and not at its press. */
+    for (const k of m.keys ?? [])
+        keyboard?.sound(k.channel, k.note, k.on);
 }
 
 /* ---- the composer view ---- */
@@ -1988,6 +1993,8 @@ function init ()
             $('playmode').value = m;
             $('playmode').dispatchEvent(new Event('change'));
         },
+        /* The keys the roll draws as played, every seat's. */
+        rollPlayed: () => roll?.played() ?? null,
         /* A knob by name, or by its row's id as the panel numbers it. */
         knob: (knob, value) => send(maker.knob(
             typeof knob === 'string' ? knob

@@ -84,9 +84,18 @@ export function createRollView ({ root = document, toMirror })
        now-line is and whether it is still live. */
     let where = { now: 0, following: true, spanPast: 0, spanFuture: 0 };
 
+    let playedAsked = null;
+
     /* True if the message was this view's. */
     const fromMirror = (m) =>
     {
+        if (m.type === 'rollplayed')
+        {
+            playedAsked?.(m.keys);
+            playedAsked = null;
+            return true;
+        }
+
         if (m.type !== 'draw' || m.canvas !== 'roll')
             return false;
 
@@ -105,5 +114,13 @@ export function createRollView ({ root = document, toMirror })
         /* Where the now-line is, for a harness that has just dragged on
            the roll and wants to say that it scrubbed. */
         where: () => where,
+
+        /* The played keys the roll is keeping, [[at, channel, note,
+           held], ...], for a harness that pressed one. */
+        played: () => new Promise((resolve) =>
+        {
+            playedAsked = resolve;
+            toMirror({ type: 'rollplayed' });
+        }),
     };
 }

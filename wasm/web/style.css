@@ -50,6 +50,7 @@
     --key-edge:  #b0b0b0;
     --key-black: #202020;
     --held:      #5050ff;
+    --heard:     #9a9aff;
 
     /* Something a person should notice but nothing is broken: a patch
        edited and not written. Not the red an error gets. */
@@ -99,6 +100,7 @@
         --key-edge:  #555555;
         --key-black: #101010;
         --held:      #6a6aff;
+        --heard:     #9c9cd8;
         --warn:      #d09040;
         /* A white key tinted, as in light: dark here read as a gap in
            the keyboard rather than a C. */
@@ -648,6 +650,10 @@ details { margin: 0.8em 0; }
 /* Every C, not just middle C, and faintly: two octaves on a phone is not
    much to find your way around by, and the octave lines are the way. */
 #keys .c     { fill: var(--key-c); }
+/* Sounding but not under this page's hands: a peer's key, or a stamped
+   key of its own that has landed. Before .held, which wins on a key that
+   is both. */
+#keys .heard { fill: var(--heard); }
 #keys .held  { fill: var(--held); }
 
 /* Outlined, because the key under a note name changes colour when it is

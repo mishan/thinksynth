@@ -510,6 +510,30 @@ std::map<std::pair<int, int>, KeyRoute> keyRoutes_;
 void keyOnChannel (int channel, float note, float velocity, bool on,
                    double at);
 
+/* The keys this instance played, onto a channel or into the piece, at the
+   transport time each sounded: what the page draws on the roll and lights
+   on the keyboard -- the record and not the presses, so every peer shows a
+   stamped key where it landed. Not on the tape, which is what the piece
+   composed. A fixed array, because it fills on the audio thread; the
+   worklet empties it every quantum, so the room is never near full. */
+struct twKey
+{
+    double at;
+    int    channel, note, velocity, on;
+};
+
+static_assert(sizeof(twKey) == 24, "worklet.js steps by 24");
+
+twKey keys_[512];
+int   keyCount_ = 0;
+
+void playedKey (int channel, int note, int velocity, bool on)
+{
+    if (keyCount_ < (int)(sizeof keys_ / sizeof keys_[0]))
+        keys_[keyCount_++] = { sched_->now(), channel, note, velocity,
+                               on ? 1 : 0 };
+}
+
 /* Whatever was stamped for the run that is ending names a transport time
    that is about to mean something else, so it goes. What is stamped for
    "the top of the next window" -- an `at' below zero -- is not for a run
@@ -575,7 +599,12 @@ void applyDue (double start, int len)
                 ev.u.note.duration = 0;
                 ev.u.note.level = 1;
 
-                sched_->injectMidiEvent(ev);
+                /* A key no chain took was not played. Its off is kept
+                   either way: the piece can stop listening while it is
+                   held. */
+                if (sched_->injectMidiEvent(ev) || c.type == CMD_MIDI_OFF)
+                    playedKey(c.channel, (int)c.note, (int)c.velocity,
+                              c.type == CMD_MIDI_ON);
                 break;
             }
 
@@ -1147,7 +1176,8 @@ void applyScheduled (const Scheduled &given)
                 ev.u.note.duration = 0;
                 ev.u.note.level = 1;
 
-                sched_->injectMidiEvent(ev);
+                if (sched_->injectMidiEvent(ev) || !c.on)
+                    playedKey(c.channel, c.note, (int)c.value, c.on);
             }
             else if (route == KEY_CHANNEL)
                 keyOnChannel(c.channel, (float)c.note, (float)c.value, c.on,
@@ -2115,6 +2145,8 @@ void keyOnChannel (int channel, float note, float velocity, bool on,
                    double at)
 {
     const gint64 when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
+
+    playedKey(channel, (int)note, (int)velocity, on);
 
     if (!sched_->playsOverMidi(channel))
     {
@@ -4299,6 +4331,47 @@ EMSCRIPTEN_KEEPALIVE int tw_roll_dirty (void)
     return roll_ != NULL && roll_->takeDirty() ? 1 : 0;
 }
 
+/* A key the worklet played (tw_keys), onto this roll. The mirror's own
+   record is not what was heard: it applies a direct key at its next step,
+   a batch after the worklet did. */
+EMSCRIPTEN_KEEPALIVE void tw_roll_key (double at, int channel, int note,
+                                       int velocity, int on)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->keyPlayed(at, channel, note, velocity, on != 0);
+}
+
+/* The played keys the roll keeps, as [[at, channel, note, held], ...]: a
+   harness's word that a key reached the roll. */
+EMSCRIPTEN_KEEPALIVE const char *tw_roll_played_json (void)
+{
+    static std::string out;
+    WebRollCanvas *roll = rollCanvas();
+
+    out = "[";
+
+    if (roll != NULL)
+        for (const RollCanvas::Played &p : roll->played())
+        {
+            if (out.size() > 1)
+                out += ',';
+
+            out += '[';
+            jsonNumber(out, p.at);
+            out += ',';
+            jsonInt(out, p.channel);
+            out += ',';
+            jsonInt(out, p.note);
+            out += p.held ? ",true]" : ",false]";
+        }
+
+    out += "]";
+
+    return out.c_str();
+}
+
 /* ---- the knobs the piece declared ----
  *
  * One accessor, where there were eight. What a knob is -- its label, its
@@ -5577,6 +5650,21 @@ EMSCRIPTEN_KEEPALIVE const twEvent *tw_events (void)
 EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
 {
     tape_.clear();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_key_count (void)
+{
+    return keyCount_;
+}
+
+EMSCRIPTEN_KEEPALIVE const twKey *tw_keys (void)
+{
+    return keys_;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_keys_clear (void)
+{
+    keyCount_ = 0;
 }
 
 /* `frames' frames, interleaved stereo, in a buffer that is overwritten by
