@@ -31,6 +31,9 @@ can edit. Before any audience feature:
 - **Room visibility.** Public, unlisted, private. A private room is join
   by invite link; an unlisted one by link; a public one appears in a
   list (section 4.3).
+  The room list in progress lists every room on the relay to anyone who
+  can reach it, as the relay's health line already does; it predates
+  this choice.
 - **Moderation.** The owner can move a musician to spectator, remove a
   peer, and lock the document.
 - **Names and a persistent id.** A peer id is per session. A musician

@@ -51,11 +51,7 @@ Where M0 stands:
   plugins, emsdk 6.0.9 (cached), the wasm build, then
   `node wasm/compare.mjs --lsb 1`. `--lsb 1` holds tapes, summaries and exit
   statuses to identical and lets a WAV sample differ by one step, which is
-  the libm straggler above. Every step has been run end to end on a fresh
-  copy of the tree; the job has not yet run on a runner.
-- All of it is on the `wasm-parity` branch: `scripts/genwav` and the
-  pieces it renders, then the fix, then `wasm/` and the job. M0 is done
-  when that branch's `wasm` job is green on a runner.
+  the libm straggler above. It runs on every push, so M0 is done.
 
 ### M1, so far
 
@@ -249,7 +245,7 @@ On `jam-m3`, which starts where `jam-m2` ends. Where it stands:
 
 ### M4, so far
 
-On `latejoin`, the first of M4's three parts. Where it stands:
+M4 is done. Where it stands:
 
 - **Late join by fast-forward.** A page that presses Start in a room
   already playing asks the relay for the run: the start, the document as
@@ -283,17 +279,17 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   about 100 ms after its Start. `jamtest.mjs` puts a third page into the
   room eighteen seconds in; it catches up once its clocks have their
   samples and its tape is the room's.
-- **The edit harness**, on `editbar`, which starts where `latejoin` ends.
-  An edit is a new text applied at one transport time. It is read into a
-  staged scheduler first, so a text that does not load changes nothing,
-  and the live one adopts it (`thcScheduler::adopt`, `src/thcGenDiff.h`
-  for the rule): a stage whose chain, name and text are the same in both
-  keeps its instance, its next wake and its bindings; everything else is
-  built from the new text, with the seed its place there gives it. The
-  knobs are the live ones, by name, so a moved knob stays where it was
-  moved unless its declaration changed. An instrument whose declaration
-  or files changed is loaded again; one that did not keeps sounding.
-  Queued notes and the offs of sounding ones are delivered as composed.
+- **The edit harness.** An edit is a new text applied at one transport
+  time. It is read into a staged scheduler first, so a text that does not
+  load changes nothing, and the live one adopts it (`thcScheduler::adopt`,
+  `src/thcGenDiff.h` for the rule): a stage whose chain, name and text are
+  the same in both keeps its instance, its next wake and its bindings;
+  everything else is built from the new text, with the seed its place
+  there gives it. The knobs are the live ones, by name, so a moved knob
+  stays where it was moved unless its declaration changed. An instrument
+  whose declaration or files changed is loaded again; one that did not
+  keeps sounding. Queued notes and the offs of sounding ones are delivered
+  as composed.
 - `scripts/editcheck` holds it: every seeded piece, two peers -- windows
   of 1024 against jittered steps of 2 to 60 ms -- given a comment, a
   changed param, a chain added and the chain taken away, at times on no
@@ -311,18 +307,17 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   ended (`loosen`); what is due is now delivered before each tick. Over
   two minutes of every seeded piece, 24 tapes are unchanged and 9 have
   lines in a different order; no event is added, lost or moved.
-- **Apply is an edit**, on `editcmd`, which starts where `editbar` ends.
-  While the transport runs, Apply sends the document's `.gen`, and every
-  `.dsp` it has changed since the worklet last loaded one, as an `edit`
-  command stamped for the first bar line past the transport lead. The
-  text rides in the command rather than being read off the document by
-  each peer: the document goes on moving, and every peer has to apply the
-  one revision the sender pressed Apply on. The worklet and the mirror
-  apply it through the same `TW_EDIT`, the relay logs it, and a late
-  joiner steps through it. It goes by the room socket and not the mesh:
-  a peer that missed one would play another piece from there. One made
-  in a run a newer Play has replaced is dropped on arrival. Stopped,
-  Apply is still Play from the top.
+- **Apply is an edit.** While the transport runs, Apply sends the
+  document's `.gen`, and every `.dsp` it has changed since the worklet
+  last loaded one, as an `edit` command stamped for the first bar line
+  past the transport lead. The text rides in the command rather than being
+  read off the document by each peer: the document goes on moving, and
+  every peer has to apply the one revision the sender pressed Apply on.
+  The worklet and the mirror apply it through the same `TW_EDIT`, the
+  relay logs it, and a late joiner steps through it. It goes by the room
+  socket and not the mesh: a peer that missed one would play another piece
+  from there. One made in a run a newer Play has replaced is dropped on
+  arrival. Stopped, Apply is still Play from the top.
 - A knob command names its knob now, and the name is looked up when the
   command applies. An index was a place in a list an edit can reorder.
 - `genwav.mjs -c "AT edit FILE"` is the reference. `protocoltest.mjs`
@@ -335,10 +330,9 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   `mute`, `solo`, `section`, `knobwrite`, `param`, `input` -- carries the
   number of edits its maker had seen, and is dropped where another edit
   has applied since: an edit that adds a stage above it moves the index.
-- **The three ways to play**, on `playmodes`, which starts where
-  `editcmd` ends: a mode beside the seat, with the relay round trip and
-  what the mode costs at the tempo playing. Direct is unchanged. A
-  quantised key is stamped for the first sixteenth at least the knob
+- **The three ways to play**: a mode beside the seat, with the relay round
+  trip and what the mode costs at the tempo playing. Direct is unchanged.
+  A quantised key is stamped for the first sixteenth at least the knob
   lead away, its release at least a sixteenth after that; a key a bar
   ahead is stamped exactly one bar on. Both are applied at their stamp on
   every peer, the player included, through a key command the worklet
@@ -368,7 +362,46 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   `protocoltest.mjs` sends a param and a gesture numbered for the piece
   before such an edit; by name each reaches its stage, and the same
   command without its names reaches the neighbor.
-- Not yet: by hand across two machines.
+- A Play's seek is a field of its own. It had been written over the
+  sender's id, so every Play came from one sender, and a second peer's
+  first Play was dropped everywhere as a duplicate of the first.
+- Keys played by hand are on the piano roll -- Direct keys and stamped
+  ones, at the time they sound, on every peer's roll alike -- and a
+  room's keyboard lights the keys every other seat is holding.
+- By hand: two people in two homes about 40 miles apart played a room
+  for over an hour over the deployed relay. The round trip and the count
+  of late commands looked good. Latency is hard to judge by ear there,
+  because the room gives little back about what the others are doing.
+
+### M5, so far
+
+Where it stands:
+
+- **A deployed relay.** `docker/` builds the relay as an image, which CI
+  publishes to GHCR from master, and the Pages site's `config.json` names
+  the relay the `JAM_RELAY` repository variable does. Running one is
+  [RELAY.md](RELAY.md).
+- **Free play.** `gen/free.gen` is eight seats, each its own instrument,
+  and nothing composed. Beside the seat, a picker lists the same graphs
+  as the solo page's patch menu; a choice is a stamped `pick` command,
+  applied at the next bar while playing and at once while stopped,
+  through the edit path, and logged for a late joiner. A pick that would
+  leave a chain riding a chanarg the new graph lacks is refused before
+  it is sent.
+- **The Sequencer in rooms.** The solo page's Sequencer as a room pane,
+  its clicks stamped `input` commands by chain and stage name;
+  `gen/seq.gen` is a step-sequencer piece to use it with.
+- **Samples in rooms.** A Start hands the kit's wavs to the worklet and
+  the mirror, as the solo page does, so an `osc::sample` instrument
+  sounds in a room.
+- **Text chat**, a pane on the room page (section 4).
+- In progress: an invite link, so a room is joined without typing its
+  name; a list of the relay's rooms before joining; and a rework of the
+  room's layout.
+- Not yet: TURN -- peers whose NATs defeat STUN fall back to the relay
+  forwarding their commands; the `.patch` presets in the picker, which
+  offers `.dsp` graphs; and the done-when, four people in two cities for
+  twenty minutes.
 
 ### M6, so far
 
