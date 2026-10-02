@@ -1649,6 +1649,22 @@ try
                 errors.push(`${label} console: ${m.text()}`);
         });
 
+        /* Before joining, the room is in the list, with the two in it. */
+        await page.goto(url);
+
+        const listed = await page.waitForFunction(() =>
+            [...document.querySelectorAll('#rooms li')]
+                .find((li) => /^jamtest 2 people\b/.test(li.textContent))
+                ?.textContent,
+            null, { timeout: 15000 }).then((h) => h.jsonValue(), () => null);
+
+        if (listed !== null && /, playing$/.test(listed))
+            ok(`the room list shows it: ${listed}`);
+        else
+            fail(`the room list does not show jamtest with two people ` +
+                 `playing: ${await page.evaluate(() =>
+                     document.getElementById('rooms').textContent)}`);
+
         await page.goto(`${url}&room=jamtest&name=${label}&piece=${PIECE}`);
         await page.waitForFunction(
             () => !document.getElementById('roompanel').hidden,

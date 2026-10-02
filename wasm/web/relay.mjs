@@ -38,7 +38,7 @@
  * origin, and is playing the room's piece from there (commands.js,
  * catchUp).
  *
- *   GET  /               health: version, rooms
+ *   GET  /               health: version, and each room's people and piece
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
  *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
  *
@@ -63,8 +63,8 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { DEFAULT_PIECE, dspNames, hashOfFiles, meta, putFile, snapshot }
-    from './doc.js';
+import { DEFAULT_PIECE, dspNames, hashOfFiles, meta, pieceName, putFile,
+         snapshot } from './doc.js';
 
 export const PROTOCOL = 1;
 
@@ -771,7 +771,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             res.end(JSON.stringify({
                 thinksynth: 'relay', protocol: PROTOCOL,
                 rooms: [...rooms].map(([name, r]) =>
-                    ({ name, peers: r.peers.size })),
+                    ({ name, peers: r.peers.size, piece: pieceName(r.doc),
+                       playing: r.playing !== null })),
             }) + '\n');
             return;
         }

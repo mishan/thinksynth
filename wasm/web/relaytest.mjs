@@ -173,6 +173,13 @@ try
     check(wb.peers.length === 2 && ja.peer === wb.peer && ja.name === 'Bo',
           'a second peer is told who is here, and the first is told');
 
+    const listed = (await (await fetch(`http://127.0.0.1:${port}/`)).json())
+        .rooms.find((r) => r.name === 'test');
+
+    check(listed?.peers === 2 && listed.piece === 'airports.gen' &&
+          listed.playing === false,
+          'the health line lists the room, its two people and its piece');
+
     /* Seats: first claim wins. */
     a.send({ type: 'seat', seat: 0 });
 
