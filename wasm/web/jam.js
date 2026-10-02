@@ -47,7 +47,7 @@ import { Dedupe, GRID, KNOB_LEAD, Maker, RELAY, TRANSPORT_LEAD, apply,
     from './commands.js';
 import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf, hasSeen,
          instrumentTexts, meta, pieceFiles, pieceName, pieceText, putFile,
-         readFile, seenOf, snapshot, spliceFile }
+         readFile, readSeen, seenOf, snapshot, spliceFile }
     from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
@@ -352,8 +352,27 @@ async function send (cmd)
  * stamped for. */
 let applying = Promise.resolve();
 
+/* A start's or a stop's name, which is its run's (relay.mjs, runKeyOf). */
+const runOf = (cmd) => `${cmd.from}#${cmd.seq}`;
+
+/* The last start or stop to arrive, by whichever path, and every one that
+   has: what says a start still waiting in the queue has been replaced. */
+let newestRun = null;
+const runsSeen = new Set();
+
+/* The run this page's worklet is playing: the last start applied. */
+let appliedRun = null;
+
 function receive (from, cmd)
 {
+    if (cmd?.type === 'transport' &&
+        (cmd.op === 'start' || cmd.op === 'stop') &&
+        !runsSeen.has(runOf(cmd)))
+    {
+        runsSeen.add(runOf(cmd));
+        newestRun = runOf(cmd);
+    }
+
     const done = applying.then(() => applyOne(from, cmd));
 
     /* The queue outlives one command that threw. */
@@ -373,9 +392,17 @@ async function applyOne (from, cmd)
     const startOrStop = cmd.type === 'transport' &&
                         (cmd.op === 'start' || cmd.op === 'stop');
 
+    /* A stop or a tempo names the run it was made in. One whose run this
+       page has replaced since -- a switch's Play crossed it -- would stop
+       or retime the new run at a time stamped against the old one. */
+    if (cmd.type === 'transport' && cmd.op !== 'start' &&
+        cmd.run !== undefined && cmd.run !== appliedRun)
+        return;
+
     if (startOrStop)
     {
         room.playing = cmd.op === 'start' ? cmd : null;
+        appliedRun = cmd.op === 'start' ? runOf(cmd) : null;
         early.length = 0;
     }
 
@@ -460,11 +487,12 @@ async function applyOne (from, cmd)
 async function loadFor (cmd)
 {
     const deadline = room.clock.localOf(cmd.origin);
+    const seen = readSeen(cmd.piece.seen);
 
     while (await hashOf(doc) !== cmd.piece.hash)
     {
-        if (cmd.piece.seen !== undefined && hasSeen(doc, cmd.piece.seen))
-            return loadPassed(cmd);
+        if (seen !== null && hasSeen(doc, seen))
+            return loadPassed(cmd, deadline);
 
         if (performance.now() >= deadline)
         {
@@ -498,35 +526,40 @@ async function loadFor (cmd)
 /* A start whose revision the document has gone past -- a switch made just
  * after it, say -- and will never hash to. The relay keeps the document as
  * the start named it, for whoever joins the run late, and that is what is
- * loaded, as a late joiner loads it. A start another has replaced since
- * has nobody to agree with: the next one loads over it.
+ * loaded, as a late joiner loads it, if it comes by the start's origin. A
+ * start another has replaced since has nobody to agree with: the next one
+ * loads over it, and this one loads nothing.
  */
-async function loadPassed (cmd)
+async function loadPassed (cmd, deadline)
 {
-    let run = null;
-
-    try
-    {
-        run = await room.catchUp();
-    }
-    catch (e)
-    {
-        log(`asking for ${cmd.from}'s Play's document: ${e.message}`);
-    }
+    const replaced = () => newestRun !== runOf(cmd);
 
     runSeed = cmd.seed;
+
+    if (replaced())
+        return;
+
+    const run = await Promise.race([
+        room.catchUp().catch((e) =>
+        {
+            log(`asking for ${cmd.from}'s Play's document: ${e.message}`);
+            return null;
+        }),
+        new Promise((resolve) => setTimeout(
+            () => resolve(null), Math.max(0, deadline - performance.now()))),
+    ]);
 
     if (run?.start?.from === cmd.from && run.start.seq === cmd.seq &&
         run.files.matched)
         return loadFromDoc(cmd.seed, docOf(run.files));
 
-    if (room.playing === cmd)
-    {
-        log(`the document has gone past ${cmd.from}'s Play and the relay ` +
-            'does not have it; loading what is here');
-        lateSeen++;
-        keep(late, cmd);
-    }
+    if (replaced())
+        return;
+
+    log(`the document has gone past ${cmd.from}'s Play and the relay ` +
+        'did not have it by its origin; loading what is here');
+    lateSeen++;
+    keep(late, cmd);
 
     return loadFromDoc(cmd.seed);
 }
@@ -618,6 +651,7 @@ function joinRun ()
             },
             load: (start) =>
             {
+                appliedRun = runOf(start);
                 runSeed = start.seed;
                 return loadFromDoc(start.seed, docOf(run.files));
             },
@@ -1022,7 +1056,7 @@ async function seekTo (from)
 
 async function stop ()
 {
-    await send(maker.stop());
+    await send({ ...maker.stop(), run: appliedRun });
 }
 
 async function tempo ()
@@ -1030,7 +1064,7 @@ async function tempo ()
     const bpm = Number($('tempo').value);
 
     if (bpm > 0)
-        await send(maker.tempo(bpm));
+        await send({ ...maker.tempo(bpm), run: appliedRun });
 }
 
 /* ---- keys ---- */
@@ -2444,7 +2478,7 @@ function init ()
 
         /* Edits this page's worklet has applied since the load. */
         edits: () => lastTape?.edits ?? 0,
-        tempo: (bpm) => send(maker.tempo(bpm)),
+        tempo: (bpm) => send({ ...maker.tempo(bpm), run: appliedRun }),
         seat: (seat) => room.claim(seat),
         seatNow: () => room.seat,
 

@@ -236,34 +236,67 @@ export function docOf ({ piece, files: texts })
     return doc;
 }
 
-/* Where the document is as Yjs counts it, one clock per writer, in
-   base64: what a start carries beside its hash. A document that has seen
-   all of it (hasSeen) and does not hash to that revision has gone past it
-   and will never come back to it. One that cannot be read, from a peer, is
-   not seen. */
+/* The longest `seen' a start carries, in characters: a document edited
+   for long enough has deleted in enough places to pass it, and its starts
+   then carry none and wait for their revision as a start always did. */
+export const SEEN_MAX = 64 * 1024;
+
+/* Where the document is, as a Yjs snapshot -- what each writer has written
+   and what has been deleted -- in base64: what a start carries beside its
+   hash. Both halves, since a delete moves no writer's clock. Undefined
+   past SEEN_MAX. */
 export function seenOf (doc)
 {
-    return btoa(String.fromCharCode(...Y.encodeStateVector(doc)));
+    const bytes = Y.encodeSnapshot(Y.snapshot(doc));
+    let text = '';
+
+    for (let i = 0; i < bytes.length; i += 0x8000)
+        text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+
+    const seen = btoa(text);
+
+    return seen.length <= SEEN_MAX ? seen : undefined;
 }
 
-export function hasSeen (doc, seen)
+/* A start's `seen', read once: null if it is not one. */
+export function readSeen (seen)
 {
-    let want;
+    if (typeof seen !== 'string' || seen.length > SEEN_MAX)
+        return null;
 
     try
     {
-        want = Y.decodeStateVector(
+        return Y.decodeSnapshot(
             Uint8Array.from(atob(seen), (c) => c.charCodeAt(0)));
     }
     catch
     {
-        return false;
+        return null;
     }
-    const have = Y.decodeStateVector(Y.encodeStateVector(doc));
+}
 
-    for (const [client, clock] of want)
-        if ((have.get(client) ?? 0) < clock)
+/* Whether `doc' has everything a snapshot (readSeen) has: every write and
+   every delete. One that has, and does not hash to the snapshot's
+   revision, has gone past it and will never come back to it. */
+export function hasSeen (doc, snap)
+{
+    const sv = Y.decodeStateVector(Y.encodeStateVector(doc));
+
+    for (const [client, clock] of snap.sv)
+        if ((sv.get(client) ?? 0) < clock)
             return false;
+
+    const ds = Y.createDeleteSetFromStructStore(doc.store);
+
+    for (const [client, deletes] of snap.ds.clients)
+    {
+        const have = ds.clients.get(client) ?? [];
+
+        for (const d of deletes)
+            if (!have.some((h) => h.clock <= d.clock &&
+                                  d.clock + d.len <= h.clock + h.len))
+                return false;
+    }
 
     return true;
 }

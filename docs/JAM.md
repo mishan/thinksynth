@@ -846,14 +846,17 @@ included, so it asks first. If the room is playing, the relay plays the last
 of the switches made together from the top, with a start of its own, rather
 than anyone applying it as an edit: `thcGenDiff` keeps no stage of one piece
 in another, and an edit would start the new piece at the old one's transport
-time. Stopped, the next Play loads it. A start carries the document's state
-vector beside its hash, so a peer whose document has gone past that revision
+time. Stopped, the next Play loads it. A start carries a Yjs snapshot of the
+document beside its hash -- every writer's clock and every delete, since a
+delete moves no clock -- so a peer whose document has gone past that revision
 -- a switch made just after a Play -- loads the relay's copy of it, as a late
-joiner does, rather than waiting for a revision that will not come. The tabs
-and the node editor offer only the `.gen` and the files it names, so a pasted
-`.gen` that stops naming a graph hides it without removing it, since only a
-switch removes files. A graph it names that the document lacks is added from
-the shipped ones by whoever presses the next Apply or Play.
+joiner does, rather than waiting for a revision that will not come. A Stop or
+a tempo names the run it was made in, and a peer or relay that has started
+another since drops it. The tabs and the node editor offer only the `.gen` and
+the files it names, so a pasted `.gen` that stops naming a graph hides it
+without removing it, since only a switch removes files. A graph it names that
+the document lacks is added from the shipped ones by whoever presses the next
+Apply or Play.
 
 Late join is the same machinery run long: the worklet fast-forwards the
 scheduler from zero to now before audio resumes, with delivery suppressed.

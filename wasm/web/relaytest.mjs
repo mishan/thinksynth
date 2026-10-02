@@ -717,6 +717,82 @@ try
               Date.now() - asked < 1000,
               'a start the document has gone past is answered at once');
 
+        const startOf = (seq, origin, piece) => s.send({
+            type: 'transport',
+            data: { type: 'transport', op: 'start', origin, piece, seed: 5,
+                    from: ws.peer, seq, at: -1 } });
+
+        /* A delete moves no writer's clock: a start made past one the
+           relay has not had yet waits for it, rather than taking what the
+           relay has for a document gone past it. */
+        const ahead = new Y.Doc();
+
+        Y.applyUpdate(ahead, Y.encodeStateAsUpdate(docS));
+        ahead.getMap('files').get('village.gen').delete(0, 1);
+        startOf(2, 3, { hash: await hashOf(ahead), seen: seenOf(ahead) });
+        await new Promise((r) => setTimeout(r, 200));
+        u.send({ type: 'catchup' });
+        check(await u.none('catchup', 500),
+              'a start a delete ahead of the relay waits for the delete');
+        Y.applyUpdate(docS,
+                      Y.encodeStateAsUpdate(ahead, Y.encodeStateVector(docS)));
+
+        const caught = await u.next('catchup', 3000);
+
+        check(caught.start?.origin === 3 && caught.files.matched,
+              'and is answered with it once it comes');
+
+        /* A switch the room has answered within the gathering -- a Play at
+           the switched revision, or a Stop and a Play -- is not played
+           again by the relay; nor is a stop of a run since replaced. */
+        const relayStarts = () => t.got.filter(
+            (m) => m.type === 'transport' && m.from === 'relay').length;
+        const startsWere = relayStarts();
+
+        s.send({ type: 'switch', piece: 'colony.gen' });
+
+        const toColony = await t.next('switched');
+
+        startOf(3, 4, { hash: toColony.hash });
+        await new Promise((r) => setTimeout(r, 300));
+        check(relayStarts() === startsWere,
+              'a switch Played within the gathering is not played again');
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop', at: 1,
+                         from: ws.peer, seq: 4, run: `${ws.peer}#3` } });
+        s.send({ type: 'switch', piece: 'village.gen' });
+
+        const toVillage = await t.next('switched');
+
+        startOf(5, 5, { hash: toVillage.hash });
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop', at: 1,
+                         from: ws.peer, seq: 6, run: `${ws.peer}#3` } });
+        await new Promise((r) => setTimeout(r, 300));
+        u.send({ type: 'catchup' });
+
+        const still = await u.next('catchup');
+
+        check(relayStarts() === startsWere,
+              'nor one made while stopped and Played at once');
+        check(still.start?.origin === 5,
+              'a stop of a run since replaced stops nothing');
+
+        const forwarded = t.got.filter((m) => m.type === 'transport').length;
+
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 6,
+                         piece: { hash: 'h', seen: 'not base64!' },
+                         from: ws.peer, seq: 7, at: -1 } });
+
+        const bad = await s.next('refused');
+
+        await new Promise((r) => setTimeout(r, 200));
+        check(bad.of === 'transport' &&
+              t.got.filter((m) => m.type === 'transport').length ===
+              forwarded,
+              'a start whose snapshot is not one is refused');
+
         u.close();
 
         s.close();

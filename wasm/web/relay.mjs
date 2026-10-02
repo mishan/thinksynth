@@ -66,7 +66,7 @@ import * as encoding from 'lib0/encoding';
 
 import { RELAY, TRANSPORT_LEAD } from './commands.js';
 import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
-         pieceName, putFile, seenOf, snapshot } from './doc.js';
+         pieceName, putFile, readSeen, seenOf, snapshot } from './doc.js';
 
 export const PROTOCOL = 1;
 
@@ -312,6 +312,8 @@ class Room
        what is here, marked as not what was asked for. */
     snapshotAt ({ hash, seen } = {})
     {
+        const passed = seen === undefined ? null : readSeen(seen);
+
         return new Promise((resolve) =>
         {
             const timer = setTimeout(() => finish(snapshot(this.doc), false),
@@ -361,7 +363,7 @@ class Room
                     }
 
                     /* Gone past it: no update brings it back. */
-                    if (seen !== undefined && hasSeen(this.doc, seen))
+                    if (passed !== null && hasSeen(this.doc, passed))
                     {
                         finish(snap, false);
                         return;
@@ -647,12 +649,28 @@ class Room
                     if (typeof m.data !== 'object' || m.data === null)
                         break;
 
+                    if (m.data.op === 'start' &&
+                        m.data.piece?.seen !== undefined &&
+                        readSeen(m.data.piece.seen) === null)
+                    {
+                        send({ type: 'refused', of: 'transport',
+                               why: 'not a snapshot' });
+                        break;
+                    }
+
+                    /* A stop names the run it stops, and one that has been
+                       replaced since -- by a switch's Play crossing it --
+                       stops nothing here, as on the pages (jam.js). */
                     if (m.data.op === 'start')
                         this.begin(m.data);
                     else if (m.data.op === 'stop')
                     {
-                        this.playing = null;
-                        this.run = null;
+                        if (m.data.run === undefined ||
+                            m.data.run === runKeyOf(this.playing))
+                        {
+                            this.playing = null;
+                            this.run = null;
+                        }
                     }
                     else
                         this.record(m.data, m.run);
@@ -742,6 +760,11 @@ class Room
                     const seen = seenOf(this.doc);
                     const made = ++this.switches;
 
+                    /* Played only if the run it was made in is still the
+                       room's after the gathering: a Play, a seek or a Stop
+                       in between is somebody's answer to it already. */
+                    const playingThen = this.playing;
+
                     this.switching = this.switching
                         .then(() => hashOfFiles(texts.files))
                         .then(async (hash) =>
@@ -752,13 +775,13 @@ class Room
                             send(line);
                             others(line);
 
-                            if (this.playing === null)
+                            if (playingThen === null)
                                 return;
 
                             await new Promise((r) =>
                                 setTimeout(r, SWITCH_GATHER_MS));
 
-                            if (this.playing !== null &&
+                            if (this.playing === playingThen &&
                                 made === this.switches)
                                 this.playSwitch(hash, seen, texts);
                         });
