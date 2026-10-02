@@ -2127,10 +2127,9 @@ thcGenEdit::removeScale (const std::string &filename, const std::string &name,
 
 /* ---- instruments ------------------------------------------------------ */
 
-R
-thcGenEdit::setInstrumentDsp (const std::string &filename,
-                              const std::string &name,
-                              const std::string &dsp, std::string &why)
+static R
+swapGraph (const std::string &filename, const std::string &name,
+           const std::string &dsp, bool fresh, std::string &why)
 {
     /* A .gen string has no escapes, so a name with a quote or a newline
        in it cannot be written at all. */
@@ -2138,14 +2137,14 @@ thcGenEdit::setInstrumentDsp (const std::string &filename,
         dsp.find('\n') != std::string::npos)
     {
         why = "'" + dsp + "' cannot be written as a file name";
-        return REFUSED;
+        return thcGenEdit::REFUSED;
     }
 
     std::string text;
     Index ix;
     R r = loadIndexed(filename, text, ix, why);
 
-    if (r != OK)
+    if (r != thcGenEdit::OK)
         return r;
 
     std::vector<Edit> edits;
@@ -2158,17 +2157,38 @@ thcGenEdit::setInstrumentDsp (const std::string &filename,
             if (in.dspB == 0)
             {
                 why = "instrument " + name + " has no dsp line to change";
-                return NOT_FOUND;
+                return thcGenEdit::NOT_FOUND;
             }
 
             if (in.dsp != dsp)
                 edits.push_back({ in.dspA, in.dspB, "\"" + dsp + "\"" });
 
+            if (fresh)
+                for (const PIdx &v : in.values)
+                    if (v.name != "amp" && v.name != "send")
+                        edits.push_back(eraseStmt(text, v.stmtA, v.stmtB));
+
             return finish(filename, text, edits, why);
         }
 
     why = "no instrument called " + name;
-    return NOT_FOUND;
+    return thcGenEdit::NOT_FOUND;
+}
+
+R
+thcGenEdit::setInstrumentDsp (const std::string &filename,
+                              const std::string &name,
+                              const std::string &dsp, std::string &why)
+{
+    return swapGraph(filename, name, dsp, false, why);
+}
+
+R
+thcGenEdit::setInstrumentGraph (const std::string &filename,
+                                const std::string &name,
+                                const std::string &dsp, std::string &why)
+{
+    return swapGraph(filename, name, dsp, true, why);
 }
 
 /* ---- building blocks for chains and stages ---------------------------- */

@@ -279,6 +279,16 @@ public:
                                     const std::string &dsp,
                                     std::string &why);
 
+    /* The same, starting the new graph from its own values: every value
+       the instrument sets is removed but `amp', which every channel has,
+       and `send', which is the mix's. A value tuned for one graph is a
+       refused load or a different sound on another, and this is what a
+       pick from a list of graphs means. */
+    static Result setInstrumentGraph (const std::string &filename,
+                                      const std::string &name,
+                                      const std::string &dsp,
+                                      std::string &why);
+
     /* ---- presets ------------------------------------------------------ */
 
     /* A preset arrives whole, with at least one component, because a
