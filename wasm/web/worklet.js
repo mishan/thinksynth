@@ -313,6 +313,20 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* An instrument on another graph, in a text given: the edit a
+         * room's instrument picker makes. "" when refused. */
+        if (m.type === 'geninstrument')
+        {
+            this.port.postMessage({
+                type: 'geninstrument', id: m.id,
+                text: this.M.ccall('tw_gen_set_instrument', 'string',
+                                   ['string', 'string', 'string'],
+                                   [m.text, m.name, m.dsp]),
+            });
+
+            return;
+        }
+
         /* A knob's value in a text given, for a room's document. */
         if (m.type === 'genknob')
         {

@@ -121,6 +121,10 @@ const PLAY_SECONDS = 10;
 const SAMPLE_PIECE = 'cloud.gen';
 const SAMPLE_SECONDS = 4;
 
+/* The fifth: a free room, where a seat's instrument is picked while it
+   plays. */
+const FREE_PIECE = 'free.gen';
+
 let failures = 0;
 
 function fail (what)
@@ -553,6 +557,143 @@ async function sequenceTogether (pages)
              JSON.stringify(changed));
     else
         ok(`and ${pieceFile} carries it on both pages: ${changed[0].trim()}`);
+}
+
+/* A free room: free.gen, an instrument per seat and nothing composed. A
+ * plays its seat quantized and, while the room plays, picks another graph
+ * for it from the picker beside the seat. The pick is an edit of the
+ * document, applied at the next bar on both pages: afterwards both worklets
+ * have the seat on the new graph, B's seat list says so, and the two tapes
+ * are one tape and genwav's under the same keys and the same edit.
+ */
+async function pickTogether (pages)
+{
+    const [A, B] = pages;
+
+    for (const { label, page } of pages)
+    {
+        await page.goto(`${url}&room=jamfree&name=${label}` +
+                        `&piece=${FREE_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+        await page.waitForFunction(() => window.jam.ready(), null,
+                                   { timeout: 20000 });
+    }
+
+    for (const { page } of pages)
+        await page.waitForFunction(
+            () => window.jam.peers().every((p) => p.path !== 'connecting'),
+            null, { timeout: 15000 }).catch(() => {});
+
+    const channelOf = (who, name) => who.page.evaluate(
+        (n) => window.jam.instruments().find((i) => i.name === n)?.channel,
+        name);
+    const one = await channelOf(A, 'one');
+    const two = await channelOf(B, 'two');
+
+    for (const [who, seat] of [[A, one], [B, two]])
+    {
+        await who.page.evaluate((s) =>
+        {
+            window.jam.seat(s);
+            window.jam.mode('quantised');
+        }, seat);
+        await who.page.waitForFunction((s) => window.jam.seatNow() === s,
+                                       seat, { timeout: 5000 })
+            .catch(() => fail(`${who.label} did not get seat ${seat}`));
+    }
+
+    await A.page.waitForFunction(
+        () => document.getElementById('instrument').value === 'rhodes.dsp',
+        null, { timeout: 5000 })
+        .catch(() => fail(`${A.label}'s picker does not show its seat's ` +
+                          'rhodes.dsp'));
+
+    await A.page.evaluate(() => window.jam.play());
+
+    const t0 = Date.now();
+    const at = (ms) => new Promise((r) =>
+        setTimeout(r, Math.max(0, t0 + ms - Date.now())));
+
+    for (let k = 0; k < 8; k++)
+    {
+        if (k === 3)
+            await A.page.selectOption('#instrument', 'dxbell.dsp');
+
+        await at(2000 + k * 700);
+        await A.page.evaluate((k) => window.jam.press(60 + k, 90), k);
+        await at(2000 + k * 700 + 300);
+        await A.page.evaluate((k) => window.jam.release(60 + k), k);
+    }
+
+    const landed = (page) => page.waitForFunction(
+        () => window.jam.edits() >= 1 &&
+              window.jam.instruments().find((i) => i.name === 'one')?.dsp ===
+                  'dxbell.dsp',
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    for (const { label, page } of pages)
+        if (await landed(page))
+            ok(`${label} plays seat one on dxbell.dsp`);
+        else
+            fail(`${label} did not put seat one on dxbell.dsp: ` +
+                 JSON.stringify(await page.evaluate(
+                     () => window.jam.instruments())));
+
+    const label = await B.page.$eval(
+        '#seat', (s, c) => [...s.options].find((o) => o.value === String(c))
+            ?.textContent ?? '', one);
+
+    if (/^one: FM Bell/.test(label))
+        ok(`${B.label}'s seat list says "${label}"`);
+    else
+        fail(`${B.label}'s seat list says "${label}" for seat one`);
+
+    const theirs = await B.page.$eval('#instrument',
+                                      (s) => [s.value, s.disabled]);
+
+    if (theirs[0] === 'juno.dsp' && !theirs[1])
+        ok(`${B.label}'s picker shows its own seat's juno.dsp`);
+    else
+        fail(`${B.label}'s picker shows ${theirs[0]}` +
+             (theirs[1] ? ', disabled' : ''));
+
+    await at(9000);
+    await A.page.evaluate(() => window.jam.stop());
+    await at(12000);
+
+    const results = [];
+
+    for (const { label, page } of pages)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+        }))) });
+
+    const sent = results.flatMap((r) => r.sent).filter((c) => c.at >= 0);
+    const stopAt = sent.find((c) => c.op === 'stop')?.at;
+
+    if (stopAt === undefined || !sent.some((c) => c.type === 'edit'))
+    {
+        fail('the free room sent no stop or no edit');
+        return;
+    }
+
+    const tapes = results.map((r) => tapeBefore(r.tape, stopAt));
+    const want = reference(FREE_PIECE, nodeBuild,
+                           { commands: sent, knobs: {}, stopAt });
+
+    if (tapes[0] === tapes[1] && tapes[0] === want)
+        ok('the free room is one tape and genwav\'s across the pick: ' +
+           `${tapes[0].split('\n').length - 1} events`);
+    else
+        fail(tapes[0] !== tapes[1]
+             ? `the free room's tapes differ: ` +
+               `${firstDifference(tapes[0], tapes[1])}`
+             : `the free room differs from genwav: ` +
+               `${firstDifference(want, tapes[0])}`);
 }
 
 /* Keys into a piece, from both pages: hands.gen, which composes nothing
@@ -1435,6 +1576,10 @@ try
     /* ---- and clicks a cell in a Sequencer ---- */
 
     await sequenceTogether(pages);
+
+    /* ---- and picks an instrument for a seat while it plays ---- */
+
+    await pickTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);

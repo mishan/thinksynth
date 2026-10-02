@@ -610,6 +610,7 @@ async function loadFromDoc (seed = -1, from = doc)
         const aiming = await patch.aim(synth, it.sinks);
 
         aiming.failed.forEach(log);
+        aimed = titlesOf(aiming.placed);
     }
 
     tapeText = '';
@@ -642,6 +643,11 @@ async function loadFromDoc (seed = -1, from = doc)
     enable();
 
     return piece !== null;
+}
+
+function titlesOf (placed)
+{
+    return new Map([...placed].map(([channel, p]) => [channel, p.title]));
 }
 
 /* The piece text this peer last loaded, with the edits applied since,
@@ -796,7 +802,10 @@ async function edited (m)
     listens = new Set(m.listens);
     $('about').textContent = m.description;
 
-    (await patch.aim(synth, m.sinks)).failed.forEach(log);
+    const aiming = await patch.aim(synth, m.sinks);
+
+    aiming.failed.forEach(log);
+    aimed = titlesOf(aiming.placed);
 
     await drawKnobs();
     showSeats();
@@ -1003,6 +1012,7 @@ function showPeers ()
 
     /* Our seat, as the relay has it. */
     $('seat').value = room.seat === null ? '' : String(room.seat);
+    showInstrument();
 }
 
 /* MIDI out's button, delay and pickers (midioutui.js). */
@@ -1031,7 +1041,32 @@ function showMidiOut ()
     }
 }
 
-/* The seats are the piece's instruments, by name with their channel. */
+/* The graphs the instrument picker offers, as the solo page's patch menu
+   has them, and what each calls itself. */
+let graphGroups = [];
+const graphTitles = new Map();
+
+/* What the page put on each channel the piece left to it, by title. */
+let aimed = new Map();
+
+/* The instrument the piece declares on `channel', if it plays a graph. */
+function instrumentOn (channel)
+{
+    return (piece?.instruments ?? [])
+        .find((i) => i.channel === channel && i.dsp !== '');
+}
+
+/* What a seat sounds like, as everyone in the room reads it. */
+function soundOf (channel)
+{
+    const inst = instrumentOn(channel);
+
+    return inst === undefined ? aimed.get(channel) ?? ''
+                              : graphTitles.get(inst.dsp) ?? inst.dsp;
+}
+
+/* The seats are the piece's instruments, by name with what each plays and
+   its channel. */
 function showSeats ()
 {
     const sel = $('seat');
@@ -1050,7 +1085,11 @@ function showSeats ()
             return;
 
         offered.add(channel);
-        sel.add(new Option(`${label} (channel ${channel})`, String(channel)));
+
+        const sound = soundOf(channel);
+
+        sel.add(new Option(`${label}${sound === '' ? '' : `: ${sound}`} ` +
+                           `(channel ${channel})`, String(channel)));
     };
 
     for (const inst of piece?.instruments ?? [])
@@ -1066,6 +1105,66 @@ function showSeats ()
 
     if (sel.value !== was)
         sel.value = '';
+
+    showInstrument();
+}
+
+/* The picker beside the seat: the graph your seat's instrument plays. Seats
+ * are one peer's each, so only the holder changes it, and only where the
+ * piece declares an instrument -- a channel it leaves to the page has no
+ * line in the document to change, so the picker shows what is there. */
+function showInstrument ()
+{
+    const sel = $('instrument');
+    const seat = room?.seat ?? null;
+    const inst = seat === null ? undefined : instrumentOn(seat);
+
+    sel.replaceChildren();
+    sel.disabled = inst === undefined || synth === null;
+
+    if (inst === undefined)
+    {
+        sel.add(new Option(seat === null ? '' : soundOf(seat)));
+        return;
+    }
+
+    patch.fillGraphs(sel, graphGroups, inst.dsp);
+
+    /* A graph the menu does not list: one of the document's own. */
+    if (sel.value !== inst.dsp)
+        sel.add(new Option(inst.dsp, inst.dsp, true, true));
+}
+
+/* A graph picked for the seat: its instrument block rewritten in the
+ * document by this peer, from the new graph's own values, and applied if
+ * the room is playing -- at the next bar on every peer, through the reload
+ * a changed instrument block gets. Stopped, the next Play takes it. */
+async function pickInstrument (dsp)
+{
+    const inst = room.seat === null ? undefined : instrumentOn(room.seat);
+    const name = pieceName(doc);
+    const was = name === null ? null : readFile(doc, name);
+
+    if (inst === undefined || was === null)
+        return;
+
+    const { text } = await synth.genSetInstrument(was, inst.name, dsp);
+
+    if (text === '' || readFile(doc, name) !== was)
+    {
+        log(text === '' ? `could not put ${inst.name} on ${dsp}`
+                        : 'the piece changed while the instrument was ' +
+                          'being picked');
+        showInstrument();
+        return;
+    }
+
+    spliceFile(doc, name, text);
+
+    if (transport?.running)
+        await applyEdit();
+    else
+        log(`${inst.name} is on ${dsp}; Play applies it`);
 }
 
 /* A knob moved here is a command like everything else, heard knobLead
@@ -1650,6 +1749,11 @@ async function start ()
            means. */
         graphs.forEach((n, i) => synth.instrument(n, texts[i]));
 
+        graphGroups = (await synth.dsps()).catalog?.groups ?? [];
+
+        for (const e of graphGroups.flatMap((g) => g.entries))
+            graphTitles.set(e.file, e.name);
+
         await Promise.all(
             (await patch.defaultNames(synth)).map((n) => patch.patchText(n)));
     }
@@ -1766,6 +1870,8 @@ function init ()
         releaseAll();
         room.claim($('seat').value === '' ? null : Number($('seat').value));
     });
+    $('instrument').addEventListener('change',
+                                     () => pickInstrument($('instrument').value));
     $('playmode').addEventListener('change', () =>
     {
         /* Whatever is held was stamped the old way and is let go that
@@ -1862,6 +1968,9 @@ function init ()
         tempo: (bpm) => send(maker.tempo(bpm)),
         seat: (seat) => room.claim(seat),
         seatNow: () => room.seat,
+
+        /* The piece's instruments as the worklet has them. */
+        instruments: () => piece?.instruments ?? [],
         tape: () => tapeText,
 
         /* The panes this page has and the layout they are in, for

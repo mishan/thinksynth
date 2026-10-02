@@ -186,6 +186,7 @@ export async function createSynth (ctx, { windowlen = 256,
             case 'genparam':
             case 'genmove':
             case 'gensection':
+            case 'geninstrument':
             case 'genfreeze':
             case 'genknob':
             case 'patchdefault':
@@ -427,6 +428,11 @@ export async function createSynth (ctx, { windowlen = 256,
            when the writer refused. */
         genMoveStage: (text, chainName, from, to) =>
             ask({ type: 'genmove', text, chain: chainName, from, to }),
+
+        /* Instrument `name' on graph `dsp' in `text', from that graph's
+           own values. Resolves to { text }, "" when the writer refused. */
+        genSetInstrument: (text, name, dsp) =>
+            ask({ type: 'geninstrument', text, name, dsp }),
 
         /* A chain frozen into `text' from what the worklet heard it play
            in the last `bars' bars. Resolves to { text, why }. */

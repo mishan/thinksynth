@@ -5232,6 +5232,23 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
         });
 }
 
+/* Instrument `name' put on graph `dsp' in `text', from that graph's own
+ * values (thcGenEdit::setInstrumentGraph): what a room's instrument picker
+ * writes. "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument (const char *text,
+                                                        const char *name,
+                                                        const char *dsp)
+{
+    if (text == NULL || name == NULL || dsp == NULL)
+        return "";
+
+    return spliceText(text, name,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setInstrumentGraph(path, name, dsp, why);
+        });
+}
+
 static Scheduled inputOf (double at, int chain, int stage, int kind,
                           double x, double y, double w, double h, int button)
 {

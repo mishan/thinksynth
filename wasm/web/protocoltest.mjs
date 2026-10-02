@@ -1150,6 +1150,134 @@ async function handsSession (createThinkWeb, piece, dsps)
     return { ok: true, peers, stamped, stopAt, ahead };
 }
 
+/* The graph instrument `name' plays in a peer's module, as the room page's
+   seat list reads it. */
+function graphOf (M, name)
+{
+    for (let i = 0; i < M._tw_instrument_count(); i++)
+        if (M.UTF8ToString(M._tw_instrument_name(i)) === name)
+            return M.UTF8ToString(M._tw_instrument_dsp(i));
+
+    return null;
+}
+
+/* Two peers in a free room: free.gen, an instrument per seat and nothing
+ * composed. Both play the first seat, one quantized and one a bar ahead,
+ * and partway through A picks another graph for it, as the room page's
+ * picker does: the document rewritten by the module's own writer, and sent
+ * as an edit for the next bar. Every render on both peers is noted with the
+ * graph the seat plays after it. Returns what handsSession does, and the
+ * edit's time and the notes.
+ */
+async function freeSession (createThinkWeb, piece, dsps)
+{
+    const sim = new Sim();
+    const net = new Net(sim, NETWORKS.still, 7);
+    const peers = [];
+
+    for (const spec of PEERS)
+    {
+        const { M, ok, errors } = await loadPiece(createThinkWeb, {
+            rate: spec.rate, windowlen: spec.windowlen, block: spec.block,
+            gen: piece.text, instruments: dsps,
+        });
+
+        if (!ok)
+            return { ok: false, errors };
+
+        const peer = new Peer(sim, net, spec, M);
+        const render = peer.render.bind(peer);
+
+        peer.gen = piece.text;
+        peer.graphs = [];
+        peer.render = () =>
+        {
+            const from = M._tw_now();
+
+            render();
+            peer.graphs.push([from, M._tw_now(), graphOf(M, 'one')]);
+        };
+        peers.push(peer);
+    }
+
+    const [A, B] = peers;
+    const relay = new Relay(sim, net);
+    const seat = Math.min(...A.listens);
+    const stamped = [];
+    const origin = 3000 + TRANSPORT_LEAD * 1000;
+    let stopAt = null;
+    let picked = null;
+
+    A.others = [B];
+    B.others = [A];
+    A.startRendering();
+    B.startRendering();
+    A.startPinging(relay, 1000, 0);
+    B.startPinging(relay, 1000, 333);
+
+    const send = (who, t, make) => sim.at(t, async () =>
+    {
+        const cmd = make();
+
+        await who.send(cmd, cmd.type === 'transport');
+        stamped.push(cmd);
+
+        return cmd;
+    });
+
+    send(A, 3000, () => A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
+                                      'no-document-here', 4242));
+
+    for (let k = 0; k < 14; k++)
+    {
+        const t = origin + 1500 + k * 700;
+        const [who, mode] = k % 2 === 0 ? [A, 'quantised'] : [B, 'ahead'];
+        const note = 60 + (k % 5);
+        let held = null;
+
+        send(who, t, () =>
+        {
+            held = who.press(seat, note, 90, mode);
+            return held.cmd;
+        });
+        send(who, t + 400, () => who.release(seat, note, held));
+    }
+
+    sim.at(origin + 5200, async () =>
+    {
+        const text = A.M.ccall('tw_gen_set_instrument', 'string',
+                               ['string', 'string', 'string'],
+                               [piece.text, 'one', 'dxbell.dsp']);
+        const cmd = A.edit(text);
+
+        picked = cmd.at;
+        await A.send(cmd);
+        stamped.push(cmd);
+    });
+
+    send(A, origin + 12000, () =>
+    {
+        const cmd = A.maker.stop();
+
+        stopAt = cmd.at;
+        return cmd;
+    });
+
+    let settle = null;
+
+    await sim.run(() =>
+    {
+        if (stopAt === null || !peers.every((p) => !p.transport.running))
+            return false;
+
+        settle ??= sim.t + 2000;
+
+        return sim.t >= settle;
+    });
+
+    return { ok: true, peers, stamped, stopAt, picked };
+}
+
 /* A command that names a stage, applied after an edit that moved it.
  *
  * loosen.gen's chains are grid, breathed and corrected, each with a
@@ -1596,6 +1724,73 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                                              .padStart(5)} events from ` +
                     `${r.stamped.filter((c) => c.type === 'note').length} ` +
                     `keys; ${met} grid lines where the peers' keys met\n`);
+        }
+    }
+
+    /* An instrument picked for a seat while the room plays. */
+    {
+        const piece = pieces(build).find((p) => p.name === 'free.gen');
+        const r = await freeSession(createThinkWeb, piece, dsps);
+
+        process.stdout.write('\nan instrument picked for a seat of free.gen ' +
+                             'while two peers play it\n\n');
+
+        if (!r.ok)
+        {
+            failures++;
+            process.stdout.write(`FAIL  free.gen did not load: ` +
+                                 `${r.errors.join('; ')}\n`);
+        }
+        else
+        {
+            const [A, B] = r.peers;
+            const a = tapeBefore(A.tape, r.stopAt);
+            const b = tapeBefore(B.tape, r.stopAt);
+            const complaints = [...editComplaints(r)];
+
+            if (a !== b)
+                complaints.push(`the two tapes differ: ` +
+                                `${firstDifference(a, b)}`);
+
+            const want = reference('free.gen', nodeBuild, {
+                commands: r.stamped, stopAt: r.stopAt,
+            });
+
+            if (a !== want)
+                complaints.push(`A differs from genwav: ` +
+                                `${firstDifference(want, a)}`);
+
+            if (a.split('\n').length < 10)
+                complaints.push('the seat hardly played');
+
+            /* Up to the bar the old graph and from the window after it the
+               new one, on both peers: the window is as late as an edit
+               stamped inside one may land. */
+            for (const p of r.peers)
+            {
+                const window = p.spec.windowlen / p.spec.rate;
+                const wrong = p.graphs.find(([from, to, dsp]) =>
+                    (to < r.picked && dsp !== 'rhodes.dsp') ||
+                    (from >= r.picked + window && dsp !== 'dxbell.dsp'));
+
+                if (wrong !== undefined)
+                    complaints.push(`${p.name} played ${wrong[2]} at ` +
+                                    `${wrong[0].toFixed(3)} s, the pick ` +
+                                    `landing at ${r.picked.toFixed(3)} s`);
+            }
+
+            if (complaints.length > 0)
+            {
+                failures++;
+                process.stdout.write(`FAIL  free.gen       ` +
+                                     `${complaints.join('; ')}\n`);
+            }
+            else
+                process.stdout.write(
+                    `ok    free.gen       ${String(a.split('\n').length - 1)
+                                             .padStart(5)} events; ` +
+                    `rhodes.dsp to dxbell.dsp at ${r.picked.toFixed(3)} s ` +
+                    'on both peers\n');
         }
     }
 
