@@ -930,7 +930,7 @@ thcGenLoader::parseKnobStatement (thcScheduler *sched)
         if (!expectPunct('='))
             return false;
 
-        thArg *knob = sched->knob(kname);
+        thArg *knob = sched->knobMeta(kname);
 
         if (knob == NULL)
         {

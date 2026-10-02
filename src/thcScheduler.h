@@ -616,6 +616,11 @@ public:
     thArg *addKnob (const std::string &name, float value);
     thArg *knob (const std::string &name);
 
+    /* Where the loader writes `@name.min' and the rest: the knob itself,
+       except in a staged edit, where a lent knob's metadata waits in a
+       stand-in for adopt(), as its value waits in pendingValues_. */
+    thArg *knobMeta (const std::string &name);
+
     /* thcAudition's entry points, with a stage for ctx. */
     static int cbHear (void *ctx, const char *target,
                        const char *const *names, const double *values, int n);
@@ -1049,6 +1054,9 @@ public:
            .dsp or effect is one of these is loaded again although its
            declaration is the same. */
         std::set<std::string> changedFiles;
+
+        /* The new text's tempo where its `tempo' line changed, else 0. */
+        double tempo = 0;
     };
 
     /* `next', loaded, becomes the piece, at the transport's time now.
@@ -1234,7 +1242,8 @@ private:
     void deliverFrom (const thcEvent &ev, int chain);
     void releaseHeld (int channel, int note, double at);
     void endNote (int channel, int note, double at);
-    void flushHeld (void);
+    /* Every held note, or only those the chains in `chains' made. */
+    void flushHeld (const std::set<int> *chains = NULL);
     /* The body of a step, once the clock has been moved: the stages, the
        nodes, the deliveries and the offs, in that order. */
     void runStep (void);
@@ -1302,6 +1311,7 @@ private:
        the load may yet fail, and a text that does not load changes
        nothing -- a knob's value included. */
     std::map<std::string, float>    pendingValues_;
+    std::map<std::string, thArg *>  pendingMeta_;
     std::vector<thArg *>            retired_;
 
     /* Borrowed from the live scheduler by a staged one, so the stages
@@ -1434,9 +1444,10 @@ private:
 
     /* seq is push order, Later's tie-break; see there. */
     struct Wakeup  { double at; size_t chain, stage; unsigned long seq; };
-    /* `from' is when the note it ends was struck; see dropNoteOffs. */
+    /* `from' is when the note it ends was struck; see dropNoteOffs.
+       `chain', a held note's, is the chain that delivered it, or -1. */
     struct NoteOff { double at; int channel, note; unsigned long seq;
-                     double from; };
+                     double from; int chain = -1; };
 
     /* A queued event. The chanarg name a composer emitted is a pointer
        into memory it owns and may rewrite on its next tick, so the copy

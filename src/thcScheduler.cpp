@@ -637,6 +637,10 @@ thcScheduler::clearChains (void)
     for (size_t i = 0; i < retired_.size(); i++)
         delete retired_[i];
     retired_.clear();
+
+    for (const auto &m : pendingMeta_)
+        delete m.second;
+    pendingMeta_.clear();
     started_ = false;
 
     /* Structure edits belong to the piece that made them. */
@@ -689,6 +693,11 @@ thcScheduler::addKnob (const std::string &name, float value)
         if (keepValues_.find(name) == keepValues_.end())
             pendingValues_[name] = value;
 
+        thArg *meta = new thArg(name, value);
+
+        meta->setWidgetType(thArg::CHANARG);
+        pendingMeta_[name] = meta;
+
         knobs_[name] = l->second;
         return l->second;
     }
@@ -707,6 +716,14 @@ thcScheduler::knob (const std::string &name)
     std::map<std::string, thArg *>::iterator i = knobs_.find(name);
 
     return i == knobs_.end() ? NULL : i->second;
+}
+
+thArg *
+thcScheduler::knobMeta (const std::string &name)
+{
+    std::map<std::string, thArg *>::iterator m = pendingMeta_.find(name);
+
+    return m == pendingMeta_.end() ? knob(name) : m->second;
 }
 
 /* The live half of `prob = @density'. The store shadows its value with
@@ -1490,6 +1507,8 @@ thcScheduler::applyMasterEffect (std::string &why)
            nothing about the mix means a dry mix, not "keep the last
            piece's reverb", which is what leaving it would mean in a
            session where pieces are opened one after another. */
+        dropKnobConns(-1);
+
         if (!synth_->removeMasterEffect())
         {
             why = "the audio thread could not be told to drop the master "
@@ -2137,6 +2156,8 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
         fresh = std::move(kept);
     }
 
+    std::set<int> lost;                 /* live chains that lose a stage */
+
     for (size_t i = 0; i < chains_.size(); i++)
         for (size_t m = 0; m < chains_[i].stages.size(); m++)
         {
@@ -2145,6 +2166,7 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             if (s == NULL)
                 continue;
 
+            lost.insert((int)i);
             dead.insert(&s->params);
             s->plugin->destroy(s->state);
             s->state = NULL;
@@ -2191,6 +2213,25 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
     next.knobs_.clear();
     next.lent_.clear();
 
+    /* A kept knob's metadata is the new text's, and what it no longer
+       says goes back to a fresh knob's. */
+    for (const auto &m : next.pendingMeta_)
+    {
+        thArg *k = m.second, *live = knob(m.first);
+
+        live->setMin(k->min());
+        live->setMax(k->max());
+        live->setWidgetType(k->widgetType());
+        live->setLabel(k->label());
+        live->setUnits(k->units());
+        live->setGroup(k->group());
+        live->setValueNames(k->valueNames(), k->typedByFile());
+        live->setStep(k->step(), k->typedByFile());
+        delete k;
+    }
+
+    next.pendingMeta_.clear();
+
 
     /* The wakes: the kept stages' own, moved to their new places, and
        the new stages', in one deterministic order -- by time, the kept
@@ -2208,9 +2249,18 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             continue;
 
         Wake w = { wakeups_[n], 0 };
+        const thcChain &oc = chains_[w.w.chain];
+        const thcChain &nc = next.chains_[t->second.first];
 
         w.w.chain = t->second.first;
         w.w.stage = t->second.second;
+
+        /* A stage still waiting for its chain's start waits for the new
+           one. */
+        if ((oc.start != nc.start || oc.startBeats != nc.startBeats) &&
+            nc.stages[w.w.stage]->awaitingStart)
+            w.w.at = chainStartTime(nc);
+
         wakes.push_back(w);
     }
 
@@ -2246,7 +2296,10 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
 
     std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
 
-    /* A chain muted or soloed here stays so under its new text. */
+    /* A chain muted or soloed here stays so under its new text, and
+       what it was heard to play stays its own. */
+    std::vector<int> moved(chains_.size(), -1);
+
     soloCount_ = 0;
 
     for (size_t j = 0; j < next.chains_.size(); j++)
@@ -2254,8 +2307,16 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
         for (size_t i = 0; i < chains_.size(); i++)
             if (chains_[i].name == next.chains_[j].name)
             {
-                next.chains_[j].muted = chains_[i].muted;
-                next.chains_[j].soloed = chains_[i].soloed;
+                thcChain &nc = next.chains_[j];
+
+                nc.muted = chains_[i].muted;
+                nc.soloed = chains_[i].soloed;
+                std::copy(chains_[i].lastHeard, chains_[i].lastHeard + 2,
+                          nc.lastHeard);
+                std::copy(chains_[i].lastGated, chains_[i].lastGated + 2,
+                          nc.lastGated);
+                nc.played = std::move(chains_[i].played);
+                moved[i] = (int)j;
             }
 
         if (next.chains_[j].soloed)
@@ -2268,6 +2329,19 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
     endAfter_ = next.endAfter_;
     meter_ = next.meter_;
     next.sections_.clear();
+
+    /* A held note's release reaches its chain's stages as they are when
+       it comes, and a new stage never saw the press: one that moved the
+       note sends the release elsewhere, and the key would hang. */
+    flushHeld(&lost);
+
+    for (size_t n = 0; n < held_.size(); n++)
+        if (held_[n].chain >= 0)
+            held_[n].chain = moved[held_[n].chain];
+
+    for (size_t n = 0; n < pending_.size(); n++)
+        if (pending_[n].chain >= 0)
+            pending_[n].chain = moved[pending_[n].chain];
 
     /* Every stage answers to this scheduler and to its new place. */
     for (size_t j = 0; j < chains_.size(); j++)
@@ -2299,6 +2373,9 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             k->setValue(v.second);
 
     next.pendingValues_.clear();
+
+    if (plan.tempo > 0)
+        setTempo(plan.tempo);
 
     /* What the new stages borrowed. */
     if (controlSynth_ == NULL && next.controlSynth_ != NULL &&
@@ -2334,7 +2411,14 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             if (instruments_[n].channel == was[o].channel)
                 reused = true;
 
-        if (!reused && !unapply(was[o]))
+        if (reused)
+            continue;
+
+        /* What drove its args would push into whatever comes onto the
+           channel next. */
+        dropKnobConns(was[o].channel);
+
+        if (!unapply(was[o]))
         {
             why += "instrument '" + was[o].name + "' would not come off; ";
             ok = false;
@@ -2396,8 +2480,16 @@ thcScheduler::sameInstrument (const thcInstrument &a, const thcInstrument &b)
 {
     if (a.name != b.name || a.dsp != b.dsp || a.effect != b.effect ||
         a.side != b.side || a.sideChannel != b.sideChannel ||
-        a.channel != b.channel || a.args.size() != b.args.size())
+        a.channel != b.channel || a.args.size() != b.args.size() ||
+        a.midi != b.midi || a.midiChannel != b.midiChannel ||
+        a.midiProgram != b.midiProgram || a.ccs.size() != b.ccs.size())
         return false;
+
+    for (size_t i = 0; i < a.ccs.size(); i++)
+        if (a.ccs[i].name != b.ccs[i].name || a.ccs[i].cc != b.ccs[i].cc ||
+            a.ccs[i].min != b.ccs[i].min || a.ccs[i].max != b.ccs[i].max ||
+            a.ccs[i].bend != b.ccs[i].bend)
+            return false;
 
     for (size_t i = 0; i < a.args.size(); i++)
         if (a.args[i].name != b.args[i].name ||
@@ -3245,7 +3337,8 @@ thcScheduler::deliver (const thcEvent &ev)
                                Later());
             }
             else
-                held_.push_back({ 0, ev.channel, ev.u.note.note });
+                held_.push_back({ 0, ev.channel, ev.u.note.note, 0, 0,
+                                  deliveringChain_ });
             break;
         }
         case THC_EV_NOTEOFF:
@@ -3440,14 +3533,17 @@ thcScheduler::releaseHeld (int channel, int note, double at)
  * the scheduler what it is holding, and by then the answer is already
  * "not this one". */
 void
-thcScheduler::flushHeld (void)
+thcScheduler::flushHeld (const std::set<int> *chains)
 {
-    while (!held_.empty())
+    for (size_t i = held_.size(); i-- > 0; )
     {
-        const NoteOff h = held_.back();
+        if (chains != NULL && chains->find(held_[i].chain) == chains->end())
+            continue;
+
+        const NoteOff h = held_[i];
         thcEvent off = {};
 
-        held_.pop_back();
+        held_.erase(held_.begin() + i);
         endNote(h.channel, h.note, transportNow_);
 
         off.type            = THC_EV_NOTEOFF;
@@ -3783,8 +3879,9 @@ thcScheduler::reset (void)
 void
 thcScheduler::setTempo (double bpm)
 {
-    /* A staged edit's `tempo' line is not a tempo change: the tempo is the
-       transport's, and a room changes it with a command of its own. */
+    /* A staged edit's `tempo' line waits for adopt(), which applies it
+       where the line changed: an unchanged line is no tempo change, and
+       the tempo may since have been moved by a control or a room. */
     if (staging_)
         return;
 

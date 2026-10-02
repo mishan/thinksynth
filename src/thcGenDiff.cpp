@@ -117,6 +117,9 @@ thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
     plan.changedFiles = changedFiles;
     keepKnobValues.clear();
 
+    if (now.hasTempo && (!was.hasTempo || was.tempo != now.tempo))
+        plan.tempo = now.tempo;
+
     for (size_t n = 0; n < now.knobs.size(); n++)
         for (size_t o = 0; o < was.knobs.size(); o++)
             if (sameKnob(was.knobs[o], now.knobs[n]))

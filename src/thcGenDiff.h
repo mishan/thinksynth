@@ -37,7 +37,8 @@ class thcPlugin;
  *
  *   - Stages are named by chain and stage name. A stage whose text is the
  *     same in both -- category, plugin, and every param as authored -- keeps
- *     its instance: its state, its next wake, its bindings.
+ *     its instance: its state, its next wake, its bindings. One whose
+ *     chain has not started yet waits for the chain's new start.
  *   - A stage that changed, or is new, or has no name to be found by, is
  *     created from the new text with the seed its place there gives it.
  *     One that is gone is destroyed.
@@ -53,6 +54,10 @@ class thcPlugin;
  *     alone.
  *   - What was already composed is not taken back: notes queued for later,
  *     and the offs of notes sounding, are delivered as they would have been.
+ *     A note held for a release by a chain that lost a stage ends at the
+ *     edit: its release would reach a stage that never saw the press.
+ *   - A changed `tempo' line changes the tempo at the edit; an unchanged
+ *     one leaves it wherever it has been moved since.
  */
 class thcGenDiff
 {

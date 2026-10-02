@@ -41,6 +41,9 @@
  *   5. A knob whose declaration an edit did not touch keeps the value it
  *      was moved to; one whose declaration changed takes the new value.
  *   6. A text that does not load changes nothing.
+ *   7. Edits to small texts, each after what a whole piece cannot show: a
+ *      chain's start, its history, a knob's metadata, a device, a removed
+ *      chain's queue, a held key, the tempo.
  *
  * Headless, as gencheck is: the scheduler's virtual clock, no audio.
  * EDITCHECK_DUMP=<dir> writes each piece's three tapes there, for reading a
@@ -162,6 +165,9 @@ line (const thcEvent &ev)
         snprintf(buf, sizeof(buf), "N %.17g %d %d %d %.17g %.9g\n",
                  ev.at, ev.channel, ev.u.note.note, ev.u.note.velocity,
                  ev.u.note.duration, (double)ev.u.note.level);
+    else if (ev.type == THC_EV_NOTEOFF)
+        snprintf(buf, sizeof(buf), "F %.17g %d %d\n", ev.at, ev.channel,
+                 ev.u.note.note);
     else if (ev.type == THC_EV_CHANARG)
         snprintf(buf, sizeof(buf), "C %.17g %d %s %.17g\n", ev.at,
                  ev.channel, ev.u.chanarg.name ? ev.u.chanarg.name : "",
@@ -831,6 +837,280 @@ checkKnobsAndRefusal (const std::map<std::string, thcPlugin *> &plugins,
            errors.empty() ? "" : errors[0].c_str());
 }
 
+/* A device that answers to every name and remembers which channel each
+   attach asked for. */
+struct StubMidiOut : public thcMidiOut
+{
+    std::vector<int> channels;
+
+    bool attach (int, const thcInstrument &inst, std::string &) override
+    {
+        channels.push_back(inst.midiChannel);
+        return true;
+    }
+
+    void detach (int) override {}
+    void noteOn (int, int, int, float, gint64) override {}
+    void noteOff (int, int, gint64) override {}
+    void control (int, const std::string &, double, gint64) override {}
+    void flush (int) override {}
+};
+
+static std::string
+smallChain (const std::string &name, int channel, const std::string &extra)
+{
+    return "chain " + name + " {\n" + extra +
+           "    stage src gen::euclid { steps = 4; fills = 4; rotate = 0; "
+           "notes = \"C3\"; period = 1 beats; hold = 0.25 beats; "
+           "vel = 100; };\n"
+           "    sink { channel = " + std::to_string(channel) + "; };\n};\n";
+}
+
+static std::string
+knobMeta (thArg *k)
+{
+    char buf[100];
+
+    snprintf(buf, sizeof(buf), "min %g max %g step %g ", k->min(), k->max(),
+             k->step());
+
+    return buf + ("label '" + k->label() + "' units '" + k->units() + "'");
+}
+
+/* What one edit to a small text has to do. `ready' runs after the load and
+   before the start; `check' after the edit, and says what is wrong. */
+namespace {
+
+struct Case
+{
+    const char *what;
+    std::string before, after;
+    double at;
+    std::function<void (Peer &)> ready;
+    std::function<std::string (Peer &)> check;
+};
+
+} /* namespace */
+
+static void
+checkCases (const std::map<std::string, thcPlugin *> &plugins,
+            const std::string &pluginDir, const std::filesystem::path &dir)
+{
+    const std::string head = "tempo 120;\n@k = 5;\n@k.max = 16;\n";
+    const std::string late = smallChain("x", 1, "") +
+                             smallChain("late", 2, "    start = 32 beats;\n");
+    const std::string broken =
+        "chain broken { stage s gen::no_such_plugin { }; };\n";
+    auto device = [](int channel)
+    {
+        return "tempo 120;\ninstrument lead { midi \"Dev\"; midichannel = " +
+               std::to_string(channel) + "; };\n"
+               "chain x { stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0; notes = \"C3\"; period = 1 beats; "
+               "hold = 0.25 beats; vel = 100; }; "
+               "sink { instrument = lead; }; };\n";
+    };
+    auto shifted = [](int semitones)
+    {
+        return "chain keys {\n    input midi;\n"
+               "    stage t xform::transpose { semitones = " +
+               std::to_string(semitones) + "; };\n"
+               "    sink { channel = 1; };\n};\n";
+    };
+    StubMidiOut out;
+    std::vector<std::string> errors;
+
+    /* The knob as a fresh load of `text' has it. */
+    auto freshMeta = [&](const std::string &text)
+    {
+        Peer f(plugins, pluginDir, dir, "fresh");
+
+        f.load(text, errors);
+
+        return knobMeta(f.sched.knob("k"));
+    };
+
+    auto metaAsLoaded = [&](const std::string &text)
+    {
+        return [&, text](Peer &p)
+        {
+            const std::string got = knobMeta(p.sched.knob("k")),
+                              want = freshMeta(text);
+
+            return got == want ? std::string()
+                               : "@k is " + got + ", and " + want +
+                                 " loaded";
+        };
+    };
+
+    auto press = [](Peer &p, thcEventType type)
+    {
+        thcEvent ev = {};
+
+        ev.type = type;
+        ev.at = p.sched.now();
+        ev.channel = 0;
+        ev.u.note.note = 60;
+        ev.u.note.velocity = type == THC_EV_NOTE ? 100 : 0;
+        p.sched.injectMidi(0, ev);
+    };
+
+    const std::vector<Case> cases = {
+        { "a chain not started waits for its edited start",
+          head + late, head + smallChain("x", 1, "") +
+          smallChain("late", 2, "    start = 8 beats;\n"), 1.01, nullptr,
+          [](Peer &p)
+          {
+              p.stepTo(10);
+
+              for (const std::string &l : lines(p.tape))
+                  if (l[0] == 'N' && channelOf(l) == 1)
+                      return fabs(timeOf(l) - 4) < 1e-9
+                                 ? std::string()
+                                 : "its first note is at " +
+                                       std::to_string(timeOf(l)) +
+                                       " s, not 4";
+
+              return std::string("it never played");
+          } },
+        { "a chain keeps what it was heard to play", head + late,
+          "# a comment\n" + head + late, 6.01, nullptr,
+          [](Peer &p)
+          {
+              const thcChain *c = p.sched.chain(0);
+
+              return c->played.size() >= 10 && c->lastHeard[0] > 5
+                         ? std::string()
+                         : std::to_string(c->played.size()) +
+                               " notes played, last heard at " +
+                               std::to_string(c->lastHeard[0]);
+          } },
+        { "a text that does not load leaves a knob's metadata",
+          head + late,
+          "tempo 120;\n@k = 5;\n@k.max = 99;\n@k.label = \"Changed\";\n" +
+          late + broken, 1.01, nullptr, metaAsLoaded(head + late) },
+        { "an edit gives a knob the new text's metadata, and only that",
+          head + late,
+          "tempo 120;\n@k = 5;\n@k.label = \"Changed\";\n" + late, 1.01,
+          nullptr,
+          metaAsLoaded("tempo 120;\n@k = 5;\n@k.label = \"Changed\";\n" +
+                       late) },
+        { "a device's channel changed reaches the device",
+          device(3), device(9), 1.01,
+          [&](Peer &p) { p.sched.setMidiOut(&out); },
+          [&](Peer &)
+          {
+              return !out.channels.empty() && out.channels.back() == 8
+                         ? std::string()
+                         : "the device was last attached on " +
+                               std::to_string(out.channels.empty()
+                                                  ? -1
+                                                  : out.channels.back());
+          } },
+        { "what a removed chain queued is no other chain's",
+          head + "chain gone {\n"
+          "    stage src gen::euclid { steps = 4; fills = 4; rotate = 0; "
+          "notes = \"C3\"; period = 1 beats; hold = 0.25 beats; "
+          "vel = 100; };\n"
+          "    stage e xform::echo { repeats = 4; time = 2 s; pass = 1; };\n"
+          "    sink { channel = 1; };\n};\n" +
+          smallChain("late", 2, "    start = 30 s;\n"),
+          head + smallChain("late", 2, "    start = 30 s;\n"), 1.01, nullptr,
+          [](Peer &p)
+          {
+              p.stepTo(9);
+
+              const thcChain *c = p.sched.chain(0);
+
+              return c->played.empty() && c->lastHeard[0] < 0
+                         ? std::string()
+                         : "the chain that has not started was heard " +
+                               std::to_string(c->played.size()) + " times";
+          } },
+        { "a key held through a replaced stage is released",
+          head + shifted(2), head + shifted(5), 1.01,
+          [&](Peer &p) { press(p, THC_EV_NOTE); },
+          [&](Peer &p)
+          {
+              press(p, THC_EV_NOTEOFF);
+              p.stepTo(2);
+
+              std::multiset<std::pair<int, int> > held;
+
+              for (const std::string &l : lines(p.tape))
+              {
+                  double at;
+                  int ch, note;
+
+                  if (sscanf(l.c_str() + 1, "%lf %d %d", &at, &ch, &note) != 3)
+                      continue;
+
+                  if (l[0] == 'N')
+                      held.insert({ ch, note });
+                  else if (l[0] == 'F' && held.count({ ch, note }))
+                      held.erase(held.find({ ch, note }));
+              }
+
+              return held.empty()
+                         ? std::string()
+                         : "note " + std::to_string(held.begin()->second) +
+                               " was never released";
+          } },
+        { "a changed tempo line changes the tempo", head + late,
+          "tempo 90;\n" + head.substr(head.find('\n') + 1) + late, 1.01,
+          nullptr,
+          [](Peer &p)
+          {
+              return p.sched.tempo() == 90
+                         ? std::string()
+                         : "the tempo is " + std::to_string(p.sched.tempo());
+          } },
+        { "an unchanged tempo line leaves a moved tempo", head + late,
+          "# a comment\n" + head + late, 1.01,
+          [](Peer &p) { p.sched.setTempo(100); },
+          [](Peer &p)
+          {
+              return p.sched.tempo() == 100
+                         ? std::string()
+                         : "the tempo is " + std::to_string(p.sched.tempo());
+          } },
+    };
+
+    for (const Case &c : cases)
+    {
+        Peer p(plugins, pluginDir, dir, "case");
+
+        if (!p.load(c.before, errors))
+        {
+            fail(c.what, "did not load: " +
+                 (errors.empty() ? "" : errors[0]));
+            continue;
+        }
+
+        if (c.ready)
+            c.ready(p);
+
+        p.sched.start();
+
+        for (double t = 0.02; t < c.at; t += 0.02)
+            p.stepTo(t);
+
+        p.stepTo(c.at);
+
+        p.edit(c.after, errors);
+
+        const std::string wrong = c.check(p);
+
+        p.sched.stop();
+        p.drain();
+
+        if (wrong.empty())
+            printf("ok    %s\n", c.what);
+        else
+            fail(c.what, wrong);
+    }
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -882,6 +1162,7 @@ main (int argc, char *argv[])
 
     checkKnobsAndRefusal(plugins, pluginDir, dir,
                          std::filesystem::path(genDir) / "orrery.gen");
+    checkCases(plugins, pluginDir, dir);
 
     std::error_code ec;
 
