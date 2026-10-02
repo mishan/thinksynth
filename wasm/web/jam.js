@@ -1598,20 +1598,20 @@ async function start ()
        start arrives and before its origin. */
     try
     {
-        /* Without the kit: the index carries `samples/<name>' wavs beside
-           the patches, and .text() on a wav is three hundred kilobytes of
-           mojibake fetched on every load and kept in a map nothing looks
-           it up in. The jam page does not hand samples to its worklet at
-           all yet -- see the note in main.js's start(), which fetches
-           them as bytes and passes them through tw_sample -- so an
-           instrument built on osc::sample is silent here. Filtering is
-           what this line can honestly do about that; the rest is its own
-           change. */
-        const names =
-            (await (await fetch('dsp/index.json')).json())
-                .filter((n) => !n.startsWith('samples/'));
-        const texts = await Promise.all(
-            names.map((n) => fetch(`dsp/${n}`).then((r) => r.text())));
+        /* The index carries the kit beside the patches, as
+           `samples/<name>' wavs for osc::sample, which go over as bytes
+           (main.js's start() does the same). */
+        const names = await (await fetch('dsp/index.json')).json();
+        const kit = names.filter((n) => n.startsWith('samples/'));
+        const graphs = names.filter((n) => !n.startsWith('samples/'));
+        const [texts, wavs] = await Promise.all([
+            Promise.all(graphs.map(
+                (n) => fetch(`dsp/${n}`).then((r) => r.text()))),
+            Promise.all(kit.map(
+                (n) => fetch(`dsp/${n}`).then((r) => r.arrayBuffer()))),
+        ]);
+
+        kit.forEach((n, i) => synth.sample(n, new Uint8Array(wavs[i])));
 
         /* Into the module's own MEMFS, which is where a .patch's `dsp'
            line is resolved from -- the same handover the solo page does,
@@ -1624,7 +1624,7 @@ async function start ()
            A document's own instruments are written over these at load
            (above), which is what a piece carrying its own amb01.dsp
            means. */
-        names.forEach((n, i) => synth.instrument(n, texts[i]));
+        graphs.forEach((n, i) => synth.instrument(n, texts[i]));
 
         await Promise.all(
             (await patch.defaultNames(synth)).map((n) => patch.patchText(n)));
