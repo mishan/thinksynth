@@ -1649,7 +1649,7 @@ function exportTape ()
 /* ---- joining, and starting ---- */
 
 /* How often the rooms are asked for while the page has not joined one. */
-const ROOMS_EVERY = 5000;
+const ROOMS_EVERY_MS = 5000;
 
 /* The relay's rooms under the join row: its health line over http(s),
    which lists them. A room is a button that names it in the box. */
@@ -1689,7 +1689,7 @@ async function showRooms ()
         return li;
     }));
     list.hidden = rooms.length === 0;
-    setTimeout(showRooms, ROOMS_EVERY);
+    setTimeout(showRooms, ROOMS_EVERY_MS);
 }
 
 async function join ()
