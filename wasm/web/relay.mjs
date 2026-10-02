@@ -40,7 +40,7 @@
  *
  *   GET  /               health: version, rooms
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
- *   WS   /room/<room>    JSON: presence, seats, clock, signalling
+ *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
  *
  * Two sockets per peer rather than one: y-websocket's framing is its
  * own, and the JSON side is easier to read on the wire and in a harness
@@ -84,6 +84,13 @@ const LOG_MAX = 200000;
 /* How long an empty room is kept, and how often that is looked at. */
 const EMPTY_FOR = 60 * 60 * 1000;
 const SWEEP_EVERY = 60 * 1000;
+
+/* Chat: the longest line, and how many a peer may send at once and then
+   per second. Enough to talk in, and short of what a stuck key or a
+   script would make of a room's screens. */
+const CHAT_MAX = 500;
+const CHAT_BURST = 5;
+const CHAT_PER_SECOND = 5;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -410,6 +417,8 @@ class Room
     attachRoom (ws)
     {
         let id = null;
+        let chatTokens = CHAT_BURST;
+        let chatAt = relayNow();
 
         const send = (m) =>
         {
@@ -608,6 +617,55 @@ class Room
                     if (typeof m.data === 'object' && m.data !== null)
                         this.record(m.data, m.run);
                     break;
+
+                /* A line of text, to everyone in the room and back to its
+                   sender, whose copy is how it knows the line went. Who
+                   sent it is the relay's to say, and nothing is kept: a
+                   peer who arrives later sees what is said after. `bar'
+                   is where the sender's transport was, as it read it, and
+                   `n' the sender's own count, which only it is told. */
+                case 'chat':
+                {
+                    const text = typeof m.text === 'string' ? m.text.trim()
+                                                            : '';
+                    const now = relayNow();
+
+                    chatTokens = Math.min(CHAT_BURST, chatTokens +
+                                          (now - chatAt) * CHAT_PER_SECOND /
+                                          1000);
+                    chatAt = now;
+
+                    const n = Number.isSafeInteger(m.n) ? m.n : undefined;
+
+                    /* Format characters alone are a line that shows as
+                       nothing, or reorders the lines around it. */
+                    const why = m.channel !== 'stage' ? 'no such channel'
+                              : text.replace(/\p{Cf}/gu, '').trim() === ''
+                                  ? 'nothing to send'
+                              : text.length > CHAT_MAX
+                                  ? `longer than ${CHAT_MAX} characters`
+                              : chatTokens < 1 ? 'too fast; wait a moment'
+                              : null;
+
+                    if (why !== null)
+                    {
+                        send({ type: 'refused', of: 'chat', why, n });
+                        break;
+                    }
+
+                    chatTokens--;
+
+                    const line = { type: 'chat', channel: m.channel, from: id,
+                                   name: me.name, text };
+
+                    if (typeof m.bar === 'string' &&
+                        /^\d{1,6}\.\d{1,2}$/.test(m.bar))
+                        line.bar = m.bar;
+
+                    send({ ...line, n });
+                    others(line);
+                    break;
+                }
 
                 /* A late joiner, ready to play: the run as the relay has
                    it, or `start: null' when nothing is playing. A Play

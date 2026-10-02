@@ -39,6 +39,7 @@
 import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
+import { barBeat, createChat } from './chat.js';
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
          commandTag, isLate, keyAt, nextBar, replayable, tieOf }
@@ -138,7 +139,7 @@ let nodes = null;
  * things and catalogcheck.mjs holds them to it.
  */
 const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
-               'documentbox', 'nodeview', 'detail'];
+               'documentbox', 'nodeview', 'detail', 'chat'];
 
 /* Where they go, the first time somebody opens a room in a window with
  * room to tile. Data, and this page's: panes.js knows how to divide a
@@ -154,7 +155,7 @@ const ROOM_LAYOUT = {
         { dir: 'col', size: [0.44, 0.28, 0.28], kids: [
             { tabs: ['composerview', 'seqview'] },
             { tabs: ['roll'] },
-            { tabs: ['knobs'] }] },
+            { tabs: ['knobs', 'chat'] }] },
         { dir: 'col', size: [0.42, 0.34, 0.24], kids: [
             { tabs: ['nodeview'] },
             { tabs: ['documentbox'] },
@@ -168,6 +169,7 @@ let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
 let keyfocus = null;            /* and who has it, the page or the keys  */
 let midiIn = null;              /* the MIDI in button (midi.js)          */
+let chat = null;                /* the room's text (chat.js)             */
 let maker = null;
 const dedupe = new Dedupe();
 
@@ -374,6 +376,9 @@ async function applyOne (from, cmd)
         cmd.run !== room.runKey)
         return;
 
+    if (cmd.type === 'transport' || cmd.type === 'edit')
+        chat.command(room.peers.get(from)?.name ?? from, cmd);
+
     if (synth === null)
     {
         /* Nothing to apply it to yet: a room joined before Start. What
@@ -399,7 +404,7 @@ async function applyOne (from, cmd)
     /* A Play or Stop ends any catching up: the run being caught up with
        is over, and the report that would have said so never comes. */
     if (startOrStop)
-        catching = false;
+        stopCatching('stopped catching up: the room has moved on');
 
     await apply(cmd, { synth: roomSynth, frameOfOrigin, listens,
                        load: loadFor, self: room.peer });
@@ -551,6 +556,9 @@ function joinRun ()
             synth: roomSynth, listens,
             frameOfOrigin: (ms) =>
             {
+                if (!catching)
+                    chat.activity('catching up with the room');
+
                 catching = true;
                 return frameOfOrigin(ms);
             },
@@ -1326,6 +1334,16 @@ function enable ()
 
 /* ---- the tape ---- */
 
+/* The end of a late joiner's catching up, however it ends: the feed said
+   it began, so it says it is over. */
+function stopCatching (line)
+{
+    if (catching)
+        chat.activity(line);
+
+    catching = false;
+}
+
 function tape (m)
 {
     lastTape = m;
@@ -1340,7 +1358,7 @@ function tape (m)
        origin, so a report from before the begin has none. */
     if (catching && Number.isFinite(m.origin) && !m.catching)
     {
-        catching = false;
+        stopCatching('caught up with the room');
         status('Caught up with the room.');
     }
 
@@ -1634,7 +1652,9 @@ async function join ()
 {
     const params = new URLSearchParams(location.search);
     const roomName = $('room').value.trim() || 'lobby';
-    const name = $('name').value.trim() || `guest-${Math.floor(
+    /* Cut where the relay cuts it, so the cursor's color is the one the
+       chat derives from the name the relay hands back. */
+    const name = $('name').value.trim().slice(0, 32) || `guest-${Math.floor(
         Math.random() * 1000)}`;
     const url = await relayUrl(params);
 
@@ -1642,7 +1662,9 @@ async function join ()
     status(`Joining ${roomName} at ${url}...`);
 
     room = new Room(url, roomName, name, { piece: params.get('piece') });
-    room.on('peers', showPeers)
+    room.on('peers', () => { showPeers(); chat.peers(room.peers); })
+        .on('chat', (m) => chat.said(m))
+        .on('refused', (m) => m.of === 'chat' && chat.refused(m))
         .on('clock', () => { showNumbers(); enable(); })
         .on('transport', (from, data) => receive(from, data))
         .on('error', (text) => log(`relay: ${text}`))
@@ -1893,6 +1915,20 @@ function init ()
         onChange: showMidiOut,
     });
 
+    chat = createChat({
+        feed: $('chatfeed'), form: $('chatform'), input: $('chatinput'),
+        note: $('chatnote'), self: () => room?.peer,
+        send: (text, n) => room.chat(text, n,
+                                     barBeat(lastTape, transportNow())),
+        colorOf: (name) => colourOf(name).color,
+        visible: () => panes.visible('chat'),
+        title: (text) =>
+        {
+            $('chat').querySelector('summary').textContent = text;
+            panes.setTitle('chat', text);
+        },
+    });
+
     $('join').addEventListener('click', join);
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
@@ -1954,6 +1990,10 @@ function init ()
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor', reset: 'Reset layout',
+
+        /* A layout kept before the chat came would open with it in the
+           drawer, where nobody looks for it. */
+        version: 1,
         onShow: (id, on) =>
         {
             if (id === 'composerview')
@@ -1964,6 +2004,8 @@ function init ()
                 showRoll(on);
             else if (id === 'nodeview')
                 nodes?.show(on);
+            else if (id === 'chat')
+                chat.shown(on);
         },
     });
 

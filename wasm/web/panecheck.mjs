@@ -741,9 +741,20 @@ try
               !document.getElementById('composerview').checkVisibility()),
           'the room\'s Sequencer comes in front of the composers by its tab');
 
+    /* The chat sits behind the knobs, where its tab can count what came
+       while nobody was reading it. */
+    check(await room.evaluate(() =>
+              document.getElementById('pane-chat').closest('.paneleaf') ===
+              document.getElementById('pane-knobs').closest('.paneleaf')),
+          'the chat is a tab beside the knobs');
+
     await room.setViewportSize(NARROW);
     await room.waitForFunction(
         () => !document.body.classList.contains('tiled'));
+
+    check(await room.evaluate(() =>
+              document.getElementById('chatinput').checkVisibility()),
+          'and the chat box is on the narrow page, to type into');
 
     check(await room.evaluate(() =>
               window.jam.panes().every(
@@ -759,7 +770,8 @@ try
     {
         localStorage.clear();
         localStorage.setItem('panes:jam:room',
-                             JSON.stringify({ tabs: panes }));
+                             JSON.stringify({ version: 1,
+                                              layout: { tabs: panes } }));
     }, await room.evaluate(() => window.jam.panes()));
     await room.reload();
     await room.waitForFunction(
@@ -776,6 +788,21 @@ try
     check(moved.keys.length === 1 &&
           moved.keys[0] === 'thinksynth:panes:jam:room',
           `and it moves to the new name: ${moved.keys.join(' ')}`);
+
+    /* And one kept before the chat, which has no version: not read back,
+       so the chat is where the default puts it and not in the drawer. */
+    await room.evaluate(() => localStorage.setItem(
+        'thinksynth:panes:jam:room', JSON.stringify(
+            { tabs: ['roll', 'knobs', 'composerview', 'keyboard',
+                     'documentbox', 'nodeview', 'detail'] })));
+    await room.reload();
+    await room.waitForFunction(
+        () => document.body.classList.contains('tiled'));
+
+    check(await room.evaluate(() =>
+              document.getElementById('pane-chat').closest('.paneleaf') ===
+              document.getElementById('pane-knobs').closest('.paneleaf')),
+          'a layout kept before the chat gives way to the one with it');
 
     /* ---- a phone ----
      *

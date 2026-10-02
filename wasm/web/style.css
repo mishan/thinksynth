@@ -805,6 +805,21 @@ details { margin: 0.8em 0; }
 
 #numbers { min-height: 8em; }
 
+#chatfeed
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 16em;
+    overflow: auto;
+    overflow-wrap: anywhere;
+}
+
+#chatfeed .chatactivity { color: var(--dim); font-style: italic; }
+#chatfeed .chatbar { color: var(--dim); font-variant-numeric: tabular-nums; }
+#chatfeed .chatname { font-weight: bold; }
+#chatinput { flex: 1 1 auto; min-width: 0; }
+
 /*
  * A canvas whose drawing is done in wasm (canvasview.js). The element is
  * as big as the drawing and this scrolls it, which is the shape a Gtk
@@ -1103,6 +1118,7 @@ body.tiled .panebody source-box .cm-editor { height: 100%; }
 body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
 
 body.tiled .panebody #editor { flex: 1 1 8rem; min-height: 0; }
+body.tiled .panebody #chatfeed { flex: 1 1 4rem; max-height: none; }
 body.tiled .panebody #editor .cm-editor { height: 100%; }
 
 /* And the ones that are not: a row of controls is as tall as its
