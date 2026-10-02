@@ -100,7 +100,7 @@ RollCanvas::onDelivered (const thcEvent &ev)
     {
         const Note n = { ev.at, ev.u.note.duration, ev.channel,
                          ev.u.note.note, ev.u.note.velocity,
-                         sched_->deliveringChain() };
+                         sched_->deliveringChain(), false };
 
         /* A duration <= 0 is live input's "held until further notice",
            and a bar with no end yet is not history: it belongs in
@@ -119,7 +119,7 @@ RollCanvas::onDelivered (const thcEvent &ev)
            (thcScheduler::flushHeld) -- so nothing is left open here
            that is no longer sounding. */
         for (size_t i = held_.size(); i-- > 0; )
-            if (held_[i].channel == ev.channel &&
+            if (!held_[i].played && held_[i].channel == ev.channel &&
                 held_[i].note == ev.u.note.note)
             {
                 Note n = held_[i];
@@ -174,6 +174,44 @@ RollCanvas::onDelivered (const thcEvent &ev)
 
        No requestRedraw: the shell repaints every frame anyway. */
     prune();
+}
+
+void
+RollCanvas::keyPlayed (double at, int channel, int note, int velocity,
+                       bool on)
+{
+    if (on)
+        held_.push_back({ at, 0, channel, note, velocity, -1, true });
+    else
+        for (size_t i = held_.size(); i-- > 0; )
+            if (held_[i].played && held_[i].channel == channel &&
+                held_[i].note == note)
+            {
+                Note n = held_[i];
+
+                n.duration = std::max(at - n.start, 0.05);
+                notes_.push_back(n);
+                held_.erase(held_.begin() + i);
+                break;
+            }
+
+    prune();
+}
+
+std::vector<RollCanvas::Played>
+RollCanvas::played (void) const
+{
+    std::vector<Played> out;
+
+    for (const Note &n : notes_)
+        if (n.played)
+            out.push_back({ n.start, n.channel, n.note, false });
+
+    for (const Note &n : held_)
+        if (n.played)
+            out.push_back({ n.start, n.channel, n.note, true });
+
+    return out;
 }
 
 /* The transport rewound: history keyed to the old timeline is now a
@@ -472,7 +510,19 @@ RollCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                   0.35 + 0.65 * (n.velocity / 127.0));
         cr->rectangle(x0, noteY(n.note + 1) + 1,
                       std::max(x1 - x0, 2.0), laneH - 2);
-        cr->fill();
+
+        /* A played key keeps its channel's fill and gains a light edge:
+           the same hue as the seat's composed notes, but not mistakable
+           for one. */
+        if (n.played)
+        {
+            cr->fill_preserve();
+            cr->set_source_rgba(1, 1, 1, 0.85);
+            cr->set_line_width(1.5);
+            cr->stroke();
+        }
+        else
+            cr->fill();
     };
 
     for (const Note &n : notes_)
