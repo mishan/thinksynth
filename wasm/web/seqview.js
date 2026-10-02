@@ -106,7 +106,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             for (const stage of chain.stages)
                 if (stage.name === 'grid')
                     out.push({ chain: chain.chain, stage: stage.stage,
-                               name: chain.name, channel: chain.channel,
+                               name: chain.name, label: stage.label,
+                               channel: chain.channel,
                                rows: 1, rowsParam: -1,
                                canvas: null, ctx: null,
                                w: 0, h: 0, dpr: 0 });
@@ -252,8 +253,11 @@ export function createSeqView ({ root = document, toMirror, onGesture,
         let held = null;
         let button = 1;
 
+        /* By name as well as by index, for a room: an edit stamped
+           before the gesture may have moved the stage (namedStage). */
         const send = (kind, e) => onGesture({
-            chain: track.chain, stage: track.stage, kind,
+            chain: track.chain, stage: track.stage,
+            chainName: track.name, stageName: track.label, kind,
             ...at(canvas, e),
             w: track.w, h: track.h,
             button,

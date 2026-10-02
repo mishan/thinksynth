@@ -732,6 +732,15 @@ try
           `and its layout shows ` +
           `${inRoom.filter(([, , up]) => up).length} of them at once`);
 
+    /* The tracks share the composers' leaf, a tab apart, as on the solo
+       page: one picture of the piece in front at a time. */
+    await room.click('#panetab-seqview');
+
+    check(await room.evaluate(() =>
+              document.getElementById('seqview').checkVisibility() &&
+              !document.getElementById('composerview').checkVisibility()),
+          'the room\'s Sequencer comes in front of the composers by its tab');
+
     await room.setViewportSize(NARROW);
     await room.waitForFunction(
         () => !document.body.classList.contains('tiled'));

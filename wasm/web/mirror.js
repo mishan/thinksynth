@@ -149,6 +149,8 @@ function showPiece ()
                 stage: s,
                 name: M.UTF8ToString(M.ccall('tw_stage_name', 'number',
                                              ['number', 'number'], [c, s])),
+                label: M.ccall('tw_stage_label', 'string',
+                               ['number', 'number'], [c, s]),
                 draws: M._tw_stage_draws(c, s) !== 0,
                 takesInput: M._tw_stage_takes_input(c, s) !== 0,
             });

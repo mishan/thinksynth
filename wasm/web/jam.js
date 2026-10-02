@@ -61,6 +61,7 @@ import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 import { Room } from './room.js';
+import { createSeqView } from './seqview.js';
 import { TapeDiff } from './tapediff.js';
 import { tapeLine } from '../tape.mjs';
 
@@ -109,6 +110,9 @@ let transport = null;
    half it shows (rollview.js). */
 let roll = null;
 
+/* The piece's grids as tracks (seqview.js), from the same mirror. */
+let seq = null;
+
 /* The piece's picture, drawn by the mirror -- a second instance of the
    module in a worker, fed the commands this page's worklet is fed --
    and the two tapes held against each other, which is a determinism
@@ -130,8 +134,8 @@ let nodes = null;
  * the same names, which is the point -- the two documents say the same
  * things and catalogcheck.mjs holds them to it.
  */
-const PANES = ['roll', 'knobs', 'composerview', 'keyboard', 'documentbox',
-               'nodeview', 'detail'];
+const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
+               'documentbox', 'nodeview', 'detail'];
 
 /* Where they go, the first time somebody opens a room in a window with
  * room to tile. Data, and this page's: panes.js knows how to divide a
@@ -145,7 +149,7 @@ const PANES = ['roll', 'knobs', 'composerview', 'keyboard', 'documentbox',
 const ROOM_LAYOUT = {
     dir: 'row', size: [0.52, 0.48], kids: [
         { dir: 'col', size: [0.44, 0.28, 0.28], kids: [
-            { tabs: ['composerview'] },
+            { tabs: ['composerview', 'seqview'] },
             { tabs: ['roll'] },
             { tabs: ['knobs'] }] },
         { dir: 'col', size: [0.42, 0.34, 0.24], kids: [
@@ -1229,6 +1233,9 @@ function tape (m)
    worklet's, and the rest is a line in the log. */
 function fromMirror (m)
 {
+    if (seq !== null && seq.fromMirror(m))
+        return;
+
     if (composer !== null && composer.fromMirror(m))
         return;
 
@@ -1362,6 +1369,22 @@ async function paramsEdited ({ edits })
     }
 }
 
+function sendGesture (g)
+{
+    const cmd = maker.input(g.chain, g.stage, g.kind, g.x, g.y, g.w, g.h,
+                            g.button,
+                            { chainName: g.chainName,
+                              stageName: g.stageName });
+
+    /* A gesture's end is where a picture that edits its params writes
+       them (THC_INPUT_EDITS); what it writes, this peer puts in the
+       document, since it made it. */
+    if (g.kind === 2)
+        ownParams.push(inputKey(cmd));
+
+    send(cmd);
+}
+
 function showComposer (on)
 {
     /* Made when it is first wanted and never for a pane nobody has
@@ -1376,21 +1399,7 @@ function showComposer (on)
        everywhere from that beat. */
     composer ??= createComposerView({
         toMirror: (m) => synth?.toMirror(m),
-        onGesture: (g) =>
-        {
-            const cmd = maker.input(g.chain, g.stage, g.kind, g.x, g.y, g.w,
-                                    g.h, g.button,
-                                    { chainName: g.chainName,
-                                      stageName: g.stageName });
-
-            /* A gesture's end is where a picture that edits its params
-               writes them (THC_INPUT_EDITS); what it writes, this peer
-               puts in the document, since it made it. */
-            if (g.kind === 2)
-                ownParams.push(inputKey(cmd));
-
-            send(cmd);
-        },
+        onGesture: sendGesture,
 
         /* A stage's param, out to the room and back at its time -- to this
            peer as to every other, which is what keeps one piece one
@@ -1443,6 +1452,21 @@ function showComposer (on)
     });
 
     composer.show(on);
+}
+
+/* The tracks. Made on Start, visible or not, unlike the composers: the
+   `piece' message a load sends comes once, and a pane opened after it
+   would otherwise have no tracks until the next. A click on one is the
+   same command as a click on the composers' picture. */
+function showSeq (on)
+{
+    if (seq === null && synth === null)
+        return;
+
+    seq ??= createSeqView({ toMirror: (m) => synth?.toMirror(m),
+                            onGesture: sendGesture });
+
+    seq.show(on);
 }
 
 /* The piano roll, on the same terms: made when it is first wanted, and
@@ -1646,6 +1670,7 @@ async function start ()
     setInterval(() => composer?.pollParams(), 250);
 
     showComposer(panes.visible('composerview'));
+    showSeq(panes.visible('seqview'));
     showRoll(panes.visible('roll'));
 
     try
@@ -1783,6 +1808,8 @@ function init ()
         {
             if (id === 'composerview')
                 showComposer(on);
+            else if (id === 'seqview')
+                showSeq(on);
             else if (id === 'roll')
                 showRoll(on);
             else if (id === 'nodeview')
