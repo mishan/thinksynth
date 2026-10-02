@@ -977,6 +977,11 @@ set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspbloc
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 
+# The longest gates, started first. With no timing history -- which a fresh CI
+# runner never has -- `ctest -j' starts tests in declaration order, and these
+# started late are the whole tail of the run, worst under the sanitizers.
+set_tests_properties(gencheck poolcheck editcheck PROPERTIES COST 1000)
+
 # The two harnesses that build real widgets need LeakSanitizer told which
 # leaks are the toolkit's. See scripts/lsan.supp for what is in it and what
 # is deliberately left out; the short version is that a process which draws

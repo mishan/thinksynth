@@ -58,8 +58,20 @@ jobs:
     name: linux (gcc)
     runs-on: ubuntu-latest
 
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - uses: actions/checkout@v4
+
+      # Saved from master only: PRs restore master's cache, and a cache per PR
+      # run would evict it from the repository's 10 GB long before it helped.
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
         run: |
@@ -137,8 +149,18 @@ jobs:
     name: linux GTK runtime data
     runs-on: ubuntu-latest
 
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: gtk-data
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
         run: |
@@ -244,8 +266,18 @@ jobs:
     name: linux asan + ubsan
     runs-on: ubuntu-latest
 
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: asan
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
         run: |
@@ -325,6 +357,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: wasm-native
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
+
       # The whole top-level configure runs for the native half, and it wants
       # gtkmm, even though only the harness and the plugins are built. gtkmm
       # brings cairo's headers too, which the wasm build compiles the drawing
@@ -376,7 +414,12 @@ jobs:
       # warning nobody reads, so a binary left out of this line arrives as a
       # missing file in every gate job at once -- which is what
       # wasm-trees's chmod is loud about.
+      #
+      # ccache on this half only; the emscripten builds below are not wrapped.
       - name: Native build
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
           cmake -S . -B build -G Ninja
           cmake --build build \
@@ -1006,8 +1049,18 @@ jobs:
     # -- and move this label to one they cover.
     runs-on: macos-15
 
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
         run: |
@@ -1095,6 +1148,14 @@ jobs:
       run:
         shell: msys2 {0}
 
+    # ccache from ucrt64 rather than hendrikmuhs/ccache-action, whose
+    # Windows binary is not on the msys2 shell's PATH.
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 500M
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - uses: actions/checkout@v4
 
@@ -1125,6 +1186,7 @@ jobs:
           # through the whole sentence.
           pacboy: >-
             toolchain:p
+            ccache:p
             cmake:p
             ninja:p
             pkgconf:p
@@ -1200,11 +1262,23 @@ jobs:
           pacman -U --noconfirm \
             https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-cairo-1.18.4-4-any.pkg.tar.zst
 
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.run_id }}
+          restore-keys: ccache-windows-
+
       - name: Configure
         run: cmake -S . -B build -G Ninja
 
       - name: Build
         run: cmake --build build
+
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push'
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.run_id }}
 
       # Redirected, and the output checked rather than just the exit status.
       # thinksynth.exe is a GUI-subsystem program now -- so that launching it
