@@ -48,7 +48,8 @@
  *
  * A room is made when the first peer arrives and seeded with a shipped
  * piece -- the .gen, and every .dsp it names, from the tree -- and kept
- * for an hour after the last one leaves. Nothing is persisted.
+ * for an hour after the last one leaves. A peer can have it seeded again
+ * with another (`switch'). Nothing is persisted.
  */
 
 import fs from 'node:fs';
@@ -63,8 +64,8 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { DEFAULT_PIECE, dspNames, hashOfFiles, meta, pieceName, putFile,
-         snapshot } from './doc.js';
+import { DEFAULT_PIECE, dspNames, files, hashOfFiles, meta, pieceName,
+         putFile, snapshot } from './doc.js';
 
 export const PROTOCOL = 1;
 
@@ -102,10 +103,11 @@ export function relayNow ()
     return Number(process.hrtime.bigint()) / 1e6;
 }
 
-/* A new room's document: a shipped piece and every .dsp it names, from
-   the tree. A piece that is not there, or names a .dsp that is not,
-   leaves the room with what could be read and says so; the page shows a
-   load error rather than the relay refusing the room. */
+/* A room's document: a shipped piece and every .dsp it names, from the
+   tree, in place of whatever files it had. A piece that is not there
+   changes nothing; one that names a .dsp that is not leaves the room with
+   what could be read and says so, and the page shows a load error rather
+   than the relay refusing the room. */
 export function seedFiles (doc, piece, tree)
 {
     const genPath = path.join(tree, 'gen', path.basename(piece));
@@ -123,6 +125,12 @@ export function seedFiles (doc, piece, tree)
 
     doc.transact(() =>
     {
+        /* Fresh texts rather than the old ones written over: a keystroke
+           still on its way into the piece being replaced lands in a text
+           nobody has, not in the middle of the new one. */
+        for (const name of [...files(doc).keys()])
+            files(doc).delete(name);
+
         putFile(doc, path.basename(piece), gen);
 
         for (const name of dspNames(gen))
@@ -165,6 +173,7 @@ class Room
     constructor (name, seedWith, tree)
     {
         this.name = name;
+        this.tree = tree;
         this.doc = new Y.Doc();
         this.awareness = new awarenessProtocol.Awareness(this.doc);
         this.docConns = new Set();          /* document sockets          */
@@ -172,6 +181,9 @@ class Room
         this.seats = new Map();             /* seat -> peer id           */
         this.playing = null;                /* the last transport start  */
         this.emptySince = relayNow();
+
+        /* The `switched' lines, in the order the switches were made. */
+        this.switching = Promise.resolve();
 
         /* What a late joiner needs of the run that is playing: its start,
            the document as that start named it, and every stamped command
@@ -521,6 +533,8 @@ class Room
                     seats: seatMap(),
                     piece: this.doc.getMap('meta').get('piece') ?? null,
                     playing: this.playing,
+                    /* What a page cannot assume of an older relay. */
+                    features: ['switch'],
                 });
 
                 others({ type: 'joined', peer: id, name });
@@ -664,6 +678,40 @@ class Room
 
                     send({ ...line, n });
                     others(line);
+                    break;
+                }
+
+                /* Another shipped piece for the room, at one peer's word.
+                   Here and not on the pages, so that two switches at once
+                   are one after the other rather than two peers' writes
+                   merged into a document holding both pieces. Everyone is
+                   told who switched, and the revision the document is at
+                   after it, which is what the switcher's Play names. */
+                case 'switch':
+                {
+                    const piece = typeof m.piece === 'string' ? m.piece : '';
+
+                    if (piece !== path.basename(piece) ||
+                        !piece.endsWith('.gen') ||
+                        !seedFiles(this.doc, piece, this.tree))
+                    {
+                        send({ type: 'refused', of: 'switch',
+                               why: 'no such piece', piece });
+                        break;
+                    }
+
+                    const texts = snapshot(this.doc).files;
+
+                    this.switching = this.switching
+                        .then(() => hashOfFiles(texts))
+                        .then((hash) =>
+                        {
+                            const line = { type: 'switched', from: id,
+                                           name: me.name, piece, hash };
+
+                            send(line);
+                            others(line);
+                        });
                     break;
                 }
 

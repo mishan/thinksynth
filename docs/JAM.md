@@ -837,10 +837,13 @@ itself either way. Parsing in the windows before the bar and swapping at it
 is the mitigation, and it is later work.
 
 **The piece is switched from the room.** The Piece menu beside the transport
-lists the shipped pieces. A switch rewrites the document in one transaction:
-the new `.gen` and every `.dsp` it names, fetched from the site, and every
-other file removed. That is everyone's text, edits not yet applied included,
-so it asks first. Playing, it is a Play from the top rather than an edit:
+lists the shipped pieces. A switch asks the relay, which rewrites the
+document in one transaction: every file removed, and fresh texts for the new
+`.gen` and every `.dsp` it names, from its tree, so a keystroke still on its
+way lands in a text nobody has. Two switches at once are made one after the
+other, and the room's chat says who made each. That is everyone's text,
+edits not yet applied included, so it asks first. The switcher then plays it
+from the top if the room is playing, rather than applying it as an edit:
 `thcGenDiff` keeps no stage of one piece in another, and an edit would start
 the new piece at the old one's transport time. Stopped, the next Play loads
 it. The tabs and the node editor offer only the `.gen` and the files it

@@ -60,6 +60,7 @@ export class Room
         this.pinger = null;
         this.ws = null;
         this.catchups = [];             /* { resolve, reject } of catchUp() */
+        this.features = [];             /* what the relay says it does */
     }
 
     on (type, fn)
@@ -138,6 +139,7 @@ export class Room
                                                      seat: p.seat });
 
                         this.playing = m.playing;
+                        this.features = m.features ?? [];
                         this.pinger = setInterval(() => this.ping(),
                                                   PING_EVERY);
                         this.ping();
@@ -205,6 +207,10 @@ export class Room
                         this.emit('refused', m);
                         break;
 
+                    case 'switched':
+                        this.emit('switched', m);
+                        break;
+
                     case 'catchup':
                         for (const c of this.catchups.splice(0))
                             c.resolve(m);
@@ -252,6 +258,13 @@ export class Room
     {
         this.send(to === undefined ? { type: 'relayed', data }
                                    : { type: 'relayed', to, data });
+    }
+
+    /* Another shipped piece for the room, written by the relay. A relay
+       without `switch' in its features ignores this. */
+    switchPiece (piece)
+    {
+        this.send({ type: 'switch', piece });
     }
 
     /* The run this page believes is playing, as the relay keys it: the

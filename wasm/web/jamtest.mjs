@@ -64,10 +64,12 @@
  * pane after an edit has moved the track: the same tape on both pages, not
  * the untouched one, and the same cell in both documents.
  *
- * Then the room's piece switched from inside it: to village.gen while it
- * plays, which a late joiner has to catch up with, and to colony.gen while
- * it is stopped. Both pages end up with the new piece's files and nothing else,
- * the same tabs and node editor menu, and genwav's tape for it. And a .gen
+ * Then the room's piece switched from inside it: twice at once, after a
+ * knob of the piece switched from, and under an editor tab; to village.gen
+ * while it plays, which a late joiner has to catch up with, and to
+ * colony.gen while it is stopped. Both pages end up with the new piece's
+ * files and nothing else, the same tabs and node editor menu, and genwav's
+ * tape for it. And a .gen
  * pasted over the room's naming other graphs: the tabs and the menu follow
  * the text, and a graph it names that the room lacks comes in at the Play.
  *
@@ -799,6 +801,117 @@ async function switchTo (A, name)
 {
     A.page.once('dialog', (d) => d.accept());
     await A.page.selectOption('#piece', name);
+}
+
+/* A shipped file's text, as the page fetches it. */
+const shipped = (page, path) => page.evaluate(
+    (p) => fetch(p).then((r) => r.text()), path);
+
+/* What can go wrong around a switch, stopped, in a room on airports.gen.
+ *
+ * A switches to colony.gen, which has airports.gen's density knob, and
+ * lets go of that knob while airports.gen is still what it has loaded:
+ * the knob is airports.gen's, and colony.gen must not get it.
+ *
+ * Then both pages switch at once, to two different pieces: both documents
+ * end up holding one of them and its graphs, the same one, and nothing of
+ * the other.
+ *
+ * Then B edits amb01.dsp, goes back to the .gen tab, and A switches to
+ * ebb.gen, which has amb01.dsp too. B opens that tab again and types into
+ * it: the line goes in at the top of ebb.gen's amb01.dsp, as shipped, and
+ * not at an offset into the text B's tab last showed. */
+async function switchRaces (pages)
+{
+    const [A, B] = pages;
+
+    await enter(pages, 'jamswitchraces', PIECE);
+    await switchTo(A, PAINT_PIECE);
+
+    for (const { page } of pages)
+        await page.waitForFunction((p) => window.jam.piece() === p,
+                                   PAINT_PIECE, { timeout: 10000 })
+            .catch(() => {});
+
+    const colony = await shipped(A.page, `gen/${PAINT_PIECE}`);
+
+    await A.page.$eval('#knobs .panelrow[data-knob="density"] ' +
+                       'input[type="range"]', (input) =>
+    {
+        input.value = 0.3;
+        input.dispatchEvent(new Event('change'));
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+
+    const after = await Promise.all(pages.map(({ page }) =>
+        page.evaluate((p) => window.jam.file(p), PAINT_PIECE)));
+
+    if (after.every((t) => t === colony))
+        ok(`a knob of ${PIECE} let go of after the switch is not written ` +
+           `into ${PAINT_PIECE}`);
+    else
+        fail(`${PAINT_PIECE} changed under a knob of ${PIECE}: ` +
+             firstDifference(colony, after[0] === colony ? after[1]
+                                                         : after[0]));
+
+    const both = [PIECE, SWITCH_PIECE];
+
+    await Promise.all([switchTo(A, both[0]), switchTo(B, both[1])]);
+    await new Promise((r) => setTimeout(r, 2000));
+
+    const docs = await Promise.all(pages.map(({ page }) => page.evaluate(
+        () => ({ piece: window.jam.piece(),
+                 files: Object.fromEntries(window.jam.files().map(
+                     (n) => [n, window.jam.file(n)])) }))));
+    const piece = docs[0].piece;
+    const want = piece === null ? null : await (async () =>
+    {
+        const gen = await shipped(A.page, `gen/${piece}`);
+        const out = { [piece]: gen };
+
+        for (const m of gen.matchAll(/\b(?:dsp|effect)\s+"([^"]+)"/g))
+            out[m[1]] = await shipped(A.page, `dsp/${m[1]}`);
+
+        return JSON.stringify(Object.fromEntries(
+            Object.entries(out).sort(([a], [b]) => a.localeCompare(b))));
+    })();
+
+    if (both.includes(piece) &&
+        docs.every((d) => d.piece === piece &&
+                          JSON.stringify(d.files) === want))
+        ok(`two switches at once leave both pages with ${piece} as ` +
+           'shipped, and nothing of the other');
+    else
+        fail(`after two switches at once: ${JSON.stringify(docs.map(
+            (d) => [d.piece, Object.keys(d.files)]))}`);
+
+    await B.page.click('#tabs button:text-is("amb01.dsp")');
+    await B.page.click('.cm-content');
+    await B.page.keyboard.press('Control+Home');
+    await B.page.keyboard.type('# a line of B\'s\n');
+    await B.page.evaluate(() =>
+        [...document.querySelectorAll('#tabs button')]
+            .find((b) => b.textContent.endsWith('.gen')).click());
+
+    await switchTo(A, 'ebb.gen');
+    await B.page.waitForFunction(() => window.jam.piece() === 'ebb.gen',
+                                 null, { timeout: 10000 }).catch(() => {});
+    await B.page.click('#tabs button:text-is("amb01.dsp")');
+    await B.page.click('.cm-content');
+    await B.page.keyboard.press('Control+Home');
+    await B.page.keyboard.type('# another\n');
+    await new Promise((r) => setTimeout(r, 1000));
+
+    const amb = '# another\n' + await shipped(A.page, 'dsp/amb01.dsp');
+    const typed = await Promise.all(pages.map(({ page }) =>
+        page.evaluate(() => window.jam.file('amb01.dsp'))));
+
+    if (typed.every((t) => t === amb))
+        ok(`${B.label}'s tab on amb01.dsp, edited before the switch and ` +
+           'shown again after it, types into the new text');
+    else
+        fail(`amb01.dsp after typing into a tab edited before the ` +
+             `switch: ${firstDifference(amb, typed.find((t) => t !== amb))}`);
 }
 
 /* The room's piece switched from inside it.
@@ -2128,6 +2241,7 @@ try
 
     /* ---- and switches the piece, or pastes another ---- */
 
+    await switchRaces(pages);
     await switchTogether(pages, browsers[0]);
     await pasteTogether(pages);
 

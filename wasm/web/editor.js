@@ -66,7 +66,9 @@ export class Editor
         this.tabs = tabs;
         this.doc = doc;
         this.awareness = awareness;
-        this.states = new Map();        /* file name -> EditorState */
+        /* file name -> { text, undo, state }: the Y.Text a state was made
+           over, and its undo history. */
+        this.states = new Map();
         this.current = null;
         this.shown = null;              /* the tabs as last drawn */
         this.view = new EditorView({ parent });
@@ -77,19 +79,25 @@ export class Editor
         this.refreshTabs();
     }
 
-    /* The state for a file, made on first showing: the text is the
-       Y.Text's own, and every edit goes through it. */
+    /* The state for a file. Kept from its last showing only while it is
+       over the text the name holds now and says what that text says:
+       y-codemirror follows a text only while its view is showing it, so
+       one changed behind its back -- a peer's edit, or a switch putting a
+       new text under the name -- would take keystrokes at offsets that no
+       longer hold. */
     stateFor (name)
     {
-        let state = this.states.get(name);
-
-        if (state !== undefined)
-            return state;
-
         const text = files(this.doc).get(name);
-        const undo = new Y.UndoManager(text);
+        const kept = this.states.get(name);
 
-        state = EditorState.create({
+        if (kept !== undefined && kept.text === text &&
+            kept.state.doc.toString() === text.toString())
+            return kept.state;
+
+        this.forget(name);
+
+        const undo = new Y.UndoManager(text);
+        const state = EditorState.create({
             doc: text.toString(),
             extensions: [
                 minimalSetup,
@@ -102,9 +110,15 @@ export class Editor
             ],
         });
 
-        this.states.set(name, state);
+        this.states.set(name, { text, undo, state });
 
         return state;
+    }
+
+    forget (name)
+    {
+        this.states.get(name)?.undo.destroy();
+        this.states.delete(name);
     }
 
     show (name)
@@ -112,10 +126,11 @@ export class Editor
         if (!files(this.doc).has(name))
             return;
 
-        /* The state left behind is kept as it stands, cursor and all --
-           unless its file is gone, when it is bound to a text nobody has. */
-        if (this.current !== null && files(this.doc).has(this.current))
-            this.states.set(this.current, this.view.state);
+        /* The state left behind is kept as it stands, cursor and all. */
+        const left = this.states.get(this.current);
+
+        if (left !== undefined)
+            left.state = this.view.state;
 
         this.current = name;
         this.view.setState(this.stateFor(name));
@@ -124,11 +139,26 @@ export class Editor
 
     refreshTabs ()
     {
+        const map = files(this.doc);
         const names = pieceFiles(this.doc);
+
+        /* The file shown stays a tab for as long as the document has it,
+           named or not: typing a .gen through a line that names it would
+           otherwise throw whoever is in it back to the .gen. */
+        if (map.has(this.current) && !names.includes(this.current))
+        {
+            names.push(this.current);
+            names.sort();
+        }
+
+        /* And shown again when a new text is put under its name. */
+        const rebind = map.has(this.current) &&
+                       this.states.get(this.current)?.text !==
+                       map.get(this.current);
         const shown = JSON.stringify([names, this.current]);
 
         /* Called on every keystroke in every file. */
-        if (shown === this.shown)
+        if (shown === this.shown && !rebind)
             return;
 
         this.shown = shown;
@@ -147,11 +177,13 @@ export class Editor
         /* A file that went away takes its state with it; the first file
            is shown when nothing is. */
         for (const name of [...this.states.keys()])
-            if (!names.includes(name))
-                this.states.delete(name);
+            if (!map.has(name))
+                this.forget(name);
 
-        if ((this.current === null || !names.includes(this.current)) &&
-            names.length > 0)
+        if (rebind)
+            this.show(this.current);
+        else if ((this.current === null || !names.includes(this.current)) &&
+                 names.length > 0)
             this.show(names.find((n) => n.endsWith('.gen')) ?? names[0]);
     }
 }

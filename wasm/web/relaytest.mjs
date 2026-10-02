@@ -31,7 +31,9 @@
  * the room under the name the relay knows its sender by, within a length
  * and a rate, and is kept for nobody; and the document a
  * room is seeded with reaches both providers, an edit on one reaches the
- * other, and both hash to the same revision.
+ * other, and both hash to the same revision. A switch to another shipped
+ * piece replaces the document, one switch after another, and the room is
+ * told who made each.
  *
  * Exit status is the number of failures.
  */
@@ -589,6 +591,71 @@ try
 
         for (const c of [h, i, o, late])
             c.close();
+    }
+
+    /* A switch: the relay says it can; a piece it does not ship is
+       refused; two switches sent at once are made one after the other,
+       each told to everyone with who made it and the revision it left,
+       and the document is the last one's piece and nothing else. */
+    {
+        const docS = new Y.Doc();
+        const provS = new WebsocketProvider(base + '/doc', 'switch', docS,
+                                            { WebSocketPolyfill: WebSocket });
+        const s = new Client(`${base}/room/switch`, 'S');
+        const t = new Client(`${base}/room/switch`, 'T');
+
+        await Promise.all([s.open(), t.open(), synced(provS)]);
+        s.send({ type: 'hello', name: 'Sue', protocol: PROTOCOL });
+        t.send({ type: 'hello', name: 'Tom', protocol: PROTOCOL });
+
+        const ws = await s.next('welcome');
+
+        await t.next('welcome');
+
+        const seeded = await hashOf(docS);
+
+        check(ws.features?.includes('switch'),
+              'the welcome says the relay switches pieces');
+
+        for (const piece of ['nosuch.gen', '../gen/ebb.gen', 'ebb.dsp', 7])
+        {
+            s.send({ type: 'switch', piece });
+
+            const r = await s.next('refused');
+
+            check(r.of === 'switch' && r.why === 'no such piece' &&
+                  await t.none('switched', 100),
+                  `a switch to ${JSON.stringify(piece)} is refused`);
+        }
+
+        check(await hashOf(docS) === seeded,
+              'and leaves the document as it was');
+
+        s.send({ type: 'switch', piece: 'ebb.gen' });
+        t.send({ type: 'switch', piece: 'colony.gen' });
+
+        const seen = [await t.next('switched'), await t.next('switched')];
+        const own = [await s.next('switched'), await s.next('switched')];
+
+        check(seen.map((m) => `${m.name} ${m.piece}`).join() ===
+              'Sue ebb.gen,Tom colony.gen' &&
+              JSON.stringify(own) === JSON.stringify(seen),
+              'two switches at once are told to everyone, in order, ' +
+              'with who made each');
+
+        await new Promise((r) => setTimeout(r, 300));
+
+        check(fileNames(docS).join() === 'amb01.dsp,colony.gen,ts1.dsp' &&
+              docS.getMap('meta').get('piece') === 'colony.gen' &&
+              await hashOf(docS) === seen[1].hash,
+              'and the document is the last one\'s piece, at the revision ' +
+              'it said');
+
+        s.close();
+        t.close();
+        provS.destroy();
+        provS.awareness.destroy();
+        docS.destroy();
     }
 
     /* Awareness: a cursor set on one is seen on the other. */
