@@ -60,6 +60,11 @@ export function apply (M, m, host = NOWHERE)
 {
     const { loaded, patched, piece, log } = { ...NOWHERE, ...host };
 
+    /* The edits the maker had seen, for a command that names something by
+       index (thinkweb.cpp, Scheduled's `rev'). */
+    if (typeof m.rev === 'number')
+        M._tw_command_rev(m.rev);
+
     switch (m.type)
     {
         case 'load':
@@ -175,7 +180,7 @@ export function apply (M, m, host = NOWHERE)
                 M.ccall('tw_knob_named', null,
                         ['number', 'string', 'number'],
                         [m.at, m.knob, m.value]);
-            else
+            else if (typeof m.knob === 'number')
                 M._tw_knob(m.at, m.knob, m.value);
 
             return true;

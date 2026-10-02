@@ -204,6 +204,7 @@ function sendGestures ()
         post({
             type: 'canvasknob',
             knob: M._tw_canvas_knob_index(k),
+            name: M.UTF8ToString(M._tw_canvas_knob_name(k)),
             value: M._tw_canvas_knob_value(k),
             commit: M._tw_canvas_knob_commit(k) !== 0,
         });

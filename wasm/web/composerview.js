@@ -306,7 +306,7 @@ export function createComposerView ({ root = document, toMirror,
 
             /* A knob node's track dragged: a knob command, by index. */
             case 'canvasknob':
-                onKnob?.(m.knob, m.value, m.commit);
+                onKnob?.(m.knob, m.value, m.commit, m.name);
                 return true;
 
             /* A stage box dropped elsewhere in its chain. */

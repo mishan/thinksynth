@@ -452,8 +452,8 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* The same knob's value written into the piece, at the end of a
            drag; it comes back with the param edits. */
-        knobWrite: ({ at = -1, knob, value, tag = '' }) =>
-            post({ type: 'knobwrite', at, knob, value, tag }),
+        knobWrite: ({ at = -1, knob, value, tag = '', rev }) =>
+            post({ type: 'knobwrite', at, knob, value, tag, rev }),
 
         /* A knob's value in `text', for a room's document. Resolves to
            { text }, "" when refused. */
@@ -526,30 +526,30 @@ export async function createSynth (ctx, { windowlen = 256,
          * something a composer is heard through. `row' is the param's name
          * and `text' is the part of the line the person touched; every
          * instance completes it against the piece it holds. */
-        param: ({ at = -1, chain, stage, row, text }) =>
-            post({ type: 'param', at, chain, stage, row, text }),
+        param: ({ at = -1, chain, stage, row, text, rev }) =>
+            post({ type: 'param', at, chain, stage, row, text, rev }),
 
         /* A chain's live mute or solo, at a transport time or -1 for the
            next window. Not written into the piece. */
-        mute: ({ at = -1, chain, on }) =>
-            post({ type: 'mute', at, chain, on }),
+        mute: ({ at = -1, chain, on, rev }) =>
+            post({ type: 'mute', at, chain, on, rev }),
 
-        solo: ({ at = -1, chain, on }) =>
-            post({ type: 'solo', at, chain, on }),
+        solo: ({ at = -1, chain, on, rev }) =>
+            post({ type: 'solo', at, chain, on, rev }),
 
         /* A chain's level in one section, at a transport time or -1 for
            the next window. Written into the piece; the splice comes back
            with the param edits. */
-        section: ({ at = -1, section, chain, level }) =>
-            post({ type: 'section', at, section, chain, level }),
+        section: ({ at = -1, section, chain, level, rev }) =>
+            post({ type: 'section', at, section, chain, level, rev }),
 
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field
            of it is one the module wants. */
         input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1,
-                  tag = '' }) =>
+                  tag = '', rev }) =>
             post({ type: 'input', at, chain, stage, kind, x, y, w, h,
-                   button, tag }),
+                   button, tag, rev }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

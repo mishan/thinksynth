@@ -319,7 +319,10 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   each peer: the document goes on moving, and every peer has to apply the
   one revision the sender pressed Apply on. The worklet and the mirror
   apply it through the same `TW_EDIT`, the relay logs it, and a late
-  joiner steps through it. Stopped, Apply is still Play from the top.
+  joiner steps through it. It goes by the room socket and not the mesh:
+  a peer that missed one would play another piece from there. One made
+  in a run a newer Play has replaced is dropped on arrival. Stopped,
+  Apply is still Play from the top.
 - A knob command names its knob now, and the name is looked up when the
   command applies. An index was a place in a list an edit can reorder.
 - `genwav.mjs -c "AT edit FILE"` is the reference. `protocoltest.mjs`
@@ -328,9 +331,11 @@ On `latejoin`, the first of M4's three parts. Where it stands:
   `jamtest.mjs` changes a chain from one page mid-run. Every peer applies
   every edit, one tape, genwav's, and not the tape of the run nobody
   edited.
-- Not yet: the quantised and play-ahead modes. And `input` and `param`
-  commands still name a stage by its index, which an edit that adds a
-  stage above it moves.
+- A command that names a chain, a stage, a section or a knob by index --
+  `mute`, `solo`, `section`, `knobwrite`, `param`, `input` -- carries the
+  number of edits its maker had seen, and is dropped where another edit
+  has applied since: an edit that adds a stage above it moves the index.
+- Not yet: the quantised and play-ahead modes.
 
 ### M6, so far
 

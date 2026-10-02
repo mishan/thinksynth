@@ -76,6 +76,7 @@ import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp, isLate,
 import { firstDifference, instruments, pieces, reference }
     from './piececheck.mjs';
 import { loadPiece, schedule } from './render.mjs';
+import { apply as engineApply } from './engine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const top = path.join(here, '..', '..');
@@ -211,7 +212,8 @@ class Net
     }
 
     /* Something delivered later, or not at all. `reliable' is the room
-       socket: delayed, never lost. */
+       socket: delayed, never lost, and what a start and an edit go by
+       (jam.js, send). */
     send (fn, reliable = false)
     {
         if (!reliable && this.random() < this.loss)
@@ -628,7 +630,7 @@ async function play (sim, relay, peers, knob, seed, editText = null)
         {
             const cmd = B.edit(editText);
 
-            await B.send(cmd);
+            await B.send(cmd, true);
             note(cmd);
         });
 
@@ -636,7 +638,7 @@ async function play (sim, relay, peers, knob, seed, editText = null)
         {
             const cmd = A.edit(A.gen);
 
-            await A.send(cmd);
+            await A.send(cmd, true);
             note(cmd);
         });
     }
@@ -733,6 +735,39 @@ async function session (createThinkWeb, piece, dsps, network, seed,
                                            editText);
 
     return { ok: true, peers, knob, stamped, stopAt, net, relay };
+}
+
+/* A mute made before an edit and stamped after it, and one made after it,
+   for the same time: the first numbers its chain in a piece that may have
+   moved, and is dropped; the second is applied. Through engine.js, the
+   worklet's and the mirror's door. A complaint, or null. */
+async function staleIndex (createThinkWeb, piece, dsps)
+{
+    const { M, ok } = await loadPiece(createThinkWeb, {
+        gen: piece.text, instruments: dsps,
+    });
+
+    if (!ok || M._tw_chain_muted(1) < 0)
+        return 'wants a piece of two chains or more';
+
+    M._tw_transport(-1, 0, 0);
+
+    for (const m of [
+        { type: 'edit', at: 0.5, text: piece.text, files: {}, tie: 1 },
+        { type: 'mute', at: 1, chain: 0, on: true, rev: 0 },
+        { type: 'mute', at: 1, chain: 1, on: true, rev: 1 },
+    ])
+        engineApply(M, m);
+
+    while (M._tw_now() < 1.5)
+        M._tw_render(128);
+
+    const muted = [0, 1].map((c) => M._tw_chain_muted(c));
+
+    return M._tw_edit_count() === 1 && muted[0] === 0 && muted[1] === 1
+        ? null
+        : `${M._tw_edit_count()} edit(s) applied; chains 0 and 1 muted ` +
+          `${muted.join(' and ')}, wanted 0 and 1`;
 }
 
 /* The first shown knob, as the page reads it (see session). */
@@ -843,7 +878,7 @@ async function lateSession (createThinkWeb, piece, dsps, seed, seek = 0,
 
                 const cmd = who.edit(text);
 
-                await who.send(cmd);
+                await who.send(cmd, true);
                 note(cmd);
             });
 
@@ -1123,6 +1158,22 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         }
         else
             process.stdout.write('ok    two peers\' Plays are both played\n');
+    }
+
+    {
+        const piece = all.find((p) => p.name === 'airports.gen') ?? all[0];
+        const why = await staleIndex(createThinkWeb, piece, dsps);
+
+        if (why !== null)
+        {
+            failures++;
+            process.stdout.write(`FAIL  ${piece.name.padEnd(14)} a mute ` +
+                                 `stamped across an edit: ${why}\n`);
+        }
+        else
+            process.stdout.write(`ok    ${piece.name.padEnd(14)} a mute ` +
+                                 'made before an edit and stamped after it ' +
+                                 'is dropped\n');
     }
 
     /* The late joiner. */

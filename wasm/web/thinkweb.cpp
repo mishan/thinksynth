@@ -262,6 +262,12 @@ struct Scheduled
        and which is applied last is which text plays -- so it cannot be
        whichever happened to reach this peer last. */
     double tie;
+
+    /* The edit count (edits_) of the piece its maker was looking at, or -1
+       for a command that does not say. One that names a chain, a stage, a
+       section or a knob by index is dropped when an edit has applied since:
+       the index may name a neighbor now. */
+    int rev;
 };
 
 /* A chain's mute or solo the canvas has asked for and the command has not
@@ -269,8 +275,12 @@ struct Scheduled
    toggles. Dropped when the command lands with that value, and at a load. */
 std::map<std::pair<int, bool>, bool> mixPending_;
 
-/* See tw_command_tag. */
+/* See tw_command_tag and tw_command_rev. */
 std::string nextTag_;
+int         nextRev_ = -1;
+
+/* Edits applied since the load (applyEdit). */
+int         edits_;
 
 /* The same for an arrangement cell, by (section, chain): the level asked
    for, until the `section' command lands with it. */
@@ -811,6 +821,14 @@ void applyEdit (const Scheduled &c);
 
 void applyScheduled (const Scheduled &c)
 {
+    if (c.rev >= 0 && c.rev != edits_)
+        switch (c.op)
+        {
+            case TW_MUTE: case TW_SOLO: case TW_SECTION: case TW_KNOBWRITE:
+            case TW_PARAM: case TW_INPUT:
+                return;
+        }
+
     switch (c.op)
     {
         case TW_STOP:
@@ -1206,8 +1224,11 @@ bool catchUp (double start, int len, double budgetMs)
 /* In order of `at', arrival order within one, like push(). An `at' below
    zero is "the top of the next window", and every one of those is below
    every stamped one, so they land at the front in the order they came. */
-void schedule (const Scheduled &c)
+void schedule (Scheduled c)
 {
+    c.rev = nextRev_;
+    nextRev_ = -1;
+
     scheduled_.insert(std::upper_bound(scheduled_.begin(), scheduled_.end(),
                                        c,
                                        [](const Scheduled &a,
@@ -1540,6 +1561,7 @@ std::vector<CanvasMix> canvasMixes_;
 struct CanvasKnob
 {
     int    knob;
+    std::string name;
     double value;
     bool   commit;
 };
@@ -1953,8 +1975,7 @@ int reroute (const std::string &pattern)
     return n;
 }
 
-/* Edits applied since the load, and what the last one had to say. */
-int                      edits_;
+/* What the last edit had to say. */
 std::vector<std::string> editErrors_;
 
 /* Each edit applied since the page last asked, by its tie, and whether it
@@ -1995,6 +2016,11 @@ void applyEdit (const Scheduled &c)
         changed.insert(f.first);
 
     editErrors_.clear();
+
+    /* A press made before this and stamped after it is dropped (`rev'), and
+       would otherwise show as asked for until the next load. */
+    mixPending_.clear();
+    sectionPending_.clear();
 
     if (!writeFile(TW_EDIT_FILE, c.text.c_str()))
     {
@@ -3113,15 +3139,16 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 mixPending_[{ (int)chain, true }] = on;
             });
 
-        /* A knob node's track, dragged: by index, which is how a knob
-           command names one. */
+        /* A knob node's track, dragged: by index, which is how the solo
+           page's knob command names one, and by name, which is a room's. */
         canvas_->sigKnob.connect(
             [](std::string name, double value, bool commit)
             {
                 for (size_t i = 0; i < knobs_.size(); i++)
                     if (knobs_[i]->name() == name)
                     {
-                        canvasKnobs_.push_back({ (int)i, value, commit });
+                        canvasKnobs_.push_back({ (int)i, name, value,
+                                                 commit });
                         break;
                     }
             });
@@ -3384,6 +3411,13 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_index (int k)
 {
     return k >= 0 && k < (int)canvasKnobs_.size() ? canvasKnobs_[k].knob
                                                   : -1;
+}
+
+/* And its name, which is what a room's knob command carries. */
+EMSCRIPTEN_KEEPALIVE const char *tw_canvas_knob_name (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size()
+        ? canvasKnobs_[k].name.c_str() : "";
 }
 
 EMSCRIPTEN_KEEPALIVE double tw_canvas_knob_value (int k)
@@ -4535,6 +4569,13 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_write (double at, int k, double value)
 EMSCRIPTEN_KEEPALIVE void tw_command_tag (const char *tag)
 {
     nextTag_ = tag != NULL ? tag : "";
+}
+
+/* The edit count the next stamped command was made against (Scheduled's
+ * `rev'). Set just before that call, and used once. */
+EMSCRIPTEN_KEEPALIVE void tw_command_rev (int rev)
+{
+    nextRev_ = rev;
 }
 
 /* A chain's level in one section, at a transport time: the arrangement

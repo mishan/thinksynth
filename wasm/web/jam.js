@@ -175,6 +175,10 @@ let playing = null;
    `playing'. */
 const pendingEdits = new Map();
 
+/* Edits this page's worklet has applied since the load: what a command
+   that names something by index was made against (commands.js, Maker). */
+let editsSeen = 0;
+
 /* The synth as the room's commands reach it: what edits it is handed is
    noted on the way through, from wherever the edit came -- a peer's, this
    page's own, or one a late joiner steps through. */
@@ -288,13 +292,19 @@ async function send (cmd)
 {
     sentCount++;
     keep(sent, cmd);
-    mesh.broadcast(cmd);
+
+    /* An edit goes by the room socket alone: a peer that missed one plays
+       another piece from there, and it can be larger than a data channel
+       takes. In order behind the start it was made in, too, which is what
+       the run check in applyOne relies on. */
+    if (cmd.type !== 'edit')
+        mesh.broadcast(cmd);
 
     /* A start goes by the room socket too: the one command a peer must
        not miss, and what a joiner is told. Every other stamped command
        goes as a copy, which the relay keeps for whoever joins while this
        run plays. */
-    if (cmd.type === 'transport')
+    if (cmd.type === 'transport' || cmd.type === 'edit')
         room.transport(cmd);
     else if (replayable(cmd))
         room.log(cmd);
@@ -340,6 +350,12 @@ async function applyOne (from, cmd)
         room.playing = cmd.op === 'start' ? cmd : null;
         early.length = 0;
     }
+
+    /* An edit made in a run that has since been replaced: a peer that
+       applied it before the new start would load over it anyway, so none
+       does. */
+    if (cmd.type === 'edit' && cmd.run !== room.runKey)
+        return;
 
     if (synth === null)
     {
@@ -563,6 +579,8 @@ async function loadFromDoc (seed = -1, from = doc)
 
     loadedGen = gen;
     playing = snapshot(from);
+    editsSeen = 0;
+    pendingEdits.clear();
 
     /* And then the aiming, in that order, for the reason the solo page
        aims in that order: a channel the piece named and put nothing on
@@ -713,7 +731,8 @@ async function applyEdit ()
     if (doc === null || synth === null)
         return;
 
-    if (!transport?.running || lastTape === null || playing === null)
+    if (!transport?.running || lastTape === null || playing === null ||
+        piece === null)
         return play();
 
     const text = pieceText(doc);
@@ -729,7 +748,7 @@ async function applyEdit ()
 
     const at = nextBar(transportNow(), lastTape, maker.transportLead);
 
-    await send(maker.edit(at, text, changed));
+    await send({ ...maker.edit(at, text, changed), run: room.runKey });
 }
 
 /* An edit has been applied here: the piece is what it now says, and the
@@ -739,6 +758,8 @@ async function applyEdit ()
    Apply. */
 async function edited (m)
 {
+    editsSeen = m.count;
+
     for (const { tie, went } of m.results ?? [])
     {
         const e = pendingEdits.get(tie);
@@ -764,8 +785,11 @@ async function edited (m)
     listens = new Set(m.listens);
     $('about').textContent = m.description;
 
+    (await patch.aim(synth, m.sinks)).failed.forEach(log);
+
     await drawKnobs();
     showSeats();
+    showMidiOut();
     showNodeChannel();
     enable();
 }
@@ -1300,7 +1324,7 @@ function showComposer (on)
 
         /* A knob node dragged on the canvas: the room's knob command. The
            release repeats the last value and is not sent. */
-        onKnob: (knob, value, commit) =>
+        onKnob: (knob, value, commit, name) =>
         {
             if (commit)
             {
@@ -1308,11 +1332,11 @@ function showComposer (on)
                 return;
             }
 
-            send(maker.knob(knobNames.get(String(knob)), value));
+            send(maker.knob(name, value));
 
             /* A peer's own move does not come back through the strip's
                follower (it skips this peer), so it is shown here. */
-            setKnobValue(String(knob), value);
+            setKnobValue(knobIds.get(name) ?? String(knob), value);
         },
 
         onMove: moveStage,
@@ -1392,7 +1416,7 @@ async function join ()
         return;
     }
 
-    maker = new Maker(room.peer, transportNow);
+    maker = new Maker(room.peer, transportNow, { edits: () => editsSeen });
     $('knoblead').value = maker.knobLead;
     $('transportlead').value = maker.transportLead;
 

@@ -61,16 +61,25 @@ export const TRANSPORT_LEAD = 0.500;
    while the transport is stopped. */
 export const commandTag = (cmd) => `${cmd.from}:${cmd.seq}`;
 
+/* The commands that name a chain, a stage, a section or a knob by index:
+   made against the piece as the maker saw it, and dropped where an edit
+   has applied since (thinkweb.cpp, Scheduled's `rev'). */
+const BY_INDEX = new Set(['knobwrite', 'input', 'param', 'mute', 'solo',
+                          'section']);
+
 /* Makes commands for one peer: numbered, stamped, and from it. */
 export class Maker
 {
     /* `peer' is this peer's id. `transportNow' is called for the stamp,
        and returns transport seconds -- or a negative number while the
        transport is stopped, when a knob is for "now" on every peer
-       rather than for a time that is not passing. */
+       rather than for a time that is not passing. `edits', if given,
+       returns how many edits the piece this peer is showing has had. */
     constructor (peer, transportNow,
-                 { knobLead = KNOB_LEAD, transportLead = TRANSPORT_LEAD } = {})
+                 { knobLead = KNOB_LEAD, transportLead = TRANSPORT_LEAD,
+                   edits = null } = {})
     {
+        this.edits = edits;
         this.peer = peer;
         this.transportNow = transportNow;
         this.knobLead = knobLead;
@@ -83,7 +92,13 @@ export class Maker
         const now = this.transportNow();
         const at = now < 0 ? -1 : now + lead;
 
-        return { type, at, from: this.peer, seq: this.seq++, ...fields };
+        const cmd = { type, at, from: this.peer, seq: this.seq++,
+                      ...fields };
+
+        if (this.edits !== null && BY_INDEX.has(type))
+            cmd.rev = this.edits();
+
+        return cmd;
     }
 
     /* Play. `origin' is a relay-clock time; the caller has already put it
