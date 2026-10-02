@@ -8,13 +8,11 @@
 # it -- and it is what puts the channel among the piece's seats.
 #
 # The instruments are the room's to change. Each is a `dsp' line and a
-# level, and the room page's picker beside the seat rewrites the line
-# for the seat you hold; the edit lands at the next bar for everyone in
-# the room, the way any edit of the document does. Typing it works too.
-#
-# The level stays when the graph changes, since `amp' is a value every
-# channel has. A value only one graph declares would not load on another,
-# so the picker drops any it finds.
+# level, and the room page's picker beside the seat puts the seat you hold
+# on another graph: at the next bar for everyone in the room while it
+# plays, at once while it is stopped. The level goes with the old graph,
+# since graphs differ in level far more than these do, and the new one
+# comes in where any graph put on a channel does, at 30.
 #
 # The tempo is the grid the room's quantized and a-bar-ahead modes play
 # on, and the bar is where an edit lands. Change it to suit whoever is

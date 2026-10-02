@@ -2165,8 +2165,19 @@ swapGraph (const std::string &filename, const std::string &name,
 
             if (fresh)
                 for (const PIdx &v : in.values)
-                    if (v.name != "amp" && v.name != "send")
-                        edits.push_back(eraseStmt(text, v.stmtA, v.stmtB));
+                {
+                    if (v.name == "send")
+                        continue;
+
+                    /* A comment after a value is about the value. */
+                    size_t b = v.stmtB;
+                    const size_t c = text.find_first_not_of(" \t", b);
+
+                    if (c != std::string::npos && text[c] == '#')
+                        b = std::min(text.find('\n', c), text.size());
+
+                    edits.push_back(eraseStmt(text, v.stmtA, b));
+                }
 
             return finish(filename, text, edits, why);
         }

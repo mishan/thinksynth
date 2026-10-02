@@ -1921,7 +1921,8 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     /* A graph picked from a list: what amb01.dsp's `fmin' tuned would not
-       load on juno.dsp, so it goes, and the level and the send stay. */
+       load on juno.dsp, so it goes with its comment, and so does the level
+       set for amb01.dsp; the send stays. */
     {
         std::string picked = thUtil::tempFile("gencheck-graph-");
 
@@ -1935,7 +1936,7 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
                 out << "instrument pad {\n"
                        "    dsp \"amb01.dsp\";\n"
                        "    amp = 20;\n"
-                       "    fmin = 0.06;\n"
+                       "    fmin = 0.06;    # dark\n"
                        "    send = 0.3;\n"
                        "};\n"
                        "chain c { input midi; sink { instrument = pad; }; };\n";
@@ -1950,11 +1951,11 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
             if (thcGenEdit::describe(picked, d, why) != thcGenEdit::OK ||
                 d.instruments.size() != 1 ||
                 d.instruments[0].dsp != "juno.dsp" ||
-                d.instruments[0].values.size() != 2 ||
-                d.instruments[0].values[0].name != "amp" ||
-                d.instruments[0].values[1].name != "send")
-                fail("setInstrumentGraph did not leave juno.dsp with amp "
-                     "and send: " + slurp(picked));
+                d.instruments[0].values.size() != 1 ||
+                d.instruments[0].values[0].name != "send" ||
+                slurp(picked).find('#') != std::string::npos)
+                fail("setInstrumentGraph did not leave juno.dsp with the "
+                     "send alone: " + slurp(picked));
 
             thcScheduler sched(synth);
             thcGenLoader loader(plugins);
