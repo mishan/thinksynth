@@ -836,6 +836,19 @@ is the same under any placement, since the worklet has to parse the text
 itself either way. Parsing in the windows before the bar and swapping at it
 is the mitigation, and it is later work.
 
+**The piece is switched from the room.** The Piece menu beside the transport
+lists the shipped pieces. A switch rewrites the document in one transaction:
+the new `.gen` and every `.dsp` it names, fetched from the site, and every
+other file removed. That is everyone's text, edits not yet applied included,
+so it asks first. Playing, it is a Play from the top rather than an edit:
+`thcGenDiff` keeps no stage of one piece in another, and an edit would start
+the new piece at the old one's transport time. Stopped, the next Play loads
+it. The tabs and the node editor offer only the `.gen` and the files it
+names, so a pasted `.gen` that stops naming a graph hides it without removing
+it, since only a switch removes files. A graph it names that the document
+lacks is added from the shipped ones by whoever presses the next Apply or
+Play.
+
 Late join is the same machinery run long: the worklet fast-forwards the
 scheduler from zero to now before audio resumes, with delivery suppressed.
 Nothing reaches `addNote` until the transport catches up, or thousands of

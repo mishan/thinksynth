@@ -64,6 +64,13 @@
  * pane after an edit has moved the track: the same tape on both pages, not
  * the untouched one, and the same cell in both documents.
  *
+ * Then the room's piece switched from inside it: to village.gen while it
+ * plays, which a late joiner has to catch up with, and to colony.gen while
+ * it is stopped. Both pages end up with the new piece's files and nothing else,
+ * the same tabs and node editor menu, and genwav's tape for it. And a .gen
+ * pasted over the room's naming other graphs: the tabs and the menu follow
+ * the text, and a graph it names that the room lacks comes in at the Play.
+ *
  * Last, the two pages talk: a line each way through the room's chat, and
  * a Play from one reported in the other's feed.
  *
@@ -131,6 +138,11 @@ const SAMPLE_SECONDS = 4;
 /* The fifth: a free room, where a seat's instrument is picked while it
    plays. */
 const FREE_PIECE = 'free.gen';
+
+/* What a room on PIECE is switched to while it plays; amb01.dsp is in
+   both, and the rest only in this. */
+const SWITCH_PIECE = 'village.gen';
+const SWITCH_SECONDS = 10;
 
 let failures = 0;
 
@@ -762,6 +774,249 @@ async function pickRefused (pages)
             after.map(([text, dsp, shown]) =>
                 [text === was ? 'document as was' : 'document changed',
                  dsp, shown]))}`);
+}
+
+/* What a page has in its document, which of those it has tabs for and
+   which its node editor offers, as one string to compare. */
+const filesShown = () => JSON.stringify([window.jam.files(),
+                                         window.jam.tabs(),
+                                         window.jam.nodeFiles()]);
+
+/* Whether `page' comes to show `want' ([files, tabs, node files]): null if
+   it does, what it shows instead if not. */
+async function shows (page, want)
+{
+    const wanted = JSON.stringify(want);
+    const came = await page.waitForFunction(
+        `(${filesShown})() === ${JSON.stringify(wanted)}`, null,
+        { timeout: 10000 }).then(() => true, () => false);
+
+    return came ? null : await page.evaluate(filesShown);
+}
+
+/* A from `#piece' to `name', saying yes when asked. */
+async function switchTo (A, name)
+{
+    A.page.once('dialog', (d) => d.accept());
+    await A.page.selectOption('#piece', name);
+}
+
+/* The room's piece switched from inside it.
+ *
+ * Playing, A switches airports.gen to village.gen: a Play of the new
+ * piece from the top on both pages, and a third page joining after it
+ * catches up with village.gen, not airports.gen. All three tapes are
+ * genwav's for it, and all three documents hold village.gen and its four
+ * graphs and nothing of airports.gen's -- which the tabs and the node
+ * editor's menu say too.
+ * Then, stopped, A switches to colony.gen and B's Play plays it. */
+async function switchTogether (pages, browser)
+{
+    const [A, B] = pages;
+
+    await enter(pages, 'jamswitch', PIECE);
+    await A.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const t0 = Date.now();
+    const at = (ms) => new Promise((r) =>
+        setTimeout(r, Math.max(0, t0 + ms - Date.now())));
+
+    await switchTo(A, SWITCH_PIECE);
+
+    const graphs = ['amb01.dsp', 'bdshaped.dsp', 'hat0.dsp', 'ts1.dsp'];
+    const village = [[...graphs, SWITCH_PIECE].sort(),
+                     [...graphs, SWITCH_PIECE].sort(), graphs];
+
+    for (const { label, page } of pages)
+    {
+        const loaded = await page.waitForFunction(
+            () => window.jam.instruments().some((i) => i.dsp === 'hat0.dsp'),
+            null, { timeout: 10000 }).then(() => true, () => false);
+
+        if (!loaded)
+            fail(`${label} never loaded ${SWITCH_PIECE} after the switch`);
+    }
+
+    /* The late joiner, after the switch. */
+    await at(3000);
+
+    let C = null;
+
+    {
+        const label = 'switchjoiner';
+        const page = await browser.newPage();
+
+        await page.goto(`${url}&room=jamswitch&name=${label}&piece=${PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+
+        if (await page.waitForFunction(
+                () => window.jam.ready() && !window.jam.catching() &&
+                      window.jam.probe().running,
+                null, { timeout: 5000 }).then(() => true, () => false))
+            C = { label, page };
+        else
+        {
+            fail(`the joiner after the switch never caught up -- ` +
+                 `${await why(page)}`);
+            await page.close();
+        }
+    }
+
+    await at(SWITCH_SECONDS * 1000);
+    await A.page.evaluate(() => window.jam.stop());
+    await at(SWITCH_SECONDS * 1000 + 3000);
+
+    const everyone = C === null ? pages : [...pages, C];
+    const results = [];
+
+    for (const { label, page } of everyone)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+            piece: window.jam.piece(),
+            shown: document.getElementById('piece').value,
+        }))) });
+
+    const stop = results.flatMap((r) => r.sent)
+        .find((c) => c.op === 'stop' && c.at >= 0);
+
+    if (stop === undefined)
+    {
+        fail('nothing stopped the switched room');
+        await C?.page.close();
+        return;
+    }
+
+    const tapes = results.map((r) => tapeBefore(r.tape, stop.at));
+    const want = reference(SWITCH_PIECE, nodeBuild,
+                           { commands: [stop], stopAt: stop.at });
+
+    for (let i = 0; i < results.length; i++)
+        if (tapes[i] === want)
+            ok(`${results[i].label}'s tape after the switch is genwav's ` +
+               `for ${SWITCH_PIECE}: ${want.split('\n').length - 1} events`);
+        else
+            fail(`${results[i].label}'s tape after the switch differs from ` +
+                 `genwav's for ${SWITCH_PIECE}: ` +
+                 `${firstDifference(want, tapes[i])}`);
+
+    for (const [i, { label, page }] of everyone.entries())
+    {
+        const wrong = await shows(page, village);
+
+        if (wrong === null && results[i].piece === SWITCH_PIECE &&
+            results[i].shown === SWITCH_PIECE)
+            ok(`${label} has ${SWITCH_PIECE}'s files only, in its tabs ` +
+               'and its node editor too');
+        else
+            fail(`${label} after the switch: piece ${results[i].piece}, ` +
+                 `switcher ${results[i].shown}, files, tabs and node ` +
+                 `files ${wrong}`);
+    }
+
+    await C?.page.close();
+
+    /* And stopped: the document now, the piece at the next Play, which
+       here is B's. */
+    await switchTo(A, PAINT_PIECE);
+
+    const wrong = await shows(B.page, [['amb01.dsp', 'colony.gen', 'ts1.dsp'],
+                                       ['amb01.dsp', 'colony.gen', 'ts1.dsp'],
+                                       ['amb01.dsp', 'ts1.dsp']]);
+
+    if (wrong === null)
+        ok(`stopped, ${A.label}'s switch to ${PAINT_PIECE} reached ` +
+           B.label);
+    else
+        fail(`stopped, ${B.label} shows ${wrong} after the switch to ` +
+             PAINT_PIECE);
+
+    await B.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, 6000));
+    await B.page.evaluate(() => window.jam.stop());
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const after = [];
+
+    for (const { page } of pages)
+        after.push(await page.evaluate(() => ({ tape: window.jam.tape(),
+                                                sent: window.jam.sent() })));
+
+    const stopped = after[1].sent.findLast((c) => c.op === 'stop');
+    const theirs = after.map((r) => tapeBefore(r.tape, stopped.at));
+    const colony = reference(PAINT_PIECE, nodeBuild,
+                             { commands: [stopped], stopAt: stopped.at });
+
+    if (theirs[0] === colony && theirs[1] === colony)
+        ok(`and ${B.label}'s Play played it on both pages, genwav's tape`);
+    else
+        fail(`after the stopped switch, ${PAINT_PIECE}'s tape differs: ` +
+             firstDifference(colony, theirs[theirs[0] === colony ? 1 : 0]));
+}
+
+/* A .gen pasted over the room's, naming other graphs: colony.gen's text
+ * replaced by airports.gen's, which names amb01.dsp and not ts1.dsp, and
+ * then by ebb.gen's, which names organ0.dsp, which the room lacks. The
+ * tabs and the node editor's menu follow the text on both pages; ts1.dsp
+ * stays in the document, which a paste does not take anything out of; and
+ * the Apply brings organ0.dsp in from the shipped graphs, which both pages
+ * then load. */
+async function pasteTogether (pages)
+{
+    const [A] = pages;
+
+    await enter(pages, 'jampaste', PAINT_PIECE);
+
+    const [airports, ebbText] = await A.page.evaluate(() => Promise.all(
+        ['airports.gen', 'ebb.gen'].map(
+            (n) => fetch(`gen/${n}`).then((r) => r.text()))));
+
+    await A.page.evaluate((t) => window.jam.setFile('colony.gen', t),
+                          airports);
+
+    for (const { label, page } of pages)
+    {
+        const wrong = await shows(page, [
+            ['amb01.dsp', 'colony.gen', 'ts1.dsp'],
+            ['amb01.dsp', 'colony.gen'],
+            ['amb01.dsp']]);
+
+        if (wrong === null)
+            ok(`${label}'s tabs and node editor drop ts1.dsp when the ` +
+               '.gen stops naming it, and the document keeps it');
+        else
+            fail(`${label} after a paste naming only amb01.dsp: ${wrong}`);
+    }
+
+    await A.page.evaluate((t) =>
+    {
+        window.jam.setFile('colony.gen', t);
+        window.jam.apply();
+    }, ebbText);
+
+    for (const { label, page } of pages)
+    {
+        const wrong = await shows(page, [
+            ['amb01.dsp', 'colony.gen', 'organ0.dsp', 'ts1.dsp'],
+            ['amb01.dsp', 'colony.gen', 'organ0.dsp'],
+            ['amb01.dsp', 'organ0.dsp']]);
+        const loaded = await page.waitForFunction(
+            () => window.jam.instruments().some((i) => i.dsp === 'organ0.dsp'),
+            null, { timeout: 10000 }).then(() => true, () => false);
+
+        if (wrong === null && loaded)
+            ok(`${label} has organ0.dsp from the shipped graphs at the ` +
+               'Apply, as a tab and in the node editor, and plays it');
+        else
+            fail(`${label} after a paste naming organ0.dsp: ${wrong}` +
+                 (loaded ? '' : ', and it is not loaded'));
+    }
+
+    await A.page.evaluate(() => window.jam.stop());
 }
 
 /* Keys into a piece, from both pages: hands.gen, which composes nothing
@@ -1870,6 +2125,11 @@ try
 
     await pickTogether(pages);
     await pickRefused(pages);
+
+    /* ---- and switches the piece, or pastes another ---- */
+
+    await switchTogether(pages, browsers[0]);
+    await pasteTogether(pages);
 
     /* ---- and talks ---- */
 

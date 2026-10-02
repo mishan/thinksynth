@@ -174,6 +174,45 @@ export function dspNames (genText)
     return [...names];
 }
 
+/* The files the piece uses: itself and every .dsp it names that the map
+   has, in fileNames' order. What a person here is shown -- a file the .gen
+   has stopped naming stays in the document, which is everybody's, until a
+   switch (below) takes it out, but it is no longer anything the piece
+   plays. */
+export function pieceFiles (doc)
+{
+    const gen = pieceText(doc);
+
+    if (gen === null)
+        return fileNames(doc);
+
+    const used = new Set([pieceName(doc), ...dspNames(gen)]);
+
+    return fileNames(doc).filter((name) => used.has(name));
+}
+
+/* Another piece in this one's place: `texts' is the new .gen and every
+   .dsp it names, by name, and every other file goes. One transaction, so
+   no peer sees a .gen naming files that are not there yet. A file both
+   pieces use is written over in place, which keeps an editor open on it
+   bound to the same text. */
+export function replacePiece (doc, piece, texts)
+{
+    doc.transact(() =>
+    {
+        for (const name of fileNames(doc))
+            if (!Object.hasOwn(texts, name))
+                files(doc).delete(name);
+
+        for (const [name, text] of Object.entries(texts))
+            if (readFile(doc, name) !== text)
+                putFile(doc, name, text);
+
+        meta(doc).set('piece', piece);
+        meta(doc).set('seeded_from', `gen/${piece}`);
+    });
+}
+
 /* The .dsp files in the document, by name, as a load hands them to the
    worklet. */
 export function instrumentTexts (doc)

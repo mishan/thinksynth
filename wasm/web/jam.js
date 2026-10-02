@@ -44,8 +44,9 @@ import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
          commandTag, isLate, keyAt, nextBar, replayable, tieOf }
     from './commands.js';
-import { DEFAULT_PIECE, docOf, fileNames, files, hashOf, instrumentTexts,
-         pieceName, pieceText, readFile, snapshot, spliceFile }
+import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf,
+         instrumentTexts, meta, pieceFiles, pieceName, pieceText, putFile,
+         readFile, replacePiece, snapshot, spliceFile }
     from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
@@ -778,6 +779,8 @@ async function applyEdit ()
         piece === null)
         return play();
 
+    addShipped();
+
     const text = pieceText(doc);
 
     if (text === null)
@@ -840,12 +843,103 @@ async function edited (m)
     enable();
 }
 
+/* A .dsp the piece names and the document lacks, from the shipped graphs:
+   what the solo page resolves a piece's `dsp' line against, so a .gen
+   pasted in from there plays the same here. Added by whoever Applies or
+   Plays, before the hash the command names, so every peer loads the text
+   its tab shows. A name nothing ships is left to fail the load on every
+   peer alike. */
+function addShipped ()
+{
+    const gen = pieceText(doc);
+    const missing = gen === null ? [] : dspNames(gen).filter(
+        (name) => !files(doc).has(name) && shippedGraphs.has(name));
+
+    doc.transact(() =>
+    {
+        for (const name of missing)
+            putFile(doc, name, shippedGraphs.get(name));
+    });
+}
+
+/* Another shipped piece for the room: its .gen and every .dsp it names,
+ * from the site as the relay seeds a new room from its tree -- a graph
+ * nothing ships left out, as the relay leaves it -- in place of every
+ * file the room has (doc.js, replacePiece). Everybody's text goes, edits
+ * nobody has applied included, so it is asked first.
+ *
+ * Playing, it is a Play from the top, not an edit at the next bar. An
+ * edit is thcGenDiff's: a stage keeps its state when its text is
+ * unchanged, and a whole other piece keeps none, so the edit would build
+ * every stage again anyway -- at the old run's transport time, starting
+ * the new piece at the old one's bar forty with the old one's tempo. A
+ * start plays it from where it starts, on every peer at once, and names
+ * the revision the relay hands a late joiner. Stopped, the next Play
+ * loads it. */
+async function switchPiece (name)
+{
+    if (name === pieceName(doc))
+        return;
+
+    if (!confirm(`Switch the room to ${name}? Everyone's text is ` +
+                 'replaced by it, edits not yet applied included.'))
+    {
+        showPiece();
+        return;
+    }
+
+    let gen;
+
+    try
+    {
+        const r = await fetch(`gen/${name}`);
+
+        if (!r.ok)
+            throw new Error(`the site answered ${r.status}`);
+
+        gen = await r.text();
+    }
+    catch (e)
+    {
+        status(`Could not switch to ${name}: ${e.message}`);
+        showPiece();
+        return;
+    }
+
+    const texts = { [name]: gen };
+
+    for (const n of dspNames(gen))
+        if (shippedGraphs.has(n))
+            texts[n] = shippedGraphs.get(n);
+
+    replacePiece(doc, name, texts);
+
+    if (transport?.running)
+        await play();
+    else
+        status(`The room's piece is ${name}; Play loads it.`);
+}
+
+/* The switcher shows the room's piece, whoever switched it. */
+function showPiece ()
+{
+    const sel = $('piece');
+    const name = pieceName(doc);
+
+    if (name !== null && ![...sel.options].some((o) => o.value === name))
+        sel.add(new Option(name, name));
+
+    sel.value = name ?? '';
+}
+
 /* Play: a start from a new origin, with the document as it stands, from a
    seed the file pins or this peer picks. */
 async function play ()
 {
     if (!clocksReady() || doc === null)
         return;
+
+    addShipped();
 
     const hash = await hashOf(doc);
     const origin = room.relayNow() + maker.transportLead * 1000;
@@ -1074,6 +1168,9 @@ function showMidiOut ()
    has them, and what each calls itself. */
 let graphGroups = [];
 const graphTitles = new Map();
+
+/* The shipped graphs' texts, by name, as start() fetched them. */
+const shippedGraphs = new Map();
 
 /* What the page put on each channel the piece left to it, by title. */
 let aimed = new Map();
@@ -1342,6 +1439,9 @@ function enable ()
     $('play').disabled = !ready;
     $('play').classList.toggle('primary', ready && room.playing === null);
     $('apply').disabled = !ready;
+    /* Not waiting on a piece that loaded: one that did not is what a
+       switch is for. */
+    $('piece').disabled = synth === null || !clocksReady();
     $('stop').disabled = synth === null;
     $('tempo').disabled = !ready;
     $('export').disabled = synth === null;
@@ -1697,6 +1797,12 @@ async function showPieces (wanted)
         /* No index: a new room gets the relay's default. */
     }
 
+    /* The switcher offers only what is shipped: it fetches from the site. */
+    $('piece').replaceChildren(...names.map((n) => new Option(n, n)));
+
+    if (doc !== null)
+        showPiece();
+
     if (wanted !== null && !names.includes(wanted))
         names.unshift(wanted);
 
@@ -1804,6 +1910,8 @@ async function join ()
         provider.synced ? resolve() : provider.once('synced', resolve));
 
     editor = new Editor($('editor'), $('tabs'), doc, provider.awareness);
+    meta(doc).observe(showPiece);
+    showPiece();
 
     /* The mesh. */
     mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
@@ -1949,7 +2057,11 @@ async function start ()
            A document's own instruments are written over these at load
            (above), which is what a piece carrying its own amb01.dsp
            means. */
-        graphs.forEach((n, i) => synth.instrument(n, texts[i]));
+        graphs.forEach((n, i) =>
+        {
+            synth.instrument(n, texts[i]);
+            shippedGraphs.set(n, texts[i]);
+        });
 
         graphGroups = (await synth.dsps()).catalog?.groups ?? [];
 
@@ -2006,11 +2118,27 @@ async function start ()
             probe: (channel, node, arg) => synth.probe(channel, node, arg),
             unprobe: (slot) => synth.unprobe(slot),
         });
-        nodes.offer(fileNames(doc));
-        nodes.show(panes.visible('nodeview'));
-        files(doc).observe(() => nodes.offer(fileNames(doc)));
+        /* The files the editor has tabs for, which the .gen's text says:
+           offered again only when that changes, since this is every
+           keystroke in every file. */
+        let offered = null;
+        const offer = () =>
+        {
+            const names = pieceFiles(doc);
 
-        showNodeChannel();
+            if (JSON.stringify(names) === offered)
+                return;
+
+            offered = JSON.stringify(names);
+            nodes.offer(names);
+            showNodeChannel();
+        };
+
+        offer();
+        nodes.show(panes.visible('nodeview'));
+        files(doc).observeDeep(offer);
+        meta(doc).observe(offer);
+
         $('nodefile').addEventListener('change', showNodeChannel);
     }
     catch (e)
@@ -2082,6 +2210,7 @@ function init ()
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
     $('apply').addEventListener('click', applyEdit);
+    $('piece').addEventListener('change', () => switchPiece($('piece').value));
     $('stop').addEventListener('click', stop);
     $('tempo').addEventListener('change', tempo);
     $('export').addEventListener('click', exportTape);
@@ -2230,6 +2359,12 @@ function init ()
            against. */
         file: (name) => readFile(doc, name),
         piece: () => pieceName(doc),
+        files: () => fileNames(doc),
+
+        /* And which of them the page shows: the editor's tabs and the
+           node editor's File menu. */
+        tabs: () => [...$('tabs').children].map((b) => b.textContent),
+        nodeFiles: () => [...$('nodefile').options].map((o) => o.value),
 
         /* The composer canvas's params popover: where a stage's handle is,
            so a harness can press one rather than aim at a guess, and what

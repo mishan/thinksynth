@@ -22,8 +22,10 @@
  * CodeMirror 6 over the room's Y.Doc through y-codemirror.next: one
  * editor, a tab per file, and everyone's cursors with their names on them.
  * The document is text and the editor is a view of it; the piece and its
- * .dsp files are the files in the map, and a tab appears when a file
- * does. Each tab is highlighted as its file's language (thinklang.js).
+ * .dsp files are the files in the map, and a tab is a file the piece names
+ * (doc.js, pieceFiles): it appears when the .gen names a file the map
+ * has, and goes when the .gen stops naming it. Each tab is highlighted as
+ * its file's language (thinklang.js).
  *
  * This is the first thing on the page with a dependency, and the reason
  * the room page is bundled whole (bundle.mjs) where the solo page bundles
@@ -37,7 +39,7 @@ import { indentWithTab } from '@codemirror/commands';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 
-import { fileNames, files } from './doc.js';
+import { files, meta, pieceFiles } from './doc.js';
 import { languageFor, pageLook } from './thinklang.js';
 
 /* A colour per peer for the cursor, from the name, so the same person is
@@ -66,9 +68,12 @@ export class Editor
         this.awareness = awareness;
         this.states = new Map();        /* file name -> EditorState */
         this.current = null;
+        this.shown = null;              /* the tabs as last drawn */
         this.view = new EditorView({ parent });
 
-        files(doc).observe(() => this.refreshTabs());
+        /* Deep, because which files are tabs is in the .gen's text. */
+        files(doc).observeDeep(() => this.refreshTabs());
+        meta(doc).observe(() => this.refreshTabs());
         this.refreshTabs();
     }
 
@@ -107,8 +112,9 @@ export class Editor
         if (!files(this.doc).has(name))
             return;
 
-        /* The state left behind is kept as it stands, cursor and all. */
-        if (this.current !== null)
+        /* The state left behind is kept as it stands, cursor and all --
+           unless its file is gone, when it is bound to a text nobody has. */
+        if (this.current !== null && files(this.doc).has(this.current))
             this.states.set(this.current, this.view.state);
 
         this.current = name;
@@ -118,8 +124,14 @@ export class Editor
 
     refreshTabs ()
     {
-        const names = fileNames(this.doc);
+        const names = pieceFiles(this.doc);
+        const shown = JSON.stringify([names, this.current]);
 
+        /* Called on every keystroke in every file. */
+        if (shown === this.shown)
+            return;
+
+        this.shown = shown;
         this.tabs.replaceChildren();
 
         for (const name of names)
