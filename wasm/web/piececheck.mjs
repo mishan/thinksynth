@@ -252,7 +252,7 @@ function genwavCall (name, nodeBuildDir,
        keys stamped for one time by their tie (thinkweb.cpp, Scheduled).
        genwav keeps the order it is given within one time. */
     const keyed = (c) => c.type === 'note' || c.type === 'noteoff';
-    const tied = (c) => c.type === 'edit' || keyed(c);
+    const tied = (c) => c.type === 'edit' || c.type === 'pick' || keyed(c);
     const ordered = [...commands].sort((a, b) =>
         a.at !== b.at ? a.at - b.at
                       : (tied(a) ? tieOf(a) : 0) - (tied(b) ? tieOf(b) : 0));
@@ -279,6 +279,8 @@ function genwavCall (name, nodeBuildDir,
             fs.writeFileSync(file, c.text);
             args.push('-c', `${c.at} edit ${file}`);
         }
+        else if (c.type === 'pick')
+            args.push('-c', `${c.at} instrument ${c.name} ${c.dsp}`);
         else if (keyed(c) && (c.mode ?? 'direct') !== 'direct')
         {
             /* A stamped key. Into the piece is all a tape can see; genwav

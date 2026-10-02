@@ -255,3 +255,42 @@ export async function aim (synth, channels, chosen = new Map())
 
     return { placed, failed };
 }
+
+/* An instrument menu out of the catalog: an optgroup per group, a row per
+ * graph with the title it declares and its description as the tooltip.
+ *
+ * The value stays the filename, because that is what everything downstream
+ * asks for -- dspTexts is keyed on it, a .patch's `dsp' line says it, and a
+ * piece's instrument names it. What changes is only what a person reads.
+ *
+ * The effect graphs are skipped for the reason main.js's playableDsps()
+ * skips them: an effect has no envelope and nothing to trigger it, so
+ * putting one on a channel as an instrument leaves an ungated graph running
+ * for as long as it is loaded. Which graphs those are is the module's answer
+ * now rather than a guess at the `fx/' prefix. `groups' is synth.dsps()'s
+ * catalog. */
+export function fillGraphs (select, groups, preferred)
+{
+    for (const group of groups)
+    {
+        const rows = group.entries.filter((e) => !e.effect);
+
+        if (rows.length === 0)
+            continue;
+
+        const optgroup = document.createElement('optgroup');
+
+        optgroup.label = group.name;
+
+        for (const e of rows)
+        {
+            const option = new Option(e.name, e.file, e.file === preferred,
+                                      e.file === preferred);
+
+            option.title = e.desc;
+            optgroup.append(option);
+        }
+
+        select.append(optgroup);
+    }
+}

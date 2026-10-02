@@ -1,0 +1,45 @@
+# free.gen -- nothing composed, eight instruments to play.
+#
+# The piece for a room with no piece in it. There is no generator, no
+# seed and no knob: eight chains, each `input midi;' straight into an
+# instrument of its own, so a key played on a channel is a note on that
+# channel and nothing else. A chain with no stage at all is legal here
+# for the reason hands.gen's corrector is -- `input midi' is what feeds
+# it -- and it is what puts the channel among the piece's seats.
+#
+# The instruments are the room's to change. Each is a `dsp' line and a
+# level, and the room page's picker beside the seat puts the seat you hold
+# on another graph: at the next bar for everyone in the room while it
+# plays, at once while it is stopped. The level goes with the old graph,
+# since graphs differ in level far more than these do, and the new one
+# comes in where any graph put on a channel does, at 30.
+#
+# The tempo is the grid the room's quantized and a-bar-ahead modes play
+# on, and the bar is where an edit lands. Change it to suit whoever is
+# playing.
+
+name "Free";
+author "Misha Nasledov";
+description "No composition: eight instruments, one a seat, for a room to play.";
+category "Playing it yourself";
+
+tempo 100;
+meter 4;
+
+instrument one   { dsp "rhodes.dsp";  amp = 30; };
+instrument two   { dsp "juno.dsp";    amp = 30; };
+instrument three { dsp "ebass.dsp";   amp = 60; };
+instrument four  { dsp "pluck.dsp";   amp = 28; };
+instrument five  { dsp "ladder.dsp";  amp = 30; };
+instrument six   { dsp "organ0.dsp";  amp = 30; };
+instrument seven { dsp "dxbell.dsp";  amp = 30; };
+instrument eight { dsp "strings.dsp"; amp = 30; };
+
+chain one   { input midi; sink { instrument = one;   }; };
+chain two   { input midi; sink { instrument = two;   }; };
+chain three { input midi; sink { instrument = three; }; };
+chain four  { input midi; sink { instrument = four;  }; };
+chain five  { input midi; sink { instrument = five;  }; };
+chain six   { input midi; sink { instrument = six;   }; };
+chain seven { input midi; sink { instrument = seven; }; };
+chain eight { input midi; sink { instrument = eight; }; };

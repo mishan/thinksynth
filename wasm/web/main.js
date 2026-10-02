@@ -1822,7 +1822,7 @@ function chooser (channel)
         sel.add(new Option('nothing yet', '', true, true));
 
     if (dspGroups.length > 0)
-        fillCatalog(sel, here?.dsp);
+        patch.fillGraphs(sel, dspGroups, here?.dsp);
     else
     {
         const dsps = document.createElement('optgroup');
@@ -2289,7 +2289,7 @@ async function start ()
         const chosen = $('patch').value;
 
         $('patch').replaceChildren();
-        fillCatalog($('patch'), chosen);
+        patch.fillGraphs($('patch'), dspGroups, chosen);
     }
 
     /* And the pieces, the same way round: the module is handed each one's
@@ -3163,44 +3163,6 @@ function fillPieces (select, preferred)
         optgroup.label = group.name;
 
         for (const e of group.entries)
-        {
-            const option = new Option(e.name, e.file, e.file === preferred,
-                                      e.file === preferred);
-
-            option.title = e.desc;
-            optgroup.append(option);
-        }
-
-        select.append(optgroup);
-    }
-}
-
-/* An instrument menu out of the catalog: an optgroup per group, a row per
- * graph with the title it declares and its description as the tooltip.
- *
- * The value stays the filename, because that is what everything downstream
- * asks for -- dspTexts is keyed on it, a .patch's `dsp' line says it, and a
- * piece's instrument names it. What changes is only what a person reads.
- *
- * The effect graphs are skipped for the reason playableDsps() skips them: an
- * effect has no envelope and nothing to trigger it, so putting one on a
- * channel as an instrument leaves an ungated graph running for as long as it
- * is loaded. Which graphs those are is the module's answer now rather than a
- * guess at the `fx/' prefix. */
-function fillCatalog (select, preferred)
-{
-    for (const group of dspGroups)
-    {
-        const rows = group.entries.filter((e) => !e.effect);
-
-        if (rows.length === 0)
-            continue;
-
-        const optgroup = document.createElement('optgroup');
-
-        optgroup.label = group.name;
-
-        for (const e of rows)
         {
             const option = new Option(e.name, e.file, e.file === preferred,
                                       e.file === preferred);

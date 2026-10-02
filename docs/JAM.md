@@ -737,6 +737,22 @@ rather than assumed.
 into a chain whose `inputMidi` is set, which is how the quantised mode works.
 Piece knobs are shared and latest-wins.
 
+**A seat's instrument is picked beside it.** The picker lists the shipped
+graphs as the solo page's patch menu does, and a pick puts the instrument
+block on the holder's seat on the new graph, dropping every value but `send`
+(`thcGenEdit::setInstrumentGraph`): a value tuned for one graph, its level
+included, is a refused load or a different sound on another. A pick whose
+graph lacks a chanarg some sink rides is refused on the page that made it,
+with the reason. Otherwise the picker splices it into the document, for the
+next Play, and sends a `pick` command: every peer rewrites the piece as it
+stands when the command applies and takes the result as an edit
+(`thinkweb.cpp`, `applyPick`), so two picks on one bar both survive, and
+nothing else in the document comes with it. At the next bar while playing; at
+once while stopped. The seat list shows everyone what each seat plays. A
+channel the piece leaves to the page has no block to rewrite and its picker
+is shown disabled; `gen/free.gen` is the piece for a room that wants only
+seats, an instrument each and nothing composed.
+
 **A MIDI keyboard plays the seat.** *MIDI in* (`wasm/web/midi.js`) listens on
 every Web MIDI input, note on and note off only, and hands each key to the
 same press and release as the on-screen and computer keys, with its

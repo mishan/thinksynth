@@ -1920,6 +1920,61 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* A graph picked from a list: what amb01.dsp's `fmin' tuned would not
+       load on juno.dsp, so it goes with its comment, and so does the level
+       set for amb01.dsp; the send stays. */
+    {
+        std::string picked = thUtil::tempFile("gencheck-graph-");
+
+        if (picked.empty())
+            fail("could not make a scratch file for setInstrumentGraph");
+        else
+        {
+            {
+                std::ofstream out(picked.c_str(), std::ios::trunc);
+
+                out << "instrument pad {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    amp = 20;\n"
+                       "    fmin = 0.06;    # dark\n"
+                       "    send = 0.3;\n"
+                       "};\n"
+                       "chain c { input midi; sink { instrument = pad; }; };\n";
+            }
+
+            editOk(thcGenEdit::setInstrumentGraph(picked, "pad", "juno.dsp",
+                                                  why), why,
+                   "setInstrumentGraph");
+
+            thcGenEdit::Doc d;
+
+            if (thcGenEdit::describe(picked, d, why) != thcGenEdit::OK ||
+                d.instruments.size() != 1 ||
+                d.instruments[0].dsp != "juno.dsp" ||
+                d.instruments[0].values.size() != 1 ||
+                d.instruments[0].values[0].name != "send" ||
+                slurp(picked).find('#') != std::string::npos)
+                fail("setInstrumentGraph did not leave juno.dsp with the "
+                     "send alone: " + slurp(picked));
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            drainSynth();
+
+            if (!loader.load(picked, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("the piece setInstrumentGraph wrote does not load");
+            }
+
+            std::filesystem::remove(picked);
+        }
+    }
+
     editOk(thcGenEdit::setChainInput(path, "pulse", true, why), why,
            "setChainInput on");
     editOk(thcGenEdit::setChainInput(path, "pulse", false, why), why,

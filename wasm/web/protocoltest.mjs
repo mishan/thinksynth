@@ -289,6 +289,10 @@ class Peer
                 M.ccall('tw_edit', null, ['number', 'string', 'number'],
                         [at, text, tie]);
             },
+            pick: (at, name, dsp, tie) =>
+                M.ccall('tw_pick', null,
+                        ['number', 'string', 'string', 'number'],
+                        [at, name, dsp, tie]),
             transportAt: (op, at, value = 0) =>
                 schedule(M, { op, at, value }),
             knob: (knob, value, at) =>
@@ -484,6 +488,18 @@ class Peer
 
         return this.maker.edit(nextBar(this.transportNow(), report,
                                        this.maker.transportLead), text);
+    }
+
+    /* A pick of this peer's own: at the next bar, or at once while
+       stopped, as the page sends one (jam.js, pickInstrument). */
+    pick (name, dsp)
+    {
+        return this.maker.pick(this.transport.running
+                                   ? nextBar(this.transportNow(),
+                                             this.report(),
+                                             this.maker.transportLead)
+                                   : -1,
+                               name, dsp);
     }
 
     /* A command of this peer's own: applied here, sent to everyone else,
@@ -1150,6 +1166,155 @@ async function handsSession (createThinkWeb, piece, dsps)
     return { ok: true, peers, stamped, stopAt, ahead };
 }
 
+/* The graph instrument `name' plays in a peer's module, as the room page's
+   seat list reads it. */
+function graphOf (M, name)
+{
+    for (let i = 0; i < M._tw_instrument_count(); i++)
+        if (M.UTF8ToString(M._tw_instrument_name(i)) === name)
+            return M.UTF8ToString(M._tw_instrument_dsp(i));
+
+    return null;
+}
+
+/* The three seats freeSession picks for. */
+const PICKED = ['one', 'two', 'three'];
+
+/* Two peers in a free room: free.gen, an instrument per seat and nothing
+ * composed. While stopped, A picks a graph for seat two, which every peer
+ * puts on at once; A's document has it too, which is what the Play loads.
+ * Then both play seat one, one quantized and one a bar ahead, and partway
+ * through A picks for seat one and B for seat three a few milliseconds
+ * apart: one bar for both, and neither pick carries the other's text.
+ * Every render while playing, on both peers, is noted with the graph each
+ * seat plays after it. Returns what handsSession does, the bar the two
+ * picks landed on, and what each peer played seat two on before the Play.
+ */
+async function freeSession (createThinkWeb, piece, dsps)
+{
+    const sim = new Sim();
+    const net = new Net(sim, NETWORKS.still, 7);
+    const peers = [];
+
+    for (const spec of PEERS)
+    {
+        const { M, ok, errors } = await loadPiece(createThinkWeb, {
+            rate: spec.rate, windowlen: spec.windowlen, block: spec.block,
+            gen: piece.text, instruments: dsps,
+        });
+
+        if (!ok)
+            return { ok: false, errors };
+
+        const peer = new Peer(sim, net, spec, M);
+        const render = peer.render.bind(peer);
+
+        peer.gen = piece.text;
+        peer.graphs = [];
+        peer.render = () =>
+        {
+            const from = M._tw_now();
+
+            render();
+
+            if (M._tw_running())
+                peer.graphs.push([from, M._tw_now(),
+                                  PICKED.map((n) => graphOf(M, n))]);
+        };
+        peers.push(peer);
+    }
+
+    const [A, B] = peers;
+    const relay = new Relay(sim, net);
+    const seat = Math.min(...A.listens);
+    const stamped = [];
+    const origin = 3000 + TRANSPORT_LEAD * 1000;
+    const before = [];
+    let stopAt = null;
+    let picked = null;
+
+    A.others = [B];
+    B.others = [A];
+    A.startRendering();
+    B.startRendering();
+    A.startPinging(relay, 1000, 0);
+    B.startPinging(relay, 1000, 333);
+
+    const send = (who, t, make) => sim.at(t, async () =>
+    {
+        const cmd = make();
+
+        await who.send(cmd, cmd.type === 'transport' || cmd.type === 'pick');
+        stamped.push(cmd);
+    });
+
+    /* Stopped: the document as the picker splices it, for the Play. */
+    send(A, 1000, () =>
+    {
+        const text = A.M.ccall('tw_gen_set_instrument', 'string',
+                               ['string', 'string', 'string'],
+                               [piece.text, 'two', 'pluck.dsp']);
+
+        A.gen = B.gen = text;
+        return A.pick('two', 'pluck.dsp');
+    });
+
+    sim.at(2900, () =>
+    {
+        for (const p of peers)
+            before.push(graphOf(p.M, 'two'));
+    });
+
+    send(A, 3000, () => A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
+                                      'no-document-here', 4242));
+
+    for (let k = 0; k < 14; k++)
+    {
+        const t = origin + 1500 + k * 700;
+        const [who, mode] = k % 2 === 0 ? [A, 'quantised'] : [B, 'ahead'];
+        const note = 60 + (k % 5);
+        let held = null;
+
+        send(who, t, () =>
+        {
+            held = who.press(seat, note, 90, mode);
+            return held.cmd;
+        });
+        send(who, t + 400, () => who.release(seat, note, held));
+    }
+
+    send(A, origin + 5200, () =>
+    {
+        const cmd = A.pick('one', 'dxbell.dsp');
+
+        picked = cmd.at;
+        return cmd;
+    });
+    send(B, origin + 5205, () => B.pick('three', 'strings.dsp'));
+
+    send(A, origin + 12000, () =>
+    {
+        const cmd = A.maker.stop();
+
+        stopAt = cmd.at;
+        return cmd;
+    });
+
+    let settle = null;
+
+    await sim.run(() =>
+    {
+        if (stopAt === null || !peers.every((p) => !p.transport.running))
+            return false;
+
+        settle ??= sim.t + 2000;
+
+        return sim.t >= settle;
+    });
+
+    return { ok: true, peers, stamped, stopAt, picked, before };
+}
+
 /* A command that names a stage, applied after an edit that moved it.
  *
  * loosen.gen's chains are grid, breathed and corrected, each with a
@@ -1596,6 +1761,99 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                                              .padStart(5)} events from ` +
                     `${r.stamped.filter((c) => c.type === 'note').length} ` +
                     `keys; ${met} grid lines where the peers' keys met\n`);
+        }
+    }
+
+    /* Instruments picked for seats, stopped and while the room plays. */
+    {
+        const piece = pieces(build).find((p) => p.name === 'free.gen');
+        const r = await freeSession(createThinkWeb, piece, dsps);
+
+        process.stdout.write('\ninstruments picked for seats of free.gen, ' +
+                             'stopped and while two peers play it\n\n');
+
+        if (!r.ok)
+        {
+            failures++;
+            process.stdout.write(`FAIL  free.gen did not load: ` +
+                                 `${r.errors.join('; ')}\n`);
+        }
+        else
+        {
+            const [A, B] = r.peers;
+            const a = tapeBefore(A.tape, r.stopAt);
+            const b = tapeBefore(B.tape, r.stopAt);
+            const complaints = [];
+            /* The Play's load starts the count again. */
+            const picks = r.stamped.filter((c) => c.type === 'pick' &&
+                                                  c.at >= 0);
+            const bars = new Set(picks.map((c) => c.at));
+
+            for (const p of r.peers)
+                if (p.M._tw_edit_count() !== picks.length ||
+                    p.M._tw_edit_error_count() !== 0)
+                    complaints.push(`${p.name} applied ` +
+                                    `${p.M._tw_edit_count()} of ` +
+                                    `${picks.length} picks`);
+
+            if (bars.size !== 1)
+                complaints.push(`the two picks while playing landed on ` +
+                                `${bars.size} bars`);
+
+            if (r.before.some((g) => g !== 'pluck.dsp'))
+                complaints.push(`seat two before the Play: ` +
+                                `${r.before.join(', ')}`);
+
+            if (a !== b)
+                complaints.push(`the two tapes differ: ` +
+                                `${firstDifference(a, b)}`);
+
+            const want = reference('free.gen', nodeBuild, {
+                commands: r.stamped.filter((c) => c.at >= 0),
+                stopAt: r.stopAt,
+            });
+
+            if (a !== want)
+                complaints.push(`A differs from genwav: ` +
+                                `${firstDifference(want, a)}`);
+
+            if (a.split('\n').length < 10)
+                complaints.push('the seat hardly played');
+
+            /* Up to the bar the old graphs and from the window after it
+               the new ones, on both peers: the window is as late as a
+               command stamped inside one may land. Seat two stays on the
+               graph picked while stopped, through the Play's load. */
+            const was = ['rhodes.dsp', 'pluck.dsp', 'ebass.dsp'];
+            const now = ['dxbell.dsp', 'pluck.dsp', 'strings.dsp'];
+
+            for (const p of r.peers)
+            {
+                const window = p.spec.windowlen / p.spec.rate;
+                const wrong = p.graphs.find(([from, to, dsps]) =>
+                    (to < r.picked && dsps.join() !== was.join()) ||
+                    (from >= r.picked + window && dsps.join() !== now.join()));
+
+                if (wrong !== undefined)
+                    complaints.push(`${p.name} played ` +
+                                    `${wrong[2].join(', ')} at ` +
+                                    `${wrong[0].toFixed(3)} s, the picks ` +
+                                    `landing at ${r.picked.toFixed(3)} s`);
+            }
+
+            if (complaints.length > 0)
+            {
+                failures++;
+                process.stdout.write(`FAIL  free.gen       ` +
+                                     `${complaints.join('; ')}\n`);
+            }
+            else
+                process.stdout.write(
+                    `ok    free.gen       ${String(a.split('\n').length - 1)
+                                             .padStart(5)} events; seat two ` +
+                    'on pluck.dsp before the Play, seats one and three ' +
+                    `picked from two peers on one bar, ` +
+                    `${r.picked.toFixed(3)} s, and both picks kept\n`);
         }
     }
 
