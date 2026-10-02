@@ -1152,8 +1152,8 @@ public:
     /* The `input midi;' route: hand the event to every chain that
      * declared the input and whose sink channel matches the event's.
      * What dispatchmidi (or anything else) calls when it does not know
-     * chain indices -- which is always. */
-    void injectMidiEvent (const thcEvent &ev);
+     * chain indices -- which is always. False where no chain took it. */
+    bool injectMidiEvent (const thcEvent &ev);
 
     /* ---- for the tier-one piano roll ----
      *

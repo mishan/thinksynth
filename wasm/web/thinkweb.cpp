@@ -489,6 +489,17 @@ sigc::connection     delivery_;
    the times. */
 int epoch_;
 
+/* Where each stamped key's on went, by channel and note, so that its off
+   goes the same way (TW_NOTE): an edit between the two can change whether
+   the piece takes input on the channel, and an off sent the other way
+   leaves the note held. Emptied at each begin, where a late joiner's
+   catching up starts from too. */
+enum KeyRoute { KEY_PIECE, KEY_CHANNEL, KEY_HEARD };
+std::map<std::pair<int, int>, KeyRoute> keyRoutes_;
+
+void keyOnChannel (int channel, float note, float velocity, bool on,
+                   double at);
+
 /* Whatever was stamped for the run that is ending names a transport time
    that is about to mean something else, so it goes. What is stamped for
    "the top of the next window" -- an `at' below zero -- is not for a run
@@ -525,11 +536,9 @@ void applyDue (double start, int len)
         switch (c.type)
         {
             case CMD_NOTE_ON:
-                synth_->addNote(c.channel, c.note, c.velocity);
-                break;
-
             case CMD_NOTE_OFF:
-                synth_->delNote(c.channel, c.note);
+                keyOnChannel(c.channel, c.note, c.velocity,
+                             c.type == CMD_NOTE_ON, -1);
                 break;
 
             case CMD_MIDI_ON:
@@ -631,6 +640,7 @@ void beginDue (double start, int len)
        that at the load (tw_piece_load). */
     sched_->reset();
     epoch_++;
+    keyRoutes_.clear();
 
     /* From the top, or from where a seek said: played up to there without
        a sound, and the frame below pinned to wherever that is. */
@@ -1010,11 +1020,26 @@ void applyScheduled (const Scheduled &c)
             break;
 
         case TW_NOTE:
-            /* Into the piece or onto the channel is decided here, when the
-               key applies, from the piece as it is then: an edit stamped
-               before it may have added or taken away an `input midi', and
-               a page asked earlier would route it by the piece it had. */
-            if (listensOn(c.channel))
+        {
+            /* An on goes into the piece or onto the channel by the piece
+               as it is when the key applies, not as a page saw it earlier:
+               an edit stamped before the key can change it. Its off follows
+               it. */
+            const std::pair<int, int> key(c.channel, c.note);
+            const auto was = keyRoutes_.find(key);
+            KeyRoute route = listensOn(c.channel) ? KEY_PIECE
+                             : c.heard            ? KEY_HEARD
+                                                  : KEY_CHANNEL;
+
+            if (c.on)
+                keyRoutes_[key] = route;
+            else if (was != keyRoutes_.end())
+            {
+                route = was->second;
+                keyRoutes_.erase(was);
+            }
+
+            if (route == KEY_PIECE)
             {
                 /* CMD_MIDI_ON's event, at the time it was stamped for
                    rather than the top of whichever window it arrived
@@ -1032,14 +1057,12 @@ void applyScheduled (const Scheduled &c)
 
                 sched_->injectMidiEvent(ev);
             }
-            else if (c.heard)
-                break;
-            else if (c.on)
-                synth_->addNote(c.channel, (float)c.note, (float)c.value);
-            else
-                synth_->delNote(c.channel, (float)c.note);
+            else if (route == KEY_CHANNEL)
+                keyOnChannel(c.channel, (float)c.note, (float)c.value, c.on,
+                             sched_->now());
 
             break;
+        }
 
         case TW_STAGEPARAM:
         {
@@ -1990,6 +2013,28 @@ void midiCaughtUp (void)
                          twMidiOut::now());
 
     catchControls_.clear();
+}
+
+/* A key straight onto a channel, wherever the channel sounds: the synth,
+   or the device an instrument played over MIDI is on, as the scheduler's
+   own notes do (thcScheduler::deliver, endNote). At transport time `at',
+   or at the window about to be rendered where it is below zero. */
+void keyOnChannel (int channel, float note, float velocity, bool on,
+                   double at)
+{
+    const gint64 when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
+
+    if (!sched_->playsOverMidi(channel))
+    {
+        if (on)
+            synth_->addNote(channel, note, velocity);
+        else
+            synth_->delNote(channel, note);
+    }
+    else if (on)
+        midiOut_.noteOn(channel, (int)note, (int)velocity, 1, when);
+    else
+        midiOut_.noteOff(channel, (int)note, when);
 }
 
 /* Every instrument naming `pattern' (all of them, where it is empty) whose

@@ -3950,9 +3950,11 @@ thcScheduler::injectMidi (size_t chainIndex, const thcEvent &ev)
     injectingLive_ = false;
 }
 
-void
+bool
 thcScheduler::injectMidiEvent (const thcEvent &ev)
 {
+    bool taken = false;
+
     for (size_t ci = 0; ci < chains_.size(); ci++)
     {
         thcChain &c = chains_[ci];
@@ -3976,8 +3978,11 @@ thcScheduler::injectMidiEvent (const thcEvent &ev)
             injectingLive_ = !running_;
             propagate(c, 0, ev);
             injectingLive_ = false;
+            taken = true;
         }
     }
+
+    return taken;
 }
 
 bool

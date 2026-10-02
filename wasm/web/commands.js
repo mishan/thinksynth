@@ -44,7 +44,7 @@
  *   mute       { at, chain, on }
  *   solo       { at, chain, on }
  *   section    { at, section, chain, level }
- *   note       { at, seat, note, velocity, mode }
+ *   note       { at, seat, note, velocity, mode, heard }
  *   noteoff    { at, seat, note, mode }        mode: direct | quantised |
  *                                              ahead
  *
@@ -223,10 +223,13 @@ export class Maker
      * Quantised and ahead: stamped with `at', which the caller works out
      * (keyAt below), and applied there on every peer, the sender included
      * -- so a key into a piece composes the same thing everywhere, and is
-     * logged for a late joiner like any other stamped command. */
-    note (seat, note, velocity, mode = 'direct', at = null)
+     * logged for a late joiner like any other stamped command.
+     *
+     * `heard' says the sender played it on its own page as it pressed it. */
+    note (seat, note, velocity, mode = 'direct', at = null, heard = false)
     {
-        const cmd = this.make('note', { seat, note, velocity, mode }, 0);
+        const cmd = this.make('note', { seat, note, velocity, mode, heard },
+                              0);
 
         return at === null ? cmd : { ...cmd, at };
     }
@@ -467,17 +470,17 @@ function applyNow (cmd, { synth, listens, self = null })
        piece or onto the channel is the worklet's to say when it applies,
        from the piece as it is then -- an edit stamped before the key can
        change it. What this side knows is whether the player has heard it:
-       a play-ahead key of this peer's own onto a channel was played the
-       moment it was pressed (jam.js), and the bar is for everybody else's
-       ears. One into the piece is applied here like anyone's, or this
-       peer's piece would compose from it a bar before the others' did. */
+       a key of this peer's own that says it was played the moment it was
+       pressed (jam.js), and the bar is for everybody else's ears. One into
+       the piece is applied here like anyone's, or this peer's piece would
+       compose from it a bar before the others' did. */
     if ((cmd.type === 'note' || cmd.type === 'noteoff') &&
         (cmd.mode ?? 'direct') !== 'direct')
     {
         synth.noteAt(cmd.at, cmd.seat, cmd.note,
                      cmd.type === 'note' ? cmd.velocity : 0,
                      cmd.type === 'note',
-                     cmd.mode === 'ahead' && cmd.from === self,
+                     cmd.heard === true && cmd.from === self,
                      tieOf(cmd));
         return;
     }

@@ -199,9 +199,10 @@ let listens = new Set();        /* channels the piece takes input on */
    (commands.js, keyAt). */
 let playMode = 'direct';
 
-/* note -> { count, midi, seat, mode, at }: how many hands are on it, how
-   many of those are MIDI keys, the seat it went out on, and the mode and
-   time it was stamped with -- a release goes the way its press went. */
+/* note -> { count, midi, seat, mode, at, local, epoch }: how many hands are
+   on it, how many of those are MIDI keys, the seat it went out on, the mode
+   and time it was stamped with, whether this page played it itself, and the
+   run it was pressed in -- a release goes the way its press went. */
 const sounding = new Map();
 
 /* What the numbers panel and the harness read back. Bounded, the way
@@ -875,11 +876,14 @@ function press (note, velocity = VELOCITY, midi = false)
     /* A bar ahead onto a channel: heard here now, and by everyone else a
        bar from now. Into the piece it waits for its time here too, or
        this page's piece would compose from it a bar early. */
-    if (mode === 'ahead' && !listens.has(seat))
+    const local = mode === 'ahead' && !listens.has(seat);
+
+    if (local)
         synth.noteOn(note, velocity, -1, seat);
 
-    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat, mode, at });
-    send(maker.note(seat, note, velocity, mode, at < 0 ? null : at));
+    sounding.set(note, { count: 1, midi: midi ? 1 : 0, seat, mode, at, local,
+                         epoch: lastTape?.epoch });
+    send(maker.note(seat, note, velocity, mode, at < 0 ? null : at, local));
     keyboard.hold(note, true);
 }
 
@@ -904,14 +908,17 @@ function release (note, midi = false)
     sounding.delete(note);
 
     /* A quantised release a grid line after its press at the least, so
-       a quick tap is a sixteenth and not a note let go before it began. */
+       a quick tap is a sixteenth and not a note let go before it began.
+       A press from a run since replaced by a Play or a seek is no floor:
+       its time is in that run's seconds. */
     const grid = lastTape?.tempo > 0 ? GRID * 60 / lastTape.tempo : 0;
+    const after = held.epoch !== lastTape?.epoch ? -1
+                : held.mode === 'quantised' ? held.at + grid : held.at;
     const at = held.mode === 'direct'
         ? -1
-        : keyAt(held.mode, transportNow(), lastTape, maker.knobLead,
-                held.mode === 'quantised' ? held.at + grid : held.at);
+        : keyAt(held.mode, transportNow(), lastTape, maker.knobLead, after);
 
-    if (held.mode === 'ahead' && !listens.has(held.seat))
+    if (held.local)
         synth.noteOff(note, -1, held.seat);
 
     send(maker.noteoff(held.seat, note, at < 0 ? 'direct' : held.mode,

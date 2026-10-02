@@ -301,7 +301,11 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (int k, double value)
 }
 
 /* A key into the piece, now: what the browser host's TW_NOTE does at its
-   stamp for a key on a channel the piece listens on. */
+   stamp for a key on a channel the piece listens on. An off goes in only
+   where its on did, as TW_NOTE's does, whatever an edit since has made of
+   the channel. */
+static std::map<std::pair<int, int>, bool> keyIntoPiece_;
+
 EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
                                    int on)
 {
@@ -315,7 +319,20 @@ EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
     ev.u.note.duration = 0;
     ev.u.note.level = 1;
 
-    sched_->injectMidiEvent(ev);
+    const std::pair<int, int> key(channel, note);
+    const auto was = keyIntoPiece_.find(key);
+
+    if (on)
+        keyIntoPiece_[key] = sched_->injectMidiEvent(ev);
+    else if (was == keyIntoPiece_.end())
+        sched_->injectMidiEvent(ev);
+    else
+    {
+        if (was->second)
+            sched_->injectMidiEvent(ev);
+
+        keyIntoPiece_.erase(was);
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_tempo (double bpm)
