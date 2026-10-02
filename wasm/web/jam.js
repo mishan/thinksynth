@@ -1652,7 +1652,9 @@ async function join ()
 {
     const params = new URLSearchParams(location.search);
     const roomName = $('room').value.trim() || 'lobby';
-    const name = $('name').value.trim() || `guest-${Math.floor(
+    /* Cut where the relay cuts it, so the cursor's color is the one the
+       chat derives from the name the relay hands back. */
+    const name = $('name').value.trim().slice(0, 32) || `guest-${Math.floor(
         Math.random() * 1000)}`;
     const url = await relayUrl(params);
 

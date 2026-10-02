@@ -543,6 +543,7 @@ try
             ['a 501-character', { text: 'x'.repeat(501) }],
             ['a non-string', { text: { toString: 'hi' } }],
             ['a format-characters-only', { text: '\u202e\u200b\u2066' }],
+            ['a format-wrapped blank', { text: '\u200b   \u200b' }],
             ['another channel\'s', { channel: 'house', text: 'hi' }]])
         {
             h.send({ type: 'chat', channel: 'stage', n: 7, ...line });

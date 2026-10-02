@@ -640,7 +640,7 @@ class Room
                     /* Format characters alone are a line that shows as
                        nothing, or reorders the lines around it. */
                     const why = m.channel !== 'stage' ? 'no such channel'
-                              : text.replace(/\p{Cf}/gu, '') === ''
+                              : text.replace(/\p{Cf}/gu, '').trim() === ''
                                   ? 'nothing to send'
                               : text.length > CHAT_MAX
                                   ? `longer than ${CHAT_MAX} characters`
