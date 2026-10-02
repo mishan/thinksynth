@@ -236,6 +236,38 @@ export function docOf ({ piece, files: texts })
     return doc;
 }
 
+/* Where the document is as Yjs counts it, one clock per writer, in
+   base64: what a start carries beside its hash. A document that has seen
+   all of it (hasSeen) and does not hash to that revision has gone past it
+   and will never come back to it. One that cannot be read, from a peer, is
+   not seen. */
+export function seenOf (doc)
+{
+    return btoa(String.fromCharCode(...Y.encodeStateVector(doc)));
+}
+
+export function hasSeen (doc, seen)
+{
+    let want;
+
+    try
+    {
+        want = Y.decodeStateVector(
+            Uint8Array.from(atob(seen), (c) => c.charCodeAt(0)));
+    }
+    catch
+    {
+        return false;
+    }
+    const have = Y.decodeStateVector(Y.encodeStateVector(doc));
+
+    for (const [client, clock] of want)
+        if ((have.get(client) ?? 0) < clock)
+            return false;
+
+    return true;
+}
+
 /* The revision Apply names: SHA-256 over every file, in name order, each
    as its name, a NUL, its text, a NUL. A Yjs document has no revision
    number, and a load must load the same text on every peer. Hex. */

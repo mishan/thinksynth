@@ -45,7 +45,8 @@ import WebSocket, { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 
-import { dspNames, fileNames, hashOf, pieceText, readFile } from './doc.js';
+import { dspNames, fileNames, hashOf, pieceText, readFile, seenOf }
+    from './doc.js';
 import { PROTOCOL, relay } from './relay.mjs';
 import { Room } from './room.js';
 
@@ -650,6 +651,73 @@ try
               await hashOf(docS) === seen[1].hash,
               'and the document is the last one\'s piece, at the revision ' +
               'it said');
+        check(await t.none('transport', 200),
+              'stopped, nobody plays a switch');
+
+        /* Playing, two switches made together are played once, by the
+           relay, at the last one's revision, and that is the run a joiner
+           is handed. */
+        const colony = { hash: seen[1].hash, seen: seenOf(docS) };
+
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 1,
+                         piece: colony, seed: 5, from: ws.peer, seq: 0,
+                         at: -1 } });
+        await t.next('transport');
+        s.send({ type: 'switch', piece: 'ebb.gen' });
+        t.send({ type: 'switch', piece: 'village.gen' });
+        await t.next('switched');
+
+        const last = await t.next('switched');
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        const played = [s, t].map((c) =>
+            c.got.filter((m) => m.type === 'transport'));
+        const start = played[1][0]?.data;
+
+        check(played.every((p) => p.length === 1 && p[0].from === 'relay') &&
+              start.op === 'start' && start.from === 'relay' &&
+              start.piece.hash === last.hash,
+              'playing, two switches made together are played once, by ' +
+              'the relay, at the last one\'s revision');
+
+        const u = new Client(`${base}/room/switch`, 'U');
+
+        await u.open();
+        u.send({ type: 'hello', name: 'Una', protocol: PROTOCOL });
+
+        const wu = await u.next('welcome');
+
+        u.send({ type: 'catchup' });
+
+        const run = await u.next('catchup');
+
+        check(wu.playing?.seq === start.seq &&
+              run.start?.from === 'relay' && run.start.seq === start.seq &&
+              run.files.matched && run.files.piece === 'village.gen',
+              'and a joiner is handed that run, at that revision');
+
+        /* A start at a revision the document has gone past: the run's
+           document is answered at once, as not the one it named, rather
+           than after the wait for one that will not come. */
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 2,
+                         piece: colony, seed: 5, from: ws.peer, seq: 1,
+                         at: -1 } });
+        await new Promise((r) => setTimeout(r, 200));
+
+        const asked = Date.now();
+
+        u.send({ type: 'catchup' });
+
+        const passed = await u.next('catchup');
+
+        check(passed.start?.origin === 2 && !passed.files.matched &&
+              Date.now() - asked < 1000,
+              'a start the document has gone past is answered at once');
+
+        u.close();
 
         s.close();
         t.close();

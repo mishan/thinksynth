@@ -837,20 +837,23 @@ itself either way. Parsing in the windows before the bar and swapping at it
 is the mitigation, and it is later work.
 
 **The piece is switched from the room.** The Piece menu beside the transport
-lists the shipped pieces. A switch asks the relay, which rewrites the
-document in one transaction: every file removed, and fresh texts for the new
-`.gen` and every `.dsp` it names, from its tree, so a keystroke still on its
-way lands in a text nobody has. Two switches at once are made one after the
-other, and the room's chat says who made each. That is everyone's text,
-edits not yet applied included, so it asks first. The switcher then plays it
-from the top if the room is playing, rather than applying it as an edit:
-`thcGenDiff` keeps no stage of one piece in another, and an edit would start
-the new piece at the old one's transport time. Stopped, the next Play loads
-it. The tabs and the node editor offer only the `.gen` and the files it
-names, so a pasted `.gen` that stops naming a graph hides it without removing
-it, since only a switch removes files. A graph it names that the document
-lacks is added from the shipped ones by whoever presses the next Apply or
-Play.
+lists the shipped pieces. A switch asks the relay, which rewrites the document
+in one transaction: every file removed, and fresh texts for the new `.gen` and
+every `.dsp` it names, from its tree, so a keystroke still on its way lands in
+a text nobody has. Two switches at once are made one after the other, and the
+room's chat says who made each. That is everyone's text, edits not yet applied
+included, so it asks first. If the room is playing, the relay plays the last
+of the switches made together from the top, with a start of its own, rather
+than anyone applying it as an edit: `thcGenDiff` keeps no stage of one piece
+in another, and an edit would start the new piece at the old one's transport
+time. Stopped, the next Play loads it. A start carries the document's state
+vector beside its hash, so a peer whose document has gone past that revision
+-- a switch made just after a Play -- loads the relay's copy of it, as a late
+joiner does, rather than waiting for a revision that will not come. The tabs
+and the node editor offer only the `.gen` and the files it names, so a pasted
+`.gen` that stops naming a graph hides it without removing it, since only a
+switch removes files. A graph it names that the document lacks is added from
+the shipped ones by whoever presses the next Apply or Play.
 
 Late join is the same machinery run long: the worklet fast-forwards the
 scheduler from zero to now before audio resumes, with delivery suppressed.
