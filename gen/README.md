@@ -22,7 +22,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen`,
-`riviera.gen`, `scratch.gen` and `cloud.gen` need nothing else:
+`riviera.gen`, `scratch.gen`, `seq.gen` and `cloud.gen` need nothing else:
 they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -131,6 +131,7 @@ typo in it.
 | [`hands.gen`](hands.gen) | **Live MIDI in.** Nothing generates anything: every chain is fed by `input midi`, so hardware MIDI and the on-screen Keyboard (title bar → **Kbd input**) drive an arpeggiator, a corrector, and a slow shadow. The piece that shows why `THC_EV_NOTEOFF` exists. |
 | [`voice.gen`](voice.gen) | **Live audio in.** A string machine holding a chord, and a vocoder whose modulator is the microphone rather than another channel: talk and the chord says what you say. The one piece whose input is a sound rather than a note — title bar → **Live in**, then turn `Mic gain` up until the bands open, and `Chord` down to 0 once they have. Headphones: a microphone and speakers in one room is an oscillator. |
 | [`scratch.gen`](scratch.gen) | **The pattern you click.** Five `gen::grid` tracks and nothing else — rows are degrees of a ladder, columns are steps, and what plays is what is drawn. Press Play, enlarge a grid and click cells while it runs; a cell lands on the next step. The keys track also declares `input midi`, so a phrase you play draws itself on the grid and loops. The place to start if you want to hear your own pattern rather than read somebody's piece. |
+| [`seq.gen`](seq.gen) | **A sequencer for a room.** Six `gen::grid` tracks — four synthesized drums, a bass and a pad — and nothing else. Open it in a room and everybody there clicks the same pattern from the Sequencer pane: a click is a stamped command, so it lands on the same step on every peer, and the one who made it writes it into the shared document for whoever joins next. |
 | [`glider.gen`](glider.gen) | **A picture that is a control.** Conway's Game of Life, played. Double-click a stage on the canvas to fill the window with its board, then click cells while it runs — the next generation takes whatever you leave. **Capture to file** writes the board you made back into the piece. |
 
 ## Algorithms

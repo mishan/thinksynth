@@ -106,7 +106,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             for (const stage of chain.stages)
                 if (stage.name === 'grid')
                     out.push({ chain: chain.chain, stage: stage.stage,
-                               name: chain.name, channel: chain.channel,
+                               name: chain.name, label: stage.label,
+                               channel: chain.channel,
                                rows: 1, rowsParam: -1,
                                canvas: null, ctx: null,
                                w: 0, h: 0, dpr: 0 });
@@ -116,6 +117,9 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     const build = (chains) =>
     {
+        for (const track of tracks)
+            track.drop?.();
+
         tracks = gridsIn(chains);
         box.replaceChildren();
 
@@ -251,13 +255,23 @@ export function createSeqView ({ root = document, toMirror, onGesture,
          */
         let held = null;
         let button = 1;
+        let where = { x: 0, y: 0 };
 
-        const send = (kind, e) => onGesture({
-            chain: track.chain, stage: track.stage, kind,
-            ...at(canvas, e),
-            w: track.w, h: track.h,
-            button,
-        });
+        /* By name as well as by index, for a room: an edit stamped
+           before the gesture may have moved the stage (namedStage). */
+        const send = (kind, e) =>
+        {
+            if (e !== undefined)
+                where = at(canvas, e);
+
+            onGesture({
+                chain: track.chain, stage: track.stage,
+                chainName: track.name, stageName: track.label, kind,
+                ...where,
+                w: track.w, h: track.h,
+                button,
+            });
+        };
 
         canvas.addEventListener('pointerdown', (e) =>
         {
@@ -295,6 +309,18 @@ export function createSeqView ({ root = document, toMirror, onGesture,
            still has to end, or the plugin is left holding a drag that
            the next press arrives in the middle of. */
         canvas.addEventListener('pointercancel', ended);
+        canvas.addEventListener('lostpointercapture', ended);
+
+        /* A rebuild takes the canvas out from under a drag, and the
+           capture with it -- told to the document rather than here. */
+        track.drop = () =>
+        {
+            if (held === null)
+                return;
+
+            held = null;
+            send(RELEASE);
+        };
 
         /* The secondary button erases, so the menu that would otherwise
            open over the track has to not. */
@@ -380,6 +406,11 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             case 'piece':
                 build(m.chains);
                 return false;    /* the composer view wants it too */
+
+            /* The same piece after an edit, whose indices may have moved. */
+            case 'chains':
+                build(m.chains);
+                return true;
 
             case 'stagedraw':
             {
