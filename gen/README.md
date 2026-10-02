@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Thirty-six `.gen` files, each of which is meant to be read as well as heard.
+Thirty-nine `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
 being impressive; the other eighteen are pieces first and lessons second. The
@@ -22,8 +22,8 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen`,
-`riviera.gen`, `scratch.gen`, `seq.gen` and `cloud.gen` need nothing else:
-they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
+`riviera.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
+else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
@@ -128,6 +128,7 @@ typo in it.
 
 | piece | the idea |
 | --- | --- |
+| [`free.gen`](free.gen) | **Nothing composed.** Eight `input midi` chains, each straight into an instrument of its own: the piece for a room that wants only seats. In a room, the picker beside your seat puts it on another graph at the next bar, for everyone. |
 | [`hands.gen`](hands.gen) | **Live MIDI in.** Nothing generates anything: every chain is fed by `input midi`, so hardware MIDI and the on-screen Keyboard (title bar → **Kbd input**) drive an arpeggiator, a corrector, and a slow shadow. The piece that shows why `THC_EV_NOTEOFF` exists. |
 | [`voice.gen`](voice.gen) | **Live audio in.** A string machine holding a chord, and a vocoder whose modulator is the microphone rather than another channel: talk and the chord says what you say. The one piece whose input is a sound rather than a note — title bar → **Live in**, then turn `Mic gain` up until the bands open, and `Chord` down to 0 once they have. Headphones: a microphone and speakers in one room is an oscillator. |
 | [`scratch.gen`](scratch.gen) | **The pattern you click.** Five `gen::grid` tracks and nothing else — rows are degrees of a ladder, columns are steps, and what plays is what is drawn. Press Play, enlarge a grid and click cells while it runs; a cell lands on the next step. The keys track also declares `input midi`, so a phrase you play draws itself on the grid and loops. The place to start if you want to hear your own pattern rather than read somebody's piece. |
