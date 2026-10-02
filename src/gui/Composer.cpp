@@ -262,6 +262,8 @@ Composer::Composer (thSynth *synth)
         sigc::mem_fun(*this, &Composer::playedOn));
     playedConns_[3] = m_sigKbdNoteOff.connect(
         sigc::mem_fun(*this, &Composer::playedOff));
+    playedConns_[4] = m_sigNoteClear.connect(
+        sigc::mem_fun(*this, &Composer::playedCleared));
 
     updateTransportButtons();
 }
@@ -1918,6 +1920,13 @@ Composer::playedOff (int chan, float note)
 {
     if (roll_ != NULL)
         roll_->keyPlayed(sched_->now(), chan, (int)note, 0, false);
+}
+
+void
+Composer::playedCleared (void)
+{
+    if (roll_ != NULL)
+        roll_->endPlayed(sched_->now());
 }
 
 /* The on-screen keyboard as a performance input, if wished for: the

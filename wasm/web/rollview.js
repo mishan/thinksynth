@@ -84,15 +84,17 @@ export function createRollView ({ root = document, toMirror })
        now-line is and whether it is still live. */
     let where = { now: 0, following: true, spanPast: 0, spanFuture: 0 };
 
-    let playedAsked = null;
+    /* Each ask by its id, so two in flight get their own answers. */
+    const playedAsked = new Map();
+    let nextAsk = 0;
 
     /* True if the message was this view's. */
     const fromMirror = (m) =>
     {
         if (m.type === 'rollplayed')
         {
-            playedAsked?.(m.keys);
-            playedAsked = null;
+            playedAsked.get(m.id)?.(m.keys);
+            playedAsked.delete(m.id);
             return true;
         }
 
@@ -116,11 +118,20 @@ export function createRollView ({ root = document, toMirror })
         where: () => where,
 
         /* The played keys the roll is keeping, [[at, channel, note,
-           held], ...], for a harness that pressed one. */
+           held], ...], for a harness that pressed one; null if the mirror
+           has not answered in five seconds, so the harness fails rather
+           than hangs. */
         played: () => new Promise((resolve) =>
         {
-            playedAsked = resolve;
-            toMirror({ type: 'rollplayed' });
+            const id = nextAsk++;
+
+            playedAsked.set(id, resolve);
+            setTimeout(() =>
+            {
+                playedAsked.delete(id);
+                resolve(null);
+            }, 5000);
+            toMirror({ type: 'rollplayed', id });
         }),
     };
 }

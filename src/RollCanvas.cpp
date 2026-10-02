@@ -198,6 +198,14 @@ RollCanvas::keyPlayed (double at, int channel, int note, int velocity,
     prune();
 }
 
+void
+RollCanvas::endPlayed (double at)
+{
+    for (size_t i = held_.size(); i-- > 0; )
+        if (held_[i].played)
+            keyPlayed(at, held_[i].channel, held_[i].note, 0, false);
+}
+
 std::vector<RollCanvas::Played>
 RollCanvas::played (void) const
 {

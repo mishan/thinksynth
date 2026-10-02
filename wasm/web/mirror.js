@@ -788,7 +788,7 @@ function receive (m)
 
         /* The played keys the roll keeps, for a harness. */
         case 'rollplayed':
-            post({ type: 'rollplayed', keys: JSON.parse(
+            post({ type: 'rollplayed', id: m.id, keys: JSON.parse(
                 M.ccall('tw_roll_played_json', 'string')) });
             break;
 

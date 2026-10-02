@@ -103,6 +103,10 @@ public:
        the channel is the seat, so its hue says whose it was. */
     void keyPlayed (double at, int channel, int note, int velocity, bool on);
 
+    /* Every played key still held, ended at `at': the synth was cleared,
+       and an off that never arrives must not leave a bar growing. */
+    void endPlayed (double at);
+
     /* The played keys kept, ended and then held, for a harness: the
        drawing cannot say which of its bars were played. */
     struct Played

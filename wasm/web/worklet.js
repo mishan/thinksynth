@@ -685,7 +685,7 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         if (epoch !== this.epoch)
         {
-            if (this.events.length > 0)
+            if (this.events.length > 0 || this.keys.length > 0)
                 this.postTape();
 
             this.epoch = epoch;

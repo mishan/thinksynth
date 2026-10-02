@@ -515,7 +515,10 @@ void keyOnChannel (int channel, float note, float velocity, bool on,
    on the keyboard -- the record and not the presses, so every peer shows a
    stamped key where it landed. Not on the tape, which is what the piece
    composed. A fixed array, because it fills on the audio thread; the
-   worklet empties it every quantum, so the room is never near full. */
+   worklet empties it every quantum. Not filled while catching up, which
+   steps a whole run in one quantum: the roll starts at the join, and a
+   key held across it has an off and no on, which draws nothing. Emptied
+   when the epoch moves, since those keys are the old run's. */
 struct twKey
 {
     double at;
@@ -529,9 +532,15 @@ int   keyCount_ = 0;
 
 void playedKey (int channel, int note, int velocity, bool on)
 {
-    if (keyCount_ < (int)(sizeof keys_ / sizeof keys_[0]))
+    if (!catching_ && keyCount_ < (int)(sizeof keys_ / sizeof keys_[0]))
         keys_[keyCount_++] = { sched_->now(), channel, note, velocity,
                                on ? 1 : 0 };
+}
+
+void newEpoch (void)
+{
+    epoch_++;
+    keyCount_ = 0;
 }
 
 /* Whatever was stamped for the run that is ending names a transport time
@@ -632,7 +641,7 @@ void applyDue (double start, int len)
                         sched_->halt();
                         sched_->reset();
                         dropStamped();
-                        epoch_++;
+                        newEpoch();
                         break;
 
                     /* To a transport time, heard from there as if played
@@ -642,7 +651,7 @@ void applyDue (double start, int len)
                     case TW_SEEK:
                         sched_->seek(c.value);
                         dropStamped();
-                        epoch_++;
+                        newEpoch();
 
                         if (sched_->running())
                         {
@@ -678,7 +687,7 @@ void beginDue (double start, int len)
        behind had its commands dropped at the arm (tw_begin), and before
        that at the load (tw_piece_load). */
     sched_->reset();
-    epoch_++;
+    newEpoch();
     keyRoutes_.clear();
 
     /* From the top, or from where a seek said: played up to there without
@@ -2702,7 +2711,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
 
     const bool ok = loader_->load(TW_PIECE_FILE, sched_);
 
-    epoch_++;
+    newEpoch();
 
     /* The roll's history was about the piece that just went away. It
        keys its notes to transport time and the transport is not being

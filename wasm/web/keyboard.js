@@ -211,6 +211,17 @@ export class Keyboard
         this.keys.get(note)?.classList.toggle('heard', channels.size > 0);
     }
 
+    /* Put out what is sounding on every channel but those in `keep': a
+       new run, which no off from the last one will reach, or a seat that
+       nobody is in now. */
+    silence (keep = new Set())
+    {
+        for (const [note, channels] of [...this.heard])
+            for (const channel of [...channels])
+                if (!keep.has(channel))
+                    this.sound(channel, note, false);
+    }
+
     draw ()
     {
         const { svg } = this;

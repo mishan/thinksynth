@@ -511,8 +511,9 @@ protected:
     Gtk::ToggleButton *kbdBtn_;
 
     /* MIDI in and the on-screen keyboard onto the roll, as played keys:
-       always, as both always reach the synth, whatever the toggle says. */
-    sigc::connection playedConns_[4];
+       always, as both always reach the synth, whatever the toggle says;
+       and the keyboard's reset, which ends them all. */
+    sigc::connection playedConns_[5];
 
     void buildActions (void);
     void onKbdToggle (void);
@@ -520,6 +521,7 @@ protected:
     void injectOff (int chan, float note);
     void playedOn (int chan, float note, float veloc);
     void playedOff (int chan, float note);
+    void playedCleared (void);
 
     Gtk::Button *playBtn_;
     Gtk::Button *pauseBtn_;
