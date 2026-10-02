@@ -44,8 +44,9 @@ import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
          commandTag, isLate, keyAt, nextBar, replayable, tieOf }
     from './commands.js';
-import { docOf, fileNames, files, hashOf, instrumentTexts, pieceName,
-         pieceText, readFile, snapshot, spliceFile } from './doc.js';
+import { DEFAULT_PIECE, docOf, fileNames, files, hashOf, instrumentTexts,
+         pieceName, pieceText, readFile, snapshot, spliceFile }
+    from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
@@ -152,11 +153,11 @@ const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
  */
 const ROOM_LAYOUT = {
     dir: 'row', size: [0.52, 0.48], kids: [
-        { dir: 'col', size: [0.44, 0.28, 0.28], kids: [
+        { dir: 'col', size: [0.48, 0.3, 0.22], kids: [
             { tabs: ['composerview', 'seqview'] },
             { tabs: ['roll'] },
             { tabs: ['knobs', 'chat'] }] },
-        { dir: 'col', size: [0.42, 0.34, 0.24], kids: [
+        { dir: 'col', size: [0.36, 0.4, 0.24], kids: [
             { tabs: ['nodeview'] },
             { tabs: ['documentbox'] },
             { tabs: ['keyboard'] }] }],
@@ -258,6 +259,13 @@ function log (text)
 function status (text)
 {
     $('status').textContent = text;
+}
+
+/* One line in the header, so the whole of it goes in the tooltip. */
+function showAbout (text)
+{
+    $('about').textContent = text;
+    $('about').title = text;
 }
 
 /* ---- the clocks ---- */
@@ -427,6 +435,8 @@ async function applyOne (from, cmd)
             status('Stopped.');
         else if (cmd.op === 'tempo' && from !== room.peer)
             $('tempo').value = cmd.bpm;
+
+        enable();
     }
 
     /* Not repainted here: a knob arrives at slider rate per peer, and
@@ -649,7 +659,7 @@ async function loadFromDoc (seed = -1, from = doc)
     else
     {
         listens = new Set(piece.listens);
-        $('about').textContent = piece.description;
+        showAbout(piece.description);
     }
 
     await drawKnobs();
@@ -816,7 +826,7 @@ async function edited (m)
 
     piece = m;
     listens = new Set(m.listens);
-    $('about').textContent = m.description;
+    showAbout(m.description);
 
     const aiming = await patch.aim(synth, m.sinks);
 
@@ -1152,6 +1162,10 @@ function showInstrument (force = false)
     pickerShows = shows;
     sel.replaceChildren();
     sel.disabled = inst === undefined || synth === null;
+    $('instrumentlabel').hidden = inst === undefined && soundOf(seat) === '';
+    $('instrumentlabel').title = inst === undefined
+        ? 'The piece leaves this channel to each page; there is no line ' +
+          'in it to change' : '';
 
     if (inst === undefined)
     {
@@ -1326,6 +1340,7 @@ function enable ()
     const ready = synth !== null && piece !== null && clocksReady();
 
     $('play').disabled = !ready;
+    $('play').classList.toggle('primary', ready && room.playing === null);
     $('apply').disabled = !ready;
     $('stop').disabled = synth === null;
     $('tempo').disabled = !ready;
@@ -1651,6 +1666,44 @@ function exportTape ()
 /* How often the rooms are asked for while the page has not joined one. */
 const ROOMS_EVERY_MS = 5000;
 
+/* The rooms the relay last listed, by name, with the piece each plays. */
+let listed = new Map();
+
+/* The piece a new room starts on, offered only while the name in the box
+   is not a room that is already there: that one plays what it plays. */
+function showNewPiece ()
+{
+    const sel = $('newpiece');
+    const piece = listed.get($('room').value.trim());
+
+    sel.disabled = piece !== undefined;
+    sel.title = piece === undefined ? ''
+        : `${$('room').value.trim()} is open and plays ${piece ?? 'nothing'}`;
+}
+
+/* The shipped pieces, for a new room. The one the URL names is offered
+   whether or not it is shipped: the relay is what says whether it is. */
+async function showPieces (wanted)
+{
+    const sel = $('newpiece');
+    let names = [];
+
+    try
+    {
+        names = await (await fetch('gen/index.json')).json();
+    }
+    catch
+    {
+        /* No index: a new room gets the relay's default. */
+    }
+
+    if (wanted !== null && !names.includes(wanted))
+        names.unshift(wanted);
+
+    sel.replaceChildren(...names.map((n) => new Option(n, n)));
+    sel.value = wanted ?? DEFAULT_PIECE;
+}
+
 /* The relay's rooms under the join row: its health line over http(s),
    which lists them. A room is a button that names it in the box. */
 async function showRooms ()
@@ -1674,6 +1727,8 @@ async function showRooms ()
         /* No relay, or one that will not say: no list. */
     }
 
+    listed = new Map(rooms.map((r) => [r.name, r.piece]));
+    showNewPiece();
     rooms.sort((a, b) => b.peers - a.peers || a.name.localeCompare(b.name));
     list.replaceChildren(...rooms.map((r) =>
     {
@@ -1681,7 +1736,12 @@ async function showRooms ()
         const b = document.createElement('button');
 
         b.textContent = r.name;
-        b.addEventListener('click', () => { $('room').value = r.name; });
+        b.addEventListener('click', () =>
+        {
+            $('room').value = r.name;
+            showNewPiece();
+            ($('name').value === '' ? $('name') : $('join')).focus();
+        });
         li.append(b, ` ${r.peers === 0 ? 'empty'
                         : r.peers === 1 ? '1 person' : `${r.peers} people`}` +
                      (r.piece ? `, ${r.piece}` : '') +
@@ -1705,7 +1765,8 @@ async function join ()
     $('join').disabled = true;
     status(`Joining ${roomName} at ${url}...`);
 
-    room = new Room(url, roomName, name, { piece: params.get('piece') });
+    room = new Room(url, roomName, name,
+                    { piece: $('newpiece').value || params.get('piece') });
     room.on('peers', () => { showPeers(); chat.peers(room.peers); })
         .on('chat', (m) => chat.said(m))
         .on('refused', (m) => m.of === 'chat' && chat.refused(m))
@@ -1753,6 +1814,8 @@ async function join ()
 
     $('joinrow').hidden = true;
     $('roompanel').hidden = false;
+    $('roomname').textContent = `\u2014 ${roomName}`;
+    $('invite').hidden = false;
     showPeers();
     showNumbers();
 
@@ -1761,10 +1824,44 @@ async function join ()
                 ? ' The room is playing; Start joins it where it is.'
                 : ''));
 
+    /* The name stays in the address, which is how a reload comes back as
+       the same person; the invite leaves it out, or whoever follows the
+       link would come in as you. */
+    const where = { room: roomName, ...(params.get('relay')
+                                            ? { relay: params.get('relay') }
+                                            : {}) };
+
     history.replaceState(null, '', `?${new URLSearchParams(
-        { room: roomName, name, ...(params.get('relay')
-                                        ? { relay: params.get('relay') }
-                                        : {}) })}`);
+        { ...where, name })}`);
+    invite = new URL(`?${new URLSearchParams(where)}`, location.href).href;
+}
+
+/* The room's address without the name in it (join). */
+let invite = '';
+
+/* How long "Copied" stays on the invite button. */
+const COPIED_MS = 1500;
+
+async function copyInvite ()
+{
+    const button = $('invite');
+
+    try
+    {
+        await navigator.clipboard.writeText(invite);
+    }
+    catch
+    {
+        /* Refused, or no clipboard over plain http: the link, selected,
+           for whoever is there to copy it by hand. */
+        $('invitelink').value = invite;
+        $('invitelink').hidden = false;
+        $('invitelink').select();
+        return;
+    }
+
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = 'Copy invite link'; }, COPIED_MS);
 }
 
 async function start ()
@@ -1805,6 +1902,10 @@ async function start ()
         $('start').disabled = false;
         return;
     }
+
+    /* Started is not something to do again: Play is the next thing. */
+    $('start').hidden = true;
+    delete document.body.dataset.unstarted;
 
     audioClock = new AudioClock(ctx.sampleRate);
     transport = new TransportClock(ctx.sampleRate);
@@ -1918,7 +2019,7 @@ async function start ()
     }
 
     await loadFromDoc();
-    status(`Started. Claim a seat and press Play.`);
+    status('Started. Press Play, and take a seat to play into it.');
 
     if (room.playing !== null)
         await joinRun();
@@ -1930,6 +2031,7 @@ function init ()
 
     $('room').value = params.get('room') ?? 'lobby';
     $('name').value = params.get('name') ?? '';
+    showPieces(params.get('piece'));
 
     keyboard = new Keyboard($('keys'), { onPress: press, onRelease: release });
     /* Who has the keyboard (keyfocus.js). The room page's code editor
@@ -1974,6 +2076,8 @@ function init ()
     });
 
     $('join').addEventListener('click', join);
+    $('room').addEventListener('input', showNewPiece);
+    $('invite').addEventListener('click', copyInvite);
     showRooms();
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
@@ -2035,10 +2139,12 @@ function init ()
         root: $('panes'), catalog: PANES, store: 'thinksynth:panes:jam',
         layouts: { room: ROOM_LAYOUT }, mode: 'room', on: true,
         editing: '.cm-editor', reset: 'Reset layout',
+        drawer: $('roomdrawer'),
 
-        /* A layout kept before the chat came would open with it in the
-           drawer, where nobody looks for it. */
-        version: 1,
+        /* A layout kept against an older default is not read back: one
+           kept before the chat came would open with it in the drawer, and
+           one kept before these sizes with the knobs as tall as the roll. */
+        version: 2,
         onShow: (id, on) =>
         {
             if (id === 'composerview')

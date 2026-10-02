@@ -8,10 +8,26 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="panes.css">
 </head>
-<body>
-<h1>thinksynth <span class="dim">&mdash; a room</span></h1>
-
-<p id="status">Join a room.</p>
+<body data-unstarted>
+<!-- Where you are and what is going on, on one line: tiled, the window's
+     height is the layout's, and every line spent up here is one the
+     panes do not get. -->
+<header id="roomhead" class="row">
+  <h1>thinksynth <span id="roomname" class="dim">&mdash; a room</span></h1>
+  <p id="status"></p>
+  <!-- What the piece says about itself, cut to what fits; the whole of
+       it is the title. -->
+  <p id="about"></p>
+  <!-- The panes closed to the drawer, listed here rather than on a row
+       of their own over the layout. -->
+  <span id="roomdrawer"></span>
+  <!-- Who is here, and by which path. -->
+  <span id="peers" class="peers"></span>
+  <!-- The room's address without your name in it (jam.js, copyInvite),
+       and the link itself where the clipboard is refused. -->
+  <button id="invite" hidden>Copy invite link</button>
+  <input id="invitelink" readonly hidden aria-label="Invite link">
+</header>
 
 <!-- A new version, ready and not taken because something was going
      (offline.js). -->
@@ -22,41 +38,43 @@
 
 <!-- Who and where. The room's name is the URL's, and so is the piece a
      new room is seeded with (?room=x&piece=ebb.gen). -->
-<section id="joinrow" class="row">
+<section id="joinrow">
+  <p>A room is a piece played together: everyone in it hears the same
+    music, plays into it from a seat, and edits the same text.</p>
+  <!-- The relay's rooms, who is in each and what it plays. -->
+  <ul id="rooms" class="roomlist" aria-label="Open rooms" hidden></ul>
   <label>Room <input id="room" size="12" value="lobby"></label>
   <label>Name <input id="name" size="12"></label>
+  <!-- Only a room nobody has opened yet is seeded with it; one that is
+       there plays what it plays. -->
+  <label>Piece <select id="newpiece"></select></label>
   <button id="join">Join</button>
-  <!-- The relay's rooms, who is in each and what it plays. -->
-  <ul id="rooms" class="roomlist" hidden></ul>
 </section>
 
 <section id="roompanel" hidden>
-  <!-- Who is here, and by which path. -->
-  <div class="row">
-    <span id="peers" class="peers"></span>
-  </div>
-
   <!-- A seat is a channel the piece plays: an instrument it declares, a
        channel it takes `input midi' on, or one its sinks name. Keys play
        into it, on every peer, in one of three ways -- see commands.js's
        keyAt -- with the relay's round trip beside the choice. -->
-  <div class="row">
-    <label>Seat <select id="seat"><option value="">none</option></select></label>
-    <label>Instrument <select id="instrument" disabled></select></label>
-    <label>Play <select id="playmode">
-      <option value="direct">direct</option>
-      <option value="quantised">quantised</option>
-      <option value="ahead">a bar ahead</option>
-    </select></label>
-    <span id="modenote"></span>
-    <button id="start">Start</button>
-    <button id="play" disabled>Play</button>
-    <button id="stop" disabled>Stop</button>
-    <label>Tempo <input id="tempo" type="number" min="20" max="300" step="1" value="120" size="4" disabled></label>
-    <span id="clock">0:00.0</span>
+  <div id="roomtools" class="row">
+    <span class="group">
+      <button id="start">Start</button>
+      <button id="play" disabled>Play</button>
+      <button id="stop" disabled>Stop</button>
+      <label>Tempo <input id="tempo" type="number" min="20" max="300" step="1" value="120" size="4" disabled></label>
+      <span id="clock">0:00.0</span>
+    </span>
+    <span class="group">
+      <label>Seat <select id="seat"><option value="">none</option></select></label>
+      <label id="instrumentlabel" hidden>Instrument <select id="instrument" disabled></select></label>
+      <label>Timing <select id="playmode">
+        <option value="direct">direct</option>
+        <option value="quantised">quantised</option>
+        <option value="ahead">a bar ahead</option>
+      </select></label>
+      <span id="modenote"></span>
+    </span>
   </div>
-
-  <p id="about"></p>
 
   <!-- Where the tiler puts the panes below, when there is one. Empty and
        invisible otherwise, and the page is the document it has always
@@ -173,6 +191,10 @@
       <button id="nodefit">Fit</button>
       <span id="nodeselected"></span>
     </div>
+    <!-- Said instead of an empty menu over a blank canvas when the
+         document has no graph of its own (nodeview.js, offer). -->
+    <p id="nodeempty" hidden>No graph to edit: this piece plays only the
+      shipped patches. A .dsp in the room's document is drawn here.</p>
     <div id="nodescroll" class="canvasview">
       <canvas id="nodecanvas" tabindex="0"></canvas>
     </div>

@@ -1525,6 +1525,29 @@ try
         }
 
         ok(`${label} joined the room and started`);
+
+        if (await page.isVisible('#start'))
+            fail(`${label} still offers Start once started`);
+
+        /* The invite is the room's address with nobody's name in it:
+           followed, it is a join as whoever follows it. */
+        await page.evaluate(() =>
+        {
+            navigator.clipboard.writeText = async (text) =>
+            {
+                window.copied = text;
+            };
+        });
+        await page.click('#invite');
+
+        const copied = await page.evaluate(() => window.copied ?? '');
+        const invite = URL.canParse(copied) ? new URL(copied) : null;
+
+        if (invite?.searchParams.get('room') === 'jamtest' &&
+            !invite.searchParams.has('name'))
+            ok(`${label}'s invite link is ${invite.search}`);
+        else
+            fail(`${label}'s invite link is "${copied}"`);
     }
 
     /* Seen each other, by whatever path -- given the ten seconds the

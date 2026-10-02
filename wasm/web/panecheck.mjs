@@ -711,8 +711,22 @@ try
         () => document.body.classList.contains('tiled'));
     await room.evaluate(() =>
     {
+        document.getElementById('joinrow').hidden = true;
         document.getElementById('roompanel').hidden = false;
     });
+
+    /* What is over the layout is a header and a row of controls, not a
+       page of them: on a window of 1080 the panes get all but a tenth. */
+    await room.setViewportSize({ width: 1920, height: 1080 });
+
+    const layoutTopPx = await room.evaluate(() => Math.min(
+        ...[...document.querySelectorAll('#panes .paneleaf')].map(
+            (leaf) => leaf.getBoundingClientRect().top)));
+
+    check(layoutTopPx < 108,
+          `the room's panes start ${layoutTopPx.toFixed(0)} px down a ` +
+          `1080 px window`);
+    await room.setViewportSize(WIDE);
 
     const inRoom = await room.evaluate(() =>
         window.jam.panes().map((id) =>
@@ -770,7 +784,7 @@ try
     {
         localStorage.clear();
         localStorage.setItem('panes:jam:room',
-                             JSON.stringify({ version: 1,
+                             JSON.stringify({ version: 2,
                                               layout: { tabs: panes } }));
     }, await room.evaluate(() => window.jam.panes()));
     await room.reload();
