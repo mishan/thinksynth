@@ -678,6 +678,23 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                 `${which.length > 3 ? ', ...' : ''}\n`);
     }
 
+    /* Two peers' first Plays are two commands. */
+    {
+        const dedupe = new Dedupe();
+        const starts = [new Maker('a', () => 0).start(0, 'h', 1),
+                        new Maker('b', () => 0).start(0, 'h', 1)];
+
+        if (!starts.every((c) => dedupe.accept(c)))
+        {
+            failures++;
+            process.stdout.write('FAIL  two peers\' Plays: the second was ' +
+                                 `taken for the first (from ` +
+                                 `${starts.map((c) => c.from).join(', ')})\n`);
+        }
+        else
+            process.stdout.write('ok    two peers\' Plays are both played\n');
+    }
+
     process.stdout.write(
         `\n${failures === 0
              ? 'two peers at different windows and rates compose one tape ' +

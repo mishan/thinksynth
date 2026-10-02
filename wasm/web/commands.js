@@ -35,7 +35,7 @@
  *   transport  { at, op: 'start', origin, piece: { hash }, seed }
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
- *   transport  { at, op: 'start', origin, piece, seed, from } -- a seek
+ *   transport  { at, op: 'start', origin, piece, seed, seek } -- a seek
  *   knob       { at, knob, value }
  *   knobwrite  { at, knob, value }
  *   input      { at, chain, stage, kind, x, y, w, h, button }
@@ -87,10 +87,10 @@ export class Maker
 
     /* Play. `origin' is a relay-clock time; the caller has already put it
        `transportLead' ahead. */
-    start (origin, hash, seed, from = 0)
+    start (origin, hash, seed, seek = 0)
     {
         return this.make('transport', { op: 'start', origin,
-                                        piece: { hash }, seed, from },
+                                        piece: { hash }, seed, seek },
                          this.transportLead);
     }
 
@@ -289,11 +289,11 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
                     if (load !== undefined)
                         await load(cmd);
 
-                    /* From the top, or from `from': a room's seek is a
+                    /* From the top, or from `seek': a room's seek is a
                        start from a time, so every peer plays up to it at
                        the same frame, and a peer joining later hears the
-                       start the relay kept, `from' and all. */
-                    synth.begin(frameOfOrigin(cmd.origin), cmd.from ?? 0);
+                       start the relay kept, `seek' and all. */
+                    synth.begin(frameOfOrigin(cmd.origin), cmd.seek ?? 0);
                     break;
 
                 case 'stop':
