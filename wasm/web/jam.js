@@ -153,7 +153,7 @@ const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
  */
 const ROOM_LAYOUT = {
     dir: 'row', size: [0.52, 0.48], kids: [
-        { dir: 'col', size: [0.5, 0.32, 0.18], kids: [
+        { dir: 'col', size: [0.48, 0.3, 0.22], kids: [
             { tabs: ['composerview', 'seqview'] },
             { tabs: ['roll'] },
             { tabs: ['knobs', 'chat'] }] },
@@ -2019,8 +2019,7 @@ async function start ()
     }
 
     await loadFromDoc();
-    status(room.seat === null ? 'Started. Take a seat, and press Play.'
-                              : 'Started. Press Play.');
+    status('Started. Press Play, and take a seat to play into it.');
 
     if (room.playing !== null)
         await joinRun();

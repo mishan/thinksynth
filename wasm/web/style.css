@@ -889,10 +889,10 @@ body.tiled #roomtools > .group + .group
 #seat { field-sizing: content; max-width: 16em; }
 #modenote { color: var(--dim); font-size: 0.9em; }
 
-/* The closed panes, at the end of the controls rather than on a row of
-   their own over the layout. */
-#roomdrawer { margin-left: auto; }
+/* The closed panes, in the header rather than on a row of their own over
+   the layout, and not in the lobby, which has no layout to reopen into. */
 #roomdrawer .panedrawer { margin: 0; }
+body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
 
 .tabs { display: flex; gap: 0.3em; flex-wrap: wrap; }
 
