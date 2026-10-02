@@ -249,10 +249,10 @@ export function createChat ({ feed, form, input, note, send, self, colorOf,
                     continue;
 
                 if (before?.seat !== null && before?.seat !== undefined)
-                    activity(`${p.name} left seat ${before.seat}`);
+                    activity(`${p.name} left channel ${before.seat + 1}`);
 
                 if (p.seat !== null)
-                    activity(`${p.name} took seat ${p.seat}`);
+                    activity(`${p.name} took channel ${p.seat + 1}`);
             }
         },
 
