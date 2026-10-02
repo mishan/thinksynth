@@ -174,6 +174,23 @@ export function dspNames (genText)
     return [...names];
 }
 
+/* The files the piece uses: itself and every .dsp it names that the map
+   has, in fileNames' order. What a person here is shown -- a file the .gen
+   has stopped naming stays in the document, which is everybody's, until a
+   switch takes it out (relay.mjs, seedFiles), but it is no longer anything
+   the piece plays. */
+export function pieceFiles (doc)
+{
+    const gen = pieceText(doc);
+
+    if (gen === null)
+        return fileNames(doc);
+
+    const used = new Set([pieceName(doc), ...dspNames(gen)]);
+
+    return fileNames(doc).filter((name) => used.has(name));
+}
+
 /* The .dsp files in the document, by name, as a load hands them to the
    worklet. */
 export function instrumentTexts (doc)

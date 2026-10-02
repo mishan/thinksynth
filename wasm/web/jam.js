@@ -44,8 +44,9 @@ import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
          commandTag, isLate, keyAt, nextBar, replayable, tieOf }
     from './commands.js';
-import { DEFAULT_PIECE, docOf, fileNames, files, hashOf, instrumentTexts,
-         pieceName, pieceText, readFile, snapshot, spliceFile }
+import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf,
+         instrumentTexts, meta, pieceFiles, pieceName, pieceText, putFile,
+         readFile, snapshot, spliceFile }
     from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
@@ -467,24 +468,31 @@ async function loadFor (cmd)
             break;
         }
 
-        await new Promise((resolve) =>
-        {
-            const timer = setTimeout(done, Math.max(
-                10, Math.min(250, deadline - performance.now())));
-
-            function done ()
-            {
-                clearTimeout(timer);
-                doc.off('update', done);
-                resolve();
-            }
-
-            doc.on('update', done);
-        });
+        await docMoves(deadline);
     }
 
     runSeed = cmd.seed;
     await loadFromDoc(cmd.seed);
+}
+
+/* The next update to the document, or a quarter of a second, or
+   `deadline' (performance.now() milliseconds), whichever comes first. */
+function docMoves (deadline)
+{
+    return new Promise((resolve) =>
+    {
+        const timer = setTimeout(done, Math.max(
+            10, Math.min(250, deadline - performance.now())));
+
+        function done ()
+        {
+            clearTimeout(timer);
+            doc.off('update', done);
+            resolve();
+        }
+
+        doc.on('update', done);
+    });
 }
 
 /* The seed the run playing now started with: what a seek starts again
@@ -601,8 +609,19 @@ async function loadFromDoc (seed = -1, from = doc)
         return false;
     }
 
-    for (const [name, text] of Object.entries(instrumentTexts(from)))
+    const texts = instrumentTexts(from);
+
+    for (const name of overShipped)
+        if (!Object.hasOwn(texts, name) && shippedGraphs.has(name))
+            synth.instrument(name, shippedGraphs.get(name));
+
+    overShipped.clear();
+
+    for (const [name, text] of Object.entries(texts))
+    {
         synth.instrument(name, text);
+        overShipped.add(name);
+    }
 
     /* Not suspended around the load, as the solo page does it. Every
        peer loads at the same moment -- when the start arrives, before
@@ -615,6 +634,7 @@ async function loadFromDoc (seed = -1, from = doc)
     const it = await synth.loadPiece(gen, seed);
 
     loadedGen = gen;
+    loadedText = files(doc).get(pieceName(from)) ?? null;
     playing = snapshot(from);
     editsSeen = 0;
     pendingEdits.clear();
@@ -680,6 +700,25 @@ function titlesOf (placed)
    which is what its canvas draws and what a drop on the canvas is numbered
    against. */
 let loadedGen = null;
+
+/* And the room's text it was loaded from. A pick or a knob let go of is
+   written into the piece that is loaded, which a switch since has taken
+   out of the document. */
+let loadedText = null;
+
+function samePiece ()
+{
+    const name = pieceName(doc);
+
+    return name !== null && files(doc).get(name) === loadedText;
+}
+
+/* The graphs the document has put over the shipped ones in the worklet,
+   by a load or an edit. Put back at the next load when the document no
+   longer has them: a peer that loaded an edited one before a switch would
+   otherwise go on playing it where a peer that joined after plays the
+   shipped one. */
+const overShipped = new Set();
 
 /* A stage box dropped elsewhere in its chain: the document spliced, by
  * this peer, the way its own param edits are, and applied if the room is
@@ -778,6 +817,8 @@ async function applyEdit ()
         piece === null)
         return play();
 
+    addShipped();
+
     const text = pieceText(doc);
 
     if (text === null)
@@ -840,12 +881,104 @@ async function edited (m)
     enable();
 }
 
+/* A .dsp the piece names and the document lacks, from the shipped graphs:
+   what the solo page resolves a piece's `dsp' line against, so a .gen
+   pasted in from there plays the same here. Added by whoever Applies or
+   Plays, before the hash the command names, so every peer loads the text
+   its tab shows. A name nothing ships is left to fail the load on every
+   peer alike. */
+function addShipped ()
+{
+    const gen = pieceText(doc);
+    const missing = gen === null ? [] : dspNames(gen).filter(
+        (name) => !files(doc).has(name) && shippedGraphs.has(name));
+
+    doc.transact(() =>
+    {
+        for (const name of missing)
+            putFile(doc, name, shippedGraphs.get(name));
+    });
+}
+
+/* Another shipped piece for the room, in place of every file it has.
+ * Everybody's text goes, edits nobody has applied included, so it is asked
+ * first. The relay writes it (relay.mjs, `switch'): two pages writing a
+ * switch into the document at once would merge into one holding both. */
+function switchPiece (name)
+{
+    if (name === pieceName(doc))
+        return;
+
+    if (confirm(`Switch the room to ${name}? Everyone's text is ` +
+                'replaced by it, edits not yet applied included.'))
+    {
+        room.switchPiece(name);
+        status(`Switching to ${name}...`);
+    }
+    else
+        showPiece();
+}
+
+/* The last switch the relay announced. */
+let lastSwitch = null;
+
+/* How long a switcher waits for the document to reach its switch. */
+const SWITCH_WAIT_MS = 5000;
+
+/* A switch, made: said in the chat, and played by whoever made it.
+ *
+ * Playing, it is a Play from the top, not an edit at the next bar. An
+ * edit is thcGenDiff's: a stage keeps its state when its text is
+ * unchanged, and a whole other piece keeps none, so the edit would build
+ * every stage again anyway -- at the old run's transport time, starting
+ * the new piece at the old one's bar forty with the old one's tempo. A
+ * start plays it from where it starts, on every peer at once, and names
+ * the revision the relay hands a late joiner. Not if another switch has
+ * come since: its maker plays that one. Stopped, the next Play loads it. */
+async function switched (m)
+{
+    lastSwitch = m;
+    chat.activity(`${m.name} switched the piece to ${m.piece}`);
+
+    if (m.from !== room.peer)
+        return;
+
+    if (!transport?.running)
+    {
+        status(`The room's piece is ${m.piece}; Play loads it.`);
+        return;
+    }
+
+    const deadline = performance.now() + SWITCH_WAIT_MS;
+
+    while (lastSwitch === m && performance.now() < deadline &&
+           await hashOf(doc) !== m.hash)
+        await docMoves(deadline);
+
+    if (lastSwitch === m && pieceName(doc) === m.piece)
+        await play();
+}
+
+/* The switcher shows the room's piece, whoever switched it. */
+function showPiece ()
+{
+    const sel = $('piece');
+    const name = pieceName(doc);
+
+    if (name !== null && ![...sel.options].some((o) => o.value === name))
+        sel.add(new Option(name, name));
+
+    sel.value = name ?? '';
+}
+
 /* Play: a start from a new origin, with the document as it stands, from a
    seed the file pins or this peer picks. */
 async function play ()
 {
     if (!clocksReady() || doc === null)
         return;
+
+    addShipped();
 
     const hash = await hashOf(doc);
     const origin = room.relayNow() + maker.transportLead * 1000;
@@ -862,6 +995,8 @@ async function seekTo (from)
 {
     if (!clocksReady() || doc === null)
         return;
+
+    addShipped();
 
     const hash = await hashOf(doc);
     const origin = room.relayNow() + maker.transportLead * 1000;
@@ -1075,6 +1210,9 @@ function showMidiOut ()
 let graphGroups = [];
 const graphTitles = new Map();
 
+/* The shipped graphs' texts, by name, as start() fetched them. */
+const shippedGraphs = new Map();
+
 /* What the page put on each channel the piece left to it, by title. */
 let aimed = new Map();
 
@@ -1198,6 +1336,14 @@ async function pickInstrument (dsp)
 
     if (inst === undefined || was === null || dsp === inst.dsp)
         return;
+
+    if (!samePiece())
+    {
+        status('The room has another piece since this one was loaded; ' +
+               'Play it first.');
+        showInstrument(true);
+        return;
+    }
 
     const { text, why } = await synth.genSetInstrument(was, inst.name, dsp);
 
@@ -1342,6 +1488,11 @@ function enable ()
     $('play').disabled = !ready;
     $('play').classList.toggle('primary', ready && room.playing === null);
     $('apply').disabled = !ready;
+    /* Not waiting on a piece that loaded: one that did not is what a
+       switch is for. */
+    $('piece').disabled = synth === null || !clocksReady() ||
+                          shippedGraphs.size === 0 ||
+                          !room.features.includes('switch');
     $('stop').disabled = synth === null;
     $('tempo').disabled = !ready;
     $('export').disabled = synth === null;
@@ -1492,6 +1643,12 @@ async function paramsEdited ({ edits })
         /* Its stage was edited away or renamed: nothing was written. */
         if (e.param === '')
             continue;
+
+        if (!samePiece())
+        {
+            log(`${e.param}: not written; the room has another piece`);
+            continue;
+        }
 
         const name = pieceName(doc);
 
@@ -1697,6 +1854,12 @@ async function showPieces (wanted)
         /* No index: a new room gets the relay's default. */
     }
 
+    /* The switcher offers only what is shipped: it fetches from the site. */
+    $('piece').replaceChildren(...names.map((n) => new Option(n, n)));
+
+    if (doc !== null)
+        showPiece();
+
     if (wanted !== null && !names.includes(wanted))
         names.unshift(wanted);
 
@@ -1769,7 +1932,17 @@ async function join ()
                     { piece: $('newpiece').value || params.get('piece') });
     room.on('peers', () => { showPeers(); chat.peers(room.peers); })
         .on('chat', (m) => chat.said(m))
-        .on('refused', (m) => m.of === 'chat' && chat.refused(m))
+        .on('refused', (m) =>
+        {
+            if (m.of === 'chat')
+                chat.refused(m);
+            else if (m.of === 'switch')
+            {
+                status(`The relay did not switch to ${m.piece}: ${m.why}.`);
+                showPiece();
+            }
+        })
+        .on('switched', switched)
         .on('clock', () => { showNumbers(); enable(); })
         .on('transport', (from, data) => receive(from, data))
         .on('error', (text) => log(`relay: ${text}`))
@@ -1804,6 +1977,12 @@ async function join ()
         provider.synced ? resolve() : provider.once('synced', resolve));
 
     editor = new Editor($('editor'), $('tabs'), doc, provider.awareness);
+    meta(doc).observe(showPiece);
+    showPiece();
+
+    if (!room.features.includes('switch'))
+        $('piece').title = 'This relay is older than the page and cannot ' +
+                           'switch pieces.';
 
     /* The mesh. */
     mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
@@ -1885,6 +2064,7 @@ async function start ()
             edit: (at, text, files, tie) =>
             {
                 pendingEdits.set(tie, { text, files });
+                Object.keys(files).forEach((n) => overShipped.add(n));
                 synth.edit(at, text, files, tie);
             },
         };
@@ -1949,7 +2129,11 @@ async function start ()
            A document's own instruments are written over these at load
            (above), which is what a piece carrying its own amb01.dsp
            means. */
-        graphs.forEach((n, i) => synth.instrument(n, texts[i]));
+        graphs.forEach((n, i) =>
+        {
+            synth.instrument(n, texts[i]);
+            shippedGraphs.set(n, texts[i]);
+        });
 
         graphGroups = (await synth.dsps()).catalog?.groups ?? [];
 
@@ -1988,13 +2172,29 @@ async function start ()
             files: {
                 read: (name) => readFile(doc, name),
                 write: (name, next) => spliceFile(doc, name, next),
+                /* By name: a switch puts a new text under it. */
                 watch: (name, onChange) =>
                 {
-                    const text = files(doc).get(name);
+                    let text = files(doc).get(name);
+                    const rebind = (e) =>
+                    {
+                        if (!e.keysChanged.has(name))
+                            return;
+
+                        text?.unobserve(onChange);
+                        text = files(doc).get(name);
+                        text?.observe(onChange);
+                        onChange();
+                    };
 
                     text?.observe(onChange);
+                    files(doc).observe(rebind);
 
-                    return () => text?.unobserve(onChange);
+                    return () =>
+                    {
+                        text?.unobserve(onChange);
+                        files(doc).unobserve(rebind);
+                    };
                 },
             },
             onStatus: status,
@@ -2006,11 +2206,36 @@ async function start ()
             probe: (channel, node, arg) => synth.probe(channel, node, arg),
             unprobe: (slot) => synth.unprobe(slot),
         });
-        nodes.offer(fileNames(doc));
-        nodes.show(panes.visible('nodeview'));
-        files(doc).observe(() => nodes.offer(fileNames(doc)));
+        /* The files the editor has tabs for, which the .gen's text says,
+           and the one shown for as long as the document has it, as the
+           editor keeps its tab (editor.js, refreshTabs). Offered again
+           only when that changes, since this is every keystroke in every
+           file. */
+        let offered = null;
+        const offer = () =>
+        {
+            const names = pieceFiles(doc);
+            const shown = $('nodefile').value;
 
-        showNodeChannel();
+            if (files(doc).has(shown) && !names.includes(shown))
+            {
+                names.push(shown);
+                names.sort();
+            }
+
+            if (JSON.stringify(names) === offered)
+                return;
+
+            offered = JSON.stringify(names);
+            nodes.offer(names);
+            showNodeChannel();
+        };
+
+        offer();
+        nodes.show(panes.visible('nodeview'));
+        files(doc).observeDeep(offer);
+        meta(doc).observe(offer);
+
         $('nodefile').addEventListener('change', showNodeChannel);
     }
     catch (e)
@@ -2082,6 +2307,7 @@ function init ()
     $('start').addEventListener('click', start);
     $('play').addEventListener('click', play);
     $('apply').addEventListener('click', applyEdit);
+    $('piece').addEventListener('change', () => switchPiece($('piece').value));
     $('stop').addEventListener('click', stop);
     $('tempo').addEventListener('change', tempo);
     $('export').addEventListener('click', exportTape);
@@ -2230,6 +2456,12 @@ function init ()
            against. */
         file: (name) => readFile(doc, name),
         piece: () => pieceName(doc),
+        files: () => fileNames(doc),
+
+        /* And which of them the page shows: the editor's tabs and the
+           node editor's File menu. */
+        tabs: () => [...$('tabs').children].map((b) => b.textContent),
+        nodeFiles: () => [...$('nodefile').options].map((o) => o.value),
 
         /* The composer canvas's params popover: where a stage's handle is,
            so a harness can press one rather than aim at a guess, and what
