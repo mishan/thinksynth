@@ -72,6 +72,9 @@ const VELOCITY = 100;
 /* How many clock samples Play waits for. */
 const ENOUGH_SAMPLES = 4;
 
+/* How long the instrument picker's choice has to stay put, in ms. */
+const PICK_SETTLE = 600;
+
 /* Where the relay is: the URL's `relay', then the build's config.json,
    then the page's own host on the relay's usual port. */
 async function relayUrl (params)
@@ -307,15 +310,17 @@ async function send (cmd)
     /* An edit goes by the room socket alone: a peer that missed one plays
        another piece from there, and it can be larger than a data channel
        takes. In order behind the start it was made in, too, which is what
-       the run check in applyOne relies on. */
-    if (cmd.type !== 'edit')
+       the run check in applyOne relies on. A pick is an edit. */
+    const edit = cmd.type === 'edit' || cmd.type === 'pick';
+
+    if (!edit)
         mesh.broadcast(cmd);
 
     /* A start goes by the room socket too: the one command a peer must
        not miss, and what a joiner is told. Every other stamped command
        goes as a copy, which the relay keeps for whoever joins while this
        run plays. */
-    if (cmd.type === 'transport' || cmd.type === 'edit')
+    if (cmd.type === 'transport' || edit)
         room.transport(cmd);
     else if (replayable(cmd))
         room.log(cmd);
@@ -365,7 +370,8 @@ async function applyOne (from, cmd)
     /* An edit made in a run that has since been replaced: a peer that
        applied it before the new start would load over it anyway, so none
        does. */
-    if (cmd.type === 'edit' && cmd.run !== room.runKey)
+    if ((cmd.type === 'edit' || cmd.type === 'pick') &&
+        cmd.run !== room.runKey)
         return;
 
     if (synth === null)
@@ -402,8 +408,10 @@ async function applyOne (from, cmd)
     /* Ours moved its own slider as it was dragged. */
     if (cmd.type === 'knob' && from !== room.peer)
         setKnobValue(String(knobIds.get(cmd.knob) ?? cmd.knob), cmd.value);
-    else if (cmd.type === 'edit')
-        status(`${room.peers.get(from)?.name ?? from}'s edit` +
+    else if (cmd.type === 'edit' || cmd.type === 'pick')
+        status(`${room.peers.get(from)?.name ?? from}'s ` +
+               (cmd.type === 'edit' ? 'edit'
+                                    : `${cmd.name} on ${cmd.dsp}`) +
                (cmd.at >= 0 ? ` applies at ${cmd.at.toFixed(2)} s.` : '.'));
     else if (cmd.type === 'transport')
     {
@@ -993,8 +1001,8 @@ function showPeers ()
         const me = id === room.peer;
 
         el.className = me ? 'peer me' : 'peer';
-        el.textContent = p.name + (p.seat === null ? ''
-                                                   : ` (seat ${p.seat})`);
+        el.textContent = p.name + (p.seat === null
+                                   ? '' : ` (channel ${p.seat + 1})`);
 
         if (!me && mesh !== null)
         {
@@ -1089,7 +1097,7 @@ function showSeats ()
         const sound = soundOf(channel);
 
         sel.add(new Option(`${label}${sound === '' ? '' : `: ${sound}`} ` +
-                           `(channel ${channel})`, String(channel)));
+                           `(channel ${channel + 1})`, String(channel)));
     };
 
     for (const inst of piece?.instruments ?? [])
@@ -1112,13 +1120,25 @@ function showSeats ()
 /* The picker beside the seat: the graph your seat's instrument plays. Seats
  * are one peer's each, so only the holder changes it, and only where the
  * piece declares an instrument -- a channel it leaves to the page has no
- * line in the document to change, so the picker shows what is there. */
-function showInstrument ()
+ * line in the document to change, so the picker shows what is there.
+ *
+ * Rebuilt only when what it shows changes, or when `force' says a pick was
+ * refused and the menu has to go back: the seat list is redrawn on every
+ * ping, and a menu rebuilt under the pointer closes. */
+let pickerShows = '';
+
+function showInstrument (force = false)
 {
     const sel = $('instrument');
     const seat = room?.seat ?? null;
     const inst = seat === null ? undefined : instrumentOn(seat);
+    const shows = JSON.stringify([seat, inst?.dsp, soundOf(seat),
+                                  synth === null, graphGroups.length]);
 
+    if (shows === pickerShows && !force)
+        return;
+
+    pickerShows = shows;
     sel.replaceChildren();
     sel.disabled = inst === undefined || synth === null;
 
@@ -1135,36 +1155,42 @@ function showInstrument ()
         sel.add(new Option(inst.dsp, inst.dsp, true, true));
 }
 
-/* A graph picked for the seat: its instrument block rewritten in the
- * document by this peer, from the new graph's own values, and applied if
- * the room is playing -- at the next bar on every peer, through the reload
- * a changed instrument block gets. Stopped, the next Play takes it. */
+/* A graph picked for the seat.
+ *
+ * Asked of the module first, against the document: a pick that would leave
+ * a piece that does not load is refused here, to whoever made it, rather
+ * than found by everyone at the next Play. Then into the document, for the
+ * next Play and whoever loads it later, and into the piece by a `pick'
+ * command (commands.js) -- not an edit carrying this page's text, which
+ * would apply whatever else the document holds and lose a pick another
+ * peer made on the same bar. At the next bar on every peer while playing,
+ * at once while stopped. */
 async function pickInstrument (dsp)
 {
     const inst = room.seat === null ? undefined : instrumentOn(room.seat);
     const name = pieceName(doc);
     const was = name === null ? null : readFile(doc, name);
 
-    if (inst === undefined || was === null)
+    if (inst === undefined || was === null || dsp === inst.dsp)
         return;
 
-    const { text } = await synth.genSetInstrument(was, inst.name, dsp);
+    const { text, why } = await synth.genSetInstrument(was, inst.name, dsp);
 
     if (text === '' || readFile(doc, name) !== was)
     {
-        log(text === '' ? `could not put ${inst.name} on ${dsp}`
-                        : 'the piece changed while the instrument was ' +
-                          'being picked');
-        showInstrument();
+        status(text === '' ? `${inst.name} cannot play ${dsp}: ${why}`
+                           : 'The piece changed while the instrument was ' +
+                             'being picked; pick it again.');
+        showInstrument(true);
         return;
     }
 
     spliceFile(doc, name, text);
 
-    if (transport?.running)
-        await applyEdit();
-    else
-        log(`${inst.name} is on ${dsp}; Play applies it`);
+    const at = transport?.running && lastTape !== null
+        ? nextBar(transportNow(), lastTape, maker.transportLead) : -1;
+
+    await send({ ...maker.pick(at, inst.name, dsp), run: room.runKey });
 }
 
 /* A knob moved here is a command like everything else, heard knobLead
@@ -1870,8 +1896,17 @@ function init ()
         releaseAll();
         room.claim($('seat').value === '' ? null : Number($('seat').value));
     });
-    $('instrument').addEventListener('change',
-                                     () => pickInstrument($('instrument').value));
+    /* Once the choice has settled: arrows on a closed menu change it a row
+       at a time, and each row would be a pick, an edit and a reload on
+       every peer. */
+    let picking = null;
+
+    $('instrument').addEventListener('change', () =>
+    {
+        clearTimeout(picking);
+        picking = setTimeout(() => pickInstrument($('instrument').value),
+                             PICK_SETTLE);
+    });
     $('playmode').addEventListener('change', () =>
     {
         /* Whatever is held was stamped the old way and is let go that

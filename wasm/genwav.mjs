@@ -49,6 +49,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -78,6 +79,7 @@ function usage (argv0)
         '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
         '                          time AT: "AT knob NAME VALUE", "AT tempo BPM",\n' +
         '                          "AT edit FILE.gen", "AT midi CH NOTE VEL",\n' +
+        '                          "AT instrument NAME FILE.dsp",\n' +
         '                          "AT midioff CH NOTE" or "AT stop";\n' +
         '                          repeatable\n' +
         '  -q, --quiet             no summary\n');
@@ -173,6 +175,7 @@ async function main (argv0, args)
                 !((op === 'knob' && rest.length === 2) ||
                   (op === 'tempo' && rest.length === 1) ||
                   (op === 'edit' && rest.length === 1) ||
+                  (op === 'instrument' && rest.length === 2) ||
                   (op === 'midi' && rest.length === 3) ||
                   (op === 'midioff' && rest.length === 2) ||
                   (op === 'stop' && rest.length === 0)))
@@ -394,6 +397,7 @@ async function main (argv0, args)
 
     let next = 0;
     let stopped = false;
+    let picks = null;
 
     M._tw_start();
 
@@ -443,6 +447,35 @@ async function main (argv0, args)
                 if (!M.ccall('tw_edit', 'number', ['string'], [c.rest[0]]))
                 {
                     process.stderr.write(`${argv0}: the edit at ${c.at} ` +
+                                         'did not load:\n');
+
+                    for (let k = 0; k < M._tw_edit_error_count(); k++)
+                        process.stderr.write(
+                            `  ${M.ccall('tw_edit_error', 'string',
+                                         ['number'], [k])}\n`);
+
+                    return 1;
+                }
+            }
+            else if (c.op === 'instrument')
+            {
+                /* The piece as it now is, with the instrument on its new
+                   graph, is a file of its own, as an edit's text is. */
+                if (picks === null)
+                {
+                    picks = fs.mkdtempSync(path.join(os.tmpdir(), 'pick-'));
+                    process.on('exit', () => fs.rmSync(picks,
+                                                       { recursive: true,
+                                                         force: true }));
+                }
+
+                const file = path.join(picks, `${next}.gen`);
+
+                if (!M.ccall('tw_pick', 'number',
+                             ['string', 'string', 'string'],
+                             [c.rest[0], c.rest[1], file]))
+                {
+                    process.stderr.write(`${argv0}: the pick at ${c.at} ` +
                                          'did not load:\n');
 
                     for (let k = 0; k < M._tw_edit_error_count(); k++)

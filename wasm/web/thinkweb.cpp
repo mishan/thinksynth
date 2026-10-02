@@ -131,6 +131,7 @@
 #define TW_EXPORT_FILE "/export.gen"
 /* Where an edit's new text is put while it is read (applyEdit). */
 #define TW_EDIT_FILE "/piece-edit.gen"
+#define TW_PICK_FILE "/piece-pick.gen"
 
 /* Where the shipped pieces are kept, for the menu's sake alone: the piece
    being played is written to TW_PIECE_FILE above and loaded from there. */
@@ -183,6 +184,7 @@ enum TransportOp
     TW_SEEK,
     TW_EDIT,
     TW_NOTE,
+    TW_PICK,
 };
 
 struct Command
@@ -257,7 +259,8 @@ struct Scheduled
 
        TW_KNOB: `row' is the knob's name, when the command named one.
        TW_EDIT: `text' is the piece's new text; `files' below are the other
-       files it changed. */
+       files it changed. TW_PICK: `row' is an instrument and `text' the
+       graph it is to play. */
     std::string row, text;
 
     /* TW_EDIT: the other files it carries, as name and text, written only
@@ -852,6 +855,7 @@ captureEdits (const Scheduled &c, thcStage *st)
 }
 
 void applyEdit (const Scheduled &c);
+void applyPick (const Scheduled &c);
 
 /* Does a chain take `input midi' on this channel? */
 bool listensOn (int channel)
@@ -1101,6 +1105,10 @@ void applyScheduled (const Scheduled &given)
 
         case TW_EDIT:
             applyEdit(c);
+            break;
+
+        case TW_PICK:
+            applyPick(c);
             break;
 
         case TW_NOTE:
@@ -2265,6 +2273,109 @@ void applyEdit (const Scheduled &c)
                           sched_);
 
     edits_++;
+}
+
+std::string readText (const char *path)
+{
+    std::string text;
+    FILE *f = fopen(path, "rb");
+
+    if (f == NULL)
+        return text;
+
+    char buf[4096];
+    size_t got;
+
+    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+        text.append(buf, got);
+
+    fclose(f);
+
+    return text;
+}
+
+/* Instrument `name' put on graph `dsp' in the piece at `path', from the
+ * graph's own values (thcGenEdit::setInstrumentGraph), refused when a sink
+ * rides a chanarg the graph does not declare. The load an edit goes through
+ * cannot say so: it is staged, and checks sinks against the graphs on the
+ * channels now (thcGenLoader::checkSinkArgs). An instrument played over MIDI
+ * is checked against its `cc' map there, and its graph not at all. */
+thcGenEdit::Result pickInto (const std::string &path, const std::string &name,
+                             const std::string &dsp, std::string &why)
+{
+    thcGenEdit::Doc doc;
+    thcGenEdit::Result r = thcGenEdit::setInstrumentGraph(path, name, dsp,
+                                                          why);
+
+    if (r != thcGenEdit::OK ||
+        (r = thcGenEdit::describe(path, doc, why)) != thcGenEdit::OK)
+        return r;
+
+    for (const thcGenEdit::Instrument &inst : doc.instruments)
+        if (inst.name == name && !inst.midi.empty())
+            return thcGenEdit::OK;
+
+    const size_t plen = strlen(TH_EFFECT_PREFIX);
+    thSynthTree *tree = NULL;
+
+    for (const thcGenEdit::Chain &chain : doc.chains)
+        for (const thcGenEdit::Sink &sink : chain.sinks)
+        {
+            const std::string &arg = sink.chanarg;
+
+            /* `amp' is the channel's, and `*' and `fx.' are not the
+               instrument graph's to declare. */
+            if (sink.instrument != name || arg.empty() || arg == "*" ||
+                arg == "amp" || arg.compare(0, plen, TH_EFFECT_PREFIX) == 0)
+                continue;
+
+            if (tree == NULL &&
+                (tree = synth_->parseTree(std::string(TW_DSP_DIR) + "/" +
+                                          dsp)) == NULL)
+            {
+                why = "'" + dsp + "' did not parse";
+                return thcGenEdit::REFUSED;
+            }
+
+            if (tree->getChanArg(arg) == NULL)
+            {
+                why = "instrument '" + name + "' is '" + dsp + "', which "
+                      "declares no chanarg called '" + arg + "'";
+                delete tree;
+                return thcGenEdit::REFUSED;
+            }
+        }
+
+    delete tree;
+
+    return thcGenEdit::OK;
+}
+
+/* A pick applied to the piece as it is when the command applies, rather
+ * than to a text its sender read: two picks stamped for one bar each find
+ * the other's already in, on every peer in the same order. Then an edit
+ * like any other. */
+void applyPick (const Scheduled &c)
+{
+    std::string why;
+
+    if (!writeFile(TW_PICK_FILE, readText(TW_PIECE_FILE).c_str()) ||
+        pickInto(TW_PICK_FILE, c.row, c.text, why) != thcGenEdit::OK)
+    {
+        editErrors_.clear();
+        editErrors_.push_back("instrument " + c.row + ": " + why);
+        editResults_.push_back(std::make_pair(c.tie, 0));
+        edits_++;
+        return;
+    }
+
+    Scheduled e = c;
+
+    e.op = TW_EDIT;
+    e.text = readText(TW_PICK_FILE);
+    e.files.clear();
+
+    applyEdit(e);
 }
 
 } /* namespace */
@@ -4678,6 +4789,26 @@ EMSCRIPTEN_KEEPALIVE void tw_edit (double at, const char *text, double tie)
     schedule(c);
 }
 
+/* Instrument `name' onto graph `dsp' at transport time `at' (applyPick),
+ * ordered by `tie' among commands stamped for the same time. What a room's
+ * instrument picker sends. */
+EMSCRIPTEN_KEEPALIVE void tw_pick (double at, const char *name,
+                                   const char *dsp, double tie)
+{
+    if (name == NULL || dsp == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PICK;
+    c.row = name;
+    c.text = dsp;
+    c.tie = tie;
+
+    schedule(c);
+}
+
 /* Whether each edit applied since the last clear went in, in the order
    they were applied: 1 for one that is the piece now, 0 for one refused. */
 EMSCRIPTEN_KEEPALIVE int tw_edit_result_count (void)
@@ -5232,21 +5363,34 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
         });
 }
 
-/* Instrument `name' put on graph `dsp' in `text', from that graph's own
- * values (thcGenEdit::setInstrumentGraph): what a room's instrument picker
- * writes. "" when the writer refused. */
+/* Why the last tw_gen_set_instrument wrote nothing. */
+std::string pickWhy_;
+
+/* Instrument `name' put on graph `dsp' in `text' as applyPick will put it:
+ * what a room's instrument picker writes into its document, and asks before
+ * it sends the pick. "" when refused; tw_gen_set_instrument_why says why. */
 EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument (const char *text,
                                                         const char *name,
                                                         const char *dsp)
 {
+    pickWhy_.clear();
+
     if (text == NULL || name == NULL || dsp == NULL)
         return "";
 
     return spliceText(text, name,
         [&](const std::string &path, std::string &why)
         {
-            return thcGenEdit::setInstrumentGraph(path, name, dsp, why);
+            const thcGenEdit::Result r = pickInto(path, name, dsp, why);
+
+            pickWhy_ = why;
+            return r;
         });
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument_why (void)
+{
+    return pickWhy_.c_str();
 }
 
 static Scheduled inputOf (double at, int chain, int stage, int kind,

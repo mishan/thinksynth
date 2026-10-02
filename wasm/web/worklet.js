@@ -314,7 +314,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
 
         /* An instrument on another graph, in a text given: the edit a
-         * room's instrument picker makes. "" when refused. */
+         * room's instrument picker makes. "" and a reason when refused. */
         if (m.type === 'geninstrument')
         {
             this.port.postMessage({
@@ -322,6 +322,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                 text: this.M.ccall('tw_gen_set_instrument', 'string',
                                    ['string', 'string', 'string'],
                                    [m.text, m.name, m.dsp]),
+                why: this.M.ccall('tw_gen_set_instrument_why', 'string'),
             });
 
             return;

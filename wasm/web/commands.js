@@ -39,6 +39,7 @@
  *   knob       { at, knob, value }            knob: its name
  *   knobwrite  { at, knob, value }
  *   edit       { at, text, files }            the piece's new text
+ *   pick       { at, name, dsp }              an instrument's new graph
  *   input      { at, chain, stage, chainName, stageName, kind, x, y, w, h,
  *                button }
  *   param      { at, chain, stage, chainName, stageName, row, text }
@@ -151,6 +152,16 @@ export class Maker
     edit (at, text, files = {})
     {
         return { ...this.make('edit', { text, files }, 0), at };
+    }
+
+    /* Instrument `name' onto graph `dsp', at `at' -- the next bar, or -1
+     * while stopped, as for an edit. Not an edit's text: two picks on one
+     * bar would each carry a text without the other's, and the later would
+     * undo the earlier. Each peer puts it into the piece as the piece is
+     * when it applies (thinkweb.cpp, applyPick). */
+    pick (at, name, dsp)
+    {
+        return { ...this.make('pick', { name, dsp }, 0), at };
     }
 
     /* A gesture on a stage's picture: which stage, what kind of gesture,
@@ -535,6 +546,10 @@ function applyNow (cmd, { synth, listens, self = null })
 
         case 'edit':
             synth.edit(cmd.at, cmd.text, cmd.files, tieOf(cmd));
+            break;
+
+        case 'pick':
+            synth.pick(cmd.at, cmd.name, cmd.dsp, tieOf(cmd));
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.

@@ -318,6 +318,12 @@ export function apply (M, m, host = NOWHERE)
 
             return true;
 
+        case 'pick':
+            /* An instrument onto another graph (thinkweb.cpp, TW_PICK). */
+            M.ccall('tw_pick', null, ['number', 'string', 'string', 'number'],
+                    [m.at, m.name, m.dsp, m.tie]);
+            return true;
+
         case 'noteat':
             /* A key at a transport time (thinkweb.cpp, TW_NOTE). */
             M._tw_note_at(m.at, m.channel, m.note, m.velocity, m.on ? 1 : 0,

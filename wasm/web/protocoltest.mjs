@@ -289,6 +289,10 @@ class Peer
                 M.ccall('tw_edit', null, ['number', 'string', 'number'],
                         [at, text, tie]);
             },
+            pick: (at, name, dsp, tie) =>
+                M.ccall('tw_pick', null,
+                        ['number', 'string', 'string', 'number'],
+                        [at, name, dsp, tie]),
             transportAt: (op, at, value = 0) =>
                 schedule(M, { op, at, value }),
             knob: (knob, value, at) =>
@@ -484,6 +488,18 @@ class Peer
 
         return this.maker.edit(nextBar(this.transportNow(), report,
                                        this.maker.transportLead), text);
+    }
+
+    /* A pick of this peer's own: at the next bar, or at once while
+       stopped, as the page sends one (jam.js, pickInstrument). */
+    pick (name, dsp)
+    {
+        return this.maker.pick(this.transport.running
+                                   ? nextBar(this.transportNow(),
+                                             this.report(),
+                                             this.maker.transportLead)
+                                   : -1,
+                               name, dsp);
     }
 
     /* A command of this peer's own: applied here, sent to everyone else,
@@ -1161,13 +1177,18 @@ function graphOf (M, name)
     return null;
 }
 
+/* The three seats freeSession picks for. */
+const PICKED = ['one', 'two', 'three'];
+
 /* Two peers in a free room: free.gen, an instrument per seat and nothing
- * composed. Both play the first seat, one quantized and one a bar ahead,
- * and partway through A picks another graph for it, as the room page's
- * picker does: the document rewritten by the module's own writer, and sent
- * as an edit for the next bar. Every render on both peers is noted with the
- * graph the seat plays after it. Returns what handsSession does, and the
- * edit's time and the notes.
+ * composed. While stopped, A picks a graph for seat two, which every peer
+ * puts on at once; A's document has it too, which is what the Play loads.
+ * Then both play seat one, one quantized and one a bar ahead, and partway
+ * through A picks for seat one and B for seat three a few milliseconds
+ * apart: one bar for both, and neither pick carries the other's text.
+ * Every render while playing, on both peers, is noted with the graph each
+ * seat plays after it. Returns what handsSession does, the bar the two
+ * picks landed on, and what each peer played seat two on before the Play.
  */
 async function freeSession (createThinkWeb, piece, dsps)
 {
@@ -1195,7 +1216,10 @@ async function freeSession (createThinkWeb, piece, dsps)
             const from = M._tw_now();
 
             render();
-            peer.graphs.push([from, M._tw_now(), graphOf(M, 'one')]);
+
+            if (M._tw_running())
+                peer.graphs.push([from, M._tw_now(),
+                                  PICKED.map((n) => graphOf(M, n))]);
         };
         peers.push(peer);
     }
@@ -1205,6 +1229,7 @@ async function freeSession (createThinkWeb, piece, dsps)
     const seat = Math.min(...A.listens);
     const stamped = [];
     const origin = 3000 + TRANSPORT_LEAD * 1000;
+    const before = [];
     let stopAt = null;
     let picked = null;
 
@@ -1219,10 +1244,25 @@ async function freeSession (createThinkWeb, piece, dsps)
     {
         const cmd = make();
 
-        await who.send(cmd, cmd.type === 'transport');
+        await who.send(cmd, cmd.type === 'transport' || cmd.type === 'pick');
         stamped.push(cmd);
+    });
 
-        return cmd;
+    /* Stopped: the document as the picker splices it, for the Play. */
+    send(A, 1000, () =>
+    {
+        const text = A.M.ccall('tw_gen_set_instrument', 'string',
+                               ['string', 'string', 'string'],
+                               [piece.text, 'two', 'pluck.dsp']);
+
+        A.gen = B.gen = text;
+        return A.pick('two', 'pluck.dsp');
+    });
+
+    sim.at(2900, () =>
+    {
+        for (const p of peers)
+            before.push(graphOf(p.M, 'two'));
     });
 
     send(A, 3000, () => A.maker.start(relay.now() + TRANSPORT_LEAD * 1000,
@@ -1243,17 +1283,14 @@ async function freeSession (createThinkWeb, piece, dsps)
         send(who, t + 400, () => who.release(seat, note, held));
     }
 
-    sim.at(origin + 5200, async () =>
+    send(A, origin + 5200, () =>
     {
-        const text = A.M.ccall('tw_gen_set_instrument', 'string',
-                               ['string', 'string', 'string'],
-                               [piece.text, 'one', 'dxbell.dsp']);
-        const cmd = A.edit(text);
+        const cmd = A.pick('one', 'dxbell.dsp');
 
         picked = cmd.at;
-        await A.send(cmd);
-        stamped.push(cmd);
+        return cmd;
     });
+    send(B, origin + 5205, () => B.pick('three', 'strings.dsp'));
 
     send(A, origin + 12000, () =>
     {
@@ -1275,7 +1312,7 @@ async function freeSession (createThinkWeb, piece, dsps)
         return sim.t >= settle;
     });
 
-    return { ok: true, peers, stamped, stopAt, picked };
+    return { ok: true, peers, stamped, stopAt, picked, before };
 }
 
 /* A command that names a stage, applied after an edit that moved it.
@@ -1727,13 +1764,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         }
     }
 
-    /* An instrument picked for a seat while the room plays. */
+    /* Instruments picked for seats, stopped and while the room plays. */
     {
         const piece = pieces(build).find((p) => p.name === 'free.gen');
         const r = await freeSession(createThinkWeb, piece, dsps);
 
-        process.stdout.write('\nan instrument picked for a seat of free.gen ' +
-                             'while two peers play it\n\n');
+        process.stdout.write('\ninstruments picked for seats of free.gen, ' +
+                             'stopped and while two peers play it\n\n');
 
         if (!r.ok)
         {
@@ -1746,14 +1783,34 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             const [A, B] = r.peers;
             const a = tapeBefore(A.tape, r.stopAt);
             const b = tapeBefore(B.tape, r.stopAt);
-            const complaints = [...editComplaints(r)];
+            const complaints = [];
+            /* The Play's load starts the count again. */
+            const picks = r.stamped.filter((c) => c.type === 'pick' &&
+                                                  c.at >= 0);
+            const bars = new Set(picks.map((c) => c.at));
+
+            for (const p of r.peers)
+                if (p.M._tw_edit_count() !== picks.length ||
+                    p.M._tw_edit_error_count() !== 0)
+                    complaints.push(`${p.name} applied ` +
+                                    `${p.M._tw_edit_count()} of ` +
+                                    `${picks.length} picks`);
+
+            if (bars.size !== 1)
+                complaints.push(`the two picks while playing landed on ` +
+                                `${bars.size} bars`);
+
+            if (r.before.some((g) => g !== 'pluck.dsp'))
+                complaints.push(`seat two before the Play: ` +
+                                `${r.before.join(', ')}`);
 
             if (a !== b)
                 complaints.push(`the two tapes differ: ` +
                                 `${firstDifference(a, b)}`);
 
             const want = reference('free.gen', nodeBuild, {
-                commands: r.stamped, stopAt: r.stopAt,
+                commands: r.stamped.filter((c) => c.at >= 0),
+                stopAt: r.stopAt,
             });
 
             if (a !== want)
@@ -1763,19 +1820,24 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             if (a.split('\n').length < 10)
                 complaints.push('the seat hardly played');
 
-            /* Up to the bar the old graph and from the window after it the
-               new one, on both peers: the window is as late as an edit
-               stamped inside one may land. */
+            /* Up to the bar the old graphs and from the window after it
+               the new ones, on both peers: the window is as late as a
+               command stamped inside one may land. Seat two stays on the
+               graph picked while stopped, through the Play's load. */
+            const was = ['rhodes.dsp', 'pluck.dsp', 'ebass.dsp'];
+            const now = ['dxbell.dsp', 'pluck.dsp', 'strings.dsp'];
+
             for (const p of r.peers)
             {
                 const window = p.spec.windowlen / p.spec.rate;
-                const wrong = p.graphs.find(([from, to, dsp]) =>
-                    (to < r.picked && dsp !== 'rhodes.dsp') ||
-                    (from >= r.picked + window && dsp !== 'dxbell.dsp'));
+                const wrong = p.graphs.find(([from, to, dsps]) =>
+                    (to < r.picked && dsps.join() !== was.join()) ||
+                    (from >= r.picked + window && dsps.join() !== now.join()));
 
                 if (wrong !== undefined)
-                    complaints.push(`${p.name} played ${wrong[2]} at ` +
-                                    `${wrong[0].toFixed(3)} s, the pick ` +
+                    complaints.push(`${p.name} played ` +
+                                    `${wrong[2].join(', ')} at ` +
+                                    `${wrong[0].toFixed(3)} s, the picks ` +
                                     `landing at ${r.picked.toFixed(3)} s`);
             }
 
@@ -1788,9 +1850,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             else
                 process.stdout.write(
                     `ok    free.gen       ${String(a.split('\n').length - 1)
-                                             .padStart(5)} events; ` +
-                    `rhodes.dsp to dxbell.dsp at ${r.picked.toFixed(3)} s ` +
-                    'on both peers\n');
+                                             .padStart(5)} events; seat two ` +
+                    'on pluck.dsp before the Play, seats one and three ' +
+                    `picked from two peers on one bar, ` +
+                    `${r.picked.toFixed(3)} s, and both picks kept\n`);
         }
     }
 

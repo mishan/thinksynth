@@ -430,7 +430,7 @@ export async function createSynth (ctx, { windowlen = 256,
             ask({ type: 'genmove', text, chain: chainName, from, to }),
 
         /* Instrument `name' on graph `dsp' in `text', from that graph's
-           own values. Resolves to { text }, "" when the writer refused. */
+           own values. Resolves to { text, why }, "" when refused. */
         genSetInstrument: (text, name, dsp) =>
             ask({ type: 'geninstrument', text, name, dsp }),
 
@@ -482,6 +482,11 @@ export async function createSynth (ctx, { windowlen = 256,
         noteAt: (at, channel, note, velocity, on, heard, tie) =>
             post({ type: 'noteat', at, channel, note, velocity, on, heard,
                    tie }),
+
+        /* Instrument `name' onto graph `dsp' at transport time `at', in the
+           piece as it stands then; `onEdited' hears it as an edit. */
+        pick: (at, name, dsp, tie) =>
+            post({ type: 'pick', at, name, dsp, tie }),
 
         /* A channel's parameters, as the module describes them
          * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a

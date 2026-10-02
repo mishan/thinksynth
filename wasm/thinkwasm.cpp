@@ -50,6 +50,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenDiff.h"
+#include "thcGenEdit.h"
 #include "thcGenFile.h"
 
 #include "twevent.h"
@@ -136,6 +137,29 @@ EMSCRIPTEN_KEEPALIVE int tw_edit (const char *genFile)
     current_ = genFile;
 
     return 1;
+}
+
+/* Instrument `name' onto graph `dsp' in the piece as it now is, written to
+ * `genFile' and applied as tw_edit applies one: what a room's pick does in
+ * the browser (thinkweb.cpp, applyPick). */
+EMSCRIPTEN_KEEPALIVE int tw_pick (const char *name, const char *dsp,
+                                  const char *genFile)
+{
+    std::error_code ec;
+    std::string why;
+
+    std::filesystem::copy_file(current_, genFile,
+                               std::filesystem::copy_options::
+                                   overwrite_existing, ec);
+
+    if (ec || thcGenEdit::setInstrumentGraph(genFile, name, dsp, why) !=
+                  thcGenEdit::OK)
+    {
+        editErrors_.assign(1, ec ? ec.message() : why);
+        return 0;
+    }
+
+    return tw_edit(genFile);
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_edit_error_count (void)
