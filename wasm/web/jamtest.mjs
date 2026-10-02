@@ -1525,6 +1525,9 @@ try
         }
 
         ok(`${label} joined the room and started`);
+
+        if (await page.isVisible('#start'))
+            fail(`${label} still offers Start once started`);
     }
 
     /* Seen each other, by whatever path -- given the ten seconds the

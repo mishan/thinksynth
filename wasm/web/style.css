@@ -176,14 +176,26 @@ pre
 
 .roomlist
 {
-    flex-basis: 100%;
+    list-style: none;
     margin: 0;
-    padding-left: 1.2em;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    color: var(--dim);
+}
+
+.roomlist::before
+{
+    content: "Open rooms";
+    color: var(--fg);
+    font-weight: 600;
 }
 
 .roomlist button
 {
     font: inherit;
+    margin-right: 0.3em;
 }
 
 .row
@@ -396,8 +408,8 @@ kbd
 }
 
 /* The one thing to press first, as the thing to press: Start here, and
-   Join on the room page. */
-#start, #join
+   Join on the room page, and Play there once it has started. */
+#start, #join, #play.primary
 {
     background: AccentColor;
     color: AccentColorText;
@@ -406,16 +418,16 @@ kbd
     padding: 0.05em 0.9em;
 }
 
-#start:hover:not(:disabled), #join:hover:not(:disabled)
+#start:hover:not(:disabled), #join:hover:not(:disabled),
+#play.primary:hover:not(:disabled)
 {
     filter: brightness(1.1);
 }
 
 /* Until Start, the panes a synth fills have nothing in them, and a page
    of empty boxes reads as one that failed to load. Each says what it
-   will hold instead. index.html's body starts data-unstarted and main.js
-   takes it off once there is a synth; the room page, which shares these
-   panes and never starts this way, has no such attribute. */
+   will hold instead. Both pages' bodies start data-unstarted, and
+   main.js and jam.js take it off once there is a synth. */
 body[data-unstarted] :is(#tracks, #params, #channels):empty::before,
 body[data-unstarted] :is(#roll, #nodescroll)::after
 {
@@ -438,6 +450,21 @@ body[data-unstarted] #params:empty::before
 body[data-unstarted] #channels:empty::before
 {
     content: "Press Start: each channel's instrument goes here.";
+}
+
+/* A room's knobs, which a piece may not have any of. */
+#roompanel #knobs:empty::before
+{
+    content: "This piece has no knobs.";
+    display: block;
+    padding: 1.5em 0.5em;
+    color: var(--dim);
+    text-align: center;
+}
+
+body[data-unstarted] #roompanel #knobs:empty::before
+{
+    content: "Press Start: the piece's knobs go here.";
 }
 
 body[data-unstarted] :is(#roll, #nodescroll) { position: relative; }
@@ -791,6 +818,81 @@ details { margin: 0.8em 0; }
 
 .peers .peer.me { border-color: var(--held); }
 .peers .path { color: var(--dim); font-size: 0.85em; margin-left: 0.4em; }
+
+/* The room's header: the title, what is going on and who is here, on one
+   line, and the piece's description in whatever that leaves. */
+#roomhead { margin: 0 0 0.4em; }
+#roomhead h1 { margin: 0; white-space: nowrap; }
+#roomhead > p { margin: 0; }
+#roomhead > p:empty { display: none; }
+
+#roomhead #about
+{
+    flex: 1 1 12em;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* No room beside the title for the description: a line of its own. */
+@media (max-width: 40em)
+{
+    #roomhead #about { flex-basis: 100%; white-space: normal; }
+}
+
+#roomhead .peers { gap: 0.4em; }
+#roomhead .peers .peer { padding: 0 0.5em; }
+
+/* Before joining: the title over a card. */
+body:has(#joinrow:not([hidden])) #roomhead
+{
+    flex-direction: column;
+    margin-top: 2em;
+}
+
+#joinrow
+{
+    max-width: 24em;
+    margin: 1em auto;
+    padding: 1em 1.2em;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+}
+
+#joinrow > p { margin: 0; }
+
+#joinrow > label
+{
+    display: grid;
+    grid-template-columns: 3.5em 1fr;
+    align-items: center;
+}
+
+#joinrow > .roomlist { margin-bottom: 0.4em; }
+#join { align-self: flex-end; }
+
+/* The controls, grouped: the transport, then where your keys go. */
+#roomtools { margin: 0 0 0.4em; }
+body.tiled #roomtools > .group + .group
+{
+    padding-left: 0.6em;
+    border-left: 1px solid var(--line);
+}
+
+/* A seat's name is long and "none" is short: the menu as wide as what it
+   shows, where the browser can do that. */
+#seat { field-sizing: content; max-width: 16em; }
+#modenote { color: var(--dim); font-size: 0.9em; }
+
+/* The closed panes, at the end of the controls rather than on a row of
+   their own over the layout. */
+#roomdrawer { margin-left: auto; }
+#roomdrawer .panedrawer { margin: 0; }
 
 .tabs { display: flex; gap: 0.3em; flex-wrap: wrap; }
 
