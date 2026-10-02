@@ -57,8 +57,8 @@
  * NodeEdit writes for the same edit.
  *
  * And last a room on seq.gen, where one page clicks a cell in its Sequencer
- * pane: the same tape on both pages, not the untouched one, and the same
- * cell in both documents.
+ * pane after an edit has moved the track: the same tape on both pages, not
+ * the untouched one, and the same cell in both documents.
  *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
@@ -360,6 +360,10 @@ async function paintTogether (pages)
  * cell written into the document once, the same on both pages. And the
  * command has to carry the stage's names, which is what lets it reach its
  * stage across an edit.
+ *
+ * Before the click, an edit puts a grid chain above the snare's: every
+ * index after it moves, and the pane has to follow with a track for the
+ * new chain and the snare's picture under the snare's name.
  */
 async function sequenceTogether (pages)
 {
@@ -402,8 +406,6 @@ async function sequenceTogether (pages)
     }
 
     const pieceFile = await A.page.evaluate(() => window.jam.piece());
-    const docWas = await A.page.evaluate(
-        (name) => window.jam.file(name), pieceFile);
 
     await A.page.evaluate(() => window.jam.play());
 
@@ -411,10 +413,61 @@ async function sequenceTogether (pages)
     const at = (ms) => new Promise((r) =>
         setTimeout(r, Math.max(0, t0 + ms - Date.now())));
 
-    await at(3000);
+    await at(2000);
 
-    /* The snare's third step, which the file leaves empty. */
-    const box = await B.page.$eval('#tracks .track:nth-child(2) canvas',
+    const inserted = await A.page.evaluate(() =>
+    {
+        const name = window.jam.piece();
+        const was = window.jam.file(name);
+        const next = was.replace('chain snare {',
+            'chain rim {\n    stage seq gen::grid {\n' +
+            '        notes = "C#2"; steps = 16; rows = 1;\n' +
+            '        cells = "......x.......x.";\n' +
+            '        period = 0.25 beats; hold = 0.1 beats; listen = 0;\n' +
+            '    };\n    sink { instrument = hat; };\n};\n\n' +
+            'chain snare {');
+
+        if (next === was)
+            return false;
+
+        window.jam.setFile(name, next);
+        window.jam.apply();
+
+        return true;
+    });
+
+    const followed = inserted && await B.page.waitForFunction(() =>
+    {
+        const grids = document.querySelectorAll('#tracks canvas.trackgrid');
+
+        return window.jam.edits() === 1 && grids.length === 7 &&
+               [...grids].every((c) => c.height !== 150);
+    }, null, { timeout: 15000 }).then(() => true, () => false);
+
+    if (!followed)
+    {
+        const now = await B.page.evaluate(() => [window.jam.edits(),
+            document.querySelectorAll('#tracks canvas.trackgrid').length]);
+
+        fail(`${B.label}'s Sequencer did not follow the edit that put a ` +
+             `chain above the snare: ${now[0]} edits, ${now[1]} tracks`);
+        return;
+    }
+
+    ok(`${B.label}'s Sequencer has a track for the chain an edit put ` +
+       'above the snare');
+
+    await A.page.waitForFunction(() => window.jam.edits() === 1, null,
+                                 { timeout: 15000 }).catch(() => {});
+
+    const docWas = await A.page.evaluate(
+        (name) => window.jam.file(name), pieceFile);
+
+    await at(5000);
+
+    /* The snare's third step, which the file leaves empty: the third
+       track now, after the kick and the chain the edit put in. */
+    const box = await B.page.$eval('#tracks .track:nth-child(3) canvas',
                                    (c) =>
     {
         const r = c.getBoundingClientRect();
@@ -484,12 +537,18 @@ async function sequenceTogether (pages)
                 (name) => window.jam.file(name), pieceFile))));
 
     const wasLines = docWas.split('\n');
-    const changed = docs[0].split('\n').filter((l, i) => l !== wasLines[i]);
+    const nowLines = docs[0].split('\n');
+    const changedAt = nowLines.flatMap((l, i) => l !== wasLines[i] ? [i] : []);
+    const changed = changedAt.map((i) => nowLines[i]);
+    const chainOf = (i) => nowLines.slice(0, i + 1).reverse()
+        .find((l) => /^chain /.test(l));
 
     if (docs[0] !== docs[1])
         fail(`the two pages' documents differ after the click: ` +
              `${firstDifference(docs[0], docs[1])}`);
-    else if (changed.length !== 1 || !/^\s*cells\s*=\s*"..x/.test(changed[0]))
+    else if (nowLines.length !== wasLines.length || changed.length !== 1 ||
+             chainOf(changedAt[0]) !== 'chain snare {' ||
+             !/^\s*cells\s*=\s*"..x.x.......x...";/.test(changed[0]))
         fail(`the click is not the snare's cells in ${pieceFile}: ` +
              JSON.stringify(changed));
     else

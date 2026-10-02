@@ -528,6 +528,9 @@ statement order is irrelevant and edges carry the topology; in a chain, order
 IS the topology, and using the same word for both would invite the wrong
 intuition in whoever edits the file.
 
+No two chains in a piece share a name: a jam room's commands find a chain
+by it.
+
 A chain body holds, in order:
 
 - optionally `start = 93 beats;` — the chain's generators first wake at

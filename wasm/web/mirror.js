@@ -108,7 +108,8 @@ async function start ({ bytes, windowlen, sampleRate })
 
 /* The piece the canvas is now showing, in the little the page needs to
  * know about it: the chains by name, and their stages with whether each
- * has a picture and whether that picture is a control. Sent once per load.
+ * has a picture and whether that picture is a control. Sent once per load,
+ * and again as `chains' after an edit.
  *
  * The page uses it to offer the stages that can be painted on; everything
  * else about the drawing it never needs to know, because it does not do
@@ -138,6 +139,15 @@ function showPiece ()
        is this piece's and not whatever the last one left. */
     fitToWidth();
 
+    post({ type: 'piece', chains: chainsNow() });
+    editsShown = M._tw_edit_count();
+}
+
+/* How many edits the piece had when its chains were last posted. */
+let editsShown = 0;
+
+function chainsNow ()
+{
     const chains = [];
 
     for (let c = 0; c < M._tw_chain_count(); c++)
@@ -167,7 +177,7 @@ function showPiece ()
         });
     }
 
-    post({ type: 'piece', chains });
+    return chains;
 }
 
 /* What the piece calls a chain and a stage: what a command names the stage
@@ -547,6 +557,15 @@ function receive (m)
         case 'step':
         {
             M._tw_step(m.frame);
+
+            /* An edit moves chains and stages without a load, and the
+               sequencer finds its tracks by index. Not `piece', which the
+               composer view takes for a load. */
+            if (M._tw_edit_count() !== editsShown)
+            {
+                editsShown = M._tw_edit_count();
+                post({ type: 'chains', chains: chainsNow() });
+            }
 
             /* The worklet tells the page what its param edits wrote; the
                same edits here are only forgotten, or they would pile up. */

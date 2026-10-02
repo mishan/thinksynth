@@ -38,12 +38,14 @@ instrument hat   { dsp "hat808.dsp";   amp = 15; };
 instrument bass  { dsp "fmbass.dsp";   amp = 26; };
 instrument pad   { dsp "juno.dsp";     amp = 14; };
 
+# The cells are written the way a click writes them back, with no bar
+# lines, so a click in a room changes a cell and not the whole line.
 chain kick {
     stage seq gen::grid {
         notes  = "C2";
         steps  = 16;
         rows   = 1;
-        cells  = "x...|...x|..x.|....";
+        cells  = "x......x..x.....";
         period = 0.25 beats;
         hold   = 0.2 beats;
         vel    = 104;
@@ -57,7 +59,7 @@ chain snare {
         notes  = "D2";
         steps  = 16;
         rows   = 1;
-        cells  = "....|x...|....|x...";
+        cells  = "....x.......x...";
         period = 0.25 beats;
         hold   = 0.2 beats;
         vel    = 92;
@@ -71,7 +73,7 @@ chain clap {
         notes  = "D#2";
         steps  = 16;
         rows   = 1;
-        cells  = "....|....|....|...x";
+        cells  = "...............x";
         period = 0.25 beats;
         hold   = 0.2 beats;
         vel    = 84;
@@ -85,7 +87,7 @@ chain hat {
         notes  = "F#2";
         steps  = 16;
         rows   = 1;
-        cells  = "X.x.|X.x.|X.x.|X.xx";
+        cells  = "X.x.X.x.X.x.X.xx";
         period = 0.25 beats;
         hold   = 0.1 beats;
         vel    = 64;

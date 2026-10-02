@@ -2057,6 +2057,14 @@ thcGenLoader::parseChain (thcScheduler *sched)
     if (!expectPunct('{'))
         return false;
 
+    /* A room's commands find their chain by name, as they do a stage. */
+    for (size_t i = 0; i < sched->chainCount(); i++)
+        if (sched->chain(i)->name == nameTok.text)
+        {
+            error(nameTok.line, "two chains are named " + nameTok.text);
+            return false;
+        }
+
     size_t chain = sched->addChain(nameTok.text);
     bool sawSink = false;
     bool sawGenerator = false;
