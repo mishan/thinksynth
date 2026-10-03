@@ -1735,6 +1735,43 @@ async function accountsTogether (pages)
     else
         fail(`logged in, the name box holds ${JSON.stringify(named)}`);
 
+    /* Sent to another relay, the page is a guest there: no button, and
+       the session neither sent nor dropped. */
+    const other = await relay({ port: 0, host: '127.0.0.1', tree: top,
+                                corsOrigin: '*' });
+
+    try
+    {
+        await A.page.goto(`${url}&room=jamelsewhere&name=Mal&relay=` +
+                          `ws://127.0.0.1:${other.address().port}`);
+        await A.page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden, null,
+            { timeout: 15000 });
+
+        const there = [...other.rooms.get('jamelsewhere').peers.values()];
+        const kept = await A.page.evaluate(() => Object.keys(localStorage)
+            .filter((k) => k.startsWith('thinksynth:account:')).length);
+        const button = await A.page.isVisible('#account');
+
+        if (there.length === 1 && there[0].account === null &&
+            there[0].name === 'Mal' && kept === 1 && !button)
+            ok('another relay is joined as a guest, and not shown the ' +
+               'session');
+        else
+            fail(`at another relay: ${JSON.stringify(there.map((p) =>
+                [p.name, p.account]))}, ${kept} sessions kept, the ` +
+                 `button ${button ? 'shown' : 'hidden'}`);
+    }
+    finally
+    {
+        other.shutdown();
+    }
+
+    await A.page.goto(lobby);
+    await A.page.waitForFunction(
+        () => document.getElementById('name').value === 'Ann', null,
+        { timeout: 10000 });
+
     await A.page.click('#join');
     await A.page.waitForFunction(
         () => !document.getElementById('roompanel').hidden, null,

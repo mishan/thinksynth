@@ -100,7 +100,7 @@ export class Room
 
             ws.addEventListener('open', () =>
                 this.send({ type: 'hello', name: this.name,
-                            protocol: PROTOCOL,
+                            protocol: PROTOCOL, tickets: true,
                             ...(this.session === null
                                 ? {} : { session: this.session }) }));
 

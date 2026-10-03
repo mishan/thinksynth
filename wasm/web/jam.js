@@ -81,13 +81,16 @@ const ENOUGH_SAMPLES = 4;
 /* How long the instrument picker's choice has to stay put, in ms. */
 const PICK_SETTLE = 600;
 
-/* Where the relay is: the URL's `relay', then the build's config.json,
-   then the page's own host on the relay's usual port. */
+/* Where the relay is: the URL's `relay', then the site's own (homeRelay). */
 async function relayUrl (params)
 {
-    if (params.get('relay'))
-        return params.get('relay');
+    return params.get('relay') || await homeRelay();
+}
 
+/* The relay the site names: the build's config.json, then the page's own
+   host on the relay's usual port. Accounts are this one's (accountui.js). */
+async function homeRelay ()
+{
     try
     {
         const cfg = await (await fetch('config.json')).json();
@@ -1974,10 +1977,12 @@ async function join ()
     $('join').disabled = true;
     status(`Joining ${roomName} at ${url}...`);
 
+    const session = await accounts.session();
+
     room = new Room(url, roomName, $('name').value.trim() ||
                         `guest-${Math.floor(Math.random() * 1000)}`,
                     { piece: $('newpiece').value || params.get('piece'),
-                      session: accounts.session() });
+                      session });
     room.on('peers', () => { showPeers(); chat.peers(room.peers); })
         .on('chat', (m) => chat.said(m))
         .on('refused', (m) =>
@@ -2327,7 +2332,7 @@ function init ()
     /* Logged in, the name is the handle, and not this page's to change. */
     accounts = createAccounts({
         open: $('account'), dialog: $('accountdialog'),
-        relay: () => relayUrl(params),
+        relay: () => relayUrl(params), home: homeRelay,
         onChange: (handle) =>
         {
             $('name').disabled = handle !== null;

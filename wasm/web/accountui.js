@@ -35,16 +35,18 @@
 
 import { ACCOUNT_API, apiOriginOf, normalizeName } from './account.js';
 
-const STORE = 'thinksynth:account';
+/* A session is kept under the relay it is for: one relay's is never
+   another's to see, nor to end. */
+const STORE = 'thinksynth:account:';
 
 /* A request slower than this is a relay that is not answering. */
 const REQUEST_MS = 10000;
 
-function load ()
+function load (origin)
 {
     try
     {
-        const kept = JSON.parse(localStorage.getItem(STORE));
+        const kept = JSON.parse(localStorage.getItem(STORE + origin));
 
         return typeof kept?.session === 'string' ? kept : null;
     }
@@ -54,14 +56,14 @@ function load ()
     }
 }
 
-function keep (kept)
+function keep (origin, kept)
 {
     try
     {
         if (kept === null)
-            localStorage.removeItem(STORE);
+            localStorage.removeItem(STORE + origin);
         else
-            localStorage.setItem(STORE, JSON.stringify(kept));
+            localStorage.setItem(STORE + origin, JSON.stringify(kept));
     }
     catch
     {
@@ -89,13 +91,13 @@ function client (origin)
         try
         {
             res = await fetch(`${origin}${ACCOUNT_API}${route}`, {
-                method: body === undefined && route === '/me' ? 'GET' : 'POST',
+                method: route === '/me' ? 'GET' : 'POST',
                 headers: {
-                    ...(body === undefined
+                    ...(route === '/me'
                         ? {} : { 'Content-Type': 'application/json' }),
                     ...(session ? { Authorization: `Bearer ${session}` } : {}),
                 },
-                body: body === undefined ? undefined : JSON.stringify(body),
+                body: route === '/me' ? undefined : JSON.stringify(body ?? {}),
                 signal: AbortSignal.timeout(REQUEST_MS),
             });
         }
@@ -119,11 +121,12 @@ function client (origin)
         register: (handle) => call('/register', { body: { handle } }),
         login: (key) => call('/login', { body: { key } }),
         me: (session) => call('/me', { session }),
-        rename: (session, handle) =>
-            call('/handle', { session, body: { handle } }),
+        rename: (session, handle, key) =>
+            call('/handle', { session, body: { handle, key } }),
         replaceKey: (session, key) => call('/key', { session, body: { key } }),
         logout: (session) => call('/logout', { session }),
-        remove: (session, key) => call('/delete', { session, body: { key } }),
+        remove: (session, key, handle) =>
+            call('/delete', { session, body: { key, handle } }),
     };
 }
 
@@ -144,6 +147,8 @@ function failed (e)
             return 'That handle is taken.';
         case 'bad_handle':
             return 'A handle needs at least one visible character.';
+        case 'confirm':
+            return 'Type your handle to delete the account.';
         case 'banned':
             return 'This account is banned.';
         default:
@@ -206,13 +211,20 @@ function download (handle, key)
 
 /*
  * `open' is the join card's button, `dialog' the <dialog> the screens go
- * in, and `relay()' resolves to the relay's URL. `onChange(handle)' is
- * called whenever who this page is changes: a handle, or null for a guest.
- * The button stays hidden on a relay without accounts.
+ * in, `relay()' resolves to the relay this page joins and `home()' to the
+ * one the site names. `onChange(handle)' is called whenever who this page
+ * is changes: a handle, or null for a guest.
+ *
+ * Accounts are the home relay's only. A page sent to another one (the
+ * URL's `relay') joins it as a guest, with no button: a relay that is not
+ * the site's has no business seeing its session, nor a key typed into a
+ * dialog it could stand behind. The button stays hidden, too, on a relay
+ * without accounts.
  */
-export function createAccounts ({ open, dialog, relay, onChange })
+export function createAccounts ({ open, dialog, relay, home, onChange })
 {
-    let kept = load();
+    let origin = null;
+    let kept = null;
     let api = null;
     const status = el('p', { className: 'hint', role: 'status' });
     const body = el('div', { className: 'accountbody' });
@@ -251,7 +263,7 @@ export function createAccounts ({ open, dialog, relay, onChange })
     const changed = (k) =>
     {
         kept = k;
-        keep(k);
+        keep(origin, k);
         open.textContent = k === null ? 'Log in' : 'Account';
         onChange(k?.handle ?? null);
     };
@@ -384,30 +396,48 @@ export function createAccounts ({ open, dialog, relay, onChange })
     function loggedIn ({ account })
     {
         const session = kept.session;
+        const waiting = account.renameAt > Date.now();
+
+        /* A new handle takes the key too: a borrowed browser renaming the
+           account would leave its handle to whoever takes it next. */
+        const rename = keyForm('rename', account.handle, 'current-password',
+                               'Change');
         const handle = el('input', { id: 'account-newhandle', maxLength: 64,
                                      autocomplete: 'off' });
-        const waiting = account.renameAt > Date.now();
-        const rename = button('Change', () => busy(rename, async () =>
+
+        rename.form.prepend(el('label', {}, 'New ', handle));
+        rename.form.onsubmit = (e) =>
         {
-            const h = normalizeName(handle.value);
-
-            if (h === null)
+            e.preventDefault();
+            busy(rename.submit, async () =>
             {
-                say('A handle needs at least one visible character.');
-                return;
-            }
+                const h = normalizeName(handle.value);
 
-            const res = await api.rename(session, h);
+                if (h === null)
+                {
+                    say('A handle needs at least one visible character.');
+                    return;
+                }
 
-            changed({ session, handle: res.account.handle });
-            say(`You are now ${res.account.handle}. ${account.handle} stays ` +
-                'yours for 30 days, and the saved key still works.');
-            loggedIn(res);
-        }));
+                const res = await api.rename(session, h, rename.key.value);
+
+                changed({ session, handle: res.account.handle });
+                say(`You are now ${res.account.handle}. ${account.handle} ` +
+                    'stays yours for 30 days, and the saved key still works.');
+                loggedIn(res);
+            });
+        };
         const replace = keyForm('replace', account.handle, 'current-password',
                                 'Replace key');
         const remove = keyForm('delete', account.handle, 'current-password',
                                'Delete for good');
+
+        /* Typed out, not filled in: a password manager fills the key. */
+        const confirm = el('input', { id: 'account-confirm', maxLength: 64,
+                                      autocomplete: 'off' });
+
+        remove.form.insertBefore(el('label', {}, 'Type it ', confirm),
+                                 remove.submit);
         const logout = button('Log out', () => busy(logout, async () =>
         {
             /* Logged out here even if the relay cannot be told. */
@@ -417,7 +447,7 @@ export function createAccounts ({ open, dialog, relay, onChange })
             loggedOut();
         }));
 
-        handle.disabled = rename.disabled = waiting;
+        rename.form.inert = waiting;
         replace.form.onsubmit = (e) =>
         {
             e.preventDefault();
@@ -435,7 +465,7 @@ export function createAccounts ({ open, dialog, relay, onChange })
             e.preventDefault();
             busy(remove.submit, async () =>
             {
-                await api.remove(session, remove.key.value);
+                await api.remove(session, remove.key.value, confirm.value);
                 changed(null);
                 say('Your account is deleted.');
                 loggedOut();
@@ -451,7 +481,7 @@ export function createAccounts ({ open, dialog, relay, onChange })
                              account.renameAt).toLocaleDateString() + '.'
                          : 'Once every 30 days. The old one stays yours ' +
                            'for 30 days after.' }),
-                     el('div', { className: 'row' }, handle, rename)),
+                     rename.form),
              section('Key',
                      el('p', { className: 'hint', textContent:
                          'A new key needs the current one, and logs out ' +
@@ -462,7 +492,9 @@ export function createAccounts ({ open, dialog, relay, onChange })
                          'Logged out, you join as a guest.' }), logout),
              section('Delete account',
                      el('p', { className: 'hint', textContent:
-                         'This needs the key itself, and cannot be undone.' }),
+                         'This needs the key itself and your handle typed ' +
+                         'out, and cannot be undone. The handle stays ' +
+                         'nobody\'s for 30 days.' }),
                      remove.form));
     }
 
@@ -507,9 +539,31 @@ export function createAccounts ({ open, dialog, relay, onChange })
        from before them shows no button, and logs nobody out. A session
        kept from before is asked after, and only the relay's refusal of it
        logs this page out; a relay merely out of reach does not. */
-    relay().then(async (url) =>
+    /* Which relay is home, and what is kept for it: settled before a join
+       asks for the session. */
+    const settled = Promise.all([relay(), home()]).then(([url, homeUrl]) =>
     {
-        const origin = apiOriginOf(url);
+        const o = apiOriginOf(url);
+
+        if (o === null || o !== apiOriginOf(homeUrl))
+            return;
+
+        origin = o;
+        kept = load(origin);
+
+        if (kept !== null)
+            onChange(kept.handle);
+    }).catch(() => {});
+
+    /* Whether the relay has accounts, as its health line says: a relay
+       without them shows no button. A kept session is asked after, and
+       only this relay's refusal of it logs the page out; a relay merely
+       out of reach does not. */
+    settled.then(async () =>
+    {
+        if (origin === null)
+            return;
+
         const health = await (await fetch(`${origin}/`)).json();
 
         if (health.accounts !== true)
@@ -528,14 +582,20 @@ export function createAccounts ({ open, dialog, relay, onChange })
                 });
     }).catch(() => {});
 
-    if (kept !== null)
-        onChange(kept.handle);
-
     return {
         /* The session a join sends, or null to join as a guest. */
-        session: () => kept?.session ?? null,
+        session: async () =>
+        {
+            await settled;
+            return kept?.session ?? null;
+        },
 
-        /* The relay has refused the session: this page is a guest now. */
-        ended: () => changed(null),
+        /* The relay has refused the session: this page is a guest there
+           now. */
+        ended: () =>
+        {
+            if (origin !== null)
+                changed(null);
+        },
     };
 }
