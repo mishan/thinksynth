@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2026 Metaphonic Labs
+ * Copyright (C) 2004-2026 The thinksynth authors
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -24,12 +24,13 @@
 #include "thinksynth.xpm"
 
 static const char* authors [] = {
-    "Leif M. Ames", "Misha Nasledov", "Joshua Kwan", "Aaron Lehmann", 0
+    "Misha Nasledov", "Leif M. Ames", "Joshua Kwan", "Aaron Lehmann",
+    "Brandon Lewis", 0
 };
 
 static const char* emails [] = {
-    "ink@bespin.org", "misha@nasledov.com", "joshk@triplehelix.org",
-    "aaronl@vitelus.com", 0
+    "misha@nasledov.com", "ink@bespin.org", "joshk@triplehelix.org",
+    "aaronl@vitelus.com", "", 0
 };
 
 AboutBox::AboutBox (void)
@@ -98,14 +99,14 @@ AboutBox::AboutBox (void)
 #if 0
     header = manage(new Gtk::Label(
           "Version " PACKAGE_VERSION "\n"
-          "Copyright (C) 2004-2026 Metaphonic Labs\n\n"
-          "Metaphonic Labs is..."));
+          "Copyright (C) 2004-2026 The thinksynth authors\n\n"
+          "Authors"));
 #endif
     txtVersion_ = manage(new Gtk::Label("Version " PACKAGE_VERSION, 0.5));
     txtCopyright_ = manage(
-        new Gtk::Label("Copyright (C) 2004-2026 Metaphonic Labs\n", 0.5));
-    txtMetaphonic_ = manage(new Gtk::Label("Metaphonic Labs is...",
-                                           Gtk::Align::CENTER));
+        new Gtk::Label("Copyright (C) 2004-2026 The thinksynth authors\n", 0.5));
+    txtAuthors_ = manage(new Gtk::Label("Authors",
+                                       Gtk::Align::CENTER));
 
     hcredits_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
@@ -148,8 +149,8 @@ AboutBox::AboutBox (void)
     vbmaster_->append(*txtVersion_);
     txtCopyright_->set_vexpand(true);
     vbmaster_->append(*txtCopyright_);
-    txtMetaphonic_->set_vexpand(true);
-    vbmaster_->append(*txtMetaphonic_);
+    txtAuthors_->set_vexpand(true);
+    vbmaster_->append(*txtAuthors_);
     hcredits_->set_vexpand(true);
     vbmaster_->append(*hcredits_);
 

@@ -478,7 +478,7 @@ set(THINK_APP_ID "org.thinksynth.thinksynth")
 # thing wants them: the Windows version block behind File -> Properties, and
 # CPACK_PACKAGE_VENDOR further down, which used to carry the vendor string on
 # its own.
-set(THINK_APP_VENDOR "Metaphonic Labs")
+set(THINK_APP_VENDOR "Misha Nasledov")
 set(THINK_APP_URL    "https://github.com/mishan/thinksynth")
 
 configure_file(cmake/config.h.in "${PROJECT_BINARY_DIR}/config.h")

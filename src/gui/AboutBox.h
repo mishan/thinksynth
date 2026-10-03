@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2026 Metaphonic Labs
+ * Copyright (C) 2004-2026 The thinksynth authors
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -41,7 +41,7 @@ protected:
     Gtk::Box            *framebox_;
     Gtk::Label          *txtVersion_;
     Gtk::Label          *txtCopyright_;
-    Gtk::Label          *txtMetaphonic_;
+    Gtk::Label          *txtAuthors_;
     
     Glib::RefPtr<Gtk::TextBuffer>     txtBuf_;
 

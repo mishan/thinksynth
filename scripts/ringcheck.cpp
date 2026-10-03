@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2026 Metaphonic Labs
+ * Copyright (C) 2004-2026 The thinksynth authors
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -64,7 +64,7 @@
  * constructor is private so that a second producer cannot be created by
  * accident.
  *
- * Copyright (C) 2004-2026 Metaphonic Labs. GPL 2 or later.
+ * Copyright (C) 2004-2026 The thinksynth authors. GPL 2 or later.
  */
 
 #include "config.h"

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2026 Metaphonic Labs
+ * Copyright (C) 2004-2026 The thinksynth authors
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -135,7 +135,7 @@ protected:
 
     const char *getMaker (void) const override
     {
-        return "Metaphonic Labs";
+        return "Misha Nasledov";
     }
 
     const char *getHomePage (void) const override
