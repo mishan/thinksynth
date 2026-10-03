@@ -246,6 +246,27 @@ ADSR Envelope Generator
 | `play` | out | 1 while the note is sounding |  | 0 to 1 |  |  |
 | `position` | state |  |  |  |  |  |
 
+### env::dx
+
+DX7 Envelope (four rates, four levels, in dB)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `r1` | in | Rate of the first segment, toward l1 |  | 0 to 99 |  |  |
+| `r2` | in | Rate of the second segment, toward l2 |  | 0 to 99 |  |  |
+| `r3` | in | Rate of the third segment, toward l3, where it holds |  | 0 to 99 |  |  |
+| `r4` | in | Rate of the release, toward l4 |  | 0 to 99 |  |  |
+| `l1` | in | Level the first segment heads for |  | 0 to 99 |  |  |
+| `l2` | in | Level the second segment heads for |  | 0 to 99 |  |  |
+| `l3` | in | Level the third heads for and holds while the key is down |  | 0 to 99 |  |  |
+| `l4` | in | Level the release heads for |  | 0 to 99 |  |  |
+| `trigger` | in | Note Trigger: 0 released, 1 held, 2 held by the pedal |  | 0 to 2 |  |  |
+| `note` | in | The MIDI note, for rate scaling |  | 0 to 127 |  |  |
+| `ratescale` | in | How much faster every segment runs up the keyboard |  | 0 to 7 |  |  |
+| `out` | out | The envelope, as an amplitude |  | 0 to 1 | full scale |  |
+| `play` | out | 1 while the note is sounding |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### env::dynmap
 
 Maps a stream to a new value range (dynamic)
