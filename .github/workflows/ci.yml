@@ -943,6 +943,12 @@ jobs:
         working-directory: wasm/web
         run: node relaytest.mjs
 
+      # The relay's accounts over HTTP, on a clock the script turns: keys,
+      # handles, sessions, the limits and the admin commands.
+      - name: Accounts
+        working-directory: wasm/web
+        run: node accountstest.mjs
+
       # The room's second gate: a Chromium page and a Firefox page in one
       # room on a relay, each with a live AudioContext, one pressing Play, a
       # knob moved from each side, and one tape between them -- genwav's,
