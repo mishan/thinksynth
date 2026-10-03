@@ -1629,7 +1629,10 @@ async function chatTogether (pages)
                                  { timeout: 5000 });
     await A.page.evaluate(() => window.jam.play());
 
-    if (await shows(B, 'chatactivity', `^${A.label} pressed Play$`))
+    /* Both are guests, and are shown as guests. */
+    const guest = (label) => `${label} \\(guest\\)`;
+
+    if (await shows(B, 'chatactivity', `^${guest(A.label)} pressed Play$`))
         ok(`${B.label}'s feed says ${A.label} pressed Play`);
     else
         fail(`${B.label}'s feed never said ${A.label} pressed Play: ` +
@@ -1641,7 +1644,8 @@ async function chatTogether (pages)
     await A.page.keyboard.type('switch at 17');
     await A.page.keyboard.press('Enter');
 
-    if (await shows(B, 'chatline', `^\\d+\\.\\d+ ${A.label}: switch at 17$`))
+    if (await shows(B, 'chatline',
+                    `^\\d+\\.\\d+ ${guest(A.label)}: switch at 17$`))
         ok(`a line typed on ${A.label} is on ${B.label} with its name and ` +
            'bar.beat');
     else
@@ -1663,7 +1667,8 @@ async function chatTogether (pages)
     await B.page.keyboard.type('zsxdcvgbhnjm');
     await B.page.keyboard.press('Enter');
 
-    const went = await shows(A, 'chatline', `${B.label}: zsxdcvgbhnjm$`);
+    const went = await shows(A, 'chatline',
+                             `${guest(B.label)}: zsxdcvgbhnjm$`);
     const after = await notes();
 
     if (held > before && after === held && went)
@@ -2118,7 +2123,7 @@ try
             null, { timeout: 15000 }).catch(() => {});
 
         const peers = await page.evaluate(() => window.jam.peers());
-        const other = peers.find((p) => p.name !== label);
+        const other = peers.find((p) => p.name !== `${label} (guest)`);
 
         if (other === undefined)
             fail(`${label} does not see the other peer`);

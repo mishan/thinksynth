@@ -2012,7 +2012,11 @@ async function join ()
 
     /* The document. */
     doc = new Y.Doc();
-    provider = new WebsocketProvider(`${url}/doc`, roomName, doc);
+    provider = new WebsocketProvider(`${url}/doc`, roomName, doc,
+                                     room.ticket === null
+                                         ? {} : { params: { ticket:
+                                                            room.ticket } });
+    room.on('ticket', (ticket) => { provider.params = { ticket }; });
 
     const c = colourOf(name);
 

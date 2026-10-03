@@ -22,8 +22,9 @@
  * and the way peers find each other.
  *
  *   node wasm/web/relay.mjs [--port 8787] [--tree DIR]
+ *   node wasm/web/relay.mjs admin <command>      (accounts.mjs, runAdmin)
  *
- * One process, one port, no database. It does three jobs and is
+ * One process, one port. It does three jobs and is
  * authoritative for none of the music: it holds the shared document so a
  * late joiner has somewhere to fetch it from; it answers pings so every
  * peer can agree on one clock; and it says who is in a room, on which
@@ -38,20 +39,31 @@
  * origin, and is playing the room's piece from there (commands.js,
  * catchUp).
  *
- *   GET  /               health: version, and each room's people and piece
+ *   GET  /               health: version, accounts, each room's people and
+ *                        piece
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
  *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
+ *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs)
  *
  * Two sockets per peer rather than one: y-websocket's framing is its
  * own, and the JSON side is easier to read on the wire and in a harness
  * when it is not sharing a socket with binary CRDT updates.
  *
+ * Who someone is, is the room socket's to say: its hello carries an
+ * account's session, or nothing for a guest, who goes by a name that is
+ * nobody's handle. The document socket cannot say anything first --
+ * y-websocket opens it and speaks at once -- so the room socket's welcome
+ * hands out a ticket for it, good for one room for a few minutes, and the
+ * relay opens no document socket without one.
+ *
  * A room is made when the first peer arrives and seeded with a shipped
  * piece -- the .gen, and every .dsp it names, from the tree -- and kept
  * for an hour after the last one leaves. A peer can have it seeded again
- * with another (`switch'). Nothing is persisted.
+ * with another (`switch'). Rooms are not persisted; accounts are, in one
+ * SQLite file (DB=..., beside the relay by default).
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -64,6 +76,9 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
+import { ACCOUNT_API, normalizeName } from './account.js';
+import { AccountStore, Accounts, ADMIN_USAGE, accountRoutes,
+         runAdmin } from './accounts.mjs';
 import { RELAY, TRANSPORT_LEAD } from './commands.js';
 import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
          pieceName, putFile, readSeen, seenOf, snapshot } from './doc.js';
@@ -98,6 +113,16 @@ const SWEEP_EVERY = 60 * 1000;
 const CHAT_MAX = 500;
 const CHAT_BURST = 5;
 const CHAT_PER_SECOND = 5;
+
+/* A document ticket's life. A room socket is handed a new one when two
+   fifths of it have gone, so the ticket a page reconnects its document
+   with is never one about to lapse. */
+const TICKET_MS = 5 * 60 * 1000;
+
+/* How often the sessions behind open room sockets are looked at again:
+   the admin commands end sessions from another process, which has no way
+   to tell this one. */
+const SESSION_CHECK_MS = 60 * 1000;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -173,17 +198,23 @@ function newId ()
     return Math.random().toString(36).slice(2, 8);
 }
 
-/* One room: a document and the peers in it. */
+/* One room: a document and the peers in it. `accounts' says who a
+   session is of, and `tickets' is the relay's, which the document sockets
+   are let in by. */
 class Room
 {
-    constructor (name, seedWith, tree)
+    constructor (name, seedWith, tree, { accounts, tickets, ticketMs })
     {
         this.name = name;
         this.tree = tree;
+        this.accounts = accounts;
+        this.tickets = tickets;
+        this.ticketMs = ticketMs;
         this.doc = new Y.Doc();
         this.awareness = new awarenessProtocol.Awareness(this.doc);
         this.docConns = new Set();          /* document sockets          */
-        this.peers = new Map();             /* id -> { ws, name, seat }  */
+        this.peers = new Map();             /* id -> { ws, name, seat,
+                                               account, tickets, docs } */
         this.seats = new Map();             /* seat -> peer id           */
         this.playing = null;                /* the last transport start  */
         this.emptySince = relayNow();
@@ -379,10 +410,46 @@ class Room
         });
     }
 
+    /* A ticket for `peer''s document socket, which goes when the room
+       socket does: whatever opened that and is let in by this should not
+       outlast it. */
+    issue (peer)
+    {
+        const now = relayNow();
+        const ticket = `t_${crypto.randomBytes(16).toString('hex')}`;
+
+        for (const t of peer.tickets)
+            if (!(this.tickets.get(t)?.until > now))
+            {
+                this.tickets.delete(t);
+                peer.tickets.delete(t);
+            }
+
+        this.tickets.set(ticket, { room: this, peer,
+                                   until: now + this.ticketMs });
+        peer.tickets.add(ticket);
+        return ticket;
+    }
+
+    /* The room sockets whose account `ends' says is over -- logged out,
+       banned, deleted -- told why and closed. */
+    endSessions (ends, why)
+    {
+        for (const p of this.peers.values())
+            if (p.account !== null && ends(p.account) &&
+                p.ws.readyState === p.ws.OPEN)
+            {
+                p.ws.send(JSON.stringify({ type: 'error', why: 'session',
+                                           text: why }));
+                p.ws.close();
+            }
+    }
+
     /* ---- the document socket ---- */
 
-    attachDoc (ws)
+    attachDoc (ws, owner)
     {
+        owner.docs.add(ws);
         this.docConns.add(ws);
         this.controlled.set(ws, new Set());
         ws.binaryType = 'arraybuffer';
@@ -436,6 +503,7 @@ class Room
 
         ws.on('close', () =>
         {
+            owner.docs.delete(ws);
             this.docConns.delete(ws);
             awarenessProtocol.removeAwarenessStates(
                 this.awareness, [...(this.controlled.get(ws) ?? [])], null);
@@ -471,6 +539,7 @@ class Room
     attachRoom (ws)
     {
         let id = null;
+        let ticketing = null;
         let chatTokens = CHAT_BURST;
         let chatAt = relayNow();
 
@@ -558,20 +627,56 @@ class Room
                     return;
                 }
 
+                /* An account plays under its handle. A session the relay
+                   no longer knows is refused rather than made a guest, or
+                   somebody would play the room believing they were logged
+                   in. A guest goes by the name asked for, if that is not
+                   an account's. */
+                const account = m.session === undefined ? null
+                    : this.accounts.sessionAccount({ session: m.session });
+                const asked = account?.handle ??
+                              normalizeName(String(m.name ?? ''));
+
+                if (m.session !== undefined && account === null)
+                {
+                    send({ type: 'error', why: 'session',
+                           text: 'your session has ended; log in again' });
+                    ws.close();
+                    return;
+                }
+
+                if (account === null && asked !== null &&
+                    !this.accounts.nameFree(asked))
+                {
+                    send({ type: 'error', why: 'name',
+                           text: `${asked} is an account's handle; log in, ` +
+                                 'or pick another name' });
+                    ws.close();
+                    return;
+                }
+
                 id = newId();
 
                 while (this.peers.has(id) || id === RELAY)
                     id = newId();
 
-                const name = String(m.name ?? '').slice(0, 32) || id;
+                const name = asked ?? id;
+                const peer = { ws, name, seat: null, account,
+                               tickets: new Set(), docs: new Set() };
 
-                this.peers.set(id, { ws, name, seat: null });
+                this.peers.set(id, peer);
+                ticketing = setInterval(
+                    () => send({ type: 'ticket', ticket: this.issue(peer) }),
+                    this.ticketMs * 2 / 5);
 
                 send({
                     type: 'welcome',
                     peer: id,
+                    identity: { name, account: account !== null },
+                    ticket: this.issue(peer),
                     peers: [...this.peers].map(([pid, p]) =>
-                        ({ peer: pid, name: p.name, seat: p.seat })),
+                        ({ peer: pid, name: p.name, seat: p.seat,
+                           account: p.account !== null })),
                     seats: seatMap(),
                     piece: this.doc.getMap('meta').get('piece') ?? null,
                     playing: this.playing,
@@ -579,7 +684,8 @@ class Room
                     features: ['switch'],
                 });
 
-                others({ type: 'joined', peer: id, name });
+                others({ type: 'joined', peer: id, name,
+                         account: account !== null });
                 return;
             }
 
@@ -725,7 +831,8 @@ class Room
                     chatTokens--;
 
                     const line = { type: 'chat', channel: m.channel, from: id,
-                                   name: me.name, text };
+                                   name: me.name,
+                                   account: me.account !== null, text };
 
                     if (typeof m.bar === 'string' &&
                         /^\d{1,6}\.\d{1,2}$/.test(m.bar))
@@ -770,7 +877,9 @@ class Room
                         .then(async (hash) =>
                         {
                             const line = { type: 'switched', from: id,
-                                           name: me.name, piece, hash };
+                                           name: me.name,
+                                           account: me.account !== null,
+                                           piece, hash };
 
                             send(line);
                             others(line);
@@ -823,10 +932,18 @@ class Room
 
         ws.on('close', () =>
         {
+            clearInterval(ticketing);
+
             if (id === null)
                 return;
 
             const me = this.peers.get(id);
+
+            for (const t of me.tickets)
+                this.tickets.delete(t);
+
+            for (const d of me.docs)
+                d.close();
 
             if (me?.seat !== null && me?.seat !== undefined)
                 this.seats.delete(me.seat);
@@ -862,11 +979,32 @@ class Room
     }
 }
 
-/* The server. Resolves with it listening; `address().port' says where. */
+/* The server. Resolves with it listening; `address().port' says where.
+   `db' is the accounts' file, or ':memory:'; `corsOrigin' and
+   `trustProxy' are accountRoutes'. The two times are for a harness. */
 export function relay ({ port = 8787, host = '0.0.0.0',
-                         tree = path.join(here, '..', '..') } = {})
+                         tree = path.join(here, '..', '..'), db = ':memory:',
+                         corsOrigin = null, trustProxy = 0,
+                         ticketMs = TICKET_MS,
+                         sessionCheckMs = SESSION_CHECK_MS } = {})
 {
     const rooms = new Map();
+    const tickets = new Map();          /* ticket -> { room, peer, until } */
+    const store = new AccountStore(db);
+
+    /* Sessions ended over HTTP: one, or all of an account's but one. */
+    const accounts = new Accounts({
+        store,
+        onSessionsEnded: (ended, why) =>
+        {
+            for (const r of rooms.values())
+                r.endSessions(ended.session !== undefined
+                    ? (a) => a.sessionHash === ended.session
+                    : (a) => a.id === ended.account &&
+                             a.sessionHash !== ended.except, why);
+        },
+    });
+    const api = accountRoutes(accounts, { corsOrigin, trustProxy });
 
     const room = (name, seedWith) =>
     {
@@ -874,7 +1012,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
         if (r === undefined)
         {
-            r = new Room(name, seedWith, tree);
+            r = new Room(name, seedWith, tree,
+                         { accounts, tickets, ticketMs });
             rooms.set(name, r);
         }
 
@@ -885,12 +1024,18 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     {
         const url = new URL(req.url, 'http://localhost');
 
+        if (url.pathname.startsWith(`${ACCOUNT_API}/`))
+        {
+            api(req, res);
+            return;
+        }
+
         if (url.pathname === '/')
         {
             res.writeHead(200, { 'Content-Type': 'application/json',
                                  'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify({
-                thinksynth: 'relay', protocol: PROTOCOL,
+                thinksynth: 'relay', protocol: PROTOCOL, accounts: true,
                 rooms: [...rooms].map(([name, r]) =>
                     ({ name, peers: r.peers.size, piece: pieceName(r.doc),
                        playing: r.playing !== null })),
@@ -917,21 +1062,46 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         /* The piece a new room is seeded with is named in the query,
            and only counts for the first socket to reach the room. */
         const seedWith = url.searchParams.get('piece') ?? DEFAULT_PIECE;
+        const given = url.searchParams.get('ticket');
+        const ticket = m[1] === 'doc' ? tickets.get(given) : null;
+
+        if (m[1] === 'doc' && !(ticket?.room === rooms.get(m[2]) &&
+                                ticket.until > relayNow()))
+        {
+            socket.end('HTTP/1.1 403 Forbidden\r\n' +
+                       'Connection: close\r\n\r\n');
+            return;
+        }
 
         wss.handleUpgrade(req, socket, head, (ws) =>
         {
-            const r = room(m[2], seedWith);
-
-            if (m[1] === 'doc')
-                r.attachDoc(ws);
+            /* The room socket may have gone while this one upgraded. */
+            if (m[1] === 'doc' && !tickets.has(given))
+                ws.close();
+            else if (m[1] === 'doc')
+                ticket.room.attachDoc(ws, ticket.peer);
             else
-                r.attachRoom(ws);
+                room(m[2], seedWith).attachRoom(ws);
         });
     });
 
-    /* Empty rooms go after an hour. */
+    /* Sessions ended by the admin commands, which another process ran. */
+    const recheck = setInterval(() =>
+    {
+        for (const r of rooms.values())
+            r.endSessions((a) => accounts.sessionAccount(a) === null,
+                          'your session has ended; log in again');
+    }, sessionCheckMs);
+
+    recheck.unref();
+
+    /* Empty rooms go after an hour, and lapsed tickets with them. */
     const sweep = setInterval(() =>
     {
+        for (const [t, { until }] of tickets)
+            if (until <= relayNow())
+                tickets.delete(t);
+
         for (const [name, r] of rooms)
             if (r.empty && relayNow() - r.emptySince > EMPTY_FOR)
             {
@@ -947,11 +1117,13 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     server.shutdown = () =>
     {
         clearInterval(sweep);
+        clearInterval(recheck);
 
         for (const r of rooms.values())
             r.destroy();
 
         rooms.clear();
+        store.close();
         server.closeAllConnections?.();
         server.close();
     };
@@ -960,6 +1132,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         server.listen(port, host, () =>
         {
             server.rooms = rooms;
+            server.accounts = accounts;
             resolve(server);
         }));
 }
@@ -968,7 +1141,36 @@ if (process.argv[1] !== undefined &&
     import.meta.url === pathToFileURL(process.argv[1]).href)
 {
     const args = process.argv.slice(2);
-    const opts = {};
+
+    /* DB names the accounts' file; CORS_ORIGIN the page's origin, when it
+       is served from somewhere else; TRUST_PROXY how many proxies in front
+       append to X-Forwarded-For (1 behind nginx alone). */
+    const opts = { db: process.env.DB || path.join(here, 'relay.db'),
+                   corsOrigin: process.env.CORS_ORIGIN || null,
+                   trustProxy: Number(process.env.TRUST_PROXY ?? 0) };
+
+    if (args[0] === 'admin')
+    {
+        if (opts.db === ':memory:' || !fs.existsSync(opts.db))
+        {
+            process.stderr.write(`relay.mjs: no accounts at ${opts.db}; set ` +
+                                 `DB to the relay's file\n${ADMIN_USAGE}\n`);
+            process.exit(2);
+        }
+
+        const store = new AccountStore(opts.db);
+        const status = runAdmin(args.slice(1), store,
+                                (line) => process.stdout.write(`${line}\n`));
+
+        store.close();
+        process.exit(status);
+    }
+
+    if (!(Number.isInteger(opts.trustProxy) && opts.trustProxy >= 0))
+    {
+        process.stderr.write('relay.mjs: TRUST_PROXY is a count of proxies\n');
+        process.exit(2);
+    }
 
     for (let i = 0; i < args.length; i++)
     {
@@ -981,7 +1183,8 @@ if (process.argv[1] !== undefined &&
         else
         {
             process.stderr.write(
-                'usage: relay.mjs [--port N] [--host ADDR] [--tree DIR]\n');
+                'usage: relay.mjs [--port N] [--host ADDR] [--tree DIR]\n' +
+                '       relay.mjs admin <command>\n');
             process.exit(2);
         }
     }
@@ -997,5 +1200,6 @@ if (process.argv[1] !== undefined &&
 
     process.stdout.write(`relay on ws://${a.address}:${a.port}/  ` +
                          `(rooms seeded from ${path.resolve(
-                             opts.tree ?? path.join(here, '..', '..'))})\n`);
+                             opts.tree ?? path.join(here, '..', '..'))}, ` +
+                         `accounts in ${opts.db})\n`);
 }

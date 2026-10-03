@@ -38,6 +38,8 @@
  * Exit status is the number of failures.
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,6 +49,7 @@ import { WebsocketProvider } from 'y-websocket';
 
 import { dspNames, fileNames, hashOf, pieceText, readFile, seenOf }
     from './doc.js';
+import { AccountStore, runAdmin } from './accounts.mjs';
 import { PROTOCOL, relay } from './relay.mjs';
 import { Room } from './room.js';
 
@@ -142,6 +145,184 @@ class Client
     close ()
     {
         this.ws.close();
+    }
+}
+
+/* Whether a socket is refused, or closed within `ms'. */
+function refused (ws, ms = 2000)
+{
+    return new Promise((r) =>
+    {
+        const timer = setTimeout(() => r(false), ms);
+
+        ws.on('error', () => {});
+        ws.on('close', () => { clearTimeout(timer); r(true); });
+    });
+}
+
+/* Who a room socket is, and what lets its document in: a relay of its
+   own, on a file the admin commands can open beside it, and with times
+   short enough to wait out. */
+async function accountsInRooms ()
+{
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'relaytest-'));
+    const db = path.join(dir, 'relay.db');
+    const acct = await relay({ port: 0, host: '127.0.0.1', tree, db,
+                               ticketMs: 1000, sessionCheckMs: 200 });
+    const at = `127.0.0.1:${acct.address().port}`;
+    const post = async (route, body, session) =>
+    {
+        const res = await fetch(`http://${at}/api/account/${route}`, {
+            method: 'POST',
+            headers: session ? { Authorization: `Bearer ${session}` } : {},
+            body: JSON.stringify(body),
+        });
+
+        return res.json();
+    };
+    const hello = async (room, m) =>
+    {
+        const c = new Client(`ws://${at}/room/${room}`, m.name ?? 'session');
+
+        await c.open();
+        c.send({ type: 'hello', protocol: PROTOCOL, ...m });
+        return c;
+    };
+    const docSocket = (room, ticket) =>
+        new WebSocket(`ws://${at}/doc/${room}` +
+                      (ticket === undefined ? '' : `?ticket=${ticket}`))
+            .on('error', () => {});
+
+    try
+    {
+        const ann = await post('register', { handle: 'Ann' });
+        const a = await hello('acct', { name: 'not Ann',
+                                        session: ann.session });
+        const wa = await a.next('welcome');
+
+        check(wa.identity?.name === 'Ann' && wa.identity.account === true &&
+              wa.peers[0].name === 'Ann' && wa.peers[0].account === true,
+              'a hello with a session plays under the account\'s handle');
+
+        const g = await hello('acct', { name: 'Gus' });
+        const [wg, joined] = await Promise.all([g.next('welcome'),
+                                                a.next('joined')]);
+
+        check(wg.identity.name === 'Gus' && wg.identity.account === false &&
+              joined.name === 'Gus' && joined.account === false &&
+              wg.peers.find((p) => p.peer === wa.peer)?.account === true,
+              'a guest is welcomed as one, and the room is told which is ' +
+              'which');
+
+        g.send({ type: 'chat', channel: 'stage', text: 'hi', n: 1 });
+
+        const line = await a.next('chat');
+
+        check(line.name === 'Gus' && line.account === false,
+              'a guest\'s chat line says it is a guest\'s');
+
+        /* A session the relay does not know is refused, and says why:
+           joining as a guest instead would leave somebody believing they
+           were logged in. */
+        for (const [what, session] of [
+            ['an unknown', `s_${'0'.repeat(32)}`],
+            ['a malformed', 'nonsense'],
+            ['a logged-out', (await post('login', { key: ann.key })).session]])
+        {
+            if (what === 'a logged-out')
+                await post('logout', undefined, session);
+
+            const c = await hello('acct', { name: 'Ann', session });
+            const e = await c.next('error');
+
+            check(e.why === 'session' && /log in again/.test(e.text) &&
+                  await refused(c.ws),
+                  `${what} session is refused with a reason`);
+        }
+
+        /* A guest may not go by a handle, folded however. */
+        for (const name of ['Ann', 'ANN', ' \uFF41nn '])
+        {
+            const c = await hello('acct', { name });
+            const e = await c.next('error');
+
+            check(e.why === 'name' && await refused(c.ws),
+                  `a guest named ${JSON.stringify(name)} is refused`);
+        }
+
+        /* Document sockets: in with the room's ticket, and refused without
+           one, with another room's, or with one that has lapsed. */
+        const other = await hello('elsewhere', { name: 'Oz' });
+        const { ticket: otherTicket } = await other.next('welcome');
+        const open = docSocket('acct', wa.ticket);
+
+        check(await new Promise((r) =>
+        {
+            open.on('open', () => r(true));
+            open.on('error', () => r(false));
+        }), 'a document socket with its room\'s ticket is let in');
+
+        for (const [what, ticket] of [['no', undefined],
+                                      ['a made-up', `t_${'0'.repeat(32)}`],
+                                      ['another room\'s', otherTicket]])
+            check(await refused(docSocket('acct', ticket)),
+                  `a document socket with ${what} ticket is refused`);
+
+        await new Promise((r) => setTimeout(r, 1100));
+
+        const fresh = a.got.filter((m) => m.type === 'ticket').at(-1);
+
+        check(await refused(docSocket('acct', wa.ticket)),
+              'a document socket with a lapsed ticket is refused');
+        check(!await refused(docSocket('acct', fresh.ticket), 300),
+              'and the one handed out before it lapsed lets it in');
+
+        /* Sessions ended over HTTP close the sockets made with them. */
+        const opened = await new Promise((r) =>
+        {
+            const d = docSocket('acct', fresh.ticket);
+
+            d.on('open', () => r(d));
+        });
+
+        await post('logout', undefined, ann.session);
+
+        const ended = await a.next('error');
+
+        check(ended.why === 'session' && await refused(a.ws) &&
+              await refused(opened),
+              'logging out closes the room socket made with the session, ' +
+              'and its document sockets');
+        check(!await refused(g.ws, 300), 'and leaves the guest\'s alone');
+
+        /* And ended from another process -- the admin commands -- within a
+           check of the relay's. */
+        const bo = await post('register', { handle: 'Bo' });
+        const b = await hello('acct', { session: bo.session });
+
+        await b.next('welcome');
+
+        const store = new AccountStore(db);
+
+        runAdmin(['ban', 'bo'], store, () => {});
+        store.close();
+
+        const banned = await b.next('error', 2000);
+
+        check(banned.why === 'session' && await refused(b.ws),
+              'a ban from the admin commands closes the account\'s sockets');
+
+        const back = await post('login', { key: bo.key });
+
+        check(back.error === 'banned', 'and its key no longer logs in');
+
+        for (const c of [g, other])
+            c.close();
+    }
+    finally
+    {
+        acct.shutdown();
+        fs.rmSync(dir, { recursive: true, force: true });
     }
 }
 
@@ -372,12 +553,21 @@ try
 
     /* ---- the document socket ---- */
 
+    /* Let in by a ticket the room socket's welcome hands out. */
+    const k = new Client(`${base}/room/test`, 'K');
+
+    await k.open();
+    k.send({ type: 'hello', name: 'Kim', protocol: PROTOCOL });
+
+    const { ticket } = await k.next('welcome');
     const docA = new Y.Doc();
     const docB = new Y.Doc();
     const provA = new WebsocketProvider(base + '/doc', 'test', docA,
-                                        { WebSocketPolyfill: WebSocket });
+                                        { WebSocketPolyfill: WebSocket,
+                                          params: { ticket } });
     const provB = new WebsocketProvider(base + '/doc', 'test', docB,
-                                        { WebSocketPolyfill: WebSocket });
+                                        { WebSocketPolyfill: WebSocket,
+                                          params: { ticket } });
 
     const synced = (p) => new Promise((r) =>
         p.synced ? r() : p.once('synced', r));
@@ -599,19 +789,20 @@ try
        each told to everyone with who made it and the revision it left,
        and the document is the last one's piece and nothing else. */
     {
-        const docS = new Y.Doc();
-        const provS = new WebsocketProvider(base + '/doc', 'switch', docS,
-                                            { WebSocketPolyfill: WebSocket });
         const s = new Client(`${base}/room/switch`, 'S');
         const t = new Client(`${base}/room/switch`, 'T');
 
-        await Promise.all([s.open(), t.open(), synced(provS)]);
+        await Promise.all([s.open(), t.open()]);
         s.send({ type: 'hello', name: 'Sue', protocol: PROTOCOL });
         t.send({ type: 'hello', name: 'Tom', protocol: PROTOCOL });
 
         const ws = await s.next('welcome');
+        const docS = new Y.Doc();
+        const provS = new WebsocketProvider(base + '/doc', 'switch', docS,
+                                            { WebSocketPolyfill: WebSocket,
+                                              params: { ticket: ws.ticket } });
 
-        await t.next('welcome');
+        await Promise.all([t.next('welcome'), synced(provS)]);
 
         const seeded = await hashOf(docS);
 
@@ -795,11 +986,11 @@ try
 
         u.close();
 
-        s.close();
-        t.close();
         provS.destroy();
         provS.awareness.destroy();
         docS.destroy();
+        s.close();
+        t.close();
     }
 
     /* Awareness: a cursor set on one is seen on the other. */
@@ -823,7 +1014,7 @@ try
                                  ['a garbage', new Uint8Array([255, 255, 255,
                                                                255, 255])]])
     {
-        const bad = new WebSocket(`${base}/doc/test`);
+        const bad = new WebSocket(`${base}/doc/test?ticket=${ticket}`);
 
         await new Promise((r) => bad.on('open', r));
         bad.send(bytes);
@@ -863,6 +1054,12 @@ try
         p.awareness.destroy();
         d.destroy();
     }
+
+    k.close();
+
+    /* ---- accounts ---- */
+
+    await accountsInRooms();
 }
 catch (e)
 {
