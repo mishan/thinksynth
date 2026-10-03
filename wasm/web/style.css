@@ -875,6 +875,48 @@ body:has(#joinrow:not([hidden])) #roomhead
 
 #joinrow > .roomlist { margin-bottom: 0.4em; }
 #join { align-self: flex-end; }
+#account { align-self: flex-start; }
+
+/* The account dialog over the join card (accountui.js). */
+#accountdialog
+{
+    width: min(calc(100vw - 2em), 28em);
+    box-sizing: border-box;
+    padding: 1em 1.2em;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+#accountdialog::backdrop { background: rgb(0 0 0 / 0.45); }
+#accountdialog .accounthead { display: flex; justify-content: space-between; }
+#accountdialog .accounttitle { font-weight: bold; font-size: 1.2em; }
+#accountclose
+{
+    background: none;
+    border: 0;
+    color: var(--fg);
+    font-size: 1.4em;
+}
+
+#accountdialog .accountbody,
+#accountdialog section,
+#accountdialog form { display: flex; flex-direction: column; gap: 0.6em; }
+
+#accountdialog .accountbody { gap: 1em; }
+#accountdialog h2 { margin: 0; font-size: 1em; }
+#accountdialog p { margin: 0; }
+#accountdialog .accountwarn { color: var(--warn); }
+
+#accountdialog label
+{
+    display: grid;
+    grid-template-columns: 4em 1fr;
+    align-items: center;
+}
+
+#accountdialog button { align-self: flex-start; }
 
 /* The controls, grouped: the transport, then where your keys go. */
 #roomtools { margin: 0 0 0.4em; }
