@@ -5,5 +5,6 @@
 !wasm/web/package-lock.json
 !wasm/web/relay.mjs
 !wasm/web/doc.js
+!wasm/web/commands.js
 !gen
 !dsp
