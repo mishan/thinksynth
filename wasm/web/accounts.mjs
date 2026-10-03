@@ -24,10 +24,10 @@
  *   POST register  { handle }            { key, session, account }
  *   POST login     { key }               { session, account }
  *   GET  me                   session    { account }
- *   POST handle    { handle } session    { account }
+ *   POST handle    { handle, key } session   { account }
  *   POST key       { key }    session    { key }
  *   POST logout               session    {}
- *   POST delete    { key }    session?   {}
+ *   POST delete    { key, handle } session?  {}
  *
  * A session goes as `Authorization: Bearer s_...', never as a cookie, so
  * no other site's page can send one for its visitor; a failure is `{
@@ -61,6 +61,15 @@ export const RENAME_EVERY_MS = 30 * DAY_MS;
 export const HANDLE_KEPT_MS = 30 * DAY_MS;
 
 const BODY_MAX_BYTES = 1024;
+
+/* A session's last use is written at most this often: it only has to be
+   good to the day for a year's lapse, and a write per hello and per
+   minute's check of every open room is a write the disk waits on. */
+const TOUCH_EVERY_MS = 60 * 60 * 1000;
+
+/* What the page names guests who give no name (jam.js): no handle may
+   start with it, so no account can pass as one, nor take one's name. */
+const GUEST_PREFIX = 'guest-';
 
 /* Stale sessions and lapsed handles go at most this often, on the next
    registration or log in. */
@@ -155,6 +164,10 @@ export class AccountStore
            relay's writes; a lock is waited out rather than failed on, and
            the timeout comes first so that switching to WAL waits too. */
         this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;');
+
+        /* Under WAL, NORMAL loses at most the last commits to a power cut
+           and never corrupts the file; FULL waits on the disk each time. */
+        this.db.exec('PRAGMA synchronous = NORMAL;');
         this.migrate();
 
         const q = (sql) => this.db.prepare(sql);
@@ -170,6 +183,7 @@ export class AccountStore
                       'WHERE handle_folded = ? AND until > ?'),
             keep: q('INSERT OR REPLACE INTO kept_handles ' +
                     '(handle_folded, account_id, until) VALUES (?, ?, ?)'),
+            free: q('DELETE FROM kept_handles WHERE account_id = ?'),
             unkeep: q('DELETE FROM kept_handles WHERE handle_folded = ?'),
             lapsed: q('DELETE FROM kept_handles WHERE until <= ?'),
             addSession: q('INSERT INTO sessions (token_hash, account_id, ' +
@@ -294,7 +308,9 @@ export class AccountStore
             return null;
         }
 
-        this.q.touch.run(now, sessionHash);
+        if (now - s.last_used_at >= TOUCH_EVERY_MS)
+            this.q.touch.run(now, sessionHash);
+
         return this.byId(s.account_id);
     }
 
@@ -363,12 +379,23 @@ export class AccountStore
         });
     }
 
-    remove (id)
+    /* An account gone, and with it its sessions. Its handle stays nobody
+       else's for HANDLE_KEPT_MS, as one renamed from does, so that a
+       deleted name cannot be taken up to pass as its owner -- unless
+       `free', a moderator's word. */
+    remove (id, now, { free = false } = {})
     {
         this.transaction(() =>
         {
+            const was = this.byId(id);
+
             this.endSessions(id);
             this.q.remove.run(id);
+
+            if (free)
+                this.q.free.run(id);
+            else if (was !== null)
+                this.q.keep.run(was.folded, id, now + HANDLE_KEPT_MS);
         });
     }
 
@@ -524,8 +551,13 @@ export function clientKey (address)
     if (version !== 6)
         return 'unknown';
 
-    if (a.startsWith('::ffff:') && a.includes('.'))
-        return a.slice('::ffff:'.length);
+    /* An IPv4-mapped address is its IPv4 one, written either way. */
+    const mapped = /^\[::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})\]$/.exec(
+        new URL(`http://[${a}]/`).hostname);
+
+    if (mapped !== null)
+        return mapped.slice(1).map((g) => parseInt(g, 16))
+            .flatMap((g) => [g >> 8, g & 255]).join('.');
 
     /* An embedded IPv4 tail stands for two groups; it is past the /64. */
     const groups = (part) => (part === '' ? [] : part.split(':').flatMap(
@@ -556,14 +588,20 @@ export function siteKey (client)
 
 /* The address `hops' entries from the right of X-Forwarded-For -- the one
    the outermost trusted proxy saw, since each appends whom it was reached
-   from -- or null with no proxies trusted, or nothing usable there. */
+   from -- or null with no proxies trusted, or nothing usable there. A
+   header shorter than that was not all written by trusted proxies, and
+   its leftmost entry is whatever the client said. */
 export function forwardedAddress (header, hops)
 {
     if (hops < 1 || header === undefined)
         return null;
 
     const entries = [header].flat().join(',').split(',');
-    let a = entries[Math.max(0, entries.length - hops)].trim();
+
+    if (entries.length < hops)
+        return null;
+
+    let a = entries[entries.length - hops].trim();
     const bracketed = /^\[([^\]]*)\](?::\d{1,5})?$/.exec(a);
 
     if (bracketed !== null)
@@ -641,9 +679,15 @@ export class Accounts
         return { account: infoOf(account) };
     }
 
+    /* With the key, not a session alone: a borrowed browser renaming the
+       account would leave its handle to whoever takes it next. */
     rename (client, authorization, body)
     {
         const { account } = this.session(client, authorization);
+
+        this.limits.key.take(client);
+        this.ownKey(account, body.key);
+
         const handle = handleOf(body.handle);
         const now = this.now();
         const { renameAt } = infoOf(account);
@@ -673,8 +717,7 @@ export class Accounts
 
         this.limits.key.take(client);
 
-        if (this.byKey(body.key).id !== account.id)
-            throw badKey('that key is another account\'s');
+        this.ownKey(account, body.key);
 
         const key = newKey();
 
@@ -697,7 +740,10 @@ export class Accounts
 
     /* The key, not a session alone, so a borrowed browser cannot; and
        with a session, the key must be its account's, so a password
-       manager offering the wrong entry cannot delete another account. */
+       manager offering the wrong entry cannot delete another account.
+       The handle, typed, is the owner saying they mean it. A banned
+       account cannot: deleting would free its handle for it to take
+       again. */
     remove (client, authorization, body)
     {
         const own = authorization === undefined
@@ -710,7 +756,16 @@ export class Accounts
         if (own !== null && own.id !== account.id)
             throw badKey('that key is another account\'s');
 
-        this.store.remove(account.id);
+        if (account.banned)
+            throw banned();
+
+        const typed = normalizeName(body.handle);
+
+        if (typed === null || foldName(typed) !== account.folded)
+            throw new ApiError(400, 'confirm',
+                               'type the account\'s handle to delete it');
+
+        this.store.remove(account.id, this.now());
         this.onSessionsEnded({ account: account.id, except: null },
                              'the account was deleted');
         return {};
@@ -734,6 +789,12 @@ export class Accounts
     nameFree (name)
     {
         return this.store.holder(foldName(name), this.now()) === null;
+    }
+
+    ownKey (account, raw)
+    {
+        if (this.byKey(raw).id !== account.id)
+            throw badKey('that key is another account\'s');
     }
 
     byKey (raw)
@@ -798,6 +859,10 @@ function handleOf (raw)
     if (handle === null)
         throw new ApiError(400, 'bad_handle',
                            'a handle needs a visible character');
+
+    if (foldName(handle).startsWith(foldName(GUEST_PREFIX)))
+        throw new ApiError(400, 'bad_handle',
+                           `a handle may not start with ${GUEST_PREFIX}`);
 
     return handle;
 }
@@ -879,6 +944,26 @@ export function accountRoutes (accounts, { corsOrigin = null,
             if (req.method !== method)
                 throw new ApiError(405, 'method_not_allowed', `use ${method}`,
                                    { Allow: `${method}, OPTIONS` });
+
+            /* A page elsewhere may send a form or text/plain to any site
+               without asking first: refused here, or a page anywhere could
+               register handles from its visitors' addresses. JSON from
+               another origin is preflighted, and so is refused by the
+               browser unless the origin is the page's. */
+            const origin = req.headers.origin;
+
+            if (origin !== undefined && corsOrigin !== '*' &&
+                origin !== corsOrigin)
+                throw new ApiError(403, 'bad_origin',
+                                   `${origin} may not use this relay's ` +
+                                   'accounts');
+
+            if (method === 'POST' &&
+                !/^application\/json\s*(;|$)/i.test(
+                    req.headers['content-type'] ?? ''))
+                throw new ApiError(415, 'bad_request',
+                                   'the body must be application/json',
+                                   { Connection: 'close' });
 
             const client = clientKey(
                 forwardedAddress(req.headers['x-forwarded-for'], trustProxy) ??
@@ -969,7 +1054,9 @@ export const ADMIN_USAGE = `usage: relay.mjs admin <command>
   ban <handle>             end its sessions and refuse it until unbanned
   unban <handle>           let it log in again
   revoke <handle>          end its sessions; its key still logs in
-  delete <handle>          delete it; its handle is free at once`;
+  delete <handle> [--free] delete it; its handles stay nobody's for 30
+                           days, as when its owner deletes it, unless
+                           --free frees them now`;
 
 /* One command, its lines to `out'; returns the exit status. The relay
    notices sessions ended here within a minute (relay.mjs). */
@@ -982,7 +1069,10 @@ export function runAdmin (args, store, out, now = Date.now())
         return 2;
     };
 
-    if (raw === undefined || rest.length !== (command === 'rename' ? 1 : 0))
+    const free = command === 'delete' && rest[0] === '--free';
+
+    if (raw === undefined ||
+        rest.length !== (command === 'rename' || free ? 1 : 0))
         return usage();
 
     const name = normalizeName(raw);
@@ -1043,8 +1133,8 @@ export function runAdmin (args, store, out, now = Date.now())
             return 0;
 
         default:
-            store.remove(account.id);
-            out(`${quoted} deleted`);
+            store.remove(account.id, now, { free });
+            out(`${quoted} deleted` + (free ? '; its handles are free' : ''));
             return 0;
     }
 }

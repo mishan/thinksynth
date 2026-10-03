@@ -76,7 +76,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { ACCOUNT_API, normalizeName } from './account.js';
+import { ACCOUNT_API, normalizeName, shownName } from './account.js';
 import { AccountStore, Accounts, ADMIN_USAGE, accountRoutes,
          runAdmin } from './accounts.mjs';
 import { RELAY, TRANSPORT_LEAD } from './commands.js';
@@ -432,7 +432,10 @@ class Room
     }
 
     /* The room sockets whose account `ends' says is over -- logged out,
-       banned, deleted -- told why and closed. */
+       banned, deleted -- told why and closed. Their tickets and document
+       sockets go now rather than when the close completes, which a
+       client that has stopped answering can hold off for half a
+       minute. */
     endSessions (ends, why)
     {
         for (const p of this.peers.values())
@@ -442,10 +445,65 @@ class Room
                 p.ws.send(JSON.stringify({ type: 'error', why: 'session',
                                            text: why }));
                 p.ws.close();
+                this.revoke(p);
             }
     }
 
+    /* A peer's way into the document, gone. */
+    revoke (peer)
+    {
+        for (const t of peer.tickets)
+            this.tickets.delete(t);
+
+        for (const d of peer.docs)
+            d.terminate();
+    }
+
     /* ---- the document socket ---- */
+
+    /* An awareness update from `ws', as the relay will pass it on: the
+       name on a cursor is the one its room socket goes by, a guest's
+       marked as one, and not whatever the page put there; and no socket
+       speaks for a client another one does. */
+    vouched (update, ws, owner)
+    {
+        const dec = decoding.createDecoder(update);
+        const enc = encoding.createEncoder();
+        const kept = [];
+
+        for (let n = decoding.readVarUint(dec); n > 0; n--)
+        {
+            const client = decoding.readVarUint(dec);
+            const clock = decoding.readVarUint(dec);
+            const state = JSON.parse(decoding.readVarString(dec));
+            const theirs = [...this.controlled].some(
+                ([other, ids]) => other !== ws && ids.has(client));
+
+            if (theirs)
+                continue;
+
+            if (typeof state?.user === 'object' && state.user !== null)
+                state.user = {
+                    ...state.user,
+                    name: shownName({ name: owner.name,
+                                      account: owner.account !== null }),
+                    account: owner.account !== null,
+                };
+
+            kept.push([client, clock, state]);
+        }
+
+        encoding.writeVarUint(enc, kept.length);
+
+        for (const [client, clock, state] of kept)
+        {
+            encoding.writeVarUint(enc, client);
+            encoding.writeVarUint(enc, clock);
+            encoding.writeVarString(enc, JSON.stringify(state));
+        }
+
+        return encoding.toUint8Array(enc);
+    }
 
     attachDoc (ws, owner)
     {
@@ -488,7 +546,9 @@ class Room
 
                     case MSG_AWARENESS:
                         awarenessProtocol.applyAwarenessUpdate(
-                            this.awareness, decoding.readVarUint8Array(dec),
+                            this.awareness,
+                            this.vouched(decoding.readVarUint8Array(dec), ws,
+                                         owner),
                             ws);
                         break;
                 }
@@ -627,15 +687,46 @@ class Room
                     return;
                 }
 
+                /* A page from before tickets would join the room and
+                   wait for ever on a document socket that is never let
+                   in; told now, it says so, and a reload is the fix. */
+                if (m.tickets !== true)
+                {
+                    send({ type: 'error', why: 'old',
+                           text: 'this page is older than the relay; ' +
+                                 'reload it' });
+                    ws.close();
+                    return;
+                }
+
                 /* An account plays under its handle. A session the relay
                    no longer knows is refused rather than made a guest, or
                    somebody would play the room believing they were logged
                    in. A guest goes by the name asked for, if that is not
                    an account's. */
-                const account = m.session === undefined ? null
-                    : this.accounts.sessionAccount({ session: m.session });
-                const asked = account?.handle ??
-                              normalizeName(String(m.name ?? ''));
+                let account;
+                let asked;
+
+                try
+                {
+                    account = m.session === undefined ? null
+                        : this.accounts.sessionAccount({ session: m.session });
+                    asked = account?.handle ??
+                            normalizeName(String(m.name ?? ''));
+
+                    if (account === null && asked !== null &&
+                        !this.accounts.nameFree(asked))
+                        asked = undefined;
+                }
+                catch (e)
+                {
+                    process.stderr.write(`relay: accounts: ${e.message}\n`);
+                    send({ type: 'error', why: 'accounts',
+                           text: 'the relay cannot look up accounts right ' +
+                                 'now; try again in a moment' });
+                    ws.close();
+                    return;
+                }
 
                 if (m.session !== undefined && account === null)
                 {
@@ -645,12 +736,12 @@ class Room
                     return;
                 }
 
-                if (account === null && asked !== null &&
-                    !this.accounts.nameFree(asked))
+                if (asked === undefined)
                 {
                     send({ type: 'error', why: 'name',
-                           text: `${asked} is an account's handle; log in, ` +
-                                 'or pick another name' });
+                           text: `${normalizeName(String(m.name))} is an ` +
+                                 'account\'s handle; log in, or pick ' +
+                                 'another name' });
                     ws.close();
                     return;
                 }
@@ -939,11 +1030,7 @@ class Room
 
             const me = this.peers.get(id);
 
-            for (const t of me.tickets)
-                this.tickets.delete(t);
-
-            for (const d of me.docs)
-                d.close();
+            this.revoke(me);
 
             if (me?.seat !== null && me?.seat !== undefined)
                 this.seats.delete(me.seat);
@@ -1035,7 +1122,11 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             res.writeHead(200, { 'Content-Type': 'application/json',
                                  'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify({
-                thinksynth: 'relay', protocol: PROTOCOL, accounts: true,
+                thinksynth: 'relay', protocol: PROTOCOL,
+
+                /* Only a page at CORS_ORIGIN can use them, so without it
+                   there are none to offer. */
+                accounts: corsOrigin !== null,
                 rooms: [...rooms].map(([name, r]) =>
                     ({ name, peers: r.peers.size, piece: pieceName(r.doc),
                        playing: r.playing !== null })),
@@ -1048,7 +1139,22 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
     const wss = new WebSocketServer({ noServer: true });
 
+    /* Nothing a client sends may throw out of here: an exception in an
+       upgrade listener is the whole process. */
     server.on('upgrade', (req, socket, head) =>
+    {
+        try
+        {
+            upgrade(req, socket, head);
+        }
+        catch (e)
+        {
+            process.stderr.write(`relay: upgrade failed: ${e.stack}\n`);
+            socket.destroy();
+        }
+    });
+
+    const upgrade = (req, socket, head) =>
     {
         const url = new URL(req.url, 'http://localhost');
         const m = /^\/(doc|room)\/([A-Za-z0-9_.-]{1,64})$/.exec(url.pathname);
@@ -1065,7 +1171,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         const given = url.searchParams.get('ticket');
         const ticket = m[1] === 'doc' ? tickets.get(given) : null;
 
-        if (m[1] === 'doc' && !(ticket?.room === rooms.get(m[2]) &&
+        if (m[1] === 'doc' && !(ticket !== undefined &&
+                                ticket.room === rooms.get(m[2]) &&
                                 ticket.until > relayNow()))
         {
             socket.end('HTTP/1.1 403 Forbidden\r\n' +
@@ -1075,22 +1182,37 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
         wss.handleUpgrade(req, socket, head, (ws) =>
         {
-            /* The room socket may have gone while this one upgraded. */
-            if (m[1] === 'doc' && !tickets.has(given))
-                ws.close();
-            else if (m[1] === 'doc')
-                ticket.room.attachDoc(ws, ticket.peer);
-            else
-                room(m[2], seedWith).attachRoom(ws);
+            try
+            {
+                /* The room socket may have gone while this one upgraded. */
+                if (m[1] === 'doc' && !tickets.has(given))
+                    ws.close();
+                else if (m[1] === 'doc')
+                    ticket.room.attachDoc(ws, ticket.peer);
+                else
+                    room(m[2], seedWith).attachRoom(ws);
+            }
+            catch (e)
+            {
+                process.stderr.write(`relay: upgrade failed: ${e.stack}\n`);
+                ws.terminate();
+            }
         });
-    });
+    };
 
     /* Sessions ended by the admin commands, which another process ran. */
     const recheck = setInterval(() =>
     {
-        for (const r of rooms.values())
-            r.endSessions((a) => accounts.sessionAccount(a) === null,
-                          'your session has ended; log in again');
+        try
+        {
+            for (const r of rooms.values())
+                r.endSessions((a) => accounts.sessionAccount(a) === null,
+                              'your session has ended; log in again');
+        }
+        catch (e)
+        {
+            process.stderr.write(`relay: checking sessions: ${e.message}\n`);
+        }
     }, sessionCheckMs);
 
     recheck.unref();

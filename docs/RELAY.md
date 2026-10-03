@@ -42,18 +42,22 @@ An account is a handle and a key: eight words the relay picks, which the
 room page's Account dialog shows once for a password manager to save.
 The relay keeps only hashes of keys and sessions. Anyone may still join
 as a guest, marked as one, under any name that is not an account's
-handle. The routes are under `/api/account/` on the relay's own port
-(`wasm/web/accounts.mjs`).
+handle; no handle starts with `guest-`. The routes are under
+`/api/account/` on the relay's own port (`wasm/web/accounts.mjs`).
+Accounts belong to the relay the site's `config.json` names: a page sent
+to another relay with `?relay=` joins it as a guest and keeps its
+session to itself.
 
 The image reads three variables, which `compose.yaml` passes on:
 
 - `DB`: the file, `/data/relay.db` in the image. `compose.yaml` mounts
   the named volume `accounts` on `/data`. Run from the tree, the relay
   keeps `relay.db` beside itself; `DB=:memory:` keeps nothing.
-- `CORS_ORIGIN`: the origin the room page is served from, when that is
-  not the relay's own -- the Pages site's, `https://pages.example.org`
-  for instance. Without it a page elsewhere cannot use the account API
-  and shows no Account button. Put it in a `.env` beside `compose.yaml`:
+- `CORS_ORIGIN`: the origin the room page is served from -- the Pages
+  site's, `https://pages.example.org` for instance. The account API
+  answers only that origin, and without it the relay offers no accounts
+  (its health line says so) and the page shows no Account button. Put it
+  in a `.env` beside `compose.yaml`:
 
       CORS_ORIGIN=https://pages.example.org
 
@@ -61,6 +65,11 @@ The image reads three variables, which `compose.yaml` passes on:
   which the API's rate limits read. `compose.yaml` sets 1 for the nginx
   of `docker/nginx.conf`, which appends it. Set it only behind proxies
   that do, or a client picks its own address.
+
+The document socket is let in by a ticket in its query string, good for
+five minutes. `docker/nginx.conf` logs requests by path alone so that
+tickets stay out of the access log; keep that `log_format` if the file is
+adapted.
 
 ### Back it up
 
@@ -86,8 +95,12 @@ The admin commands run against the same file, beside the running relay:
     docker exec thinksynth-relay node relay.mjs admin revoke <handle>
     docker exec thinksynth-relay node relay.mjs admin delete <handle>
 
-A ban ends the account's sessions and refuses its key until an unban;
-`revoke` ends the sessions and leaves the key working. The relay looks
+A ban ends the account's sessions and refuses its key until an unban; a
+banned account cannot delete itself. `revoke` ends the sessions and
+leaves the key working. A deleted account's handles -- its own and any it
+was renamed from -- stay nobody's for 30 days, so a name cannot be taken
+over to impersonate its owner; `delete <handle> --free` frees them at
+once. The relay looks
 at the sessions behind its open rooms once a minute and closes those
 that have ended, so a ban or a revoke empties the account out of every
 room within the minute.

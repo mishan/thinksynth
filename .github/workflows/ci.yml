@@ -1022,7 +1022,7 @@ jobs:
             import WebSocket from 'ws';
             const ws = new WebSocket('ws://127.0.0.1:8787/room/ci');
             ws.on('open', () => ws.send(JSON.stringify(
-                { type: 'hello', name: 'ci', protocol: 1 })));
+                { type: 'hello', name: 'ci', protocol: 1, tickets: true })));
             ws.on('message', (m) => {
                 const d = JSON.parse(m);
                 console.log(JSON.stringify(d));

@@ -70,7 +70,7 @@ const roomy = { register: [ROOMY, ROOMY, ROOMY], key: [ROOMY, ROOMY, null],
    with the clock at `clock.now' and every onSessionsEnded kept. */
 async function serve (store, { limits = roomy, trustProxy = 0 } = {})
 {
-    const clock = { now: 1.8e12 };
+    const clock = { now: Date.now() };
     const ended = [];
     const accounts = new Accounts({ store, now: () => clock.now, limits,
                                     onSessionsEnded: (e) => ended.push(e),
@@ -88,7 +88,9 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
     {
         const res = await fetch(`${base}/${route}`, {
             method,
-            headers: { ...headers,
+            headers: { ...(method === 'POST'
+                           ? { 'Content-Type': 'application/json' } : {}),
+                       ...headers,
                        ...(session ? { Authorization: `Bearer ${session}` }
                                    : {}) },
             body: body === undefined ? undefined
@@ -100,7 +102,7 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
                  body: text === '' ? null : JSON.parse(text) };
     };
 
-    return { clock, ended, call, close: () => server.close() };
+    return { clock, ended, call, base, close: () => server.close() };
 }
 
 /* ---- keys and names ---- */
@@ -164,9 +166,14 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
         check(ann.headers.get('access-control-allow-origin') === PAGE,
               'and says which origin may read it');
 
-        for (const [handle, status, error] of [['ANN', 409, 'handle_taken'],
-                                               ['\u200B', 400, 'bad_handle'],
-                                               [7, 400, 'bad_handle']])
+        for (const [handle, status, error] of [
+            ['ANN', 409, 'handle_taken'],
+            ['\u0410nn', 409, 'handle_taken'],
+            ['A\u200Dnn', 409, 'handle_taken'],
+            ['\u200B', 400, 'bad_handle'],
+            ['guest-123', 400, 'bad_handle'],
+            ['Guest-Ann', 400, 'bad_handle'],
+            [7, 400, 'bad_handle']])
         {
             const r = await s.call('register', { body: { handle } });
 
@@ -197,14 +204,21 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
               nobody.headers.get('www-authenticate') === 'Bearer',
               'and no session is told to log in');
 
-        /* A rename: once a month, and the handle left behind stays its
-           owner's for a while, so nobody can pass as them under it. */
-        const renamed = await s.call('handle', { session: ann.body.session,
+        /* A rename: with the key, once a month, and the handle left
+           behind stays its owner's for a while, so nobody can pass as them
+           under it. */
+        const keyless = await s.call('handle', { session: ann.body.session,
                                                  body: { handle: 'Annie' } });
-        const again = await s.call('handle', { session: ann.body.session,
-                                               body: { handle: 'Ann' } });
+        const renamed = await s.call('handle', {
+            session: ann.body.session,
+            body: { handle: 'Annie', key: ann.body.key } });
+        const again = await s.call('handle', {
+            session: ann.body.session,
+            body: { handle: 'Ann', key: ann.body.key } });
         const squat = await s.call('register', { body: { handle: 'ann' } });
 
+        check(keyless.status === 401 && keyless.body.error === 'bad_key',
+              'a session alone cannot rename the account');
         check(renamed.status === 200 &&
               renamed.body.account.handle === 'Annie' &&
               again.status === 409 && again.body.error === 'rename_too_soon',
@@ -268,18 +282,70 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
         check(staleMe.status === 401 && usedMe.status === 200,
               'a session unused for a year lapses; one in use does not');
 
-        /* Deleting takes the key, and with a session, that session's
-           account's key. */
+        /* Deleting takes the key -- with a session, that session's
+           account's key -- and the handle typed out. */
         const wrongDelete = await s.call('delete', {
-            session: ann.body.session, body: { key: lapsed.body.key } });
+            session: ann.body.session,
+            body: { key: lapsed.body.key, handle: 'Annie' } });
+        const unconfirmed = await s.call('delete', {
+            session: ann.body.session,
+            body: { key: replaced.body.key, handle: 'Ann' } });
         const deleted = await s.call('delete', {
-            session: ann.body.session, body: { key: replaced.body.key } });
+            session: ann.body.session,
+            body: { key: replaced.body.key, handle: 'annie' } });
         const gone = await s.call('login', {
             body: { key: replaced.body.key } });
 
-        check(wrongDelete.status === 401 && deleted.status === 200 &&
-              gone.status === 401,
-              'deleting takes the account\'s own key, and then it is gone');
+        check(wrongDelete.status === 401 && unconfirmed.status === 400 &&
+              unconfirmed.body.error === 'confirm' &&
+              deleted.status === 200 && gone.status === 401,
+              'deleting takes the account\'s own key and its handle typed, ' +
+              'and then it is gone');
+
+        const reuse = await s.call('register', { body: { handle: 'Annie' } });
+
+        s.clock.now += HANDLE_KEPT_MS + DAY_MS;
+
+        const reused = await s.call('register', { body: { handle: 'Annie' } });
+
+        check(reuse.status === 409 && reused.status === 200,
+              'and its handle is nobody\'s until it has been free long ' +
+              'enough');
+
+        /* A page elsewhere can send a form or text/plain without asking:
+           a request that is not JSON, or from another origin, is not let
+           register anything. */
+        const plain = await s.call('register', {
+            headers: { 'Content-Type': 'text/plain' },
+            body: { handle: 'Plain' } });
+        const foreign = await s.call('register', {
+            headers: { Origin: 'https://elsewhere.example.org' },
+            body: { handle: 'Foreign' } });
+        const ours = await s.call('register', {
+            headers: { Origin: PAGE }, body: { handle: 'Ours' } });
+
+        check(plain.status === 415 && foreign.status === 403 &&
+              ours.status === 200,
+              'only JSON from the page\'s origin registers');
+
+        /* Past the cap with no length to refuse it by up front. */
+        const chunked = await new Promise((resolve) =>
+        {
+            const req = http.request(`${s.base}/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json',
+                           'Transfer-Encoding': 'chunked' },
+            }, (res) => resolve(res.statusCode));
+
+            req.on('error', () => resolve('reset'));
+
+            for (let i = 0; i < 8; i++)
+                req.write(' '.repeat(512));
+
+            req.end('{}');
+        });
+
+        check(chunked === 413, 'a chunked body over a KiB is refused');
 
         const big = await s.call('register', {
             body: JSON.stringify({ handle: 'x'.repeat(2000) }) });
@@ -329,9 +395,15 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
 
         check(shown.status === 0 && /"Bo"/.test(shown.lines[0]),
               'the admin commands find an account by its handle, folded');
+        const selfDelete = await s.call('delete', {
+            body: { key: bo.key, handle: 'Bo' } });
+
         check(banned.status === 0 && login.body.error === 'banned' &&
               me.status === 401,
               'a ban ends the sessions and refuses the key');
+        check(selfDelete.body?.error === 'banned',
+              'and a banned account cannot delete itself to free its ' +
+              'handle');
 
         admin('unban', 'bo');
 
@@ -357,8 +429,20 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
 
         check(admin('delete', 'bob').status === 0 &&
               (await s.call('login', { body: { key: bo.key } })).status ===
-              401 && admin('account', 'bob').status === 1,
-              'deleting from the admin commands deletes');
+              401 && admin('account', 'bob').status === 1 &&
+              (await s.call('register', { body: { handle: 'Bob' } }))
+                  .status === 409,
+              'deleting from the admin commands deletes, and keeps the ' +
+              'handle');
+
+        const cy = (await s.call('register', { body: { handle: 'Cy' } }))
+            .body;
+
+        check(cy.key !== undefined &&
+              admin('delete', 'cy', '--free').status === 0 &&
+              (await s.call('register', { body: { handle: 'Cy' } }))
+                  .status === 200,
+              'unless told to free it');
         check(admin('frobnicate', 'x').status === 2,
               'an unknown command says how to use them');
     }
@@ -429,6 +513,7 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
     for (const [address, want] of [
         ['192.0.2.1', '192.0.2.1'],
         ['::ffff:192.0.2.1', '192.0.2.1'],
+        ['::ffff:c000:201', '192.0.2.1'],
         ['2001:db8:a:b:c:d:e:f', '2001:db8:a:b::/64'],
         ['2001:DB8::1', '2001:db8:0:0::/64'],
         ['fe80::1%eth0', 'fe80:0:0:0::/64'],
@@ -439,7 +524,7 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
     for (const [header, hops, want] of [
         ['1.1.1.1, 2.2.2.2', 1, '2.2.2.2'],
         ['1.1.1.1, 2.2.2.2', 2, '1.1.1.1'],
-        ['1.1.1.1', 3, '1.1.1.1'],
+        ['1.1.1.1', 3, null],
         ['1.1.1.1', 0, null],
         ['[2001:db8::1]:443', 1, '2001:db8::1'],
         ['1.1.1.1:80', 1, '1.1.1.1'],

@@ -46,6 +46,7 @@ import { fileURLToPath } from 'node:url';
 import WebSocket, { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import * as encoding from 'lib0/encoding';
 
 import { dspNames, fileNames, hashOf, pieceText, readFile, seenOf }
     from './doc.js';
@@ -168,13 +169,16 @@ async function accountsInRooms ()
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'relaytest-'));
     const db = path.join(dir, 'relay.db');
     const acct = await relay({ port: 0, host: '127.0.0.1', tree, db,
+                               corsOrigin: 'https://page.example.org',
                                ticketMs: 1000, sessionCheckMs: 200 });
     const at = `127.0.0.1:${acct.address().port}`;
     const post = async (route, body, session) =>
     {
         const res = await fetch(`http://${at}/api/account/${route}`, {
             method: 'POST',
-            headers: session ? { Authorization: `Bearer ${session}` } : {},
+            headers: { 'Content-Type': 'application/json',
+                       ...(session ? { Authorization: `Bearer ${session}` }
+                                   : {}) },
             body: JSON.stringify(body),
         });
 
@@ -185,7 +189,7 @@ async function accountsInRooms ()
         const c = new Client(`ws://${at}/room/${room}`, m.name ?? 'session');
 
         await c.open();
-        c.send({ type: 'hello', protocol: PROTOCOL, ...m });
+        c.send({ type: 'hello', protocol: PROTOCOL, tickets: true, ...m });
         return c;
     };
     const docSocket = (room, ticket) =>
@@ -285,12 +289,14 @@ async function accountsInRooms ()
             d.on('open', () => r(d));
         });
 
+        const docGone = refused(opened);
+
         await post('logout', undefined, ann.session);
 
         const ended = await a.next('error');
 
         check(ended.why === 'session' && await refused(a.ws) &&
-              await refused(opened),
+              await docGone,
               'logging out closes the room socket made with the session, ' +
               'and its document sockets');
         check(!await refused(g.ws, 300), 'and leaves the guest\'s alone');
@@ -316,6 +322,109 @@ async function accountsInRooms ()
 
         check(back.error === 'banned', 'and its key no longer logs in');
 
+        check((await (await fetch(`http://${at}/`)).json()).accounts === true,
+              'a relay with a page origin offers accounts');
+
+        /* A document socket to a room nobody has opened, with no ticket:
+           refused, and the relay still here. */
+        check(await refused(docSocket('nosuchroom')) &&
+              (await fetch(`http://${at}/`)).ok,
+              'a document socket for a room that is not there is refused, ' +
+              'and the relay lives');
+
+        /* A cursor's name is the relay's to say: the room socket's name,
+           a guest's marked as one, whatever the page set. And no socket
+           speaks for a client another one does. */
+        {
+            const cy = await post('register', { handle: 'Cy' });
+            const c = await hello('cursors', { session: cy.session });
+            const { ticket: ct } = await c.next('welcome');
+            const h = await hello('cursors', { name: 'Hob' });
+            const { ticket: ht } = await h.next('welcome');
+            const docs = [];
+            const provider = (ticket) =>
+            {
+                const d = new Y.Doc();
+                /* No BroadcastChannel: in one process it would hand the
+                   pages' own states to each other past the relay. */
+                const p = new WebsocketProvider(`ws://${at}/doc`, 'cursors', d,
+                                                { WebSocketPolyfill: WebSocket,
+                                                  params: { ticket },
+                                                  disableBc: true });
+
+                docs.push([p, d]);
+                return p;
+            };
+            const pc = provider(ct);
+            const ph = provider(ht);
+            const watcher = provider(ct);
+            const names = () => [...watcher.awareness.getStates().values()]
+                .filter((st) => st.user !== undefined)
+                .map((st) => `${st.user.name}/${st.user.account}`).sort()
+                .join(' ');
+
+            await Promise.all([pc, ph, watcher].map((p) => new Promise((r) =>
+                p.synced ? r() : p.once('synced', r))));
+            pc.awareness.setLocalStateField('user', { name: 'Admin' });
+            ph.awareness.setLocalStateField('user', { name: 'Cy' });
+            await new Promise((r) => setTimeout(r, 300));
+
+            check(names() === 'Cy/true Hob (guest)/false',
+                  `a cursor goes by its room socket's name (${names()})`);
+
+            /* The guest's socket, sending the account's client as its
+               own. */
+            const raw = docSocket('cursors', ht);
+
+            await new Promise((r) => raw.on('open', r));
+
+            const id = pc.awareness.clientID;
+            const update = encoding.createEncoder();
+            const enc = encoding.createEncoder();
+
+            encoding.writeVarUint(update, 1);
+            encoding.writeVarUint(update, id);
+            encoding.writeVarUint(update,
+                                  pc.awareness.meta.get(id).clock + 1);
+            encoding.writeVarString(update,
+                                    JSON.stringify({ user: { name: 'X' } }));
+            encoding.writeVarUint(enc, 1);
+            encoding.writeVarUint8Array(enc, encoding.toUint8Array(update));
+            raw.send(encoding.toUint8Array(enc));
+            await new Promise((r) => setTimeout(r, 300));
+
+            check(names() === 'Cy/true Hob (guest)/false',
+                  'and one socket cannot speak for another\'s cursor');
+
+            raw.close();
+
+            for (const [p, d] of docs)
+            {
+                p.destroy();
+                p.awareness.destroy();
+                d.destroy();
+            }
+
+            c.close();
+            h.close();
+        }
+
+        /* Ended sessions take their tickets at once, not when a client
+           that has stopped answering lets the close complete. */
+        {
+            const dee = await post('register', { handle: 'Dee' });
+            const d = await hello('acct', { session: dee.session });
+            const { ticket: dt } = await d.next('welcome');
+
+            d.ws._socket.pause();
+            await post('logout', undefined, dee.session);
+
+            check(await refused(docSocket('acct', dt), 1000),
+                  'a logged-out session\'s ticket is refused at once');
+
+            d.ws.terminate();
+        }
+
         for (const c of [g, other])
             c.close();
     }
@@ -337,7 +446,7 @@ try
     const a = new Client(`${base}/room/test?piece=airports.gen`, 'A');
 
     await a.open();
-    a.send({ type: 'hello', name: 'Ann', protocol: PROTOCOL });
+    a.send({ type: 'hello', name: 'Ann', protocol: PROTOCOL, tickets: true });
 
     const wa = await a.next('welcome');
 
@@ -349,7 +458,7 @@ try
     const b = new Client(`${base}/room/test`, 'B');
 
     await b.open();
-    b.send({ type: 'hello', name: 'Bo', protocol: PROTOCOL });
+    b.send({ type: 'hello', name: 'Bo', protocol: PROTOCOL, tickets: true });
 
     const wb = await b.next('welcome');
     const ja = await a.next('joined');
@@ -357,12 +466,29 @@ try
     check(wb.peers.length === 2 && ja.peer === wb.peer && ja.name === 'Bo',
           'a second peer is told who is here, and the first is told');
 
-    const listed = (await (await fetch(`http://127.0.0.1:${port}/`)).json())
-        .rooms.find((r) => r.name === 'test');
+    const health = await (await fetch(`http://127.0.0.1:${port}/`)).json();
+    const listed = health.rooms.find((r) => r.name === 'test');
 
     check(listed?.peers === 2 && listed.piece === 'airports.gen' &&
           listed.playing === false,
           'the health line lists the room, its two people and its piece');
+    check(health.accounts === false,
+          'and offers no accounts with no page origin to serve them to');
+
+    /* A page from before tickets is told to reload, not let in to wait on
+       a document it cannot open. */
+    {
+        const old = new Client(`${base}/room/test`, 'Old');
+
+        await old.open();
+        old.send({ type: 'hello', name: 'Old', protocol: PROTOCOL });
+
+        const e = await old.next('error');
+
+        check(/older than the relay; reload/.test(e.text) &&
+              await refused(old.ws),
+              'a hello without tickets is told the page is old');
+    }
 
     /* Seats: first claim wins. */
     a.send({ type: 'seat', seat: 0 });
@@ -433,7 +559,7 @@ try
     const c = new Client(`${base}/room/test`, 'C');
 
     await c.open();
-    c.send({ type: 'hello', name: 'Cy', protocol: PROTOCOL });
+    c.send({ type: 'hello', name: 'Cy', protocol: PROTOCOL, tickets: true });
 
     const wc = await c.next('welcome');
 
@@ -557,7 +683,7 @@ try
     const k = new Client(`${base}/room/test`, 'K');
 
     await k.open();
-    k.send({ type: 'hello', name: 'Kim', protocol: PROTOCOL });
+    k.send({ type: 'hello', name: 'Kim', protocol: PROTOCOL, tickets: true });
 
     const { ticket } = await k.next('welcome');
     const docA = new Y.Doc();
@@ -617,8 +743,10 @@ try
         const g = new Client(`${base}/room/test`, 'G');
 
         await Promise.all([f.open(), g.open()]);
-        f.send({ type: 'hello', name: 'Fay', protocol: PROTOCOL });
-        g.send({ type: 'hello', name: 'Gil', protocol: PROTOCOL });
+        f.send({ type: 'hello', name: 'Fay', protocol: PROTOCOL,
+                 tickets: true });
+        g.send({ type: 'hello', name: 'Gil', protocol: PROTOCOL,
+                 tickets: true });
 
         const wf = await f.next('welcome');
 
@@ -706,9 +834,12 @@ try
         const o = new Client(`${base}/room/elsewhere`, 'O');
 
         await Promise.all([h.open(), i.open(), o.open()]);
-        h.send({ type: 'hello', name: 'Hal', protocol: PROTOCOL });
-        i.send({ type: 'hello', name: 'Ida', protocol: PROTOCOL });
-        o.send({ type: 'hello', name: 'Oz', protocol: PROTOCOL });
+        h.send({ type: 'hello', name: 'Hal', protocol: PROTOCOL,
+                 tickets: true });
+        i.send({ type: 'hello', name: 'Ida', protocol: PROTOCOL,
+                 tickets: true });
+        o.send({ type: 'hello', name: 'Oz', protocol: PROTOCOL,
+                 tickets: true });
 
         const wh = await h.next('welcome');
 
@@ -775,7 +906,8 @@ try
         const late = new Client(`${base}/room/chat`, 'L');
 
         await late.open();
-        late.send({ type: 'hello', name: 'Lou', protocol: PROTOCOL });
+        late.send({ type: 'hello', name: 'Lou', protocol: PROTOCOL,
+                    tickets: true });
         await late.next('welcome');
         check(await late.none('chat'),
               'and a peer who arrives later is handed none of it');
@@ -793,8 +925,10 @@ try
         const t = new Client(`${base}/room/switch`, 'T');
 
         await Promise.all([s.open(), t.open()]);
-        s.send({ type: 'hello', name: 'Sue', protocol: PROTOCOL });
-        t.send({ type: 'hello', name: 'Tom', protocol: PROTOCOL });
+        s.send({ type: 'hello', name: 'Sue', protocol: PROTOCOL,
+                 tickets: true });
+        t.send({ type: 'hello', name: 'Tom', protocol: PROTOCOL,
+                 tickets: true });
 
         const ws = await s.next('welcome');
         const docS = new Y.Doc();
@@ -876,7 +1010,8 @@ try
         const u = new Client(`${base}/room/switch`, 'U');
 
         await u.open();
-        u.send({ type: 'hello', name: 'Una', protocol: PROTOCOL });
+        u.send({ type: 'hello', name: 'Una', protocol: PROTOCOL,
+                 tickets: true });
 
         const wu = await u.next('welcome');
 
@@ -1034,7 +1169,8 @@ try
         const e = new Client(`${base}/room/test`, 'E');
 
         await e.open();
-        e.send({ type: 'hello', name: 'Eve', protocol: PROTOCOL });
+        e.send({ type: 'hello', name: 'Eve', protocol: PROTOCOL,
+                 tickets: true });
 
         const we = await e.next('welcome');
 

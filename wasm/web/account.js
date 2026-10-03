@@ -42,9 +42,13 @@ const NAME_INPUT_MAX = 200;
 
 /* Stripped outright: control characters other than whitespace, format
    characters other than the zero-width joiner and non-joiner, private-use,
-   unassigned and lone-surrogate code points, and marks that only ever
-   render invisibly. */
-const STRIPPED = /(?!\s)\p{Cc}|(?!\u200C|\u200D)\p{Cf}|[\p{Co}\p{Cn}\p{Cs}\u034F\u17B4\u17B5]/gu;
+   unassigned and lone-surrogate code points, marks that only ever render
+   invisibly, and the variation selectors, Mongolian ones included, which
+   change how a character is drawn and nothing about which it is. */
+const STRIPPED = new RegExp(
+    '(?!\\s)\\p{Cc}|(?!\\u200C|\\u200D)\\p{Cf}|[\\p{Co}\\p{Cn}\\p{Cs}' +
+    '\\u034F\\u17B4\\u17B5\\u180B-\\u180D\\u180F\\uFE00-\\uFE0F' +
+    '\\u{E0100}-\\u{E01EF}]', 'gu');
 
 /* A run of whitespace, or of characters that render blank without being
    whitespace to Unicode: the Hangul fillers, the Mongolian vowel separator
@@ -53,15 +57,30 @@ const BLANK_RUN = /[\s\u115F\u1160\u180E\u2800\u3164\uFFA0]+/gu;
 
 const JOINER_RUN = /(?:\u200C|\u200D)+/gu;
 
-/* A joiner run stays only as a single joiner between two non-space
-   characters: emoji sequences, Persian and Indic text. */
+/* What a joiner means something between: emoji, which it joins into one
+   picture, and the scripts whose letters it shapes. Anywhere else -- in
+   Latin, say -- it is an invisible character that makes two names look
+   alike and differ. */
+const JOINS = new RegExp(
+    '[\\p{Extended_Pictographic}\\p{Emoji_Modifier}' +
+    '\\p{Script_Extensions=Arabic}' +
+    '\\p{Script_Extensions=Syriac}\\p{Script_Extensions=Devanagari}' +
+    '\\p{Script_Extensions=Bengali}\\p{Script_Extensions=Gurmukhi}' +
+    '\\p{Script_Extensions=Gujarati}\\p{Script_Extensions=Oriya}' +
+    '\\p{Script_Extensions=Tamil}\\p{Script_Extensions=Telugu}' +
+    '\\p{Script_Extensions=Kannada}\\p{Script_Extensions=Malayalam}' +
+    '\\p{Script_Extensions=Sinhala}]', 'u');
+
+/* A joiner run stays only as a single joiner between two characters it
+   means something between. */
 function keepJoiner (run, at, text)
 {
-    const before = text[at - 1];
-    const after = text[at + run.length];
+    const before = Array.from(text.slice(0, at)).at(-1);
+    const after = Array.from(text.slice(at + run.length, at + run.length + 2))
+        .at(0);
 
     return run.length === 1 && before !== undefined && after !== undefined &&
-           before !== ' ' && after !== ' ' ? run : '';
+           JOINS.test(before) && JOINS.test(after) ? run : '';
 }
 
 let graphemes;
@@ -110,14 +129,33 @@ export function normalizeName (raw)
     return name === '' ? null : name;
 }
 
+/* Cyrillic and Greek letters drawn like Latin ones -- as capitals, mostly,
+   which is why `\u043D' is an `h' -- and the digits and pairs that pass for
+   letters: a cut of Unicode's confusables (UTS #39) to the set a handle
+   is faked with.
+   Folded alike, `p\u0430ypal' clashes with `paypal' whatever the script of
+   its `a', and `I', `l' and `1' are one letter. Mixed scripts are
+   otherwise allowed, so a name can mix a script with Latin. */
+const LOOKALIKE = Object.fromEntries((
+    '\u0430a \u0432b \u0441c \u0501d \u0435e \u04BBh \u0456l \u0458j ' +
+    '\u043Ak \u04CFl \u043Cm \u043Dh \u043Eo \u0440p \u051Bq \u0455s ' +
+    '\u0442t \u0443y \u0445x \u051Dw ' +
+    '\u03B1a \u03B2b \u03B5e \u03B6z \u03B7h \u03B9l \u03BAk \u03BCm ' +
+    '\u03BDn \u03BFo \u03C1p \u03C4t \u03C5y \u03C7x \u03C9w ' +
+    '0o 1l il').split(' ').map((pair) => [...pair]));
+
 /* The form two names clash in. Compatibility forms (full-width letters,
    ligatures) fold to their plain letters and case does not count;
-   upper-casing first catches what lower-casing alone misses (`ß' and
-   `SS'), and the dot `İ' leaves on its `i' is dropped. */
+   upper-casing first catches what lower-casing alone misses (`\u00DF' and
+   `SS'), the dot `\u0130' leaves on its `i' is dropped, and lookalikes
+   from another script fold to the Latin letter they pass for. */
 export function foldName (name)
 {
     return name.normalize('NFKC').toUpperCase().toLowerCase()
-               .replace(/i\u0307/g, 'i').normalize('NFC');
+               .replace(/i\u0307/g, 'i')
+               .replace(/./gu, (c) => LOOKALIKE[c] ?? c)
+               .replace(/rn/g, 'm').replace(/vv/g, 'w')
+               .normalize('NFC');
 }
 
 /* A key as typed or pasted, in its one form: lowercase words joined by
