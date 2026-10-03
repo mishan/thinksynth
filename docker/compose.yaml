@@ -20,3 +20,18 @@ services:
     init: true
     ports:
       - "127.0.0.1:8787:8787"   # only the proxy on this host reaches it
+    environment:
+      # The room page's origin, where it is served from somewhere else
+      # (the Pages site, say); unset, only the relay's own origin may use
+      # the account API.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      # nginx in front, appending the client's address to X-Forwarded-For,
+      # which the account API's rate limits read.
+      TRUST_PROXY: "1"
+    volumes:
+      # The accounts (DB=/data/relay.db, set by the image). Back it up:
+      # docs/RELAY.md.
+      - accounts:/data
+
+volumes:
+  accounts:

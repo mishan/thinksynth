@@ -39,6 +39,8 @@
 import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
+import { shownName } from './account.js';
+import { createAccounts } from './accountui.js';
 import { barBeat, createChat } from './chat.js';
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, RELAY, TRANSPORT_LEAD, apply,
@@ -79,13 +81,16 @@ const ENOUGH_SAMPLES = 4;
 /* How long the instrument picker's choice has to stay put, in ms. */
 const PICK_SETTLE = 600;
 
-/* Where the relay is: the URL's `relay', then the build's config.json,
-   then the page's own host on the relay's usual port. */
+/* Where the relay is: the URL's `relay', then the site's own (homeRelay). */
 async function relayUrl (params)
 {
-    if (params.get('relay'))
-        return params.get('relay');
+    return params.get('relay') || await homeRelay();
+}
 
+/* The relay the site names: the build's config.json, then the page's own
+   host on the relay's usual port. Accounts are this one's (accountui.js). */
+async function homeRelay ()
+{
     try
     {
         const cfg = await (await fetch('config.json')).json();
@@ -173,6 +178,7 @@ let keys = null;                /* the computer keyboard as a musical one */
 let keyfocus = null;            /* and who has it, the page or the keys  */
 let midiIn = null;              /* the MIDI in button (midi.js)          */
 let chat = null;                /* the room's text (chat.js)             */
+let accounts = null;            /* who this page is (accountui.js)       */
 let maker = null;
 const dedupe = new Dedupe();
 
@@ -1966,17 +1972,17 @@ async function join ()
 {
     const params = new URLSearchParams(location.search);
     const roomName = $('room').value.trim() || 'lobby';
-    /* Cut where the relay cuts it, so the cursor's color is the one the
-       chat derives from the name the relay hands back. */
-    const name = $('name').value.trim().slice(0, 32) || `guest-${Math.floor(
-        Math.random() * 1000)}`;
     const url = await relayUrl(params);
 
     $('join').disabled = true;
     status(`Joining ${roomName} at ${url}...`);
 
-    room = new Room(url, roomName, name,
-                    { piece: $('newpiece').value || params.get('piece') });
+    const session = await accounts.session();
+
+    room = new Room(url, roomName, $('name').value.trim() ||
+                        `guest-${Math.floor(Math.random() * 1000)}`,
+                    { piece: $('newpiece').value || params.get('piece'),
+                      session });
     room.on('peers', () => { showPeers(); chat.peers(room.peers); })
         .on('chat', (m) => chat.said(m))
         .on('refused', (m) =>
@@ -1993,7 +1999,14 @@ async function join ()
         .on('clock', () => { showNumbers(); enable(); })
         .on('transport', (from, data) => receive(from, data))
         .on('error', (text) => log(`relay: ${text}`))
-        .on('close', () => status('The relay went away.'));
+        .on('close', (refused) =>
+        {
+            status(refused ? `The relay closed the room: ${refused.text}.`
+                           : 'The relay went away.');
+
+            if (refused?.why === 'session')
+                accounts.ended();
+        });
 
     try
     {
@@ -2003,8 +2016,16 @@ async function join ()
     {
         status(e.message);
         $('join').disabled = false;
+
+        if (e.why === 'session')
+            accounts.ended();
+
         return;
     }
+
+    /* The name the relay gave us -- a handle, or the guest name cleaned
+       up -- as everyone else sees it. */
+    const name = shownName(room.identity);
 
     maker = new Maker(room.peer, transportNow, { edits: () => editsSeen });
     $('knoblead').value = maker.knobLead;
@@ -2012,7 +2033,11 @@ async function join ()
 
     /* The document. */
     doc = new Y.Doc();
-    provider = new WebsocketProvider(`${url}/doc`, roomName, doc);
+    provider = new WebsocketProvider(`${url}/doc`, roomName, doc,
+                                     room.ticket === null
+                                         ? {} : { params: { ticket:
+                                                            room.ticket } });
+    room.on('ticket', (ticket) => { provider.params = { ticket }; });
 
     const c = colourOf(name);
 
@@ -2058,7 +2083,7 @@ async function join ()
                                             : {}) };
 
     history.replaceState(null, '', `?${new URLSearchParams(
-        { ...where, name })}`);
+        { ...where, name: room.identity.name })}`);
     invite = new URL(`?${new URLSearchParams(where)}`, location.href).href;
 }
 
@@ -2303,6 +2328,17 @@ function init ()
 
     $('room').value = params.get('room') ?? 'lobby';
     $('name').value = params.get('name') ?? '';
+
+    /* Logged in, the name is the handle, and not this page's to change. */
+    accounts = createAccounts({
+        open: $('account'), dialog: $('accountdialog'),
+        relay: () => relayUrl(params), home: homeRelay,
+        onChange: (handle) =>
+        {
+            $('name').disabled = handle !== null;
+            $('name').value = handle ?? '';
+        },
+    });
     showPieces(params.get('piece'));
 
     keyboard = new Keyboard($('keys'), { onPress: press, onRelease: release });

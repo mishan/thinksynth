@@ -26,6 +26,7 @@
  * given.
  */
 
+import { shownName } from './account.js';
 import { RelayClock } from './clock.js';
 
 export const PROTOCOL = 1;
@@ -41,19 +42,27 @@ const CATCHUP_WAIT = 15 * 1000;
 
 export class Room
 {
-    /* `url' is the relay, ws://host:port; `name' is what the others see.
-       `now' is the wall clock the offset is kept against -- the page's
-       performance.now, or a harness's. */
+    /* `url' is the relay, ws://host:port; `name' is what the others see
+       of a guest, and `session' an account's, which plays under its
+       handle instead. `now' is the wall clock the offset is kept against
+       -- the page's performance.now, or a harness's. */
     constructor (url, roomName, name,
-                 { now = () => performance.now(), piece = null } = {})
+                 { now = () => performance.now(), piece = null,
+                   session = null } = {})
     {
         this.url = url;
         this.roomName = roomName;
         this.name = name;
+        this.session = session;
         this.now = now;
         this.piece = piece;             /* what a new room is seeded with */
         this.peer = null;               /* our id, from the welcome */
-        this.peers = new Map();         /* id -> { name, seat } */
+        this.identity = null;           /* { name, account }, likewise */
+        this.ticket = null;             /* the document socket's way in */
+
+        /* id -> { name, seat, account }, the name as the room shows it
+           (account.js, shownName). */
+        this.peers = new Map();
         this.playing = null;            /* the last transport start */
         this.clock = new RelayClock();
         this.handlers = new Map();
@@ -83,13 +92,17 @@ export class Room
                                      (this.piece ? `?piece=${this.piece}`
                                                  : ''));
             let welcomed = false;
-            let refused = null;     /* the relay's last word, if it said one */
+
+            /* The relay's last word, if it said one: { text, why }. */
+            let refused = null;
 
             this.ws = ws;
 
             ws.addEventListener('open', () =>
                 this.send({ type: 'hello', name: this.name,
-                            protocol: PROTOCOL }));
+                            protocol: PROTOCOL, tickets: true,
+                            ...(this.session === null
+                                ? {} : { session: this.session }) }));
 
             ws.addEventListener('error', () =>
                 reject(new Error(`could not reach the relay at ${this.url}`)));
@@ -104,14 +117,15 @@ export class Room
                    clean close fires no error event. Without this the
                    join would await a promise that never settles. */
                 if (!welcomed)
-                    reject(new Error(
-                        refused ?? `the relay at ${this.url} closed the ` +
-                                   'connection before welcoming us'));
+                    reject(Object.assign(new Error(
+                        refused?.text ?? `the relay at ${this.url} closed ` +
+                                         'the connection before welcoming us'),
+                        { why: refused?.why }));
 
                 for (const c of this.catchups.splice(0))
                     c.reject(new Error('the relay closed the connection'));
 
-                this.emit('close');
+                this.emit('close', refused);
             });
 
             ws.addEventListener('message', (e) =>
@@ -132,11 +146,14 @@ export class Room
                     case 'welcome':
                         welcomed = true;
                         this.peer = m.peer;
+                        this.identity = m.identity ?? { name: this.name };
+                        this.ticket = m.ticket ?? null;
                         this.peers.clear();
 
                         for (const p of m.peers)
-                            this.peers.set(p.peer, { name: p.name,
-                                                     seat: p.seat });
+                            this.peers.set(p.peer, { name: shownName(p),
+                                                     seat: p.seat,
+                                                     account: p.account });
 
                         this.playing = m.playing;
                         this.features = m.features ?? [];
@@ -148,7 +165,9 @@ export class Room
                         break;
 
                     case 'joined':
-                        this.peers.set(m.peer, { name: m.name, seat: null });
+                        this.peers.set(m.peer, { name: shownName(m),
+                                                 seat: null,
+                                                 account: m.account });
                         this.emit('peers');
                         this.emit('joined', m.peer);
                         break;
@@ -200,7 +219,14 @@ export class Room
                         break;
 
                     case 'chat':
-                        this.emit('chat', m);
+                        this.emit('chat', { ...m, name: shownName(m) });
+                        break;
+
+                    /* A new ticket before the last one lapses, for the
+                       document socket's next reconnect. */
+                    case 'ticket':
+                        this.ticket = m.ticket;
+                        this.emit('ticket', m.ticket);
                         break;
 
                     case 'refused':
@@ -208,7 +234,7 @@ export class Room
                         break;
 
                     case 'switched':
-                        this.emit('switched', m);
+                        this.emit('switched', { ...m, name: shownName(m) });
                         break;
 
                     case 'catchup':
@@ -217,7 +243,7 @@ export class Room
                         break;
 
                     case 'error':
-                        refused = m.text;
+                        refused = { text: m.text, why: m.why };
                         this.emit('error', m.text);
                         break;
                 }
