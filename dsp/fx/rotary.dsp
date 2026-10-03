@@ -44,7 +44,13 @@
 #
 # `fx/chorus.dsp' is the same node doing a different job; see its head.
 # Put this on an organ channel -- dsp/organ0.dsp is what it was built
-# for.
+# for, and dsp/tonewheel.dsp is what it sounds best on.
+#
+# `Drive' is the cabinet's own valve amplifier pushed: a tanh before the
+# crossover, scaled back down by its drive so a quiet chord comes
+# through at the level it went in and a loud one growls. It acts on the
+# chord rather than on each note, which is why it lives here and not in
+# the organ, and at 0 the dry signal passes untouched.
 
 name "Rotary";
 author "Misha Nasledov";
@@ -119,6 +125,12 @@ category "Effects";
     @mix.max = 1;
     @mix.label = "Mix";
 
+    @drive = 0;
+    @drive.widget = 1;
+    @drive.min = 0;
+    @drive.max = 10;
+    @drive.label = "Drive";
+
 node ionode {
     channels = 2;
 
@@ -151,16 +163,30 @@ node drumrate math::add {
     in1 = drumspin->out * (@drumfast - @drumslow);
 };
 
+node satl dist::saturate { in = ionode->in0; factor = 1 + @drive; };
+node satr dist::saturate { in = ionode->in1; factor = 1 + @drive; };
+
+node drivel mixer::fade {
+    in0 = ionode->in0;
+    in1 = satl->out / (1 + @drive);
+    fade = min(@drive, 1);
+};
+node driver mixer::fade {
+    in0 = ionode->in1;
+    in1 = satr->out / (1 + @drive);
+    fade = min(@drive, 1);
+};
+
 # The crossover. One filter a side, and both of its outputs used: the
 # high goes round with the horn and the low with the drum.
 node splitl filt::svf {
-    in = ionode->in0;
+    in = drivel->out;
     cutoff = @xover;
     res = 0;
 };
 
 node splitr filt::svf {
-    in = ionode->in1;
+    in = driver->out;
     cutoff = @xover;
     res = 0;
 };
