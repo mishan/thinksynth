@@ -32,7 +32,7 @@
  * every peer before the transport gets there. One that still arrives late
  * is applied at once by the worklet and counted there (thinkweb.cpp).
  *
- *   transport  { at, op: 'start', origin, piece: { hash }, seed }
+ *   transport  { at, op: 'start', origin, piece: { hash, seen }, seed }
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
  *   transport  { at, op: 'start', origin, piece, seed, seek } -- a seek
@@ -58,6 +58,10 @@
    adjustable there. */
 export const KNOB_LEAD = 0.150;
 export const TRANSPORT_LEAD = 0.500;
+
+/* The maker of the Play that follows a switch made while the room plays,
+   which is the relay's (relay.mjs, `switch'). No peer is given it. */
+export const RELAY = 'relay';
 
 /* A command's own name: its maker and its number, which no other command
    in the room has -- unlike its stamp, which is -1 for every command made
@@ -105,11 +109,14 @@ export class Maker
     }
 
     /* Play. `origin' is a relay-clock time; the caller has already put it
-       `transportLead' ahead. */
-    start (origin, hash, seed, seek = 0)
+       `transportLead' ahead. `seen' is the document's state vector at
+       that hash (doc.js, seenOf), when the caller has one. */
+    start (origin, hash, seed, seek = 0, seen = undefined)
     {
-        return this.make('transport', { op: 'start', origin,
-                                        piece: { hash }, seed, seek },
+        const piece = seen === undefined ? { hash } : { hash, seen };
+
+        return this.make('transport', { op: 'start', origin, piece, seed,
+                                        seek },
                          this.transportLead);
     }
 

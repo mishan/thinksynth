@@ -64,14 +64,16 @@
  * pane after an edit has moved the track: the same tape on both pages, not
  * the untouched one, and the same cell in both documents.
  *
- * Then the room's piece switched from inside it: twice at once, after a
- * knob of the piece switched from, and under an editor tab; to village.gen
+ * Then the room's piece switched from inside it: twice at once, stopped
+ * and while it plays; under a page whose document has gone past the
+ * relay's Play of it, or that hears a Play already replaced; after a knob
+ * of the piece switched from, and under an editor tab; to village.gen
  * while it plays, which a late joiner has to catch up with, and to
  * colony.gen while it is stopped. Both pages end up with the new piece's
  * files and nothing else, the same tabs and node editor menu, and genwav's
- * tape for it. And a .gen
- * pasted over the room's naming other graphs: the tabs and the menu follow
- * the text, and a graph it names that the room lacks comes in at the Play.
+ * tape for it. And a .gen pasted over the room's naming other graphs: the
+ * tabs and the menu follow the text, and a graph it names that the room
+ * lacks comes in at the Play.
  *
  * Last, the two pages talk: a line each way through the room's chat, and
  * a Play from one reported in the other's feed.
@@ -1069,6 +1071,195 @@ async function switchTogether (pages, browser)
     else
         fail(`after the stopped switch, ${PAINT_PIECE}'s tape differs: ` +
              firstDifference(colony, theirs[theirs[0] === colony ? 1 : 0]));
+}
+
+/* Two switches at once while the room plays: A to ebb.gen and B to
+ * village.gen. The relay plays the last of them from the top, and both
+ * pages end up on it -- one tape, genwav's for that piece -- with nothing
+ * loaded late on either: a page whose document went past a Play's
+ * revision loads the relay's copy of it rather than waiting it out. */
+async function switchRacePlaying (pages)
+{
+    const [A, B] = pages;
+
+    await enter(pages, 'jamswitchplaying', PIECE);
+    await A.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const lateWas = await Promise.all(pages.map(({ page }) =>
+        page.evaluate(() => window.jam.late().seen)));
+
+    await Promise.all([switchTo(A, 'ebb.gen'), switchTo(B, SWITCH_PIECE)]);
+    await new Promise((r) => setTimeout(r, 8000));
+    await A.page.evaluate(() => window.jam.stop());
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const results = [];
+
+    for (const { label, page } of pages)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+            late: window.jam.late(),
+            piece: window.jam.piece(),
+        }))) });
+
+    const piece = results[0].piece;
+    const stop = results[0].sent.findLast((c) => c.op === 'stop');
+
+    if (!['ebb.gen', SWITCH_PIECE].includes(piece) ||
+        results[1].piece !== piece || stop === undefined || stop.at < 0)
+    {
+        fail(`after two switches while playing: ${results.map(
+            (r) => r.piece).join(', ')}, stop ${stop?.at}`);
+        return;
+    }
+
+    const tapes = results.map((r) => tapeBefore(r.tape, stop.at));
+    const want = reference(piece, nodeBuild,
+                           { commands: [stop], stopAt: stop.at });
+
+    if (tapes[0] === want && tapes[1] === want)
+        ok(`two switches at once while playing: both pages play ${piece} ` +
+           `from the top, genwav's tape, ${want.split('\n').length - 1} ` +
+           'events');
+    else
+        fail(`two switches at once while playing, ${piece}: ` +
+             firstDifference(want, tapes[tapes[0] === want ? 1 : 0]));
+
+    for (const [i, r] of results.entries())
+        if (r.late.seen === lateWas[i] && r.late.worklet === 0)
+            ok(`and ${r.label} loaded nothing late`);
+        else
+            fail(`${r.label} counted ${r.late.seen - lateWas[i]} late ` +
+                 `loads and ${r.late.worklet} late commands: ` +
+                 r.late.page.slice(-3).map((c) =>
+                     `${c.from}#${c.seq} ${c.op ?? c.type}`).join(', '));
+}
+
+/* A Play whose revision a page's document has gone past by the time the
+ * page gets to it, which B's room socket is held back to arrange: what
+ * the relay says to B waits until this lets it go, while B's document
+ * goes on syncing.
+ *
+ * Playing colony.gen, A switches to airports.gen and, before B hears the
+ * relay's Play of it, edits a chain in airports.gen without applying it.
+ * B's document has gone past the Play's revision; B loads the relay's
+ * copy of it, so both tapes are genwav's for airports.gen as shipped and
+ * not the edited one's, and nothing is late.
+ *
+ * Then two switches far enough apart for the relay to play each, held
+ * back from B until both Plays are there: the first has been replaced by
+ * the time B gets to it, which is no late load, and both pages end on the
+ * second, genwav's tape again. */
+async function passedTogether (pages)
+{
+    const [A, B] = pages;
+    let hold = false;
+    const held = [];
+
+    await B.page.routeWebSocket(/\/room\//, (ws) =>
+    {
+        const server = ws.connectToServer();
+
+        server.onMessage((m) => (hold ? held.push([ws, m]) : ws.send(m)));
+    });
+
+    const release = () =>
+    {
+        hold = false;
+
+        for (const [ws, m] of held.splice(0))
+            ws.send(m);
+    };
+    const relayStartsHeld = () => held.filter(([, m]) =>
+    {
+        const j = JSON.parse(m);
+
+        return j.type === 'transport' && j.from === 'relay';
+    }).length;
+    const until = async (what, ms = 10000) =>
+    {
+        const end = Date.now() + ms;
+
+        while (!await what() && Date.now() < end)
+            await new Promise((r) => setTimeout(r, 10));
+    };
+    const lateNow = () => Promise.all(pages.map(({ page }) =>
+        page.evaluate(() => window.jam.late().seen)));
+
+    await enter(pages, 'jampassed', PAINT_PIECE);
+    await A.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, 2000));
+
+    /* Ends the run, and holds each page's tape against genwav's for
+       `piece' and its late count against `lateWas'. */
+    const heard = async (piece, lateWas, what) =>
+    {
+        await new Promise((r) => setTimeout(r, 6000));
+        await A.page.evaluate(() => window.jam.stop());
+        await new Promise((r) => setTimeout(r, 3000));
+
+        const results = [];
+
+        for (const { label, page } of pages)
+            results.push({ label, ...(await page.evaluate(() => ({
+                tape: window.jam.tape(),
+                sent: window.jam.sent(),
+                late: window.jam.late().seen,
+            }))) });
+
+        const stop = results[0].sent.findLast((c) => c.op === 'stop');
+        const want = reference(piece, nodeBuild,
+                               { commands: [stop], stopAt: stop.at });
+
+        for (const [i, r] of results.entries())
+        {
+            const tape = tapeBefore(r.tape, stop.at);
+
+            if (tape === want && r.late === lateWas[i])
+                ok(`${what}: ${r.label} plays genwav's ${piece}, ` +
+                   'nothing late');
+            else
+                fail(`${what}: ${r.label} counted ${r.late - lateWas[i]} ` +
+                     'late' + (tape === want ? ''
+                                             : `; ${firstDifference(want,
+                                                                    tape)}`));
+        }
+    };
+
+    let lateWas = await lateNow();
+
+    hold = true;
+    await switchTo(A, PIECE);
+    await until(() => B.page.evaluate((p) => window.jam.piece() === p, PIECE));
+
+    const edited = await A.page.evaluate((p) =>
+    {
+        const was = window.jam.file(p);
+        const next = was.replace('prob = 0.6; hold = 5 s; vel = 50;',
+                                 'prob = 1; hold = 5 s; vel = 90;');
+
+        window.jam.setFile(p, next);
+
+        return next;
+    }, PIECE);
+
+    await until(() => B.page.evaluate(
+        ([p, t]) => window.jam.file(p) === t, [PIECE, edited]));
+    release();
+    await heard(PIECE, lateWas, 'a Play B\'s document had gone past');
+
+    await A.page.evaluate(() => window.jam.play());
+    await new Promise((r) => setTimeout(r, 2000));
+    lateWas = await lateNow();
+    hold = true;
+    await switchTo(A, 'ebb.gen');
+    await until(() => relayStartsHeld() === 1);
+    await switchTo(A, SWITCH_PIECE);
+    await until(() => relayStartsHeld() === 2);
+    release();
+    await heard(SWITCH_PIECE, lateWas, 'a Play replaced before B got to it');
 }
 
 /* A .gen pasted over the room's, naming other graphs: colony.gen's text
@@ -2242,6 +2433,8 @@ try
     /* ---- and switches the piece, or pastes another ---- */
 
     await switchRaces(pages);
+    await switchRacePlaying(pages);
+    await passedTogether(pages);
     await switchTogether(pages, browsers[0]);
     await pasteTogether(pages);
 

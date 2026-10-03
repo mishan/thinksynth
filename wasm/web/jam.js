@@ -41,12 +41,13 @@ import * as Y from 'yjs';
 
 import { barBeat, createChat } from './chat.js';
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
-import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
+import { Dedupe, GRID, KNOB_LEAD, Maker, RELAY, TRANSPORT_LEAD, apply,
+         catchUp,
          commandTag, isLate, keyAt, nextBar, replayable, tieOf }
     from './commands.js';
-import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf,
+import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf, hasSeen,
          instrumentTexts, meta, pieceFiles, pieceName, pieceText, putFile,
-         readFile, snapshot, spliceFile }
+         readFile, readSeen, seenOf, snapshot, spliceFile }
     from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
@@ -351,8 +352,27 @@ async function send (cmd)
  * stamped for. */
 let applying = Promise.resolve();
 
+/* A start's or a stop's name, which is its run's (relay.mjs, runKeyOf). */
+const runOf = (cmd) => `${cmd.from}#${cmd.seq}`;
+
+/* The last start or stop to arrive, by whichever path, and every one that
+   has: what says a start still waiting in the queue has been replaced. */
+let newestRun = null;
+const runsSeen = new Set();
+
+/* The run this page's worklet is playing: the last start applied. */
+let appliedRun = null;
+
 function receive (from, cmd)
 {
+    if (cmd?.type === 'transport' &&
+        (cmd.op === 'start' || cmd.op === 'stop') &&
+        !runsSeen.has(runOf(cmd)))
+    {
+        runsSeen.add(runOf(cmd));
+        newestRun = runOf(cmd);
+    }
+
     const done = applying.then(() => applyOne(from, cmd));
 
     /* The queue outlives one command that threw. */
@@ -372,9 +392,17 @@ async function applyOne (from, cmd)
     const startOrStop = cmd.type === 'transport' &&
                         (cmd.op === 'start' || cmd.op === 'stop');
 
+    /* A stop or a tempo names the run it was made in. One whose run this
+       page has replaced since -- a switch's Play crossed it -- would stop
+       or retime the new run at a time stamped against the old one. */
+    if (cmd.type === 'transport' && cmd.op !== 'start' &&
+        cmd.run !== undefined && cmd.run !== appliedRun)
+        return;
+
     if (startOrStop)
     {
         room.playing = cmd.op === 'start' ? cmd : null;
+        appliedRun = cmd.op === 'start' ? runOf(cmd) : null;
         early.length = 0;
     }
 
@@ -385,7 +413,8 @@ async function applyOne (from, cmd)
         cmd.run !== room.runKey)
         return;
 
-    if (cmd.type === 'transport' || cmd.type === 'edit')
+    /* The relay's Play is a switch's, which the feed has said already. */
+    if ((cmd.type === 'transport' || cmd.type === 'edit') && from !== RELAY)
         chat.command(room.peers.get(from)?.name ?? from, cmd);
 
     if (synth === null)
@@ -429,7 +458,9 @@ async function applyOne (from, cmd)
                (cmd.at >= 0 ? ` applies at ${cmd.at.toFixed(2)} s.` : '.'));
     else if (cmd.type === 'transport')
     {
-        if (cmd.op === 'start')
+        if (cmd.op === 'start' && from === RELAY)
+            status(`Playing ${pieceName(doc)} from the top.`);
+        else if (cmd.op === 'start')
             status(`Playing from ${room.peers.get(from)?.name ?? from}'s ` +
                    'Play.');
         else if (cmd.op === 'stop')
@@ -452,13 +483,17 @@ async function applyOne (from, cmd)
  * The document may not have caught up with the sender yet: wait for
  * updates, re-hashing on each, until it matches or the origin has passed,
  * at which point it is late and counted -- a counted divergence rather
- * than a silent one. */
+ * than a silent one. Or it may have gone past it (loadPassed). */
 async function loadFor (cmd)
 {
     const deadline = room.clock.localOf(cmd.origin);
+    const seen = readSeen(cmd.piece.seen);
 
     while (await hashOf(doc) !== cmd.piece.hash)
     {
+        if (seen !== null && hasSeen(doc, seen))
+            return loadPassed(cmd, deadline);
+
         if (performance.now() >= deadline)
         {
             log(`the document had not caught up with ${cmd.from}'s Play ` +
@@ -468,31 +503,65 @@ async function loadFor (cmd)
             break;
         }
 
-        await docMoves(deadline);
+        await new Promise((resolve) =>
+        {
+            const timer = setTimeout(done, Math.max(
+                10, Math.min(250, deadline - performance.now())));
+
+            function done ()
+            {
+                clearTimeout(timer);
+                doc.off('update', done);
+                resolve();
+            }
+
+            doc.on('update', done);
+        });
     }
 
     runSeed = cmd.seed;
     await loadFromDoc(cmd.seed);
 }
 
-/* The next update to the document, or a quarter of a second, or
-   `deadline' (performance.now() milliseconds), whichever comes first. */
-function docMoves (deadline)
+/* A start whose revision the document has gone past -- a switch made just
+ * after it, say -- and will never hash to. The relay keeps the document as
+ * the start named it, for whoever joins the run late, and that is what is
+ * loaded, as a late joiner loads it, if it comes by the start's origin. A
+ * start another has replaced since has nobody to agree with: the next one
+ * loads over it, and this one loads nothing.
+ */
+async function loadPassed (cmd, deadline)
 {
-    return new Promise((resolve) =>
-    {
-        const timer = setTimeout(done, Math.max(
-            10, Math.min(250, deadline - performance.now())));
+    const replaced = () => newestRun !== runOf(cmd);
 
-        function done ()
+    runSeed = cmd.seed;
+
+    if (replaced())
+        return;
+
+    const run = await Promise.race([
+        room.catchUp().catch((e) =>
         {
-            clearTimeout(timer);
-            doc.off('update', done);
-            resolve();
-        }
+            log(`asking for ${cmd.from}'s Play's document: ${e.message}`);
+            return null;
+        }),
+        new Promise((resolve) => setTimeout(
+            () => resolve(null), Math.max(0, deadline - performance.now()))),
+    ]);
 
-        doc.on('update', done);
-    });
+    if (run?.start?.from === cmd.from && run.start.seq === cmd.seq &&
+        run.files.matched)
+        return loadFromDoc(cmd.seed, docOf(run.files));
+
+    if (replaced())
+        return;
+
+    log(`the document has gone past ${cmd.from}'s Play and the relay ` +
+        'did not have it by its origin; loading what is here');
+    lateSeen++;
+    keep(late, cmd);
+
+    return loadFromDoc(cmd.seed);
 }
 
 /* The seed the run playing now started with: what a seek starts again
@@ -582,6 +651,7 @@ function joinRun ()
             },
             load: (start) =>
             {
+                appliedRun = runOf(start);
                 runSeed = start.seed;
                 return loadFromDoc(start.seed, docOf(run.files));
             },
@@ -919,44 +989,19 @@ function switchPiece (name)
         showPiece();
 }
 
-/* The last switch the relay announced. */
-let lastSwitch = null;
-
-/* How long a switcher waits for the document to reach its switch. */
-const SWITCH_WAIT_MS = 5000;
-
-/* A switch, made: said in the chat, and played by whoever made it.
- *
- * Playing, it is a Play from the top, not an edit at the next bar. An
- * edit is thcGenDiff's: a stage keeps its state when its text is
- * unchanged, and a whole other piece keeps none, so the edit would build
- * every stage again anyway -- at the old run's transport time, starting
- * the new piece at the old one's bar forty with the old one's tempo. A
- * start plays it from where it starts, on every peer at once, and names
- * the revision the relay hands a late joiner. Not if another switch has
- * come since: its maker plays that one. Stopped, the next Play loads it. */
-async function switched (m)
+/* A switch, made: said in the feed. Playing, the relay plays it from the
+ * top (relay.mjs, playSwitch) rather than anyone applying it as an edit at
+ * the next bar. An edit is thcGenDiff's: a stage keeps its state when its
+ * text is unchanged, and a whole other piece keeps none, so the edit would
+ * build every stage again anyway -- at the old run's transport time,
+ * starting the new piece at the old one's bar forty with the old one's
+ * tempo. Stopped, the next Play loads it. */
+function switched (m)
 {
-    lastSwitch = m;
     chat.activity(`${m.name} switched the piece to ${m.piece}`);
 
-    if (m.from !== room.peer)
-        return;
-
-    if (!transport?.running)
-    {
+    if (m.from === room.peer && !transport?.running)
         status(`The room's piece is ${m.piece}; Play loads it.`);
-        return;
-    }
-
-    const deadline = performance.now() + SWITCH_WAIT_MS;
-
-    while (lastSwitch === m && performance.now() < deadline &&
-           await hashOf(doc) !== m.hash)
-        await docMoves(deadline);
-
-    if (lastSwitch === m && pieceName(doc) === m.piece)
-        await play();
 }
 
 /* The switcher shows the room's piece, whoever switched it. */
@@ -980,12 +1025,13 @@ async function play ()
 
     addShipped();
 
+    const seen = seenOf(doc);
     const hash = await hashOf(doc);
     const origin = room.relayNow() + maker.transportLead * 1000;
     const seed = piece?.seeded ? piece.seed
                                : Math.floor(Math.random() * 0x100000000);
 
-    await send(maker.start(origin, hash, seed));
+    await send(maker.start(origin, hash, seed, 0, seen));
 }
 
 /* A seek, as a room has it: a start from time `from', with the seed of
@@ -998,18 +1044,19 @@ async function seekTo (from)
 
     addShipped();
 
+    const seen = seenOf(doc);
     const hash = await hashOf(doc);
     const origin = room.relayNow() + maker.transportLead * 1000;
     const seed = runSeed ?? (piece?.seeded ? piece.seed
                                            : Math.floor(Math.random() *
                                                         0x100000000));
 
-    await send(maker.start(origin, hash, seed, from));
+    await send(maker.start(origin, hash, seed, from, seen));
 }
 
 async function stop ()
 {
-    await send(maker.stop());
+    await send({ ...maker.stop(), run: appliedRun });
 }
 
 async function tempo ()
@@ -1017,7 +1064,7 @@ async function tempo ()
     const bpm = Number($('tempo').value);
 
     if (bpm > 0)
-        await send(maker.tempo(bpm));
+        await send({ ...maker.tempo(bpm), run: appliedRun });
 }
 
 /* ---- keys ---- */
@@ -2431,7 +2478,7 @@ function init ()
 
         /* Edits this page's worklet has applied since the load. */
         edits: () => lastTape?.edits ?? 0,
-        tempo: (bpm) => send(maker.tempo(bpm)),
+        tempo: (bpm) => send({ ...maker.tempo(bpm), run: appliedRun }),
         seat: (seat) => room.claim(seat),
         seatNow: () => room.seat,
 

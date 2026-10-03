@@ -11,7 +11,7 @@ WORKDIR /srv/thinksynth/wasm/web
 COPY wasm/web/package.json wasm/web/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-COPY wasm/web/relay.mjs wasm/web/doc.js ./
+COPY wasm/web/relay.mjs wasm/web/doc.js wasm/web/commands.js ./
 COPY gen /srv/thinksynth/gen
 COPY dsp /srv/thinksynth/dsp
 

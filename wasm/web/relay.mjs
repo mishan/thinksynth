@@ -64,8 +64,9 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { DEFAULT_PIECE, dspNames, files, hashOfFiles, meta, pieceName,
-         putFile, snapshot } from './doc.js';
+import { RELAY, TRANSPORT_LEAD } from './commands.js';
+import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
+         pieceName, putFile, readSeen, seenOf, snapshot } from './doc.js';
 
 export const PROTOCOL = 1;
 
@@ -76,6 +77,11 @@ const MSG_AWARENESS = 1;
 /* How long a start waits for the relay's copy of the document to reach
    the revision it names before keeping what is there. */
 const SNAPSHOT_WAIT = 10 * 1000;
+
+/* How long a switch made while the room plays waits for another before
+   the relay plays it: switches made together play the last of them once,
+   rather than each a Play the next one replaces. */
+const SWITCH_GATHER_MS = 50;
 
 /* The most commands a run keeps for late joiners. A knob dragged for an
    hour is well under this; past it, a joiner is told the run cannot be
@@ -182,8 +188,12 @@ class Room
         this.playing = null;                /* the last transport start  */
         this.emptySince = relayNow();
 
-        /* The `switched' lines, in the order the switches were made. */
+        /* The `switched' lines, in the order the switches were made; how
+           many have been made; and the counter of the relay's own Plays,
+           as a peer counts its commands. */
         this.switching = Promise.resolve();
+        this.switches = 0;
+        this.seq = 0;
 
         /* What a late joiner needs of the run that is playing: its start,
            the document as that start named it, and every stamped command
@@ -247,12 +257,35 @@ class Room
 
     /* ---- the run ---- */
 
-    begin (start)
+    begin (start, files = this.snapshotAt(start.piece ?? {}))
     {
-        const run = { start, log: [], overflowed: false, files: null };
+        this.playing = start;
+        this.run = { start, log: [], overflowed: false, files };
+    }
 
-        run.files = this.snapshotAt(start.piece?.hash);
-        this.run = run;
+    /* A switch made while the room plays, played: a start of the relay's
+       own, from the top, at the revision the switch left, which is the run
+       a late joiner is handed. `texts' is that revision, kept when it was
+       made, since the document may have moved on by now. The seed is
+       drawn here; a piece that pins one plays that instead on every peer
+       alike. */
+    playSwitch (hash, seen, texts)
+    {
+        const start = { type: 'transport', at: -1, from: RELAY,
+                        seq: this.seq++, op: 'start',
+                        origin: relayNow() + TRANSPORT_LEAD * 1000,
+                        piece: { hash, seen },
+                        seed: Math.floor(Math.random() * 0x100000000),
+                        seek: 0 };
+
+        this.begin(start, Promise.resolve({ ...texts, matched: true }));
+
+        const line = JSON.stringify({ type: 'transport', from: RELAY,
+                                      data: start });
+
+        for (const p of this.peers.values())
+            if (p.ws.readyState === p.ws.OPEN)
+                p.ws.send(line);
     }
 
     /* A stamped command, into the run it was made in. `runKey' is that
@@ -277,8 +310,10 @@ class Room
        edits on the document socket before its Play on this one, but the
        two are separate sockets and nothing orders them. Past the wait,
        what is here, marked as not what was asked for. */
-    snapshotAt (hash)
+    snapshotAt ({ hash, seen } = {})
     {
+        const passed = seen === undefined ? null : readSeen(seen);
+
         return new Promise((resolve) =>
         {
             const timer = setTimeout(() => finish(snapshot(this.doc), false),
@@ -324,6 +359,13 @@ class Room
                     if (await hashOfFiles(snap.files) === hash)
                     {
                         finish(snap, true);
+                        return;
+                    }
+
+                    /* Gone past it: no update brings it back. */
+                    if (passed !== null && hasSeen(this.doc, passed))
+                    {
+                        finish(snap, false);
                         return;
                     }
                 }
@@ -518,7 +560,7 @@ class Room
 
                 id = newId();
 
-                while (this.peers.has(id))
+                while (this.peers.has(id) || id === RELAY)
                     id = newId();
 
                 const name = String(m.name ?? '').slice(0, 32) || id;
@@ -607,15 +649,28 @@ class Room
                     if (typeof m.data !== 'object' || m.data === null)
                         break;
 
-                    if (m.data.op === 'start')
+                    if (m.data.op === 'start' &&
+                        m.data.piece?.seen !== undefined &&
+                        readSeen(m.data.piece.seen) === null)
                     {
-                        this.playing = m.data;
-                        this.begin(m.data);
+                        send({ type: 'refused', of: 'transport',
+                               why: 'not a snapshot' });
+                        break;
                     }
+
+                    /* A stop names the run it stops, and one that has been
+                       replaced since -- by a switch's Play crossing it --
+                       stops nothing here, as on the pages (jam.js). */
+                    if (m.data.op === 'start')
+                        this.begin(m.data);
                     else if (m.data.op === 'stop')
                     {
-                        this.playing = null;
-                        this.run = null;
+                        if (m.data.run === undefined ||
+                            m.data.run === runKeyOf(this.playing))
+                        {
+                            this.playing = null;
+                            this.run = null;
+                        }
                     }
                     else
                         this.record(m.data, m.run);
@@ -686,7 +741,8 @@ class Room
                    are one after the other rather than two peers' writes
                    merged into a document holding both pieces. Everyone is
                    told who switched, and the revision the document is at
-                   after it, which is what the switcher's Play names. */
+                   after it. While the room plays, the relay plays the last
+                   of the switches made together (playSwitch). */
                 case 'switch':
                 {
                     const piece = typeof m.piece === 'string' ? m.piece : '';
@@ -700,17 +756,34 @@ class Room
                         break;
                     }
 
-                    const texts = snapshot(this.doc).files;
+                    const texts = snapshot(this.doc);
+                    const seen = seenOf(this.doc);
+                    const made = ++this.switches;
+
+                    /* Played only if the run it was made in is still the
+                       room's after the gathering: a Play, a seek or a Stop
+                       in between is somebody's answer to it already. */
+                    const playingThen = this.playing;
 
                     this.switching = this.switching
-                        .then(() => hashOfFiles(texts))
-                        .then((hash) =>
+                        .then(() => hashOfFiles(texts.files))
+                        .then(async (hash) =>
                         {
                             const line = { type: 'switched', from: id,
                                            name: me.name, piece, hash };
 
                             send(line);
                             others(line);
+
+                            if (playingThen === null)
+                                return;
+
+                            await new Promise((r) =>
+                                setTimeout(r, SWITCH_GATHER_MS));
+
+                            if (this.playing === playingThen &&
+                                made === this.switches)
+                                this.playSwitch(hash, seen, texts);
                         });
                     break;
                 }

@@ -45,7 +45,8 @@ import WebSocket, { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 
-import { dspNames, fileNames, hashOf, pieceText, readFile } from './doc.js';
+import { dspNames, fileNames, hashOf, pieceText, readFile, seenOf }
+    from './doc.js';
 import { PROTOCOL, relay } from './relay.mjs';
 import { Room } from './room.js';
 
@@ -650,6 +651,149 @@ try
               await hashOf(docS) === seen[1].hash,
               'and the document is the last one\'s piece, at the revision ' +
               'it said');
+        check(await t.none('transport', 200),
+              'stopped, nobody plays a switch');
+
+        /* Playing, two switches made together are played once, by the
+           relay, at the last one's revision, and that is the run a joiner
+           is handed. */
+        const colony = { hash: seen[1].hash, seen: seenOf(docS) };
+
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 1,
+                         piece: colony, seed: 5, from: ws.peer, seq: 0,
+                         at: -1 } });
+        await t.next('transport');
+        s.send({ type: 'switch', piece: 'ebb.gen' });
+        t.send({ type: 'switch', piece: 'village.gen' });
+        await t.next('switched');
+
+        const last = await t.next('switched');
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        const played = [s, t].map((c) =>
+            c.got.filter((m) => m.type === 'transport'));
+        const start = played[1][0]?.data;
+
+        check(played.every((p) => p.length === 1 && p[0].from === 'relay') &&
+              start.op === 'start' && start.from === 'relay' &&
+              start.piece.hash === last.hash,
+              'playing, two switches made together are played once, by ' +
+              'the relay, at the last one\'s revision');
+
+        const u = new Client(`${base}/room/switch`, 'U');
+
+        await u.open();
+        u.send({ type: 'hello', name: 'Una', protocol: PROTOCOL });
+
+        const wu = await u.next('welcome');
+
+        u.send({ type: 'catchup' });
+
+        const run = await u.next('catchup');
+
+        check(wu.playing?.seq === start.seq &&
+              run.start?.from === 'relay' && run.start.seq === start.seq &&
+              run.files.matched && run.files.piece === 'village.gen',
+              'and a joiner is handed that run, at that revision');
+
+        /* A start at a revision the document has gone past: the run's
+           document is answered at once, as not the one it named, rather
+           than after the wait for one that will not come. */
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 2,
+                         piece: colony, seed: 5, from: ws.peer, seq: 1,
+                         at: -1 } });
+        await new Promise((r) => setTimeout(r, 200));
+
+        const asked = Date.now();
+
+        u.send({ type: 'catchup' });
+
+        const passed = await u.next('catchup');
+
+        check(passed.start?.origin === 2 && !passed.files.matched &&
+              Date.now() - asked < 1000,
+              'a start the document has gone past is answered at once');
+
+        const startOf = (seq, origin, piece) => s.send({
+            type: 'transport',
+            data: { type: 'transport', op: 'start', origin, piece, seed: 5,
+                    from: ws.peer, seq, at: -1 } });
+
+        /* A delete moves no writer's clock: a start made past one the
+           relay has not had yet waits for it, rather than taking what the
+           relay has for a document gone past it. */
+        const ahead = new Y.Doc();
+
+        Y.applyUpdate(ahead, Y.encodeStateAsUpdate(docS));
+        ahead.getMap('files').get('village.gen').delete(0, 1);
+        startOf(2, 3, { hash: await hashOf(ahead), seen: seenOf(ahead) });
+        await new Promise((r) => setTimeout(r, 200));
+        u.send({ type: 'catchup' });
+        check(await u.none('catchup', 500),
+              'a start a delete ahead of the relay waits for the delete');
+        Y.applyUpdate(docS,
+                      Y.encodeStateAsUpdate(ahead, Y.encodeStateVector(docS)));
+
+        const caught = await u.next('catchup', 3000);
+
+        check(caught.start?.origin === 3 && caught.files.matched,
+              'and is answered with it once it comes');
+
+        /* A switch the room has answered within the gathering -- a Play at
+           the switched revision, or a Stop and a Play -- is not played
+           again by the relay; nor is a stop of a run since replaced. */
+        const relayStarts = () => t.got.filter(
+            (m) => m.type === 'transport' && m.from === 'relay').length;
+        const startsWere = relayStarts();
+
+        s.send({ type: 'switch', piece: 'colony.gen' });
+
+        const toColony = await t.next('switched');
+
+        startOf(3, 4, { hash: toColony.hash });
+        await new Promise((r) => setTimeout(r, 300));
+        check(relayStarts() === startsWere,
+              'a switch Played within the gathering is not played again');
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop', at: 1,
+                         from: ws.peer, seq: 4, run: `${ws.peer}#3` } });
+        s.send({ type: 'switch', piece: 'village.gen' });
+
+        const toVillage = await t.next('switched');
+
+        startOf(5, 5, { hash: toVillage.hash });
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop', at: 1,
+                         from: ws.peer, seq: 6, run: `${ws.peer}#3` } });
+        await new Promise((r) => setTimeout(r, 300));
+        u.send({ type: 'catchup' });
+
+        const still = await u.next('catchup');
+
+        check(relayStarts() === startsWere,
+              'nor one made while stopped and Played at once');
+        check(still.start?.origin === 5,
+              'a stop of a run since replaced stops nothing');
+
+        const forwarded = t.got.filter((m) => m.type === 'transport').length;
+
+        s.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', origin: 6,
+                         piece: { hash: 'h', seen: 'not base64!' },
+                         from: ws.peer, seq: 7, at: -1 } });
+
+        const bad = await s.next('refused');
+
+        await new Promise((r) => setTimeout(r, 200));
+        check(bad.of === 'transport' &&
+              t.got.filter((m) => m.type === 'transport').length ===
+              forwarded,
+              'a start whose snapshot is not one is refused');
+
+        u.close();
 
         s.close();
         t.close();
