@@ -89,6 +89,10 @@ export const PROTOCOL = 1;
 const MSG_SYNC = 0;
 const MSG_AWARENESS = 1;
 
+/* A cursor color as editor.js's colourOf writes it, with or without the
+   selection's alpha. */
+const CURSOR_COLOR = /^hsl\(\d{1,3} 70% 45%( \/ 0\.25)?\)$/;
+
 /* How long a start waits for the relay's copy of the document to reach
    the revision it names before keeping what is there. */
 const SNAPSHOT_WAIT = 10 * 1000;
@@ -483,12 +487,20 @@ class Room
                 continue;
 
             if (typeof state?.user === 'object' && state.user !== null)
+            {
                 state.user = {
                     ...state.user,
                     name: shownName({ name: owner.name,
                                       account: owner.account !== null }),
                     account: owner.account !== null,
                 };
+
+                /* The colors end up in other pages' style attributes, so
+                   only the shape editor.js's colourOf makes goes through. */
+                for (const k of ['color', 'colorLight'])
+                    if (!CURSOR_COLOR.test(String(state.user[k])))
+                        delete state.user[k];
+            }
 
             kept.push([client, clock, state]);
         }

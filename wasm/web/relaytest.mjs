@@ -365,12 +365,21 @@ async function accountsInRooms ()
 
             await Promise.all([pc, ph, watcher].map((p) => new Promise((r) =>
                 p.synced ? r() : p.once('synced', r))));
-            pc.awareness.setLocalStateField('user', { name: 'Admin' });
+            pc.awareness.setLocalStateField('user', {
+                name: 'Admin', color: 'red;background:url(//x)',
+                colorLight: 'hsl(10 70% 45% / 0.25)' });
             ph.awareness.setLocalStateField('user', { name: 'Cy' });
             await new Promise((r) => setTimeout(r, 300));
 
             check(names() === 'Cy/true Hob (guest)/false',
                   `a cursor goes by its room socket's name (${names()})`);
+
+            const shown = [...watcher.awareness.getStates().values()]
+                .find((st) => st.user?.name === 'Cy').user;
+
+            check(!('color' in shown) &&
+                  shown.colorLight === 'hsl(10 70% 45% / 0.25)',
+                  'and its colors only in the shape the page draws them');
 
             /* The guest's socket, sending the account's client as its
                own. */
