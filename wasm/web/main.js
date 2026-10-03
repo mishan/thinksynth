@@ -276,6 +276,13 @@ let popovers = [];
 function tile (phone, forced)
 {
     const sideways = phone && matchMedia(SIDEWAYS).matches;
+    const mine = new Set(modePanes[mode()] ?? []);
+
+    /* The mode's own panes up before the tiler reads the markup, or a
+       leaf of tabs opens on the first pane that was: the keys, ahead of
+       a sequence's tracks on a phone. panesFor keeps it so after. */
+    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+        $(id).toggleAttribute('data-pane-off', !mine.has(id));
 
     panes = createPanes({
         root: $('panes'), catalog: PANES,

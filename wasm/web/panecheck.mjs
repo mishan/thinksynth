@@ -834,6 +834,19 @@ try
 
     await phone.goto(`${base}?phone=1`);
     await phone.waitForFunction(() => window.solo?.settled !== undefined);
+    await phone.evaluate(() => window.solo.settled());
+
+    /* A first visit opens on the mode's own pane, not the keys the
+       markup had up before the mode was applied. */
+    {
+        const shown = await phone.evaluate(() => [document.getElementById(
+            'mode').value, document.querySelector(
+                '.panetab[aria-selected="true"]')?.textContent.trim()]);
+
+        check(shown[0] === 'seq' && /^Sequencer/.test(shown[1] ?? ''),
+              `a phone opens a sequence on its tracks (${shown.join(' on ')})`);
+    }
+
     await phone.evaluate(() => localStorage.setItem(
         'thinksynth:panes:touch:patch', JSON.stringify(
             { dir: 'col', size: [0.2, 0.3, 0.2, 0.3], kids: [
