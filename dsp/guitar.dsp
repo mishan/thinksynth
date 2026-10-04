@@ -32,6 +32,13 @@
 # Velocity is in the burst's level and in the damping, so a hard pick
 # starts brighter and settles to where a soft one started -- a string
 # does that, and an envelope on a filter only pretends to.
+#
+# `Bend' is in semitones and is the channel's, like a pitch wheel: a
+# piece drives it with a chanarg sink (`chanarg = "bend"') from a
+# gen::steps row, which is a lead guitarist's bend on a single line. It
+# moves the loop's length and not its decay, and it is slewed over 40 ms
+# so a step in the row is a push rather than a jump. At 0 the string is
+# exactly as it was.
 
 name "Guitar";
 author "Misha Nasledov";
@@ -94,6 +101,12 @@ category "Plucked";
     @a.max = 100ms;
     @a.label = "Attack";
 
+    @bend = 0;
+    @bend.widget = 1;
+    @bend.min = -2;
+    @bend.max = 2;
+    @bend.label = "Bend (semitones)";
+
     @r = 100 ms;
     @r.widget = 1;
     @r.min = 5ms;
@@ -110,6 +123,11 @@ node ionode {
 
 node freq misc::midi2freq {
     note = ionode->note;
+};
+
+node bend misc::slew {
+    in = @bend;
+    time = 40 ms;
 };
 
 node noise osc::noise {
@@ -146,7 +164,7 @@ node pos filt::svf {
 # guitar has.
 node string filt::comb {
     in = pos->out_band;
-    freq = freq->out;
+    freq = freq->out * exp2(bend->out / 12);
     feedback = clamp(pow(10, -3 / (@decay * @mute * freq->out)), 0, 0.9995);
     damp = clamp(@tone - ionode->velocity * @bright, 0, 0.9);
     size = 100 ms;
