@@ -8,9 +8,12 @@
 #
 # By hand, and apart from a thinksynth release: the packs change when a pack
 # is added or rebuilt, not when the program does. To publish, bump RELEASE,
-# merge, and run this. It refuses a tag that already exists -- a release the
-# deploy points at is not replaced under it -- and marks its release as not
-# the latest, so the program's own releases stay what /releases/latest is.
+# merge, and run this on master. It refuses a tag that already exists -- a
+# release the deploy points at is not replaced under it -- marks its
+# release as not the latest, so the program's own releases stay what
+# /releases/latest is, and then runs the ci workflow on master, whose
+# deploy is what puts the release on the site: the deploy that came with
+# the merge ran before the release existed.
 
 name: sample packs
 
@@ -19,10 +22,12 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   publish:
     name: build and publish the sample packs
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
 
     steps:
@@ -40,8 +45,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag=$(python3 scripts/packs.py tag)
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
+          # Free only on a 404: any other failure is not an answer.
+          if out=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>&1); then
             echo "::error::the tag $tag exists already; bump RELEASE in scripts/packs.py"
+            exit 1
+          elif ! grep -q "HTTP 404" <<< "$out"; then
+            echo "::error::could not look up the tag $tag: $out"
             exit 1
           fi
           echo "TAG=$tag" >> "$GITHUB_ENV"
@@ -61,3 +70,8 @@ jobs:
             --target "$GITHUB_SHA" --latest=false \
             --title "Sample packs ($TAG)" \
             --notes "Recorded instruments for the sampled_*.dsp graphs, built by scripts/packs.py at $GITHUB_SHA. Public domain (CC0): VSCO 2 Community Edition (Versilian Studios / Sam Gossner) and Big Rusty Drums (Karoryfer Samples)."
+
+      - name: The site, deployed with it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref master

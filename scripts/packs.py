@@ -305,16 +305,42 @@ def archive(outdir):
             t.add(os.path.join(outdir, p["id"]), arcname=p["id"])
 
 
-def fetch(outdir, missing_ok=False):
-    """RELEASE's packs into outdir; the index, or None if there is none."""
+def inside(root, name):
+    """root/name, if it stays under root; None if it would leave it."""
+    path = os.path.realpath(os.path.join(root, name))
+    top = os.path.realpath(root)
+    return path if os.path.commonpath([path, top]) == top else None
+
+
+def extract(t, outdir):
+    """A tar's files into outdir and nowhere else. tarfile's own `data'
+    filter where this Python has it (3.12, and backported to 3.8.17,
+    3.9.17, 3.10.12, 3.11.4); otherwise the same refusal by hand, since
+    the python3 macOS ships is 3.9.6."""
+    if hasattr(tarfile, "data_filter"):
+        t.extractall(outdir, filter="data")
+        return
+    for m in t.getmembers():
+        if not (m.isfile() or m.isdir()) or inside(outdir, m.name) is None:
+            sys.exit(f"refusing {m.name} in a pack")
+    t.extractall(outdir)
+
+
+def fetch(outdir, missing_ok=False, names=()):
+    """RELEASE's packs into outdir -- those named, or all of them; the
+    index, or None if there is none."""
     try:
         with urllib.request.urlopen(asset("index.json")) as r:
             index = json.load(r)
     except urllib.error.HTTPError as e:
-        if e.code == 404 and missing_ok:
+        if e.code != 404:
+            raise
+        if missing_ok:
             print(f"::warning::{RELEASE} is not published; no sample packs")
             return None
-        raise
+        sys.exit(f"{RELEASE} is not published yet: run the `sample packs' "
+                 "workflow, or build from the sources with `packs.py build'")
+    index = [p for p in index if not names or p["id"] in names]
     os.makedirs(outdir, exist_ok=True)
     for p in index:
         with urllib.request.urlopen(asset(p["id"] + ".tar")) as r, \
@@ -322,7 +348,7 @@ def fetch(outdir, missing_ok=False):
             tmp.write(r.read())
             tmp.seek(0)
             with tarfile.open(fileobj=tmp) as t:
-                t.extractall(outdir, filter="data")
+                extract(t, outdir)
         print(f"{p['id']}: {p['bytes'] / 1e6:.1f} MB")
     with open(os.path.join(outdir, "index.json"), "w") as f:
         json.dump(index, f, indent=1)
@@ -333,17 +359,16 @@ def install(names):
     """RELEASE, decoded to .wav, into the user's samples directory."""
     dest = user_samples()
     with tempfile.TemporaryDirectory() as tmp:
-        index = fetch(tmp)
-        for p in index:
-            if names and p["id"] not in names:
-                continue
+        for p in fetch(tmp, names=names):
             with open(os.path.join(tmp, p["id"], "pack.json")) as f:
                 m = json.load(f)
             for f in m["files"]:
-                out = os.path.join(dest, f["name"])
+                src = inside(tmp, f.get("url", f["name"]))
+                out = inside(dest, f["name"])
+                if src is None or out is None:
+                    sys.exit(f"refusing {f['name']} in {p['id']}")
                 os.makedirs(os.path.dirname(out), exist_ok=True)
-                subprocess.run(["ffmpeg", "-v", "error", "-y", "-i",
-                                os.path.join(tmp, f.get("url", f["name"])),
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src,
                                 out], check=True)
             print(f"{p['id']}: installed in {dest}")
 
