@@ -177,7 +177,7 @@ instrument bass {
     a     = 3 ms;
     d     = 300 ms;
     s     = 0.5;
-    r     = 80 ms;
+    r     = 450 ms;
 };
 
 # The carrier. It is heard on its own as well as through the vocoder --

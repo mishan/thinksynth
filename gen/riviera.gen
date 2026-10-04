@@ -193,7 +193,7 @@ instrument clav {
     a    = 1 ms;
     d    = 210 ms;
     s    = 0.1;
-    r    = 60 ms;
+    r    = 210 ms;
 };
 
 # One recording of a stab and a brass chord at unison, played at the

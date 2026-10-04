@@ -188,7 +188,7 @@ instrument bass {
     a = 2 ms;
     d = 300 ms;
     s = 0.6;
-    r = 80 ms;
+    r = 450 ms;
 
     # And the kick, turning it down. `side' hands this channel's effect
     # the kick channel's audio, so the duck is the kick's own envelope

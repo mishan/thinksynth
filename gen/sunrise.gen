@@ -224,7 +224,7 @@ instrument bass {
     a = 1 ms;
     d = 200 ms;
     s = 0.5;
-    r = 80 ms;
+    r = 400 ms;
 
     # The hand on the knob. `cutoff' is the sweep row's, `res' the walk's.
     effect "fx/filter.dsp" {
@@ -305,6 +305,7 @@ instrument swoop {
 instrument pulse {
     dsp  "pluck.dsp";
     amp  = 12;
+    r    = 390 ms;
 
     effect "fx/echo.dsp" {
         delay = 369 ms;

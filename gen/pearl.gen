@@ -181,7 +181,7 @@ instrument bass {
     a     = 3 ms;
     d     = 380 ms;
     s     = 0.5;
-    r     = 90 ms;
+    r     = 760 ms;
 };
 
 # The kit, on one channel: the note number picks the drum. See

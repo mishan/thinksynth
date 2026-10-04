@@ -35,7 +35,7 @@ instrument kick  { dsp "kick909.dsp";  amp = 34; };
 instrument snare { dsp "snare808.dsp"; amp = 24; };
 instrument clap  { dsp "clap.dsp";     amp = 30; };
 instrument hat   { dsp "hat808.dsp";   amp = 15; };
-instrument bass  { dsp "fmbass.dsp";   amp = 26; };
+instrument bass  { dsp "fmbass.dsp";   amp = 26; r = 760 ms; };
 instrument pad   { dsp "juno.dsp";     amp = 14; };
 
 # The cells are written the way a click writes them back, with no bar
