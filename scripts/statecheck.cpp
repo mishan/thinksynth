@@ -4082,6 +4082,121 @@ static void checkBlep (const string &pluginPath)
                  "five hundred");
 }
 
+/* ---- env::adsr, gated ----------------------------------------------------
+ *
+ * A wired trigger: a square at 2 Hz, low for its first quarter second and
+ * high for the next, or a constant routed through a node so that it is a
+ * wire and not a number. A trigger written as a number takes the
+ * free-running path, which is checked by being what every shipped one-shot
+ * plays and is not repeated here.
+ */
+
+static vector<NodeSpec> adsrGraph (const char *trigger, float a, float d,
+                                   float s, float r)
+{
+    vector<NodeSpec> spec;
+    NodeSpec sq, one, env;
+
+    sq.name = "sq";
+    sq.spelling = "osc/simple";
+    sq.values.push_back(Value{ "freq", 2 });
+    sq.values.push_back(Value{ "waveform", 2 });
+    spec.push_back(sq);
+
+    one.name = "one";
+    one.spelling = "math/add";
+    one.values.push_back(Value{ "in0", 1 });
+    one.values.push_back(Value{ "in1", 0 });
+    spec.push_back(one);
+
+    env.name = "env";
+    env.spelling = "env/adsr";
+    env.values.push_back(Value{ "a", a });
+    env.values.push_back(Value{ "d", d });
+    env.values.push_back(Value{ "s", s });
+    env.values.push_back(Value{ "r", r });
+    if (strcmp(trigger, "none") != 0)
+        env.wires.push_back(Wire{ "trigger", trigger, "out" });
+    spec.push_back(env);
+
+    return spec;
+}
+
+static void checkAdsrGated (const string &pluginPath)
+{
+    const float sr = TH_DEFAULT_SAMPLES;
+    vector<float> got;
+    string why;
+
+    /* Attack half a second, so the square's fall at 0.5 s lands in it. */
+    if (!render1(pluginPath, adsrGraph("sq", sr * 0.5f, 0, 1, sr * 0.05f),
+                 "env", "out", 256, (unsigned)sr, got, why))
+    {
+        fail("env::adsr renders gated", why);
+    }
+    else
+    {
+        const size_t rise = (size_t)(sr * 0.25f), fall = (size_t)(sr * 0.5f);
+        const float atFall = got[fall - 1];
+        float before = 0, after = 0;
+
+        for (size_t i = 0; i < rise - 64; i++)
+            before = fmaxf(before, got[i]);
+        for (size_t i = fall; i < got.size(); i++)
+            after = fmaxf(after, got[i]);
+
+        okOrFail(before == 0, "env::adsr: a wired trigger that starts low "
+                 "holds the envelope until it rises", "peak " + num(before));
+        okOrFail(atFall > 0.4f && atFall < 0.6f && after <= atFall + 1e-4f,
+                 "env::adsr: a fall during the attack releases from the "
+                 "level reached, not after the attack",
+                 "at the fall " + num(atFall) + ", after it " + num(after));
+        okOrFail(got[fall + (size_t)(sr * 0.06f)] == 0,
+                 "env::adsr: and the release runs out in its own time",
+                 "0.06 s on " + num(got[fall + (size_t)(sr * 0.06f)]));
+    }
+
+    /* A decay to 0 under a trigger held up: over, not starting again. */
+    if (!render1(pluginPath, adsrGraph("one", 0, sr * 0.1f, 0, sr * 0.05f),
+                 "env", "out", 256, (unsigned)sr, got, why))
+    {
+        fail("env::adsr renders a one-shot", why);
+    }
+    else
+    {
+        float late = 0;
+
+        for (size_t i = (size_t)(sr * 0.2f); i < got.size(); i++)
+            late = fmaxf(late, got[i]);
+
+        okOrFail(got[0] > 0.99f && late == 0,
+                 "env::adsr: a decay to a sustain of 0 under a held trigger "
+                 "ends rather than starting over",
+                 "first " + num(got[0]) + ", peak after 0.2 s " + num(late));
+    }
+
+    /* A trigger that is a number, here none at all: attack, decay, then
+       the release, as before. */
+    if (!render1(pluginPath, adsrGraph("none", sr * 0.01f, sr * 0.01f, 0.5f,
+                                       sr * 0.01f),
+                 "env", "out", 256, 4410, got, why))
+    {
+        fail("env::adsr renders free-running", why);
+    }
+    else
+    {
+        okOrFail(peak(got, 0) > 0.99f && got.back() == 0,
+                 "env::adsr: an unwired trigger still runs once, attack to "
+                 "release", "peak " + num(peak(got, 0)));
+    }
+
+    windowsAgree(pluginPath, adsrGraph("sq", sr * 0.2f, sr * 0.1f, 0.6f,
+                                       sr * 0.1f),
+                 "env", "out",
+                 "env::adsr: the same gated envelope at one sample a window "
+                 "and at five hundred");
+}
+
 /* ---- osc::sample -------------------------------------------------------- */
 
 /* The node that plays a file, and the only one here whose input is not a
@@ -7395,6 +7510,7 @@ int main (int argc, char **argv)
     checkFmop(pluginPath);
     checkSimple(pluginPath);
     checkBlep(pluginPath);
+    checkAdsrGated(pluginPath);
     checkSample(pluginPath);
     checkGrain(pluginPath);
     checkDrift(pluginPath);
