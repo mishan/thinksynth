@@ -33,13 +33,15 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends ffmpeg
 
+      # The tag, not only the release: a bare tag left behind would pass a
+      # release check and the release would be made on that old commit.
       - name: The release this would make, not made already
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag=$(python3 scripts/packs.py tag)
-          if gh release view "$tag" > /dev/null 2>&1; then
-            echo "::error::$tag is published already; bump RELEASE in scripts/packs.py"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
+            echo "::error::the tag $tag exists already; bump RELEASE in scripts/packs.py"
             exit 1
           fi
           echo "TAG=$tag" >> "$GITHUB_ENV"
