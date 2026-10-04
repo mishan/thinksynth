@@ -70,6 +70,13 @@
  * Omitted layers fall back to the one below them. With `alternate = 1',
  * a counter shared by this synth's voices chooses 1, 2, 3, 1 instead.
  *
+ * A `file' MAY BE A SET OF ZONES: "vln_G3.wav@55 vln_D4.wav@62 ...", each
+ * recording with the MIDI note it was made at. The trigger edge picks the
+ * one nearest the voice's pitch and plays it from that note, so `root' is
+ * not read; every layer may be zoned the same way. That is a multisample
+ * -- an instrument recorded every few semitones, so no note is pitched
+ * far enough to sound like a sampler.
+ *
  * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
  * of a kit share one copy of the kick. See osc/sampleslot.h, which also
  * says why the read happens on the first window that asks for it rather
@@ -137,7 +144,8 @@ int module_init (thPlugin *plugin)
        node per drum rather than one node with the name swept. */
     plugin->setArgDesc(args[IN_FILE],
                        "The wav to play, found under samples/ on "
-                       "THINK_DSP_PATH");
+                       "THINK_DSP_PATH; or zones, `a.wav@48 b.wav@55', the "
+                       "one nearest the note played from its own");
     args[IN_FILE2] = plugin->regArg("file2", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FILE2],
                        "Middle layer wav; an empty slot uses file");
@@ -196,7 +204,8 @@ int module_init (thPlugin *plugin)
                        "can be the sample's own length");
     plugin->setArgRange(args[OUT_PLAY], 0, 1);
 
-    /* [0] the playhead, [1] the last trigger, [2] the chosen layer. */
+    /* [0] the playhead, [1] the last trigger, [2] the chosen layer, [3] the
+       note a zone was chosen for. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     /* Registered last, so every arg above keeps the index it had. */
@@ -219,7 +228,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *out_arg, *out_play;
     thArg *inout_state;
     unsigned int i;
-    float at, lastTrigger;
+    float at, lastTrigger, note;
     unsigned layer;
 
     in_file = mod->getArg(node, args[IN_FILE]);
@@ -247,7 +256,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     at = (*inout_state)[0];
     lastTrigger = (*inout_state)[1];
     layer = (unsigned)thClampArg((*inout_state)[2], 0, 2);
-    state = inout_state->allocate(3);
+    note = (*inout_state)[3];
+    state = inout_state->allocate(4);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
@@ -260,6 +270,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const thSampleData *smp = NULL;
     size_t len = 0;
     unsigned loadedLayer = 3;
+    double zoneRoot = 0;
 
     for (i = 0; i < windowlen; i++)
     {
@@ -269,6 +280,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (edge)
         {
+            /* The pitch the zone is chosen for, kept for the windows
+               after this one. */
+            note = (float)(69 + 12 * log2(thBoundFreq((*in_freq)[i], samples) /
+                                          440.0));
+            loadedLayer = 3;
+
             if ((*in_alternate)[i] > 0)
                 layer = thSampleNextLayer(node->plugin(), in_file->text());
             else
@@ -285,12 +302,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (loadedLayer != layer)
         {
-            const std::string &name =
+            const std::string &text =
                 (layer == 2 && !in_file3->text().empty()) ? in_file3->text() :
                 (layer >= 1 && !in_file2->text().empty()) ? in_file2->text() :
                 in_file->text();
+            const thSampleZone *zone = thSampleIsZoned(text)
+                ? thSampleZoneFor(node->plugin(), text, note) : NULL;
 
-            smp = thSampleGet(node->plugin(), name, samples);
+            zoneRoot = zone != NULL ? zone->root : 0;
+            smp = thSampleGet(node->plugin(), zone != NULL ? zone->file : text,
+                              samples);
             len = (smp != NULL) ? smp->frames.size() : 0;
             loadedLayer = layer;
         }
@@ -306,7 +327,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
 
         const float loop = thClampArg((*in_loop)[i], 0, (float)len);
-        const float root = (*in_root)[i];
+        const float root = zoneRoot > 0 ? (float)zoneRoot : (*in_root)[i];
 
         /* Both bounded, so a root of 0 -- which is what an unwired
            `root' reads as before its default is applied -- is middle C
@@ -373,6 +394,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     state[0] = at;
     state[1] = lastTrigger;
     state[2] = (float)layer;
+    state[3] = note;
 
     return 0;
 }

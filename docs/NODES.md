@@ -1078,7 +1078,7 @@ Sample Player (a wav at a voice's pitch)
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `file` | in | The wav to play, found under samples/ on THINK_DSP_PATH |  |  |  |  |
+| `file` | in | The wav to play, found under samples/ on THINK_DSP_PATH; or zones, `a.wav@48 b.wav@55', the one nearest the note played from its own |  |  |  |  |
 | `file2` | in | Middle layer wav; an empty slot uses file |  |  |  |  |
 | `file3` | in | Upper layer wav; an empty slot uses file2 or file |  |  |  |  |
 | `freq` | in | The note to play it at |  |  | Hz |  |

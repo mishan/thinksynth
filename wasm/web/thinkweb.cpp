@@ -87,6 +87,7 @@
 #include "thcScheduler.h"
 
 #include "thDynLib.h"
+#include "thUtil.h"
 
 #include "cairo2d.h"
 #include "cairomm/context.h"
@@ -2603,6 +2604,19 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gens_json (void)
     return gensJson_.c_str();
 }
 
+/* Heap for a file on its way to tw_sample. ccall's `array' copies onto the
+   stack, which is a megabyte, and a long recording is more than that; so a
+   caller asks for room here, copies in, and hands the pointer over. */
+EMSCRIPTEN_KEEPALIVE char *tw_alloc (int len)
+{
+    return len > 0 ? (char *)malloc((size_t)len) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_free (char *p)
+{
+    free(p);
+}
+
 /* And the same for a wav, which is the one shipped file that is not text.
  *
  * osc::sample looks a file up with thUtil::findDataFile under `samples/',
@@ -2633,8 +2647,14 @@ EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
 
     const bool whole =
         fwrite(bytes, 1, (size_t)len, f) == (size_t)len;
+    const bool ok = fclose(f) == 0 && whole;
 
-    return (fclose(f) == 0 && whole) ? 1 : 0;
+    /* A pack downloaded while an instrument naming it is loaded, or
+       updated while one plays: osc::sample reads this file again. */
+    if (ok)
+        thUtil::dataFileChanged(name);
+
+    return ok ? 1 : 0;
 }
 
 /* A .gen, as text. Nonzero if it parsed and built; tw_error_count and

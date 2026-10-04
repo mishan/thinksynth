@@ -2678,6 +2678,152 @@ try
         await fresh.close();
     }
 
+    /* Sample packs, served from a route rather than the build, which has
+     * none: a pack of one tiny FLAC, enough for the page to offer it when
+     * the sampled kit is in play, download it into its cache, remember it
+     * on the next page, and take it back out. */
+    {
+        /* No service worker: a request it makes is not one a route sees,
+           and once it controls a page the index would come from the
+           build's empty one instead of the routes below. */
+        const ctx = await browser.newContext({ serviceWorkers: 'block' });
+        /* Five milliseconds of a sine, as FLAC: what the site serves, and
+           what the page has to decode before the synth can play it. */
+        const flac = Buffer.from(
+            'ZkxhQ4AAACIA3QDdAAEJAAEJCsRA8AAAAN0O71C8ehPnWH8ejTPvPlJ+//hp' +
+            'CADcB04AAAEAAf8C/QP4BO4F4AbM57dmX5aUUMFAoI94u5hxcADHI4HI4G41' +
+            'GYxFwrFIlER8dGpiWE5E9bsVihCj07unn9R1FdZWt1fSOSymWS+YzKaTabze' +
+            'bzebzaazOYy+WyqTySQ3txaV9XTUHvtw15sGVWwauiAlKi4zODwQCMTisXDE' +
+            'ZjUbDccjkcjkcjgbjUaDIYC0UiYRH52bGRYUEb5y0WqEaLRt5ef1FT1lhaXN' +
+            '9IZLKZXLphMppNZtN5vN5tN5rNJlMJdKpPJZDe3VrYVlNRfe/LZmxY1C5o6f' +
+            'khQWmRsdiASCcVC0YDIaDYbjgcDkcjkcjcbjQZi8WioTiMClPw==', 'base64');
+
+        /* What the site offers, which a later deploy can change. */
+        let version = '1';
+        const manifest = () => ({
+            id: 'drums', title: 'Drum kit', license: 'CC0-1.0',
+            credit: 'a test', bytes: flac.length, version,
+            files: [{ name: 'drums/k_36_1.wav', url: 'drums/k_36_1.flac',
+                      bytes: flac.length }],
+        });
+
+        await ctx.route('**/packs/index.json', (r) => r.fulfill({
+            json: [{ id: 'drums', title: 'Drum kit', license: 'CC0-1.0',
+                     credit: 'a test', bytes: flac.length, files: 1,
+                     version }] }));
+        await ctx.route('**/packs/drums/pack.json',
+                        (r) => r.fulfill({ json: manifest() }));
+        await ctx.route('**/packs/drums/k_36_1.flac',
+                        (r) => r.fulfill({ body: flac }));
+
+        const open = async () =>
+        {
+            const pg = await ctx.newPage();
+
+            pg.on('pageerror', (e) => errors.push(e.message));
+            await pg.goto(url);
+            await pg.click('#start');
+            /* Started, which the page says by dropping data-unstarted. */
+            await pg.waitForFunction(() => window.solo?.settled &&
+                                     !('unstarted' in document.body.dataset),
+                                     null, { timeout: 20000, polling: 100 });
+            await pg.selectOption('#mode', 'patch');
+            await pg.evaluate(() => window.solo.settled());
+            await pg.selectOption('#patch', 'sampled_drums.dsp');
+            await pg.evaluate(() => window.solo.settled());
+
+            return pg;
+        };
+        /* Polled on a timer rather than on animation frames, which a
+           browser stops for a page in the background -- and with two pages
+           open, one of them is. */
+        const offered = (pg) => pg.waitForFunction(
+            () => !document.getElementById('packneed').hidden, null,
+            { timeout: 5000, polling: 100 }).then(() => true, () => false);
+        const quiet = (pg) => pg.waitForFunction(
+            () => document.getElementById('packneed').hidden, null,
+            { timeout: 5000, polling: 100 }).then(() => true, () => false);
+
+        const pg = await open();
+
+        check(await offered(pg) &&
+              (await pg.$eval('#packneedtext', (e) => e.textContent))
+                  .startsWith('Needs Drum kit'),
+              'a sampled instrument whose pack is missing offers it: ' +
+              await pg.$eval('#packneedtext', (e) => e.textContent));
+
+        await pg.click('#packget');
+
+        check(await quiet(pg),
+              'Download takes the offer away once the pack is in');
+        check(await pg.$eval('#packlist button', (b) => b.textContent) ===
+              'Remove', 'and the pane says it is there');
+
+        /* What the synth is handed for it: the FLAC decoded to a 16-bit
+           mono WAV at 44.1 kHz, of the length it was, at its level -- the
+           fixture is ffmpeg's sine, an eighth of full scale. */
+        const decoded = await pg.evaluate(async (b64) =>
+        {
+            const { wavBytes } = await import('./packs.js');
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const w = await wavBytes({ url: 'x.flac' }, bytes.buffer);
+            const v = new DataView(w.buffer);
+            const tag = (at) => String.fromCharCode(...w.slice(at, at + 4));
+            let peak = 0;
+
+            for (let i = 44; i + 1 < w.length; i += 2)
+                peak = Math.max(peak, Math.abs(v.getInt16(i, true)));
+
+            return { riff: tag(0), wave: tag(8), data: tag(36),
+                     channels: v.getUint16(22, true),
+                     rate: v.getUint32(24, true),
+                     bits: v.getUint16(34, true),
+                     frames: v.getUint32(40, true) / 2, peak };
+        }, flac.toString('base64'));
+
+        check(decoded.riff === 'RIFF' && decoded.wave === 'WAVE' &&
+              decoded.data === 'data' && decoded.channels === 1 &&
+              decoded.rate === 44100 && decoded.bits === 16 &&
+              decoded.frames === 221 &&
+              Math.abs(decoded.peak - 32768 / 8) < 64,
+              'a pack\'s FLAC is handed over as the WAV osc::sample reads: ' +
+              JSON.stringify(decoded));
+
+        const again = await open();
+
+        check(await quiet(again),
+              'a page opened later finds the pack kept and offers nothing');
+
+        /* A deploy that rebuilt the pack: what is kept is not it. */
+        version = '2';
+
+        const rebuilt = await open();
+
+        const reoffered = await offered(rebuilt);
+        const label = await rebuilt.$eval('#packlist button',
+                                          (b) => b.getAttribute('aria-label'));
+
+        check(reoffered && label === 'Update Drum kit',
+              'a pack rebuilt since it was kept is offered again, to update: ' +
+              `${reoffered ? 'offered' : 'not offered'}, ${label}`);
+
+        await rebuilt.close();
+        version = '1';
+
+        const button = (pg, text) => pg.waitForFunction(
+            (t) => document.querySelector('#packlist button')
+                ?.textContent === t, text, { timeout: 10000, polling: 100 })
+            .then(() => true, () => false);
+
+        await button(again, 'Remove');
+        await again.$eval('#packlist button', (b) => b.click());
+
+        check(await button(again, 'Download') && await offered(again),
+              'Remove takes it out and the offer comes back');
+
+        await ctx.close();
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

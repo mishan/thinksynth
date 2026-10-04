@@ -67,6 +67,13 @@
     <span id="micstatus" class="hint"></span>
   </span>
 
+  <!-- What is in play names a sample pack that is not downloaded yet:
+       see showPackNeed in main.js. -->
+  <span id="packneed" class="group" hidden>
+    <span id="packneedtext" class="hint"></span>
+    <button id="packget">Download</button>
+  </span>
+
   <!-- Patch mode: one .dsp, played from the keyboard. -->
   <span id="patchmode" class="group">
     <label><span class="say">Patch</span> <select id="patch"></select></label>
@@ -373,6 +380,16 @@
     <span id="exportstatus" class="hint"></span>
   </div>
 </details>
+
+<!-- Recorded instruments, downloaded when asked and kept (packs.js). -->
+<section id="packs" data-pane-off
+         data-pane data-pane-title="Sample packs" data-pane-min="280">
+  <p class="hint">Recorded instruments, public domain (CC0). Each is
+    downloaded once and kept in this browser, offline too.</p>
+  <ul id="packlist"></ul>
+  <p id="packsnone" class="hint" hidden>This copy of the page offers
+    none.</p>
+</section>
 
 <details id="detail"
          data-pane data-pane-title="Debug" data-pane-min="240">

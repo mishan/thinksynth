@@ -54,12 +54,17 @@
 const PREFIX = 'thinksynth-';
 const CACHE = PREFIX + VERSION;
 
+/* The sample packs somebody downloaded (packs.js), which belong to no
+   build and outlive every one. */
+const PACKS = PREFIX + 'packs';
+
 /* Every precached file by absolute URL, without a query. */
 const PRECACHED = new Set(FILES.map((f) => new URL(f, self.location).href));
 
 /* The site's root, which a navigation reaches as the directory. */
 const ROOT = new URL('./', self.location).href;
 const INDEX = new URL('index.html', self.location).href;
+const PACK_INDEX = new URL('packs/index.json', self.location).href;
 
 self.addEventListener('install', (e) =>
 {
@@ -76,7 +81,7 @@ self.addEventListener('activate', (e) =>
     {
         for (const name of await caches.keys())
         {
-            if (name.startsWith(PREFIX) && name !== CACHE)
+            if (name.startsWith(PREFIX) && name !== CACHE && name !== PACKS)
                 await caches.delete(name);
         }
 
@@ -127,6 +132,16 @@ self.addEventListener('fetch', (e) =>
     /* The page by any of its names: the directory, index.html, either
        with the query a test or a link adds. */
     const key = url.href === ROOT ? INDEX : url.href;
+
+    /* What sample packs the site offers: always asked of the network,
+       since a deploy changes it, and offline an empty list rather than a
+       failed load -- no pack can be downloaded then anyway. */
+    if (key === PACK_INDEX)
+    {
+        e.respondWith(fetch(e.request).catch(() => new Response('[]',
+            { headers: { 'Content-Type': 'application/json' } })));
+        return;
+    }
 
     if (!PRECACHED.has(key))
         return;

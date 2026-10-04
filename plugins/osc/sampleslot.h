@@ -59,7 +59,16 @@
  * not there would stat() once per window per voice forever and print a
  * line each time. The entry is remembered with no frames in it, which is
  * the same thing the reader returns for an empty file, and both play as
- * silence.
+ * silence -- until the host says new files have arrived
+ * (thUtil::dataFilesChanged), when it is read once more. That is a
+ * sample pack downloaded while an instrument naming it is loaded. A file
+ * the host says it wrote over (thUtil::dataFileChanged) is read again
+ * even if it was found: a pack updated while it plays.
+ *
+ * ZONES. A `file' of the form "a.wav@48 b.wav@55 c.wav@62" is a set of
+ * recordings with the MIDI note each was made at; thSampleZoneFor picks
+ * the one nearest a note, the lower on a tie. The list is parsed once per
+ * synth and kept beside the wavs.
  *
  * MONO, AT THE SYNTH'S RATE. A stereo file is summed -- a voice has one
  * output and a graph that wants two instantiates two nodes, the way
@@ -71,6 +80,7 @@
 
 #include <atomic>
 #include <map>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +96,14 @@
 struct thSampleData
 {
     std::vector<float> frames;
+    unsigned generation = 0;    /* thUtil::dataFilesGeneration at the read */
+};
+
+/* One recording of a zoned `file', and the frequency it was made at. */
+struct thSampleZone
+{
+    std::string file;
+    double root;
 };
 
 struct thSampleSlot
@@ -95,6 +113,8 @@ struct thSampleSlot
     /* The next velocity layer for each primary file. All voices in a synth
        reach the same slot, so alternate hits do not restart at layer one. */
     std::map<std::string, unsigned char> alternates;
+    /* Zoned `file' texts, parsed. Owner's thread only. */
+    std::map<std::string, std::vector<thSampleZone>> zones;
 };
 
 static thSampleSlot thSampleSlots[THINK_SAMPLE_SLOTS];
@@ -120,6 +140,7 @@ static inline void thSampleClaim (const thPlugin *plugin)
             delete thSampleSlots[i].table;
             thSampleSlots[i].table = new std::map<std::string, thSampleData>();
             thSampleSlots[i].alternates.clear();
+            thSampleSlots[i].zones.clear();
             return;
         }
     }
@@ -133,6 +154,7 @@ static inline void thSampleRelease (const thPlugin *plugin)
             delete thSampleSlots[i].table;
             thSampleSlots[i].table = NULL;
             thSampleSlots[i].alternates.clear();
+            thSampleSlots[i].zones.clear();
             thSampleSlots[i].owner.store(NULL, std::memory_order_release);
             return;
         }
@@ -516,13 +538,30 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
     if (slot == NULL || slot->table == NULL)
         return NULL;
 
-    std::map<std::string, thSampleData>::const_iterator i =
+    std::map<std::string, thSampleData>::iterator i =
         slot->table->find(name);
 
+    const unsigned generation = thUtil::dataFilesGeneration();
+
+    /* Kept unless the count has moved since it was read, and then kept
+       only if it was found and nothing has written over it since. */
     if (i != slot->table->end())
-        return &i->second;
+    {
+        thSampleData &kept = i->second;
+
+        if (kept.generation == generation)
+            return &kept;
+
+        if (!kept.frames.empty() &&
+            thUtil::dataFileGeneration("samples/" + name) <= kept.generation)
+        {
+            kept.generation = generation;
+            return &kept;
+        }
+    }
 
     thSampleData &entry = (*slot->table)[name];
+    entry.generation = generation;
 
     if (name.empty())
     {
@@ -562,6 +601,96 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
         fprintf(stderr, "osc::sample: '%s' %s\n", path.c_str(), why.c_str());
 
     return &entry;
+}
+
+/* Zoned if some word ends in `@' and a note number: a plain file name may
+   have an `@' anywhere else. */
+static inline bool thSampleIsZoned (const std::string &text)
+{
+    for (size_t at = text.find('@'); at != std::string::npos;
+         at = text.find('@', at + 1))
+    {
+        const size_t end = text.find_first_of(" \t\n,", at);
+        const std::string num =
+            text.substr(at + 1, end == std::string::npos ? std::string::npos
+                                                         : end - at - 1);
+        char *stop = NULL;
+
+        if (!num.empty())
+        {
+            strtod(num.c_str(), &stop);
+            if (*stop == 0)
+                return true;
+        }
+    }
+
+    return false;
+}
+
+/* The zone of a zoned `file' nearest `note', or NULL for a list with no
+   zones in it. */
+static inline const thSampleZone *
+thSampleZoneFor (const thPlugin *plugin, const std::string &text,
+                 double note)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+
+    if (slot == NULL)
+        return NULL;
+
+    std::map<std::string, std::vector<thSampleZone>>::iterator i =
+        slot->zones.find(text);
+
+    if (i == slot->zones.end())
+    {
+        std::vector<thSampleZone> &list = slot->zones[text];
+        size_t at = 0;
+
+        while (at < text.size())
+        {
+            const size_t end = text.find_first_of(" \t\n,", at);
+            const std::string word =
+                text.substr(at, end == std::string::npos ? std::string::npos
+                                                         : end - at);
+            const size_t mark = word.rfind('@');
+
+            if (mark != std::string::npos && mark > 0)
+            {
+                const double midi = atof(word.c_str() + mark + 1);
+                list.push_back({word.substr(0, mark),
+                                440.0 * pow(2.0, (midi - 69) / 12.0)});
+            }
+            else if (!word.empty())
+            {
+                fprintf(stderr, "osc::sample: zone '%s' has no @note\n",
+                        word.c_str());
+            }
+
+            if (end == std::string::npos)
+                break;
+            at = end + 1;
+        }
+
+        i = slot->zones.find(text);
+    }
+
+    const thSampleZone *best = NULL;
+    double bestDistance = 0;
+    const double freq = 440.0 * pow(2.0, (note - 69) / 12.0);
+
+    for (const thSampleZone &zone : i->second)
+    {
+        const double distance = fabs(log2(freq / zone.root));
+
+        if (best == NULL || distance < bestDistance - 1e-9 ||
+            (fabs(distance - bestDistance) <= 1e-9 && zone.root < best->root))
+        {
+            best = &zone;
+            bestDistance = distance;
+        }
+    }
+
+    return best;
 }
 
 #endif /* THINK_SAMPLESLOT_H */

@@ -4912,6 +4912,141 @@ static void checkSample (const string &pluginPath)
     std::filesystem::remove_all(dir, ec);
 }
 
+/* Zones, and a file that arrives late. Each wav is one constant level, so
+   which zone played is the level that came out. */
+static vector<NodeSpec> zoneGraph (const char *file, float freq)
+{
+    vector<NodeSpec> spec = sampleGraph(file, freq, 261.63f, 0, 0);
+
+    spec[0].values.push_back(Value{ "trigger", 1 });
+
+    return spec;
+}
+
+static float zoneLevel (const string &pluginPath, const char *file, int note,
+                        string &why)
+{
+    vector<float> out;
+    const float freq = (float)(440.0 * pow(2.0, (note - 69) / 12.0));
+
+    if (!render1(pluginPath, zoneGraph(file, freq), "smp", "out", 256, 512,
+                 out, why))
+        return -1;
+
+    return out[300];
+}
+
+static void checkSampleZones (const string &pluginPath)
+{
+    const string dir = thUtil::tempFile("statecheck-zones-");
+    std::error_code ec;
+
+    std::filesystem::remove(dir, ec);
+    std::filesystem::create_directories(dir + "/samples", ec);
+
+    const vector<float> low(4000, 0.25f), high(4000, 0.5f);
+
+    if (ec || !writeWav(dir + "/samples/low.wav", low, TH_DEFAULT_SAMPLES) ||
+        !writeWav(dir + "/samples/high.wav", high, TH_DEFAULT_SAMPLES) ||
+        !writeWav(dir + "/samples/take@2.wav", high, TH_DEFAULT_SAMPLES))
+    {
+        fail("osc::sample zones: could not write the scratch wavs", "");
+        return;
+    }
+
+#ifdef _WIN32
+    _putenv_s("THINK_DSP_PATH", dir.c_str());
+#else
+    setenv("THINK_DSP_PATH", dir.c_str(), 1);
+#endif
+
+    const char *zones = "low.wav@60 high.wav@72";
+    const struct { int note; float level; const char *what; } cases[] = {
+        { 62, 0.25f, "a note near the lower zone plays it" },
+        { 70, 0.5f,  "a note near the upper zone plays it" },
+        { 66, 0.25f, "a note between two zones plays the lower" },
+        { 30, 0.25f, "a note under every zone plays the lowest" },
+    };
+
+    {
+        string why;
+        const float got = zoneLevel(pluginPath, "take@2.wav", 60, why);
+
+        okOrFail(fabsf(got - 0.5f) < 1e-3f,
+                 "osc::sample: a plain name with an `@' in it is a file, "
+                 "not zones", why.empty() ? "came out at " + num(got) : why);
+    }
+
+    for (const auto &c : cases)
+    {
+        string why;
+        const float got = zoneLevel(pluginPath, zones, c.note, why);
+
+        okOrFail(fabsf(got - c.level) < 1e-3f,
+                 string("osc::sample zones: ") + c.what,
+                 why.empty() ? "note " + num(c.note) + " came out at " +
+                               num(got) : why);
+    }
+
+    /* One synth throughout: a file missing on its first read is cached as
+       silence, and read again only once the host says files have changed. */
+    {
+        thSynth synth(pluginPath, 256, TH_DEFAULT_SAMPLES);
+        thSynthTree tree("statecheck", &synth);
+        string why;
+
+        if (!buildGraph(synth, tree, zoneGraph("late.wav", 261.63f), why))
+        {
+            fail("osc::sample: a late file renders", why);
+        }
+        else
+        {
+            thArg *out = tree.findNode("smp")->getArg("out");
+            auto window = [&](void) {
+                tree.setActiveNodes();
+                tree.process(256);
+                return (*out)[100];
+            };
+
+            const float before = window();
+            const bool wrote = writeWav(dir + "/samples/late.wav", high,
+                                        TH_DEFAULT_SAMPLES);
+            const float cached = window();
+
+            thUtil::dataFilesChanged();
+
+            const float after = window();
+
+            okOrFail(wrote && before == 0 && cached == 0,
+                     "osc::sample: a missing file stays silent until the "
+                     "host says files changed",
+                     "before " + num(before) + ", after writing " +
+                     num(cached));
+            okOrFail(fabsf(after - 0.5f) < 1e-3f,
+                     "osc::sample: once it does, the file plays",
+                     "came out at " + num(after));
+
+            /* Written over while it plays: the old frames until the host
+               names the file, the new ones after. */
+            const bool rewrote = writeWav(dir + "/samples/late.wav", low,
+                                          TH_DEFAULT_SAMPLES);
+            const float stale = window();
+
+            thUtil::dataFileChanged("samples/late.wav");
+
+            const float fresh = window();
+
+            okOrFail(rewrote && fabsf(stale - 0.5f) < 1e-3f &&
+                     fabsf(fresh - 0.25f) < 1e-3f,
+                     "osc::sample: a file written over is read again once "
+                     "the host names it, and not before",
+                     "before " + num(stale) + ", after " + num(fresh));
+        }
+    }
+
+    std::filesystem::remove_all(dir, ec);
+}
+
 /* ---- misc::drift -------------------------------------------------------- */
 
 static vector<NodeSpec> driftGraph (float rate, float depth, float center,
@@ -7518,6 +7653,7 @@ int main (int argc, char **argv)
     checkBlep(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
+    checkSampleZones(pluginPath);
     checkGrain(pluginPath);
     checkDrift(pluginPath);
     checkPad(pluginPath);

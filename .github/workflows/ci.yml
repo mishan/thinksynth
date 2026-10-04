@@ -482,6 +482,14 @@ jobs:
         run: |
           jq -n --arg relay "$JAM_RELAY" '{ relay: $relay }' > build-web/dist/config.json
 
+      # The sample packs, from the release scripts/packs.py names (made by
+      # the `sample packs' workflow, packs.yml), into the site's packs/,
+      # which the page downloads from when asked. Before that release is
+      # published the site keeps the empty index the build wrote.
+      - name: The sample packs
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        run: python3 scripts/packs.py fetch build-web/dist/packs --missing-ok
+
       - name: The packaged site, for GitHub Pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v3
@@ -530,6 +538,7 @@ jobs:
             build-web/gen
             build-web/patches
             build-web/icons
+            build-web/packs
             build-web/cairo2d/cairo2dtest.js
             build-web/cairo2d/cairo2dtest.wasm
 

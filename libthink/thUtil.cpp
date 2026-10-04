@@ -25,6 +25,7 @@
 #include <windows.h>   /* MoveFileExA -- see replaceFile */
 #endif
 
+#include <atomic>
 #include <clocale>
 #include <cstdio>
 #include <filesystem>
@@ -240,6 +241,34 @@ static string absolutePath (const fs::path &p)
     return ec ? p.string() : abs.string();
 }
 
+string thUtil::userDataDir (void)
+{
+#if defined(_WIN32)
+    const char *base = getenv("LOCALAPPDATA");
+
+    return (base != NULL && *base != 0)
+        ? (fs::path(base) / PACKAGE_NAME).string() : "";
+#else
+    const char *home = getenv("HOME");
+
+    if (getenv("FLATPAK_ID") != NULL && home != NULL && *home != 0)
+        return (fs::path(home) / ".local" / "share" / PACKAGE_NAME).string();
+#if defined(__APPLE__)
+    return (home != NULL && *home != 0)
+        ? (fs::path(home) / "Library" / "Application Support" /
+           PACKAGE_NAME).string() : "";
+#else
+    const char *xdg = getenv("XDG_DATA_HOME");
+
+    if (xdg != NULL && *xdg == '/')
+        return (fs::path(xdg) / PACKAGE_NAME).string();
+
+    return (home != NULL && *home != 0)
+        ? (fs::path(home) / ".local" / "share" / PACKAGE_NAME).string() : "";
+#endif
+#endif
+}
+
 string thUtil::findDataFile (const string &name, const string &subdir,
                              const char *envVar, const string &fallback)
 {
@@ -292,6 +321,13 @@ string thUtil::findDataFile (const string &name, const string &subdir,
 
     if (!fallback.empty())
         tries.push_back(fs::path(fallback) / name);
+
+    /* Last: what this user downloaded, so nothing shipped can be shadowed
+       by it. */
+    const string user = userDataDir();
+
+    if (!user.empty())
+        tries.push_back(fs::path(user) / subdir / name);
 
     for (size_t i = 0; i < tries.size(); i++)
         if (fs::exists(tries[i], ec))
@@ -560,4 +596,35 @@ bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,
     size = i->second.second;
 
     return true;
+}
+
+static std::atomic<unsigned> dataGeneration{0};
+
+/* Each file named to dataFileChanged, and the count after it was. */
+static std::mutex dataLock;
+static std::map<string, unsigned> dataChanged;
+
+void thUtil::dataFilesChanged ()
+{
+    dataGeneration++;
+}
+
+void thUtil::dataFileChanged (const string &name)
+{
+    std::lock_guard<std::mutex> hold(dataLock);
+
+    dataChanged[name] = ++dataGeneration;
+}
+
+unsigned thUtil::dataFilesGeneration ()
+{
+    return dataGeneration.load();
+}
+
+unsigned thUtil::dataFileGeneration (const string &name)
+{
+    std::lock_guard<std::mutex> hold(dataLock);
+    const auto i = dataChanged.find(name);
+
+    return i == dataChanged.end() ? 0 : i->second;
 }

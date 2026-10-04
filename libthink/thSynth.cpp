@@ -1325,6 +1325,11 @@ thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
         return NULL;
     }
 
+    /* Loading a graph is when somebody expects the files it names to be
+       found: a sample pack installed since the last load is read now,
+       rather than the silence cached for it then. */
+    thUtil::dataFilesChanged();
+
     if (text != NULL)
     {
         std::lock_guard<std::mutex> lock(synthMutex_);

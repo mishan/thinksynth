@@ -74,6 +74,32 @@ const kit = Object.fromEntries(
          .map((n) => [n, new Uint8Array(fs.readFileSync(
                             path.join(dspDir, n)))]));
 
+/* Half a second of a 16-bit mono sine at 440 Hz, as a RIFF. */
+function standIn ()
+{
+    const frames = RATE / 2;
+    const out = Buffer.alloc(44 + 2 * frames);
+
+    out.write('RIFF', 0);
+    out.writeUInt32LE(36 + 2 * frames, 4);
+    out.write('WAVEfmt ', 8);
+    out.writeUInt32LE(16, 16);
+    out.writeUInt16LE(1, 20);
+    out.writeUInt16LE(1, 22);
+    out.writeUInt32LE(RATE, 24);
+    out.writeUInt32LE(2 * RATE, 28);
+    out.writeUInt16LE(2, 32);
+    out.writeUInt16LE(16, 34);
+    out.write('data', 36);
+    out.writeUInt32LE(2 * frames, 40);
+
+    for (let i = 0; i < frames; i++)
+        out.writeInt16LE(Math.round(16000 * Math.sin(2 * Math.PI * 440 * i /
+                                                      RATE)), 44 + 2 * i);
+
+    return new Uint8Array(out);
+}
+
 for (const name of names)
 {
     /* An effect graph has no note to play and is not an instrument; the
@@ -95,13 +121,23 @@ for (const name of names)
     }
 
     const text = fs.readFileSync(path.join(dspDir, name), 'utf8');
+
+    /* A sampled instrument plays a pack the site downloads when asked
+       (packs.js), not one it ships, so here every file a graph names and
+       the kit does not have is a stand-in tone: what is under test is the
+       graph -- its zones, its layers, its envelope -- not the recording. */
+    const samples = { ...kit };
+
+    for (const m of text.matchAll(/([\w./-]+\.wav)(?:@\d+)?/g))
+        samples[`samples/${m[1]}`] ??= standIn();
+
     const events = [
         { on: true, frame: 0, ...NOTE },
         { on: false, frame: RATE / 2, note: NOTE.note },
     ];
 
     const a = await renderDirect(createThinkWeb,
-                                 { rate: RATE, text, events, samples: kit,
+                                 { rate: RATE, text, events, samples,
                                    frames: FRAMES });
 
     if (!a.ok)
@@ -121,7 +157,7 @@ for (const name of names)
     }
 
     const b = await renderDirect(createThinkWeb,
-                                 { rate: RATE, text, events, samples: kit,
+                                 { rate: RATE, text, events, samples,
                                    frames: FRAMES });
     const same = Buffer.from(a.out.buffer).equals(Buffer.from(b.out.buffer));
 

@@ -38,6 +38,17 @@ public:
        determined. Linux, macOS and Windows each need a different call. */
     static string exeDir (void);
 
+    /* This user's own data directory for thinksynth, whether or not it
+     * exists: $XDG_DATA_HOME/thinksynth (~/.local/share/thinksynth) on
+     * Linux, ~/Library/Application Support/thinksynth on macOS,
+     * %LOCALAPPDATA%\thinksynth on Windows. Where a downloaded sample pack
+     * goes, because an install directory is usually not writable; empty
+     * if no home directory can be found. Inside a Flatpak it is the
+     * host's ~/.local/share/thinksynth, not the sandbox's own data
+     * directory: that is where scripts/packs.py, run on the host, puts
+     * them, and the manifest grants the home directory. */
+    static string userDataDir (void);
+
     /* Find a data file that something referred to by bare name.
      *
      * A .patch says `dsp ts1.dsp' and a .dsp says nothing about where it
@@ -136,6 +147,20 @@ public:
                                  size_t size);
     static bool findEmbeddedFile (const string &name,
                                   const unsigned char *&data, size_t &size);
+
+    /* A count a host bumps after putting new files where findDataFile
+     * looks -- a sample pack downloaded while the synth runs. A reader that
+     * cached "not found" retries when the count has moved on. */
+    static void dataFilesChanged ();
+    static unsigned dataFilesGeneration ();
+
+    /* One file, by the name findDataFile is given ("samples/kick.wav"):
+     * what a host calls once it has written over it. A reader holding the
+     * old contents reads it again when the file's generation is past the
+     * count it took. dataFileGeneration is 0 for a file never named, and
+     * takes a lock, so a reader asks only once the count has moved. */
+    static void dataFileChanged (const string &name);
+    static unsigned dataFileGeneration (const string &name);
 };
 
 #endif /* TH_UTIL_H */
