@@ -304,8 +304,12 @@ static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
         const float sus = (*in_s)[i];
 
         /* A voice's first rise, and `reset', start the attack on this
-           sample, as the free-running envelope's first sample does. */
-        if ((up && phase == WAITING) || (*in_reset)[i] > 0)
+           sample, as the free-running envelope's first sample does. That
+           rise is then spent: a zero-length attack has moved on to the
+           decay by the end of the sample, and must not be started again. */
+        const bool first = up && !was && phase == WAITING;
+
+        if (first || (*in_reset)[i] > 0)
         {
             phase = ATTACK;
             position = 0;
@@ -373,7 +377,7 @@ static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
         /* Every other edge from the next sample, which is when the
            free-running envelope's release began: a note held into its
            sustain comes out the same, sample for sample. */
-        if (up && !was && phase != ATTACK)
+        if (up && !was && !first)
         {
             phase = ATTACK;
             position = 0;

@@ -4173,6 +4173,10 @@ static void checkAdsrGated (const string &pluginPath)
                  "env::adsr: a decay to a sustain of 0 under a held trigger "
                  "ends rather than starting over",
                  "first " + num(got[0]) + ", peak after 0.2 s " + num(late));
+        okOrFail(got[1] < got[0],
+                 "env::adsr: with no attack, the first rise starts the decay "
+                 "once, on the first sample",
+                 "first " + num(got[0]) + ", second " + num(got[1]));
     }
 
     /* A trigger that is a number, here none at all: attack, decay, then
