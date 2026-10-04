@@ -95,7 +95,7 @@ const site = path.join(build, 'pwatest-site');
 
 fs.rmSync(site, { recursive: true, force: true });
 
-for (const rel of [...FILES, 'sw.js', 'config.json'])
+for (const rel of [...FILES, 'sw.js', 'config.json', 'packs/index.json'])
 {
     fs.mkdirSync(path.dirname(path.join(site, rel)), { recursive: true });
     fs.copyFileSync(path.join(build, rel), path.join(site, rel));

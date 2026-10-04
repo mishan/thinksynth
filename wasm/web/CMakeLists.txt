@@ -244,7 +244,7 @@ set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 mirror.js
                 canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
-                layouts.js manifest.json)
+                layouts.js packs.js manifest.json)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -633,6 +633,15 @@ foreach(dir IN LISTS DIST_PATCH_DIRS)
   install(FILES ${DIST_PATCH_FILES}
           DESTINATION "patches/${dir}" PERMISSIONS ${SITE_FILE_MODE})
 endforeach()
+
+# The sample packs' index, empty: the deploy builds the packs into
+# dist/packs/ with scripts/packs.py, index and all, after this. Here so a
+# build without them answers the page's question rather than 404ing it, and
+# not precached, because the service worker would go on answering with the
+# copy it had after a deploy added packs.
+file(WRITE "${PROJECT_BINARY_DIR}/packs/index.json" "[]\n")
+install(FILES "${PROJECT_BINARY_DIR}/packs/index.json"
+        DESTINATION packs PERMISSIONS ${SITE_FILE_MODE})
 
 set(DIST_DIR "${PROJECT_BINARY_DIR}/dist")
 

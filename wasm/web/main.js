@@ -76,6 +76,7 @@ import { createPanes } from './panes.js';
 import { numberIn, showPanel } from './panel.js';
 import { keepOffline, offerInstall } from './offline.js';
 import { moveLayouts } from './layouts.js';
+import * as packs from './packs.js';
 import * as patch from './patch.js';
 import { createRollView, showClock } from './rollview.js';
 import './sourcebox.js';
@@ -132,7 +133,7 @@ const VELOCITY = 100;
  */
 const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
                'paramview', 'nodeview', 'keyboard', 'patchsource',
-               'piecesource', 'detail'];
+               'piecesource', 'detail', 'packs'];
 
 /* Which of them belong to which mode. Everything not named here is in
    all three -- the keys, the parameters, the graph, the numbers.
@@ -819,10 +820,12 @@ async function toggleMic ()
  */
 const LIVE = /\bionode->live\d/;
 
-async function listens ()
+/* The text of every graph in play: the patch box's in patch mode, and in
+   the other two the ones the page aimed and the ones the piece names. */
+async function textsInPlay ()
 {
     if (mode() === 'patch')
-        return LIVE.test($('dsp').value);
+        return [$('dsp').value];
 
     const names = new Set();
 
@@ -837,10 +840,13 @@ async function listens ()
                  /\b(?:dsp|effect)\s+"([^"]+)"/g))
             names.add(m[1]);
 
-    const texts = await Promise.all([...names].map(
+    return Promise.all([...names].map(
         (n) => dspTexts[n] ?? patch.graphText(n).catch(() => '')));
+}
 
-    return texts.some((t) => LIVE.test(t));
+async function listens ()
+{
+    return (await textsInPlay()).some((t) => LIVE.test(t));
 }
 
 /* Asked after anything that changes what is in play; only the latest
@@ -857,6 +863,108 @@ async function showLiveIn ()
 
     $('livein').hidden = !on;
     $('windowlabel').hidden = synth !== null;
+
+    showPackNeed();
+}
+
+/* ---- sample packs ----
+ *
+ * Recorded instruments the site offers and the page keeps once asked
+ * (packs.js). A sampled instrument with its pack missing plays silence,
+ * so whatever is in play is checked whenever it changes, and a missing
+ * pack is offered right there rather than in a pane somebody has to know
+ * to open. The pane lists them all, to download ahead of time or remove.
+ */
+let packsOffered = [];
+let packsHave = new Set();
+let packsAsked = 0;
+
+const packTitle = (id) => packsOffered.find((p) => p.id === id)?.title ?? id;
+const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
+
+async function showPackNeed ()
+{
+    const asked = ++packsAsked;
+    const texts = packsOffered.length > 0
+        ? await textsInPlay().catch(() => []) : [];
+    const missing = [...packs.needed(texts, packsOffered)]
+        .filter((id) => !packsHave.has(id));
+
+    if (asked !== packsAsked)
+        return;
+
+    $('packneed').hidden = missing.length === 0;
+    $('packneed').dataset.packs = missing.join(' ');
+    $('packneedtext').textContent = missing.length === 0 ? '' :
+        'Needs ' + missing.map((id) => {
+            const p = packsOffered.find((q) => q.id === id);
+
+            return `${p.title} (${megabytes(p.bytes)})`;
+        }).join(', ');
+}
+
+async function getPacks (ids)
+{
+    for (const id of ids)
+    {
+        const title = packTitle(id);
+
+        try
+        {
+            await packs.download(id, synth, (done, total) =>
+                status(`Downloading ${title}: ` +
+                       `${Math.round(100 * done / total)}%`));
+            packsHave.add(id);
+            status(`${title} downloaded.`);
+        }
+        catch (e)
+        {
+            status(`Could not download ${title}: ${e.message}`, true);
+            break;
+        }
+    }
+
+    drawPacks();
+    showPackNeed();
+}
+
+function drawPacks ()
+{
+    const list = $('packlist');
+
+    list.replaceChildren();
+    $('packsnone').hidden = packsOffered.length > 0;
+
+    for (const p of packsOffered)
+    {
+        const row = document.createElement('li');
+        const have = packsHave.has(p.id);
+        const button = document.createElement('button');
+
+        row.append(`${p.title}, ${megabytes(p.bytes)} · ${p.credit} `);
+        button.textContent = have ? 'Remove' : 'Download';
+        button.dataset.pack = p.id;
+        button.addEventListener('click', async () =>
+        {
+            button.disabled = true;
+
+            if (have)
+            {
+                await packs.remove(p.id);
+                packsHave.delete(p.id);
+                status(`${p.title} removed.`);
+                drawPacks();
+                showPackNeed();
+            }
+            else
+            {
+                await getPacks([p.id]);
+            }
+        });
+
+        row.append(button);
+        list.append(row);
+    }
 }
 
 /* ---- what the browser admits to ---- */
@@ -2246,6 +2354,11 @@ async function start ()
             kit.map((name) => served(name).then((r) => r.arrayBuffer())));
 
         kit.forEach((name, i) => synth.sample(name, new Uint8Array(wavs[i])));
+
+        /* And any sample pack somebody downloaded before. A pack that
+           will not read is a missing instrument, not a page that will not
+           start. */
+        await packs.loadInstalled(synth).catch((e) => log(e.message));
     }
     catch (e)
     {
@@ -3211,6 +3324,13 @@ async function init ()
     /* The piece the menu names, which the box holds until a mode says
        otherwise -- see holdText. */
     textMode = 'piece';
+
+    [packsOffered, packsHave] =
+        await Promise.all([packs.available(), packs.installed()
+                                                   .catch(() => new Set())]);
+    drawPacks();
+    $('packget').addEventListener('click', () =>
+        getPacks($('packneed').dataset.packs.split(' ')));
 
     /* Sixteen is all there are, counted the way the file counts them and
        the way the channels row does -- the engine's number is one lower

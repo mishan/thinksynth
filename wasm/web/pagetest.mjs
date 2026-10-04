@@ -2667,6 +2667,98 @@ try
         await fresh.close();
     }
 
+    /* Sample packs, served from a route rather than the build, which has
+     * none: a pack of one tiny FLAC, enough for the page to offer it when
+     * the sampled kit is in play, download it into its cache, remember it
+     * on the next page, and take it back out. */
+    {
+        const ctx = await browser.newContext();
+        /* Five milliseconds of a sine, as FLAC: what the site serves, and
+           what the page has to decode before the synth can play it. */
+        const flac = Buffer.from(
+            'ZkxhQ4AAACIA3QDdAAEJAAEJCsRA8AAAAN0O71C8ehPnWH8ejTPvPlJ+//hp' +
+            'CADcB04AAAEAAf8C/QP4BO4F4AbM57dmX5aUUMFAoI94u5hxcADHI4HI4G41' +
+            'GYxFwrFIlER8dGpiWE5E9bsVihCj07unn9R1FdZWt1fSOSymWS+YzKaTabze' +
+            'bzebzaazOYy+WyqTySQ3txaV9XTUHvtw15sGVWwauiAlKi4zODwQCMTisXDE' +
+            'ZjUbDccjkcjkcjgbjUaDIYC0UiYRH52bGRYUEb5y0WqEaLRt5ef1FT1lhaXN' +
+            '9IZLKZXLphMppNZtN5vN5tN5rNJlMJdKpPJZDe3VrYVlNRfe/LZmxY1C5o6f' +
+            'khQWmRsdiASCcVC0YDIaDYbjgcDkcjkcjcbjQZi8WioTiMClPw==', 'base64');
+
+        const manifest = {
+            id: 'drums', title: 'Drum kit', license: 'CC0-1.0',
+            credit: 'a test', bytes: flac.length,
+            files: [{ name: 'drums/k_36_1.wav', url: 'drums/k_36_1.flac',
+                      bytes: flac.length }],
+        };
+
+        await ctx.route('**/packs/index.json', (r) => r.fulfill({
+            json: [{ id: 'drums', title: 'Drum kit', license: 'CC0-1.0',
+                     credit: 'a test', bytes: flac.length, files: 1 }] }));
+        await ctx.route('**/packs/drums/pack.json',
+                        (r) => r.fulfill({ json: manifest }));
+        await ctx.route('**/packs/drums/k_36_1.flac',
+                        (r) => r.fulfill({ body: flac }));
+
+        const open = async () =>
+        {
+            const pg = await ctx.newPage();
+
+            pg.on('pageerror', (e) => errors.push(e.message));
+            await pg.goto(url);
+            await pg.click('#start');
+            await pg.waitForFunction(() => window.solo?.settled, null,
+                                     { timeout: 20000 });
+            await pg.selectOption('#mode', 'patch');
+            await pg.evaluate(() => window.solo.settled());
+            await pg.selectOption('#patch', 'sampled_drums.dsp');
+            await pg.evaluate(() => window.solo.settled());
+
+            return pg;
+        };
+        /* Polled on a timer rather than on animation frames, which a
+           browser stops for a page in the background -- and with two pages
+           open, one of them is. */
+        const offered = (pg) => pg.waitForFunction(
+            () => !document.getElementById('packneed').hidden, null,
+            { timeout: 5000, polling: 100 }).then(() => true, () => false);
+        const quiet = (pg) => pg.waitForFunction(
+            () => document.getElementById('packneed').hidden, null,
+            { timeout: 5000, polling: 100 }).then(() => true, () => false);
+
+        const pg = await open();
+
+        check(await offered(pg) &&
+              (await pg.$eval('#packneedtext', (e) => e.textContent))
+                  .startsWith('Needs Drum kit'),
+              'a sampled instrument whose pack is missing offers it: ' +
+              await pg.$eval('#packneedtext', (e) => e.textContent));
+
+        await pg.click('#packget');
+
+        check(await quiet(pg),
+              'Download takes the offer away once the pack is in');
+        check(await pg.$eval('#packlist button', (b) => b.textContent) ===
+              'Remove', 'and the pane says it is there');
+
+        const again = await open();
+
+        check(await quiet(again),
+              'a page opened later finds the pack kept and offers nothing');
+
+        const button = (pg, text) => pg.waitForFunction(
+            (t) => document.querySelector('#packlist button')
+                ?.textContent === t, text, { timeout: 10000, polling: 100 })
+            .then(() => true, () => false);
+
+        await button(again, 'Remove');
+        await again.$eval('#packlist button', (b) => b.click());
+
+        check(await button(again, 'Download') && await offered(again),
+              'Remove takes it out and the offer comes back');
+
+        await ctx.close();
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

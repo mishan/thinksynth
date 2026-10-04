@@ -273,14 +273,16 @@ else
  * is one the page can load online and not offline: a patch picked on a
  * train is a 404 nobody saw on a desk. So the list is held against the
  * whole dist, both ways. What is left off on purpose is config.json, which
- * no build depends on, the bundles' source maps, and the worker itself.
+ * no build depends on, the bundles' source maps, the worker itself, and
+ * the sample packs' index: the deploy writes packs/ after this build, and
+ * the page keeps a downloaded pack in a cache of its own (packs.js).
  *
  * And the manifest's icons, which no page names, so the walk above does
  * not reach them.
  */
 {
     const NETWORK = new Set(['jam.js.map', 'sourcebox.js.map', 'config.json',
-                             'sw.js']);
+                             'sw.js', 'packs/index.json']);
     let files = null;
 
     try
