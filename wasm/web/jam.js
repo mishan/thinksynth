@@ -63,6 +63,7 @@ import { MidiOutControls } from './midioutui.js';
 import { keepOffline } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
+import * as packs from './packs.js';
 import { createRollView, showClock } from './rollview.js';
 import { Room } from './room.js';
 import { createSeqView } from './seqview.js';
@@ -2164,6 +2165,11 @@ async function start ()
         ]);
 
         kit.forEach((n, i) => synth.sample(n, new Uint8Array(wavs[i])));
+
+        /* And the sample packs this browser has kept (packs.js), so a
+           sampled instrument in a room plays as it does on the solo page.
+           Downloading one is the solo page's business. */
+        packs.loadInstalled(synth).catch(() => {});
 
         /* Into the module's own MEMFS, which is where a .patch's `dsp'
            line is resolved from -- the same handover the solo page does,

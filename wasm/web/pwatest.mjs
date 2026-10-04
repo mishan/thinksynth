@@ -198,6 +198,13 @@ try
         null, { timeout: 60000 });
     check(true, 'offline, the synth starts: worklet, module and mirror');
 
+    /* The sample packs' index is the network's, and offline the worker
+       answers it with an empty list rather than a failed load. */
+    check(await page.evaluate(async () =>
+              JSON.stringify(await (await fetch('packs/index.json')).json())
+                  === '[]'),
+          'offline, the sample packs\' index is an empty list');
+
     await page.selectOption('#mode', 'patch');
     await page.evaluate(() => window.solo.settled());
     await page.selectOption('#patch', PATCH);
@@ -220,6 +227,11 @@ try
     /* ---- a new version ---- */
 
     await context.setOffline(false);
+
+    /* A pack somebody downloaded, which no new version may clear. */
+    await page.evaluate(async () =>
+        (await caches.open('thinksynth-packs'))
+            .put('packs/kept/pack.json', new Response('{"id":"kept"}')));
 
     const text = fs.readFileSync(path.join(site, 'sw.js'), 'utf8');
     const old = /^const VERSION = "(\w+)";$/m.exec(text)[1];
@@ -282,11 +294,14 @@ try
     await again;
     await loaded(page);
 
-    const after = await caches(page);
+    const all = await caches(page);
+    const after = all.filter((c) => c !== 'thinksynth-packs');
 
     check(after.length === 1 && after[0] === `thinksynth-${next}`,
           `the next load activates it and the old cache goes: ` +
           after.join(', '));
+    check(all.includes('thinksynth-packs'),
+          'and the sample packs\' cache stays');
 
     check(await page.evaluate(async () =>
               (await navigator.serviceWorker.getRegistration()).waiting
@@ -308,7 +323,9 @@ try
        the page as its source, without the variables around it. */
     const only = (v) => until(page, async (want) =>
     {
-        const keys = await caches.keys();
+        /* The site's caches; the sample packs' outlives every version. */
+        const keys = (await caches.keys())
+            .filter((k) => k !== 'thinksynth-packs');
 
         return keys.length === 1 && keys[0] === `thinksynth-${want}`;
     }, 60000, v);

@@ -14,11 +14,14 @@
  * and a pack downloaded once plays offline from then on.
  *
  * A PACK IS INSTALLED WHEN ITS pack.json IS IN THE CACHE, and that goes
- * in last: a download that stopped half way leaves wavs and no manifest,
- * which reads as not installed and is cleared by the next attempt. The
- * manifest carries the pack's `version', a hash of its files, and a kept
- * pack whose version is not the one offered is one to download again --
- * an instrument may name recordings the old one does not have.
+ * in last. The manifest carries the pack's `version', a hash of its files,
+ * and every file is kept under its version (`?v='), so an update writes
+ * the new files beside the old ones, puts the new manifest over the old
+ * only once all of them are in, and only then clears the old files: an
+ * update that fails half way leaves the pack that worked. A kept pack
+ * whose version is not the one offered is one to download again -- an
+ * instrument may name recordings the old one does not have. One download
+ * per pack at a time; asking again while one runs joins it.
  *
  * SERVED AS FLAC, about half the size of the WAV it decodes to, and kept
  * that way. Each file is listed under the .wav name its instrument plays and
@@ -26,21 +29,30 @@
  * samples when it is handed to the synth.
  *
  * Into the synth the way the shipped kit goes: as WAV bytes, through
- * synth.sample, under samples/<id>/. osc::sample reads a file it once
- * found missing again once new ones arrive (thUtil::dataFilesChanged), so
- * an instrument that was loaded before its pack is heard as soon as the
- * pack is in, without loading anything again.
+ * synth.sample, under samples/<id>/, once a pack is complete -- into
+ * whichever synth there is then, which may have started while it was
+ * downloading. osc::sample reads a file again once the host names it as
+ * written (thUtil::dataFileChanged), so an instrument loaded before its
+ * pack, or playing an older version, is heard with the new files without
+ * loading anything again.
  */
 
 const CACHE = 'thinksynth-packs';
 
 const manifestUrl = (id) => `packs/${id}/pack.json`;
-const fileUrl = (f) => `packs/${f.url ?? f.name}`;
+
+/* A file's key in the cache: where it is served, and the version of the
+   pack it belongs to. */
+const fileKey = (m, f) => `packs/${f.url ?? f.name}?v=${m.version ?? ''}`;
+
+/* A name to hand the synth: one under its pack, going nowhere else. */
+const safe = (m, f) => f.name.startsWith(`${m.id}/`) &&
+                       !f.name.split('/').includes('..');
 
 /* A file as the WAV osc::sample reads: as it came if it is one, decoded
    if it is FLAC, at the rate the packs are built at so nothing is
    resampled twice. */
-async function wavBytes (f, bytes)
+export async function wavBytes (f, bytes)
 {
     if (!/\.flac$/.test(f.url ?? ''))
         return new Uint8Array(bytes);
@@ -90,32 +102,50 @@ export async function available ()
     }
 }
 
-async function manifests ()
+/* `has' before `open', which would make the cache: a page that never
+   downloads a pack leaves no trace of the feature in its storage. */
+async function cache ()
 {
-    /* `has' before `open', which would make the cache: a page that never
-       downloads a pack leaves no trace of the feature in its storage. */
-    if (!('caches' in self) || !await caches.has(CACHE))
-        return [];
+    return ('caches' in self) && await caches.has(CACHE)
+        ? caches.open(CACHE) : null;
+}
 
-    const cache = await caches.open(CACHE);
-    const out = [];
+/* The packs downloaded so far, id to manifest. */
+export async function installed ()
+{
+    const c = await cache();
+    const out = new Map();
 
-    for (const req of await cache.keys())
+    if (c === null)
+        return out;
+
+    for (const req of await c.keys())
         if (/\/packs\/[^/]+\/pack\.json$/.test(new URL(req.url).pathname))
-            out.push(await (await cache.match(req)).json());
+        {
+            const m = await (await c.match(req)).json();
+
+            out.set(m.id, m);
+        }
 
     return out;
 }
 
-/* The packs downloaded so far, id to version. */
-export async function installed ()
-{
-    return new Map((await manifests()).map((m) => [m.id, m.version]));
-}
+/* The downloads under way, by pack. */
+const running = new Map();
 
 /* Downloads a pack into the cache, `progress(done, total)' in bytes along
-   the way, and hands it to `synth' if there is one. */
-export async function download (id, synth, progress = () => {})
+   the way, and resolves to its manifest once it is complete. A second ask
+   for the same pack while this runs gets this one. */
+export function download (id, progress = () => {})
+{
+    if (!running.has(id))
+        running.set(id, fetchPack(id, progress)
+            .finally(() => running.delete(id)));
+
+    return running.get(id);
+}
+
+async function fetchPack (id, progress)
 {
     const r = await fetch(manifestUrl(id), { cache: 'no-cache' });
 
@@ -123,83 +153,102 @@ export async function download (id, synth, progress = () => {})
         throw new Error(`${manifestUrl(id)}: ${r.status} ${r.statusText}`);
 
     const m = await r.json();
-    const cache = await caches.open(CACHE);
+    const c = await caches.open(CACHE);
+    const kept = (await installed()).get(id);
+    const queue = m.files.filter((f) => safe(m, f));
     let done = 0;
-
-    await remove(id);
 
     /* Four at a time: enough to fill a connection, few enough that a
        progress bar moves. */
-    const queue = [...m.files];
-
     const worker = async () =>
     {
         for (let f; (f = queue.shift()) !== undefined;)
         {
-            const url = fileUrl(f);
+            const url = `packs/${f.url ?? f.name}`;
             const got = await fetch(url, { cache: 'no-cache' });
 
             if (!got.ok)
                 throw new Error(`${url}: ${got.status} ${got.statusText}`);
 
-            const bytes = await got.arrayBuffer();
-
-            /* A copy into the cache: decoding detaches what it is given. */
-            await cache.put(url, new Response(bytes.slice(0)));
-
-            if (synth)
-                synth.sample(`samples/${f.name}`, await wavBytes(f, bytes));
+            await c.put(fileKey(m, f), new Response(await got.arrayBuffer()));
             done += f.bytes;
             progress(done, m.bytes);
         }
     };
 
-    /* Every worker settled before any failure is reported: one that is
-       still fetching would otherwise go on writing the cache and the
-       progress under a retry that has already started. */
+    /* Every worker settled before any failure is reported, so nothing is
+       still writing when the failure is. */
     const ends = await Promise.allSettled([worker(), worker(), worker(),
                                            worker()]);
     const failed = ends.find((e) => e.status === 'rejected');
 
     if (failed)
-        throw failed.reason;
+    {
+        /* What this attempt wrote, unless it is the version that is kept,
+           whose files are the same ones. */
+        if (kept?.version !== m.version)
+            await clear(c, id, (v) => v === m.version);
 
-    await cache.put(manifestUrl(id), new Response(JSON.stringify(m)));
+        throw failed.reason;
+    }
+
+    await c.put(manifestUrl(id), new Response(JSON.stringify(m)));
+    await clear(c, id, (v) => v !== m.version);
 
     navigator.storage?.persist?.().catch(() => {});
 
     return m;
 }
 
-export async function remove (id)
+/* A pack's files whose version `which' picks. */
+async function clear (c, id, which)
 {
-    if (!await caches.has(CACHE))
-        return;
+    for (const req of await c.keys())
+    {
+        const url = new URL(req.url);
 
-    const cache = await caches.open(CACHE);
-
-    for (const req of await cache.keys())
-        if (new URL(req.url).pathname.includes(`/packs/${id}/`))
-            await cache.delete(req);
+        if (url.pathname.includes(`/packs/${id}/`) &&
+            !url.pathname.endsWith('/pack.json') &&
+            which(url.searchParams.get('v') ?? ''))
+            await c.delete(req);
+    }
 }
 
-/* Every installed pack into `synth', at Start. */
-export async function loadInstalled (synth)
+export async function remove (id)
 {
-    if (!('caches' in self) || !await caches.has(CACHE))
+    const c = await cache();
+
+    if (c === null)
         return;
 
-    const cache = await caches.open(CACHE);
+    for (const req of await c.keys())
+        if (new URL(req.url).pathname.includes(`/packs/${id}/`))
+            await c.delete(req);
+}
 
-    for (const m of await manifests())
-        for (const f of m.files)
-        {
-            const hit = await cache.match(fileUrl(f));
+/* A kept pack into `synth'. */
+export async function load (m, synth)
+{
+    const c = await cache();
 
-            if (hit)
-                synth.sample(`samples/${f.name}`,
-                             await wavBytes(f, await hit.arrayBuffer()));
-        }
+    if (c === null)
+        return;
+
+    for (const f of m.files.filter((f) => safe(m, f)))
+    {
+        const hit = await c.match(fileKey(m, f));
+
+        if (hit)
+            synth.sample(`samples/${f.name}`,
+                         await wavBytes(f, await hit.arrayBuffer()));
+    }
+}
+
+/* Every kept pack into `synth', at Start, side by side. */
+export async function loadInstalled (synth)
+{
+    await Promise.all([...(await installed()).values()]
+        .map((m) => load(m, synth)));
 }
 
 /* The packs these graph texts play from: a sampled instrument names its

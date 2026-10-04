@@ -2748,6 +2748,36 @@ try
         check(await pg.$eval('#packlist button', (b) => b.textContent) ===
               'Remove', 'and the pane says it is there');
 
+        /* What the synth is handed for it: the FLAC decoded to a 16-bit
+           mono WAV at 44.1 kHz, of the length it was, at its level -- the
+           fixture is ffmpeg's sine, an eighth of full scale. */
+        const decoded = await pg.evaluate(async (b64) =>
+        {
+            const { wavBytes } = await import('./packs.js');
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const w = await wavBytes({ url: 'x.flac' }, bytes.buffer);
+            const v = new DataView(w.buffer);
+            const tag = (at) => String.fromCharCode(...w.slice(at, at + 4));
+            let peak = 0;
+
+            for (let i = 44; i + 1 < w.length; i += 2)
+                peak = Math.max(peak, Math.abs(v.getInt16(i, true)));
+
+            return { riff: tag(0), wave: tag(8), data: tag(36),
+                     channels: v.getUint16(22, true),
+                     rate: v.getUint32(24, true),
+                     bits: v.getUint16(34, true),
+                     frames: v.getUint32(40, true) / 2, peak };
+        }, flac.toString('base64'));
+
+        check(decoded.riff === 'RIFF' && decoded.wave === 'WAVE' &&
+              decoded.data === 'data' && decoded.channels === 1 &&
+              decoded.rate === 44100 && decoded.bits === 16 &&
+              decoded.frames === 221 &&
+              Math.abs(decoded.peak - 32768 / 8) < 64,
+              'a pack\'s FLAC is handed over as the WAV osc::sample reads: ' +
+              JSON.stringify(decoded));
+
         const again = await open();
 
         check(await quiet(again),

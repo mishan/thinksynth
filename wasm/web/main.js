@@ -883,7 +883,7 @@ const packTitle = (id) => packsOffered.find((p) => p.id === id)?.title ?? id;
 
 /* Downloaded, and the version the site offers now. */
 const packCurrent = (p) => packsHave.has(p.id) &&
-                           packsHave.get(p.id) === p.version;
+                           packsHave.get(p.id).version === p.version;
 const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
 
 async function showPackNeed ()
@@ -909,16 +909,25 @@ async function showPackNeed ()
 
 async function getPacks (ids)
 {
+    $('packget').disabled = true;
+
     for (const id of ids)
     {
         const title = packTitle(id);
 
         try
         {
-            const m = await packs.download(id, synth, (done, total) =>
+            const m = await packs.download(id, (done, total) =>
                 status(`Downloading ${title}: ` +
                        `${Math.round(100 * done / total)}%`));
-            packsHave.set(id, m.version);
+
+            packsHave.set(id, m);
+
+            /* Into the synth there is now, which may have started while
+               this was downloading. */
+            if (synth !== null)
+                await packs.load(m, synth);
+
             status(`${title} downloaded.`);
         }
         catch (e)
@@ -928,6 +937,7 @@ async function getPacks (ids)
         }
     }
 
+    $('packget').disabled = false;
     drawPacks();
     showPackNeed();
 }
@@ -2364,10 +2374,12 @@ async function start ()
 
         kit.forEach((name, i) => synth.sample(name, new Uint8Array(wavs[i])));
 
-        /* And any sample pack somebody downloaded before. A pack that
+        /* And any sample pack somebody downloaded before, without holding
+           Start for it: osc::sample reads a file once it arrives, so an
+           instrument plays its pack as soon as the pack is in. A pack that
            will not read is a missing instrument, not a page that will not
            start. */
-        await packs.loadInstalled(synth).catch((e) => log(e.message));
+        packs.loadInstalled(synth).catch((e) => log(e.message));
     }
     catch (e)
     {
@@ -3337,6 +3349,12 @@ async function init ()
     [packsOffered, packsHave] =
         await Promise.all([packs.available(), packs.installed()
                                                    .catch(() => new Map())]);
+
+    /* Offline the site offers nothing, but what is kept is still listed,
+       to be seen and removed. */
+    if (packsOffered.length === 0)
+        packsOffered = [...packsHave.values()];
+
     drawPacks();
 
     /* What is in play may have been chosen before the list came. */
