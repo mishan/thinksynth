@@ -241,6 +241,31 @@ static string absolutePath (const fs::path &p)
     return ec ? p.string() : abs.string();
 }
 
+string thUtil::userDataDir (void)
+{
+#if defined(_WIN32)
+    const char *base = getenv("LOCALAPPDATA");
+
+    return (base != NULL && *base != 0)
+        ? (fs::path(base) / PACKAGE_NAME).string() : "";
+#else
+    const char *home = getenv("HOME");
+#if defined(__APPLE__)
+    return (home != NULL && *home != 0)
+        ? (fs::path(home) / "Library" / "Application Support" /
+           PACKAGE_NAME).string() : "";
+#else
+    const char *xdg = getenv("XDG_DATA_HOME");
+
+    if (xdg != NULL && *xdg == '/')
+        return (fs::path(xdg) / PACKAGE_NAME).string();
+
+    return (home != NULL && *home != 0)
+        ? (fs::path(home) / ".local" / "share" / PACKAGE_NAME).string() : "";
+#endif
+#endif
+}
+
 string thUtil::findDataFile (const string &name, const string &subdir,
                              const char *envVar, const string &fallback)
 {
@@ -293,6 +318,13 @@ string thUtil::findDataFile (const string &name, const string &subdir,
 
     if (!fallback.empty())
         tries.push_back(fs::path(fallback) / name);
+
+    /* Last: what this user downloaded, so nothing shipped can be shadowed
+       by it. */
+    const string user = userDataDir();
+
+    if (!user.empty())
+        tries.push_back(fs::path(user) / subdir / name);
 
     for (size_t i = 0; i < tries.size(); i++)
         if (fs::exists(tries[i], ec))

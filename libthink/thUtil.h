@@ -38,6 +38,14 @@ public:
        determined. Linux, macOS and Windows each need a different call. */
     static string exeDir (void);
 
+    /* This user's own data directory for thinksynth, whether or not it
+     * exists: $XDG_DATA_HOME/thinksynth (~/.local/share/thinksynth) on
+     * Linux, ~/Library/Application Support/thinksynth on macOS,
+     * %LOCALAPPDATA%\thinksynth on Windows. Where a downloaded sample pack
+     * goes, because an install directory is usually not writable; empty
+     * if no home directory can be found. */
+    static string userDataDir (void);
+
     /* Find a data file that something referred to by bare name.
      *
      * A .patch says `dsp ts1.dsp' and a .dsp says nothing about where it
