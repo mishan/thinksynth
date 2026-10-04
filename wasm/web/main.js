@@ -876,10 +876,14 @@ async function showLiveIn ()
  * to open. The pane lists them all, to download ahead of time or remove.
  */
 let packsOffered = [];
-let packsHave = new Set();
+let packsHave = new Map();
 let packsAsked = 0;
 
 const packTitle = (id) => packsOffered.find((p) => p.id === id)?.title ?? id;
+
+/* Downloaded, and the version the site offers now. */
+const packCurrent = (p) => packsHave.has(p.id) &&
+                           packsHave.get(p.id) === p.version;
 const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
 
 async function showPackNeed ()
@@ -888,7 +892,7 @@ async function showPackNeed ()
     const texts = packsOffered.length > 0
         ? await textsInPlay().catch(() => []) : [];
     const missing = [...packs.needed(texts, packsOffered)]
-        .filter((id) => !packsHave.has(id));
+        .filter((id) => !packCurrent(packsOffered.find((p) => p.id === id)));
 
     if (asked !== packsAsked)
         return;
@@ -911,10 +915,10 @@ async function getPacks (ids)
 
         try
         {
-            await packs.download(id, synth, (done, total) =>
+            const m = await packs.download(id, synth, (done, total) =>
                 status(`Downloading ${title}: ` +
                        `${Math.round(100 * done / total)}%`));
-            packsHave.add(id);
+            packsHave.set(id, m.version);
             status(`${title} downloaded.`);
         }
         catch (e)
@@ -938,11 +942,13 @@ function drawPacks ()
     for (const p of packsOffered)
     {
         const row = document.createElement('li');
-        const have = packsHave.has(p.id);
+        const have = packCurrent(p);
         const button = document.createElement('button');
 
         row.append(`${p.title}, ${megabytes(p.bytes)} · ${p.credit} `);
-        button.textContent = have ? 'Remove' : 'Download';
+        button.textContent = have ? 'Remove'
+            : packsHave.has(p.id) ? 'Update' : 'Download';
+        button.setAttribute('aria-label', `${button.textContent} ${p.title}`);
         button.dataset.pack = p.id;
         button.addEventListener('click', async () =>
         {
@@ -1034,6 +1040,9 @@ async function pickPatch ()
             await (await fetch(`dsp/${$('patch').value}`)).text();
 
         showNodes();
+
+        /* Before Start too: a pack can be downloaded ahead of playing. */
+        showPackNeed();
 
         await loadPatch();
     })();
@@ -3327,8 +3336,11 @@ async function init ()
 
     [packsOffered, packsHave] =
         await Promise.all([packs.available(), packs.installed()
-                                                   .catch(() => new Set())]);
+                                                   .catch(() => new Map())]);
     drawPacks();
+
+    /* What is in play may have been chosen before the list came. */
+    showPackNeed();
     $('packget').addEventListener('click', () =>
         getPacks($('packneed').dataset.packs.split(' ')));
 

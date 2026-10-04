@@ -37,6 +37,7 @@ directory listings.
 
 import argparse
 import array
+import hashlib
 import json
 import os
 import re
@@ -263,8 +264,14 @@ def build(pack, outdir, cache, flac):
                 w.setframerate(RATE)
                 w.writeframes(scaled.tobytes())
             files.append({"name": out, "bytes": os.path.getsize(path)})
+    # What the page compares to tell a rebuilt pack from the one it kept.
+    digest = hashlib.sha256()
+    for f in files:
+        with open(os.path.join(outdir, f.get("url", f["name"])), "rb") as h:
+            digest.update(f["name"].encode() + b"\0" + h.read())
     manifest = {
         "id": pack, "title": spec["title"], "license": "CC0-1.0",
+        "version": digest.hexdigest()[:16],
         "credit": credit, "source": f"https://github.com/{repo}/tree/{sha}",
         "bytes": sum(f["bytes"] for f in files), "files": files,
     }
@@ -383,7 +390,8 @@ def main():
     for pack in names:
         m = build(pack, outdir, opt.cache, True)
         index.append({k: m[k] for k in ("id", "title", "license", "credit",
-                                         "bytes")} | {"files": len(m["files"])})
+                                         "version", "bytes")}
+                     | {"files": len(m["files"])})
         print(f"{pack}: {len(m['files'])} files, {m['bytes'] / 1e6:.1f} MB")
     with open(os.path.join(outdir, "index.json"), "w") as f:
         json.dump(index, f, indent=1)

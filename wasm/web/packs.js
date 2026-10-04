@@ -15,7 +15,10 @@
  *
  * A PACK IS INSTALLED WHEN ITS pack.json IS IN THE CACHE, and that goes
  * in last: a download that stopped half way leaves wavs and no manifest,
- * which reads as not installed and is cleared by the next attempt.
+ * which reads as not installed and is cleared by the next attempt. The
+ * manifest carries the pack's `version', a hash of its files, and a kept
+ * pack whose version is not the one offered is one to download again --
+ * an instrument may name recordings the old one does not have.
  *
  * SERVED AS FLAC, about half the size of the WAV it decodes to, and kept
  * that way. Each file is listed under the .wav name its instrument plays and
@@ -104,10 +107,10 @@ async function manifests ()
     return out;
 }
 
-/* The ids downloaded so far. */
+/* The packs downloaded so far, id to version. */
 export async function installed ()
 {
-    return new Set((await manifests()).map((m) => m.id));
+    return new Map((await manifests()).map((m) => [m.id, m.version]));
 }
 
 /* Downloads a pack into the cache, `progress(done, total)' in bytes along
@@ -151,7 +154,16 @@ export async function download (id, synth, progress = () => {})
         }
     };
 
-    await Promise.all([worker(), worker(), worker(), worker()]);
+    /* Every worker settled before any failure is reported: one that is
+       still fetching would otherwise go on writing the cache and the
+       progress under a retry that has already started. */
+    const ends = await Promise.allSettled([worker(), worker(), worker(),
+                                           worker()]);
+    const failed = ends.find((e) => e.status === 'rejected');
+
+    if (failed)
+        throw failed.reason;
+
     await cache.put(manifestUrl(id), new Response(JSON.stringify(m)));
 
     navigator.storage?.persist?.().catch(() => {});

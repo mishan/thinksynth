@@ -2672,7 +2672,10 @@ try
      * the sampled kit is in play, download it into its cache, remember it
      * on the next page, and take it back out. */
     {
-        const ctx = await browser.newContext();
+        /* No service worker: a request it makes is not one a route sees,
+           and once it controls a page the index would come from the
+           build's empty one instead of the routes below. */
+        const ctx = await browser.newContext({ serviceWorkers: 'block' });
         /* Five milliseconds of a sine, as FLAC: what the site serves, and
            what the page has to decode before the synth can play it. */
         const flac = Buffer.from(
@@ -2684,18 +2687,21 @@ try
             '9IZLKZXLphMppNZtN5vN5tN5rNJlMJdKpPJZDe3VrYVlNRfe/LZmxY1C5o6f' +
             'khQWmRsdiASCcVC0YDIaDYbjgcDkcjkcjcbjQZi8WioTiMClPw==', 'base64');
 
-        const manifest = {
+        /* What the site offers, which a later deploy can change. */
+        let version = '1';
+        const manifest = () => ({
             id: 'drums', title: 'Drum kit', license: 'CC0-1.0',
-            credit: 'a test', bytes: flac.length,
+            credit: 'a test', bytes: flac.length, version,
             files: [{ name: 'drums/k_36_1.wav', url: 'drums/k_36_1.flac',
                       bytes: flac.length }],
-        };
+        });
 
         await ctx.route('**/packs/index.json', (r) => r.fulfill({
             json: [{ id: 'drums', title: 'Drum kit', license: 'CC0-1.0',
-                     credit: 'a test', bytes: flac.length, files: 1 }] }));
+                     credit: 'a test', bytes: flac.length, files: 1,
+                     version }] }));
         await ctx.route('**/packs/drums/pack.json',
-                        (r) => r.fulfill({ json: manifest }));
+                        (r) => r.fulfill({ json: manifest() }));
         await ctx.route('**/packs/drums/k_36_1.flac',
                         (r) => r.fulfill({ body: flac }));
 
@@ -2706,8 +2712,10 @@ try
             pg.on('pageerror', (e) => errors.push(e.message));
             await pg.goto(url);
             await pg.click('#start');
-            await pg.waitForFunction(() => window.solo?.settled, null,
-                                     { timeout: 20000 });
+            /* Started, which the page says by dropping data-unstarted. */
+            await pg.waitForFunction(() => window.solo?.settled &&
+                                     !('unstarted' in document.body.dataset),
+                                     null, { timeout: 20000, polling: 100 });
             await pg.selectOption('#mode', 'patch');
             await pg.evaluate(() => window.solo.settled());
             await pg.selectOption('#patch', 'sampled_drums.dsp');
@@ -2744,6 +2752,22 @@ try
 
         check(await quiet(again),
               'a page opened later finds the pack kept and offers nothing');
+
+        /* A deploy that rebuilt the pack: what is kept is not it. */
+        version = '2';
+
+        const rebuilt = await open();
+
+        const reoffered = await offered(rebuilt);
+        const label = await rebuilt.$eval('#packlist button',
+                                          (b) => b.getAttribute('aria-label'));
+
+        check(reoffered && label === 'Update Drum kit',
+              'a pack rebuilt since it was kept is offered again, to update: ' +
+              `${reoffered ? 'offered' : 'not offered'}, ${label}`);
+
+        await rebuilt.close();
+        version = '1';
 
         const button = (pg, text) => pg.waitForFunction(
             (t) => document.querySelector('#packlist button')
