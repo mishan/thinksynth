@@ -4092,14 +4092,14 @@ static void checkBlep (const string &pluginPath)
  */
 
 static vector<NodeSpec> adsrGraph (const char *trigger, float a, float d,
-                                   float s, float r)
+                                   float s, float r, float hz = 2)
 {
     vector<NodeSpec> spec;
     NodeSpec sq, one, env;
 
     sq.name = "sq";
     sq.spelling = "osc/simple";
-    sq.values.push_back(Value{ "freq", 2 });
+    sq.values.push_back(Value{ "freq", hz });
     sq.values.push_back(Value{ "waveform", 2 });
     spec.push_back(sq);
 
@@ -4194,8 +4194,10 @@ static void checkAdsrGated (const string &pluginPath)
                  "release", "peak " + num(peak(got, 0)));
     }
 
-    windowsAgree(pluginPath, adsrGraph("sq", sr * 0.2f, sr * 0.1f, 0.6f,
-                                       sr * 0.1f),
+    /* At 50 Hz the square is up for 441 samples and down for 441, so
+       inside the 2000 compared there are rises, attacks, decays, sustains
+       and releases, and a release cut short by the next rise. */
+    windowsAgree(pluginPath, adsrGraph("sq", 100, 150, 0.6f, 300, 50),
                  "env", "out",
                  "env::adsr: the same gated envelope at one sample a window "
                  "and at five hundred");

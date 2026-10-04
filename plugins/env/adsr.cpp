@@ -372,6 +372,12 @@ static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
         }
 
         out[i] = level;
+        /* Not sounding while it waits. A gate may never open -- a note
+           shorter than the delay it was waiting out -- and an envelope
+           that kept its voice alive meanwhile would hold that voice for
+           ever. So the voice's own `play' belongs to an envelope on the
+           voice's trigger, which rises with the note; a delayed one adds
+           to it (dsp/violins.dsp's max of its players). */
         play[i] = (phase == DONE || phase == WAITING) ? 0 : 1;
 
         /* Every other edge from the next sample, which is when the
