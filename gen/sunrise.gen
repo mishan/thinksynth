@@ -47,7 +47,8 @@
 # beat ninety-three and repeats every ninety-six beats.
 #
 # The tape echo is on the clap, a dotted eighth with wow on it; the
-# pulse throws into a cleaner one. A limiter holds the sum.
+# pulse throws into a cleaner one. fx/glue.dsp holds the sum: a gentle
+# compressor, a little tape, and a limiter's ceiling last.
 #
 # The shaker's chance, the snare's ratchet and the section's runs roll
 # dice; the seed is pinned for them. Self-contained: open it and press Play.
@@ -107,10 +108,9 @@ scale roots "Bb2 C3 D3 F3 G3";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 1.3;
+effect "fx/glue.dsp" {
     ceiling = 0.85;
-    smooth  = 1.5;
+    makeup  = 3.2;
 };
 
 # ---- instruments ------------------------------------------------------
@@ -224,7 +224,7 @@ instrument bass {
     a = 1 ms;
     d = 200 ms;
     s = 0.5;
-    r = 80 ms;
+    r = 400 ms;
 
     # The hand on the knob. `cutoff' is the sweep row's, `res' the walk's.
     effect "fx/filter.dsp" {
@@ -305,6 +305,7 @@ instrument swoop {
 instrument pulse {
     dsp  "pluck.dsp";
     amp  = 12;
+    r    = 390 ms;
 
     effect "fx/echo.dsp" {
         delay = 369 ms;

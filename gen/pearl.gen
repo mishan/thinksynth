@@ -106,10 +106,9 @@ scale amin "A2 B2 C3 D3 E3 F3 G3";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 1.05;
+effect "fx/glue.dsp" {
     ceiling = 0.88;
-    smooth  = 1.5;
+    makeup  = 2.2;
 };
 
 # ---- instruments ------------------------------------------------------
@@ -118,21 +117,8 @@ effect "fx/limiter.dsp" {
 # to the output, so a chord struck harder is brighter -- which is why
 # the harmonize below tapers its voices rather than the piano's level.
 instrument keys {
-    dsp  "epiano.dsp";
-    amp  = 15;
-
-    body     = 2.4;
-    bodyd    = 1100 ms;
-    tine     = 5;
-    tined    = 220 ms;
-    mix      = 0.45;
-    grit     = 0.22;
-    vib      = 5;
-    vibrate  = 4.5;
-    vibdelay = 400 ms;
-    d        = 2400 ms;
-    s        = 0.2;
-    r        = 300 ms;
+    dsp  "dx5.dsp";
+    amp  = 82;
 };
 
 # The pad, and the chorus its channel sits in. The Juno's own chorus is
@@ -181,7 +167,7 @@ instrument bass {
     a     = 3 ms;
     d     = 380 ms;
     s     = 0.5;
-    r     = 90 ms;
+    r     = 760 ms;
 };
 
 # The kit, on one channel: the note number picks the drum. See

@@ -97,10 +97,9 @@ scale congas "F3 A#3 C4";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 0.9;
+effect "fx/glue.dsp" {
     ceiling = 0.88;
-    smooth  = 1.5;
+    makeup  = 0.3;
 };
 
 # ---- instruments ------------------------------------------------------
@@ -177,7 +176,7 @@ instrument bass {
     a     = 3 ms;
     d     = 300 ms;
     s     = 0.5;
-    r     = 80 ms;
+    r     = 450 ms;
 };
 
 # The carrier. It is heard on its own as well as through the vocoder --

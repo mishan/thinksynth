@@ -87,10 +87,9 @@ scale hits  "D4 F4 A4 D5";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 1.2;
+effect "fx/glue.dsp" {
     ceiling = 0.88;
-    smooth  = 1.5;
+    makeup  = 3.1;
 };
 
 # ---- instruments ------------------------------------------------------
@@ -193,7 +192,7 @@ instrument clav {
     a    = 1 ms;
     d    = 210 ms;
     s    = 0.1;
-    r    = 60 ms;
+    r    = 210 ms;
 };
 
 # One recording of a stab and a brass chord at unison, played at the

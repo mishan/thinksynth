@@ -94,10 +94,9 @@ scale ador "A2 B2 C3 D3 E3 F#3 G3";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 1.3;
+effect "fx/glue.dsp" {
     ceiling = 0.85;
-    smooth  = 1.5;
+    makeup  = 2.8;
 };
 
 # ---- instruments ------------------------------------------------------

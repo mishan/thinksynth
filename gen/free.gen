@@ -31,7 +31,7 @@ instrument two   { dsp "juno.dsp";    amp = 30; };
 instrument three { dsp "ebass.dsp";   amp = 60; };
 instrument four  { dsp "pluck.dsp";   amp = 28; };
 instrument five  { dsp "ladder.dsp";  amp = 30; };
-instrument six   { dsp "organ0.dsp";  amp = 30; };
+instrument six   { dsp "tonewheel.dsp"; amp = 28; };
 instrument seven { dsp "dxbell.dsp";  amp = 30; };
 instrument eight { dsp "strings.dsp"; amp = 30; };
 
