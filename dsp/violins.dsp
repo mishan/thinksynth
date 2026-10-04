@@ -4,8 +4,9 @@
 # chorus. This one is four: four sawtooth players on every note, each a
 # few cents from the others by `Detune', each wandering by `Drift', each
 # with a vibrato at its own rate that it leans into late, and each
-# coming in `Stagger' after the one before -- bows do not touch the
-# string at once. They sit across the stage by `Width', first desks
+# coming in up to `Stagger' after the key -- bows do not touch the
+# string at once. A player's gate opens late and its whole note starts
+# then; a note shorter than that leaves that player out. They sit across the stage by `Width', first desks
 # left, seconds right.
 #
 # THE BODY IS SHARED. What makes a saw a violin is less the string than
@@ -123,6 +124,13 @@ node freq misc::midi2freq {
 };
 
 # Player 1.
+# Player 1 comes in `Stagger' times 0.0 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait1 env::adsr {
+    a = @stagger * 0.0;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate1 math::clamp { in = (wait1->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift1 misc::drift {
     rate = 0.25;  depth = @drift;  seed = ionode->note + 1000;
 };
@@ -140,16 +148,23 @@ node tone1 filt::svf {
     res = 0.1;
 };
 node env1 env::adsr {
-    a = @a + @stagger * 0.0;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate1->out;
 };
 node seat1 mixer::pan { in = tone1->out_low * env1->out; pan = -0.8 * @width; };
 
 # Player 2.
+# Player 2 comes in `Stagger' times 0.6 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait2 env::adsr {
+    a = @stagger * 0.6;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate2 math::clamp { in = (wait2->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift2 misc::drift {
     rate = 0.25;  depth = @drift;  seed = ionode->note + 2000;
 };
@@ -167,16 +182,23 @@ node tone2 filt::svf {
     res = 0.1;
 };
 node env2 env::adsr {
-    a = @a + @stagger * 0.6;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate2->out;
 };
 node seat2 mixer::pan { in = tone2->out_low * env2->out; pan = -0.3 * @width; };
 
 # Player 3.
+# Player 3 comes in `Stagger' times 0.25 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait3 env::adsr {
+    a = @stagger * 0.25;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate3 math::clamp { in = (wait3->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift3 misc::drift {
     rate = 0.25;  depth = @drift;  seed = ionode->note + 3000;
 };
@@ -194,16 +216,23 @@ node tone3 filt::svf {
     res = 0.1;
 };
 node env3 env::adsr {
-    a = @a + @stagger * 0.25;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate3->out;
 };
 node seat3 mixer::pan { in = tone3->out_low * env3->out; pan = 0.3 * @width; };
 
 # Player 4.
+# Player 4 comes in `Stagger' times 0.9 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait4 env::adsr {
+    a = @stagger * 0.9;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate4 math::clamp { in = (wait4->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift4 misc::drift {
     rate = 0.25;  depth = @drift;  seed = ionode->note + 4000;
 };
@@ -221,12 +250,12 @@ node tone4 filt::svf {
     res = 0.1;
 };
 node env4 env::adsr {
-    a = @a + @stagger * 0.9;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate4->out;
 };
 node seat4 mixer::pan { in = tone4->out_low * env4->out; pan = 0.8 * @width; };
 

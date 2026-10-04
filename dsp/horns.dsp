@@ -8,10 +8,10 @@
 # multiple of the note, so the timbre is the same up the range.
 #
 # THE SECTION IS LOOSE ON PURPOSE. Each player is `Detune' cents from
-# the others and drifting, their scoops and entries are staggered by
-# `Stagger', their vibratos run at different rates, and they stand
-# across the stereo field by `Width'. A section that hit together to the
-# sample would be one horn played loud.
+# the others and drifting, they come in up to `Stagger' after the key,
+# each scooping from its own entry, their vibratos run at different
+# rates, and they stand across the stereo field by `Width'. A section
+# that hit together to the sample would be one horn played loud.
 
 name "Horns";
 author "Misha Nasledov";
@@ -128,25 +128,37 @@ node freq misc::midi2freq {
 };
 
 # Player 1.
+# Player 1 comes in `Stagger' times 0.0 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait1 env::adsr {
+    a = @stagger * 0.0;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate1 math::clamp { in = (wait1->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift1 misc::drift {
     rate = 0.3;  depth = @drift;  seed = ionode->note + 1000;
 };
-node scoop1 env::ad { a = 0; d = @scooptime + @stagger * 0.0 * 0.5; };
+# From `Scoop' cents flat to the note over `Scoop Time', from the entry.
+# A sustain just over 0, since an env::adsr that decays to 0 restarts.
+node scoop1 env::adsr {
+    a = 0;  d = @scooptime;  s = 0.001;  r = 0;
+    trigger = gate1->out;
+};
 node vib1 misc::vibrato {
     in = freq->out * exp2((drift1->out + @detune * -1.0 -
                            @scoop * scoop1->out) / 1200);
     rate = @vibrate * 0.94;
     depth = @vibrato;
-    delay = @vibdelay;
+    delay = @vibdelay + @stagger * 0.0;
     rise = @vibdelay;
 };
 node osc1 osc::blep { freq = vib1->out; waveform = 0; phase = 0.0; };
 node fenv1 env::adsr {
-    a = @a + @stagger * 0.0;
+    a = @a;
     d = @d;
     s = 0.6;
     r = @r;
-    trigger = ionode->trigger;
+    trigger = gate1->out;
 };
 node tone1 filt::svf {
     in = osc1->out;
@@ -154,35 +166,47 @@ node tone1 filt::svf {
     res = 0.2;
 };
 node env1 env::adsr {
-    a = @a + @stagger * 0.0;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate1->out;
 };
 node seat1 mixer::pan { in = tone1->out_low * env1->out; pan = -0.8 * @width; };
 
 # Player 2.
+# Player 2 comes in `Stagger' times 0.6 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait2 env::adsr {
+    a = @stagger * 0.6;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate2 math::clamp { in = (wait2->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift2 misc::drift {
     rate = 0.3;  depth = @drift;  seed = ionode->note + 2000;
 };
-node scoop2 env::ad { a = 0; d = @scooptime + @stagger * 0.6 * 0.5; };
+# From `Scoop' cents flat to the note over `Scoop Time', from the entry.
+# A sustain just over 0, since an env::adsr that decays to 0 restarts.
+node scoop2 env::adsr {
+    a = 0;  d = @scooptime;  s = 0.001;  r = 0;
+    trigger = gate2->out;
+};
 node vib2 misc::vibrato {
     in = freq->out * exp2((drift2->out + @detune * -0.33 -
                            @scoop * scoop2->out) / 1200);
     rate = @vibrate * 1.03;
     depth = @vibrato;
-    delay = @vibdelay;
+    delay = @vibdelay + @stagger * 0.6;
     rise = @vibdelay;
 };
 node osc2 osc::blep { freq = vib2->out; waveform = 0; phase = 0.6; };
 node fenv2 env::adsr {
-    a = @a + @stagger * 0.6;
+    a = @a;
     d = @d;
     s = 0.6;
     r = @r;
-    trigger = ionode->trigger;
+    trigger = gate2->out;
 };
 node tone2 filt::svf {
     in = osc2->out;
@@ -190,35 +214,47 @@ node tone2 filt::svf {
     res = 0.2;
 };
 node env2 env::adsr {
-    a = @a + @stagger * 0.6;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate2->out;
 };
 node seat2 mixer::pan { in = tone2->out_low * env2->out; pan = -0.3 * @width; };
 
 # Player 3.
+# Player 3 comes in `Stagger' times 0.25 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait3 env::adsr {
+    a = @stagger * 0.25;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate3 math::clamp { in = (wait3->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift3 misc::drift {
     rate = 0.3;  depth = @drift;  seed = ionode->note + 3000;
 };
-node scoop3 env::ad { a = 0; d = @scooptime + @stagger * 0.25 * 0.5; };
+# From `Scoop' cents flat to the note over `Scoop Time', from the entry.
+# A sustain just over 0, since an env::adsr that decays to 0 restarts.
+node scoop3 env::adsr {
+    a = 0;  d = @scooptime;  s = 0.001;  r = 0;
+    trigger = gate3->out;
+};
 node vib3 misc::vibrato {
     in = freq->out * exp2((drift3->out + @detune * 0.33 -
                            @scoop * scoop3->out) / 1200);
     rate = @vibrate * 0.98;
     depth = @vibrato;
-    delay = @vibdelay;
+    delay = @vibdelay + @stagger * 0.25;
     rise = @vibdelay;
 };
 node osc3 osc::blep { freq = vib3->out; waveform = 0; phase = 0.25; };
 node fenv3 env::adsr {
-    a = @a + @stagger * 0.25;
+    a = @a;
     d = @d;
     s = 0.6;
     r = @r;
-    trigger = ionode->trigger;
+    trigger = gate3->out;
 };
 node tone3 filt::svf {
     in = osc3->out;
@@ -226,35 +262,47 @@ node tone3 filt::svf {
     res = 0.2;
 };
 node env3 env::adsr {
-    a = @a + @stagger * 0.25;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate3->out;
 };
 node seat3 mixer::pan { in = tone3->out_low * env3->out; pan = 0.3 * @width; };
 
 # Player 4.
+# Player 4 comes in `Stagger' times 0.9 after the key: a timer that
+# opens its gate then, and shuts it with the key.
+node wait4 env::adsr {
+    a = @stagger * 0.9;  d = 0;  s = 1;  r = 0;
+    trigger = ionode->trigger;
+};
+node gate4 math::clamp { in = (wait4->out - 0.999) * 1000; lo = 0; hi = 1; };
 node drift4 misc::drift {
     rate = 0.3;  depth = @drift;  seed = ionode->note + 4000;
 };
-node scoop4 env::ad { a = 0; d = @scooptime + @stagger * 0.9 * 0.5; };
+# From `Scoop' cents flat to the note over `Scoop Time', from the entry.
+# A sustain just over 0, since an env::adsr that decays to 0 restarts.
+node scoop4 env::adsr {
+    a = 0;  d = @scooptime;  s = 0.001;  r = 0;
+    trigger = gate4->out;
+};
 node vib4 misc::vibrato {
     in = freq->out * exp2((drift4->out + @detune * 1.0 -
                            @scoop * scoop4->out) / 1200);
     rate = @vibrate * 1.07;
     depth = @vibrato;
-    delay = @vibdelay;
+    delay = @vibdelay + @stagger * 0.9;
     rise = @vibdelay;
 };
 node osc4 osc::blep { freq = vib4->out; waveform = 0; phase = 0.9; };
 node fenv4 env::adsr {
-    a = @a + @stagger * 0.9;
+    a = @a;
     d = @d;
     s = 0.6;
     r = @r;
-    trigger = ionode->trigger;
+    trigger = gate4->out;
 };
 node tone4 filt::svf {
     in = osc4->out;
@@ -262,12 +310,12 @@ node tone4 filt::svf {
     res = 0.2;
 };
 node env4 env::adsr {
-    a = @a + @stagger * 0.9;
+    a = @a;
     d = @d;
-    s = @s;
+    s = @s * ionode->velocity;
     r = @r;
     p = ionode->velocity;
-    trigger = ionode->trigger;
+    trigger = gate4->out;
 };
 node seat4 mixer::pan { in = tone4->out_low * env4->out; pan = 0.8 * @width; };
 
