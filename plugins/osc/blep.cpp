@@ -175,8 +175,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     {
         const float dt = (float)(thBoundFreq((double)(*in_freq)[i], samples) /
                                  (double)samples);
-        /* A selector: whole numbers 0 to 2, and anything else -- NaN
-           included, which no cast to int may be handed -- the saw. */
+        /* A selector, read as osc::simple reads its own: the whole part
+           picks, so 1.5 is the pulse. Anything under 0 or from 3 up, and
+           NaN, which no cast to int may be handed, is the saw. */
         const float w = (*in_waveform)[i];
         const int wave = (thIsFinite(w) && w >= 0 && w < 3) ? (int)w : 0;
         float pw = (*in_pw)[i];
