@@ -27,8 +27,9 @@
 # two bars, spelled into triads by the harmonizer with a taper so the
 # top voice leads. They play in the chorus only.
 #
-# THE ORGAN SPINS UP. organ0.dsp is on a channel with fx/rotary.dsp,
-# and the rotor's `speed' is a chanarg, so a gen::steps row the length
+# THE ORGAN SPINS UP. tonewheel.dsp is on a channel with fx/rotary.dsp,
+# the cabinet's valve amp pushed a little, and the rotor's `speed' is a
+# chanarg, so a gen::steps row the length
 # of the arrangement drives it: slow through the verses, fast for each
 # chorus, with the spin-up and the spin-down that the rotary's own
 # slew provides. The row is one value a bar, sixty-four of them,
@@ -90,10 +91,9 @@ scale cmaj "C3 D3 E3 F3 G3 A3 B3";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 1.25;
+effect "fx/glue.dsp" {
     ceiling = 0.85;
-    smooth  = 1.5;
+    makeup  = 2.5;
 };
 
 # ---- instruments ------------------------------------------------------
@@ -213,19 +213,21 @@ instrument rhodes {
 # The Hammond, and the Leslie its channel plays through. `speed' is
 # driven from the composer side.
 instrument organ {
-    dsp  "organ0.dsp";
-    amp  = 22;
+    dsp  "tonewheel.dsp";
+    amp  = 17;
 
-    vmin = 0.3;
-    vmax = 0.6;
-    waveform = 0;
-    a = 4 ms;
-    d = 3 ms;
-    s = 0.5;
-    r = 60 ms;
-    mul1 = 2;
-    mul2 = 3;
-    mul3 = 4;
+    # The old organ's 8', 4', 2 2/3' and 2', as drawbars.
+    db16 = 0;
+    db513 = 0;
+    db8 = 8;
+    db4 = 6;
+    db223 = 6;
+    db2 = 5;
+    db135 = 0;
+    db113 = 0;
+    db1 = 0;
+    click = 0.25;
+    r = 90 ms;
 
     effect "fx/rotary.dsp" {
         speed = 0;
@@ -238,6 +240,7 @@ instrument organ {
         xover = 800;
         trem = 0.4;
         doppler = 1.6 ms;
+        drive = 1;
         mix = 0.8;
     };
 };

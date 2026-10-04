@@ -97,10 +97,9 @@ scale congas "F3 A#3 C4";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 0.9;
+effect "fx/glue.dsp" {
     ceiling = 0.88;
-    smooth  = 1.5;
+    makeup  = 0.3;
 };
 
 # ---- instruments ------------------------------------------------------

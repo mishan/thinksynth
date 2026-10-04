@@ -99,10 +99,9 @@ scale emin "E2 F#2 G2 A2 B2 C3 D3";
 
 # ---- the mix ----------------------------------------------------------
 
-effect "fx/limiter.dsp" {
-    drive   = 1.1;
+effect "fx/glue.dsp" {
     ceiling = 0.88;
-    smooth  = 1.5;
+    makeup  = 3.2;
 };
 
 # ---- instruments ------------------------------------------------------
