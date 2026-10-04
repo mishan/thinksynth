@@ -31,10 +31,18 @@
  * down, for the price of a couple of multiplies when a cycle wraps.
  * The pulse is two such steps, one at the wrap and one at `pw'.
  *
- * THE TRIANGLE IS THE PULSE INTEGRATED, with a leak, so it inherits the
+ * THE TRIANGLE IS THE PULSE INTEGRATED, with a slow leak, so it inherits the
  * pulse's band-limiting: a triangle's corners are where a square's
- * steps were. The leak keeps a pulse width off one half from walking it
- * away from zero, and the scale keeps it at full scale at every pitch.
+ * steps were. The pulse's mean, 2 pw - 1, comes off before the integral,
+ * or a width off one half would integrate to a ramp the leak holds as a
+ * DC offset; and the result is divided by pw (1 - pw), the integral's
+ * height, so it spans full scale at every width and pitch -- a triangle
+ * at one half, leaning further into a saw as the width moves off it.
+ *
+ * THE STATE STEPS IN FLOAT, as osc::fmop's does, because it is kept in a
+ * float between windows: a running value held wider inside a window than
+ * across one comes out differently at one sample a window than at five
+ * hundred.
  *
  * `phase' is where a voice's cycle starts, 0 to 1, read on its first
  * sample. Unison oscillators started at different phases do not begin
@@ -137,8 +145,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_phase = mod->getArg(node, args[IN_PHASE]);
     thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
 
-    double phase = (*inout_state)[0];
-    double tri = (*inout_state)[1];
+    float phase = (*inout_state)[0];
+    float tri = (*inout_state)[1];
     const bool started = (*inout_state)[2] > 0;
     float *state = inout_state->allocate(3);
 
@@ -148,16 +156,31 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     if (!started)
     {
         const float p = (*in_phase)[0];
-        phase = thIsFinite(p) ? p - floor(p) : 0;
+        float pw = (*in_pw)[0];
+
+        phase = thIsFinite(p) ? p - floorf(p) : 0;
+
+        /* The integrator starts where the wave is at that phase, rather
+           than at 0 with an offset the leak takes a few cycles to bleed
+           away: at the bottom where the pulse goes high, rising
+           2 (1 - pw) a cycle until pw, falling 2 pw after. */
+        if (!thIsFinite(pw) || pw <= 0 || pw >= 1)
+            pw = 0.5f;
+
+        tri = phase < pw ? -pw * (1 - pw) + 2 * (1 - pw) * phase
+                         : pw * (1 - pw) - 2 * pw * (phase - pw);
     }
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
-        const double dt = thBoundFreq((double)(*in_freq)[i], samples) /
-                          (double)samples;
-        const int wave = (int)(*in_waveform)[i];
-        double pw = (*in_pw)[i];
-        double y;
+        const float dt = (float)(thBoundFreq((double)(*in_freq)[i], samples) /
+                                 (double)samples);
+        /* A selector: whole numbers 0 to 2, and anything else -- NaN
+           included, which no cast to int may be handed -- the saw. */
+        const float w = (*in_waveform)[i];
+        const int wave = (thIsFinite(w) && w >= 0 && w < 3) ? (int)w : 0;
+        float pw = (*in_pw)[i];
+        float y;
 
         if (!thIsFinite(pw) || pw <= 0)
             pw = 0.5;
@@ -170,18 +193,20 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (wave == 0)
         {
-            y = 2 * phase - 1 - polyBlep(phase, dt);
+            y = 2 * phase - 1 - (float)polyBlep(phase, dt);
         }
         else
         {
-            double t2 = phase + 1 - pw;
-            t2 -= floor(t2);
-            y = (phase < pw ? 1.0 : -1.0) + polyBlep(phase, dt) -
-                polyBlep(t2, dt);
+            float t2 = phase + 1 - pw;
+            t2 -= floorf(t2);
+            y = (phase < pw ? 1.0f : -1.0f) + (float)polyBlep(phase, dt) -
+                (float)polyBlep(t2, dt);
             if (wave == 2)
             {
-                tri = dt * y + (1 - dt) * tri;
-                y = tri * 4;
+                /* The leak only has rounding to bleed off now, so it is
+                   slow: a leak of `dt' bends the slopes visibly. */
+                tri = dt * (y - (2 * pw - 1)) + (1 - dt / 64) * tri;
+                y = tri / (pw * (1 - pw));
             }
         }
 
@@ -190,7 +215,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         phase += dt;
         if (phase >= 1)
         {
-            phase -= floor(phase);
+            phase -= floorf(phase);
             sync[i] = 1;
         }
         else
@@ -199,8 +224,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
     }
 
-    state[0] = (float)phase;
-    state[1] = (float)tri;
+    state[0] = phase;
+    state[1] = tri;
     state[2] = 1;
 
     return 0;

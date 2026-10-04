@@ -200,6 +200,7 @@ node driftl misc::drift { rate = 0.37; depth = @drift; seed = ionode->note + 100
 node driftr misc::drift { rate = 0.29; depth = @drift; seed = ionode->note + 2000; };
 node drift2 misc::drift { rate = 0.33; depth = @drift; seed = ionode->note + 3000; };
 node driftf misc::drift { rate = 0.2;  depth = 0.05;   seed = ionode->note + 4000; };
+node drifts misc::drift { rate = 0.31; depth = @drift; seed = ionode->note + 5000; };
 
 node oscc osc::blep {
     freq = freq->out * exp2(driftc->out / 1200);
@@ -226,7 +227,7 @@ node osc2 osc::blep {
     phase = 0.5;
 };
 node subosc osc::blep {
-    freq = freq->out * 0.5;
+    freq = freq->out * 0.5 * exp2(drifts->out / 1200);
     waveform = 1;
     pw = 0.5;
     phase = 0.25;
