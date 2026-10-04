@@ -538,6 +538,7 @@ jobs:
             build-web/gen
             build-web/patches
             build-web/icons
+            build-web/packs
             build-web/cairo2d/cairo2dtest.js
             build-web/cairo2d/cairo2dtest.wasm
 
