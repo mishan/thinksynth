@@ -52,7 +52,7 @@ node smp osc::sample {
 node env env::adsr {
     a = @a;
     d = 0;
-    s = 1;
+    s = 0.5 + 0.5 * ionode->velocity;
     r = @r;
     p = 0.5 + 0.5 * ionode->velocity;
     trigger = ionode->trigger;

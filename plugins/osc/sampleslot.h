@@ -138,6 +138,7 @@ static inline void thSampleClaim (const thPlugin *plugin)
             delete thSampleSlots[i].table;
             thSampleSlots[i].table = new std::map<std::string, thSampleData>();
             thSampleSlots[i].alternates.clear();
+            thSampleSlots[i].zones.clear();
             return;
         }
     }
@@ -151,6 +152,7 @@ static inline void thSampleRelease (const thPlugin *plugin)
             delete thSampleSlots[i].table;
             thSampleSlots[i].table = NULL;
             thSampleSlots[i].alternates.clear();
+            thSampleSlots[i].zones.clear();
             thSampleSlots[i].owner.store(NULL, std::memory_order_release);
             return;
         }
