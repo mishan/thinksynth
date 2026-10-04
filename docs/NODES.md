@@ -944,6 +944,20 @@ Band-pass oscillator
 | `out` | out | The wave |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
 
+### osc::blep
+
+Band-limited oscillator (PolyBLEP saw, pulse, triangle)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | Frequency |  |  | Hz |  |
+| `waveform` | in | Which wave |  |  |  | 0 = Sawtooth, 1 = Pulse, 2 = Triangle |
+| `pw` | in | Pulse width: how much of the cycle is high | 0.5 | 0 to 1 |  |  |
+| `phase` | in | Where the cycle starts, read on the voice's first sample |  | 0 to 1 |  |  |
+| `out` | out | The wave |  | -1 to 1 | full scale |  |
+| `sync` | out | 1 on the sample the cycle wraps, 0 otherwise |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::buzzer
 
 Buzzer oscillator

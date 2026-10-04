@@ -3943,6 +3943,145 @@ static void checkSimple (const string &pluginPath)
                  "and at five hundred");
 }
 
+/* ---- osc::blep ---------------------------------------------------------- */
+
+static vector<NodeSpec> blepGraph (float freq, float wave, float pw,
+                                   float phase)
+{
+    NodeSpec n;
+
+    n.name = "osc";
+    n.spelling = "osc/blep";
+    n.values.push_back(Value{ "freq", freq });
+    n.values.push_back(Value{ "waveform", wave });
+    n.values.push_back(Value{ "pw", pw });
+    n.values.push_back(Value{ "phase", phase });
+
+    return vector<NodeSpec>(1, n);
+}
+
+static double meanOf (const vector<float> &v, size_t from)
+{
+    double sum = 0;
+
+    for (size_t i = from; i < v.size(); i++)
+        sum += v[i];
+
+    return sum / (double)(v.size() - from);
+}
+
+static void checkBlep (const string &pluginPath)
+{
+    const struct { float wave, pw; const char *what; } shapes[] = {
+        { 0, 0.5f, "the saw" },
+        { 1, 0.5f, "a square" },
+        { 1, 0.1f, "a narrow pulse" },
+        { 2, 0.5f, "the triangle" },
+        { 2, 0.1f, "the triangle at a width of 0.1" },
+        { 2, 0.9f, "the triangle at a width of 0.9" },
+    };
+
+    for (const auto &sh : shapes)
+    {
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, blepGraph(440, sh.wave, sh.pw, 0), "osc",
+                     "out", 256, TH_DEFAULT_SAMPLES, got, why))
+        {
+            fail(string("osc::blep renders ") + sh.what, why);
+            continue;
+        }
+
+        /* A pulse's mean is its width's business; everything else is
+           centered, the triangle included at any width. Past full scale
+           only by a correction's overshoot. */
+        const double mean = meanOf(got, 4410);
+        const bool centered = sh.wave == 1 || fabs(mean) < 0.01;
+
+        okOrFail(allFinite(got) && peak(got, 0) <= 1.1 && centered,
+                 string("osc::blep: ") + sh.what + " stays within full "
+                 "scale" + (sh.wave == 1 ? "" : ", centered"),
+                 "peak " + num(peak(got, 0)) + ", mean " + num(mean));
+    }
+
+    /* A selector that is not one of the three plays the saw. */
+    {
+        vector<float> saw, odd;
+        string why;
+        bool same = render1(pluginPath, blepGraph(440, 0, 0.5f, 0), "osc",
+                            "out", 256, 4096, saw, why);
+        const float odds[] = { NAN, 7, -3 };
+
+        for (float w : odds)
+            same = same && render1(pluginPath, blepGraph(440, w, 0.5f, 0),
+                                   "osc", "out", 256, 4096, odd, why) &&
+                   memcmp(saw.data(), odd.data(),
+                          saw.size() * sizeof(float)) == 0;
+
+        okOrFail(same, "osc::blep: a waveform of NaN, 7 or -3 plays the saw",
+                 why);
+    }
+
+    /* `phase' is where the cycle starts: a saw a quarter in is at -0.5. */
+    {
+        vector<float> got;
+        string why;
+
+        const bool rendered = render1(pluginPath,
+                                      blepGraph(100, 0, 0.5f, 0.25f), "osc",
+                                      "out", 256, 256, got, why);
+
+        okOrFail(rendered && fabs(got[0] + 0.5) < 0.01,
+                 "osc::blep: `phase' sets where the cycle starts",
+                 rendered ? "first sample " + num(got[0]) : why);
+    }
+
+    /* `sync' once a cycle: 440 in a second. */
+    {
+        vector<float> got;
+        string why;
+        int wraps = 0;
+
+        if (render1(pluginPath, blepGraph(440, 0, 0.5f, 0), "osc", "sync",
+                    256, TH_DEFAULT_SAMPLES, got, why))
+            for (float v : got)
+                wraps += v > 0;
+
+        okOrFail(abs(wraps - 440) <= 1,
+                 "osc::blep: `sync' fires once a cycle",
+                 why.empty() ? num(wraps) + " in a second at 440 Hz" : why);
+    }
+
+    /* The point of the node. A C7 saw's 21st harmonic is at 43953 Hz and
+       folds to 147; a naive saw puts it there at a 21st of the fundamental
+       (-26 dB), and the corrections are what take it down. */
+    {
+        vector<float> got;
+        string why;
+        const double f0 = 2093.0045;
+        const double alias = TH_DEFAULT_SAMPLES - 21 * f0;
+
+        if (!render1(pluginPath, blepGraph((float)f0, 0, 0.5f, 0), "osc",
+                     "out", 256, TH_DEFAULT_SAMPLES, got, why))
+            fail("osc::blep renders a C7 saw", why);
+        else
+        {
+            const double db = 20 * log10(
+                bin(got, 0, TH_DEFAULT_SAMPLES, alias) /
+                bin(got, 0, TH_DEFAULT_SAMPLES, f0));
+
+            okOrFail(db < -40, "osc::blep: a C7 saw's folded 21st harmonic "
+                     "is more than 40 dB under its fundamental",
+                     num(db) + " dB");
+        }
+    }
+
+    windowsAgree(pluginPath, blepGraph(440, 2, 0.3f, 0.1f), "osc", "out",
+                 "osc::blep: the same triangle at one sample a window and at "
+                 "five hundred");
+}
+
 /* ---- osc::sample -------------------------------------------------------- */
 
 /* The node that plays a file, and the only one here whose input is not a
@@ -7255,6 +7394,7 @@ int main (int argc, char **argv)
     checkFdn(pluginPath);
     checkFmop(pluginPath);
     checkSimple(pluginPath);
+    checkBlep(pluginPath);
     checkSample(pluginPath);
     checkGrain(pluginPath);
     checkDrift(pluginPath);
