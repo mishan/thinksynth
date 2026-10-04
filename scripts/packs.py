@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Sample packs: recorded instruments, fetched from where they are published.
+
+The recordings are not in this repository. Every pack is public domain
+(CC0) and is built here from its source, pinned to a commit: listed with
+the GitHub API, downloaded, trimmed, turned to mono 16-bit at 44.1 kHz and
+levelled, and named by MIDI note -- the sources disagree about which
+octave "C3" is, and a number cannot.
+
+    packs.py build OUTDIR [--cache DIR] [PACK...]
+        Writes OUTDIR/<pack>/*.wav, OUTDIR/<pack>/pack.json and
+        OUTDIR/index.json. The deploy runs this into the site's packs/,
+        which the page downloads from when asked.
+
+    packs.py install [PACK...]
+        Builds into this user's data directory (thUtil::userDataDir), under
+        dsp/samples/, where the desktop app looks.
+
+    packs.py zones PACK
+        Prints the `file' lines the pack's .dsp uses.
+
+Needs ffmpeg (for FLAC and 24-bit sources). GITHUB_TOKEN, if set, is used
+for the directory listings.
+"""
+
+import argparse
+import array
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.parse
+import urllib.request
+import wave
+
+VSCO = ("sgossner/VSCO-2-CE", "440300901dfe9275fd84e0b7763af1f8443ae62e",
+        "VSCO 2 Community Edition, Versilian Studios / Sam Gossner")
+RUSTY = ("sfzinstruments/karoryfer.big-rusty-drums",
+         "f07ce00df34a46b6b08375be56fe116cf15782bc",
+         "Big Rusty Drums, Karoryfer Samples")
+
+RATE = 44100
+PEAK = 0.89
+
+NOTE = r"(?P<note>[A-G](?:#|b)?-?\d)"
+
+# A pack: where its files are, how a name gives the note and the velocity
+# layer, which layers to keep (as layer 1, 2, 3), how long a file is kept,
+# and whether the end is a sustain the .dsp loops.
+#
+# `octave' is what to add to a name's octave for MIDI: VSCO's orchestral
+# folders call middle C "C3", its Upright Nr1 calls it "C4". Each was
+# checked against the source's own SFZ `pitch_keycenter'.
+PACKS = {
+    "violins": dict(
+        title="Violin section", source=VSCO,
+        dirs=["Strings/Violin Section/susVib"],
+        match=r"VlnEns_susVib_" + NOTE + r"_v(?P<layer>\d)\.wav",
+        octave=1, layers=["1", "2"], seconds=3.0, sustain=True),
+    "cellos": dict(
+        title="Cello section", source=VSCO,
+        dirs=["Strings/Cello Section/susvib"],
+        match=r"susvib_" + NOTE + r"_v(?P<layer>\d)_1\.wav",
+        octave=1, layers=["1", "3"], seconds=3.0, sustain=True),
+    "horn": dict(
+        title="French horn", source=VSCO,
+        dirs=["Brass/F Horn/sus"],
+        match=r"MOHorn_sus_" + NOTE + r"_v(?P<layer>\d)_1\.wav",
+        octave=1, layers=["2", "3", "4"], seconds=2.5, sustain=True),
+    "trumpet": dict(
+        title="Trumpet", source=VSCO,
+        dirs=["Brass/Trumpet/sus"],
+        match=r"Sum_SHTrumpet_sus_" + NOTE + r"_v(?P<layer>\d)_rr1\.wav",
+        octave=1, layers=["1", "3"], seconds=2.5, sustain=True),
+    "flute": dict(
+        title="Flute", source=VSCO,
+        dirs=["Woodwinds/Flute/susNV"],
+        match=r"LDFlute_susNV_" + NOTE + r"_v(?P<layer>\d)_1\.wav",
+        octave=1, layers=["1", "3"], seconds=2.5, sustain=True),
+    "upright": dict(
+        title="Upright piano", source=VSCO,
+        dirs=["Keys/Upright Nr1"],
+        match=r"UR1_" + NOTE + r"_(?P<layer>pp|mf|f)_RR1\.wav",
+        octave=0, layers=["pp", "mf", "f"], seconds=5.0, sustain=False),
+}
+
+# The kit: each drum's folder, the General MIDI note it answers, how long
+# it rings, and the velocity layers to keep, low to high.
+DRUMS = [
+    ("kick_24/kick/oh", "k", 36, 1.0, ["4", "9", "14"]),
+    ("snare_14/center/oh", "sn_center", 38, 1.2, ["3", "6", "10"]),
+    ("tom_22/center/oh", "t22", 41, 1.8, ["2", "4", "7"]),
+    ("hihat_14/cl/oh", "ht_cl", 42, 0.6, ["2", "4", "6"]),
+    ("tom_18/center/oh", "t18", 43, 1.6, None),
+    ("tom_15/center/oh", "t15", 45, 1.5, None),
+    ("hihat_14/open/oh", "ht_open", 46, 2.5, ["2", "4", "6"]),
+    ("tom_14/center/oh", "t14", 48, 1.4, ["2", "4", "6"]),
+    ("crash_17/cr/oh", "cr", 49, 4.0, ["2", "4", "5"]),
+    ("ride_22/rd/oh", "rd", 51, 3.0, ["3", "6", "10"]),
+]
+
+PACKS["drums"] = dict(title="Drum kit", source=RUSTY, drums=DRUMS,
+                      sustain=False)
+
+
+def midi(name, octave):
+    m = re.fullmatch(r"([A-G])(#|b)?(-?\d)", name)
+    pc = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}[m.group(1)]
+    pc += {"#": 1, "b": -1, None: 0}[m.group(2)]
+    return 12 * (int(m.group(3)) + 1 + octave) + pc
+
+
+def listing(repo, sha, path, cache):
+    """The file names in a directory at a commit, which never change, so
+    they are kept beside the downloads: the API allows sixty requests an
+    hour without a token."""
+    local = os.path.join(cache, repo.replace("/", "_"), sha[:12],
+                         path, ".listing.json")
+    if os.path.exists(local):
+        with open(local) as f:
+            return json.load(f)
+    url = (f"https://api.github.com/repos/{repo}/contents/"
+           f"{urllib.parse.quote(path)}?ref={sha}")
+    req = urllib.request.Request(url)
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req) as r:
+        names = [e["name"] for e in json.load(r) if e["type"] == "file"]
+    os.makedirs(os.path.dirname(local), exist_ok=True)
+    with open(local, "w") as f:
+        json.dump(names, f)
+    return names
+
+
+def fetch(repo, sha, path, cache):
+    local = os.path.join(cache, repo.replace("/", "_"), sha[:12], path)
+    if not os.path.exists(local):
+        os.makedirs(os.path.dirname(local), exist_ok=True)
+        url = (f"https://raw.githubusercontent.com/{repo}/{sha}/"
+               f"{urllib.parse.quote(path)}")
+        with urllib.request.urlopen(url) as r, open(local + ".part", "wb") as f:
+            f.write(r.read())
+        os.replace(local + ".part", local)
+    return local
+
+
+def decode(src, seconds, sustain):
+    """The file as mono 16-bit samples at RATE, its leading silence cut."""
+    filt = ("silenceremove=start_periods=1:start_threshold=-60dB,"
+            f"atrim=0:{seconds}")
+    if not sustain:
+        filt += f",afade=t=out:st={max(seconds - 0.08, 0)}:d=0.08"
+    out = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", src, "-af", filt, "-ac", "1",
+         "-ar", str(RATE), "-f", "s16le", "-"],
+        check=True, capture_output=True).stdout
+    return array.array("h", out)
+
+
+def plan(pack, cache):
+    """[(source path, output name, MIDI note, layer 1-3)] for a pack."""
+    spec = PACKS[pack]
+    repo, sha, _ = spec["source"]
+    jobs = []
+    if "drums" in spec:
+        for folder, prefix, note, seconds, layers in spec["drums"]:
+            names = listing(repo, sha, f"Samples/{folder}", cache)
+            have = sorted({re.fullmatch(prefix + r"_vl(\d+)_rr1\.flac", n)
+                           .group(1) for n in names
+                           if re.fullmatch(prefix + r"_vl(\d+)_rr1\.flac", n)},
+                          key=int)
+            if layers is None:
+                n = len(have)
+                layers = [have[max(0, round(n / 3) - 1)],
+                          have[max(0, round(2 * n / 3) - 1)], have[-1]]
+            for k, vl in enumerate(layers, 1):
+                if vl not in have:
+                    sys.exit(f"{folder}: no layer vl{vl}; it has {have}")
+                jobs.append((f"Samples/{folder}/{prefix}_vl{vl}_rr1.flac",
+                             f"{pack}/{prefix}_{note}_{k}.wav", note, k,
+                             seconds))
+        return jobs
+    for d in spec["dirs"]:
+        for n in sorted(listing(repo, sha, d, cache)):
+            m = re.fullmatch(spec["match"], n)
+            if not m or m.group("layer") not in spec["layers"]:
+                continue
+            note = midi(m.group("note"), spec["octave"])
+            k = spec["layers"].index(m.group("layer")) + 1
+            jobs.append((f"{d}/{n}", f"{pack}/{pack}_{note}_{k}.wav", note,
+                         k, spec["seconds"]))
+    return jobs
+
+
+def zones(jobs, layer):
+    """A `file' line: each note's file at this layer, or at the nearest
+    layer the source has for that note -- under it first."""
+    have = {}
+    for _, out, note, k, _ in jobs:
+        have.setdefault(note, {})[k] = out
+    picks = []
+    for note in sorted(have):
+        ks = sorted(have[note], key=lambda k: (k > layer, abs(k - layer)))
+        picks.append(f"{have[note][ks[0]]}@{note}")
+    return " ".join(picks)
+
+
+def build(pack, outdir, cache):
+    spec = PACKS[pack]
+    repo, sha, credit = spec["source"]
+    jobs = plan(pack, cache)
+    decoded = []
+    for path, out, note, k, seconds in jobs:
+        decoded.append((out, decode(fetch(repo, sha, path, cache), seconds,
+                                    spec["sustain"])))
+    # One gain for the whole pack, so the balance across the range and
+    # between layers is the recording's.
+    peak = max(max(abs(min(a)), max(a)) for _, a in decoded if len(a)) or 1
+    gain = PEAK * 32767 / peak
+    files = []
+    for out, a in decoded:
+        scaled = array.array("h", (max(-32768, min(32767, round(x * gain)))
+                                   for x in a))
+        path = os.path.join(outdir, out)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(scaled.tobytes())
+        files.append({"name": out, "bytes": os.path.getsize(path)})
+    manifest = {
+        "id": pack, "title": spec["title"], "license": "CC0-1.0",
+        "credit": credit, "source": f"https://github.com/{repo}/tree/{sha}",
+        "bytes": sum(f["bytes"] for f in files), "files": files,
+    }
+    with open(os.path.join(outdir, pack, "pack.json"), "w") as f:
+        json.dump(manifest, f, indent=1)
+    return manifest
+
+
+def user_samples():
+    if sys.platform == "win32":
+        base = os.path.join(os.environ["LOCALAPPDATA"], "thinksynth")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support/thinksynth")
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME", "")
+        base = os.path.join(xdg if xdg.startswith("/")
+                            else os.path.expanduser("~/.local/share"),
+                            "thinksynth")
+    return os.path.join(base, "dsp", "samples")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("mode", choices=["build", "install", "zones"])
+    ap.add_argument("args", nargs="*")
+    ap.add_argument("--cache", default=os.path.join(tempfile.gettempdir(),
+                                                    "thinksynth-packs"))
+    opt = ap.parse_args()
+
+    if opt.mode == "zones":
+        for pack in opt.args:
+            jobs = plan(pack, opt.cache)
+            top = max(k for *_, k, _ in jobs)
+            for layer in range(1, top + 1):
+                print(f'file{"" if layer == 1 else layer} = "'
+                      f'{zones(jobs, layer)}";')
+        return
+
+    if opt.mode == "build":
+        if not opt.args:
+            ap.error("build needs an output directory")
+        outdir, names = opt.args[0], opt.args[1:] or list(PACKS)
+    else:
+        outdir, names = user_samples(), opt.args or list(PACKS)
+
+    index = []
+    for pack in names:
+        m = build(pack, outdir, opt.cache)
+        index.append({k: m[k] for k in ("id", "title", "license", "credit",
+                                         "bytes")} | {"files": len(m["files"])})
+        print(f"{pack}: {len(m['files'])} files, {m['bytes'] / 1e6:.1f} MB")
+    if opt.mode == "build":
+        with open(os.path.join(outdir, "index.json"), "w") as f:
+            json.dump(index, f, indent=1)
+
+
+if __name__ == "__main__":
+    main()
