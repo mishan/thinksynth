@@ -136,6 +136,12 @@ public:
                                  size_t size);
     static bool findEmbeddedFile (const string &name,
                                   const unsigned char *&data, size_t &size);
+
+    /* A count a host bumps after putting new files where findDataFile
+     * looks -- a sample pack downloaded while the synth runs. A reader that
+     * cached "not found" retries when the count has moved on. */
+    static void dataFilesChanged ();
+    static unsigned dataFilesGeneration ();
 };
 
 #endif /* TH_UTIL_H */

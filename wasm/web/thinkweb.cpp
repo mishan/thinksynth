@@ -87,6 +87,7 @@
 #include "thcScheduler.h"
 
 #include "thDynLib.h"
+#include "thUtil.h"
 
 #include "cairo2d.h"
 #include "cairomm/context.h"
@@ -2633,8 +2634,14 @@ EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
 
     const bool whole =
         fwrite(bytes, 1, (size_t)len, f) == (size_t)len;
+    const bool ok = fclose(f) == 0 && whole;
 
-    return (fclose(f) == 0 && whole) ? 1 : 0;
+    /* A pack downloaded while an instrument naming it is loaded: what
+       osc::sample cached as missing is read again. */
+    if (ok)
+        thUtil::dataFilesChanged();
+
+    return ok ? 1 : 0;
 }
 
 /* A .gen, as text. Nonzero if it parsed and built; tw_error_count and

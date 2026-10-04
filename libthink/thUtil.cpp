@@ -25,6 +25,7 @@
 #include <windows.h>   /* MoveFileExA -- see replaceFile */
 #endif
 
+#include <atomic>
 #include <clocale>
 #include <cstdio>
 #include <filesystem>
@@ -560,4 +561,16 @@ bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,
     size = i->second.second;
 
     return true;
+}
+
+static std::atomic<unsigned> dataGeneration{0};
+
+void thUtil::dataFilesChanged ()
+{
+    dataGeneration++;
+}
+
+unsigned thUtil::dataFilesGeneration ()
+{
+    return dataGeneration.load();
 }
