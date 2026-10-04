@@ -8,13 +8,15 @@ levelled, and named by MIDI note -- the sources disagree about which
 octave "C3" is, and a number cannot.
 
     packs.py build OUTDIR [--cache DIR] [PACK...]
-        Writes OUTDIR/<pack>/*.wav, OUTDIR/<pack>/pack.json and
+        Writes OUTDIR/<pack>/*.flac, OUTDIR/<pack>/pack.json and
         OUTDIR/index.json. The deploy runs this into the site's packs/,
-        which the page downloads from when asked.
+        which the page downloads from when asked. Each file is listed under
+        the .wav name its instrument plays and the .flac URL it is served
+        at; the page decodes it.
 
     packs.py install [PACK...]
         Builds into this user's data directory (thUtil::userDataDir), under
-        dsp/samples/, where the desktop app looks.
+        dsp/samples/, where the desktop app looks, as .wav.
 
     packs.py zones PACK
         Prints the `file' lines the pack's .dsp uses.
@@ -208,7 +210,7 @@ def zones(jobs, layer):
     return " ".join(picks)
 
 
-def build(pack, outdir, cache):
+def build(pack, outdir, cache, flac):
     spec = PACKS[pack]
     repo, sha, credit = spec["source"]
     jobs = plan(pack, cache)
@@ -226,12 +228,24 @@ def build(pack, outdir, cache):
                                    for x in a))
         path = os.path.join(outdir, out)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with wave.open(path, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(RATE)
-            w.writeframes(scaled.tobytes())
-        files.append({"name": out, "bytes": os.path.getsize(path)})
+        if flac:
+            # The name stays the .wav the instrument plays; what is served
+            # is FLAC, about half the size, which the page decodes.
+            served = out[:-4] + ".flac"
+            subprocess.run(
+                ["ffmpeg", "-v", "error", "-y", "-f", "s16le", "-ar",
+                 str(RATE), "-ac", "1", "-i", "-", "-compression_level", "8",
+                 os.path.join(outdir, served)],
+                input=scaled.tobytes(), check=True)
+            files.append({"name": out, "url": served, "bytes":
+                          os.path.getsize(os.path.join(outdir, served))})
+        else:
+            with wave.open(path, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(RATE)
+                w.writeframes(scaled.tobytes())
+            files.append({"name": out, "bytes": os.path.getsize(path)})
     manifest = {
         "id": pack, "title": spec["title"], "license": "CC0-1.0",
         "credit": credit, "source": f"https://github.com/{repo}/tree/{sha}",
@@ -281,7 +295,7 @@ def main():
 
     index = []
     for pack in names:
-        m = build(pack, outdir, opt.cache)
+        m = build(pack, outdir, opt.cache, opt.mode == "build")
         index.append({k: m[k] for k in ("id", "title", "license", "credit",
                                          "bytes")} | {"files": len(m["files"])})
         print(f"{pack}: {len(m['files'])} files, {m['bytes'] / 1e6:.1f} MB")
