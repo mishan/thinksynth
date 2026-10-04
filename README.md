@@ -184,9 +184,10 @@ a DAW follows the piece's tempo and transport.
 
 The sampled instruments (`sampled_*.dsp`: strings, horn, trumpet, flute,
 upright piano, a drum kit) play public-domain recordings that are not in this
-repository. `scripts/packs.py install` (it needs ffmpeg) downloads them from
-their sources into `~/.local/share/thinksynth`, where thinksynth looks; the
-page offers each one for download when something in play needs it.
+repository: they are published as a release of their own, built by the
+`sample packs` workflow. `scripts/packs.py install` (it needs ffmpeg)
+downloads it into `~/.local/share/thinksynth`, where thinksynth looks; the
+page offers each pack for download when something in play needs it.
 
 If you want JACK on Linux, start `jackd` before thinksynth — RtAudio will use
 the running server.

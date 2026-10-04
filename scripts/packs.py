@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
-"""Sample packs: recorded instruments, fetched from where they are published.
+"""Sample packs: recorded instruments, built once and published as a release.
 
 The recordings are not in this repository. Every pack is public domain
-(CC0) and is built here from its source, pinned to a commit: listed with
-the GitHub API, downloaded, trimmed, turned to mono 16-bit at 44.1 kHz and
-levelled, and named by MIDI note -- the sources disagree about which
-octave "C3" is, and a number cannot.
+(CC0) and is built from its source, pinned to a commit: listed with the
+GitHub API, downloaded, trimmed, turned to mono 16-bit at 44.1 kHz and
+levelled, and named by MIDI note -- the sources disagree about which octave
+"C3" is, and a number cannot. That happens once, in the `sample packs'
+workflow (.github/workflows/packs.yml), which publishes the result as the
+release RELEASE names below; everything else downloads that.
 
     packs.py build OUTDIR [--cache DIR] [PACK...]
-        Writes OUTDIR/<pack>/*.flac, OUTDIR/<pack>/pack.json and
-        OUTDIR/index.json. The deploy runs this into the site's packs/,
-        which the page downloads from when asked. Each file is listed under
-        the .wav name its instrument plays and the .flac URL it is served
-        at; the page decodes it.
+        From the sources: OUTDIR/<pack>/*.flac, OUTDIR/<pack>/pack.json and
+        OUTDIR/index.json. Each file is listed under the .wav name its
+        instrument plays and the .flac it is served as; the page decodes it.
+
+    packs.py archive OUTDIR
+        One OUTDIR/<pack>.tar per built pack, the release's assets.
+
+    packs.py fetch OUTDIR [--missing-ok]
+        RELEASE, unpacked into OUTDIR -- what the deploy puts in the site's
+        packs/. With --missing-ok a release not published yet is a warning.
 
     packs.py install [PACK...]
-        Builds into this user's data directory (thUtil::userDataDir), under
-        dsp/samples/, where the desktop app looks, as .wav.
+        RELEASE into this user's data directory (thUtil::userDataDir), under
+        dsp/samples/, as .wav, where the desktop app looks.
 
     packs.py zones PACK
         Prints the `file' lines the pack's .dsp uses.
 
-Needs ffmpeg (for FLAC and 24-bit sources). GITHUB_TOKEN, if set, is used
-for the directory listings.
+    packs.py tag
+        Prints RELEASE.
+
+build and install need ffmpeg. GITHUB_TOKEN, if set, is used for build's
+directory listings.
 """
 
 import argparse
@@ -32,7 +42,9 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import wave
@@ -42,6 +54,11 @@ VSCO = ("sgossner/VSCO-2-CE", "440300901dfe9275fd84e0b7763af1f8443ae62e",
 RUSTY = ("sfzinstruments/karoryfer.big-rusty-drums",
          "f07ce00df34a46b6b08375be56fe116cf15782bc",
          "Big Rusty Drums, Karoryfer Samples")
+
+# The published packs everything downloads. A change to what a pack holds
+# is a new number: a release, once made, is not replaced.
+REPO = "mishan/thinksynth"
+RELEASE = "packs-1"
 
 RATE = 44100
 PEAK = 0.89
@@ -137,7 +154,7 @@ def listing(repo, sha, path, cache):
     return names
 
 
-def fetch(repo, sha, path, cache):
+def download(repo, sha, path, cache):
     local = os.path.join(cache, repo.replace("/", "_"), sha[:12], path)
     if not os.path.exists(local):
         os.makedirs(os.path.dirname(local), exist_ok=True)
@@ -216,7 +233,7 @@ def build(pack, outdir, cache, flac):
     jobs = plan(pack, cache)
     decoded = []
     for path, out, note, k, seconds in jobs:
-        decoded.append((out, decode(fetch(repo, sha, path, cache), seconds,
+        decoded.append((out, decode(download(repo, sha, path, cache), seconds,
                                     spec["sustain"])))
     # One gain for the whole pack, so the balance across the range and
     # between layers is the recording's.
@@ -269,13 +286,85 @@ def user_samples():
     return os.path.join(base, "dsp", "samples")
 
 
+def asset(name):
+    return f"https://github.com/{REPO}/releases/download/{RELEASE}/{name}"
+
+
+def archive(outdir):
+    with open(os.path.join(outdir, "index.json")) as f:
+        index = json.load(f)
+    for p in index:
+        with tarfile.open(os.path.join(outdir, p["id"] + ".tar"), "w") as t:
+            t.add(os.path.join(outdir, p["id"]), arcname=p["id"])
+
+
+def fetch(outdir, missing_ok=False):
+    """RELEASE's packs into outdir; the index, or None if there is none."""
+    try:
+        with urllib.request.urlopen(asset("index.json")) as r:
+            index = json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and missing_ok:
+            print(f"::warning::{RELEASE} is not published; no sample packs")
+            return None
+        raise
+    os.makedirs(outdir, exist_ok=True)
+    for p in index:
+        with urllib.request.urlopen(asset(p["id"] + ".tar")) as r, \
+                tempfile.TemporaryFile() as tmp:
+            tmp.write(r.read())
+            tmp.seek(0)
+            with tarfile.open(fileobj=tmp) as t:
+                t.extractall(outdir, filter="data")
+        print(f"{p['id']}: {p['bytes'] / 1e6:.1f} MB")
+    with open(os.path.join(outdir, "index.json"), "w") as f:
+        json.dump(index, f, indent=1)
+    return index
+
+
+def install(names):
+    """RELEASE, decoded to .wav, into the user's samples directory."""
+    dest = user_samples()
+    with tempfile.TemporaryDirectory() as tmp:
+        index = fetch(tmp)
+        for p in index:
+            if names and p["id"] not in names:
+                continue
+            with open(os.path.join(tmp, p["id"], "pack.json")) as f:
+                m = json.load(f)
+            for f in m["files"]:
+                out = os.path.join(dest, f["name"])
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-i",
+                                os.path.join(tmp, f.get("url", f["name"])),
+                                out], check=True)
+            print(f"{p['id']}: installed in {dest}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("mode", choices=["build", "install", "zones"])
+    ap.add_argument("mode", choices=["build", "archive", "fetch", "install",
+                                     "zones", "tag"])
     ap.add_argument("args", nargs="*")
     ap.add_argument("--cache", default=os.path.join(tempfile.gettempdir(),
                                                     "thinksynth-packs"))
-    opt = ap.parse_args()
+    ap.add_argument("--missing-ok", action="store_true")
+    opt = ap.parse_intermixed_args()
+
+    if opt.mode == "tag":
+        print(RELEASE)
+        return
+    if opt.mode in ("archive", "fetch"):
+        if not opt.args:
+            ap.error(f"{opt.mode} needs an output directory")
+        if opt.mode == "archive":
+            archive(opt.args[0])
+        else:
+            fetch(opt.args[0], opt.missing_ok)
+        return
+    if opt.mode == "install":
+        install(opt.args)
+        return
 
     if opt.mode == "zones":
         for pack in opt.args:
@@ -286,22 +375,18 @@ def main():
                       f'{zones(jobs, layer)}";')
         return
 
-    if opt.mode == "build":
-        if not opt.args:
-            ap.error("build needs an output directory")
-        outdir, names = opt.args[0], opt.args[1:] or list(PACKS)
-    else:
-        outdir, names = user_samples(), opt.args or list(PACKS)
+    if not opt.args:
+        ap.error("build needs an output directory")
+    outdir, names = opt.args[0], opt.args[1:] or list(PACKS)
 
     index = []
     for pack in names:
-        m = build(pack, outdir, opt.cache, opt.mode == "build")
+        m = build(pack, outdir, opt.cache, True)
         index.append({k: m[k] for k in ("id", "title", "license", "credit",
                                          "bytes")} | {"files": len(m["files"])})
         print(f"{pack}: {len(m['files'])} files, {m['bytes'] / 1e6:.1f} MB")
-    if opt.mode == "build":
-        with open(os.path.join(outdir, "index.json"), "w") as f:
-            json.dump(index, f, indent=1)
+    with open(os.path.join(outdir, "index.json"), "w") as f:
+        json.dump(index, f, indent=1)
 
 
 if __name__ == "__main__":

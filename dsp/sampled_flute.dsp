@@ -1,9 +1,10 @@
 # Flute (sampled) -- recorded, from the `flute' sample pack.
 #
 # VSCO 2 Community Edition, Versilian Studios / Sam Gossner; CC0. The
-# recordings are not in this repository: scripts/packs.py fetches them
-# from their source, and the page offers the pack for download when
-# something in play needs it. Without it, this plays silence.
+# recordings are not in this repository: scripts/packs.py builds them
+# from their source into a release of their own, and the page offers the
+# pack for download when something in play needs it. Without it, this
+# plays silence.
 #
 # One osc::sample, its `file' a set of zones -- each recording with the
 # note it was made at -- so every note is played from the nearest

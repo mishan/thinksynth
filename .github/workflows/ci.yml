@@ -482,25 +482,13 @@ jobs:
         run: |
           jq -n --arg relay "$JAM_RELAY" '{ relay: $relay }' > build-web/dist/config.json
 
-      # The sample packs (scripts/packs.py), built from their CC0 sources
-      # into the site's packs/, which the page downloads from when asked.
-      # Only for the demo: the downloads are a couple of hundred megabytes,
-      # cached by the script's own hash, since every source is pinned there.
-      - name: The sample packs' sources
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
-        uses: actions/cache@v4
-        with:
-          path: build-packs-cache
-          key: packs-${{ hashFiles('scripts/packs.py') }}
-
+      # The sample packs, from the release scripts/packs.py names (made by
+      # the `sample packs' workflow, packs.yml), into the site's packs/,
+      # which the page downloads from when asked. Before that release is
+      # published the site keeps the empty index the build wrote.
       - name: The sample packs
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          python3 scripts/packs.py build build-web/dist/packs --cache build-packs-cache
+        run: python3 scripts/packs.py fetch build-web/dist/packs --missing-ok
 
       - name: The packaged site, for GitHub Pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
