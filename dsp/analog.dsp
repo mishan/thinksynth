@@ -25,6 +25,9 @@
 # THE FILTER IS 24 dB AN OCTAVE: two filt::svf low-passes in series,
 # the resonance on the second, the cutoff opened by its own envelope and
 # by velocity, and tracking the keyboard by `Key Track'.
+#
+# `Bend' is the pitch wheel, in semitones and slewed over 40 ms: a piece
+# rides it with a chanarg sink (`chanarg = "bend"').
 
 name "Analog";
 author "Misha Nasledov";
@@ -98,6 +101,13 @@ category "Leads and stabs";
     @drift.max = 25;
     @drift.label = "Drift (cents)";
     @drift.group = "Warmth";
+
+    @bend = 0;
+    @bend.widget = 1;
+    @bend.min = -12;
+    @bend.max = 12;
+    @bend.label = "Bend (semitones)";
+    @bend.group = "Oscillators";
 
     @cutoff = 1200;
     @cutoff.widget = 1;
@@ -190,8 +200,18 @@ node ionode {
     play = env->play;
 };
 
-node freq misc::midi2freq {
+node pitch misc::midi2freq {
     note = ionode->note;
+};
+
+node bend misc::slew {
+    in = @bend;
+    time = 40 ms;
+};
+
+node freq math::mul {
+    in0 = pitch->out;
+    in1 = exp2(bend->out / 12);
 };
 
 # One wanderer per oscillator, in cents, and one for the cutoff.
