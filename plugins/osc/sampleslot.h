@@ -61,7 +61,9 @@
  * the same thing the reader returns for an empty file, and both play as
  * silence -- until the host says new files have arrived
  * (thUtil::dataFilesChanged), when it is read once more. That is a
- * sample pack downloaded while an instrument naming it is loaded.
+ * sample pack downloaded while an instrument naming it is loaded. A file
+ * the host says it wrote over (thUtil::dataFileChanged) is read again
+ * even if it was found: a pack updated while it plays.
  *
  * ZONES. A `file' of the form "a.wav@48 b.wav@55 c.wav@62" is a set of
  * recordings with the MIDI note each was made at; thSampleZoneFor picks
@@ -536,14 +538,27 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
     if (slot == NULL || slot->table == NULL)
         return NULL;
 
-    std::map<std::string, thSampleData>::const_iterator i =
+    std::map<std::string, thSampleData>::iterator i =
         slot->table->find(name);
 
     const unsigned generation = thUtil::dataFilesGeneration();
 
-    if (i != slot->table->end() &&
-        (!i->second.frames.empty() || i->second.generation == generation))
-        return &i->second;
+    /* Kept unless the count has moved since it was read, and then kept
+       only if it was found and nothing has written over it since. */
+    if (i != slot->table->end())
+    {
+        thSampleData &kept = i->second;
+
+        if (kept.generation == generation)
+            return &kept;
+
+        if (!kept.frames.empty() &&
+            thUtil::dataFileGeneration("samples/" + name) <= kept.generation)
+        {
+            kept.generation = generation;
+            return &kept;
+        }
+    }
 
     thSampleData &entry = (*slot->table)[name];
     entry.generation = generation;
@@ -588,9 +603,28 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
     return &entry;
 }
 
+/* Zoned if some word ends in `@' and a note number: a plain file name may
+   have an `@' anywhere else. */
 static inline bool thSampleIsZoned (const std::string &text)
 {
-    return text.find('@') != std::string::npos;
+    for (size_t at = text.find('@'); at != std::string::npos;
+         at = text.find('@', at + 1))
+    {
+        const size_t end = text.find_first_of(" \t\n,", at);
+        const std::string num =
+            text.substr(at + 1, end == std::string::npos ? std::string::npos
+                                                         : end - at - 1);
+        char *stop = NULL;
+
+        if (!num.empty())
+        {
+            strtod(num.c_str(), &stop);
+            if (*stop == 0)
+                return true;
+        }
+    }
+
+    return false;
 }
 
 /* The zone of a zoned `file' nearest `note', or NULL for a list with no

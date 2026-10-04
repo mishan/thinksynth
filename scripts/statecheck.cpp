@@ -4687,7 +4687,8 @@ static void checkSampleZones (const string &pluginPath)
     const vector<float> low(4000, 0.25f), high(4000, 0.5f);
 
     if (ec || !writeWav(dir + "/samples/low.wav", low, TH_DEFAULT_SAMPLES) ||
-        !writeWav(dir + "/samples/high.wav", high, TH_DEFAULT_SAMPLES))
+        !writeWav(dir + "/samples/high.wav", high, TH_DEFAULT_SAMPLES) ||
+        !writeWav(dir + "/samples/take@2.wav", high, TH_DEFAULT_SAMPLES))
     {
         fail("osc::sample zones: could not write the scratch wavs", "");
         return;
@@ -4706,6 +4707,15 @@ static void checkSampleZones (const string &pluginPath)
         { 66, 0.25f, "a note between two zones plays the lower" },
         { 30, 0.25f, "a note under every zone plays the lowest" },
     };
+
+    {
+        string why;
+        const float got = zoneLevel(pluginPath, "take@2.wav", 60, why);
+
+        okOrFail(fabsf(got - 0.5f) < 1e-3f,
+                 "osc::sample: a plain name with an `@' in it is a file, "
+                 "not zones", why.empty() ? "came out at " + num(got) : why);
+    }
 
     for (const auto &c : cases)
     {
@@ -4755,6 +4765,22 @@ static void checkSampleZones (const string &pluginPath)
             okOrFail(fabsf(after - 0.5f) < 1e-3f,
                      "osc::sample: once it does, the file plays",
                      "came out at " + num(after));
+
+            /* Written over while it plays: the old frames until the host
+               names the file, the new ones after. */
+            const bool rewrote = writeWav(dir + "/samples/late.wav", low,
+                                          TH_DEFAULT_SAMPLES);
+            const float stale = window();
+
+            thUtil::dataFileChanged("samples/late.wav");
+
+            const float fresh = window();
+
+            okOrFail(rewrote && fabsf(stale - 0.5f) < 1e-3f &&
+                     fabsf(fresh - 0.25f) < 1e-3f,
+                     "osc::sample: a file written over is read again once "
+                     "the host names it, and not before",
+                     "before " + num(stale) + ", after " + num(fresh));
         }
     }
 

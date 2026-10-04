@@ -43,7 +43,10 @@ public:
      * Linux, ~/Library/Application Support/thinksynth on macOS,
      * %LOCALAPPDATA%\thinksynth on Windows. Where a downloaded sample pack
      * goes, because an install directory is usually not writable; empty
-     * if no home directory can be found. */
+     * if no home directory can be found. Inside a Flatpak it is the
+     * host's ~/.local/share/thinksynth, not the sandbox's own data
+     * directory: that is where scripts/packs.py, run on the host, puts
+     * them, and the manifest grants the home directory. */
     static string userDataDir (void);
 
     /* Find a data file that something referred to by bare name.
@@ -150,6 +153,14 @@ public:
      * cached "not found" retries when the count has moved on. */
     static void dataFilesChanged ();
     static unsigned dataFilesGeneration ();
+
+    /* One file, by the name findDataFile is given ("samples/kick.wav"):
+     * what a host calls once it has written over it. A reader holding the
+     * old contents reads it again when the file's generation is past the
+     * count it took. dataFileGeneration is 0 for a file never named, and
+     * takes a lock, so a reader asks only once the count has moved. */
+    static void dataFileChanged (const string &name);
+    static unsigned dataFileGeneration (const string &name);
 };
 
 #endif /* TH_UTIL_H */

@@ -250,6 +250,9 @@ string thUtil::userDataDir (void)
         ? (fs::path(base) / PACKAGE_NAME).string() : "";
 #else
     const char *home = getenv("HOME");
+
+    if (getenv("FLATPAK_ID") != NULL && home != NULL && *home != 0)
+        return (fs::path(home) / ".local" / "share" / PACKAGE_NAME).string();
 #if defined(__APPLE__)
     return (home != NULL && *home != 0)
         ? (fs::path(home) / "Library" / "Application Support" /
@@ -597,12 +600,31 @@ bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,
 
 static std::atomic<unsigned> dataGeneration{0};
 
+/* Each file named to dataFileChanged, and the count after it was. */
+static std::mutex dataLock;
+static std::map<string, unsigned> dataChanged;
+
 void thUtil::dataFilesChanged ()
 {
     dataGeneration++;
 }
 
+void thUtil::dataFileChanged (const string &name)
+{
+    std::lock_guard<std::mutex> hold(dataLock);
+
+    dataChanged[name] = ++dataGeneration;
+}
+
 unsigned thUtil::dataFilesGeneration ()
 {
     return dataGeneration.load();
+}
+
+unsigned thUtil::dataFileGeneration (const string &name)
+{
+    std::lock_guard<std::mutex> hold(dataLock);
+    const auto i = dataChanged.find(name);
+
+    return i == dataChanged.end() ? 0 : i->second;
 }

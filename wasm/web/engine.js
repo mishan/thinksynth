@@ -82,9 +82,16 @@ export function apply (M, m, host = NOWHERE)
                osc::sample. `array' rather than `string' because a wav
                has a NUL in its header before it has anything else, and
                a length beside it for the same reason. */
-            M.ccall('tw_sample', 'number',
-                    ['string', 'array', 'number'],
-                    [m.name, m.bytes, m.bytes.length]);
+            {
+                /* Through the heap, not ccall's `array', which copies onto
+                   a one-megabyte stack: a recording can be longer. */
+                const at = M._tw_alloc(m.bytes.length);
+
+                M.HEAPU8.set(m.bytes, at);
+                M.ccall('tw_sample', 'number', ['string', 'number', 'number'],
+                        [m.name, at, m.bytes.length]);
+                M._tw_free(at);
+            }
             return true;
 
         case 'patch':
