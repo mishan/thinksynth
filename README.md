@@ -182,6 +182,12 @@ browser, the page's MIDI out button does the same through Web MIDI
 (Chromium and Firefox). Either can also send MIDI clock, so a drum machine or
 a DAW follows the piece's tempo and transport.
 
+The sampled instruments (`sampled_*.dsp`: strings, horn, trumpet, flute,
+upright piano, a drum kit) play public-domain recordings that are not in this
+repository. `scripts/packs.py install` (it needs ffmpeg) downloads them from
+their sources into `~/.local/share/thinksynth`, where thinksynth looks; the
+page offers each one for download when something in play needs it.
+
 If you want JACK on Linux, start `jackd` before thinksynth — RtAudio will use
 the running server.
 
