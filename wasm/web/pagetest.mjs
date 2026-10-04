@@ -2455,6 +2455,15 @@ try
         check(await page.$eval('#midioutstatus', (e) => e.textContent) ===
               'Fake Synth', 'and the status names the output');
 
+        /* Timed with some delay, as anyone sending to a device sets it.
+           The worklet stamps a message with the time its frame sounds and
+           posts it as it composes; at a delay of 0 one that crosses to the
+           page a few milliseconds late is past due when it lands and goes
+           out stamped `now'. Headless audio has next to no output latency
+           to absorb that, so on a loaded runner the times measured below
+           would be the page's arrival times rather than the piece's. */
+        await page.fill('#midioutdelay', '100');
+        await page.dispatchEvent('#midioutdelay', 'change');
         await page.evaluate(() => { window.midiSent.length = 0; });
         await page.click('#play');
         await page.waitForTimeout(2600);
@@ -2525,7 +2534,7 @@ try
               `a delayed note waits in the page until shortly before its ` +
               `time: handed over ${lead.toFixed(1)} ms ahead`);
 
-        await page.fill('#midioutdelay', '0');
+        await page.fill('#midioutdelay', '100');
         await page.dispatchEvent('#midioutdelay', 'change');
 
         await page.selectOption('select.midiroute', '@synth');
@@ -2564,6 +2573,8 @@ try
               `MIDI clock goes out: Start, ${ticks.length} ticks ` +
               `${gap.toFixed(1)} ms apart, Stop`);
 
+        await page.fill('#midioutdelay', '0');
+        await page.dispatchEvent('#midioutdelay', 'change');
         await page.$eval('input.midiclock', (e) => e.click());
         await page.evaluate(() =>
         {
