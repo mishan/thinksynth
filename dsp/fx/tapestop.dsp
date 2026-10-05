@@ -18,6 +18,8 @@ category "Effects";
     @stop.widget = 1;
     @stop.min = 0;
     @stop.max = 1;
+    @stop.step = 1;
+    @stop.values = "Running,Stopped";
     @stop.label = "Stop";
 
     @time = 600 ms;

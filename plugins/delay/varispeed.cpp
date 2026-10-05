@@ -25,14 +25,24 @@
  * at 0 the head stands still on one moment. Above 1, while it is behind,
  * it catches up, which is the motor spinning back up.
  *
- * BACK AT 1, IT RETURNS TO NOW. A head left behind would play the piece
- * late for ever, so once `speed' is back at 1 the output crossfades from
- * the late head to the input over ten milliseconds and the head jumps to
- * the write. A stop is therefore `speed' ridden down to 0 and back up to
- * 1, and nothing else needs remembering.
+ * A SLOW TAPE IS A QUIET ONE. A playback head's level falls with the
+ * tape's speed, so below a third of the speed the output is turned down
+ * with it, and a stopped head is silence rather than whatever sample it
+ * stopped on held as a DC level.
  *
- * The ring is ten seconds, which is how far behind the head can fall; at
- * 0 for longer than that it holds the oldest moment it has.
+ * BACK AT 1, IT RETURNS TO NOW. A head left behind would play the piece
+ * late for ever, so once `speed' has been at 1 for ten milliseconds the
+ * output crossfades from the late head to the input over ten more and
+ * the head jumps to the write; once begun, the crossfade finishes. A
+ * speed only passing through 1 on its way up to catch up is not at 1
+ * long enough to start one. A stop is therefore `speed' ridden down to 0
+ * and back up to 1, and nothing else needs remembering.
+ *
+ * The ring is ten seconds, which is how far behind the head can fall;
+ * further behind than that is silence. The lag is a whole sample count
+ * and a fraction, so a head ten seconds behind still moves by exactly
+ * the step it is given. Ten seconds is a few megabytes a node, zeroed on
+ * its first window: right for a channel's effect, heavy for every voice.
  */
 
 #include <stdio.h>
@@ -52,9 +62,13 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define RING_SECONDS 10
 #define RETURN_MS 10.0f
 
-/* The write position, how far behind it the head is, and how far into a
-   return to now the output is (0 for not returning). */
-enum { S_WRITE, S_LAG, S_RETURN, S_LEN };
+/* Below this speed the output is turned down in proportion. */
+#define QUIET_BELOW (1.0f / 3)
+
+/* The write position, how far behind it the head is (whole samples and a
+   fraction), how long the speed has been at 1, and how far into a return
+   to now the output is (0 for not returning). */
+enum { S_WRITE, S_LAG, S_LAGF, S_AT1, S_RETURN, S_LEN };
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -121,25 +135,39 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         ring[w] = thIsFinite(in) ? in : 0;
 
         /* The head moves `speed'; the write moves 1. */
-        float lag = st[S_LAG] + 1 - speed;
+        double lag = (double)st[S_LAG] + st[S_LAGF] + 1 - speed;
+        bool lost = false;
 
         if (lag < 0)
             lag = 0;
-        if (lag > (float)(len - 2))
-            lag = (float)(len - 2);
+        if (lag > (double)(len - 2))
+        {
+            lag = len - 2;
+            lost = true;
+        }
 
-        float at = (float)w - lag;
+        double at = (double)w - lag;
 
         if (at < 0)
-            at += (float)len;
+            at += len;
 
         const unsigned a = (unsigned)at % len;
         const unsigned b = (a + 1) % len;
-        const float frac = at - floorf(at);
+        const float frac = (float)(at - floor(at));
         float y = ring[a] + (ring[b] - ring[a]) * frac;
 
-        /* Back at speed with the head behind: crossfade to now. */
-        if (speed >= 0.999f && speed <= 1.001f && lag > 0)
+        if (lost)
+            y = 0;
+        else if (speed < QUIET_BELOW)
+            y *= speed / QUIET_BELOW;
+
+        const bool at1 = speed >= 0.999f && speed <= 1.001f;
+
+        st[S_AT1] = at1 ? st[S_AT1] + 1 : 0;
+
+        /* Back at speed for long enough, with the head behind: crossfade
+           to now, and finish what was begun. */
+        if (lag > 0 && (st[S_RETURN] > 0 || st[S_AT1] > returnLen))
         {
             st[S_RETURN] += 1;
 
@@ -157,7 +185,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         else
             st[S_RETURN] = 0;
 
-        st[S_LAG] = lag;
+        st[S_LAG] = (float)floor(lag);
+        st[S_LAGF] = (float)(lag - floor(lag));
         out[i] = y;
         w = (w + 1) % len;
     }

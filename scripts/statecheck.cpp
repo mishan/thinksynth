@@ -4240,11 +4240,16 @@ static void checkVarispeed (const string &pluginPath)
     double worst = 0;
     size_t slow = 0;
 
-    for (size_t i = sr / 50; i < got[0].size(); i++)
+    for (size_t i = sr / 25; i < got[0].size(); i++)
     {
         bool steady = true;
 
         for (size_t k = i - sr / 50; k <= i && steady; k += 64)
+            steady = got[2][k] > 0.999f;
+
+        /* And twenty more for the wait at 1 and the crossfade. */
+        for (size_t k = i >= sr / 25 ? i - sr / 25 : 0; k <= i && steady;
+             k += 64)
             steady = got[2][k] > 0.999f;
 
         if (steady && got[2][i] > 0.999f)
@@ -4264,6 +4269,32 @@ static void checkVarispeed (const string &pluginPath)
     okOrFail(slow > 0 && down > up * 10,
              "delay::varispeed: at half speed an 880 Hz tone is at 440",
              "440 " + num(down) + ", 880 " + num(up));
+
+    /* A head held all but stopped for twelve seconds is silent, rather
+       than the input from ten seconds ago played at full speed once the
+       ring has run out. */
+    {
+        vector<NodeSpec> held = spec;
+
+        held.resize(1);
+        NodeSpec v = spec.back();
+
+        v.wires.pop_back();
+        v.values.push_back(Value{ "speed", 0.05f });
+        held.push_back(v);
+
+        vector<float> out;
+        string why2;
+        const bool rendered = render1(pluginPath, held, "vs", "out", 256,
+                                      12 * sr, out, why2);
+        const double tail = rendered
+            ? peak(vector<float>(out.end() - sr, out.end()), 0) : 1;
+
+        okOrFail(rendered && tail < 1e-6,
+                 "delay::varispeed: a head more than ten seconds behind is "
+                 "silent", rendered ? "last second's peak " + num(tail)
+                                    : why2);
+    }
 
     windowsAgree(pluginPath, spec, "vs", "out",
                  "delay::varispeed: the same at one sample a window and at "

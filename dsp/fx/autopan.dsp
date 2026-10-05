@@ -42,8 +42,8 @@ node ionode {
     in0 = 0;
     in1 = 0;
 
-    out0 = ionode->in0 * (1 - @depth * max(lfo->out, 0));
-    out1 = ionode->in1 * (1 - @depth * max(0 - lfo->out, 0));
+    out0 = ionode->in0 * (1 - @depth * max(swing->out, 0));
+    out1 = ionode->in1 * (1 - @depth * max(0 - swing->out, 0));
 };
 
 node tempo misc::tempo { };
@@ -51,6 +51,13 @@ node tempo misc::tempo { };
 node lfo osc::simple {
     freq = tempo->bpm / 60 / @beats;
     waveform = @shape;
+};
+
+# Rounded off over 3 ms, so a square's flip and a saw's wrap move the
+# image rather than clicking it.
+node swing misc::slew {
+    in = lfo->out;
+    time = 3 ms;
 };
 
 io ionode;

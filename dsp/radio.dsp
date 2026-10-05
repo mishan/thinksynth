@@ -88,7 +88,7 @@ node wander misc::drift {
     rate = @dial * 2;
     depth = @wander;
     center = 0;
-    seed = ionode->note + 7;
+    seed = ionode->note + 1000;
 };
 
 node carrier osc::simple {
@@ -100,7 +100,7 @@ node fading misc::drift {
     rate = 0.25;
     depth = 0.5;
     center = 0.5;
-    seed = ionode->note + 13;
+    seed = ionode->note + 2000;
 };
 
 node env env::adsr {
@@ -114,8 +114,8 @@ node env env::adsr {
 # The whistle loudest where the dial is nearest the middle, and the
 # whole of it under the fading.
 node mix math::add {
-    in0 = band->out_band * 2.5;
-    in1 = carrier->out * @whistle * (1 - abs(dial->out)) * 0.8;
+    in0 = band->out_band * 5;
+    in1 = carrier->out * @whistle * (1 - abs(dial->out)) * 1.6;
 };
 
 node vca mixer::mul {
