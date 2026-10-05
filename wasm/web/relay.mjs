@@ -537,7 +537,10 @@ class Room
         const fresh = new Set();
         const n0 = decoding.readVarUint(dec);
 
-        if (n0 > CLIENTS_PER_SOCKET)
+        /* A page's provider sends back every state it applies, others'
+           included, so an update may carry the whole room; what this
+           socket may claim is counted below. */
+        if (n0 > CLIENTS_PER_ROOM)
             throw new Error(`${n0} awareness states in one update`);
 
         for (let n = n0; n > 0; n--)

@@ -467,6 +467,19 @@ async function accountsInRooms ()
                   'a cursor that names nobody is named by the relay');
             bare.close();
 
+            /* A page echoes every state it hears: three cursors other
+               sockets hold, in one update, are passed over, not cut. */
+            {
+                const s = await opened();
+                const cut = refused(s, 500);
+
+                s.send(states([pc, ph, watcher].map(
+                    (p) => [p.awareness.clientID, {}])));
+                check(!await cut,
+                      'a socket echoing three others\' cursors is not cut');
+                s.close();
+            }
+
             /* A page is one client: a socket claiming three, in one update
                or one after another, is cut, and none of them is kept. */
             for (const [what, frames] of [
