@@ -75,8 +75,9 @@ extern "C" {
  * struct's layout, and those did not need a bump. A union arm that
  * changes sizeof does. */
 /* 3: the note arm gained `aux', four floats, which takes it from 24 bytes to
- * 40 and the union with it -- a bump for version 2's reason. */
-#define COMPOSER_IFACE_VER 3
+ * 40 and the union with it -- a bump for version 2's reason.
+ * 4: and `say', THC_NOTE_SAY phoneme codes, for version 2's reason again. */
+#define COMPOSER_IFACE_VER 4
 
 typedef struct _cairo cairo_t;  /* drawing is optional; no hard cairo dep */
 
@@ -147,6 +148,10 @@ typedef enum {
     THC_EV_NODEARG
 } thcEventType;
 
+/* The longest phoneme run one note carries, its ending 0 included: a
+   syllable is a handful, and a word sung on one note a dozen or so. */
+#define THC_NOTE_SAY 32
+
 typedef struct {
     thcEventType type;
     double       at;         /* absolute transport seconds                */
@@ -166,6 +171,11 @@ typedef struct {
                                   note-on. What each means is the graph's
                                   to say, and 0 is a value: unlike
                                   `level', nothing lifts it              */
+            unsigned char say[THC_NOTE_SAY];
+                               /* what the note says: phoneme codes from
+                                  thPhoneme.h, ending in 0, read by the
+                                  graph as ionode->say. All 0 for a note
+                                  that says nothing                      */
         } note;
         struct {
             const char *name;  /* @chanarg name; copied by the sink       */

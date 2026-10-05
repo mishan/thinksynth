@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "libthink/thcomposer.h"
+#include "libthink/thPhoneme.h"
 
 /* thcEvent's four, as doubles like every other number JavaScript reads. */
 #define TH_NOTE_AUX_TAPE 4
@@ -54,7 +55,7 @@ struct twEvent
     int32_t     channel;
     int32_t     note;       /* N; the THC_EV_* value for '?' */
     int32_t     velocity;   /* N */
-    const char *name;       /* C: chanarg, P: patch, E: node */
+    const char *name;       /* C: chanarg, P: patch, E: node, N: say */
     const char *arg;        /* E */
     double      level;      /* N */
     double      aux[TH_NOTE_AUX_TAPE]; /* N */
@@ -100,6 +101,15 @@ public:
 
                 for (int a = 0; a < TH_NOTE_AUX_TAPE; a++)
                     e.aux[a] = ev.u.note.aux[a];
+
+                if (ev.u.note.say[0])
+                {
+                    char said[8 * THC_NOTE_SAY];
+
+                    thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY - 1, said,
+                                   sizeof(said));
+                    e.name = keep(said);
+                }
                 break;
             case THC_EV_CHANARG:
                 e.kind = 'C';

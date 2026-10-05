@@ -64,7 +64,8 @@ public:
        callback, so the GUI thread builds and thSynth hands the finished
        object over through the command queue. */
     thMidiNote *buildNote (float note, float velocity, float level = 1,
-                           const float *aux = NULL);
+                           const float *aux = NULL,
+                           const unsigned char *say = NULL);
 
     /* GUI thread. Keeps a voice the audio thread has finished with for
      * buildNote() to start over, rather than have it deleted: restarting

@@ -1865,7 +1865,7 @@ void thSynth::listTrees (void)
  * what produced the static when two notes sounded together.
  */
 bool thSynth::addNote (int channum, float note, float velocity, float level,
-                       const float *aux)
+                       const float *aux, const unsigned char *say)
 {
     /* was `> midiChannelCnt_' -- midiChannels_[midiChannelCnt_] is one past
        the end of the array. */
@@ -1893,7 +1893,7 @@ bool thSynth::addNote (int channum, float note, float velocity, float level,
     if (silent_)
         return true;
 
-    thMidiNote *newnote = chan->buildNote(note, velocity, level, aux);
+    thMidiNote *newnote = chan->buildNote(note, velocity, level, aux, say);
 
     if (newnote == NULL)
     {

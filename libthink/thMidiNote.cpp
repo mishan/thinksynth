@@ -25,29 +25,31 @@
 #include "think.h"
 
 thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
-                        float level, const float *aux)
+                        float level, const float *aux,
+                        const unsigned char *say)
     : synthTree_(*tree)
 {
     synthTree_.buildSynthTree();
     channel_ = 0;
-    start(note, velocity, level, aux);
+    start(note, velocity, level, aux, say);
 }
 
 /* GUI thread. See the header. */
 bool thMidiNote::restart (const thSynthTree *tree, float note, float velocity,
-                          float level, const float *aux)
+                          float level, const float *aux,
+                          const unsigned char *say)
 {
     if (tree == NULL || !synthTree_.restore(*tree))
         return false;
 
-    start(note, velocity, level, aux);
+    start(note, velocity, level, aux, say);
 
     return true;
 }
 
 /* What a new voice's io node is told, and what it starts out as. */
 void thMidiNote::start (float note, float velocity, float level,
-                        const float *aux)
+                        const float *aux, const unsigned char *say)
 {
     thNode *ionode = synthTree_.IONode();
 
@@ -68,6 +70,24 @@ void thMidiNote::start (float note, float velocity, float level,
 
         if (ionode->getArg(name) != NULL)
             ionode->setArg(name, aux != NULL ? aux[i] : 0.0f);
+    }
+
+    /* The same rule, and always the full length, so a slide can copy one
+       voice's into another's without allocating. The stamp only has to
+       differ from the last note's, and stays below 2^24 so a float holds
+       it exactly. */
+    if (ionode->getArg(SAYARG) != NULL)
+    {
+        static unsigned int stamp;
+        float codes[TH_NOTE_SAY] = {};
+
+        for (int i = 0; say != NULL && i < TH_NOTE_SAY - 1 && say[i]; i++)
+            codes[i] = say[i];
+
+        stamp = stamp % 16777215 + 1;
+        codes[TH_NOTE_SAY - 1] = (float)stamp;
+
+        ionode->setArg(SAYARG, codes, TH_NOTE_SAY);
     }
 
     note_ = note;
@@ -99,6 +119,18 @@ thMidiNote::~thMidiNote ()
 }
 
 /* Audio thread. See the header. */
+void thMidiNote::takeSay (thMidiNote *from)
+{
+    thNode *ionode = synthTree_.IONode();
+    thNode *other = from ? from->synthTree_.IONode() : NULL;
+    thArg *to = ionode ? ionode->getArg(SAYARG) : NULL;
+    thArg *was = other ? other->getArg(SAYARG) : NULL;
+
+    if (to != NULL && was != NULL && to->len() == TH_NOTE_SAY &&
+        was->len() == TH_NOTE_SAY && (*was)[0] != 0)
+        memcpy(to->values(), was->values(), TH_NOTE_SAY * sizeof(float));
+}
+
 void thMidiNote::retune (float note)
 {
     thNode *ionode = synthTree_.IONode();

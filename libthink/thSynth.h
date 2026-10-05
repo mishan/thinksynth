@@ -77,7 +77,7 @@ public:
      * pointer to an object the audio thread now owns would be a trap, so it
      * returns success instead. */
     bool addNote(int channum, float note, float velocity, float level = 1,
-                 const float *aux = NULL);
+                 const float *aux = NULL, const unsigned char *say = NULL);
     int delNote (int channum, float note);
     void clearAll (void);
 

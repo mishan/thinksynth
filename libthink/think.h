@@ -131,6 +131,17 @@ using namespace std;
 #define AUXPREFIX "aux"
 #define TH_NOTE_AUX 4
 
+/* And what a note says: `say' on the io node is the note's phoneme codes
+ * (thPhoneme.h), one per value and ending in 0, written where the graph reads
+ * it -- at a voice's start, and at a mono slide onto a note that says
+ * something, because a sung line slides from one syllable to the next. A
+ * slide onto a note that says nothing, and a fall back to a key still held,
+ * leave the words sounding. Always TH_NOTE_SAY long: the last value is no
+ * phoneme but a stamp that differs from note to note, so a graph can tell a
+ * slide onto the same words from no slide at all. */
+#define SAYARG "say"
+#define TH_NOTE_SAY 32
+
 /* And the channel an effect listens to besides its own.
  *
  * side0..side<N-1> on an effect's io node carry another channel's audio --
