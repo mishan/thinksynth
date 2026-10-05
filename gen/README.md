@@ -22,7 +22,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `nightdrive.gen`, `transmission.gen`, `pearl.gen`,
-`riviera.gen`, `cumulus.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
+`riviera.gen`, `cumulus.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
 else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -31,9 +31,9 @@ once. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md), and `../docs/UNIFICA
 for where this is going.
 
 The rest still name channels, so aim the ones each header lists at patches you
-like before pressing Play. The two remaining timbre pieces move `amp`, the one
-chanarg every channel has, so they do something audible whatever is loaded;
-their filter components need `amb01.dsp`. Channels are 1–16 here, the same
+like before pressing Play. The remaining timbre piece, `bloom.gen`, moves
+`amp`, the one chanarg every channel has, so it does something audible
+whatever is loaded; its filter components need `amb01.dsp`. Channels are 1–16 here, the same
 numbers the main window's patch tabs show.
 
 ## The window
