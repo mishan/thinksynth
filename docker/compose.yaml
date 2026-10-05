@@ -20,3 +20,27 @@ services:
     init: true
     ports:
       - "127.0.0.1:8787:8787"   # only the proxy on this host reaches it
+    # A relay that runs away with memory is stopped here and restarted,
+    # rather than left to take the host with it; node's heap stays under
+    # the limit so that it fails as itself first.
+    mem_limit: 512m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
+      # The room page's origin (the Pages site, say). Unset, the relay
+      # has no accounts: the account API is not there, and a session in
+      # a hello is ignored.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      # The site's domain, which CORS_ORIGIN is on, for passkeys, and the
+      # name they are saved under; unset, there are none.
+      PASSKEY_RP_ID: ${PASSKEY_RP_ID:-}
+      PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-}
+      # nginx in front, appending the client's address to X-Forwarded-For,
+      # which the account API's rate limits read.
+      TRUST_PROXY: "1"
+    volumes:
+      # The accounts (DB=/data/relay.db, set by the image). Back it up:
+      # docs/RELAY.md.
+      - accounts:/data
+
+volumes:
+  accounts:

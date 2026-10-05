@@ -75,8 +75,15 @@
  * tabs and the menu follow the text, and a graph it names that the room
  * lacks comes in at the Play.
  *
- * Last, the two pages talk: a line each way through the room's chat, and
+ * Then the two pages talk: a line each way through the room's chat, and
  * a Play from one reported in the other's feed.
+ *
+ * Last, one page makes an account in the account dialog and logs in with
+ * its key on a reload, and the other joins as a guest: each shows the
+ * handle as it is and the guest marked as one. A Chromium page served as
+ * localhost, the passkeys' RP ID, makes an account with a passkey from a
+ * virtual authenticator and logs back in with it on a reload; Firefox has
+ * no virtual authenticator Playwright can drive, so it does not.
  *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
@@ -576,8 +583,16 @@ async function sequenceTogether (pages)
     else if (nowLines.length !== wasLines.length || changed.length !== 1 ||
              chainOf(changedAt[0]) !== 'chain snare {' ||
              !/^\s*cells\s*=\s*"..x.x.......x...";/.test(changed[0]))
+    {
+        /* Where B skipped an edit, its log says which way. */
+        const logged = (await B.page.evaluate(
+            () => document.getElementById('log').textContent))
+            .split('\n').filter(Boolean).slice(-12);
+
         fail(`the click is not the snare's cells in ${pieceFile}: ` +
-             JSON.stringify(changed));
+             `${JSON.stringify(changed)}; ${B.label}'s log ends\n      ` +
+             logged.join('\n      '));
+    }
     else
         ok(`and ${pieceFile} carries it on both pages: ${changed[0].trim()}`);
 }
@@ -968,10 +983,15 @@ async function switchTogether (pages, browser)
             null, { timeout: 15000 });
         await page.click('#start');
 
+        /* Fifteen seconds, not five: Start opens an audio context and
+           waits for four clock samples of it and of the relay before the
+           catch-up begins, then loads the switched piece's document and
+           steps through the run -- and on a loaded runner the joiner has
+           been seen still catching up at five, its clocks long ready. */
         if (await page.waitForFunction(
                 () => window.jam.ready() && !window.jam.catching() &&
                       window.jam.probe().running,
-                null, { timeout: 5000 }).then(() => true, () => false))
+                null, { timeout: 15000 }).then(() => true, () => false))
             C = { label, page };
         else
         {
@@ -1061,7 +1081,8 @@ async function switchTogether (pages, browser)
         after.push(await page.evaluate(() => ({ tape: window.jam.tape(),
                                                 sent: window.jam.sent() })));
 
-    const stopped = after[1].sent.findLast((c) => c.op === 'stop');
+    const stopped = after[1].sent.findLast((c) => c.op === 'stop' &&
+                                                   c.at >= 0);
     const theirs = after.map((r) => tapeBefore(r.tape, stopped.at));
     const colony = reference(PAINT_PIECE, nodeBuild,
                              { commands: [stopped], stopAt: stopped.at });
@@ -1105,7 +1126,8 @@ async function switchRacePlaying (pages)
         }))) });
 
     const piece = results[0].piece;
-    const stop = results[0].sent.findLast((c) => c.op === 'stop');
+    const stop = results[0].sent.findLast((c) => c.op === 'stop' &&
+                                                 c.at >= 0);
 
     if (!['ebb.gen', SWITCH_PIECE].includes(piece) ||
         results[1].piece !== piece || stop === undefined || stop.at < 0)
@@ -1209,7 +1231,8 @@ async function passedTogether (pages)
                 late: window.jam.late().seen,
             }))) });
 
-        const stop = results[0].sent.findLast((c) => c.op === 'stop');
+        const stop = results[0].sent.findLast((c) => c.op === 'stop' &&
+                                                     c.at >= 0);
         const want = reference(piece, nodeBuild,
                                { commands: [stop], stopAt: stop.at });
 
@@ -1629,7 +1652,10 @@ async function chatTogether (pages)
                                  { timeout: 5000 });
     await A.page.evaluate(() => window.jam.play());
 
-    if (await shows(B, 'chatactivity', `^${A.label} pressed Play$`))
+    /* Both are guests, and are shown as guests. */
+    const guest = (label) => `${label} \\(guest\\)`;
+
+    if (await shows(B, 'chatactivity', `^${guest(A.label)} pressed Play$`))
         ok(`${B.label}'s feed says ${A.label} pressed Play`);
     else
         fail(`${B.label}'s feed never said ${A.label} pressed Play: ` +
@@ -1641,7 +1667,8 @@ async function chatTogether (pages)
     await A.page.keyboard.type('switch at 17');
     await A.page.keyboard.press('Enter');
 
-    if (await shows(B, 'chatline', `^\\d+\\.\\d+ ${A.label}: switch at 17$`))
+    if (await shows(B, 'chatline',
+                    `^\\d+\\.\\d+ ${guest(A.label)}: switch at 17$`))
         ok(`a line typed on ${A.label} is on ${B.label} with its name and ` +
            'bar.beat');
     else
@@ -1663,7 +1690,8 @@ async function chatTogether (pages)
     await B.page.keyboard.type('zsxdcvgbhnjm');
     await B.page.keyboard.press('Enter');
 
-    const went = await shows(A, 'chatline', `${B.label}: zsxdcvgbhnjm$`);
+    const went = await shows(A, 'chatline',
+                             `${guest(B.label)}: zsxdcvgbhnjm$`);
     const after = await notes();
 
     if (held > before && after === held && went)
@@ -1674,6 +1702,438 @@ async function chatTogether (pages)
              `it ${after - held}, and the line ${went ? 'went' : 'did not'}`);
 
     await A.page.evaluate(() => window.jam.stop());
+}
+
+/* An account and a guest in one room. The first page creates an account
+ * in the dialog and saves its key, logs out, reloads, and logs in again
+ * with the key typed as a person might; the second joins as a guest,
+ * after being turned away under the account's handle. Both see the handle
+ * as it is and the guest marked as one: in the peers, in chat, on a seat,
+ * and on the cursor in the editor.
+ */
+async function accountsTogether (pages)
+{
+    const [A, B] = pages;
+    const lobby = `${url}&room=jamaccounts&piece=${HANDS_PIECE}`;
+    const dialog = (page) => page.locator('#accountdialog');
+
+    await A.page.goto(lobby);
+    await A.page.click('#account', { timeout: 10000 });
+    await A.page.fill('#account-handle', 'Ann');
+    await dialog(A.page).getByRole('button', { name: 'Create account' })
+        .click();
+    await A.page.waitForSelector('#account-save-key');
+
+    const key = await A.page.inputValue('#account-save-key');
+
+    await dialog(A.page).getByRole('button', { name: 'Save key' }).click();
+    await dialog(A.page).getByRole('button', { name: 'Log out' }).click();
+    await A.page.waitForSelector('#account-login-key');
+    await A.page.click('#accountclose');
+
+    if (key.split('-').length === 8 &&
+        await A.page.evaluate(() => !document.getElementById('name').disabled))
+        ok(`an account is made in the dialog, and its key is shown once`);
+    else
+        fail(`the dialog's key was "${key}"`);
+
+    await A.page.reload();
+    await A.page.click('#account', { timeout: 10000 });
+    await A.page.fill('#account-login-key',
+                      key.toUpperCase().replaceAll('-', ' '));
+    await dialog(A.page).getByRole('button', { name: 'Log in' }).click();
+    await A.page.waitForSelector('#account-newhandle');
+    await A.page.click('#accountclose');
+
+    const named = await A.page.evaluate(() =>
+        [document.getElementById('name').value,
+         document.getElementById('name').disabled]);
+
+    if (named[0] === 'Ann' && named[1])
+        ok('the key logs in on a reload, and the name is the handle');
+    else
+        fail(`logged in, the name box holds ${JSON.stringify(named)}`);
+
+    /* Sent to another relay, the page is a guest there: no button, and
+       the session neither sent nor dropped. */
+    const other = await relay({ port: 0, host: '127.0.0.1', tree: top,
+                                corsOrigin: '*' });
+
+    try
+    {
+        await A.page.goto(`${url}&room=jamelsewhere&name=Mal&relay=` +
+                          `ws://127.0.0.1:${other.address().port}`);
+        await A.page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden, null,
+            { timeout: 15000 });
+
+        const there = [...other.rooms.get('jamelsewhere').peers.values()];
+        const kept = await A.page.evaluate(() => Object.keys(localStorage)
+            .filter((k) => k.startsWith('thinksynth:account:')).length);
+        const button = await A.page.isVisible('#account');
+
+        if (there.length === 1 && there[0].account === null &&
+            there[0].name === 'Mal' && kept === 1 && !button)
+            ok('another relay is joined as a guest, and not shown the ' +
+               'session');
+        else
+            fail(`at another relay: ${JSON.stringify(there.map((p) =>
+                [p.name, p.account]))}, ${kept} sessions kept, the ` +
+                 `button ${button ? 'shown' : 'hidden'}`);
+    }
+    finally
+    {
+        other.shutdown();
+    }
+
+    /* A relay that is the site's but offers no accounts -- rolled back,
+       or run without CORS_ORIGIN -- leaves a session kept for it alone:
+       the name is the page's to change, and there is no button. */
+    const bare = await relay({ port: 0, host: '127.0.0.1', tree: top });
+    const bareUrl = `ws://127.0.0.1:${bare.address().port}`;
+
+    try
+    {
+        await A.page.route('**/config.json',
+                           (r) => r.fulfill({ json: { relay: bareUrl } }));
+        await A.page.evaluate((origin) => localStorage.setItem(
+            `thinksynth:account:${origin}`,
+            JSON.stringify({ session: `s_${'3'.repeat(32)}`,
+                             handle: 'Ann' })),
+                              bareUrl.replace(/^ws/, 'http'));
+        await A.page.goto(`${url}&room=jambare`);
+        await new Promise((r) => setTimeout(r, 1500));
+
+        const free = await A.page.evaluate(() =>
+            [document.getElementById('name').disabled,
+             document.getElementById('account').hidden]);
+
+        if (!free[0] && free[1])
+            ok('a home relay without accounts leaves the name free and ' +
+               'shows no button');
+        else
+            fail(`a home relay without accounts: name ${free[0]
+                ? 'locked' : 'free'}, button ${free[1] ? 'hidden' : 'shown'}`);
+
+        await A.page.evaluate((origin) => localStorage.removeItem(
+            `thinksynth:account:${origin}`), bareUrl.replace(/^ws/, 'http'));
+        await A.page.unroute('**/config.json');
+    }
+    finally
+    {
+        bare.shutdown();
+    }
+
+    /* The site's config.json read once a load: were the join to read it
+       again and get nothing, it would go to the default relay with the
+       session kept for this one. */
+    let configs = 0;
+
+    await A.page.route('**/config.json',
+                       (r) => (configs++ === 0 ? r.continue() : r.abort()));
+    await A.page.goto(lobby);
+    await A.page.waitForFunction(
+        () => document.getElementById('name').value === 'Ann', null,
+        { timeout: 10000 });
+
+    await A.page.click('#join');
+
+    if (await A.page.waitForFunction(
+        () => !document.getElementById('roompanel').hidden, null,
+        { timeout: 15000 }).then(() => true, () => false))
+        ok(`the join goes where the page found its relay, config.json ` +
+           `read ${configs} time${configs === 1 ? '' : 's'}`);
+    else
+        fail('the join went elsewhere: ' + await why(A.page));
+
+    await A.page.unroute('**/config.json');
+
+    await B.page.goto(`${lobby}&name=ann`);
+
+    if (await B.page.waitForFunction(
+        () => /account's handle/.test(document.getElementById('status')
+                                         .textContent),
+        null, { timeout: 10000 }).then(() => true, () => false))
+        ok('a guest is turned away under the account\'s handle');
+    else
+        fail('a guest named ann joined: ' + await why(B.page));
+
+    /* Opened before the network: the first config.json read fails, and
+       the join reads it again rather than going to the default relay. */
+    let unread = true;
+
+    await B.page.route('**/config.json', (r) =>
+    {
+        if (unread)
+        {
+            unread = false;
+            return r.abort();
+        }
+
+        return r.continue();
+    });
+    await B.page.goto(`${lobby}&name=Bo`);
+
+    if (await B.page.waitForFunction(
+        () => !document.getElementById('roompanel').hidden, null,
+        { timeout: 15000 }).then(() => true, () => false))
+        ok('a config.json that failed at the load is read again to join');
+    else
+        fail('a join after a failed config.json: ' + await why(B.page));
+
+    await B.page.unroute('**/config.json');
+    await B.page.evaluate(() => window.jam.seat(0));
+
+    const peersOf = (page) => page.evaluate(() =>
+        [...document.querySelectorAll('#peers .peer')]
+            .map((p) => p.firstChild.textContent).sort().join(', '));
+    const want = 'Ann, Bo (guest) (channel 1)';
+
+    for (const who of [A, B])
+    {
+        const seen = await who.page.waitForFunction(
+            (w) => [...document.querySelectorAll('#peers .peer')]
+                .map((p) => p.firstChild.textContent).sort().join(', ') === w,
+            want, { timeout: 10000 }).then(() => true, () => false);
+
+        if (seen)
+            ok(`${who.label}'s peers are ${want}`);
+        else
+            fail(`${who.label}'s peers are ${await peersOf(who.page)}`);
+    }
+
+    const said = (who, cls, src) => who.page.waitForFunction(
+        ([c, s]) => [...document.querySelectorAll(`#chatfeed .${c}`)]
+            .some((li) => new RegExp(s).test(li.textContent)),
+        [cls, src], { timeout: 5000 }).then(() => true, () => false);
+
+    for (const [from, to, line, src] of [
+        [A, B, 'from an account', '^Ann: from an account$'],
+        [B, A, 'from a guest', '^Bo \\(guest\\): from a guest$']])
+    {
+        await from.page.fill('#chatinput', line);
+        await from.page.press('#chatinput', 'Enter');
+
+        if (await said(to, 'chatline', src))
+            ok(`${to.label}'s chat says ${src}`);
+        else
+            fail(`${to.label}'s chat never said ${src}`);
+    }
+
+    if (await said(A, 'chatactivity', '^Bo \\(guest\\) took channel 1$'))
+        ok('and the guest\'s seat is marked as a guest\'s');
+    else
+        fail('the guest\'s seat is not in the feed as a guest\'s');
+
+    /* A cursor each, with its name over it in the other's editor. */
+    for (const { page } of [A, B])
+        await page.click('#editor .cm-content');
+
+    for (const [who, name] of [[A, 'Bo (guest)'], [B, 'Ann']])
+    {
+        const seen = await who.page.waitForFunction(
+            (n) => [...document.querySelectorAll('.cm-ySelectionInfo')]
+                .some((e) => e.textContent === n),
+            name, { timeout: 10000 }).then(() => true, () => false);
+
+        if (seen)
+            ok(`${who.label}'s editor names the other cursor ${name}`);
+        else
+            fail(`${who.label}'s editor has no cursor named ${name}`);
+    }
+
+    /* The relay drops the account's room socket, as a restart or a lost
+       network does. The page joins again by itself, and an edit made
+       after reaches the other page. */
+    for (const p of relayServer.rooms.get('jamaccounts').peers.values())
+        if (p.name === 'Ann')
+            p.ws.terminate();
+
+    const back = await A.page.waitForFunction(
+        () => /^Back in jamaccounts/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 15000 }).then(() => true, () => false);
+
+    await A.page.evaluate(() => window.jam.setFile(
+        'hands.gen', `# after the rejoin\n${window.jam.file('hands.gen')}`));
+
+    const synced = await B.page.waitForFunction(
+        () => window.jam.file('hands.gen')?.startsWith('# after the rejoin'),
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    if (back && synced)
+        ok('a page whose room socket is cut joins again, and its edits ' +
+           'reach the room');
+    else
+        fail(`after its room socket was cut: ${back ? 'rejoined' : 'not '
+            + 'rejoined'}, the edit ${synced ? 'synced' : 'not synced'} -- ` +
+             await why(A.page));
+
+    await A.page.evaluate(() => localStorage.clear());
+}
+
+/* An account made with a passkey and logged back in with it, in a page of
+ * its own on localhost -- a valid RP ID where 127.0.0.1 is not -- with
+ * Chromium's virtual authenticator standing in for the person's. That one
+ * answers whatever asks while its presence is simulated, the login form's
+ * autofill offer included; the button is tried with autofill taken away.
+ */
+async function passkeysTogether (browser)
+{
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const dialog = page.locator('#accountdialog');
+    const cdp = await context.newCDPSession(page);
+    const listed = () => page.waitForFunction(
+        () => [...document.querySelectorAll('#accountdialog .passkeys li')]
+            .map((li) => li.firstChild.textContent).join('|'),
+        null, { timeout: 10000 }).then((h) => h.jsonValue(), () => '');
+    const loggedIn = () => page.waitForSelector('#account-newhandle',
+                                                { timeout: 10000 })
+        .then(() => true, () => false);
+    const sessionOf = () => page.evaluate(() =>
+    {
+        const kept = Object.entries(localStorage).find(
+            ([k]) => k.startsWith('thinksynth:account:'));
+
+        return kept ? JSON.parse(kept[1]).session : null;
+    });
+    const said = async () => 'the dialog says "' +
+        await page.textContent('#accountdialog [role=status]') +
+        '", the log ends ' + JSON.stringify((await page.evaluate(
+            () => document.getElementById('log').textContent))
+            .split('\n').filter(Boolean).slice(-6));
+    const logOut = async () =>
+    {
+        await dialog.getByRole('button', { name: 'Log out' }).click();
+        await page.waitForSelector('#account-login-key');
+    };
+
+    page.on('pageerror', (e) => errors.push(`passkeys: ${e.message}`));
+
+    try
+    {
+        await cdp.send('WebAuthn.enable');
+
+        const { authenticatorId } = await cdp.send(
+            'WebAuthn.addVirtualAuthenticator', { options: {
+                protocol: 'ctap2', transport: 'internal', hasResidentKey: true,
+                hasUserVerification: true, isUserVerified: true,
+                automaticPresenceSimulation: true } });
+        const present = (enabled) => cdp.send(
+            'WebAuthn.setAutomaticPresenceSimulation',
+            { authenticatorId, enabled });
+
+        await page.goto(`http://localhost:${sitePort}/jam.html?panes=0` +
+                        `&room=jampasskeys&piece=${HANDS_PIECE}`);
+        await page.click('#account', { timeout: 10000 });
+        await page.fill('#account-handle', 'Pia');
+        await dialog.getByRole('button', { name: 'Create account' }).click();
+        await page.waitForSelector('#account-save-key');
+
+        const key = await page.inputValue('#account-save-key');
+        const recovery = await dialog.getByRole('heading',
+                                                { name: 'Your recovery key' })
+            .isVisible();
+
+        await dialog.getByRole('button', { name: 'Save key' }).click();
+
+        const made = await listed();
+
+        if (key.split('-').length === 8 && recovery &&
+            /^Passkey.*, added .*, not used yet $/.test(made))
+            ok('an account is made with a passkey, and the key shown as ' +
+               'its recovery key');
+        else
+            fail(`made with a passkey: key "${key}", recovery heading ` +
+                 `${recovery}, passkeys "${made}"`);
+
+        /* The authenticator answers the offer as soon as it is made, so
+           the logged-out screen may be gone before anything here sees it:
+           what says it happened is a new session. */
+        const before = await sessionOf();
+
+        await dialog.getByRole('button', { name: 'Log out' }).click();
+
+        const after = await page.waitForFunction((was) =>
+        {
+            const kept = Object.entries(localStorage).find(
+                ([k]) => k.startsWith('thinksynth:account:'));
+            const now = kept && JSON.parse(kept[1]).session;
+
+            return now && now !== was &&
+                   document.getElementById('account-newhandle') !== null
+                ? now : null;
+        }, before, { timeout: 15000 }).then((h) => h.jsonValue(),
+                                            () => null);
+
+        if (after !== null)
+            ok('the passkey the login form\'s autofill offers logs in');
+        else
+            fail(`the autofill offer never logged in: ${await said()}`);
+
+        /* Away while the offer is still out, and back once the page has
+           none to make. */
+        await page.addInitScript(() =>
+        {
+            delete PublicKeyCredential.isConditionalMediationAvailable;
+        });
+        await present(false);
+        await logOut();
+        await page.reload();
+        await present(true);
+        await page.click('#account', { timeout: 10000 });
+        await dialog.getByRole('button', { name: 'Log in with a passkey' })
+            .click();
+
+        const back = await loggedIn();
+        const used = await listed();
+        const name = await page.inputValue('#name');
+
+        if (back && /, last used /.test(used) && !used.includes('|') &&
+            name === 'Pia')
+            ok('so does the button, on a reload, and the passkey is listed ' +
+               'as used');
+        else
+            fail(`logged in with the passkey: the name box holds ` +
+                 `"${name}", passkeys "${used}"; ${await said()}`);
+
+        /* A new key takes the passkeys, and fills itself in to add one
+           with. */
+        await page.fill('#account-replace-key', key);
+        await dialog.getByRole('button', { name: 'Replace key' }).click();
+        await page.waitForSelector('#account-save-key');
+
+        const newKey = await page.inputValue('#account-save-key');
+
+        await dialog.getByRole('button', { name: 'Save key' }).click();
+
+        const emptied = await listed();
+        const filled = await page.inputValue('#account-passkey-key');
+
+        await dialog.getByRole('button', { name: 'Add a passkey' }).click();
+
+        const readded = await page.waitForFunction(
+            () => /not used yet/.test(document.querySelector(
+                '#accountdialog .passkeys')?.textContent),
+            null, { timeout: 10000 }).then(() => true, () => false);
+
+        if (emptied === 'None yet.' && filled === newKey && readded)
+            ok('a new key removes the passkeys, and adds one with itself');
+        else
+            fail(`after a new key: passkeys "${emptied}", the add form ` +
+                 `${filled === newKey ? 'filled' : 'not filled'}, ` +
+                 `${readded ? '' : 'none '}added again`);
+    }
+    catch (e)
+    {
+        fail(`passkeys threw: ${e.message.split('\n')[0]}; ` +
+             await said().catch(() => 'the page is gone'));
+    }
+    finally
+    {
+        await context.close();
+    }
 }
 
 /* A stage's parameter, typed into the popover beside its box.
@@ -2022,9 +2482,17 @@ if (!fs.existsSync(path.join(build, 'jam.js')))
     process.exit(1);
 }
 
-const relayServer = await relay({ port: 0, host: '127.0.0.1', tree: top });
-const relayUrl = `ws://127.0.0.1:${relayServer.address().port}`;
-const site = await serve(build, 0, '127.0.0.1', relayUrl);
+/* The site first, telling the relay's URL once there is one: the relay
+   takes a passkey's answer only from the page's origin. */
+let relayUrl = null;
+const site = await serve(build, 0, '127.0.0.1', () => relayUrl);
+const sitePort = site.address().port;
+const relayServer = await relay({
+    port: 0, host: '127.0.0.1', tree: top, corsOrigin: '*',
+    passkeys: { rpId: 'localhost', rpName: 'jamtest',
+                origin: `http://localhost:${sitePort}` } });
+
+relayUrl = `ws://127.0.0.1:${relayServer.address().port}`;
 /* The document rather than the tiled layout. Both are the page -- panes.js
    adopts what is in the markup and puts it back, and below 60em or under a
    finger the tiled one is not offered at all -- and what is under test
@@ -2118,7 +2586,7 @@ try
             null, { timeout: 15000 }).catch(() => {});
 
         const peers = await page.evaluate(() => window.jam.peers());
-        const other = peers.find((p) => p.name !== label);
+        const other = peers.find((p) => p.name !== `${label} (guest)`);
 
         if (other === undefined)
             fail(`${label} does not see the other peer`);
@@ -2441,6 +2909,11 @@ try
     /* ---- and talks ---- */
 
     await chatTogether(pages);
+
+    /* ---- as an account, and a guest ---- */
+
+    await accountsTogether(pages);
+    await passkeysTogether(browsers[0]);
 
     for (const e of errors)
         fail(`page error: ${e}`);

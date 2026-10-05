@@ -11,9 +11,16 @@ WORKDIR /srv/thinksynth/wasm/web
 COPY wasm/web/package.json wasm/web/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-COPY wasm/web/relay.mjs wasm/web/doc.js wasm/web/commands.js ./
+COPY wasm/web/relay.mjs wasm/web/doc.js wasm/web/commands.js \
+     wasm/web/account.js wasm/web/accounts.mjs wasm/web/passkeys.mjs \
+     wasm/web/wordlist.mjs wasm/web/confusables.js ./
 COPY gen /srv/thinksynth/gen
 COPY dsp /srv/thinksynth/dsp
+
+# The accounts' file, somewhere the relay's user can write and a volume
+# can be mounted over (compose.yaml): losing it loses every account.
+RUN mkdir /data && chown node:node /data
+ENV DB=/data/relay.db
 
 USER node
 EXPOSE 8787

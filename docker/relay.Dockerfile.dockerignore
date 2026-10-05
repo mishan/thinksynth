@@ -6,5 +6,10 @@
 !wasm/web/relay.mjs
 !wasm/web/doc.js
 !wasm/web/commands.js
+!wasm/web/account.js
+!wasm/web/accounts.mjs
+!wasm/web/passkeys.mjs
+!wasm/web/wordlist.mjs
+!wasm/web/confusables.js
 !gen
 !dsp

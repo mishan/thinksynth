@@ -26,6 +26,8 @@
   <!-- The room's address without your name in it (jam.js, copyInvite),
        and the link itself where the clipboard is refused. -->
   <button id="invite" hidden>Copy invite link</button>
+  <!-- The room again after the relay went away (jam.js, lost). -->
+  <button id="rejoin" hidden>Rejoin</button>
   <input id="invitelink" readonly hidden aria-label="Invite link">
 </header>
 
@@ -45,6 +47,9 @@
   <ul id="rooms" class="roomlist" aria-label="Open rooms" hidden></ul>
   <label>Room <input id="room" size="12" value="lobby"></label>
   <label>Name <input id="name" size="12"></label>
+  <!-- An account's handle, which nobody else can join as (accountui.js);
+       shown once the relay says it has accounts. -->
+  <button id="account" hidden>Log in</button>
   <!-- Only a room nobody has opened yet is seeded with it; one that is
        there plays what it plays. -->
   <label>Piece <select id="newpiece"></select></label>
@@ -238,6 +243,8 @@
      being after every pane is what keeps them over one. -->
 <div id="composerparams" class="popover" hidden></div>
 <div id="nodemenu" class="popover" hidden></div>
+
+<dialog id="accountdialog" aria-label="Account"></dialog>
 
 <script type="module" src="jam.js"></script>
 </body>

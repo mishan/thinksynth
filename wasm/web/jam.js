@@ -39,6 +39,8 @@
 import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 
+import { apiOriginOf, shownName } from './account.js';
+import { createAccounts } from './accountui.js';
 import { barBeat, createChat } from './chat.js';
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, RELAY, TRANSPORT_LEAD, apply,
@@ -80,26 +82,44 @@ const ENOUGH_SAMPLES = 4;
 /* How long the instrument picker's choice has to stay put, in ms. */
 const PICK_SETTLE = 600;
 
-/* Where the relay is: the URL's `relay', then the build's config.json,
-   then the page's own host on the relay's usual port. */
-async function relayUrl (params)
+/* Where the relay is -- the URL's `relay', then the site's own
+   (homeRelay) -- and the site's own, worked out once: the join, the room
+   list and the accounts all go by these two values, so a session kept for
+   the one is never sent to another that a second look came up with. */
+let relays = null;
+
+function relaysOf (params)
 {
-    if (params.get('relay'))
-        return params.get('relay');
+    relays ??= homeRelay().then(({ home, read }) =>
+    {
+        /* A config.json that could not be read -- an installed page opened
+           before the network -- is read again at the next join, rather
+           than its default kept for the rest of the load. */
+        if (!read)
+            relays = null;
+
+        return { url: params.get('relay') || home, home, read };
+    });
+
+    return relays;
+}
+
+/* The relay the site names: the build's config.json, then the page's own
+   host on the relay's usual port. Accounts are this one's (accountui.js). */
+async function homeRelay ()
+{
+    const fallback = `ws://${location.hostname}:8787`;
 
     try
     {
         const cfg = await (await fetch('config.json')).json();
 
-        if (cfg.relay)
-            return cfg.relay;
+        return { home: cfg.relay || fallback, read: true };
     }
     catch
     {
-        /* No config: the default below. */
+        return { home: fallback, read: false };
     }
-
-    return `ws://${location.hostname}:8787`;
 }
 
 /* ---- state ---- */
@@ -174,6 +194,7 @@ let keys = null;                /* the computer keyboard as a musical one */
 let keyfocus = null;            /* and who has it, the page or the keys  */
 let midiIn = null;              /* the MIDI in button (midi.js)          */
 let chat = null;                /* the room's text (chat.js)             */
+let accounts = null;            /* who this page is (accountui.js)       */
 let maker = null;
 const dedupe = new Dedupe();
 
@@ -1928,10 +1949,14 @@ async function showRooms ()
 
     try
     {
-        const health = (await relayUrl(new URLSearchParams(location.search)))
-            .replace(/^ws/, 'http').replace(/\/*$/, '/');
+        const where = await relaysOf(new URLSearchParams(location.search));
 
-        rooms = (await (await fetch(health)).json()).rooms ?? [];
+        /* A relay guessed at, with no config.json read, is not asked. */
+        if (!where.read)
+            throw new Error('no config.json');
+
+        rooms = (await (await fetch(`${apiOriginOf(where.url)}/`))
+            .json()).rooms ?? [];
     }
     catch
     {
@@ -1963,22 +1988,22 @@ async function showRooms ()
     setTimeout(showRooms, ROOMS_EVERY_MS);
 }
 
-async function join ()
+/* A room socket, its handlers on, connected: resolves once welcomed, as
+   room.js's connect does. */
+function openRoom (url, roomName, name, opts)
 {
-    const params = new URLSearchParams(location.search);
-    const roomName = $('room').value.trim() || 'lobby';
-    /* Cut where the relay cuts it, so the cursor's color is the one the
-       chat derives from the name the relay hands back. */
-    const name = $('name').value.trim().slice(0, 32) || `guest-${Math.floor(
-        Math.random() * 1000)}`;
-    const url = await relayUrl(params);
+    const r = new Room(url, roomName, name, opts);
 
-    $('join').disabled = true;
-    status(`Joining ${roomName} at ${url}...`);
-
-    room = new Room(url, roomName, name,
-                    { piece: $('newpiece').value || params.get('piece') });
-    room.on('peers', () => { showPeers(); chat.peers(room.peers); })
+    /* Not until it is the page's room: a rejoin's welcome comes while the
+       lost one still is. */
+    r.on('peers', () =>
+    {
+        if (r === room)
+        {
+            showPeers();
+            chat.peers(room.peers);
+        }
+    })
         .on('chat', (m) => chat.said(m))
         .on('refused', (m) =>
         {
@@ -1994,18 +2019,53 @@ async function join ()
         .on('clock', () => { showNumbers(); enable(); })
         .on('transport', (from, data) => receive(from, data))
         .on('error', (text) => log(`relay: ${text}`))
-        .on('close', () => status('The relay went away.'));
+        .on('close', (refused) => lost(r, refused));
+
+    return r.connect().then(() => r);
+}
+
+async function join ()
+{
+    const params = new URLSearchParams(location.search);
+    const roomName = $('room').value.trim() || 'lobby';
+    let relay = await relaysOf(params);
+
+    /* A config.json that could not be read at the load is read again now:
+       relaysOf has dropped the default it fell back on. */
+    if (relays === null)
+        relay = await relaysOf(params);
+
+    const { url } = relay;
+
+    $('join').disabled = true;
+    status(`Joining ${roomName} at ${url}...`);
+
+    const session = await accounts.session(relay);
 
     try
     {
-        await room.connect();
+        room = await openRoom(url, roomName, $('name').value.trim() ||
+                                  `guest-${Math.floor(Math.random() * 1000)}`,
+                              { piece: $('newpiece').value ||
+                                       params.get('piece'),
+                                session });
     }
     catch (e)
     {
         status(e.message);
         $('join').disabled = false;
+
+        if (e.why === 'session')
+            accounts.ended(session);
+
         return;
     }
+
+    chat.peers(room.peers);
+
+    /* The name the relay gave us -- a handle, or the guest name cleaned
+       up -- as everyone else sees it. */
+    const name = shownName(room.identity);
 
     maker = new Maker(room.peer, transportNow, { edits: () => editsSeen });
     $('knoblead').value = maker.knobLead;
@@ -2013,7 +2073,11 @@ async function join ()
 
     /* The document. */
     doc = new Y.Doc();
-    provider = new WebsocketProvider(`${url}/doc`, roomName, doc);
+    provider = new WebsocketProvider(`${url}/doc`, roomName, doc,
+                                     room.ticket === null
+                                         ? {} : { params: { ticket:
+                                                            room.ticket } });
+    followTickets();
 
     const c = colourOf(name);
 
@@ -2032,12 +2096,7 @@ async function join ()
         $('piece').title = 'This relay is older than the page and cannot ' +
                            'switch pieces.';
 
-    /* The mesh. */
-    mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
-    mesh.on('change', showPeers)
-        .on('fallback', (peer, why) =>
-            log(`${room.peers.get(peer)?.name ?? peer}: through the relay ` +
-                `(${why})`));
+    openMesh();
 
     $('joinrow').hidden = true;
     $('roompanel').hidden = false;
@@ -2059,8 +2118,137 @@ async function join ()
                                             : {}) };
 
     history.replaceState(null, '', `?${new URLSearchParams(
-        { ...where, name })}`);
+        { ...where, name: room.identity.name })}`);
     invite = new URL(`?${new URLSearchParams(where)}`, location.href).href;
+}
+
+/* The document socket's next reconnect goes in with the room socket's
+   latest ticket. */
+function followTickets ()
+{
+    room.on('ticket', (ticket) => { provider.params = { ticket }; });
+}
+
+/* One mesh to a room socket: a room lost while the join awaited the
+   document is joined again, and given its mesh, before the join goes on
+   to open one. */
+function openMesh ()
+{
+    if (mesh?.room === room)
+        return;
+
+    mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
+    mesh.on('change', showPeers)
+        .on('fallback', (peer, why) =>
+            log(`${room.peers.get(peer)?.name ?? peer}: through the relay ` +
+                `(${why})`));
+}
+
+/* How long a lost room waits before it is joined again, doubling to the
+   last, and how many tries it makes before it leaves it to Rejoin. */
+const REJOIN_FIRST_MS = 1000;
+const REJOIN_MAX_MS = 30 * 1000;
+const REJOIN_TRIES = 8;
+
+let rejoinTimer = null;
+let rejoinTries = 0;
+
+/* The room socket `r' closed. Its tickets went with it, so the document
+   socket would be refused at every retry and the editor would type into
+   a document nobody else sees: the document stops, and stays as it is on
+   this page, the editor read only, until the room is joined again -- by
+   itself, after a relay restart or a dropped network, or with Rejoin
+   when the relay said no or would not answer. */
+function lost (r, refused)
+{
+    if (r !== room)
+        return;
+
+    provider?.disconnect();
+    mesh?.close();
+    $('editor').inert = true;
+    $('rejoin').hidden = false;
+
+    if (refused?.why === 'session')
+        accounts.ended(r.session);
+
+    if (refused !== null || rejoinTries >= REJOIN_TRIES)
+    {
+        status(refused !== null
+                   ? `The relay closed the room: ${refused.text}.`
+                   : 'The relay went away. Press Rejoin to try again.');
+        return;
+    }
+
+    const wait = Math.min(REJOIN_FIRST_MS * 2 ** rejoinTries++,
+                          REJOIN_MAX_MS);
+
+    status(`The relay went away; joining again in ${Math.round(
+        wait / 1000)} s...`);
+    clearTimeout(rejoinTimer);
+    rejoinTimer = setTimeout(rejoin, wait);
+}
+
+/* The room again, as whoever this page is now, with this page's document
+   as it stands: a new room socket and with it a new ticket, the document
+   socket put back on it, a new mesh, and the seat taken again. */
+async function rejoin ()
+{
+    clearTimeout(rejoinTimer);
+    $('rejoin').hidden = true;
+
+    const was = room;
+    const seat = was.seat;
+    const where = await relaysOf(new URLSearchParams(location.search));
+    const session = await accounts.session(where);
+    let next;
+
+    try
+    {
+        /* Not seeded, if the relay lost the room: this page's document
+           is what comes back. A seed would be a second set of texts under
+           the same names, and Yjs keeps either. */
+        /* A guest's name again; an account's, if its session has ended
+           since, is the account's and not a guest's to take. */
+        next = await openRoom(where.url, was.roomName,
+                              was.identity.account === true
+                                  ? `guest-${Math.floor(Math.random() * 1000)}`
+                                  : was.identity.name,
+                              { piece: '', session, was: was.ticket });
+    }
+    catch (e)
+    {
+        if (e.why === 'session')
+            accounts.ended(session);
+
+        /* Refused: said, and left to Rejoin. Unreachable: tried again. */
+        lost(was, e.why === undefined ? null : { text: e.message,
+                                                 why: e.why });
+        return;
+    }
+
+    rejoinTries = 0;
+    room = next;
+
+    maker = new Maker(room.peer, transportNow,
+                      { edits: () => editsSeen, knobLead: maker.knobLead,
+                        transportLead: maker.transportLead });
+    provider.params = room.ticket === null ? {} : { ticket: room.ticket };
+    followTickets();
+    provider.connect();
+    openMesh();
+    $('editor').inert = false;
+
+    if (seat !== null)
+        room.claim(seat);
+
+    showPeers();
+    chat.peers(room.peers);
+    status(`Back in ${room.roomName}.`);
+
+    if (synth !== null && room.playing !== null &&
+        room.runKey !== appliedRun)
+        await joinRun();
 }
 
 /* The room's address without the name in it (join). */
@@ -2309,6 +2497,19 @@ function init ()
 
     $('room').value = params.get('room') ?? 'lobby';
     $('name').value = params.get('name') ?? '';
+
+    /* Logged in, the name is the handle, and not this page's to change. */
+    accounts = createAccounts({
+        open: $('account'), dialog: $('accountdialog'),
+        relays: () => relaysOf(params),
+        onChange: (handle) =>
+        {
+            if (handle !== null || $('name').disabled)
+                $('name').value = handle ?? '';
+
+            $('name').disabled = handle !== null;
+        },
+    });
     showPieces(params.get('piece'));
 
     keyboard = new Keyboard($('keys'), { onPress: press, onRelease: release });
@@ -2354,6 +2555,11 @@ function init ()
     });
 
     $('join').addEventListener('click', join);
+    $('rejoin').addEventListener('click', () =>
+    {
+        rejoinTries = 0;
+        rejoin();
+    });
     $('room').addEventListener('input', showNewPiece);
     $('invite').addEventListener('click', copyInvite);
     showRooms();
