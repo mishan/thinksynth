@@ -526,7 +526,7 @@ int main (int argc, char **argv)
                 return "no arg";
             if (a->len() != TH_NOTE_SAY)
                 return "length " + to_string(a->len());
-            for (unsigned i = 0; i < a->len() && (*a)[i] != 0; i++)
+            for (unsigned i = 0; i < TH_NOTE_SAY - 1 && (*a)[i] != 0; i++)
                 out += string(out.empty() ? "" : ".") +
                        thPhonemeName((int)(*a)[i]);
 
@@ -573,6 +573,13 @@ int main (int argc, char **argv)
                 okOrFail(said(synth, 64) == "IH.N",
                          "a mono slide onto the next note says that note's "
                          "phonemes", said(synth, 64));
+
+                synth.addNote(0, 67, 100);
+                synth.process();
+
+                okOrFail(said(synth, 67) == "IH.N",
+                         "a mono slide onto a note that says nothing leaves "
+                         "the words sounding", said(synth, 67));
             }
         }
     }

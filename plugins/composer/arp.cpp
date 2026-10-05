@@ -31,6 +31,7 @@
  */
 
 #include <algorithm>
+#include <cstring>
 #include <random>
 #include <vector>
 
@@ -73,6 +74,7 @@ struct Held
     int    note, velocity;
     float  level;
     float  aux[4];
+    unsigned char say[THC_NOTE_SAY];
     double releaseAt;        /* <= 0: held until its NOTEOFF            */
 };
 
@@ -127,6 +129,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
         for (int a = 0; a < 4; a++)
             h.aux[a] = ev->u.note.aux[a];
+        memcpy(h.say, ev->u.note.say, sizeof(h.say));
         h.releaseAt = ev->u.note.duration > 0
             ? ev->at + ev->u.note.duration : 0;
 
@@ -225,6 +228,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
         for (int a = 0; a < 4; a++)
             ev.u.note.aux[a] = seq[pick].aux[a];
+        memcpy(ev.u.note.say, seq[pick].say, sizeof(ev.u.note.say));
         ev.at = t->now;
         ev.channel = 0;                  /* the sink routes             */
         ev.u.note.note = seq[pick].note;

@@ -437,7 +437,7 @@ render (thcScheduler &sched, double seconds, double step)
                     char said[8 * THC_NOTE_SAY];
                     const size_t end = strlen(buf) - 1;
 
-                    thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY, said,
+                    thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY - 1, said,
                                    sizeof(said));
                     snprintf(buf + end, sizeof(buf) - end, " say=%s\n",
                              said);

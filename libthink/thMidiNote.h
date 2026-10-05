@@ -40,7 +40,8 @@ public:
                   const unsigned char *say = NULL);
 
     /* Audio thread. What `from' says, into this voice: a mono slide onto
-     * the next syllable. Allocation-free, because `say' is always
+     * the next syllable. Nothing when `from' says nothing, so the vowel
+     * sounding carries on. Allocation-free, because `say' is always
      * TH_NOTE_SAY long once start() has written it. */
     void takeSay (thMidiNote *from);
 

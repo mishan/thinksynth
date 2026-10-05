@@ -132,9 +132,13 @@ using namespace std;
 #define TH_NOTE_AUX 4
 
 /* And what a note says: `say' on the io node is the note's phoneme codes
- * (thPhoneme.h), one per value, written where the graph reads it -- at a
- * voice's start and again at a mono retune, because a sung line slides from
- * one syllable to the next. A note that says nothing writes a single 0. */
+ * (thPhoneme.h), one per value and ending in 0, written where the graph reads
+ * it -- at a voice's start, and at a mono slide onto a note that says
+ * something, because a sung line slides from one syllable to the next. A
+ * slide onto a note that says nothing, and a fall back to a key still held,
+ * leave the words sounding. Always TH_NOTE_SAY long: the last value is no
+ * phoneme but a stamp that differs from note to note, so a graph can tell a
+ * slide onto the same words from no slide at all. */
 #define SAYARG "say"
 #define TH_NOTE_SAY 32
 

@@ -73,13 +73,19 @@ void thMidiNote::start (float note, float velocity, float level,
     }
 
     /* The same rule, and always the full length, so a slide can copy one
-       voice's into another's without allocating. */
+       voice's into another's without allocating. The stamp only has to
+       differ from the last note's, and stays below 2^24 so a float holds
+       it exactly. */
     if (ionode->getArg(SAYARG) != NULL)
     {
+        static unsigned int stamp;
         float codes[TH_NOTE_SAY] = {};
 
         for (int i = 0; say != NULL && i < TH_NOTE_SAY - 1 && say[i]; i++)
             codes[i] = say[i];
+
+        stamp = stamp % 16777215 + 1;
+        codes[TH_NOTE_SAY - 1] = (float)stamp;
 
         ionode->setArg(SAYARG, codes, TH_NOTE_SAY);
     }
@@ -121,7 +127,7 @@ void thMidiNote::takeSay (thMidiNote *from)
     thArg *was = other ? other->getArg(SAYARG) : NULL;
 
     if (to != NULL && was != NULL && to->len() == TH_NOTE_SAY &&
-        was->len() == TH_NOTE_SAY)
+        was->len() == TH_NOTE_SAY && (*was)[0] != 0)
         memcpy(to->values(), was->values(), TH_NOTE_SAY * sizeof(float));
 }
 

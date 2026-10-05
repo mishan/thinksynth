@@ -202,7 +202,7 @@ static void writeEvent (FILE *tape, const thcEvent &ev)
             {
                 char said[8 * THC_NOTE_SAY];
 
-                thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY, said,
+                thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY - 1, said,
                                sizeof(said));
                 fprintf(tape, " say=%s", said);
             }
