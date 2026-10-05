@@ -8,6 +8,7 @@
     "piececheck": "node piececheck.mjs",
     "protocoltest": "node protocoltest.mjs",
     "relaytest": "node relaytest.mjs",
+    "accountstest": "node accountstest.mjs",
     "relay": "node relay.mjs",
     "browsertest": "node browsertest.mjs",
     "pagetest": "node pagetest.mjs",

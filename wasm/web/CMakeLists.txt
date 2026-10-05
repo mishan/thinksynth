@@ -432,6 +432,7 @@ endif()
 # what it pins: a dependency bumped without it here would rebuild nothing
 # and serve the old editor.
 set(BUNDLE_SOURCES jam.js chat.js room.js mesh.js editor.js doc.js clock.js
+                   account.js accountui.js confusables.js
                    commands.js host.js keyboard.js panel.js patch.js mic.js
                    midi.js midiout.js midioutui.js ../tape.mjs
                    canvasview.js composerview.js nodeview.js rollview.js

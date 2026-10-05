@@ -46,6 +46,15 @@ can edit. Before any audience feature:
 carries the persistent id. Both are small in M3's relay and awkward once
 rooms are live.
 
+*Done of this:* names and a persistent id, for accounts. The `hello`
+carries an account's session, the relay plays it under its handle, and
+the account's id in the relay's database is the persistent id; nobody
+else can take the handle, or one its owner renamed from in the last 30
+days. Guests are still a name per session, marked as guests wherever
+the room shows names. The document is no longer open to anyone who can
+reach the relay: its socket needs a short-lived ticket the room socket
+hands out. Roles, visibility and moderation within a room are not done.
+
 ## 1. The headless peer, and load
 
 **What.** A peer with no page and no sound card: the Node wasm build,
@@ -247,7 +256,7 @@ Grouped by what unlocks what. Sizes are relative to a milestone.
 
 | | Item | Needs | Size |
 |---|---|---|---|
-| 1 | Roles, visibility, persistent id (section 0) | M3 | S |
+| 1 | Roles and visibility (section 0; the persistent id is done, for accounts) | M3 | S |
 | 2 | Headless peer and load testing (section 1) | M3, before M5 | M |
 | 3 | The recording format, fixed (section 4.1) | M3 | S |
 | 4 | Spectators, with the relay fan-out and the delay (section 2) | M4, 1, 2 | M |
@@ -349,7 +358,8 @@ tens of thousands of concurrent sessions.
 The short list of things that are free now and costly later, gathered
 from above:
 
-1. The relay enforces roles; `hello` carries a persistent id.
+1. The relay enforces roles; `hello` carries a persistent id. (The id is
+   done, for accounts: section 0.)
 2. Musicians' pages send a copy of their commands to the relay when the
    room has spectators or recording on.
 3. The recording format is the protocol plus a header naming the build

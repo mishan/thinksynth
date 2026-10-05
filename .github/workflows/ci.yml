@@ -956,6 +956,12 @@ jobs:
         working-directory: wasm/web
         run: node relaytest.mjs
 
+      # The relay's accounts over HTTP, on a clock the script turns: keys,
+      # handles, sessions, the limits and the admin commands.
+      - name: Accounts
+        working-directory: wasm/web
+        run: node accountstest.mjs
+
       # The room's second gate: a Chromium page and a Firefox page in one
       # room on a relay, each with a live AudioContext, one pressing Play, a
       # knob moved from each side, and one tape between them -- genwav's,
@@ -1021,23 +1027,34 @@ jobs:
 
       # A room joined, not just the health line: that one answers before
       # a room has been seeded from the image's gen/ and dsp/.
+      # Twice: as it starts with nothing set, and with CORS_ORIGIN, which
+      # is what turns its accounts on (and opens its database).
       - name: It seeds and welcomes a room
         run: |
+          join() {
+            docker exec "$1" node --input-type=module -e "
+              import WebSocket from 'ws';
+              const ws = new WebSocket('ws://127.0.0.1:8787/room/ci');
+              ws.on('open', () => ws.send(JSON.stringify(
+                  { type: 'hello', name: 'ci', protocol: 1, tickets: true })));
+              ws.on('message', (m) => {
+                  const d = JSON.parse(m);
+                  console.log(JSON.stringify(d));
+                  process.exit(d.type === 'welcome' && d.piece ? 0 : 1);
+              });
+              ws.on('error', (e) => { console.error(e.message); process.exit(1); });
+              setTimeout(() => process.exit(1), 10000);"
+          }
           docker run -d --init --name relay -p 127.0.0.1:8787:8787 thinksynth-relay
-          for i in $(seq 30); do curl -fs 127.0.0.1:8787/ && break; sleep 1; done
-          docker exec relay node --input-type=module -e "
-            import WebSocket from 'ws';
-            const ws = new WebSocket('ws://127.0.0.1:8787/room/ci');
-            ws.on('open', () => ws.send(JSON.stringify(
-                { type: 'hello', name: 'ci', protocol: 1 })));
-            ws.on('message', (m) => {
-                const d = JSON.parse(m);
-                console.log(JSON.stringify(d));
-                process.exit(d.type === 'welcome' && d.piece ? 0 : 1);
-            });
-            ws.on('error', (e) => { console.error(e.message); process.exit(1); });
-            setTimeout(() => process.exit(1), 10000);"
+          docker run -d --init --name accounts -p 127.0.0.1:8788:8787 \
+            -e CORS_ORIGIN=https://pages.example.org thinksynth-relay
+          for i in $(seq 30); do curl -fs 127.0.0.1:8787/ && curl -fs 127.0.0.1:8788/ && break; sleep 1; done
+          curl -fs 127.0.0.1:8787/ | jq -e '.accounts == false'
+          curl -fs 127.0.0.1:8788/ | jq -e '.accounts == true'
+          join relay
+          join accounts
           docker logs relay
+          docker logs accounts
 
       - name: Publish
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'

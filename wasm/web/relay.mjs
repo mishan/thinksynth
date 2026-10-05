@@ -22,8 +22,9 @@
  * and the way peers find each other.
  *
  *   node wasm/web/relay.mjs [--port 8787] [--tree DIR]
+ *   node wasm/web/relay.mjs admin <command>      (accounts.mjs, runAdmin)
  *
- * One process, one port, no database. It does three jobs and is
+ * One process, one port. It does three jobs and is
  * authoritative for none of the music: it holds the shared document so a
  * late joiner has somewhere to fetch it from; it answers pings so every
  * peer can agree on one clock; and it says who is in a room, on which
@@ -38,20 +39,31 @@
  * origin, and is playing the room's piece from there (commands.js,
  * catchUp).
  *
- *   GET  /               health: version, and each room's people and piece
+ *   GET  /               health: version, accounts, each room's people and
+ *                        piece
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
  *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
+ *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs)
  *
  * Two sockets per peer rather than one: y-websocket's framing is its
  * own, and the JSON side is easier to read on the wire and in a harness
  * when it is not sharing a socket with binary CRDT updates.
  *
+ * Who someone is, is the room socket's to say: its hello carries an
+ * account's session, or nothing for a guest, who goes by a name that is
+ * nobody's handle. The document socket cannot say anything first --
+ * y-websocket opens it and speaks at once -- so the room socket's welcome
+ * hands out a ticket for it, good for one room for a few minutes, and the
+ * relay opens no document socket without one.
+ *
  * A room is made when the first peer arrives and seeded with a shipped
  * piece -- the .gen, and every .dsp it names, from the tree -- and kept
  * for an hour after the last one leaves. A peer can have it seeded again
- * with another (`switch'). Nothing is persisted.
+ * with another (`switch'). Rooms are not persisted; accounts are, in one
+ * SQLite file (DB=..., beside the relay by default).
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -64,6 +76,9 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
+import { ACCOUNT_API, normalizeName, shownName } from './account.js';
+import { AccountStore, Accounts, ADMIN_USAGE, accountRoutes,
+         runAdmin } from './accounts.mjs';
 import { RELAY, TRANSPORT_LEAD } from './commands.js';
 import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
          pieceName, putFile, readSeen, seenOf, snapshot } from './doc.js';
@@ -73,6 +88,10 @@ export const PROTOCOL = 1;
 /* y-websocket's two message types. */
 const MSG_SYNC = 0;
 const MSG_AWARENESS = 1;
+
+/* A cursor color as editor.js's colourOf writes it, with or without the
+   selection's alpha. */
+const CURSOR_COLOR = /^hsl\(\d{1,3} 70% 45%( \/ 0\.25)?\)$/;
 
 /* How long a start waits for the relay's copy of the document to reach
    the revision it names before keeping what is there. */
@@ -88,6 +107,18 @@ const SWITCH_GATHER_MS = 50;
    caught up with rather than handed part of it. */
 const LOG_MAX = 200000;
 
+/* And the most it keeps in bytes, of JSON, and of one command: an edit
+   carries a piece's texts, and nothing a page sends is longer than
+   that. */
+const LOG_BYTES_MAX = 32 * 1024 * 1024;
+const LOG_ENTRY_MAX = 512 * 1024;
+
+/* Awareness clients one document socket may speak for, and a room may
+   hold: a page is one, and a reconnect briefly has the old socket's
+   too. */
+const CLIENTS_PER_SOCKET = 2;
+const CLIENTS_PER_ROOM = 256;
+
 /* How long an empty room is kept, and how often that is looked at. */
 const EMPTY_FOR = 60 * 60 * 1000;
 const SWEEP_EVERY = 60 * 1000;
@@ -98,6 +129,38 @@ const SWEEP_EVERY = 60 * 1000;
 const CHAT_MAX = 500;
 const CHAT_BURST = 5;
 const CHAT_PER_SECOND = 5;
+
+/* A document ticket's life. A room socket is handed a new one when two
+   fifths of it have gone, so the ticket a page reconnects its document
+   with is never one about to lapse. */
+const TICKET_MS = 5 * 60 * 1000;
+
+/* How long the relay waits on the accounts' file locked by another
+   process -- the admin commands, a backup -- before it fails the request.
+   The wait is on the event loop, and every room stops for it. */
+const STORE_BUSY_MS = 100;
+
+/* The largest frame a socket may send: a room socket's are JSON lines,
+   the longest a start carrying its snapshot (doc.js, SEEN_MAX); a
+   document socket's are Yjs updates, the largest a whole piece pasted or
+   a first sync of everything a page holds. */
+const ROOM_FRAME_MAX = 1024 * 1024;
+const DOC_FRAME_MAX = 4 * 1024 * 1024;
+
+/* Document sockets one room socket may have open at once: a page has
+   one, and a reconnect briefly two. */
+const DOCS_PER_PEER = 4;
+
+/* How often every socket is pinged; one that has not answered the last
+   ping by the next is cut. A document socket says nothing while nobody
+   types, and one whose page went away without a close would otherwise
+   hold its cursor in the room for good. */
+const HEARTBEAT_MS = 30 * 1000;
+
+/* How often the sessions behind open room sockets are looked at again:
+   the admin commands end sessions from another process, which has no way
+   to tell this one. */
+const SESSION_CHECK_MS = 60 * 1000;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -173,17 +236,25 @@ function newId ()
     return Math.random().toString(36).slice(2, 8);
 }
 
-/* One room: a document and the peers in it. */
+/* One room: a document and the peers in it. `accounts' says who a
+   session is of, and `tickets' is the relay's, which the document sockets
+   are let in by. */
 class Room
 {
-    constructor (name, seedWith, tree)
+    constructor (name, seedWith, tree,
+                 { accounts, tickets, ticketMs, sessions })
     {
         this.name = name;
         this.tree = tree;
+        this.accounts = accounts;
+        this.tickets = tickets;
+        this.ticketMs = ticketMs;
+        this.sessions = sessions;           /* whether a hello's counts  */
         this.doc = new Y.Doc();
         this.awareness = new awarenessProtocol.Awareness(this.doc);
         this.docConns = new Set();          /* document sockets          */
-        this.peers = new Map();             /* id -> { ws, name, seat }  */
+        this.peers = new Map();             /* id -> { ws, name, seat,
+                                               account, tickets, docs } */
         this.seats = new Map();             /* seat -> peer id           */
         this.playing = null;                /* the last transport start  */
         this.emptySince = relayNow();
@@ -203,8 +274,12 @@ class Room
         /* The awareness protocol's own clients: what to forget when a
            socket closes. */
         this.controlled = new Map();        /* ws -> Set of client ids   */
+        this.clientSocket = new Map();      /* client id -> its ws       */
+        this.docOwner = new Map();          /* ws -> its room socket's peer */
+        this.leaving = new Map();           /* room ws -> its leave()    */
 
-        seedFiles(this.doc, seedWith, tree);
+        if (seedWith !== '')
+            seedFiles(this.doc, seedWith, tree);
 
         /* Every update to anyone, as y-websocket does: the document is
            the one thing here that has to reach every peer. */
@@ -223,14 +298,18 @@ class Room
 
             if (origin !== null && origin !== undefined &&
                 this.controlled.has(origin))
-            {
-                const ids = this.controlled.get(origin);
-
                 for (const id of added)
-                    ids.add(id);
+                {
+                    this.controlled.get(origin).add(id);
+                    this.clientSocket.set(id, origin);
+                }
 
-                for (const id of removed)
-                    ids.delete(id);
+            /* Gone whoever said so: the socket, its close, or the
+               awareness timing a quiet client out. */
+            for (const id of removed)
+            {
+                this.controlled.get(this.clientSocket.get(id))?.delete(id);
+                this.clientSocket.delete(id);
             }
 
             const enc = encoding.createEncoder();
@@ -260,7 +339,7 @@ class Room
     begin (start, files = this.snapshotAt(start.piece ?? {}))
     {
         this.playing = start;
-        this.run = { start, log: [], overflowed: false, files };
+        this.run = { start, log: [], bytes: 0, overflowed: false, files };
     }
 
     /* A switch made while the room plays, played: a start of the relay's
@@ -291,18 +370,25 @@ class Room
     /* A stamped command, into the run it was made in. `runKey' is that
        run's start, as the sender knew it (runKeyOf); a copy that arrives
        after another Play has begun is the old run's straggler, stamped for
-       a time in a piece that is no longer playing, and is not kept. */
-    record (cmd, runKey)
+       a time in a piece that is no longer playing, and is not kept.
+       `bytes' is the size of the frame it came in, which holds it: what
+       it counts against the caps, without stringifying it again on the
+       path every command takes. */
+    record (cmd, runKey, bytes)
     {
         const { run } = this;
 
         if (run === null || runKey !== runKeyOf(run.start))
             return;
 
-        if (run.log.length >= LOG_MAX)
+        if (run.log.length >= LOG_MAX || bytes > LOG_ENTRY_MAX ||
+            run.bytes + bytes > LOG_BYTES_MAX)
             run.overflowed = true;
         else
+        {
             run.log.push(cmd);
+            run.bytes += bytes;
+        }
     }
 
     /* The document at the revision `hash' names: now, if the relay's copy
@@ -379,17 +465,170 @@ class Room
         });
     }
 
+    /* A ticket for `peer''s document socket, which goes when the room
+       socket does: whatever opened that and is let in by this should not
+       outlast it. */
+    issue (peer)
+    {
+        const now = relayNow();
+        const ticket = `t_${crypto.randomBytes(16).toString('hex')}`;
+
+        for (const t of peer.tickets)
+            if (!(this.tickets.get(t)?.until > now))
+            {
+                this.tickets.delete(t);
+                peer.tickets.delete(t);
+            }
+
+        this.tickets.set(ticket, { room: this, peer,
+                                   until: now + this.ticketMs });
+        peer.tickets.add(ticket);
+        return ticket;
+    }
+
+    /* The room sockets whose account `ends' says is over -- logged out,
+       banned, deleted -- told why and closed. Their tickets and document
+       sockets go now rather than when the close completes, which a
+       client that has stopped answering can hold off for half a
+       minute. */
+    endSessions (ends, why)
+    {
+        for (const p of this.peers.values())
+            if (p.account !== null && ends(p.account) &&
+                p.ws.readyState === p.ws.OPEN)
+            {
+                p.ws.send(JSON.stringify({ type: 'error', why: 'session',
+                                           text: why }));
+                p.ws.close();
+                this.leaving.get(p.ws)();
+            }
+    }
+
+    /* Whether a peer is an account, as the room is told: null on a relay
+       without accounts, where nobody is a guest for not being one. */
+    isAccount (peer)
+    {
+        return this.sessions ? peer.account !== null : null;
+    }
+
+    /* A peer's way into the document, gone. */
+    revoke (peer)
+    {
+        for (const t of peer.tickets)
+            this.tickets.delete(t);
+
+        for (const d of peer.docs)
+            d.terminate();
+    }
+
     /* ---- the document socket ---- */
 
-    attachDoc (ws)
+    /* An awareness update from `ws', as the relay will pass it on: the
+       name on a cursor is the one its room socket goes by, a guest's
+       marked as one, and not whatever the page put there; and no socket
+       speaks for a client another peer's does. One of the same peer's
+       takes the client over: that is a page's document socket
+       reconnecting, the old one not yet known to be dead. */
+    vouched (update, ws, owner)
     {
+        const dec = decoding.createDecoder(update);
+        const enc = encoding.createEncoder();
+        const kept = [];
+        const fresh = new Set();
+        const n0 = decoding.readVarUint(dec);
+
+        if (n0 > CLIENTS_PER_SOCKET)
+            throw new Error(`${n0} awareness states in one update`);
+
+        for (let n = n0; n > 0; n--)
+        {
+            const client = decoding.readVarUint(dec);
+            const clock = decoding.readVarUint(dec);
+            let state = JSON.parse(decoding.readVarString(dec));
+            const holder = this.clientSocket.get(client);
+
+            if (holder !== undefined && holder !== ws &&
+                this.docOwner.get(holder) !== owner)
+                continue;
+
+            /* A client nobody has, gone: it removes nothing, and the
+               awareness would keep its clock for good. */
+            if (holder === undefined && state === null)
+                continue;
+
+            if (holder !== undefined && holder !== ws)
+            {
+                this.controlled.get(holder).delete(client);
+                this.controlled.get(ws).add(client);
+                this.clientSocket.set(client, ws);
+            }
+
+            /* A page is one client. Every id a socket makes up is a state
+               the relay keeps and hands to everyone, so a socket that
+               claims more than a page could is cut, as is any past a
+               room's worth. */
+            if (holder === undefined && state !== null)
+            {
+                fresh.add(client);
+
+                if (this.controlled.get(ws).size + fresh.size >
+                        CLIENTS_PER_SOCKET ||
+                    this.clientSocket.size + fresh.size > CLIENTS_PER_ROOM)
+                    throw new Error('more awareness clients than a page has');
+            }
+
+            /* A state, unless it is the one saying the client is gone: and
+               every one with the relay's name on it, whatever the page put
+               there or left out, so that none goes nameless and unmarked. */
+            if (state !== null)
+            {
+                if (typeof state !== 'object' || Array.isArray(state))
+                    state = {};
+
+                state.user = {
+                    ...(typeof state.user === 'object' ? state.user : {}),
+                    name: shownName({ name: owner.name,
+                                      account: this.isAccount(owner) }),
+                    account: this.isAccount(owner),
+                };
+
+                /* The colors end up in other pages' style attributes, so
+                   only the shape editor.js's colourOf makes goes through. */
+                for (const k of ['color', 'colorLight'])
+                    if (!CURSOR_COLOR.test(String(state.user[k])))
+                        delete state.user[k];
+            }
+
+            kept.push([client, clock, state]);
+        }
+
+        encoding.writeVarUint(enc, kept.length);
+
+        for (const [client, clock, state] of kept)
+        {
+            encoding.writeVarUint(enc, client);
+            encoding.writeVarUint(enc, clock);
+            encoding.writeVarString(enc, JSON.stringify(state));
+        }
+
+        return encoding.toUint8Array(enc);
+    }
+
+    attachDoc (ws, owner)
+    {
+        owner.docs.add(ws);
         this.docConns.add(ws);
         this.controlled.set(ws, new Set());
+        this.docOwner.set(ws, owner);
         ws.binaryType = 'arraybuffer';
 
         ws.on('message', (data) =>
         {
             let bytes;
+
+            /* A socket cut for what it sent is not heard while it closes. */
+            if (ws.readyState !== ws.OPEN)
+                return;
 
             if (data instanceof ArrayBuffer)
                 bytes = new Uint8Array(data);
@@ -421,7 +660,9 @@ class Room
 
                     case MSG_AWARENESS:
                         awarenessProtocol.applyAwarenessUpdate(
-                            this.awareness, decoding.readVarUint8Array(dec),
+                            this.awareness,
+                            this.vouched(decoding.readVarUint8Array(dec), ws,
+                                         owner),
                             ws);
                         break;
                 }
@@ -436,10 +677,12 @@ class Room
 
         ws.on('close', () =>
         {
+            owner.docs.delete(ws);
             this.docConns.delete(ws);
             awarenessProtocol.removeAwarenessStates(
                 this.awareness, [...(this.controlled.get(ws) ?? [])], null);
             this.controlled.delete(ws);
+            this.docOwner.delete(ws);
             this.touch();
         });
 
@@ -471,6 +714,7 @@ class Room
     attachRoom (ws)
     {
         let id = null;
+        let ticketing = null;
         let chatTokens = CHAT_BURST;
         let chatAt = relayNow();
 
@@ -524,6 +768,12 @@ class Room
 
         ws.on('message', (data) =>
         {
+            /* Closing is final: after a refused hello, or a session ended
+               (endSessions), whatever else a client sends before the close
+               completes -- up to half a minute of it -- is not heard. */
+            if (ws.readyState !== ws.OPEN)
+                return;
+
             let m;
 
             try
@@ -558,20 +808,105 @@ class Room
                     return;
                 }
 
+                /* A page from before tickets would join the room and
+                   wait for ever on a document socket that is never let
+                   in; told now, it says so, and a reload is the fix. */
+                if (m.tickets !== true)
+                {
+                    send({ type: 'error', why: 'old',
+                           text: 'this page is older than the relay: press ' +
+                                 'Update above, or close thinksynth\'s ' +
+                                 'other tabs and reload' });
+                    ws.close();
+                    return;
+                }
+
+                /* An account plays under its handle. A session the relay
+                   no longer knows is refused rather than made a guest, or
+                   somebody would play the room believing they were logged
+                   in. A guest goes by the name asked for, if that is not
+                   an account's. */
+                let account;
+                let asked;
+
+                /* A relay without accounts has no sessions to know. */
+                const session = this.sessions ? m.session : undefined;
+
+                try
+                {
+                    account = session === undefined ? null
+                        : this.accounts.sessionAccount({ session });
+                    asked = account?.handle ??
+                            normalizeName(String(m.name ?? ''));
+
+                    if (this.sessions && account === null &&
+                        asked !== null && !this.accounts.nameFree(asked))
+                        asked = undefined;
+                }
+                catch (e)
+                {
+                    process.stderr.write(`relay: accounts: ${e.message}\n`);
+                    send({ type: 'error', why: 'accounts',
+                           text: 'the relay cannot look up accounts right ' +
+                                 'now; try again in a moment' });
+                    ws.close();
+                    return;
+                }
+
+                if (session !== undefined && account === null)
+                {
+                    send({ type: 'error', why: 'session',
+                           text: 'your session has ended; log in again' });
+                    ws.close();
+                    return;
+                }
+
+                if (asked === undefined)
+                {
+                    send({ type: 'error', why: 'name',
+                           text: `${normalizeName(String(m.name))} is an ` +
+                                 'account\'s handle; log in, or pick ' +
+                                 'another name' });
+                    ws.close();
+                    return;
+                }
+
+                /* A page joining again names the last ticket it was
+                   handed, which only its own room socket ever was: the
+                   peer it was, on a socket a dropped network left open
+                   until the heartbeat finds it, goes now, and its seat
+                   and cursor with it. */
+                const was = this.tickets.get(m.was);
+
+                if (was?.room === this && was.until > relayNow() &&
+                    this.leaving.has(was.peer.ws))
+                {
+                    was.peer.ws.terminate();
+                    this.leaving.get(was.peer.ws)();
+                }
+
                 id = newId();
 
                 while (this.peers.has(id) || id === RELAY)
                     id = newId();
 
-                const name = String(m.name ?? '').slice(0, 32) || id;
+                const name = asked ?? id;
+                const peer = { ws, name, seat: null, account,
+                               tickets: new Set(), docs: new Set() };
 
-                this.peers.set(id, { ws, name, seat: null });
+                this.peers.set(id, peer);
+                ticketing = setInterval(
+                    () => send({ type: 'ticket', ticket: this.issue(peer) }),
+                    this.ticketMs * 2 / 5);
 
                 send({
                     type: 'welcome',
                     peer: id,
+                    identity: { name, account: this.isAccount(peer) },
+                    ticket: this.issue(peer),
                     peers: [...this.peers].map(([pid, p]) =>
-                        ({ peer: pid, name: p.name, seat: p.seat })),
+                        ({ peer: pid, name: p.name, seat: p.seat,
+                           account: this.isAccount(p) })),
                     seats: seatMap(),
                     piece: this.doc.getMap('meta').get('piece') ?? null,
                     playing: this.playing,
@@ -579,7 +914,8 @@ class Room
                     features: ['switch'],
                 });
 
-                others({ type: 'joined', peer: id, name });
+                others({ type: 'joined', peer: id, name,
+                         account: this.isAccount(peer) });
                 return;
             }
 
@@ -649,6 +985,11 @@ class Room
                     if (typeof m.data !== 'object' || m.data === null)
                         break;
 
+                    /* Who made it is the relay's to say: a late joiner is
+                       told whose Play it catches up with, and the run's
+                       commands are told apart by sender and count. */
+                    m.data.from = id;
+
                     if (m.data.op === 'start' &&
                         m.data.piece?.seen !== undefined &&
                         readSeen(m.data.piece.seen) === null)
@@ -673,7 +1014,7 @@ class Room
                         }
                     }
                     else
-                        this.record(m.data, m.run);
+                        this.record(m.data, m.run, data.length);
 
                     others({ type: 'transport', from: id, data: m.data });
                     break;
@@ -684,7 +1025,8 @@ class Room
                    others have it. */
                 case 'log':
                     if (typeof m.data === 'object' && m.data !== null)
-                        this.record(m.data, m.run);
+                        this.record({ ...m.data, from: id }, m.run,
+                                    data.length);
                     break;
 
                 /* A line of text, to everyone in the room and back to its
@@ -725,7 +1067,8 @@ class Room
                     chatTokens--;
 
                     const line = { type: 'chat', channel: m.channel, from: id,
-                                   name: me.name, text };
+                                   name: me.name,
+                                   account: this.isAccount(me), text };
 
                     if (typeof m.bar === 'string' &&
                         /^\d{1,6}\.\d{1,2}$/.test(m.bar))
@@ -770,7 +1113,9 @@ class Room
                         .then(async (hash) =>
                         {
                             const line = { type: 'switched', from: id,
-                                           name: me.name, piece, hash };
+                                           name: me.name,
+                                           account: this.isAccount(me),
+                                           piece, hash };
 
                             send(line);
                             others(line);
@@ -821,12 +1166,18 @@ class Room
             }
         });
 
-        ws.on('close', () =>
+        /* Gone from the room: at the close, or at once when the session
+           ends. */
+        const leave = () =>
         {
-            if (id === null)
-                return;
+            clearInterval(ticketing);
 
             const me = this.peers.get(id);
+
+            if (id === null || me?.ws !== ws)
+                return;
+
+            this.revoke(me);
 
             if (me?.seat !== null && me?.seat !== undefined)
                 this.seats.delete(me.seat);
@@ -835,9 +1186,15 @@ class Room
             others({ type: 'left', peer: id });
             others({ type: 'seats', seats: seatMap() });
             this.touch();
-        });
+        };
 
+        ws.on('close', () =>
+        {
+            this.leaving.delete(ws);
+            leave();
+        });
         ws.on('error', () => ws.close());
+        this.leaving.set(ws, leave);
     }
 
     touch ()
@@ -862,11 +1219,32 @@ class Room
     }
 }
 
-/* The server. Resolves with it listening; `address().port' says where. */
+/* The server. Resolves with it listening; `address().port' says where.
+   `db' is the accounts' file, or ':memory:'; `corsOrigin' and
+   `trustProxy' are accountRoutes'. The two times are for a harness. */
 export function relay ({ port = 8787, host = '0.0.0.0',
-                         tree = path.join(here, '..', '..') } = {})
+                         tree = path.join(here, '..', '..'), db = ':memory:',
+                         corsOrigin = null, trustProxy = 0,
+                         ticketMs = TICKET_MS, heartbeatMs = HEARTBEAT_MS,
+                         sessionCheckMs = SESSION_CHECK_MS } = {})
 {
     const rooms = new Map();
+    const tickets = new Map();          /* ticket -> { room, peer, until } */
+    const store = new AccountStore(db, { busyMs: STORE_BUSY_MS });
+
+    /* Sessions ended over HTTP: one, or all of an account's but one. */
+    const accounts = new Accounts({
+        store,
+        onSessionsEnded: (ended, why) =>
+        {
+            for (const r of rooms.values())
+                r.endSessions(ended.session !== undefined
+                    ? (a) => a.sessionHash === ended.session
+                    : (a) => a.id === ended.account &&
+                             a.sessionHash !== ended.except, why);
+        },
+    });
+    const api = accountRoutes(accounts, { corsOrigin, trustProxy });
 
     const room = (name, seedWith) =>
     {
@@ -874,7 +1252,9 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
         if (r === undefined)
         {
-            r = new Room(name, seedWith, tree);
+            r = new Room(name, seedWith, tree,
+                         { accounts, tickets, ticketMs,
+                           sessions: corsOrigin !== null });
             rooms.set(name, r);
         }
 
@@ -885,12 +1265,24 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     {
         const url = new URL(req.url, 'http://localhost');
 
+        /* Accounts are for the page at CORS_ORIGIN; without one there is
+           no such page, and no accounts at all. */
+        if (url.pathname.startsWith(`${ACCOUNT_API}/`) && corsOrigin !== null)
+        {
+            api(req, res);
+            return;
+        }
+
         if (url.pathname === '/')
         {
             res.writeHead(200, { 'Content-Type': 'application/json',
                                  'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify({
                 thinksynth: 'relay', protocol: PROTOCOL,
+
+                /* Only a page at CORS_ORIGIN can use them, so without it
+                   there are none to offer. */
+                accounts: corsOrigin !== null,
                 rooms: [...rooms].map(([name, r]) =>
                     ({ name, peers: r.peers.size, piece: pieceName(r.doc),
                        playing: r.playing !== null })),
@@ -901,9 +1293,27 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         res.writeHead(404).end();
     });
 
-    const wss = new WebSocketServer({ noServer: true });
+    const roomWss = new WebSocketServer({ noServer: true,
+                                          maxPayload: ROOM_FRAME_MAX });
+    const docWss = new WebSocketServer({ noServer: true,
+                                         maxPayload: DOC_FRAME_MAX });
 
+    /* Nothing a client sends may throw out of here: an exception in an
+       upgrade listener is the whole process. */
     server.on('upgrade', (req, socket, head) =>
+    {
+        try
+        {
+            upgrade(req, socket, head);
+        }
+        catch (e)
+        {
+            process.stderr.write(`relay: upgrade failed: ${e.stack}\n`);
+            socket.destroy();
+        }
+    });
+
+    const upgrade = (req, socket, head) =>
     {
         const url = new URL(req.url, 'http://localhost');
         const m = /^\/(doc|room)\/([A-Za-z0-9_.-]{1,64})$/.exec(url.pathname);
@@ -915,23 +1325,89 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         }
 
         /* The piece a new room is seeded with is named in the query,
-           and only counts for the first socket to reach the room. */
+           and only counts for the first socket to reach the room. An
+           empty one seeds nothing: a page joining again a room the relay
+           has lost brings the document itself. */
         const seedWith = url.searchParams.get('piece') ?? DEFAULT_PIECE;
+        const given = url.searchParams.get('ticket');
+        const ticket = m[1] === 'doc' ? tickets.get(given) : null;
+
+        if (m[1] === 'doc' && !(ticket !== undefined &&
+                                ticket.room === rooms.get(m[2]) &&
+                                ticket.until > relayNow() &&
+                                ticket.peer.docs.size < DOCS_PER_PEER))
+        {
+            socket.end('HTTP/1.1 403 Forbidden\r\n' +
+                       'Connection: close\r\n\r\n');
+            return;
+        }
+
+        const wss = m[1] === 'doc' ? docWss : roomWss;
 
         wss.handleUpgrade(req, socket, head, (ws) =>
         {
-            const r = room(m[2], seedWith);
+            ws.alive = true;
+            ws.on('pong', () => { ws.alive = true; });
 
-            if (m[1] === 'doc')
-                r.attachDoc(ws);
-            else
-                r.attachRoom(ws);
+            try
+            {
+                /* The room socket may have gone while this one upgraded. */
+                if (m[1] === 'doc' && !tickets.has(given))
+                    ws.close();
+                else if (m[1] === 'doc')
+                    ticket.room.attachDoc(ws, ticket.peer);
+                else
+                    room(m[2], seedWith).attachRoom(ws);
+            }
+            catch (e)
+            {
+                process.stderr.write(`relay: upgrade failed: ${e.stack}\n`);
+                ws.terminate();
+            }
         });
-    });
+    };
 
-    /* Empty rooms go after an hour. */
+    const heartbeat = setInterval(() =>
+    {
+        for (const ws of [...roomWss.clients, ...docWss.clients])
+        {
+            if (!ws.alive)
+            {
+                ws.terminate();
+                continue;
+            }
+
+            ws.alive = false;
+            ws.ping();
+        }
+    }, heartbeatMs);
+
+    heartbeat.unref();
+
+    /* Sessions ended by the admin commands, which another process ran. */
+    const recheck = setInterval(() =>
+    {
+        try
+        {
+            for (const r of rooms.values())
+                r.endSessions((a) => accounts.sessionAccount(a) === null,
+                              'your session has ended; log in again');
+        }
+        catch (e)
+        {
+            process.stderr.write(`relay: checking sessions: ${e.message}\n`);
+        }
+    }, sessionCheckMs);
+
+    recheck.unref();
+
+    /* Empty rooms go after an hour, and lapsed tickets with them. */
     const sweep = setInterval(() =>
     {
+        for (const [t, { until }] of tickets)
+            if (until <= relayNow())
+                tickets.delete(t);
+
         for (const [name, r] of rooms)
             if (r.empty && relayNow() - r.emptySince > EMPTY_FOR)
             {
@@ -947,11 +1423,14 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     server.shutdown = () =>
     {
         clearInterval(sweep);
+        clearInterval(recheck);
+        clearInterval(heartbeat);
 
         for (const r of rooms.values())
             r.destroy();
 
         rooms.clear();
+        store.close();
         server.closeAllConnections?.();
         server.close();
     };
@@ -960,6 +1439,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         server.listen(port, host, () =>
         {
             server.rooms = rooms;
+            server.accounts = accounts;
             resolve(server);
         }));
 }
@@ -968,7 +1448,48 @@ if (process.argv[1] !== undefined &&
     import.meta.url === pathToFileURL(process.argv[1]).href)
 {
     const args = process.argv.slice(2);
-    const opts = {};
+
+    /* DB names the accounts' file; CORS_ORIGIN the page's origin, without
+       which there are no accounts; TRUST_PROXY how many proxies in front
+       append to X-Forwarded-For (1 behind nginx alone). */
+    const opts = { db: process.env.DB || path.join(here, 'relay.db'),
+                   corsOrigin: process.env.CORS_ORIGIN || null,
+                   trustProxy: Number(process.env.TRUST_PROXY ?? 0) };
+
+    if (args[0] === 'admin')
+    {
+        if (opts.db === ':memory:' || !fs.existsSync(opts.db))
+        {
+            process.stderr.write(`relay.mjs: no accounts at ${opts.db}; set ` +
+                                 `DB to the relay's file\n${ADMIN_USAGE}\n`);
+            process.exit(2);
+        }
+
+        const store = new AccountStore(opts.db);
+        const status = runAdmin(args.slice(1), store,
+                                (line) => process.stdout.write(`${line}\n`));
+
+        store.close();
+        process.exit(status);
+    }
+
+    /* An origin is what a browser sends in Origin, and nothing else: one
+       with a path or a slash after it matches no request at all, and `*'
+       would let any site spend its visitors' registrations here. */
+    if (opts.corsOrigin !== null &&
+        (!URL.canParse(opts.corsOrigin) ||
+         new URL(opts.corsOrigin).origin !== opts.corsOrigin))
+    {
+        process.stderr.write(`relay.mjs: CORS_ORIGIN is ${opts.corsOrigin}; ` +
+                             'it is scheme://host[:port], nothing after\n');
+        process.exit(2);
+    }
+
+    if (!(Number.isInteger(opts.trustProxy) && opts.trustProxy >= 0))
+    {
+        process.stderr.write('relay.mjs: TRUST_PROXY is a count of proxies\n');
+        process.exit(2);
+    }
 
     for (let i = 0; i < args.length; i++)
     {
@@ -981,7 +1502,8 @@ if (process.argv[1] !== undefined &&
         else
         {
             process.stderr.write(
-                'usage: relay.mjs [--port N] [--host ADDR] [--tree DIR]\n');
+                'usage: relay.mjs [--port N] [--host ADDR] [--tree DIR]\n' +
+                '       relay.mjs admin <command>\n');
             process.exit(2);
         }
     }
@@ -997,5 +1519,6 @@ if (process.argv[1] !== undefined &&
 
     process.stdout.write(`relay on ws://${a.address}:${a.port}/  ` +
                          `(rooms seeded from ${path.resolve(
-                             opts.tree ?? path.join(here, '..', '..'))})\n`);
+                             opts.tree ?? path.join(here, '..', '..'))}, ` +
+                         `accounts in ${opts.db})\n`);
 }
