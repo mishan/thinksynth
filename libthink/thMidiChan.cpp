@@ -1299,6 +1299,28 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
         return play;
     }
 
+    /* A voice ends at the sample its `play' falls to 0, not at the end of
+       the window that sample is in: one sample a window, that is where it
+       is retired, and a voice must sound the same at any window. The rest
+       of `play' is zeroed so that the loops in process() retire it on its
+       last sample, as they would have one window at a time. */
+    int end = windowlength_;
+
+    for (int j = 0; play != NULL && j < windowlength_; j++)
+    {
+        if ((*play)[j] == 0)
+        {
+            end = j + 1;
+            break;
+        }
+    }
+
+    if (end < windowlength_ && play->len() >= (unsigned)windowlength_)
+    {
+        memset(play->values() + end, 0,
+               (windowlength_ - end) * sizeof(float));
+    }
+
     const bool fading = note->fading();
 
     /* channels_ is clamped to TH_MAX_CHANNELS in the constructor, which is what
@@ -1326,7 +1348,7 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
                the same number at the same sample and the image does not move
                while it goes. The window is charged against the ramp once,
                by the loop in process() that owns fading_. */
-            for (int j = 0; j < windowlength_; j++)
+            for (int j = 0; j < end; j++)
             {
                 output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
                                   note->level() * note->fadeGain(j);
@@ -1335,7 +1357,7 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
         }
         else
         {
-            for (int j = 0; j < windowlength_; j++)
+            for (int j = 0; j < end; j++)
             {
                 output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
                                   note->level();
