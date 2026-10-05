@@ -13,8 +13,9 @@
 #
 #   THE TAPE ITSELF saturates, lifts the low end with the head bump
 #   around 90 Hz, loses the top above `Tone', and hisses. The saturation
-#   is divided back down by `Drive', so a quiet passage keeps its level
-#   and only the peaks are rounded.
+#   and the bump are divided back down by `Drive', so a quiet passage
+#   keeps its level and only the peaks are rounded. The hiss never stops,
+#   as on a real tape, so a render waits out its full tail.
 #
 #   DROPOUTS are where the oxide is worn: now and then the level and the
 #   top fall for a moment. A slower drift is the wear under the head;
@@ -22,6 +23,9 @@
 #
 # `Age' turns wow, flutter, hiss and dropouts up and down together; each
 # of their own knobs is how much of it a fully worn tape has.
+#
+# THERE IS NO MIX. The wow delays the tape by a moving amount, so the dry
+# signal beside it would comb-filter, with the notch sweeping.
 
 name "Cassette";
 author "Misha Nasledov";
@@ -82,20 +86,14 @@ category "Effects";
     @dropouts.max = 1;
     @dropouts.label = "Dropouts";
 
-    @mix = 1;
-    @mix.widget = 1;
-    @mix.min = 0;
-    @mix.max = 1;
-    @mix.label = "Mix";
-
 node ionode {
     channels = 2;
 
     in0 = 0;
     in1 = 0;
 
-    out0 = mixl->out;
-    out1 = mixr->out;
+    out0 = tonel->out_low * (1 - 0.7 * dip->out);
+    out1 = toner->out_low * (1 - 0.7 * dip->out);
 };
 
 # The read point, in samples behind the write: far enough back that the
@@ -114,7 +112,7 @@ node wear misc::drift {
     seed = 2;
 };
 
-# 0 on good tape, rising to 1 within a fifth of the drift's range past
+# 0 on good tape, rising to 1 within a tenth of the drift's range past
 # the threshold.
 node dip math::clamp {
     in = ((wear->out - 1) + 0.6 * @age * @dropouts) * 5;
@@ -173,12 +171,12 @@ node hissr osc::noise {
 };
 
 node tapel math::add {
-    in0 = hotl->out / @drive + bumpl->out_band * @bump;
+    in0 = hotl->out / @drive + bumpl->out_band * @bump / @drive;
     in1 = hissl->out * @age * @hiss;
 };
 
 node taper math::add {
-    in0 = hotr->out / @drive + bumpr->out_band * @bump;
+    in0 = hotr->out / @drive + bumpr->out_band * @bump / @drive;
     in1 = hissr->out * @age * @hiss;
 };
 
@@ -192,18 +190,6 @@ node toner filt::svf {
     in = taper->out;
     cutoff = @tone * (1 - 0.7 * dip->out);
     res = 0;
-};
-
-node mixl mixer::fade {
-    in0 = ionode->in0;
-    in1 = tonel->out_low * (1 - 0.7 * dip->out);
-    fade = @mix;
-};
-
-node mixr mixer::fade {
-    in0 = ionode->in1;
-    in1 = toner->out_low * (1 - 0.7 * dip->out);
-    fade = @mix;
 };
 
 io ionode;

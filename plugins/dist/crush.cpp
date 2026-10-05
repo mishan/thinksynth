@@ -126,10 +126,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const float steps = powf(2, fmaxf(bits, 1) - 1);
 
-            y = roundf(y * steps) / steps;
+            y = thClampArg(roundf(y * steps) / steps, TH_MIN, TH_MAX);
         }
 
-        out[i] = thClampArg(y, TH_MIN, TH_MAX);
+        out[i] = y;
     }
 
     memcpy(state, st, sizeof(st));
