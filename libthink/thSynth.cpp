@@ -90,6 +90,7 @@ thSynth::thSynth (int windowlen, int samples)
     }
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
+    tempo_ = 120;
 
     silent_ = false;
     pool_ = true;
@@ -147,6 +148,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     }
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
+    tempo_ = 120;
 
     silent_ = false;
     pool_ = true;
@@ -158,6 +160,13 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     controllerHandler_ = new thMidiController();
 
     claimInstance();
+}
+
+void thSynth::setTempo (float bpm)
+{
+    /* A floor, or a beat in samples overflows to inf. */
+    if (bpm >= 1 && thIsFinite(bpm))
+        __atomic_store(&tempo_, &bpm, __ATOMIC_RELAXED);
 }
 
 thSynth::~thSynth (void)

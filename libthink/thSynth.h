@@ -271,6 +271,21 @@ public:
         return gain;
     }
 
+    /* The piece's tempo in beats per minute, for misc::tempo: what a graph
+     * times a synced delay or LFO by. Written by the scheduler and read by
+     * the audio thread, relaxed for the reason masterGain is. 120 until a
+     * scheduler sets one; anything under 1 is ignored. */
+    void setTempo (float bpm);
+
+    float tempo (void) const
+    {
+        float bpm;
+
+        __atomic_load(&tempo_, &bpm, __ATOMIC_RELAXED);
+
+        return bpm;
+    }
+
     int midiChanCount (void) const { return midiChannelCnt_; }
 
     /* A chanarg by name. `fx.<name>' reaches the channel effect's, anything
@@ -555,6 +570,7 @@ private:
     int channels_;  /* Number of channels (mono/stereo/etc) */
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */
+    float tempo_;       /* see setTempo(); accessed atomically */
     long sampleRate_; /* the number of samples per second*/
 
     bool silent_;               /* see setSilent()                     */

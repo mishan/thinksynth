@@ -508,6 +508,10 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     sched->stop();
     sched->clearChains();
 
+    /* The hosts load every piece into one scheduler, and a piece with no
+       `tempo' line is at the default, not at the last piece's. */
+    sched->setTempo(120);
+
     if (!lex(path, tokens_))
         return false;
 

@@ -3892,6 +3892,9 @@ thcScheduler::setTempo (double bpm)
         tempoAt_ = transportNow_;
         tempo_ = bpm;
 
+        if (synth_ != NULL)
+            synth_->setTempo((float)bpm);
+
         /* A beat-valued chain start follows the clock until its first
            tick. Once the generator has begun, its own schedule owns it. */
         bool moved = false;

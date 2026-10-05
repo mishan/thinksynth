@@ -19,6 +19,9 @@
 # it resolves as a one-window delay -- so what it sounded like would
 # depend on the window length, which is the one thing a .dsp may not do.
 # The repeats therefore darken together rather than one after another.
+#
+# `Sync' above 0 times the delay in beats of the piece's tempo instead:
+# 0.75 is the dotted eighth, and the echo follows a tempo change.
 
 name "Echo";
 author "Misha Nasledov";
@@ -31,11 +34,21 @@ category "Effects";
     @delay.max = 2000ms;
     @delay.label = "Delay";
 
+    @beats = 0;
+    @beats.widget = 1;
+    @beats.min = 0;
+    @beats.max = 4;
+    @beats.label = "Sync (beats, 0 is off)";
+
     @spread = 1.5;
     @spread.widget = 1;
     @spread.min = 0.25;
     @spread.max = 4;
     @spread.label = "Right Delay x";
+
+    # The ring. Not a knob: the taps are clamped to it, because a synced
+    # delay at a slow tempo can ask for more and would wrap.
+    @ring = 8000 ms;
 
     @feedback = 0.45;
     @feedback.widget = 1;
@@ -68,22 +81,30 @@ node ionode {
     out1 = mixr->out;
 };
 
+node tempo misc::tempo { };
+
+# `Delay' while `Sync' is 0, and `Sync' beats once it is above it.
+node time math::add {
+    in0 = @delay;
+    in1 = (tempo->beat * @beats - @delay) * clamp(@beats * 1000000, 0, 1);
+};
+
 # One ring per side, each long enough for the longest `delay' the
 # control offers, times the widest `spread'. The right side is offset
 # so the two do not arrive together -- one expression rather than a
 # math::mul node.
 node echol delay::echo {
     in = ionode->in0;
-    size = 8000 ms;
-    delay = @delay;
+    size = @ring;
+    delay = min(time->out, @ring - 1);
     feedback = @feedback;
     dry = 0;
 };
 
 node echor delay::echo {
     in = ionode->in1;
-    size = 8000 ms;
-    delay = @delay * @spread;
+    size = @ring;
+    delay = min(time->out * @spread, @ring - 1);
     feedback = @feedback;
     dry = 0;
 };

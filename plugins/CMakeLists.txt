@@ -51,7 +51,7 @@ think_add_plugin_category(math     add sub mul div sin
 
 think_add_plugin_category(misc     latch noisegate midi2freq midi2range
                                    freq2samples print decibel slew vibrato
-                                   drift)
+                                   drift tempo)
 
 think_add_plugin_category(mixer    add fade mul pan)
 

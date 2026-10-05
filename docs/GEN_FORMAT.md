@@ -27,7 +27,7 @@ author "Misha Nasledov";
 description "In the spirit of Music for Airports 2/1.";
 category "Start here";          # optional; where a menu files it
 
-tempo 60;                       # optional; only clocked stages need it
+tempo 60;                       # optional; clocked stages and misc::tempo read it
 seed 1978;                      # optional; present means replayable
 
 @density = 0.85;                # a piece knob -- same syntax, same
