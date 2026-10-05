@@ -170,7 +170,7 @@ public:
        reads it to reach the effect's chanargs; the audio thread runs it. */
     thChanEffect *effect (void) const { return effect_; }
 
-    /* `beats' values in the patch and its effect to `bpm'. See
+    /* `beats' values in the patch to `bpm'. GUI thread; see
        thSynthTree::retempo. */
     void retempo (double bpm);
 

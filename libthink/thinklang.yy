@@ -996,8 +996,11 @@ thArith (thParseContext *ctx, YYSTYPE *out, int op,
      * multiplication, so scaling the literal and folding it is exactly
      * folding it and scaling the result, and the unit can ride along.
      * Nothing else keeps one: a sum has none this grammar can name, a unit
-     * in a denominator is not a unit it has, and a signal is not folded. */
+     * in a denominator is not a unit it has, and a signal is not folded.
+     * Nor does a gain in dB or a ratio in cents, whose folds are not a
+     * multiplication: `2 * 3 dB' would quietly be 6 dB. */
     if (a->expr == NULL && b->expr == NULL &&
+        !thUnitIsLogarithmic(a->units) && !thUnitIsLogarithmic(b->units) &&
         ((op == '*' && (a->units == NULL) != (b->units == NULL)) ||
          (op == '/' && a->units != NULL && b->units == NULL)))
     {

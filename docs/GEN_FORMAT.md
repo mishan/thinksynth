@@ -195,7 +195,8 @@ chanarg was *declared* with and at the rate the synth is actually running. The
 unit has to measure what that declaration measures: any of `ms`, `s` and
 `beats` on an arg written as a duration, `%` on one written as a percentage,
 `dB` and `cents` on their own, and a bare number on everything else. A value in
-`beats` folds at the piece's tempo. A unit where none belongs is refused, and so
+`beats` folds at the piece's tempo and follows it when it changes; one in `ms`
+or `s` stays where it was put, whatever the `.dsp` declared. A unit where none belongs is refused, and so
 is a bare number where one does — the same rule §2 applies to a stage's
 durations, for the same reason.
 

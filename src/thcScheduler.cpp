@@ -1200,6 +1200,24 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
             return false;
         }
 
+        /* What the piece wrote in `beats' follows the tempo, and what it
+           wrote in ms or s does not, whatever the .dsp declared. On the mix
+           the names carry no prefix. */
+        {
+            const bool fx = inst.channel >= 0 &&
+                a.name.compare(0, strlen(TH_EFFECT_PREFIX),
+                               TH_EFFECT_PREFIX) == 0;
+            thChanEffect *e = inst.channel < 0 ? synth_->getMasterEffect()
+                            : fx ? synth_->getEffect(inst.channel) : NULL;
+            thMidiChan *c = (inst.channel >= 0 && !fx)
+                ? synth_->getChannel(inst.channel) : NULL;
+            thSynthTree *tree = e ? e->tree() : c ? c->modnode() : NULL;
+
+            if (tree)
+                tree->followTempo(fx ? a.name.substr(strlen(TH_EFFECT_PREFIX))
+                                     : a.name, a.units == "beats");
+        }
+
         if (a.knob.empty())
         {
             arg->setValue((float)thFoldUnit(a.value, a.units,

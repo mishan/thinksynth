@@ -324,6 +324,9 @@ static bool formatLiteral (double value, const string &units, string &out)
 
     const double literal = removeUnits(value, units);
 
+    if (!std::isfinite(literal))
+        return false;
+
     /* Shortest decimal that comes back as the same float.
      *
      * Writing the value out at full precision looks safe and is not: the value
@@ -345,7 +348,7 @@ static bool formatLiteral (double value, const string &units, string &out)
         {
             /* A tiny value that rounded away to nothing is not the same
                number, whatever the float comparison says about zero. */
-            if (value != 0.0 && atof(cand.c_str()) == 0.0)
+            if (literal != 0.0 && atof(cand.c_str()) == 0.0)
                 continue;
 
             out = cand;
@@ -404,7 +407,9 @@ static bool parseRhs (const string &rhs, double &out)
     else if (!namedConstant(s, literal))
         return false;
 
-    out = sign * applyUnits(literal, units);
+    /* The sign is the author's number's, so it goes on before the fold:
+       `-6 dB' is a gain of a half, not minus two. */
+    out = applyUnits(sign * literal, units);
 
     return true;
 }

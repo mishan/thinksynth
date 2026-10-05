@@ -364,6 +364,30 @@ void thSynthTree::foldUnits (long sampleRate, double bpm)
     unitFolds_.clear();
 }
 
+void thSynthTree::followTempo (const string &chanarg, bool beats)
+{
+    for (size_t i = 0; i < beatFolds_.size(); i++)
+    {
+        if (beatFolds_[i].node.empty() && beatFolds_[i].arg == chanarg &&
+            beatFolds_[i].field == thUnitFold::VALUE)
+        {
+            if (!beats)
+                beatFolds_.erase(beatFolds_.begin() + i);
+
+            return;
+        }
+    }
+
+    if (beats)
+    {
+        thBeatFold b;
+
+        b.arg = chanarg;
+        b.field = thUnitFold::VALUE;
+        beatFolds_.push_back(b);
+    }
+}
+
 void thSynthTree::retempo (double bpm, const thArgMap &chanargs)
 {
     if (beatFolds_.empty() || bpm == beatsAt_ || bpm <= 0)
@@ -393,7 +417,7 @@ void thSynthTree::retempo (double bpm, const thArgMap &chanargs)
         case thUnitFold::VALUE:
             /* A value only: an arg since wired to a node has nothing of
                its own to scale. */
-            if (arg->len() == 1 && arg->argPtr() == NULL)
+            if (arg->type() == thArg::ARG_VALUE)
                 arg->setValue((float)((*arg)[0] * ratio));
             break;
 

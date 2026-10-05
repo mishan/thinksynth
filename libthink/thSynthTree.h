@@ -206,9 +206,14 @@ public:
     /* Every value written in `beats' scaled from the tempo it was at to
        `bpm', so a knob moved since the load keeps its place in beats.
        Chanargs are looked up in `chanargs', the copy the channel or effect
-       plays from. Audio thread, once a window; nothing to do unless the
-       tempo moved. Voices already sounding keep the tempo they started at. */
+       plays from. GUI thread, from thSynth::setTempo. A voice already
+       sounding keeps its node args from its start and reads chanargs as
+       they are now. */
     void retempo (double bpm, const thArgMap &chanargs);
+
+    /* A chanarg a piece wrote in `beats' (or stopped writing in them),
+       so it follows the tempo whatever the .dsp declared it in. */
+    void followTempo (const string &chanarg, bool beats);
 
     void process (unsigned int windowlen);
     void setActiveNodes(void);
@@ -329,7 +334,7 @@ private:
 
     /* Not copied either: a voice takes its values from the prototype at
        its start, and only the prototype follows the tempo. */
-    std::vector<thBeatFold> beatFolds_;
+    std::vector<thBeatFold> beatFolds_;   /* GUI thread */
     double                  beatsAt_;
 
     /* Empty except between the parse and desugarExprs(), and not copied, for

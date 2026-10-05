@@ -53,13 +53,16 @@
  * function is that a caller can hand it any unit string, including one
  * the author wrote as a label (`@x.units = "Hz"'), and get back something
  * sensible. A unit nothing folded is a unit nothing should unfold.
+ *
+ * The rest are words written after a number, `2 s', `-6 dB', and fold as
+ * their names say: `s' to samples like `ms'; `dB' to a linear gain;
+ * `cents' to a frequency ratio; `beats' to samples at the piece's tempo.
+ * `Hz' is not folded at all, only kept so the editor shows it back.
+ * `beats' is the one that moves after load -- see thSynthTree::retempo --
+ * which is why it takes a tempo as `ms' takes a rate. A gain or a ratio
+ * of zero unfolds to a floor rather than an infinity a slider cannot end
+ * at.
  */
-/* The rest are words written after a number, `2 s', `-6 dB', and fold
- * as their names say: `s' to samples like `ms'; `Hz' to itself, kept so
- * the editor shows it back; `dB' to a linear gain; `cents' to a frequency
- * ratio; `beats' to samples at the piece's tempo. `beats' is the one that
- * moves after load -- see thSynthTree::refoldBeats -- which is why it
- * takes a tempo as `ms' takes a rate. */
 inline double
 thFoldUnit (double literal, const std::string &units, long sampleRate,
             double bpm = 120)
@@ -99,10 +102,10 @@ thUnfoldUnit (double value, const std::string &units, long sampleRate,
         return sampleRate ? value / (double)sampleRate : value;
 
     if (units == "dB")
-        return value > 0 ? 20.0 * log10(value) : -INFINITY;
+        return value > 0 ? fmax(20.0 * log10(value), -144.0) : -144.0;
 
     if (units == "cents")
-        return value > 0 ? 1200.0 * log2(value) : -INFINITY;
+        return value > 0 ? fmax(1200.0 * log2(value), -12000.0) : -12000.0;
 
     if (units == "beats")
         return sampleRate ? value * bpm / (60.0 * (double)sampleRate)
@@ -133,7 +136,17 @@ thUnitWord (const std::string &word)
 inline bool
 thUnitIsFolded (const std::string &units)
 {
-    return units == "ms" || units == "%" || thUnitWord(units) != NULL;
+    return units == "ms" || units == "%" ||
+           (thUnitWord(units) != NULL && units != "Hz");
+}
+
+/* True for the units whose fold is not a multiplication, so that a number
+ * carrying one cannot be scaled before the fold as `ms' can. */
+inline bool
+thUnitIsLogarithmic (const char *units)
+{
+    return units != NULL && (std::string(units) == "dB" ||
+                             std::string(units) == "cents");
 }
 
 /* What a unit measures, so `2 s', `2000 ms' and `4 beats' can stand in for

@@ -65,6 +65,8 @@
 #include "think.h"
 #include "NodeGraph.h"
 #include "NodeEdit.h"
+#include "thUtil.h"
+#include "thUnits.h"
 
 using std::string;
 using std::vector;
@@ -83,8 +85,6 @@ static void fail (const string &what, const string &detail)
     failed++;
 }
 
-/* Not "/tmp/...", for the reason argtype spells out: this is a CTest gate and
-   the Windows runner has no such directory. */
 static void okOrFail (bool good, const string &what, const string &detail)
 {
     if (good)
@@ -93,6 +93,8 @@ static void okOrFail (bool good, const string &what, const string &detail)
         fail(what, detail);
 }
 
+/* Not "/tmp/...", for the reason argtype spells out: this is a CTest gate and
+   the Windows runner has no such directory. */
 static string scratchPath (const char *leaf)
 {
     std::error_code ec;
@@ -528,6 +530,7 @@ int main (int argc, char **argv)
             { "2 s",     44100,                  "1 s;" },
             { "1 beats", 11025,                  "0.5 beats;" },
             { "-6 dB",   0.25,                   "dB;" },
+            { "-6 dB",   1,                      " 0 dB;" },
             { "7 cents", 2,                      "1200 cents;" },
         };
 
@@ -548,12 +551,35 @@ int main (int argc, char **argv)
         }
     }
 
+    /* A label edit on a control in dB leaves its number alone, sign and
+       all; `2 * 3 dB' is refused; and `Hz' is a label, not a fold. */
+    {
+        string text = wrap("@g = -6 dB;\n", "node osc osc::simple {\n"
+                                            "    mul = @g;\n};\n");
+        string why;
+        float got = 0;
+        int nodes = 0;
+
+        okOrFail(NodeEdit::Text::setControlMeta(text, "g", 0, 1, "Gain", "",
+                                                why) == NodeEdit::OK &&
+                 text.find("@g = -6 dB;") != string::npos,
+                 "a label edit keeps `-6 dB' as written", text);
+        okOrFail(refused(synth, wrap("", "node osc osc::simple {\n"
+                                         "    mul = 2 * 3 dB;\n};\n")),
+                 "`2 * 3 dB' is refused", "it loaded");
+        okOrFail(argValue(synth, wrap("", "node osc osc::simple {\n"
+                                          "    freq = 440 Hz;\n};\n"),
+                          "osc", "freq", got, nodes) && got == 440 &&
+                 !thUnitIsFolded("Hz"),
+                 "`440 Hz' is 440, and Hz is a label", "");
+    }
+
     /* ---- `beats' follow the tempo ----------------------------------------- */
 
     /* A chanarg and a node arg, loaded at 120 and played at 60: both twice
        as many samples, the chanarg in the copy the channel plays from. */
     {
-        const string file = scratchPath("exprcheck-beats.dsp");
+        const string file = thUtil::tempFile("exprcheck-beats-");
 
         thSynth beats(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
         thSynthTree *tree = NULL;

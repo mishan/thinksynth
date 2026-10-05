@@ -4172,6 +4172,16 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
                     fail("the effect's 0.5 beats did not land as 250 ms at "
                          "the synth's rate");
 
+                /* And, written in beats, it follows the tempo though
+                   echo.dsp declares it in ms. */
+                synth->setTempo(60);
+
+                if (fabs((*delay)[0] - 2 * want) > 1.0)
+                    fail("the effect's 0.5 beats did not follow the tempo "
+                         "to 60");
+
+                synth->setTempo(120);
+
                 if (fabs((*mix)[0] - 0.5) > 1e-6)
                     fail("the effect's plain number did not land");
 

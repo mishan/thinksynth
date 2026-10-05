@@ -165,8 +165,25 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 void thSynth::setTempo (float bpm)
 {
     /* A floor, or a beat in samples overflows to inf. */
-    if (bpm >= 1 && thIsFinite(bpm))
-        __atomic_store(&tempo_, &bpm, __ATOMIC_RELAXED);
+    if (!(bpm >= 1 && thIsFinite(bpm)))
+        return;
+
+    __atomic_store(&tempo_, &bpm, __ATOMIC_RELAXED);
+
+    /* `beats' follow it here, on the GUI thread, which owns the prototypes
+       and the chanarg maps: what the audio thread reads of them is a
+       single float a store reaches. */
+    for (int i = 0; i < midiChannelCnt_; i++)
+    {
+        if (guiChannels_[i])
+            guiChannels_[i]->retempo(bpm);
+
+        if (guiEffects_[i])
+            guiEffects_[i]->retempo(bpm);
+    }
+
+    if (guiMaster_)
+        guiMaster_->retempo(bpm);
 }
 
 thSynth::~thSynth (void)
@@ -2006,16 +2023,6 @@ void thSynth::process (void)
        silence setSilent() left in it. */
     if (silent_)
         return;
-
-    /* `beats' follow the tempo here, on the thread that owns the trees. */
-    const float bpm = tempo();
-
-    for (int i = 0; i < midiChannelCnt_; i++)
-        if (midiChannels_[i])
-            midiChannels_[i]->retempo(bpm);
-
-    if (master_)
-        master_->retempo(bpm);
 
     memset(output_, 0,
            thOutputSamples(channels_, windowlen_) * sizeof(float));

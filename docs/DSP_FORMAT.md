@@ -57,8 +57,10 @@ works in:
 
 `ms` is a keyword. The others are words only straight after a number, so `s`
 is still every envelope's sustain. A value in `beats` follows a tempo change
-in the patch and its effect; a voice already sounding keeps the tempo it
-started at. The editor and the panels show each value back in its unit.
+in the patch and its effect: a `@chanarg` at once, even in a voice already
+sounding, and a node's own arg from the next note. A number in `dB` or
+`cents` cannot be scaled (`2 * 3 dB` is refused), since its fold is not a
+multiplication. The editor and the panels show each value back in its unit.
 
 ### Modulation is not a special case
 
