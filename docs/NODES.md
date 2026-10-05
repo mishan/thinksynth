@@ -137,6 +137,18 @@ Pitch shifter (two crossfaded read heads)
 | `buffer` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |
 
+### delay::varispeed
+
+Varispeed (a tape motor slowing and starting)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `speed` | in | How fast the playback runs: 1 is a wire, 0 stopped, above 1 catching up | 1 | 0 to 2 | ratio |  |
+| `out` | out | The input at that speed |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ## dist
 
 ### dist::clip

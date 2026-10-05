@@ -852,6 +852,8 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/dub.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/spring.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/autopan.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/tapestop.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/hall.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/chorus.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/ensemble.dsp"

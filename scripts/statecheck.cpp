@@ -4178,6 +4178,129 @@ static void checkEcho (const string &pluginPath)
                  "a window and at five hundred");
 }
 
+/* ---- delay::varispeed ---------------------------------------------------
+ *
+ * An 880 Hz sine through it, the speed a square: 1 for half a second, 0.5
+ * for the next, 1 again. At 1 it is a wire; at 0.5 the tone is an octave
+ * down; and back at 1 it is the input again once the crossfade to now has
+ * run, rather than half a second late for ever.
+ */
+static void checkVarispeed (const string &pluginPath)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, sq, half, sp, vs;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+    src.values.push_back(Value{ "freq", 880 });
+    src.values.push_back(Value{ "waveform", 0 });
+    spec.push_back(src);
+
+    sq.name = "sq";
+    sq.spelling = "osc/simple";
+    sq.values.push_back(Value{ "freq", 1 });
+    sq.values.push_back(Value{ "waveform", 2 });
+    spec.push_back(sq);
+
+    half.name = "half";
+    half.spelling = "math/mul";
+    half.values.push_back(Value{ "in1", 0.25f });
+    half.wires.push_back(Wire{ "in0", "sq", "out" });
+    spec.push_back(half);
+
+    sp.name = "sp";
+    sp.spelling = "math/add";
+    sp.values.push_back(Value{ "in1", 0.75f });
+    sp.wires.push_back(Wire{ "in0", "half", "out" });
+    spec.push_back(sp);
+
+    vs.name = "vs";
+    vs.spelling = "delay/varispeed";
+    vs.wires.push_back(Wire{ "in", "src", "out" });
+    vs.wires.push_back(Wire{ "speed", "sp", "out" });
+    spec.push_back(vs);
+
+    vector<Watch> watch;
+    vector< vector<float> > got;
+    string why;
+    const unsigned sr = TH_DEFAULT_SAMPLES;
+
+    watch.push_back(Watch{ "vs", "out" });
+    watch.push_back(Watch{ "src", "out" });
+    watch.push_back(Watch{ "sp", "out" });
+
+    if (!render(pluginPath, spec, watch, 256, 3 * sr / 2, got, why))
+    {
+        fail("delay::varispeed renders", why);
+        return;
+    }
+
+    /* Where the speed is 1 and has been for 20 ms, the output is the
+       input; and where it is 0.5, past the first 0.1 s of it, it is not. */
+    double worst = 0;
+    size_t slow = 0;
+
+    for (size_t i = sr / 25; i < got[0].size(); i++)
+    {
+        bool steady = true;
+
+        for (size_t k = i - sr / 50; k <= i && steady; k += 64)
+            steady = got[2][k] > 0.999f;
+
+        /* And twenty more for the wait at 1 and the crossfade. */
+        for (size_t k = i >= sr / 25 ? i - sr / 25 : 0; k <= i && steady;
+             k += 64)
+            steady = got[2][k] > 0.999f;
+
+        if (steady && got[2][i] > 0.999f)
+            worst = fmax(worst, fabs(got[0][i] - got[1][i]));
+        else if (slow == 0 && got[2][i] < 0.6f)
+            slow = i;
+    }
+
+    okOrFail(worst < 1e-6,
+             "delay::varispeed: at speed 1 it is the input, before the slow "
+             "half second and once it has crossfaded back after it",
+             "off by " + num(worst));
+
+    const double down = bin(got[0], slow + sr / 10, sr / 4, 440);
+    const double up = bin(got[0], slow + sr / 10, sr / 4, 880);
+
+    okOrFail(slow > 0 && down > up * 10,
+             "delay::varispeed: at half speed an 880 Hz tone is at 440",
+             "440 " + num(down) + ", 880 " + num(up));
+
+    /* A head held all but stopped for twelve seconds is silent, rather
+       than the input from ten seconds ago played at full speed once the
+       ring has run out. */
+    {
+        vector<NodeSpec> held = spec;
+
+        held.resize(1);
+        NodeSpec v = spec.back();
+
+        v.wires.pop_back();
+        v.values.push_back(Value{ "speed", 0.05f });
+        held.push_back(v);
+
+        vector<float> out;
+        string why2;
+        const bool rendered = render1(pluginPath, held, "vs", "out", 256,
+                                      12 * sr, out, why2);
+        const double tail = rendered
+            ? peak(vector<float>(out.end() - sr, out.end()), 0) : 1;
+
+        okOrFail(rendered && tail < 1e-6,
+                 "delay::varispeed: a head more than ten seconds behind is "
+                 "silent", rendered ? "last second's peak " + num(tail)
+                                    : why2);
+    }
+
+    windowsAgree(pluginPath, spec, "vs", "out",
+                 "delay::varispeed: the same at one sample a window and at "
+                 "five hundred");
+}
+
 static void checkBlep (const string &pluginPath)
 {
     const struct { float wave, pw; const char *what; } shapes[] = {
@@ -8102,6 +8225,7 @@ int main (int argc, char **argv)
     checkSimple(pluginPath);
     checkBlep(pluginPath);
     checkEcho(pluginPath);
+    checkVarispeed(pluginPath);
     checkSpeak(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
