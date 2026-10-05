@@ -1170,6 +1170,23 @@ Square wave with sine-like transitions, proportional to the frequency
 | `pw` | in | Pulse width: how the flat time splits high to low |  | 0 to 1 |  |  |
 | `sw` | in | Edge length as a fraction of the cycle; 0.5 is all edge |  | 0.001 to 0.5 |  |  |
 
+### osc::speak
+
+Speech (formant synthesizer, ARPAbet)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | The pitch of the voice |  |  | Hz |  |
+| `say` | in | What to say: phoneme codes ending in 0, as `ionode->say' carries them. None sings AA |  |  |  |  |
+| `trigger` | in | Above 0 the key is down and the vowel is held; at 0 the rest of the syllable is said |  | 0 to 2 |  |  |
+| `rate` | in | How fast the phonemes go by; 1 is a natural pace | 1 | 0.25 to 4 | ratio |  |
+| `shift` | in | Every formant times this: 1 an adult male, 1.15 an adult female, under 0.8 a giant | 1 | 0.5 to 2 | ratio |  |
+| `buzz` | in | The source: 0 a glottal pulse, 1 a raw sawtooth |  | 0 to 1 |  |  |
+| `breath` | in | Aspiration under the voicing, for a whisper |  | 0 to 1 |  |  |
+| `out` | out | The voice |  | -1 to 1 | full scale |  |
+| `play` | out | 1 until the last phoneme has been said |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::static
 
 Produces Random Signal

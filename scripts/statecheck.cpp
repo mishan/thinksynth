@@ -4022,6 +4022,31 @@ static double meanOf (const vector<float> &v, size_t from)
     return sum / (double)(v.size() - from);
 }
 
+/* ---- osc::speak --------------------------------------------------------
+ *
+ * A held note that says nothing sings AA: the glide, the resonators, the
+ * glottal phase and the noise are all state, and every one of them has to
+ * come out the same whatever the window. What a note says is voicecheck's,
+ * which plays real notes.
+ */
+static void checkSpeak (const string &pluginPath)
+{
+    NodeSpec n;
+
+    n.name = "sp";
+    n.spelling = "osc/speak";
+    n.values.push_back(Value{ "freq", 110 });
+    n.values.push_back(Value{ "trigger", 1 });
+    n.values.push_back(Value{ "rate", 1 });
+    n.values.push_back(Value{ "shift", 1 });
+    n.values.push_back(Value{ "buzz", 0.3f });
+    n.values.push_back(Value{ "breath", 0.2f });
+
+    windowsAgree(pluginPath, vector<NodeSpec>(1, n), "sp", "out",
+                 "osc::speak: the same voice at one sample a window and at "
+                 "five hundred");
+}
+
 static void checkBlep (const string &pluginPath)
 {
     const struct { float wave, pw; const char *what; } shapes[] = {
@@ -7786,6 +7811,7 @@ int main (int argc, char **argv)
     checkFmop(pluginPath);
     checkSimple(pluginPath);
     checkBlep(pluginPath);
+    checkSpeak(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
     checkSampleZones(pluginPath);
