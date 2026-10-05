@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Thirty-nine `.gen` files, each of which is meant to be read as well as heard.
+Forty-one `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
 being impressive; the other eighteen are pieces first and lessons second. The
@@ -21,7 +21,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
-`anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `pearl.gen`,
+`anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `nightdrive.gen`, `pearl.gen`,
 `riviera.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
 else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
@@ -225,7 +225,7 @@ arriving in pieces, the note-level counterpart of `osc::grain`.
 
 ## The eighties
 
-Five pieces on the instruments the decade is made of, which the tree did not
+Six pieces on the instruments the decade is made of, which the tree did not
 have until recently: a phase-modulation operator (`osc::fmop`) and the DX
 graphs on it, a sampler (`osc::sample`) and a kit of this repository's own
 drums rendered to wavs, a string machine, a Juno pad, a clav, a vocoder, a
@@ -238,6 +238,7 @@ arrangement.
 | [`acetate.gen`](acetate.gen) | **A kit that is recordings, and an orchestra that is one note.** Nothing in it is synthesized at the moment you hear it: every drum is a recording of one of this tree's own drum graphs played back by `osc::sample` -- a machine playing short recordings, which is a LinnDrum -- and the chord answering the turnaround is one recording of `stab` and `brass` at C4, transposed by key, which is a Fairlight. The hit gets shorter as it climbs, because a sample read at `freq / root` frames is, and every record that used the sound has that property. The bass is the one voice that is *not* sampled, for the reason it was not then. |
 | [`boombox.gen`](boombox.gen) | **Electro, and a vocoder that needs two channels.** A string machine holds the chord and is the carrier; a ts1 line in sixteenths is the modulator and is never heard at all -- `fx/vocoder.dsp` sits on its channel and replaces everything it plays with sixteen bands of the carrier. `side = pads` is what makes that possible and is why the piece is here: an effect used to hear its own channel's sum and nothing else, so a vocoder could not be written. The modulator's `amp` is a drive rather than a volume, and both factors are amplitudes, so the staging is quadratic. |
 | [`outrun.gen`](outrun.gen) | **Synthwave, and why an arpeggiator is a `gen::` stage.** An `xform::` stage runs when an event passes through it and a `gen::` stage is woken by the transport, and an arpeggiator needs both -- it hears a chord once a bar and then has to put sixteen steps between that event and the next -- so `xform::arp` holds a chord it is never asked about and the channel is silent. The flanger is on the channel and not in the voice, through zero, so the sweep is on the figure rather than restarted by every note in it; the `Jet` knob is signed feedback, and the two signs are two different records. |
+| [`nightdrive.gen`](nightdrive.gen) | **Synthwave on one graph.** Bass, strings, brass and lead are all `analog.dsp`, set four ways, so what makes each part what it is reads as a list of chanargs. The lead is hard-synced -- its second oscillator restarts on every cycle of the first and the filter envelope sweeps it down -- and `osc::blep` corrects the restart as it does a wrap, so the sweep does not alias. Its echo is timed in beats through `misc::tempo`, so the dotted eighth survives the tempo control; the strings run through `fx/ensemble.dsp`, and the octave bass ducks under the kick through `fx/comp.dsp`'s `side`. |
 | [`riviera.gen`](riviera.gen) | **Italo disco.** Root and octave in eighths with `xform::accent` marking one step a beat, and `bass.dsp` turning a velocity over its threshold into filter envelope and resonance rather than level -- the 303's accent circuit, which is what makes the part sound played. The same walk on three chains again: a Solina whose ensemble chorus lives *inside* the voice because that is what the instrument is, and a clav on `.r.f.r.t`, eighths with the downbeats left out. The orchestra hit is a recording of this tree's own `stab` and `brass` at unison, one per eight bars from `euclid`'s `fill` pool -- which moves only on the cycles that fire, where a pool consumed every bar would land on the same pitch every time. |
 
 ## Disco
