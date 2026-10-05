@@ -262,8 +262,11 @@ jobs:
           mv kegstage /tmp/kegrelocated
           xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/kegrelocated/bin/thinksynth -G
 
+  # The heavier jobs wait for the gcc build, so a push that breaks it
+  # holds a single runner rather than a dozen while other PRs queue.
   asan:
     name: linux asan + ubsan
+    needs: linux
     runs-on: ubuntu-latest
 
     env:
@@ -347,6 +350,7 @@ jobs:
   # trees on is the whole of it.
   wasm-build:
     name: wasm (emscripten) build
+    needs: linux
     runs-on: ubuntu-latest
 
     env:
@@ -1047,6 +1051,7 @@ jobs:
 
   macos:
     name: macos (clang, arm64)
+    needs: linux
     # Sequoia rather than Sonoma, and the version is the whole point of the
     # line. Homebrew bottles per macOS release and drops the oldest as it
     # goes: as of 2026-09-19 glib, glibmm, gtk4, gtkmm4 and pangomm have
@@ -1158,6 +1163,7 @@ jobs:
 
   windows:
     name: windows (mingw-w64, ucrt64)
+    needs: linux
     runs-on: windows-latest
 
     defaults:
