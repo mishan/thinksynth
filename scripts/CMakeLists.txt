@@ -591,6 +591,19 @@ think_harness(dspedit   NODEMODEL)
 
 set(_runner "${PROJECT_SOURCE_DIR}/cmake/RunHarness.cmake")
 
+# The corpus one sample a window against the default: a graph sounds the
+# same at any buffer size, including what no single plugin can see -- two
+# nodes sharing a stream, a voice that ends partway through a window.
+add_test(NAME dspab.windows
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspab>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 "-DEXTRA_ARGS=-q -B 1"
+                 -P "${_runner}")
+
 add_test(NAME dspcheck.dsp
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspcheck>

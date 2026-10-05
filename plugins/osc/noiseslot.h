@@ -123,6 +123,22 @@ static inline void thNoiseRelease (const thPlugin *plugin)
 }
 
 /* The fallback, for a synth that found no slot of its own. */
+static inline unsigned thNoiseSharedBits (void);
+
+/* One draw from this synth's stream, to seed a node's own (plugins/dice.h).
+ * The synth's stream is drawn from only here, once per node, in the order
+ * nodes start -- which is the same at any window length, where drawing
+ * every sample from it was not. */
+static inline unsigned thNoiseSeed (thNoiseSlot *slot)
+{
+    if (slot == NULL)
+        return thNoiseSharedBits();
+
+    slot->state = thNoiseStep(slot->state);
+
+    return thNoiseBits(slot->state);
+}
+
 static inline unsigned thNoiseSharedBits (void)
 {
     unsigned s = thNoiseShared.load(std::memory_order_relaxed);
