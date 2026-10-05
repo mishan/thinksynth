@@ -1299,19 +1299,14 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
                 return false;
             }
 
-            if (arg == NULL)
+            /* An arg the graph leaves unset and one it sets to a number
+               look the same from here -- nothing says which of a plugin's
+               args take a name -- so one answer covers both. */
+            if (arg == NULL || arg->type() != thArg::ARG_TEXT)
             {
-                why = "'" + inst.dsp + "' writes nothing for '" + t.node +
-                      "." + t.arg + "'; a piece can only replace a name the "
-                      "graph already gives";
-                return false;
-            }
-
-            if (arg->type() != thArg::ARG_TEXT)
-            {
-                why = "'" + t.node + "." + t.arg + "' in '" + inst.dsp +
-                      "' is not a quoted name, so a piece cannot set it to "
-                      "one";
+                why = "'" + inst.dsp + "' gives '" + t.node + "." + t.arg +
+                      "' no quoted name, and a piece can only replace one "
+                      "the graph gives";
                 return false;
             }
 

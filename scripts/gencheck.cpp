@@ -7979,8 +7979,8 @@ checkInstrumentText (const std::map<std::string, thcPlugin *> &plugins,
 
     const struct { const char *line, *says; } refused[] = {
         { "nope.file = \"x.wav\";", "no node called 'nope'" },
-        { "smp.freq = \"x\";", "is not a quoted name" },
-        { "smp.file2 = \"x.wav\";", "writes nothing for 'smp.file2'" },
+        { "smp.freq = \"x\";", "gives 'smp.freq' no quoted name" },
+        { "smp.file2 = \"x.wav\";", "gives 'smp.file2' no quoted name" },
     };
 
     for (const auto &r : refused)
