@@ -8,9 +8,9 @@
 # in four graphs.
 #
 # THE LEAD IS HARD-SYNCED. Its second oscillator restarts on every
-# cycle of the first, a fifth up, and the filter envelope sweeps it two
-# octaves down over the note: the pitch stays put and the formant
-# falls, which is the sound. osc::blep corrects the restart the way it
+# cycle of the first, and the filter envelope sweeps it from two and a
+# half octaves above the note down to about a ninth: the pitch stays put
+# and the formant falls, which is the sound. osc::blep corrects the restart the way it
 # corrects a wrap, so the sweep does not alias its way down the keyboard.
 #
 # THE ECHO IS IN BEATS. fx/echo.dsp's `beats' times the delay from the
@@ -70,7 +70,7 @@ scale hook "E4 F4 G4 A4 B4 C5 D5 E5 F5 G5 A5";
 
 effect "fx/glue.dsp" {
     ceiling = 0.88;
-    makeup  = 4.5;
+    makeup  = 6;
 };
 
 # ---- instruments ------------------------------------------------------
@@ -126,7 +126,7 @@ instrument hat {
 
 instrument bass {
     dsp  "analog.dsp";
-    amp  = 34;
+    amp  = 40;
 
     wave1 = 0;  wave2 = 1;  semi2 = 0;  mix2 = 0.4;  pw = 0.5;
     sub = 0.5;  unison = 3;  spread = 0;  drift = 2;
@@ -136,6 +136,11 @@ instrument bass {
 
     effect "fx/comp.dsp" {
         side = kick;
+
+        threshold = -30;
+        ratio = 6;
+        attack = 3 ms;
+        release = 150 ms;
     };
 };
 
