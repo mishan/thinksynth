@@ -563,14 +563,22 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const float gainK = 1 - expf(-1000 / (GAIN_GLIDE_MS * rate));
     const float hushK = 1 - expf(-2 * (float)M_PI * 9000 / rate);
 
-    /* Once a window: `rate' moves the words' pace a window late at worst. */
+    /* Laid out again only at a sample where `rate' changes, so the pace
+       moves on the sample it is asked to, whatever the window. */
     Segment segs[MAX_SEGMENTS];
-    const int count = segments(codes, n,
-                               rate / 1000 / thClampArg((*in_rate)[0],
-                                                        0.25f, 4), segs);
+    float laidAt = -1;
+    int count = 0;
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
+        const float pace = thClampArg((*in_rate)[i], 0.25f, 4);
+
+        if (pace != laidAt)
+        {
+            count = segments(codes, n, rate / 1000 / pace, segs);
+            laidAt = pace;
+        }
+
         const bool held = (*in_trigger)[i] > 0;
         int seg = (int)st[S_SEGMENT];
         float target[P_COUNT];
