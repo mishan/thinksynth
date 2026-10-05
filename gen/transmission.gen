@@ -1,0 +1,242 @@
+# transmission.gen -- a machine that sings, in the manner of Dusseldorf.
+#
+# A hundred and twelve to the minute in A minor: an octave bass in
+# eighths, a string machine on the chords, a figure of blips arpeggiated
+# from them, an electronic kit, and a voice that is osc::speak -- a
+# formant synthesizer with its source turned most of the way to a
+# sawtooth, which is the Votrax rather than a throat.
+#
+# THE WORDS ARE A STAGE. The voice's chain is a melody like any other, a
+# depth-0 lsystem with ties, and xform::say puts a syllable on each of
+# its notes: `machines' is two notes, `binary' three. The phrase is
+# eighteen notes and the words are eighteen syllables, so they go round
+# together; a section that mutes the voice still runs the chain, so the
+# words do not fall out of step with the tune while it is silent.
+#
+# EACH VOWEL IS HELD FOR ITS NOTE. The consonants before it are spoken
+# at their own pace and the ones after it at the note's end, so `chines'
+# held for half a bar is CH, half a bar of IY, and the N and Z as the
+# note lets go.
+#
+# ONE VAMP, FOUR CHAINS. Am, F, C, G, a bar each: the bass spells them in
+# octaves, the strings hold them, the blips take them apart in
+# sixteenths, and the tune is written over them.
+#
+# Self-contained, and nothing in it rolls a die.
+
+name "Transmission";
+author "Misha Nasledov";
+description "A singing machine: osc::speak on a sung line with words from xform::say, an octave bass, a string machine, arpeggiated blips and an electronic kit.";
+category "The eighties";
+
+tempo 112;
+seed 1981;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro   8 bars { voice = 0;  snare = 0;  hats = 0;  blips = 0; };
+section verse  16 bars { };
+section bridge  8 bars { voice = 0;  blips = 1.2; };
+section again  16 bars { strings = 0.8; };
+section outro   8 bars { voice = 0;  kick = 0;  snare = 0; };
+section end;
+
+# The chords' roots, a bar each, and the bass's octaves of them.
+scale roots "A3 F3 C3 G3";
+scale octaves "A1 A2 F1 F2 C2 C3 G1 G2";
+scale amin "A2 B2 C3 D3 E3 F3 G3";
+
+# The tune's ladder: degree 0 is A3.
+scale tune "A3 B3 C4 D4 E4 F4 G4 A4";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/glue.dsp" {
+    ceiling = 0.88;
+    makeup  = 5.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kick808.dsp";
+    amp  = 16;
+
+    tune  = 52;
+    drop  = 0.5;
+    sweep = 40 ms;
+    decay = 450 ms;
+    click = 0.45;
+    drive = 1.3;
+};
+
+instrument snare {
+    dsp  "snare808.dsp";
+    amp  = 16;
+
+    tune   = 190;
+    ratio  = 1.83;
+    bd     = 80 ms;
+    snappy = 0.7;
+    tone   = 2200;
+    nd     = 140 ms;
+};
+
+instrument hat {
+    dsp  "hat808.dsp";
+    amp  = 11;
+
+    freq   = 800;
+    pmul   = 1.47;
+    spread = 320;
+    tone   = 7500;
+    res    = 0.2;
+    clen   = 30 ms;
+    olen   = 300 ms;
+    pedal  = 10 ms;
+};
+
+instrument bass {
+    dsp  "analog.dsp";
+    amp  = 30;
+
+    wave1 = 1;  wave2 = 1;  semi2 = 0;  mix2 = 0.3;  pw = 0.45;
+    sub = 0.3;  unison = 2;  spread = 0;  drift = 1;
+    cutoff = 350;  res = 0.3;  envamt = 1800;  keytrack = 0.3;
+    fa = 0 ms;  fd = 160 ms;  fs = 0.1;  fr = 90 ms;
+    a = 1 ms;  d = 250 ms;  s = 0.6;  r = 90 ms;
+};
+
+instrument strings {
+    dsp  "strings.dsp";
+    amp  = 18;
+};
+
+instrument blip {
+    dsp  "analog.dsp";
+    amp  = 18;
+
+    wave1 = 1;  wave2 = 1;  semi2 = 12;  mix2 = 0.2;  pw = 0.3;
+    sub = 0;  unison = 0;  spread = 0;  drift = 0;
+    cutoff = 1800;  res = 0.4;  envamt = 3000;  keytrack = 0.6;
+    fa = 0 ms;  fd = 90 ms;  fs = 0.05;  fr = 80 ms;
+    a = 1 ms;  d = 120 ms;  s = 0.05;  r = 90 ms;
+};
+
+instrument voice {
+    dsp  "speak.dsp";
+    amp  = 46;
+
+    robot    = 0.85;
+    formants = 0.9;
+    pace     = 1.2;
+    breath   = 0;
+    vibrato  = 0;
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 110;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 104;
+    };
+    sink { instrument = snare; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 48;
+    };
+    stage a xform::accent {
+        pattern = "x.x.x.x.x.x.x.x.";  grid = 0.25 beats;
+        strong = 1.4;  weak = 1;
+    };
+    sink { instrument = hat; };
+};
+
+# ---- the vamp ---------------------------------------------------------
+
+# Root and octave in eighths, a bar on each chord.
+chain bass {
+    stage src gen::lsystem {
+        axiom = "F+F-F+F-F+F-F+F- ++F+F-F+F-F+F-F+F- ++F+F-F+F-F+F-F+F- ++F+F-F+F-F+F-F+F- ------";
+        depth = 0;
+        notes = octaves;
+        step = 0.5 beats;  hold = 0.4 beats;  vel = 100;
+    };
+    sink { instrument = bass; };
+};
+
+chain strings {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F---";
+        depth = 0;
+        notes = roots;
+        step = 4 beats;  hold = 3.9 beats;  vel = 80;
+    };
+    stage chord xform::harmonize {
+        scale = amin;
+        voices = 3;  step = 2;
+        spread = 0 s;
+        taper = 0.9;
+        root = 1;  below = 0;
+        lead = 1;  span = 12;
+    };
+    sink { instrument = strings; };
+};
+
+# The same chords, up two octaves and taken apart in sixteenths.
+chain blips {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F---";
+        depth = 0;
+        notes = roots;
+        step = 4 beats;  hold = 3.9 beats;  vel = 80;
+    };
+    stage chord xform::harmonize {
+        scale = amin;
+        voices = 3;  step = 2;
+        spread = 0 s;
+        taper = 1;
+        root = 1;  below = 0;
+        lead = 0;  span = 12;
+    };
+    stage up xform::transpose { semitones = 12; };
+    stage a gen::arp {
+        pattern = 0;  octaves = 2;
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 90;
+        pass = 0;
+    };
+    sink { instrument = blip; };
+};
+
+# ---- the voice --------------------------------------------------------
+
+# Four bars of eighths, eighteen notes, and eighteen syllables to go on
+# them.
+chain voice {
+    stage src gen::lsystem {
+        axiom = "FF++F+F+F___ F-F-F+F-F--F_r ++++F_F_++F--F_r -F_-F_--F__r";
+        depth = 0;
+        notes = tune;
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 100;
+    };
+    stage words xform::say {
+        words = "we are the machines, we sing in binary, one and zero, on and off";
+    };
+    sink { instrument = voice; };
+};
