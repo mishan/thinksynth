@@ -33,6 +33,7 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
     nodecount_ = 0;
     made_ = NULL;
     beatsAt_ = 120;
+    feedback_ = false;
 
     synth_ = synth;
 }
@@ -44,6 +45,7 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
     nodecount_ = oldtree.nodeCount();
     made_ = NULL;
     beatsAt_ = 120;
+    feedback_ = oldtree.feedback();
     name_ = oldtree.name();
     desc_ = oldtree.desc();
     synth_ = oldtree.synth();
@@ -654,6 +656,100 @@ const thExprBox *thSynthTree::exprBoxMaking (const string &name) const
 
 void thSynthTree::process (unsigned int windowlen)
 {
+    if (feedback_ && windowlen > 1)
+        processBySample(windowlen);
+    else
+        processWindow(windowlen);
+}
+
+/* A window of a graph with a cycle in it, one sample at a time.
+ *
+ * The hosts write the io node's inputs a window long and read what its
+ * outputs point at a window long, so those are what change shape here:
+ * each input is handed in one sample at a time, and each output's target
+ * is filled with the samples it held, one after another, once the window
+ * is done. In between, every plugin runs with a window of one, which
+ * windowlencheck holds to sounding the same as any other. */
+void thSynthTree::processBySample (unsigned int windowlen)
+{
+    marked_.clear();
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+        if (i->second && i->second->recalc())
+            marked_.push_back(i->second);
+
+    fbIns_.clear();
+    fbOuts_.clear();
+
+    const thArgMap &io = ionode_->args();
+
+    for (thArgMap::const_iterator i = io.begin(); i != io.end(); ++i)
+    {
+        thArg *a = i->second;
+
+        if (a == NULL)
+            continue;
+
+        if (a->type() == thArg::ARG_VALUE && a->len() > 1)
+            fbIns_.push_back(a);
+        else if (a->type() == thArg::ARG_POINTER)
+        {
+            thArg *target = getArg(nodeAt(a->nodePtrId()), a->argPtrId());
+
+            if (target)
+                fbOuts_.push_back(target);
+        }
+    }
+
+    /* Last window left each output a window long for the host. Inside
+       the loop it is one sample again, the last, which is what a node
+       reading it round the loop wants. */
+    for (size_t k = 0; k < fbOuts_.size(); k++)
+    {
+        thArg *t = fbOuts_[k];
+
+        if (t->len() > 1)
+        {
+            const float last = (*t)[t->len() - 1];
+
+            t->allocate(1)[0] = last;
+        }
+    }
+
+    fbInData_.resize(fbIns_.size() * windowlen);
+    fbOutData_.resize(fbOuts_.size() * windowlen);
+
+    for (size_t k = 0; k < fbIns_.size(); k++)
+    {
+        fbIns_[k]->getBuffer(&fbInData_[k * windowlen], windowlen);
+        fbIns_[k]->allocate(1);
+    }
+
+    for (unsigned int s = 0; s < windowlen; s++)
+    {
+        for (size_t k = 0; k < fbIns_.size(); k++)
+            fbIns_[k]->values()[0] = fbInData_[k * windowlen + s];
+
+        for (size_t k = 0; k < marked_.size(); k++)
+            marked_[k]->setRecalc(true);
+
+        processWindow(1);
+
+        for (size_t k = 0; k < fbOuts_.size(); k++)
+            fbOutData_[k * windowlen + s] = (*fbOuts_[k])[0];
+    }
+
+    for (size_t k = 0; k < fbIns_.size(); k++)
+        memcpy(fbIns_[k]->allocate(windowlen), &fbInData_[k * windowlen],
+               windowlen * sizeof(float));
+
+    for (size_t k = 0; k < fbOuts_.size(); k++)
+        memcpy(fbOuts_[k]->allocate(windowlen), &fbOutData_[k * windowlen],
+               windowlen * sizeof(float));
+}
+
+void thSynthTree::processWindow (unsigned int windowlen)
+{
     thPlugin *plug = NULL;
 
     if (ionode_ == NULL) {
@@ -1133,6 +1229,37 @@ void thSynthTree::buildSynthTree (void)
     ionode_->setRecalc(true);
 
     buildSynthTreeHelper2(ionode_->args(), ionode_);
+
+    std::map<thNode *, int> state;
+
+    feedback_ = findCycle(ionode_, state);
+}
+
+/* Depth first over what each node reads: 1 while a node is on the path,
+   2 once everything under it is done. Reaching a 1 again is a cycle. A
+   node reading the io node is reading the note or the input, not the
+   output, so that is no way round. */
+bool thSynthTree::findCycle (thNode *node, std::map<thNode *, int> &state)
+{
+    state[node] = 1;
+
+    const thNodeList &children = node->children();
+
+    for (thNodeList::const_iterator i = children.begin();
+         i != children.end(); ++i)
+    {
+        if (*i == NULL || *i == ionode_)
+            continue;
+
+        const int seen = state[*i];
+
+        if (seen == 1 || (seen == 0 && findCycle(*i, state)))
+            return true;
+    }
+
+    state[node] = 2;
+
+    return false;
 }
 
 int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)

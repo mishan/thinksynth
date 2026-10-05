@@ -574,13 +574,16 @@ keyboard's pedal reaches it through a MIDI Map binding of CC 64 to `SusPedal`.
 instrument's `@a` and an effect's cannot collide. From outside they are named
 `fx.<name>`: `fx.delay` is the effect's, a bare `delay` is the instrument's.
 
-**A graph may not contain a cycle.** Two nodes that read each other resolve as
-a one-window delay — the walk clears each node's recalc flag before it
-recurses — so what the file sounds like would depend on the window length,
-and the window length is the audio device's business rather than the
-author's. This has always been true and effect graphs are where it first
-tempts anybody: a damped feedback path wants exactly that shape. Put the
-filter outside the loop. `dsp/fx/echo.dsp` says so where it does it.
+**A graph may contain a loop.** Nodes that read each other, by any path, make
+the graph run one sample at a time. The read that closes the loop — the one
+the walk back from the io node's outputs comes round to — gets the sample
+before, so a loop has one sample of delay at any window length, as a
+feedback path does on paper: a damped echo, a comb, a one-pole filter out of
+arithmetic. It costs: a looped graph runs several times slower than the same
+nodes without the loop, about seven times for a six-node voice, so an effect
+is the natural home for one, and a filter that can sit outside the loop is
+cheaper there. A node reading the io node is reading its input, which closes
+nothing.
 
 A channel's effect goes on **after** its instrument: loading an instrument
 builds a new channel and the effect belongs to the channel it was put on.

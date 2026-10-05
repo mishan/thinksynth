@@ -697,6 +697,95 @@ int main (int argc, char **argv)
                  both + why);
     }
 
+    /* ---- a loop in a graph ------------------------------------------------ */
+
+    /* Only a graph with a way round runs a sample at a time: a voice that
+       reads its note from the io node has none. And an effect with one,
+       fed the channel's audio, sounds the same at any window. */
+    {
+        const string plain =
+            "name \"plain\";\n"
+            "node ionode {\n    channels = 1;\n    out0 = osc->out;\n"
+            "    play = 1;\n};\n"
+            "node f misc::midi2freq {\n    note = ionode->note;\n};\n"
+            "node osc osc::simple {\n    freq = f->out;\n};\n"
+            "io ionode;\n";
+        const string loop =
+            "name \"loop\";\n"
+            "node ionode {\n    channels = 1;\n    out0 = y->out;\n"
+            "    play = 1;\n};\n"
+            "node osc osc::simple {\n};\n"
+            "node y math::add {\n    in0 = osc->out;\n    in1 = z->out;\n};\n"
+            "node z math::mul {\n    in0 = y->out;\n    in1 = 0.5;\n};\n"
+            "io ionode;\n";
+        bool flags[2] = { true, false };
+
+        for (int k = 0; k < 2; k++)
+        {
+            thSynthTree *tree = NULL;
+
+            if (writeFile(scratch, k ? loop : plain))
+                tree = synth.parseTree(scratch);
+
+            flags[k] = tree && tree->feedback();
+            delete tree;
+        }
+
+        okOrFail(!flags[0] && flags[1],
+                 "a graph is run by the sample only when it has a loop",
+                 string("plain ") + (flags[0] ? "looped" : "not") +
+                 ", loop " + (flags[1] ? "looped" : "not"));
+
+        const string voice = plain;
+        const string fx =
+            "name \"loopfx\";\n"
+            "node ionode {\n    channels = 2;\n    in0 = 0;\n    in1 = 0;\n"
+            "    out0 = y->out;\n    out1 = y->out;\n};\n"
+            "node line delay::echo {\n    in = y->out;\n    size = 1000;\n"
+            "    delay = 37;\n    feedback = 0;\n    dry = 0;\n};\n"
+            "node y math::add {\n    in0 = ionode->in0;\n"
+            "    in1 = line->out * 0.7;\n};\n"
+            "io ionode;\n";
+        vector<float> heard[2];
+        const int lens[2] = { 64, 500 };
+
+        for (int k = 0; k < 2 && writeFile(scratch, voice); k++)
+        {
+            thSynth s(pluginPath, lens[k], TH_DEFAULT_SAMPLES);
+
+            if (s.loadTree(scratch, 0, 100) == NULL ||
+                s.loadEffectText("loopfx", fx, 0) == NULL)
+                break;
+
+            s.addNote(0, 60, 100);
+
+            /* The synth's window is planar, a channel after a channel, so
+               two lengths of it line up only frame by frame. */
+            const int chans = s.audioChannelCount();
+
+            while ((int)heard[k].size() < 8000)
+            {
+                s.process();
+
+                for (int f = 0; f < lens[k]; f++)
+                    for (int c = 0; c < chans; c++)
+                        heard[k].push_back(s.getOutput()[c * lens[k] + f]);
+            }
+
+            heard[k].resize(8000);
+        }
+
+        float loudest = 0;
+
+        for (size_t i = 0; i < heard[0].size(); i++)
+            loudest = fmaxf(loudest, fabsf(heard[0][i]));
+
+        okOrFail(heard[0].size() == 8000 && loudest > 0.01f &&
+                 heard[0] == heard[1],
+                 "an effect with a loop in it sounds the same at windows of "
+                 "64 and 500", "the two differ or did not load");
+    }
+
     /* ---- the box's text is the graph behind it -------------------------- */
 
     /* The one lossy step in the whole feature, and three things lean on it.

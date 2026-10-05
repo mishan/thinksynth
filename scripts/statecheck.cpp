@@ -4535,6 +4535,87 @@ static void checkBuffers (const string &pluginPath)
     }
 }
 
+/* ---- a loop in the graph -------------------------------------------------
+ *
+ * A one-pole lowpass out of arithmetic: y = z + a * (x - z), where z is y
+ * one sample ago, through a node that reads y back. The engine runs a graph
+ * with a cycle a sample at a time, so this is the difference equation
+ * exactly -- written out here and compared -- and the same at any window,
+ * where it used to be a window late and different at each length.
+ */
+static vector<NodeSpec> loopGraph (void)
+{
+    vector<NodeSpec> spec;
+    NodeSpec x, z, diff, d, y;
+
+    y.name = "a";
+    y.spelling = "math/add";
+    y.wires.push_back(Wire{ "in0", "z", "out" });
+    y.wires.push_back(Wire{ "in1", "d", "out" });
+    spec.push_back(y);
+
+    x.name = "x";
+    x.spelling = "osc/simple";
+    x.values.push_back(Value{ "freq", 3000 });
+    x.values.push_back(Value{ "waveform", 0 });
+    spec.push_back(x);
+
+    z.name = "z";
+    z.spelling = "math/add";
+    z.values.push_back(Value{ "in1", 0 });
+    z.wires.push_back(Wire{ "in0", "a", "out" });
+    spec.push_back(z);
+
+    diff.name = "diff";
+    diff.spelling = "math/sub";
+    diff.wires.push_back(Wire{ "in0", "x", "out" });
+    diff.wires.push_back(Wire{ "in1", "z", "out" });
+    spec.push_back(diff);
+
+    d.name = "d";
+    d.spelling = "math/mul";
+    d.values.push_back(Value{ "in1", 0.1f });
+    d.wires.push_back(Wire{ "in0", "diff", "out" });
+    spec.push_back(d);
+
+    return spec;
+}
+
+static void checkLoop (const string &pluginPath)
+{
+    vector<Watch> watch;
+    vector< vector<float> > got;
+    string why;
+
+    watch.push_back(Watch{ "a", "out" });
+    watch.push_back(Watch{ "x", "out" });
+
+    if (!render(pluginPath, loopGraph(), watch, 256, 4000, got, why))
+    {
+        fail("a graph with a loop renders", why);
+        return;
+    }
+
+    double worst = 0;
+    float prev = 0;
+
+    for (size_t i = 0; i < got[0].size(); i++)
+    {
+        const float want = prev + 0.1f * (got[1][i] - prev);
+
+        worst = fmax(worst, fabs(got[0][i] - want));
+        prev = got[0][i];
+    }
+
+    okOrFail(peak(got[0], 100) > 0.1 && worst < 1e-6,
+             "a loop through three nodes is the one-pole filter it spells, a "
+             "sample of delay round it", "off by " + num(worst));
+
+    windowsAgree(pluginPath, loopGraph(), "a", "out",
+                 "a graph with a loop: the same at one sample a window and at "
+                 "five hundred");
+}
+
 static void checkBlep (const string &pluginPath)
 {
     const struct { float wave, pw; const char *what; } shapes[] = {
@@ -8537,6 +8618,7 @@ int main (int argc, char **argv)
     checkFmop(pluginPath);
     checkSimple(pluginPath);
     checkBuffers(pluginPath);
+    checkLoop(pluginPath);
     checkBlep(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
