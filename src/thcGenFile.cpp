@@ -1874,6 +1874,60 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
 
         Token key = take();
 
+        /* `loop.file = "talk.wav";' -- a text arg of a node in the graph,
+           the wav a sampler plays, which no chanarg can carry. A node and
+           an arg rather than a chanarg name, because a .dsp offers no
+           name for it: a filename is not a control. */
+        if (peek().kind == Token::PUNCT && peek().text == ".")
+        {
+            take();
+
+            const Token &argTok = peek();
+
+            if (argTok.kind != Token::WORD)
+            {
+                error(argTok.line, "instrument " + nameTok.text + ": " +
+                      key.text + ". wants an arg name");
+                return false;
+            }
+
+            thcInstrumentText text;
+
+            text.node = key.text;
+            text.arg = take().text;
+
+            if (!expectPunct('='))
+                return false;
+
+            const Token &v = peek();
+
+            if (v.kind != Token::STRING)
+            {
+                error(v.line, "instrument " + nameTok.text + ": " +
+                      text.node + "." + text.arg + " wants a quoted name; "
+                      "a number goes on a chanarg");
+                return false;
+            }
+
+            text.value = take().text;
+
+            for (size_t k = 0; k < inst.texts.size(); k++)
+                if (inst.texts[k].node == text.node &&
+                    inst.texts[k].arg == text.arg)
+                {
+                    error(key.line, "instrument " + nameTok.text + " sets " +
+                          text.node + "." + text.arg + " twice");
+                    return false;
+                }
+
+            inst.texts.push_back(text);
+
+            if (!expectPunct(';'))
+                return false;
+
+            continue;
+        }
+
         /* `dsp' is a keyword inside this block rather than a chanarg
            that happens to take a string. A graph called @dsp would be a
            strange thing to declare and this would shadow it; naming the
@@ -1963,6 +2017,14 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
         if (!parseInstrumentValue(sched, inst, "instrument " + nameTok.text,
                                   key, ""))
             return false;
+    }
+
+    if (!inst.texts.empty() && inst.dsp.empty())
+    {
+        error(nameTok.line, "instrument '" + nameTok.text + "' sets " +
+              inst.texts[0].node + "." + inst.texts[0].arg +
+              " but names no dsp to set it in");
+        return false;
     }
 
     if (inst.dsp.empty() && inst.midi.empty())
