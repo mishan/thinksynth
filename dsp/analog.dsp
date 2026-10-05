@@ -28,7 +28,8 @@
 #
 # `Sync' restarts the second oscillator on every cycle of the center one,
 # so its pitch becomes a formant over the center's, and `Sync Sweep'
-# moves it by the filter envelope: the sync lead.
+# moves it by the filter envelope: the sync lead. Unsynced, the sweep is
+# a pitch envelope on the second oscillator.
 #
 # `Bend' is the pitch wheel, in semitones and slewed over 40 ms: a piece
 # rides it with a chanarg sink (`chanarg = "bend"').

@@ -4138,6 +4138,39 @@ static void checkBlep (const string &pluginPath)
                  num(db[0]) + " dB by edge, " + num(db[1]) + " dB by sync");
     }
 
+    /* A synced triangle stays where an unsynced one does: within full
+       scale and centered, at slaves that do and do not divide evenly. */
+    {
+        const struct { float hz, pw; } cases[] = {
+            { 2700, 0.4f }, { 3900, 0.4f }, { 2615, 0.5f }, { 2700, 0.15f },
+            { 1200, 0.05f },
+        };
+
+        for (const auto &c : cases)
+        {
+            vector<NodeSpec> spec = blepGraph(523, 0, 0.5f, 0);
+            vector<NodeSpec> slave = blepGraph(c.hz, 2, c.pw, 0);
+            vector<float> got;
+            string why;
+
+            spec[0].name = "master";
+            slave[0].wires.push_back(Wire{ "reset", "master", "edge" });
+            spec.push_back(slave[0]);
+
+            const bool rendered = render1(pluginPath, spec, "osc", "out", 256,
+                                          TH_DEFAULT_SAMPLES, got, why);
+            const double mean = rendered ? meanOf(got, 4410) : 0;
+
+            okOrFail(rendered && allFinite(got) && peak(got, 0) <= 1.1 &&
+                     fabs(mean) < 0.05,
+                     "osc::blep: a triangle at " + num(c.hz) + " Hz, width " +
+                     num(c.pw) + ", synced to 523 Hz stays within full "
+                     "scale, centered",
+                     rendered ? "peak " + num(peak(got, 0)) + ", mean " +
+                                num(mean) : why);
+        }
+    }
+
     windowsAgree(pluginPath, blepSyncGraph(),
                  "osc", "out",
                  "osc::blep: the same synced pulse at one sample a window and "

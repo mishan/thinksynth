@@ -54,7 +54,8 @@
  * wraps. That fraction is what places the restart between two samples,
  * so the step it makes gets the same two-sample correction as a wrap; a
  * 0/1 trigger reads as a wrap at the next sample and syncs unsmoothed.
- * The triangle restarts with a step its integrator does not smooth.
+ * The triangle's integrator is moved by the step a restart makes, which
+ * is left unsmoothed.
  *
  * This is a new node rather than a fix to `osc::simple', because every
  * patch in the tree was voiced against that one's aliasing.
@@ -112,6 +113,15 @@ static float stepBefore (float h, float d)
 static float stepAfter (float h, float d)
 {
     return h / 2 * (2 * d - d * d - 1);
+}
+
+/* The triangle's integrator at `p' through a cycle of width `pw': at the
+   bottom where the pulse goes high, rising 2 (1 - pw) a cycle until pw,
+   falling 2 pw after. */
+static float triAt (float p, float pw)
+{
+    return p < pw ? -pw * (1 - pw) + 2 * (1 - pw) * p
+                  : pw * (1 - pw) - 2 * pw * (p - pw);
 }
 
 void module_cleanup (thPlugin *plugin)
@@ -201,13 +211,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         /* The integrator starts where the wave is at that phase, rather
            than at 0 with an offset the leak takes a few cycles to bleed
-           away: at the bottom where the pulse goes high, rising
-           2 (1 - pw) a cycle until pw, falling 2 pw after. */
+           away. */
         if (!thIsFinite(pw) || pw <= 0 || pw >= 1)
             pw = 0.5f;
 
-        tri = phase < pw ? -pw * (1 - pw) + 2 * (1 - pw) * phase
-                         : pw * (1 - pw) - 2 * pw * (phase - pw);
+        tri = triAt(phase, pw);
     }
 
     for (unsigned int i = 0; i < windowlen; i++)
@@ -221,6 +229,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const int wave = (thIsFinite(w) && w >= 0 && w < 3) ? (int)w : 0;
         float pw = (*in_pw)[i];
         float y;
+        float jump = 0;
 
         if (!thIsFinite(pw) || pw <= 0)
             pw = 0.5;
@@ -299,6 +308,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
                 const float h = pulse ? 1 - (at < pw ? 1.0f : -1.0f)
                                       : -2 * at;
+
+                jump = triAt(0, pw) - triAt(at, pw);
+
                 y += stepBefore(h, d);
                 next += stepAfter(h, d);
             }
@@ -309,10 +321,20 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (wave == 2)
         {
+            /* A restart moves the integrator by the triangle's step, on
+               whichever side of this sample the restart is nearer: this
+               sample's pulse already carries half its correction. */
+            if (reset && r < 0.5f)
+            {
+                tri += jump;
+                jump = 0;
+            }
+
             /* The leak only has rounding to bleed off now, so it is
                slow: a leak of `dt' bends the slopes visibly. */
             tri = dt * (y - (2 * pw - 1)) + (1 - dt / 64) * tri;
             y = tri / (pw * (1 - pw));
+            tri += jump;
         }
 
         out[i] = (float)(TH_MAX * y);
@@ -322,7 +344,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             const float until = r < 1 ? r : 1;
 
             phase = (1 - until) * dt;
-            tri = -pw * (1 - pw) + 2 * (1 - pw) * phase;
             sync[i] = 1;
             edge[i] = until;
         }
