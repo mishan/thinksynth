@@ -3567,6 +3567,11 @@ thcScheduler::start (void)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
             chains_[ci].stages[si]->params.freeze();
 
+    /* A piece with no `tempo' line never calls setTempo, and the synth
+       would go on at the last piece's. */
+    if (synth_ != NULL)
+        synth_->setTempo((float)tempo_);
+
     lastMono_ = g_get_monotonic_time();
     running_ = true;
     started_ = true;
@@ -3891,6 +3896,9 @@ thcScheduler::setTempo (double bpm)
         beatAtTempo_ = beat_;
         tempoAt_ = transportNow_;
         tempo_ = bpm;
+
+        if (synth_ != NULL)
+            synth_->setTempo((float)bpm);
 
         /* A beat-valued chain start follows the clock until its first
            tick. Once the generator has begun, its own schedule owns it. */

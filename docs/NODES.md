@@ -872,6 +872,15 @@ One-pole lag
 | `out` | out | in, lagged |  |  |  |  |
 | `last` | state |  |  |  |  |  |
 
+### misc::tempo
+
+The piece's tempo
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `bpm` | out | Beats per minute; 120 with no piece |  |  | BPM |  |
+| `beat` | out | How long a beat is |  |  | samples |  |
+
 ### misc::vibrato
 
 Delayed vibrato

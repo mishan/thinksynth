@@ -730,6 +730,59 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
 }
 
 /* 5 and 6: knobs, and a text that does not load. */
+/* The synth carries the tempo misc::tempo reads: the piece's on start,
+   an edit's new `tempo' line once adopted, and 120 again for a piece
+   with no line started on a synth an earlier piece left at its own. */
+static void
+checkTempo (const std::map<std::string, thcPlugin *> &plugins,
+            const std::string &pluginDir, const std::filesystem::path &dir,
+            const std::filesystem::path &tempoed,
+            const std::filesystem::path &untempoed)
+{
+    const std::string piece = tempoed.filename().string();
+    const std::string text = slurp(tempoed);
+    const size_t at = text.find("\ntempo ");
+    std::vector<std::string> errors;
+    Peer p(plugins, pluginDir, dir, "t");
+
+    if (at == std::string::npos || !p.load(text, errors))
+    {
+        fail(piece, "wanted a piece with a tempo line that loads");
+        return;
+    }
+
+    const float bpm = (float)p.sched.tempo();
+
+    p.sched.start();
+    p.stepTo(1);
+    if (p.synth.tempo() != bpm)
+        fail(piece, "the synth's tempo is " +
+             std::to_string(p.synth.tempo()) + ", not the piece's " +
+             std::to_string(bpm));
+
+    const size_t eol = text.find(';', at);
+    const std::string next =
+        text.substr(0, at) + "\ntempo 137" + text.substr(eol);
+
+    if (!p.edit(next, errors) || p.synth.tempo() != 137)
+        fail(piece, "an edit to tempo 137 left the synth at " +
+             std::to_string(p.synth.tempo()));
+
+    thcScheduler other(&p.synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(untempoed.string(), &other))
+    {
+        fail(untempoed.filename().string(), "does not load");
+        return;
+    }
+    other.start();
+    if (p.synth.tempo() != 120)
+        fail(untempoed.filename().string(),
+             "with no tempo line, started on a synth at 137, left it at " +
+             std::to_string(p.synth.tempo()));
+}
+
 static void
 checkKnobsAndRefusal (const std::map<std::string, thcPlugin *> &plugins,
                       const std::string &pluginDir,
@@ -1163,6 +1216,9 @@ main (int argc, char *argv[])
 
     checkKnobsAndRefusal(plugins, pluginDir, dir,
                          std::filesystem::path(genDir) / "orrery.gen");
+    checkTempo(plugins, pluginDir, dir,
+               std::filesystem::path(genDir) / "orrery.gen",
+               std::filesystem::path(genDir) / "airports.gen");
     checkCases(plugins, pluginDir, dir);
 
     std::error_code ec;
