@@ -74,11 +74,13 @@
  * of 1 (see CHORUS_FEEDBACK_MAX) and the output is louder than the input by
  * that much wherever the comb peaks. That is what `mix' is for.
  *
- * SIZED FROM ITS ARGS, so `delay' and `depth' together size the line
- * and moving either one mid-note hands the reader a fresh, empty buffer.
- * `delay::echo' makes the same trade with `size' for the same reason:
- * a ring that was reallocated is a ring with nothing in it, and there is
- * no answer to that which is not a second buffer and a crossfade.
+ * SIZED FROM ITS ARGS, so `delay' and `depth' together size the line,
+ * and it only ever grows: a line that shrank, or grew by being
+ * reallocated empty, would be silence on the wet side for a line's
+ * length, and a knob dragged across a window boundary would click once
+ * a window. Growing, the history is copied across, newest at the write
+ * head, so a reader that reaches further back finds older samples where
+ * it used to find the end of the line.
  */
 
 #include <stdio.h>
@@ -115,6 +117,38 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (thPlugin *plugin)
 {
+}
+
+/* The line at `want' samples, `len' and `at' moved to match, keeping what
+   it held: the sample `k' back from the write head is still `k' back. A
+   line of one is a prototype's placeholder and is not history. */
+static float *grow (thArg *line, unsigned int want, unsigned int &len,
+                    unsigned int &at)
+{
+    const unsigned int had = len;
+    float *old = NULL;
+
+    if (had > 1)
+    {
+        old = new float[had];
+
+        /* Oldest first: `at' is the next sample to be overwritten. */
+        for (unsigned int j = 0; j < had; j++)
+            old[j] = line->values()[(at + j) % had];
+    }
+
+    float *buffer = line->allocate(want);
+
+    if (old != NULL)
+    {
+        memcpy(buffer + (want - had), old, had * sizeof(float));
+        delete [] old;
+    }
+
+    len = want;
+    at = 0;
+
+    return buffer;
 }
 
 int module_init (thPlugin *plugin)
@@ -248,8 +282,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         /* The line has to hold the furthest any tap can reach, plus the
            sample the interpolation reads beyond it and the one being
            written. */
-        len = (unsigned int)(delay + depth) + 3;
-        buffer = inout_buffer->allocate(len);
+        len = inout_buffer->len();
+        buffer = inout_buffer->values();
+
+        if ((unsigned int)(delay + depth) + 3 > len)
+            buffer = grow(inout_buffer, (unsigned int)(delay + depth) + 3,
+                          len, at);
 
         if (at >= len)
             at = 0;

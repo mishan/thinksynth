@@ -1986,6 +1986,46 @@ static void checkChorus (const string &pluginPath)
         }
     }
 
+    /* A `depth' that moves does not empty the line. Ramped from 0 to 400
+       samples over a second under a sine with the taps held still, a
+       line that was cleared when it grew would put out a gap a line long
+       every few windows; one that keeps its history never drops. */
+    {
+        vector<NodeSpec> spec = chorusGraph(441, 0, 0, 200, 1, 1);
+        NodeSpec ramp;
+        vector<float> got;
+        string why;
+
+        ramp.name = "ramp";
+        ramp.spelling = "env/ad";
+        ramp.values.push_back(Value{ "a", TH_DEFAULT_SAMPLES });
+        ramp.values.push_back(Value{ "d", 10 * TH_DEFAULT_SAMPLES });
+        ramp.values.push_back(Value{ "p", 400 });
+        spec.insert(spec.begin(), ramp);
+        for (size_t k = 0; k < spec[2].values.size(); k++)
+            if (strcmp(spec[2].values[k].arg, "depth") == 0)
+                spec[2].values.erase(spec[2].values.begin() + k);
+        spec[2].wires.push_back(Wire{ "depth", "ramp", "out" });
+
+        if (!render1(pluginPath, spec, "ch", "out", 256, TH_DEFAULT_SAMPLES,
+                     got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            double quietest = 1;
+
+            for (size_t w = 1024; w + 256 <= got.size(); w += 256)
+                quietest = fmin(quietest,
+                                peak(vector<float>(got.begin() + w,
+                                                   got.begin() + w + 256), 0));
+
+            okOrFail(quietest > 0.9,
+                     "delay::chorus: a `depth' ramped under a sine never "
+                     "empties the line",
+                     "quietest window's peak " + num(quietest));
+        }
+    }
+
     /* ---- the tap is read between samples ---- */
 
     /* Which is what fx/flanger.dsp's through-zero copy rests on: its dry
