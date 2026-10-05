@@ -137,15 +137,15 @@ static const Phoneme table[] = {
     /* name kind      dur   f1   f2    f3   b1  b2   b3  av  af
                        a2 a3 a4 a5 a6 ab  g1 g2 g3  voiced place fric */
     { "B",  STOP,       60, 200, 1100, 2150, 60, 110, 130, 0.25f, 0.4f,
-      0, 0, 0, 0, 0, 0.6f, 0, 0, 0, 1, LABIAL, 0 },
+      0, 0, 0, 0, 0, 0.2f, 0, 0, 0, 1, LABIAL, 0 },
     { "CH", AFFRICATE, 140, 350, 1800, 2820, 200, 90, 300, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ALVEOLAR, 32 },
     { "D",  STOP,       50, 200, 1600, 2600, 60, 100, 170, 0.25f, 0.4f,
       0, 0, 0, 0.5f, 0.7f, 0, 0, 0, 0, 1, ALVEOLAR, 0 },
     { "DH", FRICATIVE,  50, 270, 1290, 2540, 60, 80, 170, 0.5f, 0.3f,
-      0, 0, 0, 0.2f, 0.3f, 0.4f },
+      0, 0, 0, 0.2f, 0.3f, 0.1f },
     { "F",  FRICATIVE, 100, 340, 1100, 2080, 200, 120, 150, 0, 0.6f,
-      0, 0, 0, 0, 0.2f, 0.8f },
+      0, 0, 0, 0, 0.2f, 0.15f },
     { "G",  STOP,       50, 200, 1990, 2850, 60, 150, 280, 0.25f, 0.5f,
       0, 0.8f, 0.6f, 0, 0, 0, 0, 0, 0, 1, VELAR, 0 },
     { "HH", ASPIRATE,   60, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -158,7 +158,7 @@ static const Phoneme table[] = {
     { "N",  SONORANT,   70, 250, 1700, 2600, 100, 200, 300, 0.6f, 0 },
     { "NG", SONORANT,   70, 250, 2300, 2750, 100, 200, 300, 0.6f, 0 },
     { "P",  STOP,       70, 400, 1100, 2150, 300, 150, 220, 0, 0.6f,
-      0, 0, 0, 0, 0, 0.8f, 0, 0, 0, 0, LABIAL, 0 },
+      0, 0, 0, 0, 0, 0.25f, 0, 0, 0, 0, LABIAL, 0 },
     { "R",  SONORANT,   70, 310, 1060, 1380, 70, 100, 120, 0.8f, 0 },
     { "S",  FRICATIVE, 120, 320, 1390, 2530, 200, 80, 200, 0, 0.8f,
       0, 0, 0, 0.2f, 1, 0 },
@@ -167,9 +167,9 @@ static const Phoneme table[] = {
     { "T",  STOP,       60, 400, 1600, 2600, 300, 120, 250, 0, 0.6f,
       0, 0, 0, 0.6f, 0.8f, 0, 0, 0, 0, 0, ALVEOLAR, 0 },
     { "TH", FRICATIVE, 100, 320, 1290, 2540, 200, 90, 200, 0, 0.5f,
-      0, 0, 0, 0.2f, 0.3f, 0.5f },
+      0, 0, 0, 0.2f, 0.3f, 0.1f },
     { "V",  FRICATIVE,  70, 220, 1100, 2080, 60, 90, 120, 0.5f, 0.4f,
-      0, 0, 0, 0, 0.2f, 0.6f },
+      0, 0, 0, 0, 0.2f, 0.12f },
     { "W",  SONORANT,   60, 290, 610, 2150, 50, 80, 60, 0.8f, 0 },
     { "Y",  SONORANT,   60, 260, 2070, 3020, 40, 250, 500, 0.8f, 0 },
     { "Z",  FRICATIVE,  80, 240, 1390, 2530, 70, 60, 180, 0.5f, 0.6f,
@@ -295,7 +295,7 @@ static int segments (const int *codes, int n, float ms, Segment *out)
             case ASPIRATE:
                 silence(s->target);
                 nextFormants(codes, n, i + 1, s->target);
-                s->target[P_AH] = 0.8f;
+                s->target[P_AH] = 0.6f;
                 s->dur = p.dur * ms;
                 s->hold = false;
                 count++;
@@ -340,7 +340,7 @@ static int segments (const int *codes, int n, float ms, Segment *out)
 
                     silence(a->target);
                     nextFormants(codes, n, i + 1, a->target);
-                    a->target[P_AH] = 0.6f;
+                    a->target[P_AH] = 0.4f;
                     a->dur = 50 * ms;
                     a->hold = false;
                     count++;
