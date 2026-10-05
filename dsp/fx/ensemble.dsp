@@ -1,9 +1,8 @@
 # Ensemble -- the string machine's chorus: a slow sweep and a fast one.
 #
 # fx/chorus.dsp is one LFO per side, and one LFO is a chorus: copies that
-# drift sharp and flat together. A string ensemble (the Solina, the
-# Juno's chorus II, a Dimension) modulates its bucket-brigade lines with
-# two at once -- a slow sweep of about half a hertz and a shallow vibrato
+# drift sharp and flat together. The Solina's ensemble modulates its
+# bucket-brigade lines with two at once -- a slow sweep of about half a hertz and a shallow vibrato
 # near six -- and that sum is what turns a sawtooth organ into a section.
 #
 # TWO CHORUSES IN SERIES PER SIDE, rather than one LFO summed from two,
@@ -18,7 +17,9 @@
 #
 # THE WET IS DOUBLED. Each chorus averages its taps, and nine paths that
 # disagree in pitch average to about half the level of one; without the
-# 6 dB back, turning `Mix' up would turn the channel down.
+# 6 dB back, `Mix' at 1 would be that much under the dry signal. Between
+# the ends the two are uncorrelated and add in power, so the default of
+# 0.5 sits about 3 dB under either end.
 #
 # Left and right start half a cycle apart, as in fx/chorus.dsp.
 
