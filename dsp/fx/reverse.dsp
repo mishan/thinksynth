@@ -7,9 +7,9 @@
 # before the note, rising out of nothing. At 0 it is a backwards echo of
 # the channel itself.
 #
-# The heads behind it lag a chunk behind the input at most, so the swell
-# for a note lands up to a `Chunk' after it; set `Chunk' near the gap
-# between the phrases it is meant to lead into.
+# Each moment comes out twice, once from each head, about a `Chunk' after
+# it went in and never more than two; set `Chunk' near the gap between the
+# phrases it is meant to lead into.
 
 name "Reverse";
 author "Misha Nasledov";

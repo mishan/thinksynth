@@ -1149,7 +1149,7 @@ Sample Player (a wav at a voice's pitch)
 | `file3` | in | Upper layer wav; an empty slot uses file2 or file |  |  |  |  |
 | `freq` | in | The note to play it at |  |  | Hz |  |
 | `root` | in | The frequency the file was recorded at; `root = freq' plays it unpitched | 261.63 |  | Hz |  |
-| `start` | in | Where in the file a hit begins |  |  | samples |  |
+| `start` | in | Where in the file a hit begins; reversed, how far before the end |  |  | samples |  |
 | `loop` | in | How many frames at the end repeat; 0 is a one-shot |  |  | samples |  |
 | `trigger` | in | Start again from `start' when this rises above 0 |  | 0 to 1 |  |  |
 | `select` | in | Layer choice at trigger: below split1 is file, below split2 is file2, above is file3 |  | 0 to 1 |  |  |

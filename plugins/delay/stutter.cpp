@@ -125,7 +125,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (!thIsFinite(fade) || fade <= 0)
             fade = FADE_DEFAULT_MS * samples / 1000;
 
-        if (hold && st[S_HELD] == 0)
+        /* A new hold while the last is still fading out carries on with
+           the repeat it was fading, rather than jumping to a new one. */
+        if (hold && st[S_HELD] == 0 && st[S_MIX] == 0)
         {
             const float length = thClampArg((*in_length)[i], 2,
                                             (float)(len - 1));

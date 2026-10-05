@@ -81,8 +81,9 @@
  * trigger, counting from 0 and wrapping, so a break can be played a beat
  * at a time in any order: `slice = ionode->note - 48' puts its pieces on
  * the keys from C3. A slice is a one-shot, and so is a file played with
- * `reverse', from its end back to `start' frames before it; `loop' and
- * `xfade' are for a whole file played forward.
+ * `reverse', starting `start' frames before its end and playing back to
+ * its beginning; both fade over 2 ms at each end, since a cut falls
+ * mid-wave. `loop' and `xfade' are for a whole file played forward.
  *
  * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
  * of a kit share one copy of the kick. See osc/sampleslot.h, which also
@@ -170,7 +171,9 @@ int module_init (thPlugin *plugin)
     plugin->setArgUnits(args[IN_ROOT], "Hz");
     plugin->setArgDefault(args[IN_ROOT], SAMPLE_ROOT_DEFAULT);
     args[IN_START] = plugin->regArg("start", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_START], "Where in the file a hit begins");
+    plugin->setArgDesc(args[IN_START],
+                       "Where in the file a hit begins; reversed, how far "
+                       "before the end");
     plugin->setArgUnits(args[IN_START], "samples");
     args[IN_LOOP] = plugin->regArg("loop", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_LOOP],
@@ -350,25 +353,31 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             loadedLayer = layer;
         }
 
-        if (edge)
+        /* Where this note plays, set at its trigger -- or on the first
+           sample the file is known, for a note that started before it was
+           loaded, and for a voice fresh from the pool. */
+        if (edge && len == 0)
+            lo = hi = 0;
+
+        if (len > 0 && (edge || hi <= lo))
         {
             const int n = (int)thClampArg((*in_slices)[i], 0, 256);
 
             lo = 0;
             hi = (float)len;
 
-            if (n > 0 && len > 0)
+            if (n > 0)
             {
-                const int k = (((int)floorf((*in_slice)[i]) % n) + n) % n;
+                const float pick = thClampArg((*in_slice)[i], -1e6f, 1e6f);
+                const int k = (((int)floorf(pick) % n) + n) % n;
 
                 lo = floorf((float)len * k / n);
-                hi = floorf((float)len * (k + 1) / n);
+                hi = fmaxf(floorf((float)len * (k + 1) / n), lo + 1);
             }
 
             dir = (*in_reverse)[i] > 0 ? -1.0f : 1.0f;
 
-            const float start = len ? thClampArg((*in_start)[i], 0,
-                                                 hi - lo - 1) : 0;
+            const float start = thClampArg((*in_start)[i], 0, hi - lo - 1);
 
             at = dir > 0 ? lo + start : hi - 1 - start;
         }
@@ -380,11 +389,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             continue;
         }
 
-        /* A voice started before the file was known plays all of it. */
-        if (hi <= lo || hi > (float)len)
+        /* A file read again shorter while a note plays. */
+        if (hi > (float)len)
         {
-            lo = 0;
             hi = (float)len;
+            lo = fminf(lo, hi - 1);
+            at = fminf(at, hi - 1);
         }
 
         const bool whole = dir > 0 && lo == 0 && hi == (float)len;
@@ -445,6 +455,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 const float angle = (float)(M_PI / 2) * into;
 
                 v = v * cosf(angle) + early * sinf(angle);
+            }
+
+            /* A slice or a reversed file starts and stops wherever the cut
+               falls, mid-wave, so it fades over 2 ms at each end. */
+            if (!whole)
+            {
+                const float edgeLen = 0.002f * samples;
+                const float from = dir > 0 ? at - lo + 1 : hi - at;
+                const float left = dir > 0 ? hi - at : at - lo + 1;
+
+                v *= fminf(1, fminf(from, left) / edgeLen);
             }
 
             out[i] = TH_MAX * v;

@@ -57,8 +57,8 @@ category "Leads and stabs";
 
 node ionode {
     channels = 2;
-    out0 = choir->out;
-    out1 = vca->out;
+    out0 = choirl->out;
+    out1 = choirr->out;
     play = env->play;
 };
 
@@ -100,13 +100,24 @@ node vca mixer::mul {
     in1 = env->out * ionode->velocity;
 };
 
-node choir delay::chorus {
+node choirl delay::chorus {
     in = vca->out;
     rate = 0.8;
     depth = 60;
     delay = 400;
     taps = 2;
     mix = 0.5;
+    phase = 0;
+};
+
+node choirr delay::chorus {
+    in = vca->out;
+    rate = 0.8;
+    depth = 60;
+    delay = 400;
+    taps = 2;
+    mix = 0.5;
+    phase = 0.5;
 };
 
 io ionode;

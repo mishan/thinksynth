@@ -32,8 +32,8 @@
  *
  * The phase is a float, kept as one so the state holds it exactly, and
  * the write position a whole sample count, so what comes out is the same
- * at any window. `size' may
- * move; each head reads the new length from the sample it is on.
+ * at any window. `size' may move; the chunk length in use changes only
+ * where a chunk ends, so a turned knob never throws a head mid-chunk.
  */
 
 #include <stdio.h>
@@ -54,7 +54,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    write. */
 #define CHUNK_SECONDS_MAX 2
 
-enum { S_WRITE, S_PHASE, S_LEN };
+enum { S_WRITE, S_PHASE, S_SIZE, S_LEN };
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -102,6 +102,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
     unsigned w = (unsigned)st[S_WRITE];
     float phase = st[S_PHASE];
+    float size = st[S_SIZE];
 
     if (w >= len)
         w = 0;
@@ -109,14 +110,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for (unsigned i = 0; i < windowlen; i++)
     {
         const float in = (*in_arg)[i];
-        const float size = thClampArg((*in_size)[i], 2,
-                                      (float)(CHUNK_SECONDS_MAX * samples));
-
         ring[w] = thIsFinite(in) ? in : 0;
 
-        if (phase >= size)
-            phase = fmodf(phase, size);
+        if (size < 2 || phase >= size)
+        {
+            phase = 0;
+            size = thClampArg((*in_size)[i], 2,
+                              (float)(CHUNK_SECONDS_MAX * samples));
+        }
 
+        /* Half a chunk apart, so one window is the other's complement. */
+        const float g = sinf((float)M_PI * phase / size);
         float y = 0;
 
         for (int h = 0; h < 2; h++)
@@ -135,9 +139,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             const unsigned b = (a + 1) % len;
             const float frac = (float)(at - floor(at));
             const float v = ring[a] + (ring[b] - ring[a]) * frac;
-            const float g = (float)sin(M_PI * p / size);
-
-            y += v * g * g;
+            y += v * (h == 0 ? g * g : 1 - g * g);
         }
 
         out[i] = y;
@@ -147,6 +149,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     st[S_WRITE] = (float)w;
     st[S_PHASE] = phase;
+    st[S_SIZE] = size;
     memcpy(state, st, sizeof(st));
 
     return 0;

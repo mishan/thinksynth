@@ -14,7 +14,7 @@ category "Drums";
     @start = 0 ms;
     @start.widget = 1;
     @start.min = 0ms;
-    @start.max = 3000ms;
+    @start.max = 2300ms;
     @start.label = "Start";
 
     @level = 0.8;

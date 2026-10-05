@@ -4441,10 +4441,10 @@ static void checkBuffers (const string &pluginPath)
         else
         {
             auto shape = [](const vector<float> &v, double &peakAt,
-                            double &centre) {
+                            double &center) {
                 double e = 0, top = 0;
 
-                centre = 0;
+                center = 0;
                 peakAt = 0;
 
                 for (size_t i = 0; i < v.size(); i++)
@@ -4452,7 +4452,7 @@ static void checkBuffers (const string &pluginPath)
                     const double a = fabs(v[i]);
 
                     e += a;
-                    centre += a * i;
+                    center += a * i;
 
                     if (a > top)
                     {
@@ -4461,19 +4461,19 @@ static void checkBuffers (const string &pluginPath)
                     }
                 }
 
-                centre = e > 0 ? centre / e : 0;
+                center = e > 0 ? center / e : 0;
             };
-            double inPeak, inCentre, outPeak, outCentre;
+            double inPeak, inCenter, outPeak, outCenter;
 
-            shape(got[1], inPeak, inCentre);
-            shape(got[0], outPeak, outCentre);
+            shape(got[1], inPeak, inCenter);
+            shape(got[0], outPeak, outCenter);
 
-            okOrFail(inCentre > inPeak + 10 && outCentre < outPeak - 10,
+            okOrFail(inCenter > inPeak + 10 && outCenter < outPeak - 10,
                      "delay::reverse: a hit comes out swelling into its "
                      "attack",
-                     "in: peak " + num(inPeak) + ", centre " +
-                     num(inCentre) + "; out: peak " + num(outPeak) +
-                     ", centre " + num(outCentre));
+                     "in: peak " + num(inPeak) + ", center " +
+                     num(inCenter) + "; out: peak " + num(outPeak) +
+                     ", center " + num(outCenter));
         }
     }
 
@@ -5118,7 +5118,8 @@ static void checkSample (const string &pluginPath)
     /* ---- slices and reverse ---- */
 
     /* The ramp backwards, one quarter of it, a slice counted from the end,
-       and a quarter backwards: each frame for frame, then over. */
+       and a quarter backwards: each frame for frame between the 2 ms
+       fades at its two ends, faded at both, then over. */
     {
         const int q = RAMP_LEN / 4;
         const struct { float slices, slice, reverse; int from, step, n;
@@ -5151,11 +5152,17 @@ static void checkSample (const string &pluginPath)
                 continue;
             }
 
-            bool same = got[1][c.n] == 0 && got[1][c.n - 1] == 1;
-            string detail = same ? "" : "it did not stop after " +
-                                        num((double)c.n) + " frames";
+            const int edge = (int)ceil(0.002 * TH_DEFAULT_SAMPLES) + 1;
+            bool same = got[1][c.n] == 0 && got[1][c.n - 1] == 1 &&
+                        fabs(got[0][0]) < 0.05 * fabs(want[c.from]) + 1e-6 &&
+                        fabs(got[0][c.n - 1]) <
+                            0.05 * fabs(want[c.from + (c.n - 1) * c.step]) +
+                            1e-6;
+            string detail = same ? "" : "it did not fade in and out and stop "
+                                        "after " + num((double)c.n) +
+                                        " frames";
 
-            for (int i = 0; i < c.n && same; i++)
+            for (int i = edge; i < c.n - edge && same; i++)
                 if (got[0][i] != want[c.from + i * c.step])
                 {
                     same = false;
@@ -5166,6 +5173,25 @@ static void checkSample (const string &pluginPath)
 
             okOrFail(same, string("osc::sample: ") + c.what, detail);
         }
+
+        /* More slices than frames: a slice is a frame at the least, and
+           nothing is read from outside the file. */
+        vector<NodeSpec> spec = sampleGraph("layer1.wav", 440, 440, 0, 0);
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        spec[0].values.push_back(Value{ "slices", 256 });
+        spec[0].values.push_back(Value{ "slice", 0 });
+        spec[0].values.push_back(Value{ "trigger", 1 });
+        watch.push_back(Watch{ "smp", "out" });
+        watch.push_back(Watch{ "smp", "play" });
+
+        okOrFail(render(pluginPath, spec, watch, 256, 400, got, why) &&
+                 allFinite(got[0]) && peak(got[0], 0) <= 1 &&
+                 got[1][0] == 1 && got[1][2] == 0,
+                 "osc::sample: a slice shorter than a frame plays one and "
+                 "stops, reading nothing outside the file", why);
     }
 
     /* ---- frame for frame at freq = root ---- */

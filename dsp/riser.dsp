@@ -1,6 +1,6 @@
 # Riser -- noise climbing for as long as the note is held.
 #
-# White noise through a resonant band-pass whose centre climbs from `From'
+# White noise through a resonant band-pass whose center climbs from `From'
 # to `To' over `Rise', on an octave scale, and a sine under it climbing
 # from the note to an octave up the same way, both swelling in as they go:
 # the sweep that says the drop is coming. Hold the note for the length of
