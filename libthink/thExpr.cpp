@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <math.h>
 
+#include <algorithm>
+
 #include "thExpr.h"
 #include "thUtil.h"
 
@@ -218,6 +220,7 @@ thExprOp (int op, thExprNode *a, thExprNode *b)
     e->op = op;
     e->kids.push_back(a);
     e->kids.push_back(b);
+    e->depth = 1 + std::max(a->depth, b->depth);
 
     return e;
 }
@@ -274,6 +277,9 @@ thExprCall (const string &name, vector<thExprNode *> &kids, string &why)
 
         e->name = f->name;
         e->kids = kids;
+
+        for (size_t i = 0; i < kids.size(); i++)
+            e->depth = std::max(e->depth, 1 + kids[i]->depth);
 
         kids.clear();
 

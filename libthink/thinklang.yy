@@ -326,7 +326,7 @@ SUB factor
      * two languages now group one expression one way.
      *
      * The unit rides along: `-5 ms' is a factor of -5 that the MS rule
-     * below then marks, and `-(5 ms)' a parenthesised factor that carries
+     * above then marks, and `-(5 ms)' a parenthesised factor that carries
      * one in already. */
     if ($2.expr == NULL)
     {
@@ -336,7 +336,7 @@ SUB factor
     }
     else
     {
-        /* A unit on a signal is refused by the MS and MOD rules below, so
+        /* A unit on a signal is refused by the MS and MOD rules above, so
            $2.units is NULL here whenever $2.expr is not. */
         $$.floatval = 0;
         $$.units = NULL;
@@ -949,6 +949,24 @@ thOperand (const YYSTYPE *v)
     return v->expr ? v->expr : thExprConst(v->floatval);
 }
 
+/* False, having said so and freed it, for an expression too deep to free
+   or copy by recursion -- see TH_EXPR_DEPTH_MAX. */
+static bool
+thDeepEnough (thParseContext *ctx, YYSTYPE *out)
+{
+    if (out->expr == NULL)
+        return false;
+
+    if (out->expr->depth <= TH_EXPR_DEPTH_MAX)
+        return true;
+
+    yyerror(ctx, "this expression is nested too deeply");
+    thExprFree(out->expr);
+    out->expr = NULL;
+
+    return false;
+}
+
 static bool
 thArith (thParseContext *ctx, YYSTYPE *out, int op,
          const YYSTYPE *a, const YYSTYPE *b)
@@ -1027,7 +1045,7 @@ thArith (thParseContext *ctx, YYSTYPE *out, int op,
 
     out->expr = thExprOp(op, thOperand(a), thOperand(b));
 
-    return out->expr != NULL;
+    return thDeepEnough(ctx, out);
 }
 
 static bool
@@ -1063,7 +1081,7 @@ thCall (thParseContext *ctx, YYSTYPE *out, char *name,
 
     free(name);
 
-    if (out->expr == NULL)
+    if (!thDeepEnough(ctx, out))
         return false;
 
     /* `exp2(2)' is 4 and no node, for the same reason `5 * 2' is 10 and no

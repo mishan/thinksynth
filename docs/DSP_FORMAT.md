@@ -149,7 +149,8 @@ unlikely.
 - **`*` and `/` bind tighter than `+` and `-`**, and all four group to the
   left, as in arithmetic: `a - b - c` is `(a - b) - c`, `1 - 2 + 3` is `2` and
   `8 / 4 / 2` is `1`. A `%` binds as tightly as a parenthesis, since it is also
-  the percentage. `exprcheck` pins this and `gencheck` pins the same list, so
+  the percentage, and does not chain: `7 % 4 % 3` is refused; write the
+  parentheses. An expression deeper than 200 operators is refused too. `exprcheck` pins this and `gencheck` pins the same list, so
   the two languages cannot drift apart on it.
 - **A unit inside an expression is refused**, signal or not — short of a
   number with a unit scaled by one without (see

@@ -41,6 +41,8 @@
 
 #include "thExport.h"
 
+#define TH_EXPR_DEPTH_MAX 200
+
 struct thExprNode
 {
     enum Kind
@@ -60,7 +62,13 @@ struct thExprNode
 
     std::vector<thExprNode *> kids;
 
-    thExprNode (Kind k) : kind(k), value(0), op(0) { }
+    /* 1 for a leaf, one more than the deepest kid otherwise. A tree is
+       freed and copied by recursion, so the grammars refuse one deeper
+       than TH_EXPR_DEPTH_MAX rather than let a generated file take the
+       stack. */
+    int    depth;
+
+    thExprNode (Kind k) : kind(k), value(0), op(0), depth(1) { }
     ~thExprNode (void);
 };
 
