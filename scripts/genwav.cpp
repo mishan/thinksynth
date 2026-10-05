@@ -75,6 +75,7 @@
 #include <stdint.h>
 #include <math.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -112,6 +113,8 @@ static void usage (const char *argv0)
            "      --levels            peak and RMS by instrument channel\n"
            "      --sections          mix RMS by arrangement section\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
+           "      --from N            write the audio from N seconds in\n"
+           "      --length N          and only N seconds of it, for a loop\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -300,7 +303,7 @@ int main (int argc, char **argv)
     std::string pluginPath = PLUGIN_PATH;
     std::string genFile, wavFile, tapeFile, midiFile;
     bool mono = false, midiFine = false;
-    double seconds = 120;
+    double seconds = 120, from = 0, length = -1;
     bool quiet = false;
     bool levels = false, sections = false;
 
@@ -335,6 +338,16 @@ int main (int argc, char **argv)
             midiFine = true;
         else if (!strcmp(argv[i], "-m") || !strcmp(argv[i], "--mono"))
             mono = true;
+        else if (!strcmp(argv[i], "--from"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            from = atof(argv[i]);
+        }
+        else if (!strcmp(argv[i], "--length"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            length = atof(argv[i]);
+        }
         else if (!strcmp(argv[i], "--levels"))
             levels = true;
         else if (!strcmp(argv[i], "--sections"))
@@ -592,6 +605,22 @@ int main (int argc, char **argv)
 
         pcm.swap(summed);
         outChannels = 1;
+    }
+
+    /* A loop is the second pass of a phrase rendered twice: by then the
+       first pass's tails are sounding under it, as they will be when it
+       wraps round onto itself. scripts/makekit.sh's loops. */
+    if (from > 0 || length >= 0)
+    {
+        from = std::max(from, 0.0);
+
+        const size_t first = std::min(pcm.size(),
+            (size_t)(from * TH_DEFAULT_SAMPLES) * (size_t)outChannels);
+        const size_t last = length < 0 ? pcm.size() : std::min(pcm.size(),
+            first + (size_t)(length * TH_DEFAULT_SAMPLES) *
+                    (size_t)outChannels);
+
+        pcm = std::vector<float>(pcm.begin() + first, pcm.begin() + last);
     }
 
     if (!wavFile.empty() &&

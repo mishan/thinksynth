@@ -5227,6 +5227,165 @@ static float zoneLevel (const string &pluginPath, const char *file, int note,
     return out[300];
 }
 
+/* ---- osc::stretch --------------------------------------------------------
+ *
+ * Two seconds of a 440 Hz sine at half scale. At half speed it is still
+ * 440 and lasts four seconds; at pitch 2 it is 880 and lasts two; a
+ * steady tone comes out at its own level, the four Hann grains summing to
+ * a constant; and a looped playhead never runs out.
+ */
+static vector<NodeSpec> stretchGraph (float speed, float pitch, float loop)
+{
+    NodeSpec n;
+
+    n.name = "st";
+    n.spelling = "osc/stretch";
+    n.texts.push_back(Text{ "file", "tone.wav" });
+    n.values.push_back(Value{ "speed", speed });
+    n.values.push_back(Value{ "pitch", pitch });
+    n.values.push_back(Value{ "size", 2048 });
+    n.values.push_back(Value{ "loop", loop });
+
+    return vector<NodeSpec>(1, n);
+}
+
+static void checkStretch (const string &pluginPath)
+{
+    const string dir = thUtil::tempFile("statecheck-stretch-");
+    std::error_code ec;
+
+    if (dir.empty())
+    {
+        fail("osc::stretch: could not make a scratch directory", "");
+        return;
+    }
+
+    std::filesystem::remove(dir);
+    std::filesystem::create_directories(dir + "/samples", ec);
+
+    vector<float> tone(2 * TH_DEFAULT_SAMPLES);
+
+    for (size_t i = 0; i < tone.size(); i++)
+        tone[i] = 0.5f * (float)sin(2 * M_PI * 440 * (double)i /
+                                    TH_DEFAULT_SAMPLES);
+
+    if (ec || !writeWav(dir + "/samples/tone.wav", tone, TH_DEFAULT_SAMPLES))
+    {
+        fail("osc::stretch: could not write the scratch wav", "");
+        std::filesystem::remove_all(dir, ec);
+        return;
+    }
+
+#ifdef _WIN32
+    _putenv_s("THINK_DSP_PATH", dir.c_str());
+#else
+    setenv("THINK_DSP_PATH", dir.c_str(), 1);
+#endif
+
+    const unsigned sr = TH_DEFAULT_SAMPLES;
+    const struct { float speed, pitch; double hz, lasts; const char *what; }
+        cases[] = {
+        { 0.5f, 1, 440, 4, "half speed is the same pitch for twice as long" },
+        { 1, 2, 880, 2, "pitch 2 is an octave up for as long as it was" },
+    };
+
+    for (const auto &c : cases)
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        watch.push_back(Watch{ "st", "out" });
+        watch.push_back(Watch{ "st", "play" });
+
+        if (!render(pluginPath, stretchGraph(c.speed, c.pitch, 0), watch, 256,
+                    5 * sr, got, why))
+        {
+            fail("osc::stretch renders", why);
+            continue;
+        }
+
+        const double at = bin(got[0], sr / 2, sr / 2, c.hz);
+        const double off = bin(got[0], sr / 2, sr / 2, 1320 - c.hz);
+        size_t end = 0;
+
+        while (end < got[1].size() && got[1][end] > 0)
+            end++;
+
+        const double rmsDb =
+            20 * log10(rms(vector<float>(got[0].begin() + sr / 2,
+                                         got[0].begin() + sr), 0) /
+                       (0.5 / sqrt(2.0)));
+
+        okOrFail(at > off * 10 && fabs((double)end / sr - c.lasts) < 0.05 &&
+                 fabs(rmsDb) < 1.5,
+                 string("osc::stretch: ") + c.what + ", at its own level",
+                 num(c.hz) + " Hz " + num(at) + " against " + num(off) +
+                 ", lasts " + num((double)end / sr) + " s, level " +
+                 num(rmsDb) + " dB");
+    }
+
+    {
+        vector<float> play;
+        string why;
+        const bool rendered = render1(pluginPath, stretchGraph(1, 1, 1),
+                                      "st", "play", 256, 3 * sr, play, why);
+
+        okOrFail(rendered && play.back() == 1,
+                 "osc::stretch: a looped playhead never runs out", why);
+    }
+
+    /* Eight seconds at 0.7 lasts 8 / 0.7: the playhead's step is the step
+       asked for at every position, not rounded to what a float holds
+       there. And a looped tone is at its level from the first samples,
+       not faded in over a grain. */
+    {
+        vector<float> eight(8 * sr), play;
+        string why;
+
+        for (size_t i = 0; i < eight.size(); i++)
+            eight[i] = 0.5f * (float)sin(2 * M_PI * 440 * (double)i / sr);
+
+        vector<NodeSpec> spec = stretchGraph(0.7f, 1, 0);
+
+        spec[0].texts[0].value = "eight.wav";
+
+        const bool rendered =
+            writeWav(dir + "/samples/eight.wav", eight, sr) &&
+            render1(pluginPath, spec, "st", "play", 256, 12 * sr, play, why);
+        size_t end = 0;
+
+        while (end < play.size() && play[end] > 0)
+            end++;
+
+        okOrFail(rendered && fabs((double)end / sr - 8 / 0.7) < 0.002,
+                 "osc::stretch: eight seconds at speed 0.7 lasts 8 / 0.7",
+                 rendered ? num((double)end / sr) + " s" : why);
+    }
+
+    {
+        vector<float> got;
+        string why;
+        const bool rendered = render1(pluginPath, stretchGraph(1, 1, 1),
+                                      "st", "out", 256, sr, got, why);
+        const double head = rendered
+            ? rms(vector<float>(got.begin(), got.begin() + 512), 0) : 0;
+        const double steady = rendered
+            ? rms(vector<float>(got.begin() + sr / 2, got.end()), 0) : 1;
+
+        okOrFail(rendered && head > steady * 0.7,
+                 "osc::stretch: a looped tone is at its level from the start",
+                 rendered ? "first 512 samples " + num(head) + ", steady " +
+                            num(steady) : why);
+    }
+
+    windowsAgree(pluginPath, stretchGraph(0.7f, 1.3f, 1), "st", "out",
+                 "osc::stretch: the same grains at one sample a window and "
+                 "at five hundred");
+
+    std::filesystem::remove_all(dir, ec);
+}
+
 static void checkSampleZones (const string &pluginPath)
 {
     const string dir = thUtil::tempFile("statecheck-zones-");
@@ -7947,6 +8106,7 @@ int main (int argc, char **argv)
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
     checkSampleZones(pluginPath);
+    checkStretch(pluginPath);
     checkGrain(pluginPath);
     checkDrift(pluginPath);
     checkPad(pluginPath);

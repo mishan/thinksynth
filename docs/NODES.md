@@ -1202,6 +1202,24 @@ Produces Random Signal
 | `last` | state |  |  |  |  |  |
 | `sample` | in | How long to hold each value |  |  | samples |  |
 
+### osc::stretch
+
+Time-stretch (a wav at one speed, another pitch)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `file` | in | The wav to play, found under samples/ on THINK_DSP_PATH; or zones, `a.wav@60 b.wav@62', chosen by `note' |  |  |  |  |
+| `note` | in | Which zone of a zoned `file': the one recorded nearest this MIDI note |  |  |  |  |
+| `speed` | in | How fast the playhead moves through the file: 1 as recorded, 0 holds one moment, negative goes back | 1 | -4 to 4 | ratio |  |
+| `pitch` | in | How fast each grain reads: 1 as recorded, 2 an octave up, whatever `speed' is | 1 | 0.25 to 4 | ratio |  |
+| `size` | in | Each grain's length: small keeps a drum's attack, large smooths a pad |  | 441 to 22050 | samples |  |
+| `start` | in | Where the playhead starts, as a fraction of the file |  | 0 to 1 |  |  |
+| `loop` | in | 1 wraps the playhead round the file; 0 stops at its end |  | 0 to 1 |  |  |
+| `trigger` | in | Back to `start' when this rises above 0 |  | 0 to 1 |  |  |
+| `out` | out | The file |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is file to play; a loop always has |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::window
 
 Unipolar oscillator, for windowing

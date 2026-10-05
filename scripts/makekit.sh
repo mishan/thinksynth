@@ -191,4 +191,32 @@ done <<KIT
 $kit
 KIT
 
+# And the loops: each scripts/loops/NAME.gen is a phrase `bars' long at
+# its own tempo, rendered twice and kept from the second pass, so the
+# first pass's tails are under its start as they will be when it wraps --
+# dsp/samples/loop_NAME.wav, for osc::stretch.
+#
+# name      bars  bpm
+loops="
+break100   1     100
+"
+
+while read -r name bars bpm; do
+    [ -n "$name" ] || continue
+
+    len=$(awk "BEGIN { print $bars * 4 * 60 / $bpm }")
+
+    if THINK_DSP_PATH="$DSP" "$GENWAV" -p "$PLUGINS" -s "$(awk "BEGIN { print 2 * $len }")" \
+           -q -m --from "$len" --length "$len" \
+           -o "$OUT/loop_$name.wav" "scripts/loops/$name.gen"
+    then
+        echo "  $OUT/loop_$name.wav  ($bars bar at $bpm, ${len}s)"
+    else
+        echo "makekit: scripts/loops/$name.gen would not render cleanly" >&2
+        exit 1
+    fi
+done <<LOOPS
+$loops
+LOOPS
+
 echo "makekit: $OUT is the tree's own kit"
