@@ -44,7 +44,6 @@
 #ifndef TH_ENGLISH_H
 #define TH_ENGLISH_H 1
 
-#include <cctype>
 #include <cstring>
 #include <string>
 
@@ -59,33 +58,45 @@ static const char *const englishExceptions[][2] = {
     { "A", "AH" },              { "AND", "AE N D" },
     { "ARE", "AA R" },          { "AROUND", "AH R AW N D" },
     { "AUTOBAHN", "AW T OW B AA N" },
-    { "BETTER", "B EH T ER" },  { "CALCULATOR", "K AE L K Y AH L EY T ER" },
+    { "BETTER", "B EH T ER" },  { "BINARY", "B AY N ER IY" },
+    { "BREAK", "B R EY K" },    { "BUY", "B AY" },
+    { "CALCULATOR", "K AE L K Y AH L EY T ER" },
+    { "CITY", "S IH T IY" },
     { "COMPUTER", "K AH M P Y UW T ER" },
     { "DAFT", "D AE F T" },     { "DIGITAL", "D IH JH IH T AH L" },
     { "DO", "D UW" },           { "ELECTRIC", "IH L EH K T R IH K" },
+    { "EYE", "AY" },            { "EYES", "AY Z" },
     { "EUROPE", "Y UH R AH P" },
     { "EXPRESS", "IH K S P R EH S" },
     { "FASTER", "F AE S T ER" },
     { "FOUR", "F AO R" },       { "FROM", "F R AH M" },
     { "HARDER", "HH AA R D ER" },
-    { "HAVE", "HH AE V" },      { "I", "AY" },
+    { "HAVE", "HH AE V" },      { "HEART", "HH AA R T" },
+    { "HEARTS", "HH AA R T S" },
+    { "I", "AY" },
     { "IS", "IH Z" },           { "LOVE", "L AH V" },
     { "MACHINE", "M AH SH IY N" },
     { "MACHINES", "M AH SH IY N Z" },
     { "MODEL", "M AA D AH L" }, { "MUSIC", "M Y UW Z IH K" },
     { "NUMBERS", "N AH M B ER Z" },
-    { "OF", "AH V" },           { "ONE", "W AH N" },
+    { "OF", "AH V" },           { "OFF", "AO F" },
+    { "OH", "OW" },             { "ONE", "W AH N" },
+    { "PLAYED", "P L EY D" },
     { "POCKET", "P AA K IH T" },
     { "PUNK", "P AH NG K" },    { "RADIO", "R EY D IY OW" },
     { "ROBOT", "R OW B AA T" }, { "ROBOTS", "R OW B AA T S" },
-    { "SAID", "S EH D" },       { "SHOWROOM", "SH OW R UW M" },
+    { "RIVER", "R IH V ER" },
+    { "SAID", "S EH D" },       { "SEVEN", "S EH V AH N" },
+    { "SHOWROOM", "SH OW R UW M" },
+    { "STAYED", "S T EY D" },
     { "STRONGER", "S T R AO NG G ER" },
     { "THE", "DH AH" },         { "THREE", "TH R IY" },
     { "TO", "T UW" },           { "TRANS", "T R AE N Z" },
-    { "TWO", "T UW" },          { "WAS", "W AA Z" },
+    { "TWO", "T UW" },          { "VERY", "V EH R IY" },
+    { "WAS", "W AA Z" },
     { "WE", "W IY" },           { "WHAT", "W AH T" },
     { "WORLD", "W ER L D" },    { "YOU", "Y UW" },
-    { "YOUR", "Y AO R" },
+    { "YOUR", "Y AO R" },       { "ZERO", "Z IY R OW" },
 };
 
 /* `""' is any context at all; `" "' is the edge of the word. */
@@ -137,7 +148,7 @@ static const EnglishRule rulesD[] = {
 };
 
 static const EnglishRule rulesE[] = {
-    { "#:", "E", EDGE, "" },            { "'^:", "E", EDGE, "" },
+    { "#:", "E", EDGE, "" },            { "'^", "E", EDGE, "" },
     { " :", "E", EDGE, "IY" },          { "#", "ED", EDGE, "D" },
     { "#:", "E", "D ", "" },            { ANY, "EV", "ER", "EH V" },
     { ANY, "E", "^%", "IY" },           { ANY, "ERI", "#", "IY R IY" },
@@ -354,6 +365,19 @@ static const EnglishRules englishRules[26] = {
 
 #undef TH_RULES
 
+/* ASCII and nothing else: the C library's letters follow the locale, and
+   a Turkish one upper-cases `i' to itself, which is no index into the
+   rules. */
+static inline bool englishLetter (char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+static inline char englishUpper (char c)
+{
+    return c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+}
+
 static inline bool englishVowel (char c)
 {
     return c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U';
@@ -361,7 +385,7 @@ static inline bool englishVowel (char c)
 
 static inline bool englishConsonant (char c)
 {
-    return isalpha((unsigned char)c) && !englishVowel(c);
+    return englishLetter(c) && !englishVowel(c);
 }
 
 static inline bool englishVoiced (char c)
@@ -426,7 +450,7 @@ static bool englishLeft (const std::string &w, int at, const char *ctx)
                     return false;
                 break;
             case ' ':
-                if (isalpha((unsigned char)w[i--]))
+                if (englishLetter(w[i--]))
                     return false;
                 break;
             default:
@@ -511,7 +535,7 @@ static bool englishRight (const std::string &w, int at, const char *ctx)
                     return false;
                 break;
             case ' ':
-                if (isalpha((unsigned char)w[i++]))
+                if (englishLetter(w[i++]))
                     return false;
                 break;
             default:
@@ -530,8 +554,8 @@ static std::string englishToPhonemes (const std::string &word)
     std::string w = " ";
 
     for (char c : word)
-        if (isalpha((unsigned char)c) || c == '\'')
-            w += (char)toupper((unsigned char)c);
+        if (englishLetter(c) || c == '\'')
+            w += englishUpper(c);
 
     w += " ";
 
@@ -548,7 +572,7 @@ static std::string englishToPhonemes (const std::string &word)
     {
         const char c = w[at];
 
-        if (!isalpha((unsigned char)c))
+        if (!englishLetter(c))
         {
             at++;
             continue;
@@ -567,8 +591,20 @@ static std::string englishToPhonemes (const std::string &word)
                 !englishRight(w, at + len, rule.right))
                 continue;
 
+            /* A doubled letter is one sound -- HAPPY has one P -- and a
+               rule that spells each half would make it two syllables. */
             if (rule.out[0])
-                out += (out.empty() ? "" : " ") + std::string(rule.out);
+            {
+                const std::string sound = rule.out;
+                const size_t last = out.rfind(' ');
+                const std::string tail =
+                    last == std::string::npos ? out : out.substr(last + 1);
+
+                if (tail != sound.substr(0, sound.find(' ')))
+                    out += (out.empty() ? "" : " ") + sound;
+                else if (sound.find(' ') != std::string::npos)
+                    out += sound.substr(sound.find(' '));
+            }
 
             at += len;
             matched = true;

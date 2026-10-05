@@ -36,7 +36,9 @@
  *
  * A CHORD IS ONE SYLLABLE. Notes that arrive at the same instant -- what
  * xform::harmonize makes of one -- all take the syllable the first did,
- * so a choir says a word together rather than a word each.
+ * so a choir says a word together rather than a word each. A strummed
+ * chord's notes arrive apart and take a syllable each, so a sung chord
+ * wants `spread = 0'.
  *
  * DETERMINISM. None of it is random: the words are a function of how many
  * notes have passed, and a rewind is a fresh stage.
@@ -85,19 +87,27 @@ static void syllabify (const std::string &phonemes,
     std::vector<unsigned char> codes;
     size_t at = 0;
 
+    /* Whitespace between names, any case, and the CMU dictionary's stress
+       digits (AH0, AW1) dropped. */
     while (at < phonemes.size())
     {
-        size_t end = phonemes.find(' ', at);
+        std::string name;
 
-        if (end == std::string::npos)
-            end = phonemes.size();
+        while (at < phonemes.size() && phonemes[at] != ' ' &&
+               phonemes[at] != '\t' && phonemes[at] != '\n')
+        {
+            const char c = phonemes[at++];
 
-        const int c = thPhonemeCode(phonemes.substr(at, end - at).c_str());
+            if (!(c >= '0' && c <= '9'))
+                name += englishUpper(c);
+        }
+
+        const int c = thPhonemeCode(name.c_str());
 
         if (c > 0)
             codes.push_back((unsigned char)c);
 
-        at = end + 1;
+        at++;
     }
 
     std::vector<size_t> vowels;
@@ -201,12 +211,12 @@ static void parse (const char *text, std::vector<Syllable> &out)
             out.push_back(Syllable(1, (unsigned char)thPhonemeCode("_")));
             i++;
         }
-        else if (isalpha((unsigned char)c) || c == '\'')
+        else if (englishLetter(c) || c == '\'')
         {
             size_t end = i;
 
             while (end < t.size() &&
-                   (isalpha((unsigned char)t[end]) || t[end] == '\'' ||
+                   (englishLetter(t[end]) || t[end] == '\'' ||
                     t[end] == '-'))
                 end++;
 
@@ -262,10 +272,10 @@ composer_param_changed (void *state, int index)
     if (index != paramIndex[P_WORDS])
         return;
 
+    /* New words start from their first syllable. */
     parse(st->params->get_string(st->params->ctx, index), st->syllables);
-
-    if (st->next >= st->syllables.size())
-        st->next = 0;
+    st->next = 0;
+    st->any = false;
 }
 
 extern "C" THINK_PLUGIN_API void

@@ -7757,7 +7757,7 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
 
     {
         const std::string got = says(playBody(plugins, synth, "say marks",
-            piece("[R OW - B AA T] [K AE T] la ~ _", ""), 2.9));
+            piece("[R OW - B AA T] [k ae1 t] la ~ _", ""), 2.9));
 
         if (got != "R.OW B.AA.T K.AE.T L.AH AH _")
             fail("say: brackets, a held vowel and a pause; got " + got);
@@ -7787,6 +7787,8 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         { "sells", "S EH L Z" },    { "night", "N AY T" },
         { "phone", "F OW N" },      { "making", "M EY K IH NG" },
         { "ship", "SH IH P" },      { "thing", "TH IH NG" },
+        { "you're", "Y UW R" },     { "happy", "HH AE P IY" },
+        { "little", "L IH T AH L" },
     };
 
     for (const auto &w : spelled)
