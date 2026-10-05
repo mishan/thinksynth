@@ -12,6 +12,12 @@
 # when the tempo moves; the right side repeats `Spread' times as far
 # apart, so the two sides land between each other.
 #
+# `Input' is how much of the channel goes into the echo, apart from how
+# much of it is heard: at 0 the channel passes dry and the echo only
+# plays out what it already holds. A chain with xform::throw rides it
+# (`chanarg = "fx.input"') to send one hit in eight and no other -- the
+# throw.
+#
 # `Wow' is a slow wobble on the wet, the capstan of a tape echo; on the
 # wet as a whole, for the reason fx/tape.dsp gives.
 
@@ -68,6 +74,12 @@ category "Effects";
     @wow.max = 3ms;
     @wow.label = "Wow";
 
+    @input = 1;
+    @input.widget = 1;
+    @input.min = 0;
+    @input.max = 1;
+    @input.label = "Input";
+
     @mix = 0.35;
     @mix.widget = 1;
     @mix.min = 0;
@@ -96,7 +108,7 @@ node tempo misc::tempo { };
 # Feedback stops at 0.95, twenty times; at 1 that would divide by zero,
 # and past 0.95 is what `Runaway' is for.
 node echol delay::echo {
-    in = ionode->in0 / (1 - min(@feedback, 0.95));
+    in = ionode->in0 * @input / (1 - min(@feedback, 0.95));
     size = @ring;
     delay = min(tempo->beat * @beats, @ring - 1);
     feedback = min(@feedback, 0.95);
@@ -108,7 +120,7 @@ node echol delay::echo {
 };
 
 node echor delay::echo {
-    in = ionode->in1 / (1 - min(@feedback, 0.95));
+    in = ionode->in1 * @input / (1 - min(@feedback, 0.95));
     size = @ring;
     delay = min(tempo->beat * @beats * @spread, @ring - 1);
     feedback = min(@feedback, 0.95);

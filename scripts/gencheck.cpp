@@ -7405,19 +7405,17 @@ notesOf (const std::string &tape)
 }
 
 /* Write `body' out, load it, render `seconds' of it, and hand back the
- * notes. An empty result with `what' in the failure is a piece that did
- * not load. */
-static std::vector<Heard>
-playBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+ * tape. Empty, with `what' in the failure, for a piece that did not load. */
+static std::string
+tapeBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
           const char *what, const std::string &body, double seconds)
 {
-    std::vector<Heard> none;
     const std::string path = thUtil::tempFile("gencheck-kit-");
 
     if (path.empty())
     {
         fail(std::string("could not write the ") + what + " piece");
-        return none;
+        return std::string();
     }
 
     {
@@ -7441,13 +7439,21 @@ playBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
 
         fail(std::string("the ") + what + " piece did not load");
         remove(path.c_str());
-        return none;
+        return std::string();
     }
 
-    std::vector<Heard> heard = notesOf(render(sched, seconds, 0.02));
+    const std::string tape = render(sched, seconds, 0.02);
 
     remove(path.c_str());
-    return heard;
+    return tape;
+}
+
+/* And the notes on it. */
+static std::vector<Heard>
+playBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+          const char *what, const std::string &body, double seconds)
+{
+    return notesOf(tapeBody(plugins, synth, what, body, seconds));
 }
 
 static bool
@@ -7795,6 +7801,60 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         if (englishToPhonemes(w[0]) != w[1])
             fail(std::string("say: the rules spell ") + w[0] + " as " +
                  englishToPhonemes(w[0]) + ", not " + w[1]);
+}
+
+/* ---- throws ------------------------------------------------------------ */
+
+/* xform::throw: every note passes, and the ones the pattern marks bring
+ * the knob up `lead' before them and down `hold' after, on a chanarg sink
+ * beside the note sink. A note every half second under "..x." is a throw
+ * at 1 s and 3 s. */
+static void
+checkThrow (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth)
+{
+    if (plugins.find("throw") == plugins.end())
+    {
+        fail("module 'throw' is missing; build the plugins first");
+        return;
+    }
+
+    const std::string tape = tapeBody(plugins, synth, "throw",
+        "chain c {\n"
+        "  stage src gen::euclid { steps = 1; fills = 1;"
+        "    notes = \"C4\"; period = 0.5 s; hold = 0.1 s; vel = 100; };\n"
+        "  stage t xform::throw { pattern = \"..x.\"; up = 1; down = 0;"
+        " hold = 0.2 s; lead = 0.01 s; };\n"
+        "  sink { channel = 1; };\n"
+        "  sink { channel = 1; chanarg = \"throwtest\"; };\n"
+        "};\n", 3.9);
+    std::istringstream lines(tape);
+    std::string line, knob;
+    int notes = 0;
+
+    while (std::getline(lines, line))
+    {
+        std::istringstream f(line);
+        std::string tag, name;
+        double at, value;
+        int chan;
+
+        if (line.compare(0, 2, "N ") == 0)
+            notes++;
+        else if ((f >> tag >> at >> chan >> name >> value) && tag == "C")
+        {
+            char b[64];
+
+            snprintf(b, sizeof(b), "%s%.2f=%g", knob.empty() ? "" : " ", at,
+                     value);
+            knob += b;
+        }
+    }
+
+    if (notes != 8 || knob != "0.99=1 1.20=0 2.99=1 3.20=0")
+        fail("throw: eight notes, and the knob up before the third of each "
+             "four and down after it; got " + std::to_string(notes) +
+             " notes and " + knob);
 }
 
 /* ---- the harmony plugins ------------------------------------------------ */
@@ -12956,6 +13016,7 @@ main (int argc, char *argv[])
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
+    checkThrow(plugins, &synth);
     checkSay(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
     checkVoiceLeading(plugins, &synth);
