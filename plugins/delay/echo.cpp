@@ -116,7 +116,8 @@ int module_init (thPlugin *plugin)
     args[IN_BOOST] = plugin->regArg("boost", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_BOOST],
                        "The loop's gain past what `feedback' keeps: above 0 "
-                       "a tail builds until `drive' holds it");
+                       "a tail builds until the saturation holds it, at full "
+                       "scale or under");
     plugin->setArgRange(args[IN_BOOST], 0, ECHO_BOOST_MAX);
     /* [0] the low-pass, [1] the high-pass's input, [2] its output. */
     args[INOUT_LOOP] = plugin->regArg("loop", thPlugin::ARG_STATE);
@@ -223,9 +224,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             back *= 1 + boost;
 
         /* tanh scaled so a small signal passes at unity: the drive is how
-           early the curve bends, not a gain. */
-        if (drive > 0)
-            back = TH_MAX * tanhf(drive * back / TH_MAX) / drive;
+           early the curve bends, not a gain. Its ceiling is full scale
+           over the drive, so a boosted loop bends at 1 at least and is
+           held at full scale or under. */
+        const float bend = boost > 0 ? fmaxf(drive, 1) : drive;
+
+        if (bend > 0)
+            back = TH_MAX * tanhf(bend * back / TH_MAX) / bend;
 
         if (!thIsFinite(back))
         {

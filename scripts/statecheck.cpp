@@ -4158,6 +4158,20 @@ static void checkEcho (const string &pluginPath)
                             ", held peak " + num(peak(held, 0)) : why);
     }
 
+    /* And with no drive asked for, a boosted loop is still held: the
+       saturation is the loop's, not the knob's. */
+    {
+        vector<float> got;
+        string why;
+        const bool rendered = render1(pluginPath,
+                                      echoGraph(0.95f, 0, 0, 0, 0.5f), "e",
+                                      "out", 256, 30000, got, why);
+
+        okOrFail(rendered && allFinite(got) && peak(got, 0) <= 1.05,
+                 "delay::echo: `boost' with no `drive' stays under full "
+                 "scale", rendered ? "peak " + num(peak(got, 0)) : why);
+    }
+
     windowsAgree(pluginPath, echoGraph(0.8f, 2500, 200, 1.5f, 0.3f), "e",
                  "out",
                  "delay::echo: the same filtered, driven loop at one sample "

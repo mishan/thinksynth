@@ -6,10 +6,12 @@
 # forth along the coil smears it further. That chirp, repeating every few
 # tens of milliseconds and dying, is the drip and the boing.
 #
-# THE CHIRP is eight first-order allpasses in series: each passes every
-# frequency at full level but delays the ones under `Chirp' more than
-# the ones over it, and eight of them in a row are a sweep long enough
-# to hear. THE REPEATS are delay::echo at the spring's length, darkened
+# THE CHIRP is sixteen first-order allpasses in series: each passes
+# every frequency at full level but delays the ones under `Chirp' more
+# than the ones over it, about a millisecond each at the default, so the
+# bottom of a click arrives some fifteen milliseconds after its top. A
+# real spring smears more than that and more with every trip; this is
+# the part of it a graph can afford. THE REPEATS are delay::echo at the spring's length, darkened
 # and thinned on every lap the way a spring loses its top and its
 # bottom. Two springs of different lengths, one a side, as the tanks in
 # an amplifier have.
@@ -23,10 +25,10 @@ author "Misha Nasledov";
 description "A spring reverb: the chirp of a dispersive line, repeating every few tens of milliseconds, darker and thinner each time.";
 category "Effects";
 
-    @chirp = 900;
+    @chirp = 350;
     @chirp.widget = 1;
-    @chirp.min = 200;
-    @chirp.max = 4000;
+    @chirp.min = 100;
+    @chirp.max = 2000;
     @chirp.label = "Chirp (Hz)";
 
     @decay = 0.75;
@@ -72,6 +74,14 @@ node apl4 filt::allpass { in = apl3->out; freq = @chirp; };
 node apl5 filt::allpass { in = apl4->out; freq = @chirp; };
 node apl6 filt::allpass { in = apl5->out; freq = @chirp; };
 node apl7 filt::allpass { in = apl6->out; freq = @chirp; };
+node apl8 filt::allpass { in = apl7->out; freq = @chirp; };
+node apl9 filt::allpass { in = apl8->out; freq = @chirp; };
+node apl10 filt::allpass { in = apl9->out; freq = @chirp; };
+node apl11 filt::allpass { in = apl10->out; freq = @chirp; };
+node apl12 filt::allpass { in = apl11->out; freq = @chirp; };
+node apl13 filt::allpass { in = apl12->out; freq = @chirp; };
+node apl14 filt::allpass { in = apl13->out; freq = @chirp; };
+node apl15 filt::allpass { in = apl14->out; freq = @chirp; };
 
 node apr0 filt::allpass { in = ionode->in1; freq = @chirp; };
 node apr1 filt::allpass { in = apr0->out; freq = @chirp; };
@@ -81,29 +91,37 @@ node apr4 filt::allpass { in = apr3->out; freq = @chirp; };
 node apr5 filt::allpass { in = apr4->out; freq = @chirp; };
 node apr6 filt::allpass { in = apr5->out; freq = @chirp; };
 node apr7 filt::allpass { in = apr6->out; freq = @chirp; };
+node apr8 filt::allpass { in = apr7->out; freq = @chirp; };
+node apr9 filt::allpass { in = apr8->out; freq = @chirp; };
+node apr10 filt::allpass { in = apr9->out; freq = @chirp; };
+node apr11 filt::allpass { in = apr10->out; freq = @chirp; };
+node apr12 filt::allpass { in = apr11->out; freq = @chirp; };
+node apr13 filt::allpass { in = apr12->out; freq = @chirp; };
+node apr14 filt::allpass { in = apr13->out; freq = @chirp; };
+node apr15 filt::allpass { in = apr14->out; freq = @chirp; };
 
 # A short diffuser after the chirp, so a repeat is a smear and not a
 # copy: the drip.
-node dripl delay::allpass { in = apl7->out; delay = 3.1 ms; gain = 0.6; };
-node dripr delay::allpass { in = apr7->out; delay = 3.7 ms; gain = 0.6; };
+node dripl delay::allpass { in = apl15->out; delay = 3.1 ms; gain = 0.6; };
+node dripr delay::allpass { in = apr15->out; delay = 3.7 ms; gain = 0.6; };
 
 # The input scaled up by what delay::echo's crossfade takes off it; see
 # fx/dub.dsp.
 node springl delay::echo {
-    in = dripl->out / (1 - @decay);
+    in = dripl->out / (1 - min(@decay, 0.95));
     size = 100 ms;
     delay = 33 ms;
-    feedback = @decay;
+    feedback = min(@decay, 0.95);
     dry = 0;
     tone = @tone;
     low = @low;
 };
 
 node springr delay::echo {
-    in = dripr->out / (1 - @decay);
+    in = dripr->out / (1 - min(@decay, 0.95));
     size = 100 ms;
     delay = 41 ms;
-    feedback = @decay;
+    feedback = min(@decay, 0.95);
     dry = 0;
     tone = @tone;
     low = @low;

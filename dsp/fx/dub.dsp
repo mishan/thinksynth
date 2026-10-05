@@ -93,11 +93,13 @@ node tempo misc::tempo { };
 # delay::echo crossfades the input into the ring by 1 - feedback, so the
 # input is scaled back up by as much: the first repeat is the sound at its
 # own level and each after it `Feedback' of the last, as a desk's is.
+# Feedback stops at 0.95, twenty times; at 1 that would divide by zero,
+# and past 0.95 is what `Runaway' is for.
 node echol delay::echo {
-    in = ionode->in0 / (1 - @feedback);
+    in = ionode->in0 / (1 - min(@feedback, 0.95));
     size = @ring;
     delay = min(tempo->beat * @beats, @ring - 1);
-    feedback = @feedback;
+    feedback = min(@feedback, 0.95);
     dry = 0;
     tone = @tone;
     low = @low;
@@ -106,10 +108,10 @@ node echol delay::echo {
 };
 
 node echor delay::echo {
-    in = ionode->in1 / (1 - @feedback);
+    in = ionode->in1 / (1 - min(@feedback, 0.95));
     size = @ring;
     delay = min(tempo->beat * @beats * @spread, @ring - 1);
-    feedback = @feedback;
+    feedback = min(@feedback, 0.95);
     dry = 0;
     tone = @tone;
     low = @low;
