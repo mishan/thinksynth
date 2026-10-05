@@ -137,19 +137,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         phase = 1;
     }
 
-    val_a = (*in_a)[i];
-    val_d = (*in_d)[i];
-    val_s = (*in_s)[i];
-    val_f = (*in_f)[i];
-    val_r = (*in_r)[i];
-    val_p = (*in_p)[i];
-
-    if(val_p == 0)
-        peak = TH_MAX;
-    else
-        peak = val_p;
-
     for(i = 0; i < windowlen; i++) {
+        val_a = (*in_a)[i];
+        val_d = (*in_d)[i];
+        val_s = (*in_s)[i];
+        val_f = (*in_f)[i];
+        val_r = (*in_r)[i];
+        val_p = (*in_p)[i];
+        peak = (val_p == 0) ? TH_MAX : val_p;
+
         val_trigger = (*in_trigger)[i];
         val_reset = (*in_reset)[i];
 
