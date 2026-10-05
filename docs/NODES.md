@@ -162,6 +162,18 @@ Amplifies and clips the stream
 | `clip` | in | Where the top is cut; under full scale is taken as full scale | 1 | 0 to 1 | full scale |  |
 | `lowclip` | in | How far down the bottom is cut; 0 matches clip |  | 0 to 1 | full scale |  |
 
+### dist::crush
+
+Bit crusher (fewer bits, a lower sample rate)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `bits` | in | How many bits each sample keeps; 0 keeps them all |  | 0 to 24 | bits |  |
+| `rate` | in | How often a new sample is caught, with nothing filtered first; 0 catches every one |  | 0 to 48000 | Hz |  |
+| `out` | out | The input, crushed |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### dist::inksat
 
 Applies x^(1/y) saturation

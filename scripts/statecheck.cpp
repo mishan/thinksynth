@@ -4301,6 +4301,81 @@ static void checkVarispeed (const string &pluginPath)
                  "five hundred");
 }
 
+/* ---- dist::crush ----------------------------------------------------------
+ *
+ * A 6 kHz sine through it. With neither knob written it is a wire. At 4 bits
+ * every sample sits on a grid of eighths, within half a step of the input.
+ * Caught at 8 kHz with nothing filtered first, the tone folds down to 2 kHz
+ * and is louder there than at 6.
+ */
+static vector<NodeSpec> crushGraph (float bits, float rate)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, c;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+    src.values.push_back(Value{ "freq", 6000 });
+    src.values.push_back(Value{ "waveform", 0 });
+    spec.push_back(src);
+
+    c.name = "c";
+    c.spelling = "dist/crush";
+    c.values.push_back(Value{ "bits", bits });
+    c.values.push_back(Value{ "rate", rate });
+    c.wires.push_back(Wire{ "in", "src", "out" });
+    spec.push_back(c);
+
+    return spec;
+}
+
+static void checkCrush (const string &pluginPath)
+{
+    const unsigned n = TH_DEFAULT_SAMPLES / 4;
+    vector<Watch> watch;
+    vector< vector<float> > wire, grid, held;
+    string why;
+
+    watch.push_back(Watch{ "c", "out" });
+    watch.push_back(Watch{ "src", "out" });
+
+    if (!render(pluginPath, crushGraph(0, 0), watch, 256, n, wire, why) ||
+        !render(pluginPath, crushGraph(4, 0), watch, 256, n, grid, why) ||
+        !render(pluginPath, crushGraph(0, 8000), watch, 256, n, held, why))
+    {
+        fail("dist::crush renders", why);
+        return;
+    }
+
+    double off = 0, offGrid = 0, err = 0;
+
+    for (size_t i = 0; i < wire[0].size(); i++)
+    {
+        off = fmax(off, fabs(wire[0][i] - wire[1][i]));
+        offGrid = fmax(offGrid, fabs(grid[0][i] * 8 - roundf(grid[0][i] * 8)));
+        err = fmax(err, fabs(grid[0][i] - grid[1][i]));
+    }
+
+    okOrFail(off == 0, "dist::crush: with nothing written it is a wire",
+             "off by " + num(off));
+    okOrFail(offGrid < 1e-5 && err <= 1.0 / 16 + 1e-6,
+             "dist::crush: at 4 bits every sample is an eighth, within half "
+             "a step of the input",
+             "off the grid by " + num(offGrid) + ", from the input by " +
+             num(err));
+
+    const double folded = bin(held[0], 0, n, 2000);
+    const double kept = bin(held[0], 0, n, 6000);
+
+    okOrFail(folded > 0.5 && folded > kept * 2,
+             "dist::crush: caught at 8 kHz, a 6 kHz tone folds down to 2",
+             "2 kHz " + num(folded) + ", 6 kHz " + num(kept));
+
+    windowsAgree(pluginPath, crushGraph(6, 8000), "c", "out",
+                 "dist::crush: the same at one sample a window and at five "
+                 "hundred");
+}
+
 static void checkBlep (const string &pluginPath)
 {
     const struct { float wave, pw; const char *what; } shapes[] = {
@@ -8226,6 +8301,7 @@ int main (int argc, char **argv)
     checkBlep(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
+    checkCrush(pluginPath);
     checkSpeak(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
