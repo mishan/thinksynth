@@ -88,9 +88,44 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 /* The state: the playhead, samples until the next grain starts, the slot
    it starts in, the last trigger, whether the voice has started, and per
-   grain where it reads and how far into its window it is. */
-enum { S_HEAD, S_UNTIL, S_NEXT, S_TRIG, S_STARTED, S_GRAIN,
-       S_LEN = S_GRAIN + 2 * GRAINS };
+   grain where it reads and how far into its window it is. A position is
+   two floats, a whole frame and a fraction: one float would round the
+   step it is moved by once the position is large, so the speed and the
+   pitch themselves would drift -- by tens of cents a minute into a file. */
+enum { S_HEAD, S_HEADF, S_UNTIL, S_NEXT, S_TRIG, S_STARTED, S_GRAIN,
+       S_LEN = S_GRAIN + 3 * GRAINS };
+
+/* The alignment search, at most: a candidate every other sample within
+   this many either side of the playhead, scored over this many samples
+   at every fourth. Fixed rather than a share of `size', which made a long
+   grain's search cost its square. */
+#define REACH_MAX 512
+#define SPAN_MAX 1024
+
+struct Pos
+{
+    float whole, frac;
+};
+
+/* `p' moved by `d', the fraction kept in 0..1. */
+static inline Pos advance (Pos p, float d)
+{
+    const float f = p.frac + d;
+    const float carry = floorf(f);
+
+    return Pos{ p.whole + carry, f - carry };
+}
+
+/* `p' brought into 0..len, for a position that has wrapped. */
+static inline Pos wrapped (Pos p, size_t len)
+{
+    while (p.whole >= (float)len)
+        p.whole -= (float)len;
+    while (p.whole < 0)
+        p.whole += (float)len;
+
+    return p;
+}
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -161,24 +196,23 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
-/* Frame `at' of `f', between samples, wrapped round `len' when `wrap'
-   and silent outside it otherwise. */
-static inline float frameAt (const float *f, size_t len, float at, bool wrap)
+/* The frame at `p' of `f', between samples: wrapped round `len' when
+   `wrap' and silent outside it otherwise. */
+static inline float frameAt (const float *f, size_t len, Pos p, bool wrap)
 {
     if (wrap)
-    {
-        at = fmodf(at, (float)len);
-        if (at < 0)
-            at += len;
-    }
-    else if (!(at >= 0 && at <= (float)(len - 1)))
+        p = wrapped(p, len);
+    else if (!(p.whole >= 0 && p.whole < (float)(len - 1)))
         return 0;
 
-    const size_t i = (size_t)at;
-    const size_t j = i + 1 < len ? i + 1 : (wrap ? 0 : i);
-    const float frac = at - (float)i;
+    size_t i = (size_t)p.whole;
 
-    return f[i] + (f[j] - f[i]) * frac;
+    if (i >= len)
+        i = 0;
+
+    const size_t j = i + 1 < len ? i + 1 : (wrap ? 0 : i);
+
+    return f[i] + (f[j] - f[i]) * p.frac;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
@@ -196,8 +230,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     /* Float throughout, as it is kept between windows: a running value
        held wider inside a window than across one comes out differently at
-       one sample a window than at five hundred. A float playhead is a
-       sixteenth of a sample out at a minute in, which no ear can hear. */
+       one sample a window than at five hundred. Positions are a whole
+       frame and a fraction; see the state. */
     float st[S_LEN];
     const unsigned had = inout_state->len();
 
@@ -229,22 +263,60 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             continue;
         }
 
-        if (st[S_STARTED] == 0 || (trig > 0 && st[S_TRIG] <= 0))
+        float speed = (*in_speed)[i];
+        float pitch = (*in_pitch)[i];
+
+        /* Not a number is as recorded, rather than the bottom of the
+           range: a NaN speed would otherwise run the file backwards. */
+        speed = thIsFinite(speed) ? thClampArg(speed, -4, 4) : 1;
+        pitch = thIsFinite(pitch) ? thClampArg(pitch, 0.25f, 4) : 1;
+
+        const float size = thClampArg((*in_size)[i], GRAIN_MIN * samples,
+                                      GRAIN_MAX * samples);
+        const float hop = size / GRAINS;
+
+        /* A voice's start puts the playhead at `start' and three grains
+           already part-way through their windows, reading from behind it,
+           so the sum is at its level from the first sample rather than
+           fading in over a grain. A trigger after that moves the playhead
+           and starts the next grain now, leaving the ones sounding to
+           finish rather than cutting them. */
+        const bool first = st[S_STARTED] == 0;
+
+        if (first || (trig > 0 && st[S_TRIG] <= 0))
         {
-            st[S_HEAD] = thClampArg((*in_start)[i], 0, 1) * (float)(len - 1);
+            const Pos head = { floorf(thClampArg((*in_start)[i], 0, 1) *
+                                      (float)(len - 1)), 0 };
+
+            st[S_HEAD] = head.whole;
+            st[S_HEADF] = 0;
             st[S_UNTIL] = 0;
-            st[S_NEXT] = 0;
             st[S_STARTED] = 1;
 
-            for (int g = 0; g < GRAINS; g++)
-                st[S_GRAIN + 2 * g + 1] = 1;     /* every window done */
+            if (first)
+            {
+                st[S_NEXT] = 0;
+
+                for (int g = 1; g < GRAINS; g++)
+                {
+                    Pos at = advance(head, -(float)(GRAINS - g) * hop * pitch);
+
+                    if (wrap)
+                        at = wrapped(at, len);
+
+                    st[S_GRAIN + 3 * g] = at.whole;
+                    st[S_GRAIN + 3 * g + 1] = at.frac;
+                    st[S_GRAIN + 3 * g + 2] = (float)(GRAINS - g) / GRAINS;
+                }
+                st[S_GRAIN + 2] = 1;
+            }
         }
         st[S_TRIG] = trig;
 
-        const float speed = thClampArg((*in_speed)[i], -4, 4);
-        const float pitch = thClampArg((*in_pitch)[i], 0.25f, 4);
-        const float size = thClampArg((*in_size)[i], GRAIN_MIN * samples,
-                                      GRAIN_MAX * samples);
+        if (st[S_UNTIL] > hop)
+            st[S_UNTIL] = hop;
+
+        const Pos head = { st[S_HEAD], st[S_HEADF] };
 
         /* A grain starts every quarter of `size', near the playhead, where
            it best continues the grain started before it. */
@@ -252,23 +324,26 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const int g = (int)st[S_NEXT] % GRAINS;
             const int prev = (g + GRAINS - 1) % GRAINS;
-            float start = st[S_HEAD];
+            Pos start = head;
 
-            if (st[S_GRAIN + 2 * prev + 1] < 1)
+            if (st[S_GRAIN + 3 * prev + 2] < 1)
             {
-                const float next = st[S_GRAIN + 2 * prev];
-                const int reach = (int)(size / 8);
-                const int span = (int)(size / 4);
+                const Pos next = { st[S_GRAIN + 3 * prev],
+                                   st[S_GRAIN + 3 * prev + 1] };
+                const int reach = (int)fminf(size / 8, REACH_MAX);
+                const int span = (int)fminf(size / 4, SPAN_MAX);
                 float best = -1e30f;
 
                 for (int c = -reach; c <= reach; c += 2)
                 {
-                    const float at = st[S_HEAD] + (float)c;
+                    const Pos at = advance(head, (float)c);
                     float score = 0;
 
                     for (int k = 0; k < span; k += 4)
-                        score += frameAt(frames, len, next + k * pitch, wrap) *
-                                 frameAt(frames, len, at + k * pitch, wrap);
+                        score += frameAt(frames, len, advance(next, k * pitch),
+                                         wrap) *
+                                 frameAt(frames, len, advance(at, k * pitch),
+                                         wrap);
 
                     if (score > best)
                     {
@@ -278,10 +353,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 }
             }
 
-            st[S_GRAIN + 2 * g] = start;
-            st[S_GRAIN + 2 * g + 1] = 0;
+            if (wrap)
+                start = wrapped(start, len);
+
+            st[S_GRAIN + 3 * g] = start.whole;
+            st[S_GRAIN + 3 * g + 1] = start.frac;
+            st[S_GRAIN + 3 * g + 2] = 0;
             st[S_NEXT] = (g + 1) % GRAINS;
-            st[S_UNTIL] += size / GRAINS;
+            st[S_UNTIL] += hop;
         }
         st[S_UNTIL] -= 1;
 
@@ -289,34 +368,37 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         for (int g = 0; g < GRAINS; g++)
         {
-            float &at = st[S_GRAIN + 2 * g];
-            float &phase = st[S_GRAIN + 2 * g + 1];
+            float &phase = st[S_GRAIN + 3 * g + 2];
 
             if (phase >= 1)
                 continue;
 
+            Pos at = { st[S_GRAIN + 3 * g], st[S_GRAIN + 3 * g + 1] };
             const float w = 0.5f - 0.5f * cosf(2 * (float)M_PI * phase);
 
             y += w * frameAt(frames, len, at, wrap);
-            at += pitch;
+
+            at = advance(at, pitch);
+            if (wrap)
+                at = wrapped(at, len);
+
+            st[S_GRAIN + 3 * g] = at.whole;
+            st[S_GRAIN + 3 * g + 1] = at.frac;
             phase += 1 / size;
         }
 
         out[i] = y * 0.5f;
 
-        st[S_HEAD] += speed;
-
+        Pos moved = advance(head, speed);
         bool more = true;
 
         if (wrap)
-        {
-            st[S_HEAD] = fmodf(st[S_HEAD], (float)len);
-            if (st[S_HEAD] < 0)
-                st[S_HEAD] += len;
-        }
+            moved = wrapped(moved, len);
         else
-            more = st[S_HEAD] >= 0 && st[S_HEAD] < (float)len;
+            more = moved.whole >= 0 && moved.whole < (float)len;
 
+        st[S_HEAD] = moved.whole;
+        st[S_HEADF] = moved.frac;
         play[i] = more ? 1 : 0;
     }
 

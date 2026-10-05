@@ -5204,6 +5204,50 @@ static void checkStretch (const string &pluginPath)
                  "osc::stretch: a looped playhead never runs out", why);
     }
 
+    /* Eight seconds at 0.7 lasts 8 / 0.7: the playhead's step is the step
+       asked for at every position, not rounded to what a float holds
+       there. And a looped tone is at its level from the first samples,
+       not faded in over a grain. */
+    {
+        vector<float> eight(8 * sr), play;
+        string why;
+
+        for (size_t i = 0; i < eight.size(); i++)
+            eight[i] = 0.5f * (float)sin(2 * M_PI * 440 * (double)i / sr);
+
+        vector<NodeSpec> spec = stretchGraph(0.7f, 1, 0);
+
+        spec[0].texts[0].value = "eight.wav";
+
+        const bool rendered =
+            writeWav(dir + "/samples/eight.wav", eight, sr) &&
+            render1(pluginPath, spec, "st", "play", 256, 12 * sr, play, why);
+        size_t end = 0;
+
+        while (end < play.size() && play[end] > 0)
+            end++;
+
+        okOrFail(rendered && fabs((double)end / sr - 8 / 0.7) < 0.002,
+                 "osc::stretch: eight seconds at speed 0.7 lasts 8 / 0.7",
+                 rendered ? num((double)end / sr) + " s" : why);
+    }
+
+    {
+        vector<float> got;
+        string why;
+        const bool rendered = render1(pluginPath, stretchGraph(1, 1, 1),
+                                      "st", "out", 256, sr, got, why);
+        const double head = rendered
+            ? rms(vector<float>(got.begin(), got.begin() + 512), 0) : 0;
+        const double steady = rendered
+            ? rms(vector<float>(got.begin() + sr / 2, got.end()), 0) : 1;
+
+        okOrFail(rendered && head > steady * 0.7,
+                 "osc::stretch: a looped tone is at its level from the start",
+                 rendered ? "first 512 samples " + num(head) + ", steady " +
+                            num(steady) : why);
+    }
+
     windowsAgree(pluginPath, stretchGraph(0.7f, 1.3f, 1), "st", "out",
                  "osc::stretch: the same grains at one sample a window and "
                  "at five hundred");

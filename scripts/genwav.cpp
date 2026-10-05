@@ -612,6 +612,8 @@ int main (int argc, char **argv)
        wraps round onto itself. scripts/makekit.sh's loops. */
     if (from > 0 || length >= 0)
     {
+        from = std::max(from, 0.0);
+
         const size_t first = std::min(pcm.size(),
             (size_t)(from * TH_DEFAULT_SAMPLES) * (size_t)outChannels);
         const size_t last = length < 0 ? pcm.size() : std::min(pcm.size(),
