@@ -952,7 +952,8 @@ thcScheduler::auditionInstrument (const thcInstrument &inst,
         }
 
         out.chanargs.push_back(std::make_pair(
-            a.name, (float)thFoldUnit(v, a.units, synth_->getSampleRate())));
+            a.name, (float)thFoldUnit(v, a.units, synth_->getSampleRate(),
+                                  synth_->tempo())));
     }
 
     return true;
@@ -1179,7 +1180,7 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
            to write. Same rule as a duration param in a stage, for the
            same reason -- the unit decides what the number is, so its
            absence decides nothing. */
-        if (a.units != declared)
+        if (thUnitDimension(a.units) != thUnitDimension(declared))
         {
             if (a.units.empty())
                 /* Not "raw samples": that is what a bare number means on
@@ -1199,10 +1200,29 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
             return false;
         }
 
+        /* What the piece wrote in `beats' follows the tempo, and what it
+           wrote in ms or s does not, whatever the .dsp declared. On the mix
+           the names carry no prefix. */
+        {
+            const bool fx = inst.channel >= 0 &&
+                a.name.compare(0, strlen(TH_EFFECT_PREFIX),
+                               TH_EFFECT_PREFIX) == 0;
+            thChanEffect *e = inst.channel < 0 ? synth_->getMasterEffect()
+                            : fx ? synth_->getEffect(inst.channel) : NULL;
+            thMidiChan *c = (inst.channel >= 0 && !fx)
+                ? synth_->getChannel(inst.channel) : NULL;
+            thSynthTree *tree = e ? e->tree() : c ? c->modnode() : NULL;
+
+            if (tree)
+                tree->followTempo(fx ? a.name.substr(strlen(TH_EFFECT_PREFIX))
+                                     : a.name, a.units == "beats");
+        }
+
         if (a.knob.empty())
         {
             arg->setValue((float)thFoldUnit(a.value, a.units,
-                                            synth_->getSampleRate()));
+                                            synth_->getSampleRate(),
+                                            synth_->tempo()));
             continue;
         }
 
@@ -1252,11 +1272,13 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
                    wrongly. Silent, because the alternative is a line of
                    stderr per pixel of a slider drag, and because the
                    piece is about to be reloaded by whoever did this. */
-                if (foldUnitOf(dest) != units)
+                if (thUnitDimension(foldUnitOf(dest)) !=
+                    thUnitDimension(units))
                     return;
 
                 dest->setValue((float)thFoldUnit((*from)[0], units,
-                                                 synth_->getSampleRate()));
+                                                 synth_->getSampleRate(),
+                                                 synth_->tempo()));
             };
 
         /* Where the knob is now, before anybody touches it: a piece must

@@ -192,10 +192,13 @@ do that a `.patch` cannot.
 an envelope in it reads `a 39690` — a sample count at one particular rate. Here
 it is `a = 900 ms`, and the fold happens on the way in, against the unit the
 chanarg was *declared* with and at the rate the synth is actually running. The
-unit has to match that declaration: `ms` on an arg written in milliseconds, `%`
-on one written as a percentage, and a bare number on everything else. A unit
-where none belongs is refused, and so is a bare number where one does — the
-same rule §2 applies to a stage's durations, for the same reason.
+unit has to measure what that declaration measures: any of `ms`, `s` and
+`beats` on an arg written as a duration, `%` on one written as a percentage,
+`dB` and `cents` on their own, and a bare number on everything else. A value in
+`beats` folds at the piece's tempo and follows it when it changes; one in `ms`
+or `s` stays where it was put, whatever the `.dsp` declared. A unit where none belongs is refused, and so
+is a bare number where one does — the same rule §2 applies to a stage's
+durations, for the same reason.
 
 **It has a name, and a sink can bind to the name.** That is the point. Routing
 stops being a number the author and the listener have to agree about out of

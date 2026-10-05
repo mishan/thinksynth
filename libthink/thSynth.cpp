@@ -165,8 +165,25 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 void thSynth::setTempo (float bpm)
 {
     /* A floor, or a beat in samples overflows to inf. */
-    if (bpm >= 1 && thIsFinite(bpm))
-        __atomic_store(&tempo_, &bpm, __ATOMIC_RELAXED);
+    if (!(bpm >= 1 && thIsFinite(bpm)))
+        return;
+
+    __atomic_store(&tempo_, &bpm, __ATOMIC_RELAXED);
+
+    /* `beats' follow it here, on the GUI thread, which owns the prototypes
+       and the chanarg maps: what the audio thread reads of them is a
+       single float a store reaches. */
+    for (int i = 0; i < midiChannelCnt_; i++)
+    {
+        if (guiChannels_[i])
+            guiChannels_[i]->retempo(bpm);
+
+        if (guiEffects_[i])
+            guiEffects_[i]->retempo(bpm);
+    }
+
+    if (guiMaster_)
+        guiMaster_->retempo(bpm);
 }
 
 thSynth::~thSynth (void)
@@ -896,7 +913,7 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
      * After the bail-outs above and not before: a parse that failed may
      * have parked folds against args on the half-built node thParseDsp has
      * already deleted, and a failed parse folds nothing. */
-    tree->foldUnits(sampleRate_);
+    tree->foldUnits(sampleRate_, tempo());
 
     /* `freq = base->out * 0.5' into the math:: nodes it stands for, before
        buildArgMap indexes anything: those nodes have args of their own.

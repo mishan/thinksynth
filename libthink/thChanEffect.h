@@ -155,6 +155,12 @@ public:
 
     thSynthTree *tree (void) { return tree_; }
 
+    void retempo (double bpm)
+    {
+        if (tree_)
+            tree_->retempo(bpm, args_);
+    }
+
     /* How many channels this effect actually carries: the smaller of what the
        channel has and what the graph declares in<N> for. */
     int channels (void) const { return channels_; }

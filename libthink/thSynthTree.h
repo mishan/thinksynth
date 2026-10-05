@@ -51,9 +51,20 @@ struct thUnitFold
     enum Field { VALUE, MIN, MAX, STEP };
 
     thArg  *arg;
+    thNode *node;      /* the arg's node; NULL for a chanarg */
     Field   field;
     float   literal;
     string  units;
+};
+
+/* A value written in `beats', kept after the fold so it can follow the
+ * tempo. By name rather than by pointer: an arg may be replaced after the
+ * load, and a name finds whatever holds it now. */
+struct thBeatFold
+{
+    string             node;   /* empty for a chanarg */
+    string             arg;
+    thUnitFold::Field  field;
 };
 
 /* An arithmetic expression over signals, parked until it can become nodes.
@@ -156,7 +167,8 @@ public:
 
     /* Parked by the grammar, applied by foldUnits. See thUnitFold. */
     void deferUnitFold (thArg *arg, thUnitFold::Field field,
-                        float literal, const string &units);
+                        float literal, const string &units,
+                        thNode *node = NULL);
 
     /* Parked by the grammar, applied by desugarExprs. See thPendingExpr.
        Takes ownership of `expr'; a second expression on one arg replaces the
@@ -187,8 +199,21 @@ public:
     /* Turns every `5 ms' and `90%' the file wrote into what the engine
        works in, at `sampleRate' samples per second, and forgets them --
        so calling it twice cannot fold twice. Run once, from
-       thSynth::finishParse, before anything reads a value. */
-    void foldUnits (long sampleRate);
+       thSynth::finishParse, before anything reads a value. `beats' fold
+       at `bpm' and are remembered for retempo(). */
+    void foldUnits (long sampleRate, double bpm);
+
+    /* Every value written in `beats' scaled from the tempo it was at to
+       `bpm', so a knob moved since the load keeps its place in beats.
+       Chanargs are looked up in `chanargs', the copy the channel or effect
+       plays from. GUI thread, from thSynth::setTempo. A voice already
+       sounding keeps its node args from its start and reads chanargs as
+       they are now. */
+    void retempo (double bpm, const thArgMap &chanargs);
+
+    /* A chanarg a piece wrote in `beats' (or stopped writing in them),
+       so it follows the tempo whatever the .dsp declared it in. */
+    void followTempo (const string &chanarg, bool beats);
 
     void process (unsigned int windowlen);
     void setActiveNodes(void);
@@ -306,6 +331,11 @@ private:
        after it has been finished, and a copy that carried these would
        fold a second time if anyone ever called foldUnits on it. */
     std::vector<thUnitFold> unitFolds_;
+
+    /* Not copied either: a voice takes its values from the prototype at
+       its start, and only the prototype follows the tempo. */
+    std::vector<thBeatFold> beatFolds_;   /* GUI thread */
+    double                  beatsAt_;
 
     /* Empty except between the parse and desugarExprs(), and not copied, for
        the reasons above. */

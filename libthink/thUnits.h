@@ -19,6 +19,8 @@
 #ifndef TH_UNITS_H
 #define TH_UNITS_H 1
 
+#include <math.h>
+
 #include <string>
 
 #include "think.h"
@@ -51,9 +53,19 @@
  * function is that a caller can hand it any unit string, including one
  * the author wrote as a label (`@x.units = "Hz"'), and get back something
  * sensible. A unit nothing folded is a unit nothing should unfold.
+ *
+ * The rest are words written after a number, `2 s', `-6 dB', and fold as
+ * their names say: `s' to samples like `ms'; `dB' to a linear gain;
+ * `cents' to a frequency ratio; `beats' to samples at the piece's tempo.
+ * `Hz' is not folded at all, only kept so the editor shows it back.
+ * `beats' is the one that moves after load -- see thSynthTree::retempo --
+ * which is why it takes a tempo as `ms' takes a rate. A gain or a ratio
+ * of zero unfolds to a floor rather than an infinity a slider cannot end
+ * at.
  */
 inline double
-thFoldUnit (double literal, const std::string &units, long sampleRate)
+thFoldUnit (double literal, const std::string &units, long sampleRate,
+            double bpm = 120)
 {
     if (units == "ms")
         return literal * (double)sampleRate / 1000.0;
@@ -61,11 +73,24 @@ thFoldUnit (double literal, const std::string &units, long sampleRate)
     if (units == "%")
         return literal * (double)TH_MAX / 100.0;
 
+    if (units == "s")
+        return literal * (double)sampleRate;
+
+    if (units == "dB")
+        return pow(10.0, literal / 20.0);
+
+    if (units == "cents")
+        return pow(2.0, literal / 1200.0);
+
+    if (units == "beats")
+        return bpm > 0 ? literal * (double)sampleRate * 60.0 / bpm : literal;
+
     return literal;
 }
 
 inline double
-thUnfoldUnit (double value, const std::string &units, long sampleRate)
+thUnfoldUnit (double value, const std::string &units, long sampleRate,
+              double bpm = 120)
 {
     if (units == "ms")
         return sampleRate ? value * 1000.0 / (double)sampleRate : value;
@@ -73,7 +98,35 @@ thUnfoldUnit (double value, const std::string &units, long sampleRate)
     if (units == "%")
         return value * 100.0 / (double)TH_MAX;
 
+    if (units == "s")
+        return sampleRate ? value / (double)sampleRate : value;
+
+    if (units == "dB")
+        return value > 0 ? fmax(20.0 * log10(value), -144.0) : -144.0;
+
+    if (units == "cents")
+        return value > 0 ? fmax(1200.0 * log2(value), -12000.0) : -12000.0;
+
+    if (units == "beats")
+        return sampleRate ? value * bpm / (60.0 * (double)sampleRate)
+                          : value;
+
     return value;
+}
+
+/* The unit a word after a number names, as the static string the grammar
+ * carries, or NULL. `ms' is not here: it is a keyword of the grammar's
+ * own, and `%' is punctuation. */
+inline const char *
+thUnitWord (const std::string &word)
+{
+    static const char *const words[] = { "s", "Hz", "dB", "cents", "beats" };
+
+    for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+        if (word == words[i])
+            return words[i];
+
+    return NULL;
 }
 
 /* True if `units' is one the language folds, as opposed to a label the
@@ -83,7 +136,28 @@ thUnfoldUnit (double value, const std::string &units, long sampleRate)
 inline bool
 thUnitIsFolded (const std::string &units)
 {
-    return units == "ms" || units == "%";
+    return units == "ms" || units == "%" ||
+           (thUnitWord(units) != NULL && units != "Hz");
+}
+
+/* True for the units whose fold is not a multiplication, so that a number
+ * carrying one cannot be scaled before the fold as `ms' can. */
+inline bool
+thUnitIsLogarithmic (const char *units)
+{
+    return units != NULL && (std::string(units) == "dB" ||
+                             std::string(units) == "cents");
+}
+
+/* What a unit measures, so `2 s', `2000 ms' and `4 beats' can stand in for
+ * one another: they all fold to samples. Any other unit is its own kind. */
+inline std::string
+thUnitDimension (const std::string &units)
+{
+    if (units == "ms" || units == "s" || units == "beats")
+        return "time";
+
+    return units;
 }
 
 #endif /* TH_UNITS_H */

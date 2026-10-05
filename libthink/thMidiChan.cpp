@@ -938,6 +938,12 @@ void thMidiChan::copyChanArgs (thSynthTree *tree)
     }
 }
 
+void thMidiChan::retempo (double bpm)
+{
+    if (modnode_)
+        modnode_->retempo(bpm, args_);
+}
+
 void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
                           int nprobes, const float *side, int sidechannels)
 {

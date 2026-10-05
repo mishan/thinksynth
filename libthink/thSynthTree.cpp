@@ -32,6 +32,7 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
     name_ = name;
     nodecount_ = 0;
     made_ = NULL;
+    beatsAt_ = 120;
 
     synth_ = synth;
 }
@@ -42,6 +43,7 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
     nodeindex_ = NULL;   /* the destructor delete[]s this */
     nodecount_ = oldtree.nodeCount();
     made_ = NULL;
+    beatsAt_ = 120;
     name_ = oldtree.name();
     desc_ = oldtree.desc();
     synth_ = oldtree.synth();
@@ -297,7 +299,8 @@ void thSynthTree::setChanArg (thArg *arg)
 
 /* See thUnitFold in the header for why the fold waits. */
 void thSynthTree::deferUnitFold (thArg *arg, thUnitFold::Field field,
-                                 float literal, const string &units)
+                                 float literal, const string &units,
+                                 thNode *node)
 {
     if (arg == NULL || !thUnitIsFolded(units))
         return;
@@ -305,6 +308,7 @@ void thSynthTree::deferUnitFold (thArg *arg, thUnitFold::Field field,
     thUnitFold f;
 
     f.arg = arg;
+    f.node = node;
     f.field = field;
     f.literal = literal;
     f.units = units;
@@ -312,12 +316,25 @@ void thSynthTree::deferUnitFold (thArg *arg, thUnitFold::Field field,
     unitFolds_.push_back(f);
 }
 
-void thSynthTree::foldUnits (long sampleRate)
+void thSynthTree::foldUnits (long sampleRate, double bpm)
 {
+    beatsAt_ = bpm;
+
     for (size_t i = 0; i < unitFolds_.size(); i++)
     {
         const thUnitFold &f = unitFolds_[i];
-        const float folded = (float)thFoldUnit(f.literal, f.units, sampleRate);
+        const float folded = (float)thFoldUnit(f.literal, f.units, sampleRate,
+                                               bpm);
+
+        if (f.units == "beats")
+        {
+            thBeatFold b;
+
+            b.node = f.node ? f.node->name() : string();
+            b.arg = f.arg->name();
+            b.field = f.field;
+            beatFolds_.push_back(b);
+        }
 
         switch (f.field)
         {
@@ -345,6 +362,80 @@ void thSynthTree::foldUnits (long sampleRate)
     /* Cleared, not kept: this is what makes a second call a no-op rather
        than a second fold. */
     unitFolds_.clear();
+}
+
+void thSynthTree::followTempo (const string &chanarg, bool beats)
+{
+    for (size_t i = 0; i < beatFolds_.size(); i++)
+    {
+        if (beatFolds_[i].node.empty() && beatFolds_[i].arg == chanarg &&
+            beatFolds_[i].field == thUnitFold::VALUE)
+        {
+            if (!beats)
+                beatFolds_.erase(beatFolds_.begin() + i);
+
+            return;
+        }
+    }
+
+    if (beats)
+    {
+        thBeatFold b;
+
+        b.arg = chanarg;
+        b.field = thUnitFold::VALUE;
+        beatFolds_.push_back(b);
+    }
+}
+
+void thSynthTree::retempo (double bpm, const thArgMap &chanargs)
+{
+    if (beatFolds_.empty() || bpm == beatsAt_ || bpm <= 0)
+        return;
+
+    const double ratio = beatsAt_ / bpm;
+
+    for (size_t i = 0; i < beatFolds_.size(); i++)
+    {
+        const thBeatFold &b = beatFolds_[i];
+        thArg *arg = NULL;
+
+        if (b.node.empty())
+        {
+            thArgMap::const_iterator c = chanargs.find(b.arg);
+
+            arg = (c == chanargs.end()) ? NULL : c->second;
+        }
+        else if (thNode *n = findNode(b.node))
+            arg = n->getArg(b.arg);
+
+        if (arg == NULL)
+            continue;
+
+        switch (b.field)
+        {
+        case thUnitFold::VALUE:
+            /* A value only: an arg since wired to a node has nothing of
+               its own to scale. */
+            if (arg->type() == thArg::ARG_VALUE)
+                arg->setValue((float)((*arg)[0] * ratio));
+            break;
+
+        case thUnitFold::MIN:
+            arg->setMin((float)(arg->min() * ratio));
+            break;
+
+        case thUnitFold::MAX:
+            arg->setMax((float)(arg->max() * ratio));
+            break;
+
+        case thUnitFold::STEP:
+            arg->setStep((float)(arg->step() * ratio), true);
+            break;
+        }
+    }
+
+    beatsAt_ = bpm;
 }
 
 void thSynthTree::deferExpr (thNode *node, const string &arg,

@@ -22,6 +22,7 @@
 
 #include "think.h"
 #include "thLexer.h"
+#include "thUnits.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
@@ -1459,12 +1460,10 @@ thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
     else
         a.value = val.num;
 
-    /* The two units the language folds. `s' and `beats' are the
-       composer's units and mean nothing on this side of the
-       boundary: a chanarg is a number the audio thread reads, not a
-       duration the transport schedules. Which unit an arg wants is
-       the arg's own business and is checked when the value lands --
-       here we only record what was written.
+    /* The units .dsp folds (thUnits.h). Which unit an arg wants is the
+       arg's own business and is checked when the value lands -- here we
+       only record what was written. `beats' fold at the piece's tempo
+       when the value is applied.
      *
        A knob binding carries one for exactly the same reason a
        literal does. The number a knob holds is as unitless as the
@@ -1472,7 +1471,9 @@ thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
        would be a slider quietly running in samples; the unit says
        what the knob's numbers mean, and it is applied on every move
        rather than once. */
-    if (peek().kind == Token::WORD && peek().text == "ms")
+    if (peek().kind == Token::WORD &&
+        (peek().text == "ms" ||
+         (peek().text != "Hz" && thUnitWord(peek().text) != NULL)))
         a.units = take().text;
     else if (peek().kind == Token::PUNCT && peek().text[0] == '%')
     {
