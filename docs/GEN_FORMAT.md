@@ -357,7 +357,7 @@ instrument talk {
 };
 ```
 
-The wav an `osc::sample` or `osc::stretch` node plays is a quoted name in the
+The wav an `osc::sample` or `osc::grain` node plays is a quoted name in the
 `.dsp`, not a chanarg — a filename is not a thing a slider moves — so no value
 above can reach it. `node.arg = "name";` does: it names a node in the
 instrument's graph and one of its text args, and the loader writes the name
@@ -368,8 +368,10 @@ piece can bring the samples it was written for. The name is found under
 
 Only an arg the graph already writes as a quoted name: a node the graph does
 not have, or an arg that is a number, is refused at load by name. And only on
-the instrument's graph, not its `effect`. `gen::breed`'s private renders do not
-carry it yet: a `target` instrument is heard there with its graph's own file.
+the instrument's graph, not its `effect`, and only where there is a `dsp` to set it
+in. `gen::breed`'s private renders do not carry it yet: an instrument it hears
+-- its `target`, or the one it is breeding -- is heard there with the graph's
+own file.
 
 **A value may be a knob.**
 

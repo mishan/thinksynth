@@ -1299,7 +1299,15 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
                 return false;
             }
 
-            if (arg == NULL || arg->type() != thArg::ARG_TEXT)
+            if (arg == NULL)
+            {
+                why = "'" + inst.dsp + "' writes nothing for '" + t.node +
+                      "." + t.arg + "'; a piece can only replace a name the "
+                      "graph already gives";
+                return false;
+            }
+
+            if (arg->type() != thArg::ARG_TEXT)
             {
                 why = "'" + t.node + "." + t.arg + "' in '" + inst.dsp +
                       "' is not a quoted name, so a piece cannot set it to "

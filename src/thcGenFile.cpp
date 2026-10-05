@@ -2019,6 +2019,14 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             return false;
     }
 
+    if (!inst.texts.empty() && inst.dsp.empty())
+    {
+        error(nameTok.line, "instrument '" + nameTok.text + "' sets " +
+              inst.texts[0].node + "." + inst.texts[0].arg +
+              " but names no dsp to set it in");
+        return false;
+    }
+
     if (inst.dsp.empty() && inst.midi.empty())
     {
         /* An instrument with values and no graph is half an edit. It

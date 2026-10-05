@@ -734,8 +734,14 @@ static bool
 sameInstrument (const thcInstrument &a, const thcInstrument &b)
 {
     if (a.name != b.name || a.dsp != b.dsp || a.channel != b.channel ||
-        a.args.size() != b.args.size())
+        a.args.size() != b.args.size() || a.texts.size() != b.texts.size())
         return false;
+
+    for (size_t i = 0; i < a.texts.size(); i++)
+        if (a.texts[i].node != b.texts[i].node ||
+            a.texts[i].arg != b.texts[i].arg ||
+            a.texts[i].value != b.texts[i].value)
+            return false;
 
     for (size_t i = 0; i < a.args.size(); i++)
         if (a.args[i].name != b.args[i].name ||

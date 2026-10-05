@@ -283,7 +283,7 @@ struct thcInstrumentArg
 
 /* `loop.file = "talk.wav";' -- a node's text arg inside the instrument's
  * graph, which is the one kind of arg a chanarg cannot reach: the wav an
- * osc::sample or osc::stretch node plays. Written onto the channel's
+ * osc::sample or osc::grain node plays. Written onto the channel's
  * prototype tree when the instrument is applied, so every voice is built
  * playing it. */
 struct thcInstrumentText
