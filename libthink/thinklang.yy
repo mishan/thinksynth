@@ -28,6 +28,7 @@
 
 #include "think.h"
 #include "parser.h"
+#include "thUnits.h"
 
 /* The shim yyparse calls and the reporter it reaches errors through;
    bodies live after the grammar, beside thParseDsp. */
@@ -71,7 +72,7 @@ typedef struct thParseContext thParseContext;
 }
 
 %token NODE IO NAME DESC AUTHOR CAT
-%token MS
+%token MS UNIT
 %token WORD 
 %token FLOAT NUMBER
 %token ENDSTATE ASSIGN LCBRACK RCBRACK
@@ -291,6 +292,26 @@ factor MS /* milliseconds */
 
     $$.floatval = $1.floatval;
     $$.units = "ms";
+    $$.expr = NULL;
+}
+|
+factor UNIT /* s, Hz, dB, cents, beats: see thUnits.h */
+{
+    if ($1.expr)
+    {
+        yyerror(ctx, "a unit cannot be written on a signal");
+        thExprFree($1.expr);
+        YYERROR;
+    }
+
+    if ($1.units)
+    {
+        yyerror(ctx, "a value with a unit cannot take another");
+        YYERROR;
+    }
+
+    $$.floatval = $1.floatval;
+    $$.units = $2.units;
     $$.expr = NULL;
 }
 ;
@@ -741,7 +762,7 @@ WORD ASSIGN expression
         {
             arg->setUnits($3.units);
             ctx->tree->deferUnitFold(arg, thUnitFold::VALUE, $3.floatval,
-                                     $3.units);
+                                     $3.units, ctx->node);
         }
     }
     else if ($3.expr->kind == thExprNode::NODEREF)
@@ -884,6 +905,19 @@ yylex (YYSTYPE *yylval, thParseContext *ctx)
         if (w == "category")    return CAT;
         if (w == "author")      return AUTHOR;
         if (w == "ms")          return MS;
+
+        /* The other units are words only straight after a number, so `s'
+           is still the sustain every envelope has, and `beats' a name a
+           node may take. */
+        if (ctx->pos >= 2 &&
+            ctx->tokens[ctx->pos - 2].kind == thLexToken::NUMBER)
+        {
+            if (const char *unit = thUnitWord(w))
+            {
+                yylval->units = unit;
+                return UNIT;
+            }
+        }
 
         yylval->str = strdup(w.c_str());
         return WORD;

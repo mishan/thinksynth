@@ -73,14 +73,22 @@ static long displayRate (void)
     return synth ? synth->getSampleRate() : TH_SAMPLE;
 }
 
+/* And the tempo `beats' are folded at. */
+static double displayTempo (void)
+{
+    thSynth *synth = thSynth::instance();
+
+    return synth ? synth->tempo() : 120;
+}
+
 double thPanelToDisplay (double raw, const string &units)
 {
-    return thUnfoldUnit(raw, units, displayRate());
+    return thUnfoldUnit(raw, units, displayRate(), displayTempo());
 }
 
 double thPanelFromDisplay (double shown, const string &units)
 {
-    return thFoldUnit(shown, units, displayRate());
+    return thFoldUnit(shown, units, displayRate(), displayTempo());
 }
 
 int thPanelDecimals (double hi)

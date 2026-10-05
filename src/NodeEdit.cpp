@@ -163,18 +163,26 @@ string NodeEdit::unitsOf (const string &rhs)
     if (!s.empty() && s[s.size() - 1] == '%')
         return "%";
 
-    if (s.size() > 2 && s.compare(s.size() - 2, 2, "ms") == 0)
-    {
-        /* Both `5 ms' and `80ms' occur -- 65 and 33 times respectively -- so
-           the space cannot be required. What distinguishes a unit from the
-           tail of an identifier is that a number comes before it: `th_params'
-           has no number, `80ms' does. */
-        const string head = trim(s.substr(0, s.size() - 2));
+    /* The word at the end: `ms', or one of thUnitWord's. */
+    string::size_type w = s.size();
 
-        if (!head.empty() && (isdigit((unsigned char)head[0]) ||
-                              head[0] == '.' || head[0] == '-'))
-            return "ms";
-    }
+    while (w > 0 && isalpha((unsigned char)s[w - 1]))
+        w--;
+
+    const string word = s.substr(w);
+
+    if (word != "ms" && thUnitWord(word) == NULL)
+        return "";
+
+    /* Both `5 ms' and `80ms' occur -- 65 and 33 times respectively -- so
+       the space cannot be required. What distinguishes a unit from the
+       tail of an identifier is that a number comes before it: `th_params'
+       has no number, `80ms' does. */
+    const string head = trim(s.substr(0, w));
+
+    if (!head.empty() && (isdigit((unsigned char)head[0]) ||
+                          head[0] == '.' || head[0] == '-'))
+        return word;
 
     return "";
 }
@@ -193,7 +201,7 @@ static string suffixTextOf (const string &rhs)
         return "%";
 
     /* everything from where the number stops to the end */
-    string::size_type p = s.size() - 2;
+    string::size_type p = s.size() - u.size();
 
     while (p > 0 && (s[p - 1] == ' ' || s[p - 1] == '\t'))
         p--;
@@ -274,14 +282,22 @@ static long editRate (void)
     return synth ? synth->getSampleRate() : TH_SAMPLE;
 }
 
+/* And the tempo `beats' were folded at, for the same reason. */
+static double editTempo (void)
+{
+    thSynth *synth = thSynth::instance();
+
+    return synth ? synth->tempo() : 120;
+}
+
 static double applyUnits (double literal, const string &units)
 {
-    return thFoldUnit(literal, units, editRate());
+    return thFoldUnit(literal, units, editRate(), editTempo());
 }
 
 static double removeUnits (double value, const string &units)
 {
-    return thUnfoldUnit(value, units, editRate());
+    return thUnfoldUnit(value, units, editRate(), editTempo());
 }
 
 /* The number alone, correctly scaled for `units' but with no suffix. */
@@ -294,7 +310,7 @@ bool NodeEdit::formatWithUnits (double value, const string &units, string &out)
     if (!formatLiteral(value, units, n))
         return false;
 
-    out = n + ((units == "ms") ? " ms" : units);
+    out = n + ((units.empty() || units == "%") ? units : " " + units);
 
     return true;
 }
@@ -367,10 +383,8 @@ static bool parseRhs (const string &rhs, double &out)
     /* strip the unit, which unitsOf() has already identified */
     const string units = NodeEdit::unitsOf(s);
 
-    if (units == "%")
-        s = trim(s.substr(0, s.size() - 1));
-    else if (units == "ms")
-        s = trim(s.substr(0, s.size() - 2));
+    if (!units.empty())
+        s = trim(s.substr(0, s.size() - units.size()));
 
     if (s.empty())
         return false;
@@ -512,7 +526,7 @@ static bool isExpressionRhs (const string &rhs)
         return i != t.size();
     }
 
-    /* A number, optionally signed, optionally with `ms' or `%' after it. */
+    /* A number, optionally signed, optionally with a unit after it. */
     if (t[i] == '-' || t[i] == '+')
         i++;
 
@@ -534,7 +548,8 @@ static bool isExpressionRhs (const string &rhs)
 
     const string rest = trim(t.substr(i));
 
-    return !(rest.empty() || rest == "ms" || rest == "%");
+    return !(rest.empty() || rest == "ms" || rest == "%" ||
+             thUnitWord(rest) != NULL);
 }
 
 /* Replaces every whole occurrence of `ref' in `rhs' with `with'.

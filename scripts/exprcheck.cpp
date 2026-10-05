@@ -85,6 +85,14 @@ static void fail (const string &what, const string &detail)
 
 /* Not "/tmp/...", for the reason argtype spells out: this is a CTest gate and
    the Windows runner has no such directory. */
+static void okOrFail (bool good, const string &what, const string &detail)
+{
+    if (good)
+        ok(what);
+    else
+        fail(what, detail);
+}
+
 static string scratchPath (const char *leaf)
 {
     std::error_code ec;
@@ -246,6 +254,11 @@ int main (int argc, char **argv)
             { "2 * -3",         -6 },
             { "th_max * 2",      2 },
             { "50%",           0.5f },
+            { "2 s",         88200 },
+            { "440 Hz",        440 },
+            { "-6 dB",  (float)pow(10.0, -0.3) },
+            { "1200 cents",      2 },
+            { "1 beats",     22050 },   /* at the default 120 */
             { "exp2(2)",         4 },
             { "pow(3, 2)",       9 },
             { "clamp(9, 0, 1)",  1 },
@@ -490,6 +503,80 @@ int main (int argc, char **argv)
 
             delete tree;
         }
+    }
+
+    /* ---- a unit is a word only after a number ---------------------------- */
+
+    /* `s' is every envelope's sustain, so the unit words cannot be
+       keywords the way `ms' is. */
+    {
+        float got = 0;
+        int nodes = 0;
+
+        okOrFail(argValue(synth, wrap("", "node e env::adsr {\n    s = 0.5;"
+                                          "\n};\n"), "e", "s", got, nodes) &&
+                 got == 0.5f,
+                 "`s' is still an arg name where no number comes before it",
+                 "s = 0.5 did not load as 0.5");
+    }
+
+    /* ---- the editor writes a unit back the way it was written ------------ */
+
+    {
+        static const struct { const char *rhs; double set; const char *want; }
+        cases[] = {
+            { "2 s",     44100,                  "1 s;" },
+            { "1 beats", 11025,                  "0.5 beats;" },
+            { "-6 dB",   0.25,                   "dB;" },
+            { "7 cents", 2,                      "1200 cents;" },
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            string text = wrap("", string("node osc osc::simple {\n"
+                                          "    mul = ") + cases[i].rhs +
+                                   ";\n};\n");
+            string why;
+            const NodeEdit::Result r =
+                NodeEdit::Text::setValue(text, "osc", "mul", cases[i].set, why);
+
+            okOrFail(r == NodeEdit::OK &&
+                     text.find(cases[i].want) != string::npos,
+                     string("an edit to `") + cases[i].rhs +
+                     "' is written back in its unit",
+                     r == NodeEdit::OK ? text : why);
+        }
+    }
+
+    /* ---- `beats' follow the tempo ----------------------------------------- */
+
+    /* A chanarg and a node arg, loaded at 120 and played at 60: both twice
+       as many samples, the chanarg in the copy the channel plays from. */
+    {
+        const string file = scratchPath("exprcheck-beats.dsp");
+
+        thSynth beats(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thSynthTree *tree = NULL;
+
+        if (writeFile(file, wrap("@d = 1 beats;\n",
+                                 "node osc osc::simple {\n    mul = 2 beats;"
+                                 "\n    freq = @d;\n};\n")))
+            tree = beats.loadTree(file, 0, 100);
+
+        thMidiChan *chan = beats.getChannel(0);
+
+        beats.setTempo(60);
+        beats.process();
+
+        thNode *osc = tree ? tree->findNode("osc") : NULL;
+        thArg *mul = osc ? osc->getArg("mul") : NULL;
+        thArg *d = chan ? chan->getArg("d") : NULL;
+
+        okOrFail(mul && d && (*mul)[0] == 2 * 44100 && (*d)[0] == 44100,
+                 "`beats' are refolded when the tempo changes",
+                 (mul && d) ? "mul " + std::to_string((*mul)[0]) + ", d " +
+                              std::to_string((*d)[0])
+                            : string("the file did not load"));
     }
 
     /* ---- the box's text is the graph behind it -------------------------- */

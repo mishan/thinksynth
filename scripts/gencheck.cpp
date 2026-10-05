@@ -4112,7 +4112,7 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
         "    dsp \"amb01.dsp\";\n"
         "    a = 900 ms;\n"
         "    effect \"fx/echo.dsp\" {\n"
-        "        delay = 250 ms;\n"
+        "        delay = 0.5 beats;\n"
         "        mix = 0.5;\n"
         "    };\n"
         "};\n"
@@ -4162,14 +4162,15 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
                 fail("the instrument's own chanargs went with them");
             else
             {
-                /* Folded at the rate the synth was built with, the way
-                   every other duration in this block is. */
+                /* Half a beat at 120, on an arg echo.dsp writes in ms:
+                   the two are both durations, so either lands, folded at
+                   the rate the synth was built with. */
                 const float want =
                     (float)(250.0 * synth->getSampleRate() / 1000.0);
 
                 if (fabs((*delay)[0] - want) > 1.0)
-                    fail("the effect's 250 ms did not fold at the synth's "
-                         "rate");
+                    fail("the effect's 0.5 beats did not land as 250 ms at "
+                         "the synth's rate");
 
                 if (fabs((*mix)[0] - 0.5) > 1e-6)
                     fail("the effect's plain number did not land");

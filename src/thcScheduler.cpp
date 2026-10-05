@@ -952,7 +952,8 @@ thcScheduler::auditionInstrument (const thcInstrument &inst,
         }
 
         out.chanargs.push_back(std::make_pair(
-            a.name, (float)thFoldUnit(v, a.units, synth_->getSampleRate())));
+            a.name, (float)thFoldUnit(v, a.units, synth_->getSampleRate(),
+                                  synth_->tempo())));
     }
 
     return true;
@@ -1179,7 +1180,7 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
            to write. Same rule as a duration param in a stage, for the
            same reason -- the unit decides what the number is, so its
            absence decides nothing. */
-        if (a.units != declared)
+        if (thUnitDimension(a.units) != thUnitDimension(declared))
         {
             if (a.units.empty())
                 /* Not "raw samples": that is what a bare number means on
@@ -1202,7 +1203,8 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
         if (a.knob.empty())
         {
             arg->setValue((float)thFoldUnit(a.value, a.units,
-                                            synth_->getSampleRate()));
+                                            synth_->getSampleRate(),
+                                            synth_->tempo()));
             continue;
         }
 
@@ -1252,11 +1254,13 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
                    wrongly. Silent, because the alternative is a line of
                    stderr per pixel of a slider drag, and because the
                    piece is about to be reloaded by whoever did this. */
-                if (foldUnitOf(dest) != units)
+                if (thUnitDimension(foldUnitOf(dest)) !=
+                    thUnitDimension(units))
                     return;
 
                 dest->setValue((float)thFoldUnit((*from)[0], units,
-                                                 synth_->getSampleRate()));
+                                                 synth_->getSampleRate(),
+                                                 synth_->tempo()));
             };
 
         /* Where the knob is now, before anybody touches it: a piece must

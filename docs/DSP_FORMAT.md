@@ -41,6 +41,25 @@ There is **no valid empty `.dsp`** — `finishParse` rejects any file without an
 io node. The smallest thing that loads is the info strings,
 `node ionode { channels = 2; };` and `io ionode;`.
 
+### Units
+
+A number may carry a unit, and the loader turns it into what the engine
+works in:
+
+| Written | Becomes |
+|---|---|
+| `5 ms`, `2 s` | samples, at the rate the synth runs at |
+| `0.75 beats` | samples, at the piece's tempo, and again whenever it changes |
+| `50%` | a fraction of `th_max` |
+| `-6 dB` | a linear gain, 0.501 |
+| `7 cents` | a frequency ratio, 1.004 |
+| `440 Hz` | itself; the unit is kept for the panel |
+
+`ms` is a keyword. The others are words only straight after a number, so `s`
+is still every envelope's sustain. A value in `beats` follows a tempo change
+in the patch and its effect; a voice already sounding keeps the tempo it
+started at. The editor and the panels show each value back in its unit.
+
 ### Modulation is not a special case
 
 The language draws no distinction between a constant parameter and a signal. A

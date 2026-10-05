@@ -896,7 +896,7 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
      * After the bail-outs above and not before: a parse that failed may
      * have parked folds against args on the half-built node thParseDsp has
      * already deleted, and a failed parse folds nothing. */
-    tree->foldUnits(sampleRate_);
+    tree->foldUnits(sampleRate_, tempo());
 
     /* `freq = base->out * 0.5' into the math:: nodes it stands for, before
        buildArgMap indexes anything: those nodes have args of their own.
@@ -2006,6 +2006,16 @@ void thSynth::process (void)
        silence setSilent() left in it. */
     if (silent_)
         return;
+
+    /* `beats' follow the tempo here, on the thread that owns the trees. */
+    const float bpm = tempo();
+
+    for (int i = 0; i < midiChannelCnt_; i++)
+        if (midiChannels_[i])
+            midiChannels_[i]->retempo(bpm);
+
+    if (master_)
+        master_->retempo(bpm);
 
     memset(output_, 0,
            thOutputSamples(channels_, windowlen_) * sizeof(float));
