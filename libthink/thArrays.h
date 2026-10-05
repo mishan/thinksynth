@@ -33,7 +33,8 @@
  * `motor[1]' in the second. A `[k]' names one element anywhere. After a
  * port, the index is the port's number instead -- `ionode->in[]' is
  * `ionode->in0' -- and so is an arg name's: `out[] = tone[]->out_low;'
- * in the io node is one line per channel the io node declares. A `[]' on
+ * in a node with no plugin -- the io node -- is one line per channel it
+ * declares, as a plain `channels = N;'. A `[]' on
  * its own is the index as a number, for what differs between elements:
  * `phase = [] * 0.5;'.
  *
@@ -43,8 +44,10 @@
  * copy of a block points at the block.
  *
  * False, with `why' and `line' set, for a malformed array: a size that is
- * not a whole number from 1 to 64, or a `[]' outside an array block and
- * outside the io node. */
+ * not a whole number from 1 to 64, a `[]' with no index to stand for, an
+ * index past an array's end or on a node that is not one, a `[]' line in
+ * the io node with no plain channel count, or a bracket that is not part
+ * of any of these. */
 bool thExpandArrays (std::vector<thLexToken> &tokens, std::string &why,
                      int &line);
 

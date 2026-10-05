@@ -20,6 +20,8 @@
 
 #include <math.h>
 
+#include <map>
+
 #include "thArrays.h"
 
 using std::string;
@@ -30,6 +32,7 @@ using std::vector;
 #define TH_ARRAY_MAX 64
 
 typedef vector<thLexToken> Tokens;
+typedef std::map<string, int> Sizes;
 
 static bool
 isPunct (const thLexToken &t, const char *p)
@@ -86,8 +89,8 @@ blockEnd (const Tokens &tokens, size_t from)
    assignment sets, the index is a number on the end of the name; anywhere
    else it is the element of an array node. */
 static bool
-substitute (const Tokens &in, size_t b, size_t e, int i, Tokens &out,
-            string &why, int &line)
+substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
+            Tokens &out, string &why, int &line)
 {
     for (size_t k = b; k < e; k++)
     {
@@ -141,10 +144,30 @@ substitute (const Tokens &in, size_t b, size_t e, int i, Tokens &out,
             return fail(t, "an index is a whole number or nothing: `" +
                         t.text + "[1]' or `" + t.text + "[]'", why, line);
 
+        if (k > 0 && isPunct(in[k - 1], "@"))
+            return fail(t, "a control has no elements: `@" + t.text + "[' "
+                        "names nothing", why, line);
+
         const bool port = k > 0 && isPunct(in[k - 1], "->");
         const bool sets = close + 1 < e && isPunct(in[close + 1], "=") &&
                           k > 0 && (isPunct(in[k - 1], ";") ||
                                     isPunct(in[k - 1], "{"));
+
+        if (!port && !sets)
+        {
+            Sizes::const_iterator n = sizes.find(t.text);
+
+            if (n == sizes.end())
+                return fail(t, "`" + t.text + "' is not an array, so `" +
+                            t.text + "[" + std::to_string(idx) +
+                            "]' names nothing", why, line);
+
+            if (idx >= n->second)
+                return fail(t, "`" + t.text + "' has " +
+                            std::to_string(n->second) + " elements, so `" +
+                            t.text + "[" + std::to_string(idx) +
+                            "]' names nothing", why, line);
+        }
         thLexToken w = t;
 
         w.text = (port || sets)
@@ -161,15 +184,33 @@ substitute (const Tokens &in, size_t b, size_t e, int i, Tokens &out,
 /* The io node's block, from its `{': each statement with a `[]' in it once
    per channel the block declares, the rest once. */
 static bool
-expandIO (const Tokens &in, size_t open, size_t end, Tokens &out,
-          string &why, int &line)
+expandIO (const Tokens &in, size_t open, size_t end, const Sizes &sizes,
+          Tokens &out, string &why, int &line)
 {
-    int channels = 1;
+    /* What a `[]' line is repeated over: a `channels = N;' the block
+       writes as a plain number, since nothing else is known before the
+       graph is built. */
+    int channels = 0;
+    bool indexed = false;
 
-    for (size_t k = open; k + 2 < end; k++)
+    for (size_t k = open; k + 3 < end; k++)
+    {
         if (isWord(in[k], "channels") && isPunct(in[k + 1], "=") &&
-            in[k + 2].kind == thLexToken::NUMBER)
+            in[k + 2].kind == thLexToken::NUMBER &&
+            isPunct(in[k + 3], ";") &&
+            in[k + 2].num == floor(in[k + 2].num) && in[k + 2].num >= 1 &&
+            in[k + 2].num <= TH_ARRAY_MAX)
             channels = (int)in[k + 2].num;
+
+        if (isPunct(in[k], "[") && isPunct(in[k + 1], "]"))
+            indexed = true;
+    }
+
+    if (indexed && channels == 0)
+        return fail(in[open], "a `[]' line in a node with no plugin is one "
+                    "per channel, so the block wants `channels = N;' with N "
+                    "a whole number from 1 to " +
+                    std::to_string(TH_ARRAY_MAX), why, line);
 
     out.push_back(in[open]);
 
@@ -178,7 +219,7 @@ expandIO (const Tokens &in, size_t open, size_t end, Tokens &out,
     while (s < end)
     {
         if (isPunct(in[s], "}"))
-            return substitute(in, s, end, -1, out, why, line);
+            return substitute(in, s, end, -1, sizes, out, why, line);
 
         size_t semi = s;
 
@@ -189,14 +230,15 @@ expandIO (const Tokens &in, size_t open, size_t end, Tokens &out,
         if (semi < end && isPunct(in[semi], ";"))
             semi++;
 
-        bool indexed = false;
+        bool each = false;
 
         for (size_t k = s; k + 1 < semi; k++)
             if (isPunct(in[k], "[") && isPunct(in[k + 1], "]"))
-                indexed = true;
+                each = true;
 
-        for (int c = 0; c < (indexed ? channels : 1); c++)
-            if (!substitute(in, s, semi, indexed ? c : -1, out, why, line))
+        for (int c = 0; c < (each ? channels : 1); c++)
+            if (!substitute(in, s, semi, each ? c : -1, sizes, out, why,
+                            line))
                 return false;
 
         s = semi;
@@ -209,7 +251,17 @@ bool
 thExpandArrays (Tokens &tokens, string &why, int &line)
 {
     Tokens out;
+    Sizes sizes;
     size_t k = 0;
+
+    /* Every array's size first, so a `[k]' can be checked whichever comes
+       first in the file. */
+    for (size_t j = 0; j + 4 < tokens.size(); j++)
+        if (isWord(tokens[j], "node") &&
+            tokens[j + 1].kind == thLexToken::WORD &&
+            isPunct(tokens[j + 2], "[") &&
+            tokens[j + 3].kind == thLexToken::NUMBER)
+            sizes[tokens[j + 1].text] = (int)tokens[j + 3].num;
 
     out.reserve(tokens.size());
 
@@ -239,7 +291,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
                     next++;
             }
 
-            if (!substitute(tokens, k, next, -1, out, why, line))
+            if (!substitute(tokens, k, next, -1, sizes, out, why, line))
                 return false;
 
             k = next;
@@ -272,7 +324,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
                 out.push_back(t);
                 out.push_back(w);
 
-                if (!substitute(tokens, k + 5, end, i, out, why, line))
+                if (!substitute(tokens, k + 5, end, i, sizes, out, why, line))
                     return false;
             }
 
@@ -288,7 +340,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
             out.push_back(t);
             out.push_back(tokens[k + 1]);
 
-            if (!expandIO(tokens, k + 2, end, out, why, line))
+            if (!expandIO(tokens, k + 2, end, sizes, out, why, line))
                 return false;
 
             k = end;
@@ -298,6 +350,13 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
         out.push_back(t);
         k++;
     }
+
+    /* Anything bracketed is a name now; a bracket left over was not part
+       of one, and the grammar has no other use for it. */
+    for (size_t j = 0; j < out.size(); j++)
+        if (isPunct(out[j], "[") || isPunct(out[j], "]"))
+            return fail(out[j], "a `" + out[j].text + "' that is not part of "
+                        "an array's name or index", why, line);
 
     tokens.swap(out);
 

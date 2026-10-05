@@ -459,6 +459,14 @@ static bool findNodeBlock (const vector<string> &lines, const string &name,
         if (t.substr(a, b - a) != node)
             continue;
 
+        /* `tone' and `tone[2]' are two different blocks: an element is
+           found only in an array's, and a plain name only in a plain one. */
+        const string::size_type after = t.find_first_not_of(" \t", b);
+        const bool isArray = after != string::npos && t[after] == '[';
+
+        if (isArray != (node != name))
+            continue;
+
         int depth = 0;
 
         for (size_t j = i; j < lines.size(); j++)
@@ -532,6 +540,18 @@ static bool isExpressionRhs (const string &rhs)
         while (i < t.size() &&
                (isalnum((unsigned char)t[i]) || t[i] == '_'))
             i++;
+
+        /* An element of an array: `tone[1]'. */
+        if (t[0] != '@' && i < t.size() && t[i] == '[')
+        {
+            size_t j = i + 1;
+
+            while (j < t.size() && isdigit((unsigned char)t[j]))
+                j++;
+
+            if (j > i + 1 && j < t.size() && t[j] == ']')
+                i = j + 1;
+        }
 
         if (t[0] != '@' && i + 1 < t.size() && t[i] == '-' && t[i + 1] == '>')
         {
@@ -919,11 +939,32 @@ static bool insertAssign (vector<string> &lines, size_t open, size_t close,
 
 /* ---- the edits --------------------------------------------------------- */
 
+/* Why writtenPerChannel refused `arg'. */
+static string perChannelWhy (const string &arg)
+{
+    if (arg == "channels")
+        return "`channels' says how many lines a `[]' writes; edit it in "
+               "the text";
+
+    return "`" + arg + "' is one of the lines a `[]' writes, one per "
+           "channel; edit that line in the text";
+}
+
 /* True if `arg', `out1' say, is one of the lines `out[] = ...' writes, one
-   per channel: no single line to edit. */
+   per channel: no single line to edit. And `channels' in a block with such
+   a line, since it says how many there are. */
 static bool writtenPerChannel (const vector<string> &lines, size_t open,
                                size_t close, const string &arg)
 {
+    if (arg == "channels")
+    {
+        for (size_t i = open; i <= close && i < lines.size(); i++)
+            if (codeOf(lines[i]).find("[]") != string::npos)
+                return true;
+
+        return false;
+    }
+
     size_t d = arg.size();
 
     while (d > 0 && isdigit((unsigned char)arg[d - 1]))
@@ -965,8 +1006,7 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
     }
     if (writtenPerChannel(lines, open, close, arg))
     {
-        why = "`" + arg + "' is one of the lines a `[]' writes, one per "
-              "channel; edit that line in the text";
+        why = perChannelWhy(arg);
         return REFUSED;
     }
 
@@ -1107,8 +1147,7 @@ static NodeEdit::Result bindArg (string &source, const string &node,
     }
     if (writtenPerChannel(lines, open, close, arg))
     {
-        why = "`" + arg + "' is one of the lines a `[]' writes, one per "
-              "channel; edit that line in the text";
+        why = perChannelWhy(arg);
         return NodeEdit::REFUSED;
     }
 
@@ -1230,8 +1269,7 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
     }
     if (writtenPerChannel(lines, open, close, arg))
     {
-        why = "`" + arg + "' is one of the lines a `[]' writes, one per "
-              "channel; edit that line in the text";
+        why = perChannelWhy(arg);
         return REFUSED;
     }
 

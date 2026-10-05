@@ -86,8 +86,10 @@ node tap math::add {
 `node tone[2]` is two nodes, `tone[0]` and `tone[1]`, each the block with
 every `[]` read as its own index. After `->`, or as the name a line sets, the
 index is a number on the end of the name, so `ionode->in[]` is `in0` and
-`in1`. In the io node, a line with a `[]` in it is written once per channel
-it declares. Anywhere else `[]` has no index and is refused. A size is a whole
+`in1`. In the io node, a line with a `[]` in it is written once per channel,
+which the block must give as a plain `channels = N;`. Anywhere else `[]` has
+no index and is refused, as is an index past an array's end or on a node that
+is not an array, and `@x[]`: a control has no elements. A size is a whole
 number from 1 to 64.
 
 The elements share their block, so the editor treats them as one: a value

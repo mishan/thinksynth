@@ -494,6 +494,12 @@ int main (int argc, char **argv)
        edit each other's copies. */
     const string tmp = thUtil::tempFile("dspwrite-");
 
+    if (tmp.empty())
+    {
+        fprintf(stderr, "dspwrite: no temporary file to work in\n");
+        return 1;
+    }
+
     int failed = 0, files = 0, edits = 0, skipped = 0, inserted = 0;
     int unwritable = 0, noops = 0, respelt = 0;
     int wiresCut = 0, wireNoops = 0;
@@ -1003,10 +1009,10 @@ int main (int argc, char **argv)
                 continue;
 
             const string arg = tb.ports[ed.toPort].name;
+            const string port = fb.ports[ed.fromPort].name;
 
             if (NodeEdit::Text::shared(original, tb.name, arg))
                 continue;
-            const string port = fb.ports[ed.fromPort].name;
 
             if (!spit(tmp, original))
             { printf("FAIL  %s: could not stage a copy\n", argv[f]);

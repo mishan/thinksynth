@@ -658,11 +658,42 @@ int main (int argc, char **argv)
             "node osc[1.5] osc::simple { };\n",
             "node osc osc::simple { freq = [] * 2; };\n",
             "node osc osc::simple { freq = x[]->out; };\n",
+            "node osc[2] osc::simple { };\nnode m math::add { in0 = osc[2]->out; };\n",
+            "node osc[2] osc::simple { freq = @f[]; };\n",
+            "node osc osc::simple { };\n]\nnode m math::add { in0 = 1 2; };\n",
         };
 
         for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
             okOrFail(refused(synth, wrap("", bad[i])),
                      string("refused: ") + bad[i], "it loaded");
+
+        /* A `[]' line in the io node needs a channel count it can count. */
+        static const char *const counts[] = {
+            "channels = 1 + 1;", "channels = 50000000;", "",
+        };
+
+        for (size_t i = 0; i < sizeof(counts) / sizeof(counts[0]); i++)
+            okOrFail(refused(synth, string("name \"x\";\nnode ionode {\n    ") +
+                                    counts[i] + "\n    out[] = osc->out;\n};\n"
+                                    "node osc osc::simple { };\nio ionode;\n"),
+                     string("refused: out[] with `") + counts[i] + "'",
+                     "it loaded");
+
+        /* `tone' and `tone[2]' are two blocks, and an input an element
+           feeds can be rewired. */
+        string both = "node tone osc::simple {\n    freq = 1;\n};\n"
+                      "node tone[2] osc::simple {\n    freq = 2;\n};\n"
+                      "node m math::add {\n    in0 = tone[0]->out;\n};\n";
+
+        okOrFail(NodeEdit::Text::setValue(both, "tone[1]", "freq", 3, why) ==
+                     NodeEdit::OK &&
+                 both.find("freq = 1;") != string::npos &&
+                 both.find("freq = 3;") != string::npos &&
+                 NodeEdit::Text::connect(both, "m", "in0", "tone", "out",
+                                         why) == NodeEdit::OK,
+                 "an element's edit finds its array, not the plain node of "
+                 "the same name, and an input it feeds can be rewired",
+                 both + why);
     }
 
     /* ---- the box's text is the graph behind it -------------------------- */
