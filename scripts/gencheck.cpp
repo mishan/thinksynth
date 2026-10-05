@@ -789,14 +789,14 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
      * `-60 + 100' is the row that used to differ: this parser binds a sign
      * to its operand and the .dsp grammar scoped it over everything to the
      * right, so the same text was 40 here and -160 there. `2 + 3 * 4' pins
-     * the precedence and `1 - 2 + 3' the right-associativity -- a `-' takes
-     * the additions after it too.
+     * the precedence and `1 - 2 + 3' the grouping, to the left as in
+     * arithmetic.
      */
     {
         static const struct { const char *rhs; int want; } cases[] = {
             { "20 + 2 * 10",    40 },
-            { "60 - 10 - 5",    55 },   /* 60 - (10 - 5) */
-            { "100 - 20 + 40",  40 },   /* 100 - (20 + 40) */
+            { "60 - 10 - 10",   40 },   /* (60 - 10) - 10 */
+            { "100 - 80 + 20",  40 },   /* (100 - 80) + 20 */
             { "-60 + 100",      40 },   /* (-60) + 100, not -(60 + 100) */
             { "20 * -1 + 60",   40 },
             { "clamp(10, 40, 90)", 40 },
@@ -838,6 +838,22 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
                 bad = true;
             }
         }
+    }
+
+    /* A chain is read in a loop but nests in the tree, which is walked by
+       recursion; a generated one thousands of terms long is refused rather
+       than taking the stack. */
+    {
+        std::string sum = "1";
+
+        for (int i = 0; i < 5000; i++)
+            sum += " + 1";
+
+        expectReject(plugins, synth, "expr-chain",
+                     "chain c {\n    stage src gen::eno_line { notes = "
+                     "\"A3\"; period = 1 s; vel = " + sum + "; };\n"
+                     "    sink { channel = 1; };\n};\n",
+                     "nested too deeply");
     }
 
     /* ---- and removing a knob one reads leaves a file that loads --------- */

@@ -2430,9 +2430,8 @@ thcGenLoader::parseChain (thcScheduler *sched)
  *
  * See the declarations in thcGenFile.h. The shape of these three functions
  * is thinklang.yy's, rule for rule, so that `a - b - c' and `a / b / c'
- * group the same way in both languages -- right-associative, which is what
- * .dsp has always done. Reproducing that is the point: one language should
- * not read two ways depending on which file it is in.
+ * group the same way in both languages -- to the left, as in arithmetic.
+ * One language should not read two ways depending on which file it is in.
  *
  * It did once. `-60 + 100' was 40 here and -160 there, because .dsp put its
  * unary minus at the top of an expression where it scoped over everything to
@@ -2506,6 +2505,19 @@ namespace {
 
         ExprDepth (int &counter) : n(counter) { n++; }
         ~ExprDepth (void) { n--; }
+    };
+
+    /* A chain of `+' or `*' is parsed in a loop but nests in the tree as
+       deeply as the recursion it replaced, so each operator counts as a
+       frame until the chain ends. */
+    struct ChainDepth
+    {
+        int &n;
+        int  k;
+
+        ChainDepth (int &counter) : n(counter), k(0) {}
+        void more (void) { n++; k++; }
+        ~ChainDepth (void) { n -= k; }
     };
 }
 
@@ -2682,20 +2694,31 @@ thcGenLoader::parseExprTerm (thcScheduler *sched)
     if (left == NULL)
         return NULL;
 
-    if (!isOp(peek(), '*') && !isOp(peek(), '/'))
-        return left;
+    ChainDepth chain(exprDepth_);
 
-    const Token op = take();
-
-    thExprNode *right = parseExprTerm(sched);
-
-    if (right == NULL)
+    while (isOp(peek(), '*') || isOp(peek(), '/'))
     {
-        thExprFree(left);
-        return NULL;
+        chain.more();
+        if (exprDepth_ > TOO_DEEP)
+        {
+            error(peek().line, "this expression is nested too deeply");
+            thExprFree(left);
+            return NULL;
+        }
+
+        const Token op = take();
+        thExprNode *right = parseExprFactor(sched);
+
+        if (right == NULL)
+        {
+            thExprFree(left);
+            return NULL;
+        }
+
+        left = thExprOp(op.text[0], left, right);
     }
 
-    return thExprOp(op.text[0], left, right);
+    return left;
 }
 
 thExprNode *
@@ -2714,20 +2737,31 @@ thcGenLoader::parseExpr (thcScheduler *sched)
     if (left == NULL)
         return NULL;
 
-    if (!isOp(peek(), '+') && !isOp(peek(), '-'))
-        return left;
+    ChainDepth chain(exprDepth_);
 
-    const Token op = take();
-
-    thExprNode *right = parseExpr(sched);
-
-    if (right == NULL)
+    while (isOp(peek(), '+') || isOp(peek(), '-'))
     {
-        thExprFree(left);
-        return NULL;
+        chain.more();
+        if (exprDepth_ > TOO_DEEP)
+        {
+            error(peek().line, "this expression is nested too deeply");
+            thExprFree(left);
+            return NULL;
+        }
+
+        const Token op = take();
+        thExprNode *right = parseExprTerm(sched);
+
+        if (right == NULL)
+        {
+            thExprFree(left);
+            return NULL;
+        }
+
+        left = thExprOp(op.text[0], left, right);
     }
 
-    return thExprOp(op.text[0], left, right);
+    return left;
 }
 
 bool

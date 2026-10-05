@@ -212,9 +212,9 @@ private:
      * an author would otherwise have written by hand, three lines at a
      * time.
      *
-     * Grouping is .dsp's, right-associative `-' and `/' included, because
-     * one language should not read two ways depending on which file it is
-     * in. See thinklang.yy.
+     * Grouping is .dsp's, `-' and `/' to the left, because one language
+     * should not read two ways depending on which file it is in. See
+     * thinklang.yy.
      *
      * NULL having reported, on a syntax error. A caller that is not sure
      * whether it is looking at an expression at all calls parseExpr()

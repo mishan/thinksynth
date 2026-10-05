@@ -672,8 +672,8 @@ becomes the `math::` nodes it stands for, in this chain's own host, named
 the ones an author would otherwise have written by hand, and a chain whose only
 nodes are these gets a host on demand. `+ - * /`, parentheses, and the six
 functions `.dsp` has (`pow`, `exp2`, `abs`, `min`, `max`, `clamp`). Grouping is
-`.dsp`'s — `*` and `/` tighter than `+` and `-`, all four right-associative, a
-unary minus bound to its operand — because one language should not read two
+`.dsp`'s — `*` and `/` tighter than `+` and `-`, all four grouping to the
+left, a unary minus bound to its operand — because one language should not read two
 ways depending on which file it is in. Two parsers say so, `thinklang.yy` and
 the three functions in `thcGenFile.cpp`, so `exprcheck` and `gencheck` fold the
 same list of expressions and compare the answers.

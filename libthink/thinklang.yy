@@ -133,7 +133,7 @@ typedef struct thParseContext thParseContext;
    NULL for every all-constant expression, which is every one in the corpus,
    so this frees nothing until a file writes arithmetic over a signal. */
 %destructor { thExprFree($$.expr); }
-    expression unsigned_simple_expression term factor
+    expression unsigned_simple_expression term unit_factor factor
     unsigned_constant
 
 %%
@@ -188,7 +188,7 @@ term
     $$.expr = $1.expr;
 }
 |
-term ADD unsigned_simple_expression
+unsigned_simple_expression ADD term
 {
     /* A unit in an arithmetic expression is refused rather than guessed.
      *
@@ -204,29 +204,38 @@ term ADD unsigned_simple_expression
         YYERROR;
 }
 |
-term SUB unsigned_simple_expression
+unsigned_simple_expression SUB term
 {
     if (!thArith(ctx, &$$, '-', &$1, &$3))
         YYERROR;
 }
 ;
 
+/* Left-recursive, so `a - b + c' is `(a - b) + c' and `a / b * c' is
+   `(a / b) * c', as in arithmetic. */
 term:
-factor
+unit_factor
 |
-factor MUL term
+term MUL unit_factor
 {
     if (!thArith(ctx, &$$, '*', &$1, &$3))
         YYERROR;
 }
 |
-factor DIV term
+term DIV unit_factor
 {
     if (!thArith(ctx, &$$, '/', &$1, &$3))
         YYERROR;
 }
+;
+
+/* A factor with its unit, or a modulo, which binds as tightly: `%' is also
+   the percentage, and only after the `%' is read can the next token say
+   which this is, so a modulo cannot wait for a whole term on its left. */
+unit_factor:
+factor
 |
-factor MOD term
+factor MOD factor
 {
     if (!thArith(ctx, &$$, '%', &$1, &$3))
         YYERROR;

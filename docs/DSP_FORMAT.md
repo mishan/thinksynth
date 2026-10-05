@@ -146,12 +146,11 @@ unlikely.
   `max(a, b)` and `clamp(x, lo, hi)`**, each a `math::` plugin a file may also
   write by hand. Functions rather than a `^` operator, so the language gains no
   precedence anyone has to remember.
-- **`*` and `/` bind tighter than `+` and `-`**, and all four are
-  right-associative: `a - b - c` is `a - (b - c)`, and a `-` takes the
-  additions after it too, so `1 - 2 + 3` is `-4`. That is what the constant
-  folding has done since the language existed. `exprcheck` pins it rather than
-  fixing it, because fixing it changes what an existing file means — and
-  `gencheck` pins the same list, so the two languages cannot drift apart on it.
+- **`*` and `/` bind tighter than `+` and `-`**, and all four group to the
+  left, as in arithmetic: `a - b - c` is `(a - b) - c`, `1 - 2 + 3` is `2` and
+  `8 / 4 / 2` is `1`. A `%` binds as tightly as a parenthesis, since it is also
+  the percentage. `exprcheck` pins this and `gencheck` pins the same list, so
+  the two languages cannot drift apart on it.
 - **A unit inside an expression is refused**, signal or not — short of a
   number with a unit scaled by one without (see
   [What the grammar allows](#what-the-grammar-allows)) — and so is an
