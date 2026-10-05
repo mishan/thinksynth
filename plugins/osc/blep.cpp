@@ -49,6 +49,14 @@
  * with all their edges together, which is the click a stack of saws
  * makes on every note when they do.
  *
+ * HARD SYNC restarts the cycle whenever `reset' is above 0, and `reset'
+ * is another blep's `edge': how far past the current sample the master
+ * wraps. That fraction is what places the restart between two samples,
+ * so the step it makes gets the same two-sample correction as a wrap; a
+ * 0/1 trigger reads as a wrap at the next sample and syncs unsmoothed.
+ * The triangle's integrator is moved by the step a restart makes, which
+ * is left unsmoothed.
+ *
  * This is a new node rather than a fix to `osc::simple', because every
  * patch in the tree was voiced against that one's aliasing.
  */
@@ -67,7 +75,8 @@
 #include "thSynthTree.h"
 #include "thSynth.h"
 
-enum {IN_FREQ, IN_WAVEFORM, IN_PW, IN_PHASE, OUT_ARG, OUT_SYNC, INOUT_STATE};
+enum {IN_FREQ, IN_WAVEFORM, IN_PW, IN_PHASE, IN_RESET, OUT_ARG, OUT_SYNC,
+      OUT_EDGE, INOUT_STATE};
 
 std::atomic<int> args[INOUT_STATE + 1];
 
@@ -91,6 +100,28 @@ static double polyBlep (double t, double dt)
         return x * x + x + x + 1;
     }
     return 0;
+}
+
+/* The two halves of a step's correction, `d' the fraction of a sample
+   from the step to the sample after it, `h' the step's height: the
+   sample before gets the first, the sample after the second. */
+static float stepBefore (float h, float d)
+{
+    return h / 2 * d * d;
+}
+
+static float stepAfter (float h, float d)
+{
+    return h / 2 * (2 * d - d * d - 1);
+}
+
+/* The triangle's integrator at `p' through a cycle of width `pw': at the
+   bottom where the pulse goes high, rising 2 (1 - pw) a cycle until pw,
+   falling 2 pw after. */
+static float triAt (float p, float pw)
+{
+    return p < pw ? -pw * (1 - pw) + 2 * (1 - pw) * p
+                  : pw * (1 - pw) - 2 * pw * (p - pw);
 }
 
 void module_cleanup (thPlugin *plugin)
@@ -120,6 +151,12 @@ int module_init (thPlugin *plugin)
                        "Where the cycle starts, read on the voice's first "
                        "sample");
     plugin->setArgRange(args[IN_PHASE], 0, 1);
+    args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RESET],
+                       "Hard sync: above 0, the cycle restarts that far "
+                       "past this sample. Wire another blep's `edge' here");
+    plugin->setArgRange(args[IN_RESET], 0, 1);
+    plugin->setArgUnits(args[IN_RESET], "samples");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The wave");
@@ -129,8 +166,16 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[OUT_SYNC],
                        "1 on the sample the cycle wraps, 0 otherwise");
     plugin->setArgRange(args[OUT_SYNC], 0, 1);
+    args[OUT_EDGE] = plugin->regArg("edge", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_EDGE],
+                       "On the sample the cycle wraps, how far past it the "
+                       "wrap falls, 0 to 1; 0 elsewhere. A slave's `reset'");
+    plugin->setArgRange(args[OUT_EDGE], 0, 1);
+    plugin->setArgUnits(args[OUT_EDGE], "samples");
 
-    /* [0] the phase, [1] the triangle's integrator, [2] started. */
+    /* [0] the phase, [1] the triangle's integrator, [2] started, [3] the
+       second half of a reset sample's corrections, owed to the next, and
+       [4] whether it is. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     return 0;
@@ -143,15 +188,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_waveform = mod->getArg(node, args[IN_WAVEFORM]);
     thArg *in_pw = mod->getArg(node, args[IN_PW]);
     thArg *in_phase = mod->getArg(node, args[IN_PHASE]);
+    thArg *in_reset = mod->getArg(node, args[IN_RESET]);
     thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
 
     float phase = (*inout_state)[0];
     float tri = (*inout_state)[1];
     const bool started = (*inout_state)[2] > 0;
-    float *state = inout_state->allocate(3);
+    float owed = (*inout_state)[3];
+    bool owing = (*inout_state)[4] > 0;
+    float *state = inout_state->allocate(5);
 
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
     float *sync = mod->getArg(node, args[OUT_SYNC])->allocate(windowlen);
+    float *edge = mod->getArg(node, args[OUT_EDGE])->allocate(windowlen);
 
     if (!started)
     {
@@ -162,13 +211,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         /* The integrator starts where the wave is at that phase, rather
            than at 0 with an offset the leak takes a few cycles to bleed
-           away: at the bottom where the pulse goes high, rising
-           2 (1 - pw) a cycle until pw, falling 2 pw after. */
+           away. */
         if (!thIsFinite(pw) || pw <= 0 || pw >= 1)
             pw = 0.5f;
 
-        tri = phase < pw ? -pw * (1 - pw) + 2 * (1 - pw) * phase
-                         : pw * (1 - pw) - 2 * pw * (phase - pw);
+        tri = triAt(phase, pw);
     }
 
     for (unsigned int i = 0; i < windowlen; i++)
@@ -182,6 +229,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const int wave = (thIsFinite(w) && w >= 0 && w < 3) ? (int)w : 0;
         float pw = (*in_pw)[i];
         float y;
+        float jump = 0;
 
         if (!thIsFinite(pw) || pw <= 0)
             pw = 0.5;
@@ -192,42 +240,134 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (pw > 1 - dt)
             pw = 1 - dt;
 
-        if (wave == 0)
+        const float r = (*in_reset)[i];
+        const bool reset = thIsFinite(r) && r > 0;
+
+        if (!reset && !owing)
         {
-            y = 2 * phase - 1 - (float)polyBlep(phase, dt);
+            if (wave == 0)
+            {
+                y = 2 * phase - 1 - (float)polyBlep(phase, dt);
+            }
+            else
+            {
+                float t2 = phase + 1 - pw;
+                t2 -= floorf(t2);
+                y = (phase < pw ? 1.0f : -1.0f) +
+                    (float)polyBlep(phase, dt) - (float)polyBlep(t2, dt);
+            }
         }
         else
         {
+            /* After a reset the phase is no longer where a wrap left it,
+               so what is owed from the last sample was worked out there;
+               before one, a wrap or edge counts only if it comes first. */
+            const bool pulse = wave != 0;
             float t2 = phase + 1 - pw;
+            float next = 0;
+
             t2 -= floorf(t2);
-            y = (phase < pw ? 1.0f : -1.0f) + (float)polyBlep(phase, dt) -
-                (float)polyBlep(t2, dt);
-            if (wave == 2)
+            y = pulse ? (phase < pw ? 1.0f : -1.0f) : 2 * phase - 1;
+
+            if (owing)
+                y += owed;
+            else if (pulse)
+                y += (float)(phase < dt ? polyBlep(phase, dt) : 0) -
+                     (float)(t2 < dt ? polyBlep(t2, dt) : 0);
+            else
+                y -= (float)(phase < dt ? polyBlep(phase, dt) : 0);
+
+            if (!reset)
             {
-                /* The leak only has rounding to bleed off now, so it is
-                   slow: a leak of `dt' bends the slopes visibly. */
-                tri = dt * (y - (2 * pw - 1)) + (1 - dt / 64) * tri;
-                y = tri / (pw * (1 - pw));
+                if (pulse)
+                    y += (float)(phase > 1 - dt ? polyBlep(phase, dt) : 0) -
+                         (float)(t2 > 1 - dt ? polyBlep(t2, dt) : 0);
+                else
+                    y -= (float)(phase > 1 - dt ? polyBlep(phase, dt) : 0);
             }
+            else
+            {
+                const float until = r < 1 ? r : 1;
+                const float d = 1 - until;
+                float at = phase + until * dt;
+
+                if (pulse && phase < pw && at >= pw)
+                {
+                    const float dw = 1 - (pw - phase) / dt;
+                    y += stepBefore(-2, dw);
+                    next += stepAfter(-2, dw);
+                }
+                if (at >= 1)
+                {
+                    const float dw = 1 - (1 - phase) / dt;
+                    const float h = pulse ? 2.0f : -2.0f;
+                    y += stepBefore(h, dw);
+                    next += stepAfter(h, dw);
+                    at -= 1;
+                }
+
+                const float h = pulse ? 1 - (at < pw ? 1.0f : -1.0f)
+                                      : -2 * at;
+
+                jump = triAt(0, pw) - triAt(at, pw);
+
+                y += stepBefore(h, d);
+                next += stepAfter(h, d);
+            }
+
+            owed = next;
+            owing = reset;
+        }
+
+        if (wave == 2)
+        {
+            /* A restart moves the integrator by the triangle's step, on
+               whichever side of this sample the restart is nearer: this
+               sample's pulse already carries half its correction. */
+            if (reset && r < 0.5f)
+            {
+                tri += jump;
+                jump = 0;
+            }
+
+            /* The leak only has rounding to bleed off now, so it is
+               slow: a leak of `dt' bends the slopes visibly. */
+            tri = dt * (y - (2 * pw - 1)) + (1 - dt / 64) * tri;
+            y = tri / (pw * (1 - pw));
+            tri += jump;
         }
 
         out[i] = (float)(TH_MAX * y);
 
-        phase += dt;
-        if (phase >= 1)
+        if (reset)
         {
-            phase -= floorf(phase);
+            const float until = r < 1 ? r : 1;
+
+            phase = (1 - until) * dt;
             sync[i] = 1;
+            edge[i] = until;
         }
         else
         {
-            sync[i] = 0;
+            edge[i] = phase + dt >= 1 ? (1 - phase) / dt : 0;
+            phase += dt;
+            if (phase >= 1)
+            {
+                phase -= floorf(phase);
+                sync[i] = 1;
+            }
+            else
+            {
+                sync[i] = 0;
+            }
         }
     }
 
     state[0] = phase;
     state[1] = tri;
     state[2] = 1;
+    state[3] = owed;
+    state[4] = owing;
 
     return 0;
 }

@@ -3960,6 +3960,18 @@ static vector<NodeSpec> blepGraph (float freq, float wave, float pw,
     return vector<NodeSpec>(1, n);
 }
 
+static vector<NodeSpec> blepSyncGraph ()
+{
+    vector<NodeSpec> spec = blepGraph(1000, 0, 0.5f, 0);
+    vector<NodeSpec> slave = blepGraph(2700, 1, 0.3f, 0);
+
+    spec[0].name = "master";
+    slave[0].wires.push_back(Wire{ "reset", "master", "edge" });
+    spec.push_back(slave[0]);
+
+    return spec;
+}
+
 static double meanOf (const vector<float> &v, size_t from)
 {
     double sum = 0;
@@ -4080,6 +4092,89 @@ static void checkBlep (const string &pluginPath)
     windowsAgree(pluginPath, blepGraph(440, 2, 0.3f, 0.1f), "osc", "out",
                  "osc::blep: the same triangle at one sample a window and at "
                  "five hundred");
+
+    /* Hard sync. A 1 kHz master's harmonics fold onto multiples of
+       100 Hz at 44.1 kHz, so the loudest of those that are not multiples
+       of 1 kHz is the aliasing. Reset by `edge' it is corrected; reset by
+       the 0/1 `sync' it is the unsmoothed step. Under 5 kHz, because
+       PolyBLEP leaves what folds from just past Nyquist nearly as loud. */
+    {
+        const struct { const char *from, *what; } by[] = {
+            { "edge", "edge" }, { "sync", "a 0/1 trigger" },
+        };
+        double db[2] = { 0, 0 };
+
+        for (int k = 0; k < 2; k++)
+        {
+            vector<NodeSpec> spec = blepGraph(1000, 0, 0.5f, 0);
+            vector<NodeSpec> slave = blepGraph(2700, 0, 0.5f, 0);
+            vector<float> got;
+            string why;
+
+            spec[0].name = "master";
+            slave[0].wires.push_back(Wire{ "reset", "master", by[k].from });
+            spec.push_back(slave[0]);
+
+            if (!render1(pluginPath, spec, "osc", "out", 256,
+                         TH_DEFAULT_SAMPLES, got, why))
+            {
+                fail(string("osc::blep renders synced by ") + by[k].what,
+                     why);
+                return;
+            }
+
+            double worst = 0;
+
+            for (int hz = 100; hz < 5000; hz += 100)
+                if (hz % 1000 != 0)
+                    worst = fmax(worst, bin(got, 0, TH_DEFAULT_SAMPLES, hz));
+            db[k] = 20 * log10(worst / bin(got, 0, TH_DEFAULT_SAMPLES, 1000));
+        }
+
+        okOrFail(db[0] < -50 && db[0] < db[1] - 30,
+                 "osc::blep: synced by `edge', the aliasing under 5 kHz is "
+                 "over 50 dB under the fundamental and 30 dB under a 0/1 "
+                 "reset's",
+                 num(db[0]) + " dB by edge, " + num(db[1]) + " dB by sync");
+    }
+
+    /* A synced triangle stays where an unsynced one does: within full
+       scale and centered, at slaves that do and do not divide evenly. */
+    {
+        const struct { float hz, pw; } cases[] = {
+            { 2700, 0.4f }, { 3900, 0.4f }, { 2615, 0.5f }, { 2700, 0.15f },
+            { 1200, 0.05f },
+        };
+
+        for (const auto &c : cases)
+        {
+            vector<NodeSpec> spec = blepGraph(523, 0, 0.5f, 0);
+            vector<NodeSpec> slave = blepGraph(c.hz, 2, c.pw, 0);
+            vector<float> got;
+            string why;
+
+            spec[0].name = "master";
+            slave[0].wires.push_back(Wire{ "reset", "master", "edge" });
+            spec.push_back(slave[0]);
+
+            const bool rendered = render1(pluginPath, spec, "osc", "out", 256,
+                                          TH_DEFAULT_SAMPLES, got, why);
+            const double mean = rendered ? meanOf(got, 4410) : 0;
+
+            okOrFail(rendered && allFinite(got) && peak(got, 0) <= 1.1 &&
+                     fabs(mean) < 0.05,
+                     "osc::blep: a triangle at " + num(c.hz) + " Hz, width " +
+                     num(c.pw) + ", synced to 523 Hz stays within full "
+                     "scale, centered",
+                     rendered ? "peak " + num(peak(got, 0)) + ", mean " +
+                                num(mean) : why);
+        }
+    }
+
+    windowsAgree(pluginPath, blepSyncGraph(),
+                 "osc", "out",
+                 "osc::blep: the same synced pulse at one sample a window and "
+                 "at five hundred");
 }
 
 /* ---- env::adsr, gated ----------------------------------------------------
