@@ -16,9 +16,23 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Echo: a ring and a tap.
+ *
+ * WHAT GOES ROUND CAN BE CHANGED ON EACH LAP. A graph cannot filter what
+ * an echo feeds back -- a node reading its own output is a cycle, and a
+ * cycle in a .dsp resolves as a window's delay -- so the loop's own
+ * processing is here: `tone' a low-pass and `low' a high-pass on every
+ * repeat, `drive' a saturation, and `boost' the loop's gain past 1. That
+ * is a dub echo: each repeat darker and thinner than the one before it,
+ * and with the gain past 1 a tail that builds on itself until the
+ * saturation holds it, rather than dying away. All four at 0 are a plain
+ * ring, as it always was.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -29,9 +43,14 @@ void module_cleanup (thPlugin *plugin)
 {
 }
 
-enum { IN_ARG,IN_SIZE,IN_DELAY,IN_FEEDBACK,IN_DRY,INOUT_BUFFER,INOUT_BUFPOS,OUT_ARG };
+enum { IN_ARG,IN_SIZE,IN_DELAY,IN_FEEDBACK,IN_DRY,INOUT_BUFFER,INOUT_BUFPOS,OUT_ARG,
+       IN_TONE,IN_LOW,IN_DRIVE,IN_BOOST,INOUT_LOOP };
 
-std::atomic<int> args[OUT_ARG + 1];
+std::atomic<int> args[INOUT_LOOP + 1];
+
+/* How far `boost' may take the loop: 1.5 times what it would be, which
+   `drive' has to be up to hold. */
+#define ECHO_BOOST_MAX 0.5f
 
 int module_init (thPlugin *plugin)
 {
@@ -80,6 +99,29 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[OUT_ARG], "The tap and the input, mixed by dry");
     plugin->setArgUnits(args[OUT_ARG], "full scale");
 
+    args[IN_TONE] = plugin->regArg("tone", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_TONE],
+                       "A low-pass on every repeat, so each is darker than "
+                       "the last; 0 is none");
+    plugin->setArgUnits(args[IN_TONE], "Hz");
+    args[IN_LOW] = plugin->regArg("low", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_LOW],
+                       "A high-pass on every repeat, so each is thinner than "
+                       "the last; 0 is none");
+    plugin->setArgUnits(args[IN_LOW], "Hz");
+    args[IN_DRIVE] = plugin->regArg("drive", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_DRIVE],
+                       "Saturation on every repeat; 0 is clean");
+    plugin->setArgRange(args[IN_DRIVE], 0, 4);
+    args[IN_BOOST] = plugin->regArg("boost", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_BOOST],
+                       "The loop's gain past what `feedback' keeps: above 0 "
+                       "a tail builds until the saturation holds it, at full "
+                       "scale or under");
+    plugin->setArgRange(args[IN_BOOST], 0, ECHO_BOOST_MAX);
+    /* [0] the low-pass, [1] the high-pass's input, [2] its output. */
+    args[INOUT_LOOP] = plugin->regArg("loop", thPlugin::ARG_STATE);
+
     return 0;
 }
 
@@ -108,6 +150,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
+
+    thArg *in_tone = mod->getArg(node, args[IN_TONE]);
+    thArg *in_low = mod->getArg(node, args[IN_LOW]);
+    thArg *in_drive = mod->getArg(node, args[IN_DRIVE]);
+    thArg *in_boost = mod->getArg(node, args[IN_BOOST]);
+    thArg *inout_loop = mod->getArg(node, args[INOUT_LOOP]);
+    float lp = (*inout_loop)[0], hpIn = (*inout_loop)[1];
+    float hpOut = (*inout_loop)[2];
+    float *loop = inout_loop->allocate(3);
 
     for(i = 0; i < windowlen; i++) {
         unsigned int mySize = (int)(*in_size)[i];
@@ -141,12 +192,62 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         delay = buffer[index];
 
-        buffer[myBufpos] = (feedback * delay) + ((1-feedback) * in);
+        /* What goes back in, changed on the way. Each stage only where
+           its arg asks for it, so a ring with none of them is the ring it
+           always was, to the bit. */
+        float back = delay;
+        const float tone = (*in_tone)[i];
+        const float low = (*in_low)[i];
+        const float drive = thClampArg((*in_drive)[i], 0, 4);
+        const float boost = thClampArg((*in_boost)[i], 0, ECHO_BOOST_MAX);
+
+        if (tone > 0 && thIsFinite(tone))
+        {
+            const float k = 1 - expf(-2 * (float)M_PI *
+                                     fminf(tone, samples * 0.45f) / samples);
+
+            lp += k * (back - lp);
+            back = lp;
+        }
+
+        if (low > 0 && thIsFinite(low))
+        {
+            const float r = expf(-2 * (float)M_PI *
+                                 fminf(low, samples * 0.45f) / samples);
+
+            hpOut = r * (hpOut + back - hpIn);
+            hpIn = back;
+            back = hpOut;
+        }
+
+        if (boost > 0)
+            back *= 1 + boost;
+
+        /* tanh scaled so a small signal passes at unity: the drive is how
+           early the curve bends, not a gain. Its ceiling is full scale
+           over the drive, so a boosted loop bends at 1 at least and is
+           held at full scale or under. */
+        const float bend = boost > 0 ? fmaxf(drive, 1) : drive;
+
+        if (bend > 0)
+            back = TH_MAX * tanhf(bend * back / TH_MAX) / bend;
+
+        if (!thIsFinite(back))
+        {
+            back = 0;
+            lp = hpIn = hpOut = 0;
+        }
+
+        buffer[myBufpos] = (feedback * back) + ((1-feedback) * in);
 
         out[i] = ((1 - dry) * delay) + (dry * in);
         ++myBufpos;
         *bufpos = (float)myBufpos;
     }
+
+    loop[0] = lp;
+    loop[1] = hpIn;
+    loop[2] = hpOut;
 
     return 0;
 }

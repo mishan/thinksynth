@@ -4047,6 +4047,137 @@ static void checkSpeak (const string &pluginPath)
                  "five hundred");
 }
 
+/* ---- delay::echo's loop -----------------------------------------------
+ *
+ * A click into a ring a thousand samples long, so repeat k is the 200
+ * samples from k * 1000. Brightness is the first difference's energy over
+ * the signal's: a plain ring keeps it, `tone' takes it down repeat by
+ * repeat and `low' takes it up, because each lap goes through the filter
+ * again. And a loop with `boost' past 1 keeps sounding where a plain one
+ * dies, held under full scale by `drive'.
+ */
+static vector<NodeSpec> echoGraph (float feedback, float tone, float low,
+                                   float drive, float boost)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, e;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+    src.values.push_back(Value{ "a", 0 });
+    src.values.push_back(Value{ "d", 32 });
+    src.values.push_back(Value{ "p", TH_MAX });
+    spec.push_back(src);
+
+    e.name = "e";
+    e.spelling = "delay/echo";
+    e.values.push_back(Value{ "size", 2000 });
+    e.values.push_back(Value{ "delay", 1000 });
+    e.values.push_back(Value{ "feedback", feedback });
+    e.values.push_back(Value{ "dry", 0 });
+    e.values.push_back(Value{ "tone", tone });
+    e.values.push_back(Value{ "low", low });
+    e.values.push_back(Value{ "drive", drive });
+    e.values.push_back(Value{ "boost", boost });
+    e.wires.push_back(Wire{ "in", "src", "out" });
+    spec.push_back(e);
+
+    return spec;
+}
+
+static void checkEcho (const string &pluginPath)
+{
+    auto bright = [](const vector<float> &v, size_t from) {
+        double e = 0, d = 0;
+
+        for (size_t i = from + 1; i < from + 200 && i < v.size(); i++)
+        {
+            e += (double)v[i] * v[i];
+            d += pow((double)v[i] - v[i - 1], 2);
+        }
+
+        return e > 0 ? d / e : 0;
+    };
+    const struct { float tone, low; int sign; const char *what; } laps[] = {
+        { 0, 0, 0, "a plain ring keeps each repeat's brightness" },
+        { 2000, 0, -1, "`tone' makes each repeat darker than the last" },
+        { 0, 1500, 1, "`low' makes each repeat thinner than the last" },
+    };
+
+    for (const auto &l : laps)
+    {
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, echoGraph(0.7f, l.tone, l.low, 0, 0), "e",
+                     "out", 256, 6000, got, why))
+        {
+            fail("delay::echo renders", why);
+            return;
+        }
+
+        const double b1 = bright(got, 2000), b2 = bright(got, 3000),
+                     b3 = bright(got, 4000);
+        const bool ok = l.sign == 0
+            ? fabs(b2 / b1 - 1) < 0.01 && fabs(b3 / b2 - 1) < 0.01
+            : l.sign < 0 ? b2 < b1 * 0.9 && b3 < b2 * 0.9
+                         : b2 > b1 * 1.1 && b3 > b2 * 1.1;
+
+        okOrFail(ok, string("delay::echo: ") + l.what,
+                 "repeats 2-4: " + num(b1) + ", " + num(b2) + ", " +
+                 num(b3));
+    }
+
+    {
+        vector<float> plain, held;
+        string why;
+
+        const bool rendered =
+            render1(pluginPath, echoGraph(0.9f, 0, 0, 0, 0), "e", "out", 256,
+                    30000, plain, why) &&
+            render1(pluginPath, echoGraph(0.9f, 3000, 0, 2, 0.5f), "e", "out",
+                    256, 30000, held, why);
+        auto lap = [](const vector<float> &v, size_t from) {
+            float top = 0;
+
+            for (size_t i = from; i < from + 1000 && i < v.size(); i++)
+                top = fmaxf(top, fabsf(v[i]));
+
+            return top;
+        };
+
+        okOrFail(rendered && lap(held, 28000) > lap(held, 2000) &&
+                 lap(plain, 28000) < lap(plain, 2000) * 0.2f &&
+                 peak(held, 0) <= 1.05,
+                 "delay::echo: `boost' past 1 with `drive' builds a tail "
+                 "that holds, under full scale, where a plain loop dies",
+                 rendered ? "lap 28 against lap 2: held " +
+                            num(lap(held, 28000) / lap(held, 2000)) +
+                            ", plain " +
+                            num(lap(plain, 28000) / lap(plain, 2000)) +
+                            ", held peak " + num(peak(held, 0)) : why);
+    }
+
+    /* And with no drive asked for, a boosted loop is still held: the
+       saturation is the loop's, not the knob's. */
+    {
+        vector<float> got;
+        string why;
+        const bool rendered = render1(pluginPath,
+                                      echoGraph(0.95f, 0, 0, 0, 0.5f), "e",
+                                      "out", 256, 30000, got, why);
+
+        okOrFail(rendered && allFinite(got) && peak(got, 0) <= 1.05,
+                 "delay::echo: `boost' with no `drive' stays under full "
+                 "scale", rendered ? "peak " + num(peak(got, 0)) : why);
+    }
+
+    windowsAgree(pluginPath, echoGraph(0.8f, 2500, 200, 1.5f, 0.3f), "e",
+                 "out",
+                 "delay::echo: the same filtered, driven loop at one sample "
+                 "a window and at five hundred");
+}
+
 static void checkBlep (const string &pluginPath)
 {
     const struct { float wave, pw; const char *what; } shapes[] = {
@@ -7811,6 +7942,7 @@ int main (int argc, char **argv)
     checkFmop(pluginPath);
     checkSimple(pluginPath);
     checkBlep(pluginPath);
+    checkEcho(pluginPath);
     checkSpeak(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);

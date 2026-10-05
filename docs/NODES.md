@@ -84,6 +84,11 @@ Echo (echo echo echo)
 | `buffer` | state |  |  |  |  |  |
 | `bufpos` | state |  |  |  |  |  |
 | `out` | out | The tap and the input, mixed by dry |  |  | full scale |  |
+| `tone` | in | A low-pass on every repeat, so each is darker than the last; 0 is none |  |  | Hz |  |
+| `low` | in | A high-pass on every repeat, so each is thinner than the last; 0 is none |  |  | Hz |  |
+| `drive` | in | Saturation on every repeat; 0 is clean |  | 0 to 4 |  |  |
+| `boost` | in | The loop's gain past what `feedback' keeps: above 0 a tail builds until the saturation holds it, at full scale or under |  | 0 to 0.5 |  |  |
+| `loop` | state |  |  |  |  |  |
 
 ### delay::fdn
 
