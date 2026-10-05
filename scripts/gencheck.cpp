@@ -7900,6 +7900,107 @@ checkThrow (const std::map<std::string, thcPlugin *> &plugins,
              "them");
 }
 
+/* ---- a graph's text args ------------------------------------------------ */
+
+/* `smp.file = "kit_ride_mid.wav";' in an instrument block reaches the
+ * sampler node in that instrument's graph, on the prototype every voice is
+ * built from, and leaves another instrument on the same graph alone. A
+ * node the graph lacks and an arg that is a number are refused by name.
+ * And the editor still indexes the instrument that carries one. */
+static void
+checkInstrumentText (const std::map<std::string, thcPlugin *> &plugins,
+                     thSynth *synth)
+{
+    const std::string head =
+        "name \"t\"; author \"x\"; description \"x\";\n"
+        "instrument a { dsp \"orchhit.dsp\"; };\n";
+    const std::string tail =
+        "chain c { stage src gen::lsystem { axiom = \"F\"; depth = 0;"
+        " notes = \"C4\"; step = 1 s; hold = 0.5 s; vel = 100; };"
+        " sink { instrument = b; }; };\n";
+    auto load = [&](const std::string &line, thcScheduler &sched,
+                    std::string &errors) {
+        const std::string path = thUtil::tempFile("gencheck-text-");
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << head << "instrument b { dsp \"orchhit.dsp\"; " << line
+                << " };\n" << tail;
+        }
+
+        thcGenLoader loader(plugins);
+        const bool ok = loader.load(path, &sched);
+
+        errors.clear();
+        for (const std::string &e : loader.errors())
+            errors += e + "\n";
+
+        thcGenEdit::Doc doc;
+        std::string why;
+
+        if (ok && (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+                   doc.instruments.size() != 2))
+            fail("instrument text: the editor indexes both instruments of a "
+                 "piece with one; " + why);
+
+        remove(path.c_str());
+        return ok;
+    };
+    auto fileOn = [&](thcScheduler &sched, const char *name) {
+        for (const thcInstrument &in : sched.instruments())
+            if (in.name == name)
+            {
+                thMidiChan *ch = synth->getChannel(in.channel);
+                thNode *n = ch && ch->modnode()
+                    ? ch->modnode()->findNode("smp") : NULL;
+                thArg *f = n ? n->getArg("file") : NULL;
+
+                return f ? f->text() : std::string("(none)");
+            }
+
+        return std::string("(no instrument)");
+    };
+
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        std::string errors;
+
+        if (!load("smp.file = \"kit_ride_mid.wav\";", sched, errors))
+            fail("instrument text: smp.file did not load: " + errors);
+        else if (fileOn(sched, "b") != "kit_ride_mid.wav" ||
+                 fileOn(sched, "a") != "orchhit.wav")
+            fail("instrument text: b plays " + fileOn(sched, "b") +
+                 " and a plays " + fileOn(sched, "a"));
+    }
+
+    const struct { const char *line, *says; } refused[] = {
+        { "nope.file = \"x.wav\";", "no node called 'nope'" },
+        { "smp.freq = \"x\";", "is not a quoted name" },
+    };
+
+    for (const auto &r : refused)
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        std::string errors;
+
+        if (load(r.line, sched, errors) ||
+            errors.find(r.says) == std::string::npos)
+            fail(std::string("instrument text: ") + r.line +
+                 " should be refused, saying \"" + r.says + "\"; got " +
+                 errors);
+    }
+
+    clearChannels(synth);
+    drainSynth();
+}
+
 /* ---- the harmony plugins ------------------------------------------------ */
 
 /* progression walks a key with a cadence at every phrase end, two stages
@@ -13060,6 +13161,7 @@ main (int argc, char *argv[])
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkThrow(plugins, &synth);
+    checkInstrumentText(plugins, &synth);
     checkSay(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
     checkVoiceLeading(plugins, &synth);

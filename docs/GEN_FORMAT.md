@@ -348,6 +348,29 @@ to the channel: a channel with no effect still sends. From outside it is
 `sink { instrument = piano; chanarg = "fx.send"; };` — and it runs 0 to 1. A
 moving send is ramped across each window rather than stepped.
 
+**A sampler's file may be the piece's.**
+
+```
+instrument talk {
+    dsp       "orchhit.dsp";
+    smp.file  = "mytalk.wav";       # node smp's `file', in that graph
+};
+```
+
+The wav an `osc::sample` or `osc::stretch` node plays is a quoted name in the
+`.dsp`, not a chanarg — a filename is not a thing a slider moves — so no value
+above can reach it. `node.arg = "name";` does: it names a node in the
+instrument's graph and one of its text args, and the loader writes the name
+onto the channel's prototype tree, so every voice is built playing it. One
+graph is then any number of instruments, each with its own recording, and a
+piece can bring the samples it was written for. The name is found under
+`samples/` on `THINK_DSP_PATH`, as the graph's own would be.
+
+Only an arg the graph already writes as a quoted name: a node the graph does
+not have, or an arg that is a number, is refused at load by name. And only on
+the instrument's graph, not its `effect`. `gen::breed`'s private renders do not
+carry it yet: a `target` instrument is heard there with its graph's own file.
+
 **A value may be a knob.**
 
 ```
@@ -893,6 +916,7 @@ instrstmt   : "dsp" STRING ";"
             | "midiprogram" "=" NUMBER ";"              # 1-128; optional
             | "cc" WORD "=" NUMBER ccrange? ";"         # 0-119
             | "bend" WORD ccrange? ";"                  # the pitch wheel
+            | WORD "." WORD "=" STRING ";"              # a node's text arg
             | instrval
 ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
 effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs

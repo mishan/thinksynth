@@ -1276,6 +1276,41 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
         knobConns_.push_back(kc);
     }
 
+    /* The text args: onto the prototype the channel builds its voices
+       from, as setNodeArg writes a number there. Only an arg the node's
+       plugin declared and that is a text already -- a name written over a
+       number would turn a wired or numeric arg into a string nothing
+       reads -- and only on a graph, since a MIDI instrument has none. */
+    if (!inst.texts.empty() && inst.channel >= 0 && !inst.dsp.empty())
+    {
+        thMidiChan *chan = synth_ ? synth_->getChannel(inst.channel) : NULL;
+        thSynthTree *tree = chan != NULL ? chan->modnode() : NULL;
+
+        for (size_t i = 0; i < inst.texts.size(); i++)
+        {
+            const thcInstrumentText &t = inst.texts[i];
+            thNode *n = tree ? tree->findNode(t.node) : NULL;
+            thArg *arg = n ? n->getArg(t.arg) : NULL;
+
+            if (n == NULL)
+            {
+                why = "'" + inst.dsp + "' has no node called '" + t.node +
+                      "'";
+                return false;
+            }
+
+            if (arg == NULL || arg->type() != thArg::ARG_TEXT)
+            {
+                why = "'" + t.node + "." + t.arg + "' in '" + inst.dsp +
+                      "' is not a quoted name, so a piece cannot set it to "
+                      "one";
+                return false;
+            }
+
+            arg->setText(t.value);
+        }
+    }
+
     return true;
 }
 
@@ -2485,8 +2520,15 @@ thcScheduler::sameInstrument (const thcInstrument &a, const thcInstrument &b)
         a.side != b.side || a.sideChannel != b.sideChannel ||
         a.channel != b.channel || a.args.size() != b.args.size() ||
         a.midi != b.midi || a.midiChannel != b.midiChannel ||
-        a.midiProgram != b.midiProgram || a.ccs.size() != b.ccs.size())
+        a.midiProgram != b.midiProgram || a.ccs.size() != b.ccs.size() ||
+        a.texts.size() != b.texts.size())
         return false;
+
+    for (size_t i = 0; i < a.texts.size(); i++)
+        if (a.texts[i].node != b.texts[i].node ||
+            a.texts[i].arg != b.texts[i].arg ||
+            a.texts[i].value != b.texts[i].value)
+            return false;
 
     for (size_t i = 0; i < a.ccs.size(); i++)
         if (a.ccs[i].name != b.ccs[i].name || a.ccs[i].cc != b.ccs[i].cc ||

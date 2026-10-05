@@ -281,6 +281,16 @@ struct thcInstrumentArg
     std::string knob;
 };
 
+/* `loop.file = "talk.wav";' -- a node's text arg inside the instrument's
+ * graph, which is the one kind of arg a chanarg cannot reach: the wav an
+ * osc::sample or osc::stretch node plays. Written onto the channel's
+ * prototype tree when the instrument is applied, so every voice is built
+ * playing it. */
+struct thcInstrumentText
+{
+    std::string node, arg, value;
+};
+
 /* `cc cutoff = 74 { min = 60; max = 12000; };' in an instrument played
  * over MIDI: what the chanarg `cutoff' becomes on the device. A value is
  * scaled from [min, max] onto 0..127 and clamped; the default range is
@@ -340,6 +350,9 @@ struct thcInstrument
        their names, which is how the engine addresses them, so the one call
        that writes a chanarg reaches either map. */
     std::vector<thcInstrumentArg> args;
+
+    /* And the graph's text args, in the order written. */
+    std::vector<thcInstrumentText> texts;
 
     /* `midi "Surge XT"; midichannel = 3;' -- played on a device rather
      * than a graph: the port a host matches by name, and the device's

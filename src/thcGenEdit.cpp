@@ -752,6 +752,18 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     continue;
                 }
 
+                /* `node.arg = "name";': a graph's text arg, stepped over
+                   for the reason the MIDI statements below are -- scanParam
+                   refuses the shape, and a refusal drops the whole block
+                   out of the index. Not edited from here. */
+                if (t[j].kind == Tok::WORD && isPunct(t[j + 1], '.') &&
+                    t[j + 2].kind == Tok::WORD && isPunct(t[j + 3], '=') &&
+                    t[j + 4].kind == Tok::STRING && isPunct(t[j + 5], ';'))
+                {
+                    j += 6;
+                    continue;
+                }
+
                 /* The MIDI statements: recorded, for a panel to say where
                    the instrument plays, and stepped over rather than left
                    to scanParam -- `midi "x";' and a `cc' block are shapes
