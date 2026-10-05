@@ -85,6 +85,7 @@
 #include <vector>
 
 #include "think.h"
+#include "thPhoneme.h"
 
 using std::string;
 using std::vector;
@@ -500,6 +501,79 @@ int main (int argc, char **argv)
             }
 
             okOrFail(none, "a graph that reads no aux gets no aux arg", "");
+        }
+    }
+
+    /* ---- a note's phonemes reach its voice, and a slide's reach it too -- */
+
+    /* A graph that mentions `ionode->say'. Each voice holds what its own
+       note said, the full TH_NOTE_SAY long; a MIDI note says nothing; and
+       on a mono channel the next syllable, slid onto, replaces the first
+       in the voice that is sounding. */
+    {
+        const string extra = "node said math::add {\n"
+                             "    in0 = ionode->say;\n"
+                             "    in1 = 0;\n"
+                             "};\n\n";
+        const unsigned char come[] = { 24, 3, 26, 0 };    /* K AH M */
+        const unsigned char in[] = { 10, 27, 0 };         /* IH N */
+        auto said = [](thSynth &synth, int note) -> string {
+            thMidiNote *n = synth.getChannel(0)->getNote(note);
+            thArg *a = n ? n->synthTree()->IONode()->getArg(SAYARG) : NULL;
+            string out;
+
+            if (a == NULL)
+                return "no arg";
+            if (a->len() != TH_NOTE_SAY)
+                return "length " + to_string(a->len());
+            for (unsigned i = 0; i < a->len() && (*a)[i] != 0; i++)
+                out += string(out.empty() ? "" : ".") +
+                       thPhonemeName((int)(*a)[i]);
+
+            return out;
+        };
+
+        if (writeFile(file, graph("", "freq->out", extra)))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a graph that reads say loads", "");
+            else
+            {
+                synth.addNote(0, 60, 100, 1, NULL, come);
+                synth.addNote(0, 64, 100, 1, NULL, in);
+                synth.addNote(0, 67, 100);
+                synth.process();
+
+                okOrFail(said(synth, 60) == "K.AH.M" &&
+                         said(synth, 64) == "IH.N" && said(synth, 67) == "",
+                         "each voice's io node holds what its own note said, "
+                         "and a note that said nothing holds nothing",
+                         "60 " + said(synth, 60) + ", 64 " + said(synth, 64) +
+                         ", the MIDI note " + said(synth, 67));
+            }
+        }
+
+        if (writeFile(file, graph("    mono = 1;\n", "freq->out", extra)))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a mono graph that reads say loads", "");
+            else
+            {
+                synth.addNote(0, 60, 100, 1, NULL, come);
+                synth.process();
+                synth.addNote(0, 64, 100, 1, NULL, in);
+                synth.process();
+
+                okOrFail(said(synth, 64) == "IH.N",
+                         "a mono slide onto the next note says that note's "
+                         "phonemes", said(synth, 64));
+            }
         }
     }
 

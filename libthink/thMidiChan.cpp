@@ -458,7 +458,7 @@ void thMidiChan::setEffect (thChanEffect *effect, RetireQueue *retire)
  * writes -- notes run on their own copies of the tree, not on the prototype.
  */
 thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
-                                   const float *aux)
+                                   const float *aux, const unsigned char *say)
 {
     if (modnode_ == NULL)
         return NULL;
@@ -471,7 +471,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
 
         pool_.pop_back();
 
-        if (voice->restart(modnode_, note, velocity, level, aux))
+        if (voice->restart(modnode_, note, velocity, level, aux, say))
         {
             restarts_++;
             return voice;
@@ -480,7 +480,8 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
         delete voice;
     }
 
-    thMidiNote *voice = new thMidiNote(modnode_, note, velocity, level, aux);
+    thMidiNote *voice = new thMidiNote(modnode_, note, velocity, level, aux,
+                                       say);
 
     voice->setChannel(serial_);
 
@@ -668,6 +669,7 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
             notes_.erase(voice->id());
             voice->retune(midinote->note());
             voice->setLevel(midinote->level());
+            voice->takeSay(midinote);
             notes_[voice->id()] = voice;
 
             /* A key is down again, so the pedal no longer owns this voice.

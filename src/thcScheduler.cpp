@@ -30,6 +30,9 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 
+static_assert(THC_NOTE_SAY == TH_NOTE_SAY,
+              "a note's say fits the voice's");
+
 /* ---- thcParamStore ---------------------------------------------------- */
 
 thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
@@ -3303,7 +3306,8 @@ thcScheduler::deliver (const thcEvent &ev)
             else
                 sounded = synth_->addNote(ev.channel, ev.u.note.note,
                                           ev.u.note.velocity,
-                                          ev.u.note.level, ev.u.note.aux);
+                                          ev.u.note.level, ev.u.note.aux,
+                                          ev.u.note.say);
 
             /* A channel keys its voices by note number, so this note has
                just put the one sounding on its key into release

@@ -135,8 +135,11 @@ export function tapeLine (e)
             const tail = aux.some((a) => a !== 0)
                 ? ' ' + aux.map((a) => fixed(a, 3)).join(' ') : '';
 
+            const say = e.name ? ` say=${e.name}` : '';
+
             return `N ${at} ${e.channel} ${e.note} ${e.velocity} ` +
-                   `${fixed(e.duration, 3)} ${fixed(e.level, 3)}${tail}\n`;
+                   `${fixed(e.duration, 3)} ${fixed(e.level, 3)}${tail}` +
+                   `${say}\n`;
         }
         case 'C':
             return `C ${at} ${e.channel} ${e.name} ${fixed(e.value, 4)}\n`;

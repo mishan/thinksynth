@@ -23,9 +23,11 @@
 
 class THINK_API thMidiNote {
 public:
-    /* `aux' is TH_NOTE_AUX floats, or NULL for all zeros; see AUXPREFIX. */
+    /* `aux' is TH_NOTE_AUX floats, or NULL for all zeros; see AUXPREFIX.
+       `say' is up to TH_NOTE_SAY phoneme codes ending in 0, or NULL for
+       none; see SAYARG. */
     thMidiNote (thSynthTree *tree, float note, float velocity, float level = 1,
-                const float *aux = NULL);
+                const float *aux = NULL, const unsigned char *say = NULL);
     thMidiNote (thSynthTree *tree);
     ~thMidiNote ();
 
@@ -34,7 +36,13 @@ public:
      * copy: see thSynthTree::restore. False if the two no longer match, in
      * which case the voice is only fit to be deleted. */
     bool restart (const thSynthTree *tree, float note, float velocity,
-                  float level = 1, const float *aux = NULL);
+                  float level = 1, const float *aux = NULL,
+                  const unsigned char *say = NULL);
+
+    /* Audio thread. What `from' says, into this voice: a mono slide onto
+     * the next syllable. Allocation-free, because `say' is always
+     * TH_NOTE_SAY long once start() has written it. */
+    void takeSay (thMidiNote *from);
 
     /* The serial of the channel that built this voice, and so owns the
        prototype it was copied from; 0 for none. See thMidiChan::recycle. */
@@ -96,7 +104,8 @@ public:
     void setArg (const string &name, const float *value, int len);
 
 private:
-    void start (float note, float velocity, float level, const float *aux);
+    void start (float note, float velocity, float level, const float *aux,
+                const unsigned char *say);
 
     thSynthTree synthTree_;
     unsigned long channel_;

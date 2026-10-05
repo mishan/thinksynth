@@ -55,6 +55,7 @@
 #include <glibmm.h>
 
 #include "think.h"
+#include "thPhoneme.h"
 
 #include "libthink/thDynLib.h"
 #include "libthink/thMidiChan.h"
@@ -409,7 +410,7 @@ render (thcScheduler &sched, double seconds, double step)
     sigc::connection conn = sched.sigDelivered.connect(
         [&tape, &posted](const thcEvent &ev)
         {
-            char buf[160];
+            char buf[512];
 
             /* The aux only when one is set, as genwav prints them. */
             if (ev.type == THC_EV_NOTE)
@@ -430,6 +431,17 @@ render (thcScheduler &sched, double seconds, double step)
                              ev.at, ev.channel, ev.u.note.note,
                              ev.u.note.velocity, ev.u.note.duration,
                              (double)ev.u.note.level);
+
+                if (ev.u.note.say[0])
+                {
+                    char said[8 * THC_NOTE_SAY];
+                    const size_t end = strlen(buf) - 1;
+
+                    thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY, said,
+                                   sizeof(said));
+                    snprintf(buf + end, sizeof(buf) - end, " say=%s\n",
+                             said);
+                }
             }
             /* Structure edits are on the tape for the same reason notes
                are: they are what the piece did. A replay gate that

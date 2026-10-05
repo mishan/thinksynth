@@ -83,6 +83,7 @@
 #include <glibmm.h>
 
 #include "think.h"
+#include "thPhoneme.h"
 
 #include "libthink/thDynLib.h"
 #include "thcPlugin.h"
@@ -176,8 +177,9 @@ struct HeldComposers {
 
 /* One line per delivered event, in gencheck's spelling minus the
    seventeen digits: N time channel note velocity duration level, and the
-   four aux after it only when one is not zero -- so a piece that sets none
-   prints the tape it always did. C for a chanarg, P for a swap, E for a
+   four aux after it only when one is not zero, and `say=' and its phonemes
+   only when the note says something -- so a piece that sets none prints the
+   tape it always did. C for a chanarg, P for a swap, E for a
    node-arg edit. Channels are the engine's, counted from zero; the tape
    names those channels first. wasm/tape.mjs's tapeLine is the same line. */
 static void writeEvent (FILE *tape, const thcEvent &ev)
@@ -195,6 +197,15 @@ static void writeEvent (FILE *tape, const thcEvent &ev)
             if (aux[0] != 0 || aux[1] != 0 || aux[2] != 0 || aux[3] != 0)
                 fprintf(tape, " %.3f %.3f %.3f %.3f", (double)aux[0],
                         (double)aux[1], (double)aux[2], (double)aux[3]);
+
+            if (ev.u.note.say[0])
+            {
+                char said[8 * THC_NOTE_SAY];
+
+                thPhonemeSpell(ev.u.note.say, THC_NOTE_SAY, said,
+                               sizeof(said));
+                fprintf(tape, " say=%s", said);
+            }
 
             fputc('\n', tape);
             break;
