@@ -19,7 +19,7 @@
 #ifndef THINK_NOISESLOT_H
 #define THINK_NOISESLOT_H
 
-/* The noise source osc::static and osc::noise draw from.
+/* The stream osc::static and osc::noise seed each node's own from.
  *
  * This was rand(), which is the C library's, and glibc's, musl's and macOS's
  * are three different sequences -- so a patch with a noise node in it
