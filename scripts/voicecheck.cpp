@@ -584,6 +584,199 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- osc::speak says what a note carries ---------------------------- */
+
+    /* A voice that is osc::speak alone, at A2 so its harmonics are 110 Hz
+       apart: what it says is read off the spectrum. A vowel is its
+       formants, so the loudest harmonic under 1 kHz is the one nearest F1
+       -- AA's 700, IY's 310 -- and IY's F2, at 2 kHz, stands within 30 dB
+       of its F1, as a spoken IY's does, and at least 6 dB further up from
+       it than AA's valley there. */
+    {
+        auto speakGraph = [](const string &io) {
+            return string("name \"voicecheck\";\n\n"
+                          "node ionode {\n"
+                          "    channels = 1;\n"
+                          "    out0 = sp->out;\n"
+                          "    play = sp->play;\n") + io +
+                   "};\n\n"
+                   "node freq misc::midi2freq {\n"
+                   "    note = ionode->note;\n"
+                   "};\n\n"
+                   "node sp osc::speak {\n"
+                   "    freq = freq->out;\n"
+                   "    say = ionode->say;\n"
+                   "    trigger = ionode->trigger;\n"
+                   "};\n\n"
+                   "io ionode;\n";
+        };
+        /* `windows' of channel 0, appended to `out'; `play' is the voice's
+           at the end, or -1 once it is gone. */
+        auto listen = [](thSynth &synth, int windows, vector<float> &out) {
+            for (int w = 0; w < windows; w++)
+            {
+                int ch = 1;
+
+                synth.process();
+
+                const float *o = synth.getChannelOutput(0, &ch);
+                const int len = synth.getWindowlen();
+
+                for (int i = 0; i < len; i++)
+                    out.push_back(o ? o[i * ch] / TH_MAX : 0);
+            }
+        };
+        auto harmonic = [](const vector<float> &v, size_t from, size_t n,
+                           double hz) {
+            double re = 0, im = 0;
+
+            for (size_t i = 0; i < n && from + i < v.size(); i++)
+            {
+                const double w = 2 * M_PI * hz * (double)i /
+                                 TH_DEFAULT_SAMPLES;
+
+                re += v[from + i] * cos(w);
+                im -= v[from + i] * sin(w);
+            }
+
+            return sqrt(re * re + im * im) / (double)n;
+        };
+        const double f0 = 110;
+        const int windows = TH_DEFAULT_SAMPLES / TH_DEFAULT_WINDOW_LENGTH;
+        /* The loudest harmonic of `v' from `from' for a tenth of a second,
+           under 1 kHz; and the loudest from 1.8 to 2.4 kHz over it. */
+        auto vowel = [&](const vector<float> &v, size_t from, double &f1,
+                         double &high) {
+            const size_t n = TH_DEFAULT_SAMPLES / 10;
+            double top = 0;
+
+            high = 0;
+            f1 = 0;
+            for (int k = 2; k * f0 < 1000; k++)
+            {
+                const double a = harmonic(v, from, n, k * f0);
+
+                if (a > top)
+                {
+                    top = a;
+                    f1 = k * f0;
+                }
+            }
+            for (int k = (int)(1800 / f0) + 1; k * f0 < 2400; k++)
+                high = fmax(high, harmonic(v, from, n, k * f0));
+            high /= top > 0 ? top : 1;
+        };
+
+        if (writeFile(file, speakGraph("")))
+        {
+            const struct { const char *name; unsigned char code; double f1; }
+                vowels[] = { { "AA", 1, 700 }, { "IY", 11, 310 },
+                             { "", 0, 700 } };
+            double highOf[3] = { 0, 0, 0 };
+
+            for (int k = 0; k < 3; k++)
+            {
+                thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                              TH_DEFAULT_SAMPLES);
+                const unsigned char say[2] = { vowels[k].code, 0 };
+                vector<float> got;
+                double f1;
+
+                if (synth.loadTree(file, 0, 100) == NULL)
+                {
+                    fail("a graph on osc::speak loads", "");
+                    break;
+                }
+
+                synth.addNote(0, 45, 100, 1, NULL, say);
+                listen(synth, windows / 2, got);
+                vowel(got, TH_DEFAULT_SAMPLES / 4, f1, highOf[k]);
+
+                okOrFail(fabs(f1 - vowels[k].f1) <= f0,
+                         string("osc::speak: ") +
+                         (k == 2 ? "a note that says nothing sings AA"
+                                 : string("a held ") + vowels[k].name +
+                                   " is loudest at its first formant"),
+                         "loudest under 1 kHz at " + num(f1) + " Hz");
+            }
+
+            okOrFail(highOf[1] > pow(10, -30.0 / 20) &&
+                     highOf[1] > highOf[0] * 2,
+                     "osc::speak: IY's second formant is within 30 dB of "
+                     "its first, and 6 dB nearer than AA's 2 kHz",
+                     "IY " + num(20 * log10(highOf[1])) + " dB, AA " +
+                     num(20 * log10(highOf[0])) + " dB");
+        }
+
+        /* The vowel is held while the key is, and the consonant after it
+           is said when the key comes up: AA S held for half a second has
+           no hiss until the release and plenty after, and the voice ends
+           once the S has been said. */
+        if (writeFile(file, speakGraph("")))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned char ahs[] = { 1, 31, 0 };          /* AA S */
+            vector<float> held, after;
+
+            if (synth.loadTree(file, 0, 100) != NULL)
+            {
+                synth.addNote(0, 45, 100, 1, NULL, ahs);
+                listen(synth, windows / 2, held);
+                synth.delNote(0, 45);
+                listen(synth, windows / 8, after);
+
+                auto hiss = [&](const vector<float> &v, size_t from) {
+                    double e = 0;
+
+                    for (double hz = 5000; hz < 7000; hz += 100)
+                        e += pow(harmonic(v, from, 2048, hz), 2);
+
+                    return e;
+                };
+                const double during = hiss(held, held.size() - 2048);
+                const double then = hiss(after, 1024);
+
+                synth.process();
+                synth.process();
+                listen(synth, windows / 4, after);
+
+                okOrFail(then > during * 100,
+                         "osc::speak: the S after a held AA waits for the "
+                         "release",
+                         "5-7 kHz held " + num(during) + ", released " +
+                         num(then));
+                okOrFail(synth.getChannel(0)->getNote(45) == NULL,
+                         "osc::speak: the voice ends once the S is said", "");
+            }
+        }
+
+        /* A mono slide moves the words on without starting the voice
+           again: AA slid onto IY is IY a tenth of a second later. */
+        if (writeFile(file, speakGraph("    mono = 1;\n")))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned char aa[] = { 1, 0 }, iy[] = { 11, 0 };
+            vector<float> got;
+            double f1, high;
+
+            if (synth.loadTree(file, 0, 100) != NULL)
+            {
+                synth.addNote(0, 45, 100, 1, NULL, aa);
+                listen(synth, windows / 4, got);
+                synth.addNote(0, 45, 100, 1, NULL, iy);
+                got.clear();
+                listen(synth, windows / 4, got);
+                vowel(got, TH_DEFAULT_SAMPLES / 10, f1, high);
+
+                okOrFail(fabs(f1 - 310) <= f0,
+                         "osc::speak: a mono slide onto IY says IY",
+                         "loudest under 1 kHz at " + num(f1) + " Hz");
+            }
+        }
+    }
+
     if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
     {
         thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
