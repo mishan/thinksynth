@@ -128,8 +128,9 @@ thLexEmit (thLexExtra *x, thLexToken::Kind kind,
 
   /* `,' is here for .dsp's function calls -- `clamp(x, 0, 1)'. .gen has no
      use for one and its parser rejects the token, which is a better answer
-     than the stray-character rule below. */
-[;={},.@$+*/%()-] {
+     than the stray-character rule below. `[' and `]' are .dsp's node
+     arrays (thArrays.h), and .gen has no use for them either. */
+[][;={},.@$+*/%()-] {
   thLexEmit(yyextra, thLexToken::PUNCT, yytext, yyleng, yylineno);
   return 1;
 }

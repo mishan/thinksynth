@@ -418,11 +418,25 @@ static bool parseRhs (const string &rhs, double &out)
 
 /* Finds the line range of `node <name> ... { ... }'.
  *
+ * An element of an array, `tone[1]', is found as the block `node tone[2]'
+ * that makes every element, and `element' says so: an edit there is an
+ * edit to all of them.
+ *
  * Brace counting rather than anything cleverer: the grammar nests exactly one
  * level, but counting costs nothing and does not care. */
-static bool findNodeBlock (const vector<string> &lines, const string &node,
-                           size_t &open, size_t &close)
+static bool findNodeBlock (const vector<string> &lines, const string &name,
+                           size_t &open, size_t &close, bool *element = NULL)
 {
+    string node = name;
+    const string::size_type bracket = name.find('[');
+
+    if (bracket != string::npos && !name.empty() &&
+        name[name.size() - 1] == ']')
+        node = name.substr(0, bracket);
+
+    if (element)
+        *element = (node != name);
+
     for (size_t i = 0; i < lines.size(); i++)
     {
         const string code = codeOf(lines[i]);
@@ -905,6 +919,26 @@ static bool insertAssign (vector<string> &lines, size_t open, size_t close,
 
 /* ---- the edits --------------------------------------------------------- */
 
+/* True if `arg', `out1' say, is one of the lines `out[] = ...' writes, one
+   per channel: no single line to edit. */
+static bool writtenPerChannel (const vector<string> &lines, size_t open,
+                               size_t close, const string &arg)
+{
+    size_t d = arg.size();
+
+    while (d > 0 && isdigit((unsigned char)arg[d - 1]))
+        d--;
+
+    if (d == 0 || d == arg.size())
+        return false;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    return findAssign(lines, open, close, arg.substr(0, d) + "[]", line, from,
+                      to);
+}
+
 NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
                                      const string &arg, double value,
                                      string &why)
@@ -928,6 +962,12 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
     {
         why = "no `node " + node + "' block in the file";
         return NO_NODE;
+    }
+    if (writtenPerChannel(lines, open, close, arg))
+    {
+        why = "`" + arg + "' is one of the lines a `[]' writes, one per "
+              "channel; edit that line in the text";
+        return REFUSED;
     }
 
     size_t line = 0;
@@ -1049,11 +1089,27 @@ static NodeEdit::Result bindArg (string &source, const string &node,
     splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
+    bool element = false;
 
-    if (!findNodeBlock(lines, node, open, close))
+    if (!findNodeBlock(lines, node, open, close, &element))
     {
         why = "no `node " + node + "' block in the file";
         return NodeEdit::NO_NODE;
+    }
+
+    /* One element of an array is the block that makes every element:
+       wiring or removing it here would do so to all of them. */
+    if (element)
+    {
+        why = "`" + node + "' is one element of an array; edit the "
+              "array's block in the text";
+        return NodeEdit::REFUSED;
+    }
+    if (writtenPerChannel(lines, open, close, arg))
+    {
+        why = "`" + arg + "' is one of the lines a `[]' writes, one per "
+              "channel; edit that line in the text";
+        return NodeEdit::REFUSED;
     }
 
     size_t line = 0;
@@ -1156,11 +1212,27 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
     splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
+    bool element = false;
 
-    if (!findNodeBlock(lines, node, open, close))
+    if (!findNodeBlock(lines, node, open, close, &element))
     {
         why = "no `node " + node + "' block in the file";
         return NO_NODE;
+    }
+
+    /* One element of an array is the block that makes every element:
+       wiring or removing it here would do so to all of them. */
+    if (element)
+    {
+        why = "`" + node + "' is one element of an array; edit the "
+              "array's block in the text";
+        return REFUSED;
+    }
+    if (writtenPerChannel(lines, open, close, arg))
+    {
+        why = "`" + arg + "' is one of the lines a `[]' writes, one per "
+              "channel; edit that line in the text";
+        return REFUSED;
     }
 
     size_t line = 0;
@@ -1206,6 +1278,22 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
     source = joinLines(lines, endsWithNewline);
 
     return OK;
+}
+
+bool NodeEdit::Text::shared (const string &source, const string &node,
+                             const string &arg)
+{
+    vector<string> lines;
+    bool endsWithNewline = false;
+    size_t open = 0, close = 0;
+    bool element = false;
+
+    splitLines(source, lines, endsWithNewline);
+
+    if (!findNodeBlock(lines, node, open, close, &element))
+        return false;
+
+    return element || writtenPerChannel(lines, open, close, arg);
 }
 
 NodeEdit::Result NodeEdit::Text::find (const string &source,
@@ -1513,11 +1601,21 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
     splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
+    bool element = false;
 
-    if (!findNodeBlock(lines, node, open, close))
+    if (!findNodeBlock(lines, node, open, close, &element))
     {
         why = "no `node " + node + "' block in the file";
         return NO_NODE;
+    }
+
+    /* One element of an array is the block that makes every element:
+       wiring or removing it here would do so to all of them. */
+    if (element)
+    {
+        why = "`" + node + "' is one element of an array; edit the "
+              "array's block in the text";
+        return REFUSED;
     }
 
     /* Anything reading from it has to stop, or the file loads with

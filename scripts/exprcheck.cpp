@@ -603,6 +603,66 @@ int main (int argc, char **argv)
                  (mul && d) ? "mul " + std::to_string((*mul)[0]) + ", d " +
                               std::to_string((*d)[0])
                             : string("the file did not load"));
+
+    /* ---- node arrays ---------------------------------------------------- */
+
+    /* Two elements wired in step, the index as a number, one element named
+       outright, and the io node's line per channel. */
+    {
+        const string text =
+            "name \"arrays\";\n"
+            "node ionode {\n    channels = 2;\n    out[] = gain[]->out;\n};\n"
+            "node osc[2] osc::simple {\n    freq = 220 * ([] + 1);\n};\n"
+            "node gain[2] math::mul {\n    in0 = osc[]->out;\n"
+            "    in1 = 0.5;\n};\n"
+            "node tap math::add {\n    in0 = osc[1]->out;\n};\n"
+            "io ionode;\n";
+        string why;
+
+        if (!writeFile(scratch, text))
+            return 1;
+
+        thSynthTree *tree = synth.parseTree(scratch);
+        thNode *o1 = tree ? tree->findNode("osc[1]") : NULL;
+        thNode *g0 = tree ? tree->findNode("gain[0]") : NULL;
+        thNode *tap = tree ? tree->findNode("tap") : NULL;
+        thNode *io = tree ? tree->findNode("ionode") : NULL;
+        thArg *freq = o1 ? o1->getArg("freq") : NULL;
+        thArg *in0 = g0 ? g0->getArg("in0") : NULL;
+        thArg *t0 = tap ? tap->getArg("in0") : NULL;
+        thArg *out1 = io ? io->getArg("out1") : NULL;
+
+        okOrFail(freq && (*freq)[0] == 440 && in0 &&
+                 in0->nodePtrName() == "osc[0]" && t0 &&
+                 t0->nodePtrName() == "osc[1]" && out1 &&
+                 out1->nodePtrName() == "gain[1]",
+                 "`node osc[2]' is osc[0] and osc[1], `[]' is each one's "
+                 "index, and `out[]' is a line per channel", "");
+        delete tree;
+
+        string edited = text;
+
+        okOrFail(NodeEdit::Text::setValue(edited, "gain[1]", "in1", 0.25,
+                                          why) == NodeEdit::OK &&
+                 edited.find("in1 = 0.25;") != string::npos &&
+                 NodeEdit::Text::shared(edited, "gain[1]", "in1") &&
+                 NodeEdit::Text::shared(edited, "ionode", "out0") &&
+                 !NodeEdit::Text::shared(edited, "tap", "in0") &&
+                 NodeEdit::Text::connect(edited, "gain[0]", "in0", "tap",
+                                         "out", why) == NodeEdit::REFUSED,
+                 "an edit to one element is an edit to the block, and "
+                 "rewiring one is refused", why);
+
+        static const char *const bad[] = {
+            "node osc[0] osc::simple { };\n",
+            "node osc[1.5] osc::simple { };\n",
+            "node osc osc::simple { freq = [] * 2; };\n",
+            "node osc osc::simple { freq = x[]->out; };\n",
+        };
+
+        for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+            okOrFail(refused(synth, wrap("", bad[i])),
+                     string("refused: ") + bad[i], "it loaded");
     }
 
     /* ---- the box's text is the graph behind it -------------------------- */

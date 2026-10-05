@@ -50,6 +50,7 @@ flex_target(ThinkLexer
 
 set(THINK_SOURCES
     thArg.cpp
+    thArrays.cpp
     thExpr.cpp
     thChanEffect.cpp
     thMidiChan.cpp

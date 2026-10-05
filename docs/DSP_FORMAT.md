@@ -62,6 +62,39 @@ sounding, and a node's own arg from the next note. A number in `dB` or
 `cents` cannot be scaled (`2 * 3 dB` is refused), since its fold is not a
 multiplication. The editor and the panels show each value back in its unit.
 
+### Node arrays
+
+A node written once for each channel, or each voice of a unison, is an
+array:
+
+```
+node ionode {
+    channels = 2;
+    out[] = tone[]->out_low;    # out0 and out1
+};
+
+node tone[2] filt::svf {
+    in = ionode->in[];          # in0 for tone[0], in1 for tone[1]
+    cutoff = @tone * ([] + 1);  # a bare [] is the index: 0, then 1
+};
+
+node tap math::add {
+    in0 = tone[1]->out_low;     # one element, by number
+};
+```
+
+`node tone[2]` is two nodes, `tone[0]` and `tone[1]`, each the block with
+every `[]` read as its own index. After `->`, or as the name a line sets, the
+index is a number on the end of the name, so `ionode->in[]` is `in0` and
+`in1`. In the io node, a line with a `[]` in it is written once per channel
+it declares. Anywhere else `[]` has no index and is refused. A size is a whole
+number from 1 to 64.
+
+The elements share their block, so the editor treats them as one: a value
+edited on `tone[1]` is written in the block and changes both, and rewiring or
+removing one element alone is refused. The same holds for a line `[]` writes
+in the io node.
+
 ### Modulation is not a special case
 
 The language draws no distinction between a constant parameter and a signal. A

@@ -87,79 +87,44 @@ node ionode {
     in0 = 0;
     in1 = 0;
 
-    out0 = mixl->out;
-    out1 = mixr->out;
+    out[] = mix[]->out;
 };
 
-node tapel delay::echo {
-    in = ionode->in0;
+# The right side's delay is the left's times `spread'.
+node tape[2] delay::echo {
+    in = ionode->in[];
     size = 8000 ms;
-    delay = @delay;
-    feedback = @feedback;
-    dry = 0;
-};
-
-node taper delay::echo {
-    in = ionode->in1;
-    size = 8000 ms;
-    delay = @delay * @spread;
+    delay = @delay * pow(@spread, []);
     feedback = @feedback;
     dry = 0;
 };
 
 # The capstan. One tap, full wet, moving slowly: two would be a chorus,
 # and a machine has one motor.
-node wowl delay::chorus {
-    in = tapel->out;
+node wow[2] delay::chorus {
+    in = tape[]->out;
     rate = @rate;
     depth = @wow;
     delay = 30;
     taps = 1;
     mix = 1;
-    phase = 0;
+    phase = [] * 0.5;
 };
 
-node wowr delay::chorus {
-    in = taper->out;
-    rate = @rate;
-    depth = @wow;
-    delay = 30;
-    taps = 1;
-    mix = 1;
-    phase = 0.5;
-};
-
-node hotl dist::saturate {
-    in = wowl->out;
+node hot[2] dist::saturate {
+    in = wow[]->out;
     factor = @drive;
 };
 
-node hotr dist::saturate {
-    in = wowr->out;
-    factor = @drive;
-};
-
-node tonel filt::svf {
-    in = hotl->out;
+node tone[2] filt::svf {
+    in = hot[]->out;
     cutoff = @tone;
     res = 0;
 };
 
-node toner filt::svf {
-    in = hotr->out;
-    cutoff = @tone;
-    res = 0;
-};
-
-node mixl mixer::fade {
-    in0 = ionode->in0;
-    in1 = tonel->out_low;
-    fade = @mix;
-};
-
-node mixr mixer::fade {
-    in0 = ionode->in1;
-    in1 = toner->out_low;
+node mix[2] mixer::fade {
+    in0 = ionode->in[];
+    in1 = tone[]->out_low;
     fade = @mix;
 };
 
