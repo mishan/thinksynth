@@ -70,6 +70,8 @@
 #include "libthink/thSoundFile.h"
 #include "GenCatalog.h"
 
+#include "../plugins/composer/english.h"
+
 static int failures = 0;
 
 static void
@@ -7367,6 +7369,7 @@ struct Heard
     int    channel, note, vel;
     double dur, level;
     double aux[4];             /* zeros where the tape printed none */
+    std::string say;           /* "K.AH.M", or empty */
 };
 
 static std::vector<Heard>
@@ -7388,6 +7391,11 @@ notesOf (const std::string &tape)
         {
             if (!(f >> h.aux[0] >> h.aux[1] >> h.aux[2] >> h.aux[3]))
                 h.aux[0] = h.aux[1] = h.aux[2] = h.aux[3] = 0;
+
+            const size_t said = line.find(" say=");
+
+            if (said != std::string::npos)
+                h.say = line.substr(said + 5);
 
             out.push_back(h);
         }
@@ -7692,6 +7700,101 @@ checkPhrasing (const std::map<std::string, thcPlugin *> &plugins,
                      "and decay by half each time");
         }
     }
+}
+
+/* ---- words ------------------------------------------------------------- */
+
+/* xform::say puts a syllable on each note, in order and round again; a
+ * chord is one syllable; brackets are ARPAbet as written, `~' holds the
+ * last vowel and `_' is a pause; and gen::arp carries what each held note
+ * says onto the steps it takes from it. And the rules spell the words
+ * they are for. */
+static void
+checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
+{
+    if (plugins.find("say") == plugins.end())
+    {
+        fail("module 'say' is missing; build the plugins first");
+        return;
+    }
+
+    auto says = [](const std::vector<Heard> &h) {
+        std::string out;
+
+        for (size_t i = 0; i < h.size(); i++)
+            out += (i ? " " : "") + (h[i].say.empty() ? "-" : h[i].say);
+
+        return out;
+    };
+    auto piece = [](const std::string &words, const std::string &more) {
+        return "chain c {\n"
+               "  stage src gen::euclid { steps = 1; fills = 1;"
+               "    notes = \"C4\"; period = 0.5 s; hold = 0.2 s; vel = 100;"
+               " };\n" + more +
+               "  stage w xform::say { words = \"" + words + "\"; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n";
+    };
+
+    {
+        const std::string got = says(playBody(plugins, synth, "say",
+            piece("computer world", ""), 2.9));
+
+        if (got != "K.AH.M P.Y.UW T.ER W.ER.L.D K.AH.M P.Y.UW")
+            fail("say: computer world over six notes is a syllable each, "
+                 "round again; got " + got);
+    }
+
+    {
+        const std::vector<Heard> h = playBody(plugins, synth, "say chord",
+            piece("one two",
+                  "  stage h xform::harmonize { voices = 3; step = 2;"
+                  " spread = 0 s; };\n"), 0.9);
+
+        if (says(h) != "W.AH.N W.AH.N W.AH.N T.UW T.UW T.UW")
+            fail("say: a three-note chord is one syllable; got " + says(h));
+    }
+
+    {
+        const std::string got = says(playBody(plugins, synth, "say marks",
+            piece("[R OW - B AA T] [k ae1 t] la ~ _", ""), 2.9));
+
+        if (got != "R.OW B.AA.T K.AE.T L.AH AH _")
+            fail("say: brackets, a held vowel and a pause; got " + got);
+    }
+
+    {
+        const std::string got = says(playBody(plugins, synth, "say arp",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 4 s; hold = 3.9 s; vel = 100; };\n"
+            "  stage h xform::harmonize { voices = 2; step = 2;"
+            " spread = 0 s; };\n"
+            "  stage w xform::say { words = \"ah\"; };\n"
+            "  stage a gen::arp { pattern = 0; octaves = 1; period = 0.5 s;"
+            " hold = 0.4 s; vel = 90; pass = 0; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 1.4));
+
+        if (got.empty() || got.find('-') != std::string::npos)
+            fail("say: gen::arp's steps say what the held notes said; got " +
+                 got);
+    }
+
+    /* Words the exceptions do not list, so the rules alone. */
+    static const char *const spelled[][2] = {
+        { "stop", "S T AA P" },     { "she", "SH IY" },
+        { "sells", "S EH L Z" },    { "night", "N AY T" },
+        { "phone", "F OW N" },      { "making", "M EY K IH NG" },
+        { "ship", "SH IH P" },      { "thing", "TH IH NG" },
+        { "you're", "Y UW R" },     { "happy", "HH AE P IY" },
+        { "little", "L IH T AH L" },
+    };
+
+    for (const auto &w : spelled)
+        if (englishToPhonemes(w[0]) != w[1])
+            fail(std::string("say: the rules spell ") + w[0] + " as " +
+                 englishToPhonemes(w[0]) + ", not " + w[1]);
 }
 
 /* ---- the harmony plugins ------------------------------------------------ */
@@ -12853,6 +12956,7 @@ main (int argc, char *argv[])
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
+    checkSay(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
     checkVoiceLeading(plugins, &synth);
     checkHeldNotes(plugins, &synth);
