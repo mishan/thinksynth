@@ -21,13 +21,12 @@
 
 /* A random stream a voice can keep in its own state arg.
  *
- * osc::noise draws from one generator per synth (osc/noiseslot.h), which is
- * right for noise: every voice's hiss is the same hiss and nobody can tell.
- * A grain cloud or a drift is not like that. What it draws decides where a
- * voice goes, and the promise is that a voice started the same way goes the
- * same way -- so the generator has to belong to the voice, start where the
- * voice says, and carry across windows in the state arg the rest of the
- * voice's memory lives in.
+ * What a grain cloud or a drift draws decides where a voice goes, and the
+ * promise is that a voice started the same way goes the same way -- so the
+ * generator has to belong to the voice, start where the voice says, and carry
+ * across windows in the state arg the rest of the voice's memory lives in.
+ * Noise needs the same, for another reason: two nodes drawing turns from one
+ * stream get different numbers at a different window length.
  *
  * A state arg is floats, and a float holds an integer exactly only to 2^24.
  * So the generator is drand48's -- x' = (0x5DEECE66D x + 0xB) mod 2^48, the
@@ -41,17 +40,21 @@
 
 /* The two floats at `s' become the stream for `seed'. Any float is a seed;
    its bits are what is used, so 1 and 1.5 are different streams. */
-static inline void thDiceSeed (float *s, float seed)
+static inline void thDiceSeedBits (float *s, uint32_t bits)
 {
-    uint32_t bits;
-
-    memcpy(&bits, &seed, sizeof(bits));
-
     /* drand48's seeding: the seed's 32 bits above a fixed 0x330E. */
     const uint64_t x = ((uint64_t)bits << 16) | 0x330Eu;
 
     s[0] = (float)(uint32_t)(x >> 24);
     s[1] = (float)(uint32_t)(x & 0xFFFFFFu);
+}
+
+static inline void thDiceSeed (float *s, float seed)
+{
+    uint32_t bits;
+
+    memcpy(&bits, &seed, sizeof(bits));
+    thDiceSeedBits(s, bits);
 }
 
 /* The next draw, uniform on [0, 1). */

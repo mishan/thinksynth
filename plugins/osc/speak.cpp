@@ -198,7 +198,7 @@ enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_AV, P_AH, P_AF, P_A2, P_A3, P_A4,
 struct Segment
 {
     float target[P_COUNT];
-    float dur;              /* samples */
+    float dur;              /* ms */
     bool  hold;             /* the nucleus: held while the key is down */
 };
 
@@ -246,7 +246,7 @@ static void silence (float *t)
 }
 
 /* What `codes' says, as segments. The first vowel is the one held. */
-static int segments (const int *codes, int n, float ms, Segment *out)
+static int segments (const int *codes, int n, Segment *out)
 {
     static const int sing[] = { 1 };     /* AA, for a note that says nothing */
     int count = 0;
@@ -274,20 +274,20 @@ static int segments (const int *codes, int n, float ms, Segment *out)
             case SONORANT:
             case FRICATIVE:
                 fromRow(p, s->target);
-                s->dur = p.dur * ms;
+                s->dur = p.dur;
                 s->hold = hold;
                 count++;
                 break;
 
             case DIPHTHONG:
                 fromRow(p, s->target);
-                s->dur = p.dur * 0.55f * ms;
+                s->dur = p.dur * 0.55f;
                 s->hold = hold;
                 s[1] = s[0];
                 s[1].target[P_F1] = p.g1;
                 s[1].target[P_F2] = p.g2;
                 s[1].target[P_F3] = p.g3;
-                s[1].dur = p.dur * 0.45f * ms;
+                s[1].dur = p.dur * 0.45f;
                 s[1].hold = false;
                 count += 2;
                 break;
@@ -296,7 +296,7 @@ static int segments (const int *codes, int n, float ms, Segment *out)
                 silence(s->target);
                 nextFormants(codes, n, i + 1, s->target);
                 s->target[P_AH] = 0.6f;
-                s->dur = p.dur * ms;
+                s->dur = p.dur;
                 s->hold = false;
                 count++;
                 break;
@@ -311,7 +311,7 @@ static int segments (const int *codes, int n, float ms, Segment *out)
                 s->target[P_F3] = p.f3;
                 s->target[P_AV] = p.voiced ? p.av : 0;
                 s->target[P_F1] = p.voiced ? 200 : p.f1;
-                s->dur = p.dur * ms;
+                s->dur = p.dur;
                 s->hold = false;
                 count++;
 
@@ -322,13 +322,13 @@ static int segments (const int *codes, int n, float ms, Segment *out)
                 {
                     fromRow(table[p.fric - 1], b->target);
                     b->target[P_AV] = p.voiced ? p.av : 0;
-                    b->dur = table[p.fric - 1].dur * 0.8f * ms;
+                    b->dur = table[p.fric - 1].dur * 0.8f;
                 }
                 else
                 {
                     fromRow(p, b->target);
                     b->target[P_AV] = p.voiced ? 0.3f : 0;
-                    b->dur = (p.place == VELAR ? 15 : 10) * ms;
+                    b->dur = (p.place == VELAR ? 15 : 10);
                 }
                 b->hold = false;
                 count++;
@@ -341,7 +341,7 @@ static int segments (const int *codes, int n, float ms, Segment *out)
                     silence(a->target);
                     nextFormants(codes, n, i + 1, a->target);
                     a->target[P_AH] = 0.4f;
-                    a->dur = 50 * ms;
+                    a->dur = 50;
                     a->hold = false;
                     count++;
                 }
@@ -350,7 +350,7 @@ static int segments (const int *codes, int n, float ms, Segment *out)
 
             case PAUSE:
                 silence(s->target);
-                s->dur = p.dur * ms;
+                s->dur = p.dur;
                 s->hold = false;
                 count++;
                 break;
@@ -563,14 +563,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const float gainK = 1 - expf(-1000 / (GAIN_GLIDE_MS * rate));
     const float hushK = 1 - expf(-2 * (float)M_PI * 9000 / rate);
 
-    /* Once a window: `rate' moves the words' pace a window late at worst. */
+    /* Laid out in milliseconds and timed against `rate' sample by sample,
+       so the pace moves on the sample it is asked to, whatever the
+       window. */
     Segment segs[MAX_SEGMENTS];
-    const int count = segments(codes, n,
-                               rate / 1000 / thClampArg((*in_rate)[0],
-                                                        0.25f, 4), segs);
+    const int count = segments(codes, n, segs);
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
+        const float perMs = rate / 1000 / thClampArg((*in_rate)[i], 0.25f, 4);
+
         const bool held = (*in_trigger)[i] > 0;
         int seg = (int)st[S_SEGMENT];
         float target[P_COUNT];
@@ -581,7 +583,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const Segment &s = segs[seg];
 
-            if (st[S_INTO] >= s.dur && !(s.hold && held))
+            if (st[S_INTO] >= s.dur * perMs && !(s.hold && held))
             {
                 seg++;
                 st[S_SEGMENT] = (float)seg;

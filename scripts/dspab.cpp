@@ -30,7 +30,7 @@
  * plugin directory, which turns this into the other question a plugin can
  * be asked -- does it sound the same cut into windows of 256 as of 1024?
  *
- *   scripts/dspab -a plugins/ -b plugins/ -B 256 $(find dsp -name '*.dsp')
+ *   scripts/dspab -p plugins/ -B 256 $(find dsp -name '*.dsp')
  *
  * The browser build runs at 256 (docs/JAM.md). -w counts windows of the
  * default length, so both sides render the same number of frames whatever
@@ -98,7 +98,8 @@ int main (int argc, char **argv)
 
     for (int i = 1; i < argc; i++)
     {
-        if (!strcmp(argv[i], "-a")) { if (++i >= argc) return 2; pathA = argv[i]; }
+        if (!strcmp(argv[i], "-p")) { if (++i >= argc) return 2; pathA = pathB = argv[i]; }
+        else if (!strcmp(argv[i], "-a")) { if (++i >= argc) return 2; pathA = argv[i]; }
         else if (!strcmp(argv[i], "-b")) { if (++i >= argc) return 2; pathB = argv[i]; }
         else if (!strcmp(argv[i], "-A")) { if (++i >= argc) return 2; lenA = atoi(argv[i]); }
         else if (!strcmp(argv[i], "-B")) { if (++i >= argc) return 2; lenB = atoi(argv[i]); }
@@ -110,8 +111,9 @@ int main (int argc, char **argv)
     if (pathA.empty() || pathB.empty() || firstFile < 0 ||
         lenA <= 0 || lenB <= 0 || windows <= 0)
     {
-        printf("usage: %s -a PLUGINS_A -b PLUGINS_B [-A WINDOW] [-B WINDOW] "
-               "[-w N] [-q] file.dsp ...\n", argv[0]);
+        printf("usage: %s {-p PLUGINS | -a PLUGINS_A -b PLUGINS_B} "
+               "[-A WINDOW] [-B WINDOW] [-w N] [-q] file.dsp ...\n",
+               argv[0]);
         return 2;
     }
 

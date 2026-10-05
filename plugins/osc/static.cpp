@@ -23,16 +23,18 @@
 #include "think.h"
 
 #include "noiseslot.h"
+#include "plugins/dice.h"
 
 static const char desc[] = "Produces Random Signal";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-/* The noise source: one generator per synth, claimed here and released in
+/* The seed source: one generator per synth, claimed here and released in
  * module_cleanup. plugins/osc/noiseslot.h is the whole argument -- the same
- * one osc::noise draws on, which is why it is a header and not a copy.
+ * one osc::noise seeds from, which is why it is a header and not a copy.
  *
- * Nothing seeds any of it, which is why thcNodeHost still refuses this
- * plugin in a chain. */
+ * Each node draws from its own stream, seeded from that one (see
+ * osc::noise). Nothing seeds the synth's, which is why thcNodeHost still
+ * refuses this plugin in a chain. */
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -85,33 +87,22 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     inout_last = mod->getArg(node, args[INOUT_LAST]);
     position = (*inout_last)[0];
     last = (*inout_last)[1];
-    /* `last' carries two values across windows -- the position counter and the
-       held sample -- and both are written back below. This allocated room for
-       one, so out_last[1] wrote off the end of the buffer every window. */
-    out_last = inout_last->allocate(2);
+
+    float dice[2] = { (*inout_last)[2], (*inout_last)[3] };
+
+    if ((*inout_last)[4] == 0)
+        thDiceSeedBits(dice, thNoiseSeed(thNoiseSlotFor(node->plugin())));
+
+    /* `last' carries the position counter, the held sample and the node's
+       stream across windows, all written back below. */
+    out_last = inout_last->allocate(5);
     out = out_arg->allocate(windowlen);
 
     in_sample = mod->getArg(node, args[IN_SAMPLE]);
 
-    /* This synth's generator, held in a local for the window and written
-       back once at the end. */
-    thNoiseSlot *slot = thNoiseSlotFor(node->plugin());
-    unsigned s = (slot != NULL) ? slot->state : 0;
-
     for(i=0; i < (int)windowlen; i++) {
         if(++position > (*in_sample)[i]) {
-            unsigned r;
-
-            if (slot != NULL) {
-                s = thNoiseStep(s);
-                r = thNoiseBits(s);
-            } else {
-                r = thNoiseSharedBits();
-            }
-
-            /* 2^31, not RAND_MAX+1: r is 31 bits everywhere, and RAND_MAX
-               is 32767 on Windows. */
-            out[i] = TH_RANGE*(r/2147483648.0)+TH_MIN;
+            out[i] = TH_RANGE * thDiceNext(dice) + TH_MIN;
             position = 0;
             last = out[i];
         } else {
@@ -119,11 +110,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
     }
 
-    if (slot != NULL)
-        slot->state = s;
-
     out_last[0] = position;
     out_last[1] = last;
+    out_last[2] = dice[0];
+    out_last[3] = dice[1];
+    out_last[4] = 1;
 /*    node->SetArg("out", out, windowlen);
     node->SetArg("last", last, 2);
 */

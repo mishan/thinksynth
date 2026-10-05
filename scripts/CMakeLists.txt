@@ -528,6 +528,11 @@ think_harness(hostcheck)
 # so the reference covers exactly what the editor offers.
 think_harness(dspnodes  NODEMODEL)
 
+# Every node plugin at windows of 1 and 500, driven from what it declares:
+# the window-size promise, kept for plugins nobody wrote a statecheck graph
+# for.
+think_harness(windowlencheck NODEMODEL)
+
 # `cmake --build <build> --target kit' fills dsp/samples/ with the wavs
 # osc::sample plays, by rendering the tree's own drum graphs through
 # genwav. Not a test and not part of `all': it writes into the *source*
@@ -585,6 +590,19 @@ think_harness(dspedit   NODEMODEL)
 # ---------------------------------------------------------------------------
 
 set(_runner "${PROJECT_SOURCE_DIR}/cmake/RunHarness.cmake")
+
+# The corpus one sample a window against the default: a graph sounds the
+# same at any buffer size, including what no single plugin can see -- two
+# nodes sharing a stream, a voice that ends partway through a window.
+add_test(NAME dspab.windows
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspab>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 "-DEXTRA_ARGS=-q -B 1"
+                 -P "${_runner}")
 
 add_test(NAME dspcheck.dsp
          COMMAND "${CMAKE_COMMAND}"
@@ -840,6 +858,8 @@ add_test(NAME exprcheck
 # Needs the plugins and nothing else: its graphs are built in C++.
 add_test(NAME statecheck
          COMMAND statecheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME windowlencheck
+         COMMAND windowlencheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
 # Needs the plugins and nothing else: it writes its own .dsp files.
 add_test(NAME voicecheck
