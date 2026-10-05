@@ -1,0 +1,174 @@
+# kodachrome.gen -- a summer remembered off a tape that has been played
+# too often.
+#
+# In the way of Boards of Canada: everything is a little out of tune and
+# a little too slow, and the whole mix is on a worn cassette. The master
+# effect is fx/cassette.dsp, so the wow that bends the pad bends the
+# drums and the voice with it -- one motor under all of it -- and its hiss
+# and dropouts are the room the piece is in.
+#
+# The pad is analog.dsp with its drift turned well up, so every voice of
+# every chord wanders its own way, four-note chords in D major from
+# xform::harmonize, which makes sevenths and ninths of plain roots. The
+# lead is the same graph thinner, through fx/echo.dsp at a dotted eighth.
+#
+# The drums are the kit's own graphs, swung a little behind with
+# xform::swing and put through fx/crush.dsp at 12 bits and 26 kHz: an
+# old sampler's grit, under the tape's.
+#
+# The voice is speak.dsp with its formants raised, a child's, saying one
+# line slowly through fx/reverse.dsp, so each word arrives with its own
+# echo running backwards into it, as if half-remembered.
+
+name "Kodachrome";
+author "Misha Nasledov";
+description "Detuned pads, swung crushed drums and a child's voice, all on a worn cassette.";
+category "Pieces";
+
+tempo 86;
+seed 1996;
+meter 4;
+
+section intro   8 bars { lead = 0;  bass = 0;  kick = 0;  snare = 0;  hats = 0; };
+section arrive 16 bars { lead = 0; };
+section theme  24 bars { voice = 0; };
+section haze    8 bars { kick = 0;  snare = 0;  hats = 0;  bass = 0; };
+section return 16 bars { voice = 0; };
+section fade    8 bars { kick = 0;  snare = 0;  hats = 0;  lead = 0; };
+section end;
+
+scale dmaj  "D3 E3 F#3 G3 A3 B3 C#4";
+scale roots "D3 B2 G2 A2";
+scale low   "D2 B1 G1 A1";
+scale tune  "F#4 A4 B4 D5 E5";
+
+effect "fx/cassette.dsp" {
+    age      = 0.7;
+    tone     = 7000;
+    drive    = 1.8;
+};
+
+instrument pad {
+    dsp  "analog.dsp";
+    amp  = 50;
+    wave1 = 0;  wave2 = 2;  semi2 = 0;  mix2 = 0.4;
+    sub = 0;  unison = 5;  spread = 0.6;  drift = 14;
+    cutoff = 1100;  res = 0.15;  envamt = 300;  keytrack = 0.3;
+    a = 1800 ms;  d = 1500 ms;  s = 0.9;  r = 2500 ms;
+    effect "fx/ensemble.dsp" { mix = 0.4; };
+};
+
+instrument lead {
+    dsp  "analog.dsp";
+    amp  = 70;
+    wave1 = 2;  wave2 = 0;  semi2 = 12;  mix2 = 0.15;
+    sub = 0;  unison = 2;  spread = 0.3;  drift = 10;
+    cutoff = 1800;  res = 0.2;  envamt = 600;  keytrack = 0.5;
+    a = 40 ms;  d = 600 ms;  s = 0.6;  r = 700 ms;
+    effect "fx/echo.dsp" { beats = 0.75; feedback = 0.45; mix = 0.35; };
+};
+
+instrument voice {
+    dsp  "speak.dsp";
+    amp  = 50;
+    formants = 1.35;
+    pace     = 0.7;
+    robot    = 0.1;
+    breath   = 0.35;
+    vibrato  = 6;
+    effect "fx/reverse.dsp" { size = 700 ms; room = 0.5; mix = 0.45; };
+};
+
+instrument bass {
+    dsp  "sub.dsp";
+    amp  = 14;
+    glide    = 60 ms;
+    harmonic = 0.3;
+};
+
+instrument kick {
+    dsp  "kit_kick.dsp";
+    amp  = 30;
+    decay = 300 ms;
+    effect "fx/crush.dsp" { bits = 12; rate = 26040; };
+};
+
+instrument snare {
+    dsp  "kit_snare.dsp";
+    amp  = 45;
+    effect "fx/crush.dsp" { bits = 12; rate = 26040; };
+};
+
+instrument hats {
+    dsp  "kit_hat.dsp";
+    amp  = 40;
+    effect "fx/crush.dsp" { bits = 10; rate = 22050; };
+};
+
+chain pad {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F---";  depth = 0;  notes = roots;
+        step = 8 beats;  hold = 7.8 beats;  vel = 80;
+    };
+    stage chord xform::harmonize {
+        scale = dmaj;  voices = 4;  step = 2;  spread = 0.05 s;
+        taper = 0.85;  root = 1;  below = 0;  lead = 1;  span = 12;
+    };
+    sink { instrument = pad; };
+};
+
+chain bass {
+    stage src gen::lsystem {
+        axiom = "F_rF F_rr F+F_ rF--";  depth = 0;  notes = low;
+        step = 2 beats;  hold = 1.8 beats;  vel = 90;
+    };
+    sink { instrument = bass; };
+};
+
+chain lead {
+    stage src gen::lsystem {
+        axiom = "rrF_+F_-F___rr +F_+F_-F--F___ rrrr rrrr";
+        depth = 0;  notes = tune;
+        step = 1 beats;  hold = 0.9 beats;  vel = 85;
+    };
+    sink { instrument = lead; };
+};
+
+chain voice {
+    stage src gen::lsystem {
+        axiom = "F_F_F_F_ F_F_F_F___ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr";
+        depth = 0;  notes = "A3";
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 90;
+    };
+    stage words xform::say {
+        words = "you were small and the summer was long";
+    };
+    sink { instrument = voice; };
+};
+
+chain kick {
+    stage src gen::lsystem {
+        axiom = "F__F __rF __F_ rrrr";  depth = 0;  notes = "C2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 105;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = 0.3; };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::lsystem {
+        axiom = "rrrr F___ rrrr F__r";  depth = 0;  notes = "D2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 95;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = 0.3; };
+    sink { instrument = snare; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 9;  rotate = 2;  notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 50;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = 0.3; };
+    sink { instrument = hats; };
+};
