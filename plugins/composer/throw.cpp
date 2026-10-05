@@ -36,6 +36,13 @@
  * `pattern' is read a character a note and goes round: `.' leaves the
  * note dry, `x' throws it. Notes at one instant are a chord and count as
  * one. Nothing random; a rewind is a fresh stage.
+ *
+ * A DRY NOTE PUTS THE KNOB DOWN, at its own instant, unless a throw is
+ * still open then. So the knob starts at `down' on the first note
+ * whatever the instrument's default, and a `down' a section mute dropped
+ * is put back by the next note heard. A thrown note while a throw is
+ * still open keeps it open: the earlier one's `down' would land inside
+ * the later one's, so the knob is put back up there.
  */
 
 #include <cstring>
@@ -77,6 +84,7 @@ struct State {
     unsigned long    count;     /* notes, chords counted once */
     double           lastAt;
     bool             any;
+    double           openUntil; /* when the last throw's `down' lands */
 };
 
 extern "C" THINK_PLUGIN_API void *
@@ -88,6 +96,7 @@ composer_create (const thcParams *params)
     st->count = 0;
     st->lastAt = 0;
     st->any = false;
+    st->openUntil = -1e300;
 
     return st;
 }
@@ -121,9 +130,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     const char *pattern = p->get_string(p->ctx, paramIndex[P_PATTERN]);
     const size_t len = pattern ? strlen(pattern) : 0;
     const unsigned long n = st->count++;
-
-    if (len == 0 || pattern[n % len] != 'x')
-        return;
+    const float up = (float)p->get(p->ctx, paramIndex[P_UP]);
+    const float down = (float)p->get(p->ctx, paramIndex[P_DOWN]);
 
     thcEvent knob = {};
 
@@ -131,11 +139,29 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     knob.channel = ev->channel;
     knob.u.chanarg.name = NULL;            /* the sink names the target */
 
+    if (len == 0 || pattern[n % len] != 'x')
+    {
+        if (ev->at >= st->openUntil)
+        {
+            knob.at = ev->at;
+            knob.u.chanarg.value = down;
+            out->emit(out->ctx, &knob);
+        }
+        return;
+    }
+
     knob.at = ev->at - p->get(p->ctx, paramIndex[P_LEAD]);
-    knob.u.chanarg.value = (float)p->get(p->ctx, paramIndex[P_UP]);
+    knob.u.chanarg.value = up;
     out->emit(out->ctx, &knob);
 
-    knob.at = ev->at + p->get(p->ctx, paramIndex[P_HOLD]);
-    knob.u.chanarg.value = (float)p->get(p->ctx, paramIndex[P_DOWN]);
+    if (knob.at < st->openUntil)
+    {
+        knob.at = st->openUntil;
+        out->emit(out->ctx, &knob);
+    }
+
+    st->openUntil = ev->at + p->get(p->ctx, paramIndex[P_HOLD]);
+    knob.at = st->openUntil;
+    knob.u.chanarg.value = down;
     out->emit(out->ctx, &knob);
 }

@@ -7807,8 +7807,11 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
 
 /* xform::throw: every note passes, and the ones the pattern marks bring
  * the knob up `lead' before them and down `hold' after, on a chanarg sink
- * beside the note sink. A note every half second under "..x." is a throw
- * at 1 s and 3 s. */
+ * beside the note sink, while the dry ones put it down at their own
+ * instant. A note every half second under "..x." is a throw at 1 s and
+ * 3 s. And thrown notes closer together than `hold' keep it up: wherever
+ * one's `down' lands inside the next one's throw, the knob goes back up
+ * at the same instant, so it never rests at `down' between them. */
 static void
 checkThrow (const std::map<std::string, thcPlugin *> &plugins,
             thSynth *synth)
@@ -7851,10 +7854,50 @@ checkThrow (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
-    if (notes != 8 || knob != "0.99=1 1.20=0 2.99=1 3.20=0")
-        fail("throw: eight notes, and the knob up before the third of each "
-             "four and down after it; got " + std::to_string(notes) +
-             " notes and " + knob);
+    if (notes != 8 ||
+        knob != "0.00=0 0.50=0 0.99=1 1.20=0 1.50=0 2.00=0 2.50=0 2.99=1 "
+                "3.20=0 3.50=0")
+        fail("throw: eight notes, the knob down on the dry ones and up "
+             "before the third of each four and down after it; got " +
+             std::to_string(notes) + " notes and " + knob);
+
+    /* Sixteenths at 0.125 s under "x" with a hold of 0.2 s. */
+    const std::string close = tapeBody(plugins, synth, "throw close",
+        "chain c {\n"
+        "  stage src gen::euclid { steps = 1; fills = 1;"
+        "    notes = \"C4\"; period = 0.125 s; hold = 0.05 s; vel = 100; };\n"
+        "  stage t xform::throw { pattern = \"x\"; hold = 0.2 s;"
+        " lead = 0.01 s; };\n"
+        "  sink { channel = 1; };\n"
+        "  sink { channel = 1; chanarg = \"throwtest\"; };\n"
+        "};\n", 0.55);
+    std::istringstream tape2(close);
+    std::vector<std::pair<double, double>> last;
+
+    while (std::getline(tape2, line))
+    {
+        std::istringstream f(line);
+        std::string tag, name;
+        double at, value;
+        int chan;
+
+        if ((f >> tag >> at >> chan >> name >> value) && tag == "C")
+        {
+            if (!last.empty() && fabs(last.back().first - at) < 1e-9)
+                last.back().second = value;
+            else
+                last.push_back(std::make_pair(at, value));
+        }
+    }
+
+    bool held = last.size() >= 3;
+
+    for (size_t i = 0; held && i < last.size(); i++)
+        held = last[i].second == 1;
+
+    if (!held)
+        fail("throw: throws closer than `hold' keep the knob up between "
+             "them");
 }
 
 /* ---- the harmony plugins ------------------------------------------------ */
