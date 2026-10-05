@@ -46,6 +46,10 @@ category "Effects";
     @spread.max = 4;
     @spread.label = "Right Delay x";
 
+    # The ring. Not a knob: the taps are clamped to it, because a synced
+    # delay at a slow tempo can ask for more and would wrap.
+    @ring = 8000 ms;
+
     @feedback = 0.45;
     @feedback.widget = 1;
     @feedback.min = 0;
@@ -91,16 +95,16 @@ node time math::add {
 # math::mul node.
 node echol delay::echo {
     in = ionode->in0;
-    size = 8000 ms;
-    delay = time->out;
+    size = @ring;
+    delay = min(time->out, @ring - 1);
     feedback = @feedback;
     dry = 0;
 };
 
 node echor delay::echo {
     in = ionode->in1;
-    size = 8000 ms;
-    delay = time->out * @spread;
+    size = @ring;
+    delay = min(time->out * @spread, @ring - 1);
     feedback = @feedback;
     dry = 0;
 };

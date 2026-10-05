@@ -164,7 +164,8 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 
 void thSynth::setTempo (float bpm)
 {
-    if (bpm > 0 && thIsFinite(bpm))
+    /* A floor, or a beat in samples overflows to inf. */
+    if (bpm >= 1 && thIsFinite(bpm))
         __atomic_store(&tempo_, &bpm, __ATOMIC_RELAXED);
 }
 

@@ -729,10 +729,9 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
            edChain.name.c_str(), moved ? "" : " (unheard)", during);
 }
 
-/* 5 and 6: knobs, and a text that does not load. */
 /* The synth carries the tempo misc::tempo reads: the piece's on start,
    an edit's new `tempo' line once adopted, and 120 again for a piece
-   with no line started on a synth an earlier piece left at its own. */
+   with no line loaded into the scheduler that played one. */
 static void
 checkTempo (const std::map<std::string, thcPlugin *> &plugins,
             const std::string &pluginDir, const std::filesystem::path &dir,
@@ -768,21 +767,19 @@ checkTempo (const std::map<std::string, thcPlugin *> &plugins,
         fail(piece, "an edit to tempo 137 left the synth at " +
              std::to_string(p.synth.tempo()));
 
-    thcScheduler other(&p.synth);
-    thcGenLoader loader(plugins);
-
-    if (!loader.load(untempoed.string(), &other))
+    p.sched.stop();
+    if (!p.load(slurp(untempoed), errors))
     {
         fail(untempoed.filename().string(), "does not load");
         return;
     }
-    other.start();
     if (p.synth.tempo() != 120)
         fail(untempoed.filename().string(),
-             "with no tempo line, started on a synth at 137, left it at " +
-             std::to_string(p.synth.tempo()));
+             "with no tempo line, loaded after a piece at 137, left the "
+             "synth at " + std::to_string(p.synth.tempo()));
 }
 
+/* 5 and 6: knobs, and a text that does not load. */
 static void
 checkKnobsAndRefusal (const std::map<std::string, thcPlugin *> &plugins,
                       const std::string &pluginDir,

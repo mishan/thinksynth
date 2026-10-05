@@ -274,7 +274,7 @@ public:
     /* The piece's tempo in beats per minute, for misc::tempo: what a graph
      * times a synced delay or LFO by. Written by the scheduler and read by
      * the audio thread, relaxed for the reason masterGain is. 120 until a
-     * scheduler sets one; anything not above 0 is ignored. */
+     * scheduler sets one; anything under 1 is ignored. */
     void setTempo (float bpm);
 
     float tempo (void) const
