@@ -26,6 +26,10 @@
 # the resonance on the second, the cutoff opened by its own envelope and
 # by velocity, and tracking the keyboard by `Key Track'.
 #
+# `Sync' restarts the second oscillator on every cycle of the center one,
+# so its pitch becomes a formant over the center's, and `Sync Sweep'
+# moves it by the filter envelope: the sync lead.
+#
 # `Bend' is the pitch wheel, in semitones and slewed over 40 ms: a piece
 # rides it with a chanarg sink (`chanarg = "bend"').
 
@@ -73,6 +77,22 @@ category "Leads and stabs";
     @pw.max = 0.95;
     @pw.label = "Pulse Width";
     @pw.group = "Oscillators";
+
+    @sync = 0;
+    @sync.widget = 1;
+    @sync.min = 0;
+    @sync.max = 1;
+    @sync.step = 1;
+    @sync.values = "Off,On";
+    @sync.label = "Sync";
+    @sync.group = "Oscillators";
+
+    @sweep = 0;
+    @sweep.widget = 1;
+    @sweep.min = 0;
+    @sweep.max = 36;
+    @sweep.label = "Sync Sweep (semitones)";
+    @sweep.group = "Oscillators";
 
     @sub = 0.2;
     @sub.widget = 1;
@@ -241,10 +261,13 @@ node oscr osc::blep {
     phase = 0.67;
 };
 node osc2 osc::blep {
-    freq = freq->out * exp2((@semi2 * 100 + drift2->out) / 1200);
+    freq = freq->out *
+           exp2((@semi2 * 100 + drift2->out + fenv->out * @sweep * 100) /
+                1200);
     waveform = @wave2;
     pw = @pw;
     phase = 0.5;
+    reset = oscc->edge * @sync;
 };
 node subosc osc::blep {
     freq = freq->out * 0.5 * exp2(drifts->out / 1200);

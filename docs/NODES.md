@@ -954,8 +954,10 @@ Band-limited oscillator (PolyBLEP saw, pulse, triangle)
 | `waveform` | in | Which wave |  |  |  | 0 = Sawtooth, 1 = Pulse, 2 = Triangle |
 | `pw` | in | Pulse width: how much of the cycle is high | 0.5 | 0 to 1 |  |  |
 | `phase` | in | Where the cycle starts, read on the voice's first sample |  | 0 to 1 |  |  |
+| `reset` | in | Hard sync: above 0, the cycle restarts that far past this sample. Wire another blep's `edge' here |  | 0 to 1 | samples |  |
 | `out` | out | The wave |  | -1 to 1 | full scale |  |
 | `sync` | out | 1 on the sample the cycle wraps, 0 otherwise |  | 0 to 1 |  |  |
+| `edge` | out | On the sample the cycle wraps, how far past it the wrap falls, 0 to 1; 0 elsewhere. A slave's `reset' |  | 0 to 1 | samples |  |
 | `state` | state |  |  |  |  |  |
 
 ### osc::buzzer
