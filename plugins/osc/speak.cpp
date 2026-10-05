@@ -138,8 +138,8 @@ static const Phoneme table[] = {
                        a2 a3 a4 a5 a6 ab  g1 g2 g3  voiced place fric */
     { "B",  STOP,       60, 200, 1100, 2150, 60, 110, 130, 0.25f, 0.4f,
       0, 0, 0, 0, 0, 0.6f, 0, 0, 0, 1, LABIAL, 0 },
-    { "CH", AFFRICATE, 140, 350, 1800, 2820, 200, 90, 300, 0, 0.8f,
-      0, 1, 0.6f, 0.2f, 0, 0, 0, 0, 0, 0, ALVEOLAR, 32 },
+    { "CH", AFFRICATE, 140, 350, 1800, 2820, 200, 90, 300, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ALVEOLAR, 32 },
     { "D",  STOP,       50, 200, 1600, 2600, 60, 100, 170, 0.25f, 0.4f,
       0, 0, 0, 0.5f, 0.7f, 0, 0, 0, 0, 1, ALVEOLAR, 0 },
     { "DH", FRICATIVE,  50, 270, 1290, 2540, 60, 80, 170, 0.5f, 0.3f,
@@ -149,8 +149,8 @@ static const Phoneme table[] = {
     { "G",  STOP,       50, 200, 1990, 2850, 60, 150, 280, 0.25f, 0.5f,
       0, 0.8f, 0.6f, 0, 0, 0, 0, 0, 0, 1, VELAR, 0 },
     { "HH", ASPIRATE,   60, 0, 0, 0, 0, 0, 0, 0, 0 },
-    { "JH", AFFRICATE, 100, 260, 1800, 2820, 60, 80, 270, 0.4f, 0.6f,
-      0, 1, 0.6f, 0.2f, 0, 0, 0, 0, 0, 1, ALVEOLAR, 39 },
+    { "JH", AFFRICATE, 100, 260, 1800, 2820, 60, 80, 270, 0.4f, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 1, ALVEOLAR, 39 },
     { "K",  STOP,       60, 300, 1990, 2850, 250, 160, 330, 0, 0.6f,
       0, 0.8f, 0.6f, 0.2f, 0, 0, 0, 0, 0, 0, VELAR, 0 },
     { "L",  SONORANT,   70, 310, 1050, 2880, 50, 100, 280, 0.8f, 0 },
@@ -307,7 +307,6 @@ static int segments (const int *codes, int n, float ms, Segment *out)
                 /* The closure: heading for the locus, silent but for the
                    voice bar. */
                 silence(s->target);
-                s->target[P_F1] = p.f1;
                 s->target[P_F2] = p.f2;
                 s->target[P_F3] = p.f3;
                 s->target[P_AV] = p.voiced ? p.av : 0;
@@ -480,12 +479,11 @@ static int readSay (thArg *say, int *codes)
     for (unsigned i = 0; i < len && n < TH_NOTE_SAY - 1; i++)
     {
         const float v = (*say)[i];
-        const int c = thIsFinite(v) ? (int)v : 0;
 
-        if (c < 1 || c > TH_PHONEMES)
+        if (!(v >= 1 && v <= TH_PHONEMES))
             break;
 
-        codes[n++] = c;
+        codes[n++] = (int)v;
     }
 
     return n;
@@ -529,12 +527,18 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     int codes[TH_NOTE_SAY];
     const int n = readSay(in_say, codes);
 
-    /* A new utterance: the first window of a voice, or a slide that
-       brought other words. */
+    /* A new utterance: the first window of a voice, or a slide onto
+       another note. `say' as a whole, its stamp included (SAYARG), so a
+       slide onto the same words is one too. */
+    float said[TH_NOTE_SAY] = {};
+
+    for (unsigned k = 0; in_say && k < in_say->len() && k < TH_NOTE_SAY; k++)
+        said[k] = (*in_say)[k];
+
     bool fresh = st[S_STARTED] == 0;
 
     for (int k = 0; !fresh && k < TH_NOTE_SAY; k++)
-        fresh = st[S_SAID + k] != (k < n ? (float)codes[k] : 0);
+        fresh = st[S_SAID + k] != said[k];
 
     if (fresh)
     {
@@ -552,8 +556,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         st[S_INTO] = 0;
         st[S_TAIL] = 0;
 
-        for (int k = 0; k < TH_NOTE_SAY; k++)
-            st[S_SAID + k] = k < n ? (float)codes[k] : 0;
+        memcpy(st + S_SAID, said, sizeof(said));
     }
 
     const float formantK = 1 - expf(-1000 / (FORMANT_GLIDE_MS * rate));
@@ -597,11 +600,18 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             st[S_TAIL] += 1;
         }
 
+        /* Landed once within a millionth: a gain gliding to 0 would
+           otherwise sink into denormals and stay there, which costs a
+           voice half as much again for the rest of its vowel. */
         for (int k = 0; k < P_COUNT; k++)
         {
             const float g = k <= P_B3 ? formantK : gainK;
+            const float d = target[k] - st[S_GLIDE + k];
 
-            st[S_GLIDE + k] += g * (target[k] - st[S_GLIDE + k]);
+            if (fabsf(d) < 1e-6f)
+                st[S_GLIDE + k] = target[k];
+            else
+                st[S_GLIDE + k] += g * d;
         }
 
         const float *p = st + S_GLIDE;
@@ -611,8 +621,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const float f0 = (float)thBoundFreq((double)(*in_freq)[i], samples);
         const float nyq = rate * 0.45f;
 
-        /* The source. Rosenberg's glottal flow, open for 60% of the
-           cycle; its first difference is what the lips radiate. The
+        /* The source. Rosenberg's glottal flow, rising for 40% of the
+           cycle, falling for 10% and closed for the rest; its first
+           difference is what the lips radiate. The
            sawtooth is that with the rounding taken off. */
         float phase = st[S_PHASE] + f0 / rate;
 
@@ -662,8 +673,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      st + S_CASCADE + 8);
 
         /* The parallel path: frication through F2 to F6 and past them.
-           Each resonator is unity at DC, so its gain is scaled up by its
-           own Q to stand at about its amplitude at the peak. */
+           Each resonator is unity at DC, which is about Q at its peak, so
+           its output is scaled down by Q to put its amplitude there. */
         const float fric = p[P_AF] * hiss;
         const float pf[5] = { p[P_F2], p[P_F3], F4, F5, F6 };
         const float pb[5] = { 200, 250, 300, 400, 800 };

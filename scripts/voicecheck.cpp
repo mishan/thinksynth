@@ -719,7 +719,9 @@ int main (int argc, char **argv)
             const unsigned char ahs[] = { 1, 31, 0 };          /* AA S */
             vector<float> held, after;
 
-            if (synth.loadTree(file, 0, 100) != NULL)
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a graph on osc::speak loads", "");
+            else
             {
                 synth.addNote(0, 45, 100, 1, NULL, ahs);
                 listen(synth, windows / 2, held);
@@ -752,16 +754,20 @@ int main (int argc, char **argv)
         }
 
         /* A mono slide moves the words on without starting the voice
-           again: AA slid onto IY is IY a tenth of a second later. */
+           again: AA slid onto IY is IY a tenth of a second later, and S AA
+           slid onto S AA -- the same words, la la -- says its S again. */
         if (writeFile(file, speakGraph("    mono = 1;\n")))
         {
             thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
                           TH_DEFAULT_SAMPLES);
             const unsigned char aa[] = { 1, 0 }, iy[] = { 11, 0 };
+            const unsigned char saa[] = { 31, 1, 0 };
             vector<float> got;
             double f1, high;
 
-            if (synth.loadTree(file, 0, 100) != NULL)
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a mono graph on osc::speak loads", "");
+            else
             {
                 synth.addNote(0, 45, 100, 1, NULL, aa);
                 listen(synth, windows / 4, got);
@@ -773,6 +779,27 @@ int main (int argc, char **argv)
                 okOrFail(fabs(f1 - 310) <= f0,
                          "osc::speak: a mono slide onto IY says IY",
                          "loudest under 1 kHz at " + num(f1) + " Hz");
+
+                auto hiss = [&](const vector<float> &v, size_t from) {
+                    double e = 0;
+
+                    for (double hz = 5000; hz < 7000; hz += 100)
+                        e += pow(harmonic(v, from, 2048, hz), 2);
+
+                    return e;
+                };
+                vector<float> first, again;
+
+                synth.addNote(0, 45, 100, 1, NULL, saa);
+                listen(synth, windows / 4, first);
+                synth.addNote(0, 45, 100, 1, NULL, saa);
+                listen(synth, windows / 4, again);
+
+                okOrFail(hiss(again, 0) > hiss(first, 0) / 4,
+                         "osc::speak: a mono slide onto the same words says "
+                         "them again",
+                         "5-7 kHz in the first S " + num(hiss(first, 0)) +
+                         ", in the second " + num(hiss(again, 0)));
             }
         }
     }
