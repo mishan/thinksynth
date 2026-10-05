@@ -683,6 +683,26 @@ int main (int argc, char **argv)
         }
     }
 
+    /* A chain over a signal long enough to nest past the limit, and one
+       long enough that freeing it by recursion would take the stack: both
+       refused with a message, neither a crash. */
+    for (int terms : { 300, 300000 })
+    {
+        string sum = "osc->out";
+
+        for (int i = 0; i < terms; i++)
+            sum += " + 1";
+
+        if (refused(synth, wrap("", "node osc osc::simple {\n};\n"
+                                    "node m math::add {\n    in0 = " + sum +
+                                    ";\n};\n")))
+            ok("a chain of " + std::to_string(terms) +
+               " operators over a signal is refused as too deep");
+        else
+            fail("a chain too deep to free by recursion is refused",
+                 std::to_string(terms) + " terms loaded");
+    }
+
     /* ---- the six function nodes ---------------------------------------- */
 
     /* As plugins, not as sugar: each is a node a .dsp may write by hand, so

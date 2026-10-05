@@ -2507,9 +2507,9 @@ namespace {
         ~ExprDepth (void) { n--; }
     };
 
-    /* A chain of `+' or `*' is parsed in a loop but nests in the tree as
-       deeply as the recursion it replaced, so each operator counts as a
-       frame until the chain ends. */
+    /* A chain of `+' and `-', or of `*' and `/', is parsed in a loop but
+       nests in the tree as deeply as the recursion it replaced, so each
+       operator counts as a frame until the chain ends. */
     struct ChainDepth
     {
         int &n;
