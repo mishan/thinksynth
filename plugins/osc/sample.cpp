@@ -77,6 +77,13 @@
  * -- an instrument recorded every few semitones, so no note is pitched
  * far enough to sound like a sampler.
  *
+ * `slices' CUTS THE FILE INTO EQUAL PARTS and `slice' picks one at the
+ * trigger, counting from 0 and wrapping, so a break can be played a beat
+ * at a time in any order: `slice = ionode->note - 48' puts its pieces on
+ * the keys from C3. A slice is a one-shot, and so is a file played with
+ * `reverse', from its end back to `start' frames before it; `loop' and
+ * `xfade' are for a whole file played forward.
+ *
  * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
  * of a kit share one copy of the kick. See osc/sampleslot.h, which also
  * says why the read happens on the first window that asks for it rather
@@ -103,9 +110,10 @@
 
 enum {IN_FILE, IN_FILE2, IN_FILE3, IN_FREQ, IN_ROOT, IN_START, IN_LOOP,
       IN_TRIGGER, IN_SELECT, IN_SPLIT1, IN_SPLIT2, IN_ALTERNATE,
-      OUT_ARG, OUT_PLAY, INOUT_STATE, IN_XFADE};
+      OUT_ARG, OUT_PLAY, INOUT_STATE, IN_XFADE, IN_SLICES, IN_SLICE,
+      IN_REVERSE};
 
-std::atomic<int> args[IN_XFADE + 1];
+std::atomic<int> args[IN_REVERSE + 1];
 
 static const char desc[] = "Sample Player (a wav at a voice's pitch)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
@@ -205,7 +213,8 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[OUT_PLAY], 0, 1);
 
     /* [0] the playhead, [1] the last trigger, [2] the chosen layer, [3] the
-       note a zone was chosen for. */
+       note a zone was chosen for, [4] and [5] the first frame and one past
+       the last of what is playing, [6] 1 forward or -1 back. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     /* Registered last, so every arg above keeps the index it had. */
@@ -213,6 +222,22 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_XFADE],
                        "How long the loop's seam crossfades; 0 is a jump");
     plugin->setArgUnits(args[IN_XFADE], "samples");
+
+    args[IN_SLICES] = plugin->regArg("slices", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SLICES],
+                       "How many equal parts the file is cut into; 0 plays "
+                       "it whole");
+    plugin->setArgRange(args[IN_SLICES], 0, 256);
+    plugin->setArgStep(args[IN_SLICES], 1);
+    args[IN_SLICE] = plugin->regArg("slice", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SLICE],
+                       "Which part plays, from 0, read at the trigger and "
+                       "wrapping past the last");
+    plugin->setArgStep(args[IN_SLICE], 1);
+    args[IN_REVERSE] = plugin->regArg("reverse", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_REVERSE],
+                       "Above 0, play from the end back, as a one-shot");
+    plugin->setArgRange(args[IN_REVERSE], 0, 1);
 
     return 0;
 }
@@ -225,6 +250,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_file, *in_file2, *in_file3, *in_freq, *in_root;
     thArg *in_start, *in_loop, *in_trigger, *in_select, *in_split1;
     thArg *in_split2, *in_alternate, *in_xfade;
+    thArg *in_slices, *in_slice, *in_reverse;
     thArg *out_arg, *out_play;
     thArg *inout_state;
     unsigned int i;
@@ -244,6 +270,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_split2 = mod->getArg(node, args[IN_SPLIT2]);
     in_alternate = mod->getArg(node, args[IN_ALTERNATE]);
     in_xfade = mod->getArg(node, args[IN_XFADE]);
+    in_slices = mod->getArg(node, args[IN_SLICES]);
+    in_slice = mod->getArg(node, args[IN_SLICE]);
+    in_reverse = mod->getArg(node, args[IN_REVERSE]);
 
     inout_state = mod->getArg(node, args[INOUT_STATE]);
 
@@ -257,7 +286,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     lastTrigger = (*inout_state)[1];
     layer = (unsigned)thClampArg((*inout_state)[2], 0, 2);
     note = (*inout_state)[3];
-    state = inout_state->allocate(4);
+
+    float lo = (*inout_state)[4];
+    float hi = (*inout_state)[5];
+    float dir = (*inout_state)[6] < 0 ? -1.0f : 1.0f;
+
+    state = inout_state->allocate(7);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
@@ -317,7 +351,27 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
 
         if (edge)
-            at = len ? thClampArg((*in_start)[i], 0, (float)(len - 1)) : 0;
+        {
+            const int n = (int)thClampArg((*in_slices)[i], 0, 256);
+
+            lo = 0;
+            hi = (float)len;
+
+            if (n > 0 && len > 0)
+            {
+                const int k = (((int)floorf((*in_slice)[i]) % n) + n) % n;
+
+                lo = floorf((float)len * k / n);
+                hi = floorf((float)len * (k + 1) / n);
+            }
+
+            dir = (*in_reverse)[i] > 0 ? -1.0f : 1.0f;
+
+            const float start = len ? thClampArg((*in_start)[i], 0,
+                                                 hi - lo - 1) : 0;
+
+            at = dir > 0 ? lo + start : hi - 1 - start;
+        }
 
         if (len == 0)
         {
@@ -326,7 +380,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             continue;
         }
 
-        const float loop = thClampArg((*in_loop)[i], 0, (float)len);
+        /* A voice started before the file was known plays all of it. */
+        if (hi <= lo || hi > (float)len)
+        {
+            lo = 0;
+            hi = (float)len;
+        }
+
+        const bool whole = dir > 0 && lo == 0 && hi == (float)len;
+        const float loop = whole ? thClampArg((*in_loop)[i], 0, (float)len)
+                                 : 0;
         const float root = zoneRoot > 0 ? (float)zoneRoot : (*in_root)[i];
 
         /* Both bounded, so a root of 0 -- which is what an unwired
@@ -337,7 +400,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                                    samples));
         step = thClampArg(step, 1.0f / SAMPLE_RATIO_MAX, SAMPLE_RATIO_MAX);
 
-        if (at >= (float)len)
+        if (dir < 0 ? at < lo : at >= hi)
         {
             /* Past the end. A one-shot stops and says so; a loop takes
                the last `loop' frames again. */
@@ -388,13 +451,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
 
         play[i] = 1;
-        at += step;
+        at += dir * step;
     }
 
     state[0] = at;
     state[1] = lastTrigger;
     state[2] = (float)layer;
     state[3] = note;
+    state[4] = lo;
+    state[5] = hi;
+    state[6] = dir;
 
     return 0;
 }

@@ -137,6 +137,32 @@ Pitch shifter (two crossfaded read heads)
 | `buffer` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |
 
+### delay::reverse
+
+Reverse (the input in chunks, each backwards)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `size` | in | How long each backwards chunk is; up to two seconds |  |  | samples |  |
+| `out` | out | The input, a chunk at a time, backwards |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
+### delay::stutter
+
+Stutter (the last moment repeated while held)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `hold` | in | Above 0, repeat the last `length' instead of the input |  | 0 to 1 |  |  |
+| `length` | in | How much is repeated, read when `hold' rises; up to four seconds |  |  | samples |  |
+| `fade` | in | The fade at each repeat's seam and into and out of the hold; 0 is 2 ms |  |  | samples |  |
+| `out` | out | The input, or the moment held |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### delay::varispeed
 
 Varispeed (a tape motor slowing and starting)
@@ -1134,6 +1160,9 @@ Sample Player (a wav at a voice's pitch)
 | `play` | out | 1 while there is file left, so a one-shot's note can be the sample's own length |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 | `xfade` | in | How long the loop's seam crossfades; 0 is a jump |  |  | samples |  |
+| `slices` | in | How many equal parts the file is cut into; 0 plays it whole |  | 0 to 256 |  |  |
+| `slice` | in | Which part plays, from 0, read at the trigger and wrapping past the last |  |  |  |  |
+| `reverse` | in | Above 0, play from the end back, as a one-shot |  | 0 to 1 |  |  |
 
 ### osc::shapeo
 
