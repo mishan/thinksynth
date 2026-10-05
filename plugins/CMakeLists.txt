@@ -31,7 +31,7 @@ think_add_plugin_category(analysis pitch)
 
 think_add_plugin_category(delay    echo fir allpass chorus fdn pitchshift varispeed)
 
-think_add_plugin_category(dist     clip saturate waveman inksat)
+think_add_plugin_category(dist     clip saturate waveman inksat crush)
 
 think_add_plugin_category(dyn      compressor)
 
