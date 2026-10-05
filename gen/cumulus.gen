@@ -1,0 +1,336 @@
+# cumulus.gen -- ambient house: a dawn, a groove under a dub desk, a dusk.
+#
+# Ninety-two to the minute in A minor, ninety-six bars. It starts with no
+# beat at all -- a shortwave set between stations, a pad, a ride cymbal
+# played two octaves down until it is a wash, and a voice reading a line
+# -- and lets a groove in under it bar by bar. Everything in it is this
+# tree's own; nothing is a recording of anybody else's.
+#
+# THE BREAK FOLLOWS THE TEMPO. breakloop.dsp is a bar of drums played at
+# 100 and stretched to 92 by osc::stretch, so it keeps its pitch; a chain
+# rides its filter open over the sixteen bars of the build, and another
+# winds it to a stop on the last bar before the drop (fx/tapestop.dsp).
+#
+# THE DESK IS PLAYED. The snare is dry but for one hit in four bars,
+# thrown into fx/dub.dsp by xform::throw, and the last word of every line
+# the voice reads is thrown the same way, so the echo answers the words
+# rather than washing over them. The siren has an echo of its own, fed
+# all the time.
+#
+# THE WASH IS A RIDE. orchhit.dsp is a sampler, and `smp.file' makes this
+# instrument's sampler play kit_ride_hard.wav instead of the orchestra hit
+# -- the piece choosing the recording, which a chanarg cannot. Two octaves
+# down a ride is a slow metal swell.
+#
+# The words are xform::say's, sung on one note by speak.dsp with its
+# source turned toward the throat: eleven syllables, a line every sixteen
+# bars. Self-contained, and nothing in it rolls a die.
+
+name "Cumulus";
+author "Misha Nasledov";
+description "Ambient house: radio, a pad and a ride wash at dawn, a stretched break, sub, acid and a dub desk throwing the snare and the last word of each line.";
+category "Pieces";
+
+tempo 92;
+seed 1990;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section dawn   16 bars { sub = 0;  loop = 0;  kick = 0;  snare = 0;  hats = 0;
+                         acid = 0;  siren = 0; };
+section rise   16 bars { kick = 0;  snare = 0;  hats = 0;  acid = 0; };
+section groove 24 bars { };
+section drift   8 bars { kick = 0;  snare = 0;  hats = 0;  acid = 0;  sub = 0; };
+section back   24 bars { pad = 0.8; };
+section dusk    8 bars { sub = 0;  loop = 0;  kick = 0;  snare = 0;  hats = 0;
+                         acid = 0;  siren = 0; };
+section end;
+
+scale amin  "A2 B2 C3 D3 E3 F3 G3";
+scale roots "A3 F3 C4 G3";
+scale low   "A1 F1 C2 G1";
+scale line  "A3 C4 D4 E4";
+scale acidpent "A2 C3 D3 E3 G3 A3";
+
+# ---- the room -----------------------------------------------------------
+
+effect "fx/space.dsp" {
+    mix   = 0;
+    decay = 6;
+    size  = 2;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument radio {
+    dsp  "radio.dsp";
+    amp  = 28;
+    send = 0.5;
+
+    dial    = 0.15;
+    whistle = 0.5;
+    a       = 3000 ms;
+    r       = 4000 ms;
+};
+
+instrument pad {
+    dsp  "analog.dsp";
+    amp  = 28;
+    send = 0.6;
+
+    wave1 = 0;  wave2 = 0;  semi2 = 12;  mix2 = 0.3;
+    sub = 0;  unison = 9;  spread = 0.9;  drift = 6;
+    cutoff = 1400;  res = 0.1;  envamt = 0;  keytrack = 0.4;
+    a = 2500 ms;  d = 1000 ms;  s = 1;  r = 3000 ms;
+
+    effect "fx/ensemble.dsp" { mix = 0.5; };
+};
+
+instrument wash {
+    dsp  "orchhit.dsp";
+    amp  = 70;
+    send = 0.9;
+
+    smp.file = "kit_ride_hard.wav";
+};
+
+instrument voice {
+    dsp  "speak.dsp";
+    amp  = 50;
+    send = 0.3;
+
+    robot    = 0.2;
+    formants = 1;
+    pace     = 0.85;
+    vibrato  = 8;
+    breath   = 0.1;
+
+    effect "fx/dub.dsp" {
+        beats    = 0.75;
+        feedback = 0.65;
+        tone     = 2200;
+        low      = 300;
+        input    = 0;
+        mix      = 0.5;
+    };
+};
+
+instrument sub {
+    dsp  "sub.dsp";
+    amp  = 20;
+
+    glide    = 40 ms;
+    harmonic = 0.2;
+};
+
+instrument loop {
+    dsp  "breakloop.dsp";
+    amp  = 30;
+    send = 0.15;
+
+    cutoff = 300;
+    res    = 0.35;
+
+    effect "fx/tapestop.dsp" { time = 2000 ms; };
+};
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 22;
+
+    pitch = 160;
+    floor = 44;
+    decay = 420 ms;
+    click = 0.3;
+    drive = 1.8;
+};
+
+instrument snare {
+    dsp  "snare808.dsp";
+    amp  = 40;
+
+    tune   = 170;
+    snappy = 0.6;
+    tone   = 1700;
+
+    effect "fx/dub.dsp" {
+        beats    = 0.75;
+        feedback = 0.7;
+        tone     = 2000;
+        low      = 250;
+        drive    = 1.5;
+        input    = 0;
+        mix      = 0.55;
+    };
+};
+
+instrument hat {
+    dsp  "hat808.dsp";
+    amp  = 18;
+
+    tone  = 7000;
+    clen  = 40 ms;
+};
+
+instrument acid {
+    dsp  "bass.dsp";
+    amp  = 14;
+    send = 0.1;
+
+    cutoff = 300;
+    depth  = 2400;
+    res    = 0.85;
+    accent = 0.7;
+    drive  = 2.5;
+};
+
+instrument siren {
+    dsp  "dubsiren.dsp";
+    amp  = 14;
+    send = 0.3;
+
+    rate  = 5;
+    depth = 4;
+    sweep = 12;
+
+    effect "fx/dub.dsp" {
+        beats    = 1.5;
+        feedback = 0.75;
+        tone     = 1800;
+        low      = 400;
+        drive    = 1.5;
+        runaway  = 0.05;
+        mix      = 0.6;
+    };
+};
+
+# ---- dawn: the radio, the pad, the wash, the voice -----------------------
+
+chain radio {
+    stage src gen::lsystem {
+        axiom = "F";  depth = 0;  notes = "E5";
+        step = 64 beats;  hold = 60 beats;  vel = 90;
+    };
+    sink { instrument = radio; };
+};
+
+chain pad {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F---";  depth = 0;  notes = roots;
+        step = 16 beats;  hold = 15.5 beats;  vel = 80;
+    };
+    stage chord xform::harmonize {
+        scale = amin;  voices = 4;  step = 2;  spread = 0.04 s;
+        taper = 0.9;  root = 1;  below = 0;  lead = 1;  span = 12;
+    };
+    sink { instrument = pad; };
+};
+
+chain wash {
+    stage src gen::lsystem {
+        axiom = "F+F-";  depth = 0;  notes = "A1 E2";
+        step = 32 beats;  hold = 24 beats;  vel = 90;
+    };
+    sink { instrument = wash; };
+};
+
+# A line every sixteen bars, and its last word thrown.
+chain voice {
+    stage src gen::lsystem {
+        axiom = "F_F_ rF F_F_ rF F F rF_F_ F___ rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr";
+        depth = 0;  notes = line;
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 90;
+    };
+    stage words xform::say {
+        words = "over the river the clouds are drifting home";
+    };
+    stage t xform::throw { pattern = "..........x"; hold = 0.6 s; };
+    sink { instrument = voice; };
+    sink { instrument = voice; chanarg = "fx.input"; };
+};
+
+# ---- the groove ---------------------------------------------------------
+
+chain sub {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F---";  depth = 0;  notes = low;
+        step = 16 beats;  hold = 15.9 beats;  vel = 90;
+    };
+    stage b xform::bassline {
+        scale = amin;
+        pattern = "r__.r.r.r__.r.r_r__.r.r.o_.r.r_.";
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 100;
+        octave = 0;  pass = 0;
+    };
+    sink { instrument = sub; };
+};
+
+# A bar of break, started on every fourth bar so it stays on the grid.
+chain loop {
+    stage src gen::lsystem {
+        axiom = "F";  depth = 0;  notes = "C4";
+        step = 16 beats;  hold = 15.95 beats;  vel = 100;
+    };
+    sink { instrument = loop; };
+};
+
+chain cutoff {
+    stage src gen::steps {
+        values = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.02 0.04 0.07 0.1 0.14 0.19 0.25 0.32 0.4 0.49 0.59 0.7 0.8 0.9 1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 0.3 _ _ _ _ _ _ _ 1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 0.2 _ _ _ _ _ _ _";
+        period = 4 beats;  min = 300;  max = 16000;
+    };
+    sink { instrument = loop; chanarg = "cutoff"; };
+};
+
+chain stop {
+    stage src gen::steps {
+        values = "0 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 1 0 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _";
+        period = 4 beats;
+    };
+    sink { instrument = loop; chanarg = "fx.stop"; };
+};
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  notes = "C2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 108;
+    };
+    sink { instrument = kick; };
+};
+
+# The backbeat, dry, and one hit in four bars into the echo.
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;  notes = "D2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 100;
+    };
+    stage t xform::throw { pattern = ".......x"; hold = 0.4 s; };
+    sink { instrument = snare; };
+    sink { instrument = snare; chanarg = "fx.input"; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 7;  notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 60;
+    };
+    sink { instrument = hat; };
+};
+
+chain acid {
+    stage src gen::lsystem {
+        axiom = ">F F +F >F -F F ++F >F --F F +>F F -F +F >++F ---F";
+        depth = 0;  notes = acidpent;
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 80;  accent = 40;
+    };
+    sink { instrument = acid; };
+};
+
+chain siren {
+    stage src gen::lsystem {
+        axiom = "rrrr rrrr rrrr rrFr";  depth = 0;  notes = "A4";
+        step = 1 beats;  hold = 0.7 beats;  vel = 100;
+    };
+    sink { instrument = siren; };
+};
