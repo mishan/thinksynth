@@ -1,9 +1,9 @@
 # The shipped pieces
 
 Forty-three `.gen` files, each of which is meant to be read as well as heard.
-Fourteen of them exercise every composer plugin in the tree and every ability
+Some of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
-being impressive; the other eighteen are pieces first and lessons second. The
+being impressive; the rest are pieces first and lessons second. The
 comment at the top of each file is the lesson; this is the index.
 
 Open one from the main window's menu (**☰ → Open Piece...**) and press **Play**.
@@ -168,7 +168,7 @@ together, in the same detail as the others.
 | [`orrery.gen`](orrery.gen) | **Gears on one clock, and a bass that reads the chords.** Four Euclidean rings of different sizes in `beats`, a harmonizer spelling the chords by degree and voicing each against the one before it, a genetic lead on the `Lift` knob, and two voices swapped under it every thirty-two bars. The bass follows the progression without a message passing between chains: its pool is one four-bar phrase long, five notes under each chord, and the ring is the index. |
 | [`invention.gen`](invention.gen) | **Two voices on a Moog, a chorus on the way out, and the ornaments are rules.** In the spirit of Wendy Carlos: a two-part invention in D minor, a saw lead and a square bass each on their own patch, a harpsichord of broken chords from a pool, and for once an L-system's rules are not empty -- `M`, `T` and `N` in the axiom are rewritten into a mordent, a trill and a turn on whatever note the turtle is standing on. The alto reads the same axiom with the ornaments spelled plain, through `xform::counterpoint`, every other time round, on a `Third` fader. |
 | [`discreet.gen`](discreet.gen) | **Two phrases and a tape loop, for twenty minutes.** Discreet Music's arrangement: two `gen::lsystem` phrases of different lengths, 13 and 18.6 seconds, on one electric piano, into `fx/tapeloop.dsp`, a 14-second loop that keeps 88% of each lap, so everything played comes back layered under what is played next and the two phrases drift against each other and the tape. `xform::cloud` thickens the second phrase for five minutes. The room is a send: `fx/space.dsp` on the mix at `mix = 0`, the piano's `send` into it, and a walk riding `fx.send`. |
-| [`cumulus.gen`](cumulus.gen) | **Ambient house, and a mixing desk played as an instrument.** A beatless dawn -- a shortwave radio between stations, a pad, a ride cymbal two octaves down as a wash (the piece choosing its sampler's file with `smp.file`), and a voice reading a line -- with a groove let in under it. The break is `osc::stretch` keeping its pitch at the piece's tempo, its filter ridden open by `gen::steps` and wound to a halt by `fx/tapestop.dsp` before the drop. The snare is dry but for one hit in four bars, and the last word of each line, thrown into `fx/dub.dsp` by `xform::throw`. Sub, acid, a dub siren. |
+| [`cumulus.gen`](cumulus.gen) | **Ambient house, and a mixing desk played as an instrument.** A beatless dawn -- a shortwave radio between stations, a pad, a ride cymbal played down into a slow swell (the piece choosing its sampler's file with `smp.file`), and a voice reading a line -- with a groove let in under it. The break is `osc::stretch` keeping its pitch at the piece's tempo, its filter ridden open by `gen::steps` and wound to a halt by `fx/tapestop.dsp` before the drop. The snare is dry but for one hit in four bars, and the last word of each line, thrown into `fx/dub.dsp` by `xform::throw`. Sub, acid, a dub siren. |
 
 ## Game music
 

@@ -2,8 +2,8 @@
 #
 # Ninety-two to the minute in A minor, ninety-six bars. It starts with no
 # beat at all -- a shortwave set between stations, a pad, a ride cymbal
-# played two octaves down until it is a wash, and a voice reading a line
-# -- and lets a groove in under it bar by bar. Everything in it is this
+# played down until it is a wash, and a voice reading a line -- and lets
+# a groove in under it section by section. Everything in it is this
 # tree's own; nothing is a recording of anybody else's.
 #
 # THE BREAK FOLLOWS THE TEMPO. breakloop.dsp is a bar of drums played at
@@ -19,8 +19,8 @@
 #
 # THE WASH IS A RIDE. orchhit.dsp is a sampler, and `smp.file' makes this
 # instrument's sampler play kit_ride_hard.wav instead of the orchestra hit
-# -- the piece choosing the recording, which a chanarg cannot. Two octaves
-# down a ride is a slow metal swell.
+# -- the piece choosing the recording, which a chanarg cannot. An octave
+# and a half down, under a slow attack, a ride is a metal swell.
 #
 # The words are xform::say's, sung on one note by speak.dsp with its
 # source turned toward the throat: eleven syllables, a line every sixteen
@@ -40,9 +40,9 @@ meter 4;
 section dawn   16 bars { sub = 0;  loop = 0;  kick = 0;  snare = 0;  hats = 0;
                          acid = 0;  siren = 0; };
 section rise   16 bars { kick = 0;  snare = 0;  hats = 0;  acid = 0; };
-section groove 24 bars { };
+section groove 24 bars { radio = 0; };
 section drift   8 bars { kick = 0;  snare = 0;  hats = 0;  acid = 0;  sub = 0; };
-section back   24 bars { pad = 0.8; };
+section back   24 bars { pad = 0.8;  radio = 0; };
 section dusk    8 bars { sub = 0;  loop = 0;  kick = 0;  snare = 0;  hats = 0;
                          acid = 0;  siren = 0; };
 section end;
@@ -50,7 +50,7 @@ section end;
 scale amin  "A2 B2 C3 D3 E3 F3 G3";
 scale roots "A3 F3 C4 G3";
 scale low   "A1 F1 C2 G1";
-scale line  "A3 C4 D4 E4";
+scale line  "A3";
 scale acidpent "A2 C3 D3 E3 G3 A3";
 
 # ---- the room -----------------------------------------------------------
@@ -65,7 +65,7 @@ effect "fx/space.dsp" {
 
 instrument radio {
     dsp  "radio.dsp";
-    amp  = 28;
+    amp  = 18;
     send = 0.5;
 
     dial    = 0.15;
@@ -93,11 +93,19 @@ instrument wash {
     send = 0.9;
 
     smp.file = "kit_ride_hard.wav";
+
+    # A swell rather than a hit: a slow attack, a long decay, and the
+    # filter open on it.
+    a      = 1500 ms;
+    d      = 9000 ms;
+    cutoff = 3000;
+    depth  = 0;
+    snap   = 1 ms;
 };
 
 instrument voice {
     dsp  "speak.dsp";
-    amp  = 50;
+    amp  = 60;
     send = 0.3;
 
     robot    = 0.2;
@@ -229,8 +237,8 @@ chain pad {
 
 chain wash {
     stage src gen::lsystem {
-        axiom = "F+F-";  depth = 0;  notes = "A1 E2";
-        step = 32 beats;  hold = 24 beats;  vel = 90;
+        axiom = "F+F-";  depth = 0;  notes = "A2 E3";
+        step = 16 beats;  hold = 14 beats;  vel = 90;
     };
     sink { instrument = wash; };
 };
@@ -277,7 +285,7 @@ chain loop {
 
 chain cutoff {
     stage src gen::steps {
-        values = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.02 0.04 0.07 0.1 0.14 0.19 0.25 0.32 0.4 0.49 0.59 0.7 0.8 0.9 1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 0.3 _ _ _ _ _ _ _ 1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 0.2 _ _ _ _ _ _ _";
+        values = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.02 0.04 0.07 0.1 0.14 0.19 0.25 0.32 0.4 0.49 0.59 0.7 0.8 0.9 1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 0.3 _ _ _ _ _ _ _ 1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _";
         period = 4 beats;  min = 300;  max = 16000;
     };
     sink { instrument = loop; chanarg = "cutoff"; };
