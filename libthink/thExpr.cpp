@@ -419,25 +419,21 @@ text (const thExprNode *e)
         break;
     }
 
-    /* Parenthesised where precedence needs it, and on the right of `-' and
-       `/' where associativity does: `a - (b - c)' is not `a - b - c'.
-     *
-     * `<=' and not `<' on the left, because every operator in this grammar
-     * groups to the right. A left operand of equal precedence is exactly the
-     * one that needs the parentheses: `(a - 1) - 2' printed as `a - 1 - 2'
-     * reads back as `a - (1 - 2)', which is `a + 1' -- a box showing the
-     * author arithmetic their patch is not doing. A leaf or a call scores 3
-     * and so is never wrapped by this. */
+    /* Parenthesised where precedence needs it, and on the right wherever
+       the precedence is equal: every operator groups to the left, so
+       `a - (b - c)' printed without them would read back as `(a - b) - c'.
+       `a + (b + c)' keeps its parentheses too, so the text reads back as the
+       same tree, not merely the same sum. A leaf or a call scores 3 and so
+       is never wrapped by this. */
     const int mine = precedence(e);
 
     string left = text(e->kids[0]);
     string right = text(e->kids[1]);
 
-    if (precedence(e->kids[0]) <= mine)
+    if (precedence(e->kids[0]) < mine)
         left = "(" + left + ")";
 
-    if (precedence(e->kids[1]) < mine ||
-        (precedence(e->kids[1]) == mine && (e->op == '-' || e->op == '/')))
+    if (precedence(e->kids[1]) <= mine)
         right = "(" + right + ")";
 
     return left + " " + (char)e->op + " " + right;

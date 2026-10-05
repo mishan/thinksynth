@@ -220,13 +220,9 @@ int main (int argc, char **argv)
      * node to nearly every shipped file and stop the corpus rendering
      * bit-identically.
      *
-     * `1 - 2 - 3' and `8 / 4 / 2' are here because the grammar's `-' and `/'
-     * are right-associative -- `1 - (2 - 3)' and `8 / (4 / 2)' -- which is
-     * not what the arithmetic usually means and is what the language has
-     * always done. `1 - 2 + 3' is the same rule with a sharper edge: a `-'
-     * takes everything to its right, the additions included. Pinned rather
-     * than fixed: fixing it is a change to what existing files mean, and it
-     * belongs to whichever change is willing to measure that.
+     * `1 - 2 - 3', `1 - 2 + 3' and `8 / 4 / 2' pin the grouping: to the
+     * left, as in arithmetic. The grammar was right-recursive once, and
+     * `1 - 2 + 3' was -4 -- a `-' took everything to its right.
      *
      * `2 + 3 * 4' and `0 - 3 * 2' pin the precedence, which nothing used to.
      * `-1 + 2' pins where the unary minus stops. It used to sit at the top
@@ -241,9 +237,9 @@ int main (int argc, char **argv)
             { "2 + 3 * 4",      14 },
             { "0 - 3 * 2",      -6 },
             { "10 - 4",          6 },
-            { "1 - 2 - 3",       2 },   /* 1 - (2 - 3) */
-            { "1 - 2 + 3",      -4 },   /* 1 - (2 + 3) */
-            { "8 / 4 / 2",       4 },   /* 8 / (4 / 2) */
+            { "1 - 2 - 3",      -4 },   /* (1 - 2) - 3 */
+            { "1 - 2 + 3",       2 },   /* (1 - 2) + 3 */
+            { "8 / 4 / 2",       1 },   /* (8 / 4) / 2 */
             { "7 % 4",           3 },
             { "-1 + 2",          1 },   /* (-1) + 2, not -(1 + 2) */
             { "0 - -3",          3 },
@@ -507,19 +503,21 @@ int main (int argc, char **argv)
      * here is parsed, printed, and *re-parsed as the same arg*, and the two
      * files are rendered and compared sample for sample.
      *
-     * Every operator in this grammar groups to the right, so a left operand
-     * of equal precedence is exactly what needs parentheses: `(a - 1) - 2'
-     * printed as `a - 1 - 2' reads back as `a - (1 - 2)', which is `a + 1'.
+     * Every operator in this grammar groups to the left, so a right operand
+     * of equal precedence is exactly what needs parentheses: `a - (1 - 2)'
+     * printed as `a - 1 - 2' reads back as `(a - 1) - 2', which is `a - 3'.
      * The numbers are here for the other half: `%g' reached for an exponent
      * below 1e-4 and rounded to six significant digits, and the lexer's
      * number has no exponent and no such rounding.
      */
     {
         static const char *const cases[] = {
-            "(osc1->out - 0.1) - 0.2",
-            "(osc1->out + 0.1) + 0.2",
-            "(osc1->out * 0.5) * 0.5",
-            "(osc1->out / 2) / 2",
+            "osc1->out - (0.1 - 0.2)",
+            "osc1->out + (0.1 + 0.2)",
+            "osc1->out * (0.5 * 0.5)",
+            "osc1->out / (2 / 2)",
+            "osc1->out - 0.1 + 0.2",
+            "osc1->out / 2 * 3",
             "osc1->out * 0.0000001",
             "osc1->out * 1.2345678",
             "osc1->out * -0.5",

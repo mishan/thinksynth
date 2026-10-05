@@ -36,7 +36,7 @@ scale fmaj "F3 G3 A3 C4 D4 F4 G4 A4 C5 D5 F5";
 
 instrument ep {
     dsp "rhodes.dsp";
-    amp = 60;
+    amp = 120;
     decay = 4000 ms;
     r = 1500 ms;
     spread = 0.6;
@@ -49,7 +49,7 @@ instrument ep {
         tone = 2600;
         wow = 8;
         rate = 0.2;
-        mix = 0.55;
+        mix = 0.8;
     };
 };
 

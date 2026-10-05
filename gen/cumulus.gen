@@ -65,7 +65,7 @@ effect "fx/space.dsp" {
 
 instrument radio {
     dsp  "radio.dsp";
-    amp  = 18;
+    amp  = 9;
     send = 0.5;
 
     dial    = 0.15;
