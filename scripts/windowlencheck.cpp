@@ -30,22 +30,27 @@
  *
  * Each arg in gets something to do:
  *
- *   - a signal arg (`in', `in0', ..., or one in full-scale units) gets a
- *     chord of three sines;
+ *   - a signal arg (`in', `in0', ..., or one in full-scale units that
+ *     goes below zero) gets a chord of three sines;
  *   - a trigger, gate, reset or sync gets a square, so envelopes fire and
- *     release several times;
- *   - any other arg with a declared range sweeps it slowly, low to high,
- *     so a control that moves inside a window is a control that moves --
- *     and then, in a second pass, holds still a third of the way up,
- *     since a plugin may take a faster path for a control that is one
- *     value;
+ *     release several times -- and in the second pass below is held, a
+ *     trigger at 1 as a free-running envelope is given it and a reset at
+ *     0;
+ *   - any other arg with a declared range -- or in Hz or samples, which
+ *     get 20 to 4000 -- sweeps it slowly, low to high, so a control that
+ *     moves inside a window is a control that moves -- and then, in a
+ *     second pass, holds still a third of the way up, since a plugin may
+ *     take a faster path for a control that is one value;
  *   - an arg with named values is held at each value in turn, one render
  *     each, so every waveform and mode is visited;
  *   - the rest are held at their default, or left alone.
  *
- * And every arg out is compared. A plugin that cannot be built this way --
- * a composer module, a visualizer, one that needs a file -- is in the
- * table of exceptions below with its reason, and nowhere else.
+ * What moves is wired from a node of its own, as in a graph, so a plugin
+ * that picks its path by whether an arg is wired takes the one a voice
+ * takes. And every arg out is compared, a signed zero equal to a zero. A
+ * plugin that cannot be held to this -- one that outputs a table, or
+ * plays a file -- is in a table of exceptions below with its reason, and
+ * nowhere else.
  */
 
 #include "config.h"
@@ -74,7 +79,14 @@ static const unsigned RENDER = 6000;
 /* Plugins this harness does not run, and why. Each is a decision, so each
    names its reason. */
 static const struct { const char *spelling, *why; } skipped[] = {
-    { "misc::print", "writes to stdout" },
+    { "misc::print",       "writes to stdout" },
+    { "impulse::blackman", "outputs a table, not a stream" },
+    { "impulse::parabola", "outputs a table, not a stream" },
+    { "impulse::sine",     "outputs a table, not a stream" },
+    { "impulse::square",   "outputs a table, not a stream" },
+    { "osc::sample",       "plays a file, and is silent with none named" },
+    { "osc::stretch",      "plays a file, and is silent with none named" },
+    { "osc::grain",        "plays a file, and is silent with none named" },
 };
 
 /* Plugins that design something from their controls once a window, on
@@ -85,8 +97,7 @@ static const struct { const char *spelling, *why; } designed[] = {
                            "hold still" },
     { "filt::sympathetic", "lays out its strings from the first sample of "
                            "each window; the controls pick keys" },
-    { "impulse::blackman", "is a kernel built from its controls, a table "
-                           "rather than a stream" },
+    { "filt::comb",        "reads its size once a window" },
 };
 
 #define FIND(table)                                                    \
@@ -109,14 +120,49 @@ designReason (const string &spelling)
 
 enum Drive { HOLD, SIGNAL, GATE, SWEEP };
 
+/* A gate held still: up for a trigger, down for a reset, which held up
+   would start the envelope again every sample. */
+static float
+held (const string &name)
+{
+    return (name == "reset" || name == "sync") ? 0.0f : 1.0f;
+}
+
+/* An arg's travel: the one it declares, or for a duration or a frequency
+   that declares none, a span that makes oscillators sound and envelopes
+   move -- even where a default of 0 would have them sit still. False for
+   an arg with neither. */
+static bool
+travel (thPlugin *p, int a, float &lo, float &hi)
+{
+    if (p->argHasRange(a) && p->getArgMax(a) > p->getArgMin(a))
+    {
+        lo = p->getArgMin(a);
+        hi = p->getArgMax(a);
+        return true;
+    }
+
+    const string &units = p->getArgUnits(a);
+
+    if (units == "Hz" || units == "samples")
+    {
+        lo = 20;
+        hi = 4000;
+        return true;
+    }
+
+    return false;
+}
+
 static Drive
 driveFor (thPlugin *p, int a, bool still)
 {
     const string &name = p->getArgName(a);
 
+    /* A level from 0 up -- a sustain, a peak -- is a control, not audio. */
     if (name == "in" || (name.size() == 3 && name.compare(0, 2, "in") == 0 &&
                          isdigit((unsigned char)name[2])) ||
-        p->getArgUnits(a) == "full scale")
+        (p->getArgUnits(a) == "full scale" && p->getArgMin(a) < 0))
         return SIGNAL;
 
     if (name == "trigger" || name == "gate" || name == "reset" ||
@@ -126,7 +172,9 @@ driveFor (thPlugin *p, int a, bool still)
     if (!p->getArgValues(a).empty())
         return HOLD;
 
-    if (p->argHasRange(a) && p->getArgMax(a) > p->getArgMin(a))
+    float lo, hi;
+
+    if (travel(p, a, lo, hi))
         return still ? HOLD : SWEEP;
 
     return HOLD;
@@ -150,7 +198,10 @@ stimulus (Drive d, thPlugin *p, int a, unsigned n)
         return fmod(t * 23, 1) < 0.6 ? 1 : 0;
     case SWEEP:
     {
-        const float lo = p->getArgMin(a), hi = p->getArgMax(a);
+        float lo = 0, hi = 0;
+
+        travel(p, a, lo, hi);
+
         const double u = 0.5 - 0.5 * cos(2 * M_PI * 3 * t);
 
         return (float)(lo + (hi - lo) * (0.1 + 0.8 * u));
@@ -185,8 +236,17 @@ render (const string &pluginPath, const string &path, bool still,
     tree.newNode(node, true);
     tree.newNode(io, true);
 
+    thPlugin *adder = synth.getPluginManager()->getOrLoadPlugin("math/add");
     vector<int> ins, outs;
     vector<Drive> drives;
+    vector<thNode *> sources;
+    float lo, hi;
+
+    if (adder == NULL)
+    {
+        why = "math::add does not load, and drives everything";
+        return false;
+    }
 
     for (int a = 0; a < p->argCount(); a++)
     {
@@ -198,15 +258,25 @@ render (const string &pluginPath, const string &path, bool still,
 
             if (a == heldArg)
                 node->setArg(p->getArgName(a), heldValue);
-            else if (d == HOLD && still && p->argHasRange(a) &&
-                     p->getArgValues(a).empty())
-                node->setArg(p->getArgName(a), p->getArgMin(a) +
-                             (p->getArgMax(a) - p->getArgMin(a)) / 3);
+            else if (d == GATE && still)
+                node->setArg(p->getArgName(a), held(p->getArgName(a)));
+            else if (d == HOLD && still && p->getArgValues(a).empty() &&
+                     travel(p, a, lo, hi))
+                node->setArg(p->getArgName(a), lo + (hi - lo) / 3);
             else if (d == HOLD && p->argHasDefault(a))
                 node->setArg(p->getArgName(a), p->getArgDefault(a));
             else if (d != HOLD)
             {
-                node->setArg(p->getArgName(a), 0.0f);
+                /* From a math::add whose own input this writes, so the arg
+                   is a wire, the way a graph drives it. */
+                const string src = "src" + std::to_string(sources.size());
+                thNode *from = new thNode(src, adder);
+
+                tree.newNode(from, true);
+                from->setArg("in1", 0.0f);
+                from->setArg("in0", 0.0f);
+                node->setArg(p->getArgName(a), src, "out");
+                sources.push_back(from);
                 ins.push_back(a);
                 drives.push_back(d);
             }
@@ -234,8 +304,7 @@ render (const string &pluginPath, const string &path, bool still,
     {
         for (size_t k = 0; k < ins.size(); k++)
         {
-            float *buf = node->getArg(p->getArgName(ins[k]))
-                             ->allocate(windowlen);
+            float *buf = sources[k]->getArg("in0")->allocate(windowlen);
 
             for (unsigned i = 0; i < windowlen; i++)
                 buf[i] = stimulus(drives[k], p, ins[k], done + i);
@@ -278,7 +347,8 @@ agree (const string &pluginPath, const string &path, bool still,
 
     for (size_t o = 0; o < one.size(); o++)
         for (size_t i = 0; i < RENDER; i++)
-            if (memcmp(&one[o][i], &many[o][i], sizeof(float)) != 0)
+            if (memcmp(&one[o][i], &many[o][i], sizeof(float)) != 0 &&
+                !(one[o][i] == 0 && many[o][i] == 0))
             {
                 printf("FAIL  %s: `%s' at sample %zu is %.9g one at a time, "
                        "%.9g five hundred\n", label.c_str(),

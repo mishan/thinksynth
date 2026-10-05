@@ -142,9 +142,10 @@ int module_init (thPlugin *plugin)
        the callback. */
     plugin->setArgDefault(args[IN_AMP], TH_MAX);
 
-    /* The two filters' history: three pink poles and the brown integrator.
-       Per node, so two noise nodes of different colors do not share a
-       filter, and across windows, so neither restarts every 1024 samples. */
+    /* The two filters' history -- three pink poles and the brown
+       integrator -- then the node's own stream and whether it is seeded.
+       Per node, so two noise nodes do not share a filter or a stream, and
+       across windows, so neither restarts every 1024 samples. */
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
     return 0;

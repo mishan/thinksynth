@@ -28,9 +28,9 @@
 static const char desc[] = "Produces Random Signal";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-/* The noise source: one generator per synth, claimed here and released in
+/* The seed source: one generator per synth, claimed here and released in
  * module_cleanup. plugins/osc/noiseslot.h is the whole argument -- the same
- * one osc::noise draws on, which is why it is a header and not a copy.
+ * one osc::noise seeds from, which is why it is a header and not a copy.
  *
  * Each node draws from its own stream, seeded from that one (see
  * osc::noise). Nothing seeds the synth's, which is why thcNodeHost still
