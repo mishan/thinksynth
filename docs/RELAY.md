@@ -54,16 +54,21 @@ served from.
 3. Copy `docker/compose.yaml` over, with a `.env` beside it:
 
        CORS_ORIGIN=https://pages.example.org
+       PASSKEY_RP_ID=pages.example.org
 
-   (exactly an origin: scheme, host and any port, no path or trailing
-   slash; the relay will not start on anything else). Then
+   (`CORS_ORIGIN` exactly an origin: scheme, host and any port, no path
+   or trailing slash; `PASSKEY_RP_ID` the domain it is on, for passkeys
+   -- see [Passkeys](#passkeys) before picking it, and leave it out for
+   none. The relay will not start on anything else.) Then
 
        docker compose -f compose.yaml pull
        docker compose -f compose.yaml up -d
 
    The relay listens on `127.0.0.1:8787`, for the proxy only, and
-   `curl 127.0.0.1:8787/` answers with its protocol, `accounts: true`
-   and its rooms.
+   `curl 127.0.0.1:8787/` answers with its protocol, `accounts: true`,
+   `passkeys` naming the RP ID, and its rooms. A `.env` the relay
+   refuses leaves the container restarting over and over;
+   `docker logs thinksynth-relay` says why.
 
 4. Set the repository variable `JAM_RELAY` to `wss://relay.example.org`.
    The next master build writes it into the Pages site's `config.json`,
@@ -113,7 +118,8 @@ Accounts belong to the relay the site's `config.json` names: a page sent
 to another relay with `?relay=` joins it as a guest and keeps its
 session to itself.
 
-The image reads three variables, which `compose.yaml` passes on:
+The image reads three variables, which `compose.yaml` passes on, and
+two more for passkeys (below):
 
 - `DB`: the file, `/data/relay.db` in the image. `compose.yaml` mounts
   the named volume `accounts` on `/data`. Run from the tree, the relay
@@ -132,6 +138,47 @@ The image reads three variables, which `compose.yaml` passes on:
   which the API's rate limits read. `compose.yaml` sets 1 for the nginx
   of `docker/nginx.conf`, which appends it. Set it only behind proxies
   that do, or a client picks its own address.
+
+### Passkeys
+
+A passkey logs in to the same session a key does. With passkeys on, the
+Account dialog makes an account with a passkey and shows the key once as
+the recovery key; one can still be made with a key alone, and the key
+always logs in. Adding a passkey takes the key; removing one takes only
+a session, and ends none: replacing the key is what logs out every
+other browser. Replacing the key removes every passkey the account
+has, since whoever had the old key could have added any of them; the
+dialog then offers to add one with the new key.
+
+A passkey asks the authenticator to verify its user (a PIN, a
+fingerprint) where it can, but does not require it. So a security key
+with no PIN logs in whoever holds it, as the key logs in whoever has it;
+and so does one with a PIN whose passkey was made under credProtect
+level 1, which lets it answer without the PIN. A session a passkey
+logged in to outlasts the passkey: removing it ends none, and replacing
+the key is what ends them.
+
+The relying party is the site the page is served from, not the relay:
+WebAuthn binds a passkey to an RP ID, a domain the page's own origin
+must be on. Two more variables:
+
+- `PASSKEY_RP_ID`: that domain -- `pages.example.org` for a page at
+  `https://pages.example.org`, or `example.org`, which would let the
+  same passkeys work on the site's other subdomains if they ever took
+  them. `CORS_ORIGIN` must be on it, and is still the one origin whose
+  page can log in to this relay with a passkey; the relay will not start
+  otherwise. Unset, there are no passkeys: the health line's `passkeys`
+  is null and the page offers none. A page on another host (`127.0.0.1`
+  for a relay set up for `localhost`, say) offers none either.
+- `PASSKEY_RP_NAME`: the name a passkey is saved under; `thinksynth` if
+  unset.
+
+Both go in the `.env` beside `compose.yaml` (The first time, above).
+
+Pick the domain for good. A passkey works only on the RP ID it was made
+for, so moving the site to another domain, or changing `PASSKEY_RP_ID`,
+orphans every passkey made so far; their owners log in with their keys
+and add new ones.
 
 The document socket is let in by a ticket in its query string, good for
 five minutes. `docker/nginx.conf` logs requests by path alone so that
@@ -168,7 +215,9 @@ the image):
     docker compose -f compose.yaml start relay
 
 A restore goes back to the day of the backup, for better and worse:
-keys replaced since work again and the new ones do not, sessions ended
+keys replaced since work again and the new ones do not, passkeys
+removed since -- by their owners, or with a replaced key -- log in
+again and those added since do not, sessions ended
 since -- logged out, revoked -- are live again, and an account banned
 since is not. After one, ban those accounts again (`admin ban`), and
 ask anyone who replaced a key because it was lost or seen to replace it
@@ -185,16 +234,16 @@ The admin commands run against the same file, beside the running relay:
     docker exec thinksynth-relay node relay.mjs admin revoke <handle>
     docker exec thinksynth-relay node relay.mjs admin delete <handle>
 
-A ban ends the account's sessions and refuses its key until an unban; a
-banned account cannot delete itself. `revoke` ends the sessions and
-leaves the key working. A deleted account's handles -- its own and any it
-was renamed from -- stay nobody's for 30 days from the delete, so a
-name cannot be taken over to impersonate its owner; `delete <handle>
---free` frees them at once. `rename` takes the same handles an owner
-could pick, so none starting with `guest-`. The relay looks
-at the sessions behind its open rooms once a minute and closes those
-that have ended, so a ban or a revoke empties the account out of every
-room within the minute.
+A ban ends the account's sessions and refuses its key and passkeys until
+an unban; a banned account cannot delete itself. `revoke` ends the
+sessions and leaves the key and passkeys working. A deleted account's
+handles -- its own and any it was renamed from -- stay nobody's for 30
+days from the delete, so a name cannot be taken over to impersonate its
+owner; `delete <handle> --free` frees them at once. `rename` takes the
+same handles an owner could pick, so none starting with `guest-`. The
+relay looks at the sessions behind its open rooms once a minute and
+closes those that have ended, so a ban or a revoke empties the account
+out of every room within the minute.
 
 ## Not yet
 

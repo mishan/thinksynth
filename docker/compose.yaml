@@ -30,6 +30,10 @@ services:
       # has no accounts: the account API is not there, and a session in
       # a hello is ignored.
       CORS_ORIGIN: ${CORS_ORIGIN:-}
+      # The site's domain, which CORS_ORIGIN is on, for passkeys, and the
+      # name they are saved under; unset, there are none.
+      PASSKEY_RP_ID: ${PASSKEY_RP_ID:-}
+      PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-}
       # nginx in front, appending the client's address to X-Forwarded-For,
       # which the account API's rate limits read.
       TRUST_PROXY: "1"

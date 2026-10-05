@@ -12,8 +12,8 @@ COPY wasm/web/package.json wasm/web/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 COPY wasm/web/relay.mjs wasm/web/doc.js wasm/web/commands.js \
-     wasm/web/account.js wasm/web/accounts.mjs wasm/web/wordlist.mjs \
-     wasm/web/confusables.js ./
+     wasm/web/account.js wasm/web/accounts.mjs wasm/web/passkeys.mjs \
+     wasm/web/wordlist.mjs wasm/web/confusables.js ./
 COPY gen /srv/thinksynth/gen
 COPY dsp /srv/thinksynth/dsp
 

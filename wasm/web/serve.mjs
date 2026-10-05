@@ -58,7 +58,9 @@ const TYPES = {
     '.css':  'text/css',
 };
 
-/* Resolves with the listening server. */
+/* Resolves with the listening server. `relay' is the relay's URL, or a
+   function asked for it on each request, for a harness whose relay needs
+   this server's port before it can start. */
 export function serve (root, port = 8080, host = '127.0.0.1', relay = null)
 {
     root = path.resolve(root);
@@ -72,7 +74,8 @@ export function serve (root, port = 8080, host = '127.0.0.1', relay = null)
         {
             res.writeHead(200, { 'Content-Type': 'application/json',
                                  'Cache-Control': 'no-store' });
-            res.end(JSON.stringify({ relay }) + '\n');
+            res.end(JSON.stringify({ relay: typeof relay === 'function'
+                                                ? relay() : relay }) + '\n');
             return;
         }
 

@@ -195,3 +195,17 @@ export function apiOriginOf (relayUrl)
         return null;
     }
 }
+
+/* Whether `raw' is an origin and nothing else, as a browser sends one in
+   Origin and writes one into a WebAuthn response. */
+export function isOrigin (raw)
+{
+    return URL.canParse(raw) && new URL(raw).origin === raw;
+}
+
+/* Whether a page on `host' may use passkeys for `rpId': WebAuthn takes
+   an RP ID that is the host or a domain it is under. */
+export function onRpId (host, rpId)
+{
+    return host === rpId || host.endsWith(`.${rpId}`);
+}

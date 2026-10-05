@@ -53,7 +53,9 @@ else can take the handle, or one its owner renamed from in the last 30
 days. Guests are still a name per session, marked as guests wherever
 the room shows names. The document is no longer open to anyone who can
 reach the relay: its socket needs a short-lived ticket the room socket
-hands out. Roles, visibility and moderation within a room are not done.
+hands out. An account logs in with a passkey, or with its key, which
+is the way back in when a passkey is lost. Roles, visibility and
+moderation within a room are not done.
 
 ## 1. The headless peer, and load
 

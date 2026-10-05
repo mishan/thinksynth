@@ -43,7 +43,8 @@
  *                        piece
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
  *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
- *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs)
+ *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs),
+ *                        and passkeys (passkeys.mjs)
  *
  * Two sockets per peer rather than one: y-websocket's framing is its
  * own, and the JSON side is easier to read on the wire and in a harness
@@ -76,9 +77,10 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { ACCOUNT_API, normalizeName, shownName } from './account.js';
+import { ACCOUNT_API, isOrigin, normalizeName, shownName } from './account.js';
 import { AccountStore, Accounts, ADMIN_USAGE, accountRoutes,
          runAdmin } from './accounts.mjs';
+import { Passkeys, passkeyConfig } from './passkeys.mjs';
 import { RELAY, TRANSPORT_LEAD } from './commands.js';
 import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
          pieceName, putFile, readSeen, seenOf, snapshot } from './doc.js';
@@ -1221,10 +1223,11 @@ class Room
 
 /* The server. Resolves with it listening; `address().port' says where.
    `db' is the accounts' file, or ':memory:'; `corsOrigin' and
-   `trustProxy' are accountRoutes'. The two times are for a harness. */
+   `trustProxy' are accountRoutes'; `passkeys' is passkeyConfig's, or null
+   for none. The two times are for a harness. */
 export function relay ({ port = 8787, host = '0.0.0.0',
                          tree = path.join(here, '..', '..'), db = ':memory:',
-                         corsOrigin = null, trustProxy = 0,
+                         corsOrigin = null, trustProxy = 0, passkeys = null,
                          ticketMs = TICKET_MS, heartbeatMs = HEARTBEAT_MS,
                          sessionCheckMs = SESSION_CHECK_MS } = {})
 {
@@ -1244,7 +1247,11 @@ export function relay ({ port = 8787, host = '0.0.0.0',
                              a.sessionHash !== ended.except, why);
         },
     });
-    const api = accountRoutes(accounts, { corsOrigin, trustProxy });
+    /* Passkeys are an account's, and there are none without accounts. */
+    const keys = corsOrigin === null || passkeys === null
+        ? null : new Passkeys({ accounts, ...passkeys });
+    const api = accountRoutes(accounts, { corsOrigin, trustProxy,
+                                          passkeys: keys });
 
     const room = (name, seedWith) =>
     {
@@ -1283,6 +1290,9 @@ export function relay ({ port = 8787, host = '0.0.0.0',
                 /* Only a page at CORS_ORIGIN can use them, so without it
                    there are none to offer. */
                 accounts: corsOrigin !== null,
+
+                /* The RP ID, for the page to tell whether it is on it. */
+                passkeys: keys?.rpId ?? null,
                 rooms: [...rooms].map(([name, r]) =>
                     ({ name, peers: r.peers.size, piece: pieceName(r.doc),
                        playing: r.playing !== null })),
@@ -1451,7 +1461,8 @@ if (process.argv[1] !== undefined &&
 
     /* DB names the accounts' file; CORS_ORIGIN the page's origin, without
        which there are no accounts; TRUST_PROXY how many proxies in front
-       append to X-Forwarded-For (1 behind nginx alone). */
+       append to X-Forwarded-For (1 behind nginx alone); PASSKEY_RP_ID the
+       site's domain, for passkeys (passkeyConfig). */
     const opts = { db: process.env.DB || path.join(here, 'relay.db'),
                    corsOrigin: process.env.CORS_ORIGIN || null,
                    trustProxy: Number(process.env.TRUST_PROXY ?? 0) };
@@ -1476,9 +1487,7 @@ if (process.argv[1] !== undefined &&
     /* An origin is what a browser sends in Origin, and nothing else: one
        with a path or a slash after it matches no request at all, and `*'
        would let any site spend its visitors' registrations here. */
-    if (opts.corsOrigin !== null &&
-        (!URL.canParse(opts.corsOrigin) ||
-         new URL(opts.corsOrigin).origin !== opts.corsOrigin))
+    if (opts.corsOrigin !== null && !isOrigin(opts.corsOrigin))
     {
         process.stderr.write(`relay.mjs: CORS_ORIGIN is ${opts.corsOrigin}; ` +
                              'it is scheme://host[:port], nothing after\n');
@@ -1488,6 +1497,16 @@ if (process.argv[1] !== undefined &&
     if (!(Number.isInteger(opts.trustProxy) && opts.trustProxy >= 0))
     {
         process.stderr.write('relay.mjs: TRUST_PROXY is a count of proxies\n');
+        process.exit(2);
+    }
+
+    try
+    {
+        opts.passkeys = passkeyConfig(process.env);
+    }
+    catch (e)
+    {
+        process.stderr.write(`relay.mjs: ${e.message}\n`);
         process.exit(2);
     }
 

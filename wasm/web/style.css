@@ -908,6 +908,7 @@ body:has(#joinrow:not([hidden])) #roomhead
 #accountdialog h2 { margin: 0; font-size: 1em; }
 #accountdialog p { margin: 0; }
 #accountdialog .accountwarn { color: var(--warn); }
+#accountdialog .passkeys { margin: 0; padding-left: 1.2em; }
 
 #accountdialog label
 {

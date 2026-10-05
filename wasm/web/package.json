@@ -27,6 +27,8 @@
     "shotbox": "0.3.0"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "cairo-canvas2d": "^0.1.0",
     "codemirror": "^6.0.2",
     "mullion": "0.3.0",

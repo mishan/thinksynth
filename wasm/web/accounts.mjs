@@ -25,9 +25,11 @@
  *   POST login     { key }               { session, account }
  *   GET  me                   session    { account }
  *   POST handle    { handle, key } session   { account }
- *   POST key       { key }    session    { key, session }
+ *   POST key       { key }    session    { key, session,
+ *                                         passkeysRemoved }
  *   POST logout               session    {}
  *   POST delete    { key, handle } session?  {}
+ *   .../passkey/...                       (passkeys.mjs)
  *
  * A session goes as `Authorization: Bearer s_...', never as a cookie, so
  * no other site's page can send one for its visitor; a failure is `{
@@ -61,6 +63,10 @@ export const RENAME_EVERY_MS = 30 * DAY_MS;
 export const HANDLE_KEPT_MS = 30 * DAY_MS;
 
 const BODY_MAX_BYTES = 1024;
+
+/* A WebAuthn response: an attestation, with a public key and an
+   authenticator's own credential id, which may run to a KiB alone. */
+const RESPONSE_MAX_BYTES = 16 * 1024;
 
 /* A session's last use is written at most this often: it only has to be
    good to the day for a year's lapse, and a write per hello and per
@@ -128,9 +134,28 @@ const MIGRATIONS = [
        account_id    INTEGER NOT NULL,
        until         INTEGER NOT NULL
      ) STRICT;`,
+    `-- Passkeys (passkeys.mjs). \`id' is the credential id, base64url;
+     -- \`transports' a JSON array. An account's \`user_handle' is the
+     -- WebAuthn user id its passkeys are made under, kept past the last of
+     -- them, so that a passkey made later replaces the ones an
+     -- authenticator still holds rather than sitting beside them.
+     ALTER TABLE accounts ADD COLUMN user_handle TEXT;
+     CREATE TABLE credentials (
+       id           TEXT PRIMARY KEY,
+       account_id   INTEGER NOT NULL,
+       public_key   BLOB NOT NULL,
+       counter      INTEGER NOT NULL,
+       transports   TEXT NOT NULL,
+       created_at   INTEGER NOT NULL,
+       last_used_at INTEGER,
+       label        TEXT NOT NULL
+     ) STRICT;
+     CREATE INDEX credentials_account ON credentials (account_id);`,
 ];
 
 const COLUMNS = 'id, handle, handle_folded, created_at, renamed_at, banned';
+const CREDENTIALS = 'SELECT c.*, a.user_handle FROM credentials c ' +
+                    'JOIN accounts a ON a.id = c.account_id';
 
 /* What is stored of a key or a session: its SHA-256, in hex. */
 export function secretHash (secret)
@@ -209,6 +234,23 @@ export class AccountStore
                          'renamed_at = coalesce(?, renamed_at) WHERE id = ?'),
             setBanned: q('UPDATE accounts SET banned = ? WHERE id = ?'),
             remove: q('DELETE FROM accounts WHERE id = ?'),
+            userHandle: q('SELECT user_handle FROM accounts WHERE id = ?'),
+            claimUserHandle: q('UPDATE accounts SET user_handle = ' +
+                               'coalesce(user_handle, ?) WHERE id = ?'),
+            addCredential: q('INSERT OR IGNORE INTO credentials (id, ' +
+                             'account_id, public_key, counter, ' +
+                             'transports, created_at, label) ' +
+                             'VALUES (?, ?, ?, ?, ?, ?, ?)'),
+            credential: q(`${CREDENTIALS} WHERE c.id = ?`),
+            credentials: q(`${CREDENTIALS} WHERE c.account_id = ? ` +
+                           'ORDER BY c.created_at, c.id'),
+            useCredential: q('UPDATE credentials SET counter = ?, ' +
+                             'last_used_at = ? WHERE id = ? AND ' +
+                             '(counter < ? OR (counter = 0 AND ? = 0))'),
+            removeCredential: q('DELETE FROM credentials ' +
+                                'WHERE id = ? AND account_id = ?'),
+            removeCredentials: q('DELETE FROM credentials ' +
+                                 'WHERE account_id = ?'),
         };
 
         this.db.exec(`PRAGMA busy_timeout = ${Number(busyMs)};`);
@@ -277,9 +319,10 @@ export class AccountStore
                this.q.keptBy.get(folded, now)?.account_id ?? null;
     }
 
-    /* A new account and its first session, or null if the handle is
-       somebody's; under the write lock, so nobody takes it in between. */
-    create ({ handle, keyHash, sessionHash, now })
+    /* A new account and its first session, and its first passkey if
+       `credential', or null if the handle is somebody's; under the write
+       lock, so nobody takes it in between. */
+    create ({ handle, keyHash, sessionHash, now, credential = null })
     {
         const folded = foldName(handle);
 
@@ -292,8 +335,58 @@ export class AccountStore
                                                 now).lastInsertRowid);
 
             this.q.addSession.run(sessionHash, id, now);
+
+            if (credential !== null)
+            {
+                this.q.claimUserHandle.run(credential.userHandle, id);
+
+                if (!this.addCredential(id, credential))
+                    throw passkeyTaken();
+            }
+
             return this.byId(id);
         });
+    }
+
+    /* The account's WebAuthn user handle; `fresh' becomes it if the
+       account has none yet. */
+    userHandle (id, fresh)
+    {
+        this.q.claimUserHandle.run(fresh, id);
+        return this.q.userHandle.get(id).user_handle;
+    }
+
+    /* False if the credential id is taken already: an authenticator picks
+       it, so it may be anyone's choosing. */
+    addCredential (accountId, c)
+    {
+        return this.q.addCredential.run(
+            c.id, accountId, c.publicKey, c.counter,
+            JSON.stringify(c.transports), c.createdAt, c.label).changes === 1;
+    }
+
+    credential (id)
+    {
+        return credentialOf(this.q.credential.get(id));
+    }
+
+    credentials (accountId)
+    {
+        return this.q.credentials.all(accountId).map(credentialOf);
+    }
+
+    /* A login's new count, or false if it has not gone up since the last
+       one -- a cloned authenticator, or a replay. One that never counts
+       stays at 0. */
+    useCredential (id, counter, now)
+    {
+        return this.q.useCredential.run(counter, now, id, counter,
+                                        counter).changes === 1;
+    }
+
+    removeCredential (id, accountId)
+    {
+        return this.q.removeCredential.run(id, accountId).changes === 1;
     }
 
     addSession (sessionHash, id, now)
@@ -342,14 +435,16 @@ export class AccountStore
         this.q.lapsed.run(now);
     }
 
-    /* A new key, every session ended, and `sessionHash' the one left. */
+    /* A new key, every session ended, and `sessionHash' the one left;
+       how many passkeys went with the old key. */
     replaceKey (id, keyHash, sessionHash, now)
     {
-        this.transaction(() =>
+        return this.transaction(() =>
         {
             this.q.setKey.run(keyHash, id);
             this.endSessions(id);
             this.q.addSession.run(sessionHash, id, now);
+            return Number(this.q.removeCredentials.run(id).changes);
         });
     }
 
@@ -400,6 +495,7 @@ export class AccountStore
             const was = this.byId(id);
 
             this.endSessions(id);
+            this.q.removeCredentials.run(id);
             this.q.remove.run(id);
 
             if (free)
@@ -427,8 +523,18 @@ function accountOf (row)
     };
 }
 
+function credentialOf (row)
+{
+    return row === undefined ? null : {
+        id: row.id, accountId: row.account_id, userHandle: row.user_handle,
+        publicKey: row.public_key, counter: row.counter,
+        transports: JSON.parse(row.transports), createdAt: row.created_at,
+        lastUsedAt: row.last_used_at, label: row.label,
+    };
+}
+
 /* An account as its owner is shown it. */
-function infoOf (account)
+export function infoOf (account)
 {
     return {
         handle: account.handle,
@@ -456,10 +562,12 @@ const unauthorized = () =>
                  { 'WWW-Authenticate': 'Bearer' });
 const badKey = (message = 'no account has that key') =>
     new ApiError(401, 'bad_key', message);
-const banned = () =>
+export const banned = () =>
     new ApiError(403, 'banned', 'this account is banned');
-const taken = (handle) =>
+export const taken = (handle) =>
     new ApiError(409, 'handle_taken', `${JSON.stringify(handle)} is taken`);
+export const passkeyTaken = () =>
+    new ApiError(409, 'passkey_taken', 'that passkey is registered already');
 
 /* One token bucket per key, least recently seen first. */
 class RateLimiter
@@ -730,7 +838,8 @@ export class Accounts
 
     /* A new key for the current one, ending every other session: a
        session alone that could make one would be a stolen browser's way
-       to take the account and then delete it. */
+       to take the account and then delete it. Every passkey goes too:
+       whoever had the old key could have added any of them. */
     /* The caller's session goes too, for a new one: a copy of it taken
        before would otherwise outlive the key that made it. */
     replaceKey (client, authorization, body)
@@ -745,11 +854,12 @@ export class Accounts
         const session = newSession();
         const sessionHash = secretHash(session);
 
-        this.store.replaceKey(account.id, secretHash(key), sessionHash,
-                              this.now());
+        const passkeysRemoved = this.store.replaceKey(
+            account.id, secretHash(key), sessionHash, this.now());
+
         this.onSessionsEnded({ account: account.id, except: sessionHash },
                              'the account\'s key was replaced');
-        return { key, session };
+        return { key, session, passkeysRemoved };
     }
 
     logout (client, authorization)
@@ -887,7 +997,7 @@ export class Accounts
     }
 }
 
-function handleOf (raw)
+export function handleOf (raw)
 {
     const handle = normalizeName(raw);
 
@@ -919,10 +1029,12 @@ function bearer (authorization)
    origin is refused, and one with none (curl) is let through. The relay
    serves none of this without one (relay.mjs);
    `trustProxy' how many proxies in front append to X-Forwarded-For. Only
-   count proxies that set it, or a client picks its own rate limit. */
+   count proxies that set it, or a client picks its own rate limit.
+   `passkeys' is a Passkeys (passkeys.mjs), or null for none. */
 export function accountRoutes (accounts, { corsOrigin = null,
                                            trustProxy = 0,
-                                           log = accounts.log } = {})
+                                           log = accounts.log,
+                                           passkeys = null } = {})
 {
     /* Behind a proxy that sends no X-Forwarded-For, every client is the
        proxy's address and shares its buckets: a few registrations would
@@ -937,6 +1049,7 @@ export function accountRoutes (accounts, { corsOrigin = null,
         '/key': ['POST', (c, a, body) => accounts.replaceKey(c, a, body)],
         '/logout': ['POST', (c, a) => accounts.logout(c, a)],
         '/delete': ['POST', (c, a, body) => accounts.remove(c, a, body)],
+        ...passkeys?.routes(),
     };
 
     return async (req, res) =>
@@ -982,7 +1095,9 @@ export function accountRoutes (accounts, { corsOrigin = null,
                 return;
             }
 
-            const [method, run] = route;
+            /* A route's third entry: whether it takes a WebAuthn
+               response. */
+            const [method, run, large = false] = route;
 
             if (req.method !== method)
                 throw new ApiError(405, 'method_not_allowed', `use ${method}`,
@@ -1022,9 +1137,12 @@ export function accountRoutes (accounts, { corsOrigin = null,
 
             const client = clientKey(forwarded ?? req.socket.remoteAddress ??
                                      'unknown');
-            const body = method === 'POST' ? await readJson(req) : {};
+            const body = method === 'POST'
+                ? await readJson(req, large ? RESPONSE_MAX_BYTES
+                                            : BODY_MAX_BYTES)
+                : {};
 
-            send(200, run(client, req.headers.authorization, body));
+            send(200, await run(client, req.headers.authorization, body));
         }
         catch (e)
         {
@@ -1040,18 +1158,18 @@ export function accountRoutes (accounts, { corsOrigin = null,
     };
 }
 
-/* A JSON object of at most BODY_MAX_BYTES, or none at all; past the cap
-   the rest is left unread and the connection goes with it. */
-function readJson (req)
+/* A JSON object of at most `maxBytes', or none at all; past the cap the
+   rest is left unread and the connection goes with it. */
+function readJson (req, maxBytes)
 {
     const tooLarge = () =>
         new ApiError(413, 'too_large',
-                     `the body is over ${BODY_MAX_BYTES} bytes`,
+                     `the body is over ${maxBytes} bytes`,
                      { Connection: 'close' });
 
     return new Promise((resolve, reject) =>
     {
-        if (Number(req.headers['content-length']) > BODY_MAX_BYTES)
+        if (Number(req.headers['content-length']) > maxBytes)
         {
             reject(tooLarge());
             return;
@@ -1064,7 +1182,7 @@ function readJson (req)
         {
             size += chunk.length;
 
-            if (size > BODY_MAX_BYTES)
+            if (size > maxBytes)
             {
                 reject(tooLarge());
                 req.pause();
@@ -1107,7 +1225,8 @@ export const ADMIN_USAGE = `usage: relay.mjs admin <command>
                            unaffected, and the old handle is free at once)
   ban <handle>             end its sessions and refuse it until unbanned
   unban <handle>           let it log in again
-  revoke <handle>          end its sessions; its key still logs in
+  revoke <handle>          end its sessions; its key and passkeys still
+                           log in
   delete <handle> [--free] delete it; its handles stay nobody's for 30
                            days, as when its owner deletes it, unless
                            --free frees them now`;

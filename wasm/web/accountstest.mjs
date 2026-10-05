@@ -31,9 +31,16 @@
  * refuse past their buckets, per client, per /48 and across everyone; and
  * the routes answer a CORS preflight and refuse a body that is too big.
  *
+ * Passkeys are made and used by an authenticator in this script, as the
+ * WebAuthn spec says one answers: registering, logging in, adding and
+ * removing, and the refusals -- another origin or RP ID, a challenge
+ * replayed, expired or issued for something else, a count that went back,
+ * a banned account.
+ *
  * Exit status is the number of failures.
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -43,6 +50,7 @@ import { foldName, normalizeKey, normalizeName } from './account.js';
 import { AccountStore, Accounts, HANDLE_KEPT_MS, RENAME_EVERY_MS,
          SESSION_TTL_MS, accountRoutes, clientKey, forwardedAddress,
          newKey, runAdmin } from './accounts.mjs';
+import { CHALLENGE_TTL_MS, Passkeys, passkeyConfig } from './passkeys.mjs';
 import { KEY_WORDS } from './wordlist.mjs';
 
 let failures = 0;
@@ -60,6 +68,7 @@ function check (cond, what)
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAGE = 'https://page.example.org';
+const RP_ID = 'example.org';
 
 /* Limits nothing below reaches, but for the test of them. */
 const ROOMY = { burst: 1000, refillMs: 1000 };
@@ -76,8 +85,10 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
     const accounts = new Accounts({ store, now: () => clock.now, limits,
                                     onSessionsEnded: (e) => ended.push(e),
                                     log: (line) => logged.push(line) });
+    const passkeys = new Passkeys({ accounts, rpId: RP_ID,
+                                    rpName: 'test', origin: PAGE });
     const server = http.createServer(
-        accountRoutes(accounts, { corsOrigin: PAGE, trustProxy }));
+        accountRoutes(accounts, { corsOrigin: PAGE, trustProxy, passkeys }));
 
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
 
@@ -103,7 +114,7 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
                  body: text === '' ? null : JSON.parse(text) };
     };
 
-    return { clock, ended, logged, call, base,
+    return { clock, ended, logged, call, base, passkeys,
              close: () => server.close() };
 }
 
@@ -385,6 +396,421 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
     }
 }
 
+/* ---- passkeys ---- */
+
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest();
+const b64 = (b) => Buffer.from(b).toString('base64url');
+
+/* The CBOR an attestation needs: integers, byte and text strings, and
+   maps. */
+function cbor (v)
+{
+    const head = (major, n) => (n < 24 ? Buffer.from([major << 5 | n])
+        : n < 256 ? Buffer.from([major << 5 | 24, n])
+            : Buffer.from([major << 5 | 25, n >> 8, n & 255]));
+
+    if (typeof v === 'number')
+        return v >= 0 ? head(0, v) : head(1, -1 - v);
+
+    if (typeof v === 'string')
+        return Buffer.concat([head(3, Buffer.byteLength(v)), Buffer.from(v)]);
+
+    if (v instanceof Uint8Array)
+        return Buffer.concat([head(2, v.length), v]);
+
+    const entries = v instanceof Map ? [...v] : Object.entries(v);
+
+    return Buffer.concat([head(5, entries.length),
+                          ...entries.flatMap(([k, x]) => [cbor(k), cbor(x)])]);
+}
+
+/* One ES256 passkey, answering as the browser library hands the page an
+   authenticator's answer: attestation `none', user present and
+   verified. */
+class Authenticator
+{
+    constructor ()
+    {
+        const { privateKey, publicKey } =
+            crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+        const { x, y } = publicKey.export({ format: 'jwk' });
+
+        this.key = privateKey;
+        this.cose = cbor(new Map([[1, 2], [3, -7], [-1, 1],
+                                  [-2, Buffer.from(x, 'base64url')],
+                                  [-3, Buffer.from(y, 'base64url')]]));
+        this.id = b64(crypto.randomBytes(16));
+        this.counter = 0;
+    }
+
+    authData (flags, counter, rpId, attested = Buffer.alloc(0))
+    {
+        const count = Buffer.alloc(4);
+
+        count.writeUInt32BE(counter);
+        return Buffer.concat([sha256(rpId), Buffer.from([flags]), count,
+                              attested]);
+    }
+
+    clientData (type, challenge, origin)
+    {
+        return Buffer.from(JSON.stringify({ type, challenge, origin,
+                                            crossOrigin: false }));
+    }
+
+    create (options, { origin = PAGE, rpId = RP_ID } = {})
+    {
+        const raw = Buffer.from(this.id, 'base64url');
+        const length = Buffer.from([raw.length >> 8, raw.length & 255]);
+
+        this.user = options.user.id;
+        return {
+            id: this.id, rawId: this.id, type: 'public-key',
+            clientExtensionResults: {},
+            response: {
+                clientDataJSON: b64(this.clientData(
+                    'webauthn.create', options.challenge, origin)),
+                attestationObject: b64(cbor({
+                    fmt: 'none', attStmt: {},
+                    authData: this.authData(0x45, 0, rpId, Buffer.concat([
+                        Buffer.alloc(16), length, raw, this.cose])) })),
+                transports: ['internal'],
+            },
+        };
+    }
+
+    get (options, { origin = PAGE, rpId = RP_ID,
+                    counter = ++this.counter } = {})
+    {
+        const authData = this.authData(0x05, counter, rpId);
+        const clientData = this.clientData('webauthn.get', options.challenge,
+                                           origin);
+
+        return {
+            id: this.id, rawId: this.id, type: 'public-key',
+            clientExtensionResults: {},
+            response: {
+                clientDataJSON: b64(clientData),
+                authenticatorData: b64(authData),
+                signature: b64(crypto.sign('sha256', Buffer.concat(
+                    [authData, sha256(clientData)]), this.key)),
+                userHandle: this.user,
+            },
+        };
+    }
+}
+
+{
+    const store = new AccountStore(':memory:');
+    const s = await serve(store);
+    const route = (r, opts) => s.call(`passkey/${r}`, opts);
+    const register = async (handle, a, how) =>
+    {
+        const options = (await route('register-options',
+                                     { body: { handle } })).body;
+
+        return route('register-verify',
+                     { body: { response: a.create(options, how) } });
+    };
+    const login = async (a, how) =>
+    {
+        const options = (await route('login-options')).body;
+
+        return route('login-verify',
+                     { body: { response: a.get(options, how) } });
+    };
+
+    try
+    {
+        const a = new Authenticator();
+        const options = (await route('register-options',
+                                     { body: { handle: 'Pat' } })).body;
+
+        check(options.rp?.id === RP_ID && options.user?.name === 'Pat' &&
+              options.authenticatorSelection?.residentKey === 'required',
+              'a passkey is asked for on the site\'s domain, resident');
+
+        /* Over a KiB, as an RSA key or a long credential id makes one. */
+        const pat = await route('register-verify', { body: {
+            response: a.create(options), padding: 'x'.repeat(2000) } });
+
+        check(pat.status === 200 && pat.body.account.handle === 'Pat' &&
+              normalizeKey(pat.body.key) === pat.body.key &&
+              /^s_[0-9a-f]{32}$/.test(pat.body.session),
+              'registering with a passkey hands over a key, a session and ' +
+              'the handle');
+
+        const taken = await route('register-options',
+                                  { body: { handle: 'pat' } });
+
+        check(taken.status === 409 && taken.body.error === 'handle_taken',
+              'and a taken handle is said before a passkey is made');
+
+        const first = await login(a);
+        const me = await s.call('me', { method: 'GET',
+                                        session: first.body.session });
+
+        check(first.status === 200 && me.body.account.handle === 'Pat' &&
+              first.body.session !== pat.body.session,
+              'the passkey logs in to a session of the account\'s');
+        check((await s.call('login', { body: { key: pat.body.key } }))
+            .status === 200, 'and so does the key');
+
+        const lo = (await route('login-options')).body;
+        const answer = a.get(lo);
+
+        await route('login-verify', { body: { response: answer } });
+
+        const replayed = await route('login-verify',
+                                     { body: { response: answer } });
+
+        check(replayed.status === 400 &&
+              replayed.body.error === 'bad_challenge',
+              'a login answered once cannot be replayed');
+
+        const stale = (await route('login-options')).body;
+
+        s.clock.now += CHALLENGE_TTL_MS + 1;
+
+        const expired = await route('login-verify',
+                                    { body: { response: a.get(stale) } });
+
+        check(expired.body.error === 'bad_challenge',
+              'nor answered once it has expired');
+
+        const forRegister = (await route('register-options',
+                                         { body: { handle: 'Ro' } })).body;
+        const crossed = await route('login-verify', {
+            body: { response: a.get(forRegister) } });
+
+        check(crossed.body.error === 'bad_challenge',
+              'nor with a challenge issued to register');
+
+        for (const [how, what] of [
+            [{ origin: 'https://elsewhere.example.org' }, 'another origin'],
+            [{ rpId: 'elsewhere.example.net' }, 'another RP ID'],
+            [{ counter: 1 }, 'a count that went back']])
+        {
+            const r = await login(a, how);
+
+            check(r.status === 401 && r.body.error === 'bad_passkey',
+                  `a login from ${what} is refused`);
+        }
+
+        const elsewhere = await register('Ely', new Authenticator(),
+                                         { origin: 'https://example.net' });
+
+        check(elsewhere.body.error === 'bad_passkey',
+              'and so is a passkey made from another origin');
+
+        /* Adding takes the key, and is bound to the session it was
+           asked for under. */
+        const session = first.body.session;
+        const b = new Authenticator();
+        const keyless = await route('add-options', { session, body: {} });
+        const addOptions = (await route('add-options', {
+            session, body: { key: pat.body.key } })).body;
+
+        const other = (await s.call('register',
+                                    { body: { handle: 'Oz' } })).body;
+        const stolen = await route('add-verify', {
+            session: other.session,
+            body: { response: b.create(addOptions) } });
+
+        check(keyless.status === 401 && keyless.body.error === 'bad_key' &&
+              addOptions.excludeCredentials?.[0]?.id === a.id &&
+              addOptions.user.id === options.user.id,
+              'adding a passkey takes the key, and names the ones the ' +
+              'account has');
+        const sibling = (await s.call('login', {
+            body: { key: pat.body.key } })).body.session;
+        const borrowed = await route('add-verify', {
+            session: sibling,
+            body: { response: b.create((await route('add-options', {
+                session, body: { key: pat.body.key } })).body) } });
+
+        check(stolen.body.error === 'bad_challenge' &&
+              borrowed.body.error === 'bad_challenge',
+              'and only the session that asked can add it: not another ' +
+              'account\'s, nor another of the same account\'s');
+
+        const again = (await route('add-options', {
+            session, body: { key: pat.body.key } })).body;
+        const added = await route('add-verify', {
+            session, body: { response: b.create(again) } });
+        const list = await route('list', { method: 'GET', session });
+
+        check(added.status === 200 &&
+              list.body.passkeys.map((p) => p.id).join() ===
+              [a.id, b.id].join() &&
+              list.body.passkeys[0].lastUsedAt ===
+                  s.clock.now - CHALLENGE_TTL_MS - 1 &&
+              list.body.passkeys[1].lastUsedAt === null,
+              'an added passkey is listed beside the first, with when ' +
+              'each was last used');
+
+        /* Two logins answered with one count, at once: each verifies
+           against the count before either is written. */
+        const [l1, l2] = await Promise.all([route('login-options'),
+                                            route('login-options')]);
+        const count = a.counter + 1;
+        const both = await Promise.all([l1, l2].map((o) =>
+            route('login-verify', { body: { response: a.get(o.body, {
+                counter: count }) } })));
+
+        a.counter = count;
+        check(both.map((r) => r.status).sort().join() === '200,401',
+              'of two logins with one count at once, one gets in');
+
+        /* No number of challenges asked for pushes out another's. */
+        const waiting = (await route('login-options')).body;
+
+        for (let i = 0; i < 12000; i++)
+            await s.passkeys.loginOptions(`10.1.${i % 200}.1`);
+
+        check((await route('login-verify', {
+            body: { response: a.get(waiting) } })).status === 200,
+              'a login is still answerable after twelve thousand more ' +
+              'challenges');
+
+        /* One challenge, spelled three ways, is still one try. */
+        const spelled = (await route('login-options')).body.challenge;
+        const spellings = [];
+
+        for (const challenge of [spelled, `${spelled}=`, `${spelled}.`])
+            spellings.push((await route('login-verify', {
+                body: { response: a.get({ challenge }) } })).status);
+
+        check(spellings.join(' ') === '200 400 400',
+              `a challenge padded or with a stray character is the one ` +
+              `already answered: ${spellings.join(' ')}`);
+
+        const misnamed = (await route('register-options',
+                                      { body: { handle: 'Mo' } })).body;
+        const renamed = new Authenticator().create(misnamed);
+
+        renamed.id = renamed.rawId = b64(crypto.randomBytes(16));
+        check((await route('register-verify', {
+            body: { response: renamed } })).body.error === 'bad_passkey',
+              'a passkey whose id is not the one its authenticator signed ' +
+              'is refused');
+
+        for (const transports of ['usb', null, ['usb', 'usb', 'warp']])
+        {
+            const t = new Authenticator();
+            const handle = `T${JSON.stringify(transports).length}`;
+            const o = (await route('register-options',
+                                   { body: { handle } })).body;
+            const response = t.create(o);
+
+            response.response.transports = transports;
+
+            const r = await route('register-verify', { body: { response } });
+            const kept = r.status === 200 && store.credential(t.id).transports;
+
+            check(Array.isArray(kept) && kept.length <=
+                  (Array.isArray(transports) ? 1 : 0),
+                  `transports ${JSON.stringify(transports)} are kept as ` +
+                  JSON.stringify(kept));
+        }
+
+        const dup = await register('Dup', a);
+
+        check(dup.status === 409 && dup.body.error === 'passkey_taken',
+              'a credential id already registered is not taken again');
+
+        /* Removing takes a session alone, and ends none. */
+        const removed = await route('remove', { session, body: { id: a.id } });
+        const gone = await login(a);
+        const unknown = await route('remove', {
+            session: other.session, body: { id: b.id } });
+
+        check(removed.status === 200 && gone.status === 401 &&
+              (await login(b)).status === 200 &&
+              (await s.call('me', { method: 'GET', session })).status === 200,
+              'a removed passkey logs in no more; the others and the ' +
+              'session do');
+        check(unknown.status === 404,
+              'and nobody removes another account\'s');
+
+        const patId = store.byHandle('pat').id;
+
+        store.setBanned(patId, true);
+
+        const bannedLogin = await login(b);
+
+        check(bannedLogin.status === 403 &&
+              bannedLogin.body.error === 'banned',
+              'a banned account\'s passkey is refused');
+
+        store.setBanned(patId, false);
+
+        const fresh = (await login(b)).body.session;
+
+        await s.call('delete', { session: fresh,
+                                 body: { key: pat.body.key, handle: 'Pat' } });
+        check(store.credentials(patId).length === 0 &&
+              (await login(b)).status === 401,
+              'and a deleted account\'s passkeys go with it');
+
+        /* A new key takes every passkey with the old one: whoever had it
+           could have added any of them. */
+        const c = new Authenticator();
+        const kit = (await register('Kit', c)).body;
+        const replaced = await s.call('key', { session: kit.session,
+                                               body: { key: kit.key } });
+        const left = await route('list', { method: 'GET',
+                                           session: replaced.body.session });
+
+        check(replaced.status === 200 && replaced.body.passkeysRemoved === 1 &&
+              left.body.passkeys.length === 0 &&
+              (await login(c)).body.error === 'unknown_passkey',
+              'replacing the key removes the passkeys, which log in no more');
+
+        const readd = (await route('add-options', {
+            session: replaced.body.session,
+            body: { key: replaced.body.key } })).body;
+
+        check(readd.user.id === c.user,
+              'and one added after is made under the user handle they ' +
+              'were, so an authenticator replaces its old one');
+    }
+    finally
+    {
+        s.close();
+    }
+
+    for (const [env, want] of [
+        [{}, null],
+        [{ PASSKEY_RP_ID: RP_ID, CORS_ORIGIN: PAGE }, RP_ID],
+        [{ PASSKEY_RP_ID: 'page.example.org', CORS_ORIGIN: PAGE },
+         'page.example.org'],
+        [{ PASSKEY_RP_ID: 'localhost', CORS_ORIGIN: 'http://localhost:8080' },
+         'localhost'],
+        [{ PASSKEY_RP_ID: RP_ID }, 'refused'],
+        [{ PASSKEY_RP_ID: RP_ID, CORS_ORIGIN: '*' }, 'refused'],
+        [{ PASSKEY_RP_ID: RP_ID, CORS_ORIGIN: 'https://example.net' },
+         'refused'],
+        [{ PASSKEY_RP_ID: RP_ID, CORS_ORIGIN: 'https://badexample.org' },
+         'refused'],
+        [{ PASSKEY_RP_ID: RP_ID, CORS_ORIGIN: `${PAGE}/` }, 'refused'],
+        [{ PASSKEY_RP_ID: RP_ID, CORS_ORIGIN: `${PAGE}/jam` }, 'refused']])
+    {
+        let got;
+
+        try
+        {
+            got = passkeyConfig(env)?.rpId ?? null;
+        }
+        catch
+        {
+            got = 'refused';
+        }
+
+        check(got === want, `passkeys from ${JSON.stringify(env)}: ${want}`);
+    }
+}
+
 /* ---- the admin commands, on a file ---- */
 
 {
@@ -548,6 +974,10 @@ async function serve (store, { limits = roomy, trustProxy = 0 } = {})
         /* Two each, three a /48 and six in all. */
         check(await statuses(['10.0.0.1', '10.0.0.1', '10.0.0.1']) ===
               '200 200 429', 'a client is refused past its own bucket');
+        check((await s.call('passkey/register-options', {
+            headers: from('10.0.0.1'), body: { handle: 'Probe' } }))
+            .status === 429,
+              'and asking whether a handle is taken is one of them');
         check(await statuses(['2001:db8:1:1::1', '2001:db8:1:1::2',
                               '2001:db8:1:1::3', '2001:db8:1:2::1',
                               '2001:db8:1:3::1']) ===

@@ -395,8 +395,9 @@ Where it stands:
   the mirror, as the solo page does, so an `osc::sample` instrument
   sounds in a room.
 - **Text chat**, a pane on the room page (section 4).
-- **Accounts.** A handle nobody else can join as, logged in with an
-  eight-word key from the relay; guests are marked as guests. The
+- **Accounts.** A handle nobody else can join as, logged in with a
+  passkey or an eight-word key from the relay; guests are marked as
+  guests. The
   document socket is let in by a ticket from the room socket. Running
   it is [RELAY.md](RELAY.md#accounts).
 - **An invite link**, so a room is joined without typing its name, and

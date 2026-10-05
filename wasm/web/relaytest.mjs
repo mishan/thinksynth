@@ -755,7 +755,7 @@ try
     check(listed?.peers === 2 && listed.piece === 'airports.gen' &&
           listed.playing === false,
           'the health line lists the room, its two people and its piece');
-    check(health.accounts === false,
+    check(health.accounts === false && health.passkeys === null,
           'and offers no accounts with no page origin to serve them to');
 
     /* Nor any routes for them, from a page or not, and a hello's session

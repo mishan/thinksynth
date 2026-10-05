@@ -18,8 +18,9 @@
 
 /*
  * accountui.js -- the room page's account dialog: create an account, log
- * in with a key, and once logged in change the handle, replace the key,
- * log out or delete the account. Opened from the join card.
+ * in with a passkey or a key, and once logged in add and remove passkeys,
+ * change the handle, replace the key, log out or delete the account.
+ * Opened from the join card.
  *
  * The key is the account and the relay picks it, so the dialog's real job
  * is getting the key into a password manager. Managers save what is
@@ -30,10 +31,18 @@
  * a manager offer to save it. Show, Copy and Download cover people without
  * one.
  *
+ * Where the relay and the browser have passkeys, a passkey is the way in
+ * and the key is for when it is lost: an account is made with both at
+ * once, and the key is saved the same way.
+ *
  * The page keeps the session and the handle beside it, never the key.
  */
 
-import { ACCOUNT_API, apiOriginOf, normalizeName } from './account.js';
+import { WebAuthnAbortService, browserSupportsWebAuthn,
+         browserSupportsWebAuthnAutofill, startAuthentication,
+         startRegistration } from '@simplewebauthn/browser';
+
+import { ACCOUNT_API, apiOriginOf, normalizeName, onRpId } from './account.js';
 
 /* A session is kept under the relay it is for: one relay's is never
    another's to see, nor to end. */
@@ -41,6 +50,13 @@ const STORE = 'thinksynth:account:';
 
 /* A request slower than this is a relay that is not answering. */
 const REQUEST_MS = 10000;
+
+/* The autofill offer's challenge lapses after five minutes on the relay
+   (passkeys.mjs, CHALLENGE_TTL_MS), so a fresh one is asked for before
+   then; and again after one fails, shortly the first time and twice as
+   long each time after, up to the same four minutes. */
+const AUTOFILL_REARM_MS = 4 * 60 * 1000;
+const AUTOFILL_RETRY_MS = 2000;
 
 function load (origin)
 {
@@ -86,18 +102,18 @@ function client (origin)
 {
     const call = async (route, { body, session } = {}) =>
     {
+        const get = route === '/me' || route === '/passkey/list';
         let res;
 
         try
         {
             res = await fetch(`${origin}${ACCOUNT_API}${route}`, {
-                method: route === '/me' ? 'GET' : 'POST',
+                method: get ? 'GET' : 'POST',
                 headers: {
-                    ...(route === '/me'
-                        ? {} : { 'Content-Type': 'application/json' }),
+                    ...(get ? {} : { 'Content-Type': 'application/json' }),
                     ...(session ? { Authorization: `Bearer ${session}` } : {}),
                 },
-                body: route === '/me' ? undefined : JSON.stringify(body ?? {}),
+                body: get ? undefined : JSON.stringify(body ?? {}),
                 signal: AbortSignal.timeout(REQUEST_MS),
             });
         }
@@ -127,8 +143,58 @@ function client (origin)
         logout: (session) => call('/logout', { session }),
         remove: (session, key, handle) =>
             call('/delete', { session, body: { key, handle } }),
+
+        /* Each passkey ceremony: the relay's options, the browser's
+           answer to them, and the answer back to the relay. */
+        registerPasskey: async (handle) => call('/passkey/register-verify', {
+            body: { response: await startRegistration({ optionsJSON:
+                await call('/passkey/register-options',
+                           { body: { handle } }) }) } }),
+        addPasskey: async (session, key) => call('/passkey/add-verify', {
+            session, body: { response: await startRegistration({ optionsJSON:
+                await call('/passkey/add-options',
+                           { session, body: { key } }) }) } }),
+        /* `still' says whether the ceremony is still wanted once the
+           options are in: starting one aborts any other that is out. */
+        loginPasskey: async (useBrowserAutofill, still = () => true) =>
+        {
+            const optionsJSON = await call('/passkey/login-options');
+
+            if (!still())
+                throw new DOMException('no longer wanted', 'AbortError');
+
+            const response = await startAuthentication({ useBrowserAutofill,
+                                                         optionsJSON });
+
+            try
+            {
+                return await call('/passkey/login-verify',
+                                  { body: { response } });
+            }
+            catch (e)
+            {
+                e.picked = true;
+
+                /* Where the browser can, it stops offering one that no
+                   account has. */
+                if (e.code === 'unknown_passkey')
+                    PublicKeyCredential.signalUnknownCredential?.({
+                        rpId: optionsJSON.rpId, credentialId: response.id })
+                        .catch(() => {});
+
+                throw e;
+            }
+        },
+        passkeys: (session) => call('/passkey/list', { session }),
+        removePasskey: (session, id) =>
+            call('/passkey/remove', { session, body: { id } }),
     };
 }
+
+/* A passkey ceremony the person called off, or another took over: nothing
+   to say about it. */
+const calledOff = (e) => e.name === 'NotAllowedError' ||
+                         e.name === 'AbortError';
 
 /* A failed request, in the words of the person who made it. */
 function failed (e)
@@ -151,6 +217,14 @@ function failed (e)
             return 'Type your handle to delete the account.';
         case 'banned':
             return 'This account is banned.';
+        case 'unknown_passkey':
+            return 'No account has that passkey; it may have been removed.';
+        case 'bad_passkey':
+            return 'That passkey was not accepted.';
+        case 'bad_challenge':
+            return 'That took too long; try again.';
+        case 'passkey_taken':
+            return 'That passkey is registered already.';
         default:
             return e.message;
     }
@@ -191,7 +265,7 @@ function keyForm (id, handle, autocomplete, submitText)
                     el('label', {}, 'Handle ', user),
                     el('label', {}, 'Key ', key), submit);
 
-    return { form, key, submit };
+    return { form, user, key, submit };
 }
 
 /* A key as a text file, for whoever has no password manager. */
@@ -227,6 +301,7 @@ export function createAccounts ({ open, dialog, relays, onChange })
     let origin = null;
     let kept = null;
     let api = null;
+    let passkeys = false;
     const status = el('p', { className: 'hint', role: 'status' });
     const body = el('div', { className: 'accountbody' });
 
@@ -260,7 +335,21 @@ export function createAccounts ({ open, dialog, relays, onChange })
         close();
     });
 
-    const show = (...nodes) => body.replaceChildren(...nodes);
+    /* A passkey offered in autofill is the logged-out screen's only. */
+    dialog.addEventListener('close',
+                            () => WebAuthnAbortService.cancelCeremony());
+
+    const show = (...nodes) =>
+    {
+        const prefilled = body.querySelector('#account-passkey-key');
+
+        /* A key filled in for adding a passkey goes with the screen. */
+        if (prefilled !== null)
+            prefilled.value = '';
+
+        WebAuthnAbortService.cancelCeremony();
+        body.replaceChildren(...nodes);
+    };
     const changed = (k) =>
     {
         kept = k;
@@ -269,8 +358,12 @@ export function createAccounts ({ open, dialog, relays, onChange })
         onChange(k?.handle ?? null);
     };
 
-    /* While a request is out, its button is not pressed again. */
-    const busy = async (b, run) =>
+    /* While a request is out, its button is not pressed again.
+       `refused' is what to say when a passkey ceremony the button started
+       ends in NotAllowedError: the browser's word for the person calling
+       it off, and for a timeout or an authenticator that cannot make a
+       resident passkey alike. */
+    const busy = async (b, run, refused = null) =>
     {
         b.disabled = true;
 
@@ -280,7 +373,10 @@ export function createAccounts ({ open, dialog, relays, onChange })
         }
         catch (e)
         {
-            say(failed(e));
+            if (e.name === 'NotAllowedError' && refused !== null)
+                say(refused);
+            else if (!calledOff(e))
+                say(failed(e));
         }
         finally
         {
@@ -288,11 +384,20 @@ export function createAccounts ({ open, dialog, relays, onChange })
         }
     };
 
+    const loggedInBy = (res) =>
+    {
+        changed({ session: res.session, handle: res.account.handle });
+        say(`Logged in as ${res.account.handle}.`);
+
+        /* Gone on success: what a password manager watches for. */
+        loggedIn(res);
+    };
+
     function loggedOut ()
     {
         const handle = el('input', { id: 'account-handle', maxLength: 64,
                                      autocomplete: 'off' });
-        const create = button('Create account', () => busy(create, async () =>
+        const make = (b, withPasskey) => busy(b, async () =>
         {
             const h = normalizeName(handle.value);
 
@@ -302,43 +407,128 @@ export function createAccounts ({ open, dialog, relays, onChange })
                 return;
             }
 
-            const res = await api.register(h);
+            const res = withPasskey ? await api.registerPasskey(h)
+                                    : await api.register(h);
 
             changed({ session: res.session, handle: res.account.handle });
             say('');
-            saveKey(res.account.handle, res.key, true, () => loggedIn(res));
-        }));
+            saveKey(res.account.handle, res.key,
+                    withPasskey ? 'recovery' : 'new', () => loggedIn(res));
+        }, withPasskey ? 'No passkey was made: it was canceled, or this ' +
+                         'device cannot make one. Create with a key only ' +
+                         'makes the account without one.'
+                       : null);
         const login = keyForm('login', '', 'current-password', 'Log in');
+        let rearm;
+        let retries = 0;
+        let ceremony = false;
+
+        /* Asked again after each wait: an offer started under a ceremony
+           of the screen's own would abort it, and one past the screen
+           would be offered on another. */
+        const offering = () => !ceremony && dialog.open &&
+                               body.contains(login.form);
+
+        /* A passkey offered beside the handle as the browser fills it in,
+           where it can, for as long as this screen is up. A ceremony of
+           this screen's own aborts it, and puts it back once over. */
+        const arm = () =>
+        {
+            clearTimeout(rearm);
+
+            if (!passkeys || !offering())
+                return;
+
+            rearm = setTimeout(arm, AUTOFILL_REARM_MS);
+            browserSupportsWebAuthnAutofill().then(async (can) =>
+            {
+                if (!can || !offering())
+                {
+                    clearTimeout(rearm);
+                    return;
+                }
+
+                login.user.autocomplete = 'username webauthn';
+                loggedInBy(await api.loginPasskey(true, offering));
+            }).catch((e) =>
+            {
+                /* Any failure once the person picked a passkey is said;
+                   the offer's own failure to be made is not, over
+                   whatever the status line was saying. */
+                if (e.picked)
+                    say(failed(e));
+
+                /* Not for an abort: whatever aborted it re-arms. */
+                if (e.name !== 'AbortError')
+                {
+                    clearTimeout(rearm);
+                    rearm = setTimeout(arm, Math.min(
+                        AUTOFILL_RETRY_MS * 2 ** retries++,
+                        AUTOFILL_REARM_MS));
+                }
+            });
+        };
+        /* A ceremony of the screen's own: no offer is made while it is
+           out, and one is made again once it is over. */
+        const own = async (run) =>
+        {
+            ceremony = true;
+            clearTimeout(rearm);
+
+            try
+            {
+                await run();
+            }
+            finally
+            {
+                ceremony = false;
+                arm();
+            }
+        };
+        const create = button('Create account',
+                              () => own(() => make(create, passkeys)));
+        const keyOnly = button('Create with a key only',
+                               () => make(keyOnly, false));
+        const withPasskey = button('Log in with a passkey',
+                                   () => own(() => busy(withPasskey,
+                                       async () => loggedInBy(
+                                           await api.loginPasskey(false)),
+                                       'No passkey was used: it was ' +
+                                       'canceled, it took too long, or ' +
+                                       'none here is for this site.')));
 
         login.form.onsubmit = (e) =>
         {
             e.preventDefault();
-            busy(login.submit, async () =>
-            {
-                const res = await api.login(login.key.value);
-
-                changed({ session: res.session, handle: res.account.handle });
-                say(`Logged in as ${res.account.handle}.`);
-
-                /* Gone on success: what a password manager watches for. */
-                loggedIn(res);
-            });
+            busy(login.submit,
+                 async () => loggedInBy(await api.login(login.key.value)));
         };
 
         show(el('p', { textContent:
                 'An account is a handle the room knows you by, which nobody ' +
-                'else can take. There is no email or password: the relay ' +
-                'gives you a key of eight words, and the key is the ' +
-                'account. Keep it in your password manager. Without one ' +
+                'else can take. There is no email or password: ' +
+                (passkeys ? 'a passkey logs you in, and the relay gives you ' +
+                            'a key of eight words for when the passkey is ' +
+                            'lost. '
+                          : 'the relay gives you a key of eight words, and ' +
+                            'the key is the account. ') +
+                'Keep the key in your password manager. Without an account ' +
                 'you join as a guest.' }),
              section('Create an account',
-                     el('label', {}, 'Handle ', handle), create),
-             section('Log in', login.form));
+                     el('label', {}, 'Handle ', handle),
+                     ...(passkeys ? [el('div', { className: 'row' },
+                                        create, keyOnly)]
+                                  : [create])),
+             section('Log in', ...(passkeys ? [withPasskey] : []),
+                     login.form));
+        arm();
     }
 
     /* A key just issued, in a form a password manager will save, with
-       Show, Copy and Download beside it. `then' goes on once saved. */
-    function saveKey (handle, key, isNew, then)
+       Show, Copy and Download beside it: a new account's (`new'), one's
+       beside its first passkey (`recovery'), or a replacement
+       (`replaced'). `then' goes on once saved. */
+    function saveKey (handle, key, kind, then)
     {
         const form = keyForm('save', handle, 'new-password', 'Save key');
         const note = el('span', { className: 'hint' });
@@ -376,13 +566,20 @@ export function createAccounts ({ open, dialog, relays, onChange })
             showKey.textContent = shown ? 'Show' : 'Hide';
         });
 
-        show(section(isNew ? 'Your account key' : 'Your new key',
+        show(section({ new: 'Your account key', recovery: 'Your recovery key',
+                       replaced: 'Your new key' }[kind],
             el('p', { className: 'accountwarn', textContent:
-                (isNew ? '' : 'The old key no longer works, and every other ' +
-                              'browser is logged out. ') +
-                'This key is the only way into your account, here or on any ' +
-                'other browser, and it cannot be recovered. Save it in your ' +
-                'password manager now.' }),
+                kind === 'recovery'
+                    ? 'Your passkey logs you in. This key is the way in ' +
+                      'without it, here or on any other browser, and it ' +
+                      'cannot be shown again or recovered. Save it in your ' +
+                      'password manager now.'
+                    : (kind === 'new' ? '' : 'The old key no longer works, ' +
+                                             'and every other browser is ' +
+                                             'logged out. ') +
+                      'This key is the only way into your account, here or ' +
+                      'on any other browser, and it cannot be recovered. ' +
+                      'Save it in your password manager now.' }),
             form.form,
             el('div', { className: 'row' }, showKey,
                button('Copy', () => navigator.clipboard.writeText(key).then(
@@ -394,7 +591,8 @@ export function createAccounts ({ open, dialog, relays, onChange })
         form.submit.focus();
     }
 
-    function loggedIn ({ account })
+    /* `key' is one just issued, for the passkey form to add with. */
+    function loggedIn ({ account }, key = '')
     {
         const session = kept.session;
         const waiting = account.renameAt > Date.now();
@@ -455,13 +653,20 @@ export function createAccounts ({ open, dialog, relays, onChange })
             busy(replace.submit, async () =>
             {
                 const res = await api.replaceKey(session, replace.key.value);
+                const lost = res.passkeysRemoved > 0;
 
                 /* The session this page had ended with the old key. */
                 changed({ session: res.session, handle: account.handle });
 
-                say('');
-                saveKey(account.handle, res.key, false,
-                        () => loggedIn({ account }));
+                say(lost ? 'Your passkeys went with the old key.' : '');
+                saveKey(account.handle, res.key, 'replaced', () =>
+                {
+                    loggedIn({ account }, res.key);
+
+                    if (lost && passkeys)
+                        say('Your passkeys went with the old key. Add one ' +
+                            'below: the new key is filled in.');
+                });
             });
         };
         remove.form.onsubmit = (e) =>
@@ -479,6 +684,7 @@ export function createAccounts ({ open, dialog, relays, onChange })
         show(section(`Logged in as ${account.handle}`,
                      el('p', { textContent: 'Since ' + new Date(
                          account.createdAt).toLocaleDateString() })),
+             ...(passkeys ? [passkeyPart(session, account, key)] : []),
              section('Change handle',
                      el('p', { className: 'hint', textContent: waiting
                          ? 'You can change it again on ' + new Date(
@@ -489,7 +695,10 @@ export function createAccounts ({ open, dialog, relays, onChange })
              section('Key',
                      el('p', { className: 'hint', textContent:
                          'A new key needs the current one, and logs out ' +
-                         'every other browser.' }),
+                         'every other browser' + (passkeys
+                             ? ' and removes your passkeys, since whoever ' +
+                               'had the old key could have added one.'
+                             : '.') }),
                      replace.form),
              section('Log out',
                      el('p', { className: 'hint', textContent:
@@ -500,6 +709,60 @@ export function createAccounts ({ open, dialog, relays, onChange })
                          'out, and cannot be undone. The handle stays ' +
                          'nobody\'s for 30 days.' }),
                      remove.form));
+    }
+
+    /* The account's passkeys, and a form to add one: with the key, as
+       the relay asks, so a borrowed browser cannot add a way in of its
+       own. */
+    function passkeyPart (session, account, key)
+    {
+        const day = (ms) => new Date(ms).toLocaleDateString();
+        const list = el('ul', { className: 'passkeys' });
+        const add = keyForm('passkey', account.handle, 'current-password',
+                            'Add a passkey');
+        const row = (p) =>
+        {
+            const remove = button('Remove', () => busy(remove, async () =>
+            {
+                await api.removePasskey(session, p.id);
+                say('Passkey removed. Your key still logs in.');
+                fill();
+            }));
+
+            const used = p.lastUsedAt === null
+                ? 'not used yet' : `last used ${day(p.lastUsedAt)}`;
+
+            return el('li', {}, `${p.label}, added ${day(p.createdAt)}, ` +
+                      `${used} `, remove);
+        };
+        const fill = () => api.passkeys(session).then(
+            ({ passkeys: all }) => list.replaceChildren(
+                ...(all.length === 0 ? [el('li', { textContent: 'None yet.' })]
+                                     : all.map(row))),
+            (e) => say(failed(e)));
+
+        add.key.value = key;
+        add.form.onsubmit = (e) =>
+        {
+            e.preventDefault();
+            busy(add.submit, async () =>
+            {
+                await api.addPasskey(session, add.key.value);
+                say('Passkey added.');
+                add.key.value = '';
+                fill();
+            }, 'No passkey was added: it was canceled, or this device ' +
+               'cannot make one.');
+        };
+        fill();
+
+        return section('Passkeys',
+                       el('p', { className: 'hint', textContent:
+                           'A passkey logs you in without the key. Adding ' +
+                           'one takes the key; removing one leaves the key ' +
+                           'working, and logs nobody out: a new key, below, ' +
+                           'logs out every other browser.' }),
+                       list, add.form);
     }
 
     open.addEventListener('click', async () =>
@@ -561,6 +824,7 @@ export function createAccounts ({ open, dialog, relays, onChange })
         origin = home;
         kept = home === null ? null : load(home);
         api = null;
+        passkeys = false;
         open.hidden = true;
 
         /* Whether the relay has accounts, as its health line says. Only
@@ -581,6 +845,13 @@ export function createAccounts ({ open, dialog, relays, onChange })
 
             api = client(origin);
             open.hidden = false;
+
+            /* WebAuthn refuses a page off the RP ID's domain: 127.0.0.1
+               for a relay on localhost, or a copy of the site served
+               elsewhere. */
+            passkeys = typeof health.passkeys === 'string' &&
+                       onRpId(location.hostname, health.passkeys) &&
+                       browserSupportsWebAuthn();
 
             if (kept === null)
                 return;

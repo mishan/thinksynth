@@ -80,7 +80,10 @@
  *
  * Last, one page makes an account in the account dialog and logs in with
  * its key on a reload, and the other joins as a guest: each shows the
- * handle as it is and the guest marked as one.
+ * handle as it is and the guest marked as one. A Chromium page served as
+ * localhost, the passkeys' RP ID, makes an account with a passkey from a
+ * virtual authenticator and logs back in with it on a reload; Firefox has
+ * no virtual authenticator Playwright can drive, so it does not.
  *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
@@ -580,8 +583,16 @@ async function sequenceTogether (pages)
     else if (nowLines.length !== wasLines.length || changed.length !== 1 ||
              chainOf(changedAt[0]) !== 'chain snare {' ||
              !/^\s*cells\s*=\s*"..x.x.......x...";/.test(changed[0]))
+    {
+        /* Where B skipped an edit, its log says which way. */
+        const logged = (await B.page.evaluate(
+            () => document.getElementById('log').textContent))
+            .split('\n').filter(Boolean).slice(-12);
+
         fail(`the click is not the snare's cells in ${pieceFile}: ` +
-             JSON.stringify(changed));
+             `${JSON.stringify(changed)}; ${B.label}'s log ends\n      ` +
+             logged.join('\n      '));
+    }
     else
         ok(`and ${pieceFile} carries it on both pages: ${changed[0].trim()}`);
 }
@@ -1961,6 +1972,170 @@ async function accountsTogether (pages)
     await A.page.evaluate(() => localStorage.clear());
 }
 
+/* An account made with a passkey and logged back in with it, in a page of
+ * its own on localhost -- a valid RP ID where 127.0.0.1 is not -- with
+ * Chromium's virtual authenticator standing in for the person's. That one
+ * answers whatever asks while its presence is simulated, the login form's
+ * autofill offer included; the button is tried with autofill taken away.
+ */
+async function passkeysTogether (browser)
+{
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const dialog = page.locator('#accountdialog');
+    const cdp = await context.newCDPSession(page);
+    const listed = () => page.waitForFunction(
+        () => [...document.querySelectorAll('#accountdialog .passkeys li')]
+            .map((li) => li.firstChild.textContent).join('|'),
+        null, { timeout: 10000 }).then((h) => h.jsonValue(), () => '');
+    const loggedIn = () => page.waitForSelector('#account-newhandle',
+                                                { timeout: 10000 })
+        .then(() => true, () => false);
+    const sessionOf = () => page.evaluate(() =>
+    {
+        const kept = Object.entries(localStorage).find(
+            ([k]) => k.startsWith('thinksynth:account:'));
+
+        return kept ? JSON.parse(kept[1]).session : null;
+    });
+    const said = async () => 'the dialog says "' +
+        await page.textContent('#accountdialog [role=status]') +
+        '", the log ends ' + JSON.stringify((await page.evaluate(
+            () => document.getElementById('log').textContent))
+            .split('\n').filter(Boolean).slice(-6));
+    const logOut = async () =>
+    {
+        await dialog.getByRole('button', { name: 'Log out' }).click();
+        await page.waitForSelector('#account-login-key');
+    };
+
+    page.on('pageerror', (e) => errors.push(`passkeys: ${e.message}`));
+
+    try
+    {
+        await cdp.send('WebAuthn.enable');
+
+        const { authenticatorId } = await cdp.send(
+            'WebAuthn.addVirtualAuthenticator', { options: {
+                protocol: 'ctap2', transport: 'internal', hasResidentKey: true,
+                hasUserVerification: true, isUserVerified: true,
+                automaticPresenceSimulation: true } });
+        const present = (enabled) => cdp.send(
+            'WebAuthn.setAutomaticPresenceSimulation',
+            { authenticatorId, enabled });
+
+        await page.goto(`http://localhost:${sitePort}/jam.html?panes=0` +
+                        `&room=jampasskeys&piece=${HANDS_PIECE}`);
+        await page.click('#account', { timeout: 10000 });
+        await page.fill('#account-handle', 'Pia');
+        await dialog.getByRole('button', { name: 'Create account' }).click();
+        await page.waitForSelector('#account-save-key');
+
+        const key = await page.inputValue('#account-save-key');
+        const recovery = await dialog.getByRole('heading',
+                                                { name: 'Your recovery key' })
+            .isVisible();
+
+        await dialog.getByRole('button', { name: 'Save key' }).click();
+
+        const made = await listed();
+
+        if (key.split('-').length === 8 && recovery &&
+            /^Passkey.*, added .*, not used yet $/.test(made))
+            ok('an account is made with a passkey, and the key shown as ' +
+               'its recovery key');
+        else
+            fail(`made with a passkey: key "${key}", recovery heading ` +
+                 `${recovery}, passkeys "${made}"`);
+
+        /* The authenticator answers the offer as soon as it is made, so
+           the logged-out screen may be gone before anything here sees it:
+           what says it happened is a new session. */
+        const before = await sessionOf();
+
+        await dialog.getByRole('button', { name: 'Log out' }).click();
+
+        const after = await page.waitForFunction((was) =>
+        {
+            const kept = Object.entries(localStorage).find(
+                ([k]) => k.startsWith('thinksynth:account:'));
+            const now = kept && JSON.parse(kept[1]).session;
+
+            return now && now !== was &&
+                   document.getElementById('account-newhandle') !== null
+                ? now : null;
+        }, before, { timeout: 15000 }).then((h) => h.jsonValue(),
+                                            () => null);
+
+        if (after !== null)
+            ok('the passkey the login form\'s autofill offers logs in');
+        else
+            fail(`the autofill offer never logged in: ${await said()}`);
+
+        /* Away while the offer is still out, and back once the page has
+           none to make. */
+        await page.addInitScript(() =>
+        {
+            delete PublicKeyCredential.isConditionalMediationAvailable;
+        });
+        await present(false);
+        await logOut();
+        await page.reload();
+        await present(true);
+        await page.click('#account', { timeout: 10000 });
+        await dialog.getByRole('button', { name: 'Log in with a passkey' })
+            .click();
+
+        const back = await loggedIn();
+        const used = await listed();
+        const name = await page.inputValue('#name');
+
+        if (back && /, last used /.test(used) && !used.includes('|') &&
+            name === 'Pia')
+            ok('so does the button, on a reload, and the passkey is listed ' +
+               'as used');
+        else
+            fail(`logged in with the passkey: the name box holds ` +
+                 `"${name}", passkeys "${used}"; ${await said()}`);
+
+        /* A new key takes the passkeys, and fills itself in to add one
+           with. */
+        await page.fill('#account-replace-key', key);
+        await dialog.getByRole('button', { name: 'Replace key' }).click();
+        await page.waitForSelector('#account-save-key');
+
+        const newKey = await page.inputValue('#account-save-key');
+
+        await dialog.getByRole('button', { name: 'Save key' }).click();
+
+        const emptied = await listed();
+        const filled = await page.inputValue('#account-passkey-key');
+
+        await dialog.getByRole('button', { name: 'Add a passkey' }).click();
+
+        const readded = await page.waitForFunction(
+            () => /not used yet/.test(document.querySelector(
+                '#accountdialog .passkeys')?.textContent),
+            null, { timeout: 10000 }).then(() => true, () => false);
+
+        if (emptied === 'None yet.' && filled === newKey && readded)
+            ok('a new key removes the passkeys, and adds one with itself');
+        else
+            fail(`after a new key: passkeys "${emptied}", the add form ` +
+                 `${filled === newKey ? 'filled' : 'not filled'}, ` +
+                 `${readded ? '' : 'none '}added again`);
+    }
+    catch (e)
+    {
+        fail(`passkeys threw: ${e.message.split('\n')[0]}; ` +
+             await said().catch(() => 'the page is gone'));
+    }
+    finally
+    {
+        await context.close();
+    }
+}
+
 /* A stage's parameter, typed into the popover beside its box.
  *
  * The panel is the module's description of the stage (src/StagePanel.cpp)
@@ -2307,10 +2482,17 @@ if (!fs.existsSync(path.join(build, 'jam.js')))
     process.exit(1);
 }
 
-const relayServer = await relay({ port: 0, host: '127.0.0.1', tree: top,
-                                  corsOrigin: '*' });
-const relayUrl = `ws://127.0.0.1:${relayServer.address().port}`;
-const site = await serve(build, 0, '127.0.0.1', relayUrl);
+/* The site first, telling the relay's URL once there is one: the relay
+   takes a passkey's answer only from the page's origin. */
+let relayUrl = null;
+const site = await serve(build, 0, '127.0.0.1', () => relayUrl);
+const sitePort = site.address().port;
+const relayServer = await relay({
+    port: 0, host: '127.0.0.1', tree: top, corsOrigin: '*',
+    passkeys: { rpId: 'localhost', rpName: 'jamtest',
+                origin: `http://localhost:${sitePort}` } });
+
+relayUrl = `ws://127.0.0.1:${relayServer.address().port}`;
 /* The document rather than the tiled layout. Both are the page -- panes.js
    adopts what is in the markup and puts it back, and below 60em or under a
    finger the tiled one is not offered at all -- and what is under test
@@ -2731,6 +2913,7 @@ try
     /* ---- as an account, and a guest ---- */
 
     await accountsTogether(pages);
+    await passkeysTogether(browsers[0]);
 
     for (const e of errors)
         fail(`page error: ${e}`);
