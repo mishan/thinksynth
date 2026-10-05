@@ -48,8 +48,8 @@ works in:
 
 | Written | Becomes |
 |---|---|
-| `5 ms`, `2 s` | samples, at the rate the synth runs at |
-| `0.75 beats` | samples, at the piece's tempo, and again whenever it changes |
+| `5 ms`, `2 s` | milliseconds and seconds, stored as samples at the synth's rate |
+| `0.75 beats` | beats, stored as samples at the piece's tempo, and again whenever it changes |
 | `50%` | a fraction of `th_max` |
 | `-6 dB` | a linear gain, 0.501 |
 | `7 cents` | a frequency ratio, 1.004 |
