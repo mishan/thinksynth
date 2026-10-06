@@ -854,6 +854,22 @@ async function metricsServed ()
             doc.destroy();
         }
 
+        /* A metrics port taken is a misconfiguration, and the relay says
+           so rather than start without it. */
+        {
+            const taken = m.metrics.address().port;
+            const r = spawnSync(process.execPath,
+                                [path.join(here, 'relay.mjs'), '--port', '0'],
+                                { env: { ...process.env, DB: ':memory:',
+                                         METRICS_PORT: String(taken) },
+                                  timeout: 1500, encoding: 'utf8' });
+
+            check(r.status === 2 &&
+                  r.stderr.includes(`METRICS_PORT ${taken}`),
+                  'a relay whose METRICS_PORT is taken stops, naming it ' +
+                  `(${r.status ?? r.signal}: ${r.stderr.split('\n')[0]})`);
+        }
+
         const health = await (await fetch(`http://${at}/`)).json();
 
         check(health.thinksynth === 'relay' && !('room' in health) &&
