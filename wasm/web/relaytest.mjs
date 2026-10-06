@@ -40,6 +40,7 @@
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -351,6 +352,24 @@ async function accountsInRooms ()
               (await fetch(`http://${at}/`)).ok,
               'a document socket for a room that is not there is refused, ' +
               'and the relay lives');
+
+        /* And one reset as soon as it is refused. */
+        {
+            const [host, port] = at.split(':');
+            const s = net.connect(Number(port), host);
+
+            await new Promise((r) => s.on('connect', r));
+            s.write('GET /doc/nosuchroom HTTP/1.1\r\nHost: x\r\n' +
+                    'Upgrade: websocket\r\nConnection: Upgrade\r\n' +
+                    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+                    'Sec-WebSocket-Version: 13\r\n\r\n');
+            await new Promise((r) => s.once('data', r));
+            s.resetAndDestroy();
+            await new Promise((r) => setTimeout(r, 200));
+            check((await fetch(`http://${at}/`)).ok,
+                  'and one its client resets once refused, and the relay ' +
+                  'lives');
+        }
 
         /* A field made to throw when read as a string or a number, in each
            message that reads one: that socket is cut, and the relay lives. */
