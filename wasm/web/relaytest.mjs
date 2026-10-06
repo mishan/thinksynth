@@ -739,6 +739,93 @@ async function accountsInRooms ()
     }
 }
 
+/* The metrics port counts what a peer sends and is sent, and is a port of
+   its own: the public one's health line has none of it. */
+async function metricsServed ()
+{
+    const m = await relay({ port: 0, host: '127.0.0.1', tree, metricsPort: 0 });
+    const at = `127.0.0.1:${m.address().port}`;
+    const scrape = async (query = '') =>
+        (await fetch(`http://127.0.0.1:${m.metrics.address().port}/${query}`))
+            .json();
+
+    try
+    {
+        const join = async (name) =>
+        {
+            const c = new Client(`ws://${at}/room/metrics`, name);
+
+            await c.open();
+            c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+            await c.next('welcome');
+            return c;
+        };
+        const a = await join('A');
+        const b = await join('B');
+
+        for (let i = 0; i < 3; i++)
+        {
+            a.send({ type: 'ping', t0: i });
+            await a.next('pong');
+        }
+
+        a.send({ type: 'relayed', data: { type: 'knob', value: 0.5 } });
+        await b.next('relayed');
+        a.send({ type: 'made-up' });
+        a.ws.send('not JSON at all');
+        await a.next('error');
+
+        const s = await scrape();
+
+        check(m.metrics.address().address === '127.0.0.1' &&
+              s.rooms === 1 && s.peers === 2 && s.roomSockets === 2 &&
+              s.room.hello.in === 2 && s.room.welcome.out === 2 &&
+              s.room.ping.in === 3 && s.room.pong.out === 3 &&
+              s.room.relayed.in === 1 && s.room.relayed.out === 1 &&
+              s.room.relayed.outBytes > 0 && s.room.other.in === 2 &&
+              s.eventLoopDelayMs.max >= 0 && s.memoryBytes.rss > 0,
+              'the metrics port counts a peer\'s messages by type, on ' +
+              '127.0.0.1');
+
+        /* A loop held up is seen, however few times the histogram's
+           timer ran meanwhile, and so is the CPU it spent: by every
+           scrape until one resets the window, and by none after. */
+        {
+            await scrape('?reset');
+
+            const until = performance.now() + 300;
+
+            while (performance.now() < until)
+                ;
+
+            const held = await scrape();
+            const again = await scrape('?reset');
+            const after = await scrape();
+
+            check(held.timerLagMs.max >= 250 && held.cpuPercent > 50 &&
+                  again.timerLagMs.max >= 250 && again.window === held.window &&
+                  after.window === held.window + 1 &&
+                  after.timerLagMs.max < 250,
+                  'the metrics say how long the loop was held up, and ' +
+                  'how busy it was, until a scrape resets them');
+        }
+
+        const health = await (await fetch(`http://${at}/`)).json();
+
+        check(health.thinksynth === 'relay' && !('room' in health) &&
+              !('eventLoopDelayMs' in health) &&
+              (await fetch(`http://${at}/metrics`)).status === 404,
+              'and the public port serves none of it');
+
+        a.close();
+        b.close();
+    }
+    finally
+    {
+        m.shutdown();
+    }
+}
+
 /* CORS_ORIGIN is an origin or nothing: the relay will not start on one
    with a path, which no request's Origin would ever match, or on `*'. */
 for (const [value, status] of [['https://page.example.org', null],
@@ -1684,6 +1771,7 @@ try
     /* ---- accounts ---- */
 
     await accountsInRooms();
+    await metricsServed();
 }
 catch (e)
 {

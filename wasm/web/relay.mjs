@@ -46,6 +46,11 @@
  *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs),
  *                        and passkeys (passkeys.mjs)
  *
+ * and, with METRICS_PORT set, on that port on 127.0.0.1 alone,
+ *
+ *   GET  /               what the relay has carried and how it is keeping
+ *                        up, for a load test (relayload.mjs)
+ *
  * Two sockets per peer rather than one: y-websocket's framing is its
  * own, and the JSON side is easier to read on the wire and in a harness
  * when it is not sharing a socket with binary CRDT updates.
@@ -69,6 +74,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 import { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
@@ -164,7 +170,76 @@ const HEARTBEAT_MS = 30 * 1000;
    to tell this one. */
 const SESSION_CHECK_MS = 60 * 1000;
 
+/* How often the metrics port's event-loop timers run. Node's histogram
+   holds the whole time between its runs, this included, so what is
+   reported is the time past it. */
+const DELAY_RESOLUTION_MS = 10;
+
+/* The room socket's message types, each counted apart for the metrics
+   port. Any other a client sends is counted as `other', so that a made-up
+   type costs one counter and not one more each. */
+const ROOM_TYPES = ['hello', 'welcome', 'joined', 'left', 'seat', 'seats',
+                    'ping', 'pong', 'signal', 'relayed', 'transport', 'log',
+                    'chat', 'switch', 'switched', 'catchup', 'ticket',
+                    'refused', 'error', 'other'];
+
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/* What the relay has carried since it started, for the metrics port:
+   messages and bytes each way, by room-message type and for document
+   frames, and the catch-ups answered. Integers only, added to on the path
+   every message takes; an outgoing line is measured from the string the
+   relay sends anyway. Without the port there is none, and the path
+   measures nothing. */
+class Traffic
+{
+    constructor ()
+    {
+        const counts = () => ({ in: 0, inBytes: 0, out: 0, outBytes: 0 });
+
+        this.room = new Map(ROOM_TYPES.map((t) => [t, counts()]));
+        this.doc = counts();
+        this.catchups = 0;
+        this.catchupMaxBytes = 0;
+    }
+
+    roomIn (type, bytes)
+    {
+        const c = this.room.get(type) ?? this.room.get('other');
+
+        c.in++;
+        c.inBytes += bytes;
+    }
+
+    /* `line' went to `n' sockets; its length in bytes. */
+    roomOut (type, line, n = 1)
+    {
+        const c = this.room.get(type) ?? this.room.get('other');
+        const bytes = Buffer.byteLength(line);
+
+        c.out += n;
+        c.outBytes += bytes * n;
+        return bytes;
+    }
+
+    docIn (bytes)
+    {
+        this.doc.in++;
+        this.doc.inBytes += bytes.length;
+    }
+
+    docOut (bytes, n = 1)
+    {
+        this.doc.out += n;
+        this.doc.outBytes += bytes.length * n;
+    }
+
+    catchup (bytes)
+    {
+        this.catchups++;
+        this.catchupMaxBytes = Math.max(this.catchupMaxBytes, bytes);
+    }
+}
 
 /* The relay's clock: milliseconds as a double, from the monotonic clock
    and never from Date.now(), so a step of the system clock does not move
@@ -244,7 +319,7 @@ function newId ()
 class Room
 {
     constructor (name, seedWith, tree,
-                 { accounts, tickets, ticketMs, sessions })
+                 { accounts, tickets, ticketMs, sessions, traffic })
     {
         this.name = name;
         this.tree = tree;
@@ -252,6 +327,7 @@ class Room
         this.tickets = tickets;
         this.ticketMs = ticketMs;
         this.sessions = sessions;           /* whether a hello's counts  */
+        this.traffic = traffic;
         this.doc = new Y.Doc();
         this.awareness = new awarenessProtocol.Awareness(this.doc);
         this.docConns = new Set();          /* document sockets          */
@@ -331,9 +407,22 @@ class Room
 
     broadcastDoc (bytes)
     {
+        let n = 0;
+
         for (const ws of this.docConns)
             if (ws.readyState === ws.OPEN)
+            {
                 ws.send(bytes);
+                n++;
+            }
+
+        this.traffic?.docOut(bytes, n);
+    }
+
+    sendDoc (ws, bytes)
+    {
+        ws.send(bytes);
+        this.traffic?.docOut(bytes);
     }
 
     /* ---- the run ---- */
@@ -363,10 +452,16 @@ class Room
 
         const line = JSON.stringify({ type: 'transport', from: RELAY,
                                       data: start });
+        let n = 0;
 
         for (const p of this.peers.values())
             if (p.ws.readyState === p.ws.OPEN)
+            {
                 p.ws.send(line);
+                n++;
+            }
+
+        this.traffic?.roomOut('transport', line, n);
     }
 
     /* A stamped command, into the run it was made in. `runKey' is that
@@ -499,8 +594,11 @@ class Room
             if (p.account !== null && ends(p.account) &&
                 p.ws.readyState === p.ws.OPEN)
             {
-                p.ws.send(JSON.stringify({ type: 'error', why: 'session',
-                                           text: why }));
+                const line = JSON.stringify({ type: 'error', why: 'session',
+                                              text: why });
+
+                p.ws.send(line);
+                this.traffic?.roomOut('error', line);
                 p.ws.close();
                 this.leaving.get(p.ws)();
             }
@@ -642,6 +740,8 @@ class Room
             else
                 bytes = new Uint8Array(data);
 
+            this.traffic?.docIn(bytes);
+
             /* The bytes are untrusted: an empty, truncated or garbage
                frame throws out of the decoder or out of Yjs. One bad
                frame must cost its own socket, not the whole relay. */
@@ -659,7 +759,7 @@ class Room
                         /* A reply only when there is one: step 2 in answer
                            to step 1, or nothing in answer to an update. */
                         if (encoding.length(enc) > 1)
-                            ws.send(encoding.toUint8Array(enc));
+                            this.sendDoc(ws, encoding.toUint8Array(enc));
 
                         break;
 
@@ -698,7 +798,7 @@ class Room
 
         encoding.writeVarUint(enc, MSG_SYNC);
         syncProtocol.writeSyncStep1(enc, this.doc);
-        ws.send(encoding.toUint8Array(enc));
+        this.sendDoc(ws, encoding.toUint8Array(enc));
 
         const states = this.awareness.getStates();
 
@@ -710,7 +810,7 @@ class Room
             encoding.writeVarUint8Array(
                 aw, awarenessProtocol.encodeAwarenessUpdate(
                     this.awareness, [...states.keys()]));
-            ws.send(encoding.toUint8Array(aw));
+            this.sendDoc(ws, encoding.toUint8Array(aw));
         }
     }
 
@@ -723,10 +823,16 @@ class Room
         let chatTokens = CHAT_BURST;
         let chatAt = relayNow();
 
+        /* The length of the line sent, in bytes; 0 if it was not. */
         const send = (m) =>
         {
-            if (ws.readyState === ws.OPEN)
-                ws.send(JSON.stringify(m));
+            if (ws.readyState !== ws.OPEN)
+                return 0;
+
+            const line = JSON.stringify(m);
+
+            ws.send(line);
+            return this.traffic?.roomOut(m.type, line) ?? 0;
         };
 
         /* To the peers `to' names -- one id, or a list of them -- or,
@@ -740,10 +846,14 @@ class Room
         const toPeers = (m, to) =>
         {
             const s = JSON.stringify(m);
+            let n = 0;
             const put = (p) =>
             {
                 if (p !== undefined && p.ws.readyState === p.ws.OPEN)
+                {
                     p.ws.send(s);
+                    n++;
+                }
             };
 
             if (to === undefined)
@@ -751,12 +861,12 @@ class Room
                 for (const [pid, p] of this.peers)
                     if (pid !== id)
                         put(p);
-
-                return;
             }
+            else
+                for (const pid of Array.isArray(to) ? to : [to])
+                    put(this.peers.get(String(pid)));
 
-            for (const pid of Array.isArray(to) ? to : [to])
-                put(this.peers.get(String(pid)));
+            this.traffic?.roomOut(m.type, s, n);
         };
 
         const others = (m) => toPeers(m);
@@ -786,6 +896,15 @@ class Room
                 m = JSON.parse(data.toString());
             }
             catch
+            {
+                m = undefined;
+            }
+
+            this.traffic?.roomIn(typeof m?.type === 'string' ? m.type
+                                                             : 'other',
+                                 data.length);
+
+            if (m === undefined)
             {
                 send({ type: 'error', text: 'not JSON' });
                 return;
@@ -1159,9 +1278,15 @@ class Room
                             if (this.run !== run)
                                 answer();
                             else
-                                send({ type: 'catchup', start: run.start,
-                                       files, log: run.log,
-                                       overflowed: run.overflowed });
+                            {
+                                const bytes = send({ type: 'catchup',
+                                                     start: run.start, files,
+                                                     log: run.log,
+                                                     overflowed:
+                                                         run.overflowed });
+
+                                this.traffic?.catchup(bytes);
+                            }
                         });
                     };
 
@@ -1244,15 +1369,19 @@ class Room
 /* The server. Resolves with it listening; `address().port' says where.
    `db' is the accounts' file, or ':memory:'; `corsOrigin' and
    `trustProxy' are accountRoutes'; `passkeys' is passkeyConfig's, or null
-   for none. The two times are for a harness. */
+   for none. `metricsPort' serves metrics on 127.0.0.1, or null for none;
+   `server.metrics' is that server. The two times are for a harness. */
 export function relay ({ port = 8787, host = '0.0.0.0',
                          tree = path.join(here, '..', '..'), db = ':memory:',
                          corsOrigin = null, trustProxy = 0, passkeys = null,
+                         metricsPort = null,
                          ticketMs = TICKET_MS, heartbeatMs = HEARTBEAT_MS,
                          sessionCheckMs = SESSION_CHECK_MS } = {})
 {
     const rooms = new Map();
     const tickets = new Map();          /* ticket -> { room, peer, until } */
+    const traffic = metricsPort === null ? null : new Traffic();
+    const started = relayNow();
     const store = new AccountStore(db, { busyMs: STORE_BUSY_MS });
 
     /* Sessions ended over HTTP: one, or all of an account's but one. */
@@ -1280,7 +1409,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         if (r === undefined)
         {
             r = new Room(name, seedWith, tree,
-                         { accounts, tickets, ticketMs,
+                         { accounts, tickets, ticketMs, traffic,
                            sessions: corsOrigin !== null });
             rooms.set(name, r);
         }
@@ -1448,6 +1577,104 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
     sweep.unref();
 
+    /* On a port of its own, and on loopback whatever `host' is: behind
+       nginx every request to the main port comes from loopback, so no
+       check there could keep these to the people who run the host.
+     *
+       The event loop's delay, the timer's lag and the CPU are over a
+       window, which `GET /?reset' ends after answering for it, and which
+       a plain `GET /' only reads: one scraper resets, and anyone else
+       looking takes nothing from its windows. `window' counts the resets,
+       so a scraper can tell whether somebody else ended one.
+     *
+       Node's histogram is how late its timer runs, which a loop busy
+       with short callbacks keeps on time: at full CPU it can read next
+       to nothing, and a window it has no run in is null rather than 0.
+       The CPU spent says how busy the loop is. A timer of the relay's
+       own keeps its last run across scrapes, so what it is overdue by
+       when an answer is made is how late that answer is. */
+    let delay = null;
+    let delayFrom = started;
+    let lagTimer = null;
+    let lagMax = 0;
+    let lagAt = started;
+    let cpuFrom = process.cpuUsage();
+    let window = 0;
+
+    const metrics = metricsPort === null ? null : http.createServer((req, res) =>
+    {
+        if (req.method !== 'GET' || (req.url !== '/' && req.url !== '/?reset'))
+        {
+            res.writeHead(404).end();
+            return;
+        }
+
+        const now = relayNow();
+        const ms = (ns) => delay.count === 0 ? null
+                                             : Math.max(0, ns / 1e6 -
+                                                           DELAY_RESOLUTION_MS);
+        const overdue = Math.max(0, now - lagAt - DELAY_RESOLUTION_MS);
+        const cpu = process.cpuUsage(cpuFrom);
+        let peers = 0;
+        let awarenessClients = 0;
+
+        for (const r of rooms.values())
+        {
+            peers += r.peers.size;
+            awarenessClients += r.clientSocket.size;
+        }
+
+        const body = {
+            uptimeMs: now - started,
+            window,
+            eventLoopDelayMs: {
+                windowMs: now - delayFrom,
+                p50: ms(delay.percentile(50)), p99: ms(delay.percentile(99)),
+                max: ms(delay.max), mean: ms(delay.mean),
+            },
+            timerLagMs: { max: Math.max(lagMax, overdue), now: overdue },
+            cpuPercent: (cpu.user + cpu.system) / 10 / (now - delayFrom),
+            memoryBytes: process.memoryUsage(),
+            rooms: rooms.size, peers, roomSockets: roomWss.clients.size,
+            docSockets: docWss.clients.size, awarenessClients,
+            bufferedMaxBytes: [...roomWss.clients, ...docWss.clients]
+                .reduce((max, ws) => Math.max(max, ws.bufferedAmount), 0),
+            room: Object.fromEntries(traffic.room),
+            doc: traffic.doc,
+            catchups: traffic.catchups,
+            catchupMaxBytes: traffic.catchupMaxBytes,
+        };
+
+        /* The lag up to now is this window's, and the timer's next run
+           measures from here. */
+        if (req.url === '/?reset')
+        {
+            delay.reset();
+            delayFrom = now;
+            lagMax = 0;
+            lagAt = now;
+            cpuFrom = process.cpuUsage();
+            window++;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(body) + '\n');
+    });
+
+    if (metrics !== null)
+    {
+        delay = monitorEventLoopDelay({ resolution: DELAY_RESOLUTION_MS });
+        delay.enable();
+        lagTimer = setInterval(() =>
+        {
+            const t = relayNow();
+
+            lagMax = Math.max(lagMax, t - lagAt - DELAY_RESOLUTION_MS);
+            lagAt = t;
+        }, DELAY_RESOLUTION_MS);
+        lagTimer.unref();
+    }
+
     /* Down, now: every socket cut, since close() alone waits for them
        and an upgraded socket is nobody's to wait for. */
     server.shutdown = () =>
@@ -1463,15 +1690,22 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         store.close();
         server.closeAllConnections?.();
         server.close();
+        delay?.disable();
+        clearInterval(lagTimer);
+        metrics?.close();
     };
 
-    return new Promise((resolve) =>
-        server.listen(port, host, () =>
-        {
-            server.rooms = rooms;
-            server.accounts = accounts;
-            resolve(server);
-        }));
+    return Promise.all([
+        new Promise((resolve) => server.listen(port, host, resolve)),
+        metrics && new Promise((resolve) =>
+            metrics.listen(metricsPort, '127.0.0.1', resolve)),
+    ]).then(() =>
+    {
+        server.rooms = rooms;
+        server.accounts = accounts;
+        server.metrics = metrics;
+        return server;
+    });
 }
 
 if (process.argv[1] !== undefined &&
@@ -1482,10 +1716,13 @@ if (process.argv[1] !== undefined &&
     /* DB names the accounts' file; CORS_ORIGIN the page's origin, without
        which there are no accounts; TRUST_PROXY how many proxies in front
        append to X-Forwarded-For (1 behind nginx alone); PASSKEY_RP_ID the
-       site's domain, for passkeys (passkeyConfig). */
+       site's domain, for passkeys (passkeyConfig); METRICS_PORT a port on
+       127.0.0.1 to serve metrics on. */
     const opts = { db: process.env.DB || path.join(here, 'relay.db'),
                    corsOrigin: process.env.CORS_ORIGIN || null,
-                   trustProxy: Number(process.env.TRUST_PROXY ?? 0) };
+                   trustProxy: Number(process.env.TRUST_PROXY ?? 0),
+                   metricsPort: process.env.METRICS_PORT
+                       ? Number(process.env.METRICS_PORT) : null };
 
     if (args[0] === 'admin')
     {
@@ -1517,6 +1754,14 @@ if (process.argv[1] !== undefined &&
     if (!(Number.isInteger(opts.trustProxy) && opts.trustProxy >= 0))
     {
         process.stderr.write('relay.mjs: TRUST_PROXY is a count of proxies\n');
+        process.exit(2);
+    }
+
+    if (opts.metricsPort !== null &&
+        !(Number.isInteger(opts.metricsPort) && opts.metricsPort >= 0 &&
+          opts.metricsPort < 65536))
+    {
+        process.stderr.write('relay.mjs: METRICS_PORT is a port number\n');
         process.exit(2);
     }
 
@@ -1559,5 +1804,8 @@ if (process.argv[1] !== undefined &&
     process.stdout.write(`relay on ws://${a.address}:${a.port}/  ` +
                          `(rooms seeded from ${path.resolve(
                              opts.tree ?? path.join(here, '..', '..'))}, ` +
-                         `accounts in ${opts.db})\n`);
+                         `accounts in ${opts.db}` +
+                         (server.metrics === null ? '' :
+                          `, metrics on http://127.0.0.1:` +
+                          `${server.metrics.address().port}/`) + ')\n');
 }

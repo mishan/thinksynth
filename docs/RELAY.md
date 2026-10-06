@@ -245,6 +245,27 @@ relay looks at the sessions behind its open rooms once a minute and
 closes those that have ended, so a ban or a revoke empties the account
 out of every room within the minute.
 
+## Metrics
+
+- `METRICS_PORT`: a port to serve the relay's metrics on, for a load
+  test (`wasm/web/relayload.mjs`): `GET /` answers JSON with the event
+  loop's delay, the worst lag of a 10 ms timer and the CPU used, all
+  over the window since the last reset; memory; counts of rooms, peers
+  and sockets; and messages and bytes each way by type, since the start.
+  `GET /?reset` answers the same and starts a new window; `window`
+  counts the resets. Have one scraper reset -- relayload's first shard
+  does -- and anyone else read without it. Unset, there is no such port,
+  and nothing is counted.
+
+It listens on 127.0.0.1 alone, and never on the relay's own port: nginx
+reaches that port from loopback, so a loopback check there would let
+everyone in. Do not publish it from the container -- leave it out of
+`ports:` in `compose.yaml` -- and read it from inside instead:
+
+    docker exec thinksynth-relay node -e "fetch('http://127.0.0.1:9100/').then((r) => r.text()).then(console.log)"
+
+with `METRICS_PORT: "9100"` in the service's `environment`.
+
 ## Not yet
 
 - TURN. Peers whose NATs defeat STUN fall back to the relay forwarding
