@@ -234,8 +234,12 @@ class Traffic
         this.doc.outBytes += bytes.length * n;
     }
 
+    /* 0 bytes: the asker had gone. */
     catchup (bytes)
     {
+        if (bytes === 0)
+            return;
+
         this.catchups++;
         this.catchupMaxBytes = Math.max(this.catchupMaxBytes, bytes);
     }
@@ -1269,7 +1273,10 @@ class Room
 
                         if (run === null)
                         {
-                            send({ type: 'catchup', start: null });
+                            const bytes = send({ type: 'catchup',
+                                                 start: null });
+
+                            this.traffic?.catchup(bytes);
                             return;
                         }
 
@@ -1370,7 +1377,8 @@ class Room
    `db' is the accounts' file, or ':memory:'; `corsOrigin' and
    `trustProxy' are accountRoutes'; `passkeys' is passkeyConfig's, or null
    for none. `metricsPort' serves metrics on 127.0.0.1, or null for none;
-   `server.metrics' is that server. The two times are for a harness. */
+   `server.metrics' is that server, and one that cannot listen rejects.
+   The two times are for a harness. */
 export function relay ({ port = 8787, host = '0.0.0.0',
                          tree = path.join(here, '..', '..'), db = ':memory:',
                          corsOrigin = null, trustProxy = 0, passkeys = null,
@@ -1697,14 +1705,22 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
     return Promise.all([
         new Promise((resolve) => server.listen(port, host, resolve)),
-        metrics && new Promise((resolve) =>
-            metrics.listen(metricsPort, '127.0.0.1', resolve)),
+        metrics && new Promise((resolve, reject) =>
+        {
+            metrics.once('error', (e) => reject(
+                new Error(`METRICS_PORT ${metricsPort}: ${e.message}`)));
+            metrics.listen(metricsPort, '127.0.0.1', resolve);
+        }),
     ]).then(() =>
     {
         server.rooms = rooms;
         server.accounts = accounts;
         server.metrics = metrics;
         return server;
+    }, (e) =>
+    {
+        server.shutdown();
+        throw e;
     });
 }
 
@@ -1798,7 +1814,20 @@ if (process.argv[1] !== undefined &&
         process.exit(2);
     }
 
-    const server = await relay(opts);
+    /* A metrics port asked for and not had is a misconfiguration: no
+       relay, rather than one that cannot be seen into. */
+    let server;
+
+    try
+    {
+        server = await relay(opts);
+    }
+    catch (e)
+    {
+        process.stderr.write(`relay.mjs: ${e.message}\n`);
+        process.exit(2);
+    }
+
     const a = server.address();
 
     process.stdout.write(`relay on ws://${a.address}:${a.port}/  ` +

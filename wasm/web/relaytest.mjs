@@ -757,7 +757,7 @@ async function metricsServed ()
 
             await c.open();
             c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
-            await c.next('welcome');
+            c.welcome = await c.next('welcome');
             return c;
         };
         const a = await join('A');
@@ -808,6 +808,66 @@ async function metricsServed ()
                   after.timerLagMs.max < 250,
                   'the metrics say how long the loop was held up, and ' +
                   'how busy it was, until a scrape resets them');
+        }
+
+        /* A catch-up answered is counted, `start: null' too, and one
+           whose asker left before the answer is not. */
+        {
+            b.send({ type: 'catchup' });
+            await b.next('catchup');
+
+            const answered = (await scrape()).catchups;
+            const doc = new Y.Doc();
+            const prov = new WebsocketProvider(
+                `ws://${at}/doc`, 'metrics', doc,
+                { WebSocketPolyfill: WebSocket,
+                  params: { ticket: a.welcome.ticket } });
+
+            await new Promise((r) => prov.synced ? r()
+                                                 : prov.once('synced', r));
+
+            const ahead = new Y.Doc();
+
+            Y.applyUpdate(ahead, Y.encodeStateAsUpdate(doc));
+            ahead.getMap('files').get('airports.gen').insert(0, '# ahead\n');
+            a.send({ type: 'transport',
+                     data: { type: 'transport', op: 'start', origin: 1,
+                             piece: { hash: await hashOf(ahead) }, seed: 5,
+                             from: a.welcome.peer, seq: 0, at: -1 } });
+
+            const c = await join('C');
+
+            c.send({ type: 'catchup' });
+            await new Promise((r) => setTimeout(r, 100));
+            c.close();
+            await new Promise((r) => setTimeout(r, 200));
+            doc.getMap('files').get('airports.gen').insert(0, '# ahead\n');
+            await new Promise((r) => setTimeout(r, 300));
+
+            const left = (await scrape()).catchups;
+
+            check(answered === 1 && left === answered,
+                  `catch-ups are counted as answered (${answered}, then ` +
+                  `${left} after one whose asker left)`);
+            prov.destroy();
+            prov.awareness.destroy();
+            doc.destroy();
+        }
+
+        /* A metrics port taken is a misconfiguration, and the relay says
+           so rather than start without it. */
+        {
+            const taken = m.metrics.address().port;
+            const r = spawnSync(process.execPath,
+                                [path.join(here, 'relay.mjs'), '--port', '0'],
+                                { env: { ...process.env, DB: ':memory:',
+                                         METRICS_PORT: String(taken) },
+                                  timeout: 1500, encoding: 'utf8' });
+
+            check(r.status === 2 &&
+                  r.stderr.includes(`METRICS_PORT ${taken}`),
+                  'a relay whose METRICS_PORT is taken stops, naming it ' +
+                  `(${r.status ?? r.signal}: ${r.stderr.split('\n')[0]})`);
         }
 
         const health = await (await fetch(`http://${at}/`)).json();

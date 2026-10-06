@@ -77,6 +77,10 @@ const FLOOD_WAIT_MS = 5;
 
 const DELAY_RESOLUTION_MS = 10;
 
+/* A scrape starts the relay's next window, and its event-loop timer runs
+   every 10 ms: a window much shorter holds a few of its samples at most. */
+const SCRAPE_EVERY_MIN_S = 0.1;
+
 /* A distribution's buckets per factor of e: each a percent wide. */
 const HIST_STEPS = 100;
 
@@ -124,13 +128,22 @@ function parseArgs (argv)
                 lateAfter: null, flood: 'relayed', pad: 0, duration: 10,
                 ramp: 0, seed: 1, piece: null, tag: null, shard: '0/1',
                 out: null };
-    const numbers = { '--scrape-every': 'scrapeEvery', '--rooms': 'rooms',
-                      '--peers': 'peers', '--rate': 'rate',
-                      '--edit-rate': 'editRate', '--chat-rate': 'chatRate',
-                      '--transport-every': 'transportEvery',
-                      '--late-after': 'lateAfter', '--pad': 'pad',
-                      '--duration': 'duration',
-                      '--ramp': 'ramp', '--seed': 'seed' };
+    const any = ['a number, 0 or more', (x) => x >= 0];
+    const whole = ['a whole number', (x) => Number.isInteger(x) && x >= 0];
+    const count = ['a whole number, 1 or more',
+                   (x) => Number.isInteger(x) && x >= 1];
+    const numbers = {
+        '--scrape-every': ['scrapeEvery',
+                           `at least ${SCRAPE_EVERY_MIN_S} seconds`,
+                           (x) => x >= SCRAPE_EVERY_MIN_S],
+        '--rooms': ['rooms', ...count], '--peers': ['peers', ...count],
+        '--rate': ['rate', ...any], '--edit-rate': ['editRate', ...any],
+        '--chat-rate': ['chatRate', ...any],
+        '--transport-every': ['transportEvery', ...any],
+        '--late-after': ['lateAfter', ...any], '--pad': ['pad', ...whole],
+        '--duration': ['duration', 'a number of seconds above 0',
+                       (x) => x > 0],
+        '--ramp': ['ramp', ...any], '--seed': ['seed', ...whole] };
     const strings = { '--url': 'url', '--metrics': 'metrics', '--mix': 'mix',
                       '--piece': 'piece', '--flood': 'flood', '--tag': 'tag',
                       '--shard': 'shard', '--out': 'out' };
@@ -147,10 +160,15 @@ function parseArgs (argv)
 
             if (a in strings)
                 o[strings[a]] = v;
-            else if (!(Number(v) >= 0))
-                throw new Error(`${a} takes a number, not ${v}`);
             else
-                o[numbers[a]] = Number(v);
+            {
+                const [key, what, ok] = numbers[a];
+
+                if (!ok(Number(v)))
+                    throw new Error(`${a} takes ${what}, not ${v}`);
+
+                o[key] = Number(v);
+            }
         }
         else
             throw new Error(a === '--help' ? '' : `what is ${a}?`);
@@ -205,6 +223,15 @@ function prng (seed)
         t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+}
+
+/* murmur3's finalizer: a bijection on 32 bits that every bit of the
+   input moves every bit of. */
+function fmix32 (h)
+{
+    h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B);
+    h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35);
+    return (h ^ (h >>> 16)) >>> 0;
 }
 
 /* A room's peers by profile, in proportion to the weights: the largest
@@ -328,7 +355,7 @@ const HISTS = ['joinMs', 'welcomeMs', 'syncMs', 'forwardMs', 'rttMs',
 /* What every peer adds to: one process, one clock. */
 const results = {
     ...Object.fromEntries(HISTS.map((h) => [h, new Hist()])),
-    sent: 0, expected: 0,
+    sent: 0, expected: 0, unready: 0,
     offsets: new Map(),                         /* room -> [min, max] */
     edits: 0, chats: 0, knobs: 0, transports: 0,
     flood: { sent: 0, bytes: 0 },
@@ -359,6 +386,14 @@ class Peer
                              { piece: this.o.piece, now });
         this.room.on('error', (text) => results.errors.add(`relay: ${text}`))
             .on('refused', (m) => results.refusals.add(`${m.of}: ${m.why}`))
+            /* Its sender counts this peer from `joined', but its Mesh,
+               which takes this over, is made only once the doc is
+               synced. */
+            .on('relayed', (from, cmd) =>
+            {
+                if (typeof cmd?.sentMs === 'number')
+                    results.unready++;
+            })
             .on('close', (refused) =>
             {
                 if (!stopping)
@@ -529,7 +564,9 @@ class Peer
 
             case 'editor':
             {
+                const line = '# load\n';
                 let typed = null;
+                let at = 0;
 
                 this.every(o.editRate, () =>
                 {
@@ -539,20 +576,36 @@ class Peer
                         return;
 
                     /* Typing and taking it back, so the text stays the
-                       size it was. */
+                       size it was. Each character is taken back from
+                       wherever the other editors' typing has moved it
+                       since, and only those: another's line typed into
+                       the middle of this one stays. */
                     if (typed === null)
                     {
-                        typed = Math.floor(rand() * (text.length + 1));
-                        text.insert(typed, '# load\n');
+                        at = Math.floor(rand() * (text.length + 1));
+                        text.insert(at, line);
+                        typed = [...line].map((c, i) =>
+                            Y.createRelativePositionFromTypeIndex(text, at + i));
                     }
                     else
                     {
-                        text.delete(typed, '# load\n'.length);
+                        this.doc.transact(() =>
+                        {
+                            for (const rel of typed)
+                            {
+                                const { index } = Y
+                                    .createAbsolutePositionFromRelativePosition(
+                                        rel, this.doc);
+
+                                text.delete(index, 1);
+                            }
+                        });
                         typed = null;
+                        at = 0;
                     }
 
                     this.provider.awareness.setLocalStateField(
-                        'cursor', { at: typed ?? 0 });
+                        'cursor', { at });
                     results.edits++;
                 });
                 break;
@@ -719,10 +772,11 @@ async function main ()
         const first = kinds.indexOf('player');
 
         /* `guest-' starts no account's handle, so a relay with accounts
-           takes these names as guests' too. */
+           takes these names as guests' too. Each peer's stream is the
+           seed's mixed with its place in the plan, which no two share. */
         kinds.forEach((profile, p) => peers.push(new Peer(
             o, url, `${tag}-${r}`, `guest-load-${r}-${p}`, profile,
-            prng(o.seed * 7919 + r * 131 + p), p === first)));
+            prng(fmix32(fmix32(o.seed) ^ peers.length)), p === first)));
     }
 
     /* Each provider listens for the process's exit, as a page's would for
@@ -823,7 +877,8 @@ async function main ()
                              .length])) },
             hists: Object.fromEntries(HISTS.map((h) => [h, results[h]])),
             offsets: Object.fromEntries(results.offsets),
-            gestures: { sent: results.sent, expected: results.expected },
+            gestures: { sent: results.sent, expected: results.expected,
+                        unready: results.unready },
             sent: { knobs: results.knobs, edits: results.edits,
                     chats: results.chats, transports: results.transports },
             flood: results.flood,
@@ -886,6 +941,20 @@ function merge (argv)
     {
         process.stderr.write('relayload.mjs: --merge takes the result files ' +
                              'of one run, the same --tag\n' + USAGE);
+        process.exit(2);
+    }
+
+    /* A shard twice counts its peers twice, and one left out leaves
+       theirs out. */
+    const shards = runs.map((r) => r.inputs.shardOf);
+    const k = shards[0][1];
+
+    if (runs.length !== k || shards.some(([, n]) => n !== k) ||
+        new Set(shards.map(([i]) => i)).size !== k)
+    {
+        process.stderr.write('relayload.mjs: --merge takes each shard of ' +
+                             'the run once, not ' +
+                             `${shards.map((x) => x.join('/')).join(', ')}\n`);
         process.exit(2);
     }
 
@@ -963,9 +1032,12 @@ function summary ({ inputs, results: r, metrics })
                                        `p99.9 ${s.p999} max ${s.max}`;
     const counts = (c) => Object.keys(c).length === 0 ? 'none'
         : Object.entries(c).map(([k, v]) => `${k} x${v}`).join(', ');
-    const last = metrics.filter((m) => m.error === undefined).at(-1);
-    const delays = metrics.filter((m) => m.eventLoopDelayMs !== undefined)
-        .map((m) => m.eventLoopDelayMs);
+    /* The first scrape's window is from before the run, and its counters
+       are the relay's since it started: the run is what came after. */
+    const ok = metrics.filter((m) => m.error === undefined);
+    const [first, last] = [ok[0], ok.at(-1)];
+    const windows = ok.slice(1);
+    const delays = windows.map((m) => m.eventLoopDelayMs);
     const lines = [
         `relayload: ${inputs.rooms} room(s) x ${inputs.peers} peers, ` +
         `${inputs.duration} s, ${inputs.mix}, seed ${inputs.seed}` +
@@ -979,7 +1051,8 @@ function summary ({ inputs, results: r, metrics })
         `max ${r.generator.eventLoopDelayMs.max} ms; ` +
         `cpu ${r.generator.cpuPercent}%`,
         `  gestures       ${r.gestures.delivered}/${r.gestures.expected} ` +
-        `delivered of ${r.gestures.sent} sent` +
+        `delivered of ${r.gestures.sent} sent, ${r.gestures.unready} ` +
+        'before the receiver was ready' +
         (inputs.shardOf[1] > 1 && !inputs.shard.endsWith('merged')
             ? ' (expected counts other shards\' peers; --merge them)' : ''),
         `  sent           ${counts(r.sent)}`,
@@ -992,17 +1065,19 @@ function summary ({ inputs, results: r, metrics })
         `  refusals       ${counts(r.refusals)}`,
     ];
 
-    if (last !== undefined)
+    if (windows.length > 0)
         lines.push(
             `  relay          ${metrics.length} scrapes; event loop max ms ` +
             `${Math.max(...delays.map((d) => d.max)).toFixed(1)}, worst p99 ` +
             `${Math.max(...delays.map((d) => d.p99)).toFixed(1)}, timer ` +
-            `lag max ${Math.max(...metrics.map((m) => m.timerLagMs?.max ?? 0))
-                .toFixed(1)}, cpu max ${Math.max(...metrics.map(
-                    (m) => m.cpuPercent ?? 0)).toFixed(0)}%; rss ` +
-            `${(last.memoryBytes.rss / 2 ** 20).toFixed(0)} MiB; ` +
-            `relayed in/out ${last.room.relayed.in}/${last.room.relayed.out}; ` +
-            `doc frames in/out ${last.doc.in}/${last.doc.out}; ` +
+            `lag max ${Math.max(...windows.map((m) => m.timerLagMs.max))
+                .toFixed(1)}, cpu max ${Math.max(...windows.map(
+                    (m) => m.cpuPercent)).toFixed(0)}%; rss ` +
+            `${(last.memoryBytes.rss / 2 ** 20).toFixed(0)} MiB; relayed ` +
+            `in/out ${last.room.relayed.in - first.room.relayed.in}/` +
+            `${last.room.relayed.out - first.room.relayed.out}; doc frames ` +
+            `in/out ${last.doc.in - first.doc.in}/` +
+            `${last.doc.out - first.doc.out}; ` +
             `buffered max ${last.bufferedMaxBytes} B`);
 
     return lines.join('\n') + '\n';
