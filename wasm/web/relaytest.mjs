@@ -541,6 +541,39 @@ async function accountsInRooms ()
                 s.close();
             }
 
+            /* Ids made up, said to be there and then gone, one after
+               another: each is forgotten as it goes. */
+            {
+                const s = await opened();
+                const { meta } = acct.rooms.get('cursors').awareness;
+                const before = meta.size;
+                const at = (client, clock, state) =>
+                {
+                    const u = encoding.createEncoder();
+                    const e = encoding.createEncoder();
+
+                    encoding.writeVarUint(u, 1);
+                    encoding.writeVarUint(u, client);
+                    encoding.writeVarUint(u, clock);
+                    encoding.writeVarString(u, JSON.stringify(state));
+                    encoding.writeVarUint(e, 1);
+                    encoding.writeVarUint8Array(e, encoding.toUint8Array(u));
+                    return encoding.toUint8Array(e);
+                };
+
+                for (let i = 8000; i < 8040; i++)
+                {
+                    s.send(at(i, 1, {}));
+                    s.send(at(i, 2, null));
+                }
+
+                await new Promise((r) => setTimeout(r, 300));
+                check(meta.size === before,
+                      'clients made up and said to be gone are forgotten ' +
+                      `(${meta.size - before} kept)`);
+                s.close();
+            }
+
             for (const [p, d] of docs)
             {
                 p.destroy();
