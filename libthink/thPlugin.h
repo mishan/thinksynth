@@ -395,7 +395,6 @@ private:
        the step and the value names is not a thing worth writing; a vector of
        one struct is the same data with the bookkeeping deleted. */
     vector<ArgInfo> args_;
-    vector<int> smoothed_;
 
     /* What getArgValues() and getArgDesc() hand back for an index that has
        none, so they can return by reference without every caller checking. */
@@ -404,6 +403,9 @@ private:
 
     Callback callback_;
     ModuleReset reset_;
+
+    /* Last, so no member a plugin's inlined accessor reaches moves. */
+    vector<int> smoothed_;
 };
 
 #endif /* TH_PLUGIN_H */

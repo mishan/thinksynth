@@ -42,9 +42,12 @@ include(TestBigEndian)
 # 8: thMidiChan gained choke state and an inline choke() accessor. A client
 # built with that header must not silently use an older constructor that never
 # initializes the new state, even on targets where it fits in existing padding.
+#
+# 9: ArgInfo gained smoothMs, which changes the stride of the vector the
+# inline arg accessors index, as at 7.
 # ---------------------------------------------------------------------------
 
-set(THINK_LIB_MAJOR 8)
+set(THINK_LIB_MAJOR 9)
 set(THINK_LIB_MINOR 0)
 
 # ---------------------------------------------------------------------------
