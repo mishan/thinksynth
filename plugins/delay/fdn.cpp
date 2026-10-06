@@ -102,9 +102,9 @@
  * last, and it is the shifter's anti-alias filter, since heads reading at
  * twice the speed fold everything above a quarter of the rate back down.
  * An octave is the pad of the eighties; a fifth and a fourth down are the
- * other two everybody reaches for. It has to be in the node: a graph may
- * not hold a cycle, so the tail cannot be taken out, shifted and put back
- * by nodes.
+ * other two everybody reaches for. It is in the node because a graph
+ * that takes the tail out, shifts it and puts it back has a loop, and runs
+ * a sample at a time at several times the cost.
  *
  * And a high-pass at FDN_SHIMMER_LOW, because the one frequency a shift
  * cannot move is zero. Twice nothing is nothing, so whatever DC or

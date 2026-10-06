@@ -6,7 +6,7 @@
 # up, each quieter and darker than the last. It is the pad Eno and
 # Lanois made from a pitch shifter in a reverb's feedback, and the reason
 # the shift is inside the node rather than wired here is that a graph
-# may not hold a cycle -- see the head of plugins/delay/fdn.cpp.
+# with a loop runs a sample at a time, several times the cost.
 #
 # `Shimmer' is the share of the tail's power that comes back shifted,
 # so the loop's gain is its square and the climb always dies away; near

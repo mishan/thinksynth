@@ -70,11 +70,12 @@ On the `jam-m1` branch, which starts where `wasm-parity` ends:
   top of the output latency: 5–11 ms at 256 and 48 kHz.
 - `scripts/dspab -B 256` over the corpus: every shipped DSP renders the
   same at 256 as at 1024. Three did not, and all three had a cycle in the
-  graph -- the engine breaks one by letting a node read the previous
-  window, so the loop's delay *is* the window: 23 ms at 1024, 5.3 ms at
+  graph -- the engine then broke one by letting a node read the previous
+  window, so the loop's delay *was* the window: 23 ms at 1024, 5.3 ms at
   256. Two of them were rebuilt with the loop inside a plugin
   (`dsp/waveguide.dsp`, `dsp/sandh.dsp`) and the third kept as
-  `scripts/guard/feedback.dsp`, which is where the claim is checked now.
+  `scripts/guard/feedback.dsp`. A graph with a loop now runs a sample at a
+  time and renders the same at both.
   Understood, and no plugin read the window length as a constant.
 - `wasm/web/check.mjs` plays every shipped patch through the module from
   Node. `wasm/web/browsertest.mjs` renders a phrase through the worklet in
@@ -556,8 +557,8 @@ The synth window is the one the tree controls. `TH_DEFAULT_WINDOW_LENGTH` is
 of the next `process()`. The web build runs at 256. The ring between
 `process()` and the device already handles a device period that is not the
 window, so this was a number, not a rework; M1 ran `scripts/dspab` at 256
-against 1024 and the only DSPs that moved are the three with a cycle in
-their graph, whose feedback delay *is* the window (section 0).
+against 1024 and the only DSPs that moved were the three with a cycle in
+their graph, whose feedback delay was the window (section 0).
 
 Then three ways to play, chosen per seat, with the measured round trip shown
 next to the choice so nobody has to guess:

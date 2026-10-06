@@ -216,6 +216,13 @@ public:
     void followTempo (const string &chanarg, bool beats);
 
     void process (unsigned int windowlen);
+
+    /* True if the graph has a cycle in it: a node that reads, by some
+       path, its own output. Found by buildSynthTree. Such a graph runs a
+       sample at a time, so the back edge reads the sample before -- a
+       delay of one sample at any window length, as in any feedback loop
+       on paper, rather than of one window. */
+    bool feedback (void) const { return feedback_; }
     void setActiveNodes(void);
 
     /* Every node runs this window, whether or not anything in the graph
@@ -336,6 +343,22 @@ private:
        its start, and only the prototype follows the tempo. */
     std::vector<thBeatFold> beatFolds_;   /* GUI thread */
     double                  beatsAt_;
+
+    /* See feedback(). What processBySample marks, hands in and fills,
+       found by prepareLoop. */
+    bool                 feedback_;
+    std::vector<thNode *> fbNodes_;
+    std::vector<thArg *>  fbIns_, fbOuts_;
+    std::vector<char>     fbFilled_;
+    std::vector<float>    fbInData_, fbOutData_;
+
+    bool findCycle (thNode *node, std::map<thNode *, int> &state);
+    bool visitCycle (thNode *node, std::map<thNode *, int> &state);
+    thArg *loopTarget (const thArg *a);
+    void addLoopOut (thArg *a);
+    void prepareLoop (void);
+    void processWindow (unsigned int windowlen);
+    void processBySample (unsigned int windowlen);
 
     /* Empty except between the parse and desugarExprs(), and not copied, for
        the reasons above. */

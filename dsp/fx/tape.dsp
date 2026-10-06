@@ -19,14 +19,13 @@
 #   twice a lap. `Tone' is the lowpass that stands in for both.
 #
 # WHERE THESE SIT, AND WHY NOT IN THE FEEDBACK PATH. A graph whose node
-# reads its own output has a cycle, and a cycle in a .dsp resolves as a
-# one-window delay -- so what it sounded like would depend on the window
-# length, which is the one thing a .dsp may not do. The wobble and the
+# reads its own output has a loop, and a graph with a loop runs a sample
+# at a time, several times the cost of one without. The wobble and the
 # saturation therefore sit on the wet signal as a whole rather than
 # inside the loop: every repeat gets the same helping instead of one
 # more than the last. fx/echo.dsp's damping makes the same trade for the
-# same reason. What is lost is the compounding; what is kept is a file
-# that renders the same at every buffer size.
+# same reason. What is lost is the compounding; what is kept is a cheap
+# effect.
 
 name "Tape";
 author "Misha Nasledov";
