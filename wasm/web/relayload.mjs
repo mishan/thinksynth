@@ -963,9 +963,12 @@ function summary ({ inputs, results: r, metrics })
                                        `p99.9 ${s.p999} max ${s.max}`;
     const counts = (c) => Object.keys(c).length === 0 ? 'none'
         : Object.entries(c).map(([k, v]) => `${k} x${v}`).join(', ');
-    const last = metrics.filter((m) => m.error === undefined).at(-1);
-    const delays = metrics.filter((m) => m.eventLoopDelayMs !== undefined)
-        .map((m) => m.eventLoopDelayMs);
+    /* The first scrape's window is from before the run, and its counters
+       are the relay's since it started: the run is what came after. */
+    const ok = metrics.filter((m) => m.error === undefined);
+    const [first, last] = [ok[0], ok.at(-1)];
+    const windows = ok.slice(1);
+    const delays = windows.map((m) => m.eventLoopDelayMs);
     const lines = [
         `relayload: ${inputs.rooms} room(s) x ${inputs.peers} peers, ` +
         `${inputs.duration} s, ${inputs.mix}, seed ${inputs.seed}` +
@@ -992,17 +995,19 @@ function summary ({ inputs, results: r, metrics })
         `  refusals       ${counts(r.refusals)}`,
     ];
 
-    if (last !== undefined)
+    if (windows.length > 0)
         lines.push(
             `  relay          ${metrics.length} scrapes; event loop max ms ` +
             `${Math.max(...delays.map((d) => d.max)).toFixed(1)}, worst p99 ` +
             `${Math.max(...delays.map((d) => d.p99)).toFixed(1)}, timer ` +
-            `lag max ${Math.max(...metrics.map((m) => m.timerLagMs?.max ?? 0))
-                .toFixed(1)}, cpu max ${Math.max(...metrics.map(
-                    (m) => m.cpuPercent ?? 0)).toFixed(0)}%; rss ` +
-            `${(last.memoryBytes.rss / 2 ** 20).toFixed(0)} MiB; ` +
-            `relayed in/out ${last.room.relayed.in}/${last.room.relayed.out}; ` +
-            `doc frames in/out ${last.doc.in}/${last.doc.out}; ` +
+            `lag max ${Math.max(...windows.map((m) => m.timerLagMs.max))
+                .toFixed(1)}, cpu max ${Math.max(...windows.map(
+                    (m) => m.cpuPercent)).toFixed(0)}%; rss ` +
+            `${(last.memoryBytes.rss / 2 ** 20).toFixed(0)} MiB; relayed ` +
+            `in/out ${last.room.relayed.in - first.room.relayed.in}/` +
+            `${last.room.relayed.out - first.room.relayed.out}; doc frames ` +
+            `in/out ${last.doc.in - first.doc.in}/` +
+            `${last.doc.out - first.doc.out}; ` +
             `buffered max ${last.bufferedMaxBytes} B`);
 
     return lines.join('\n') + '\n';
