@@ -51,6 +51,10 @@ import { drain, loadErrors } from './tape.js';
 /* How many 128-frame quanta between posts to the page: 43 ms at 48 kHz. */
 const TAPE_EVERY = 16;
 
+/* process() calls counted by whole milliseconds taken, the last bin
+   holding everything slower. */
+const TOOK_BINS = 8;
+
 /* The glue asks for the time now and then; a worklet has no performance
    object to ask. Not currentTime: it stands still through a process()
    call, and a late joiner's catch-up budget (thinkweb.cpp, catchUp) is
@@ -116,6 +120,21 @@ class ThinkProcessor extends AudioWorkletProcessor
          * the samples already are, rather than through a wasm call the page
          * has no thread to make. */
         this.micPeak = 0;
+
+        /* What process() has cost since the last batch, against the
+           length of the quantum each call renders. The browser keeps no
+           xrun count a page can read, so this is the nearest thing to
+           one. */
+        this.budgetMs = 0;
+        this.overBudget = 0;
+        this.slowestMs = 0;
+        this.took = new Uint16Array(TOOK_BINS);
+
+        /* The smallest step the clock has taken between two calls' starts,
+           and the last start. */
+        this.clockStepMs = Infinity;
+        this.lastStart = Infinity;
+
         this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
 
@@ -645,6 +664,26 @@ class ThinkProcessor extends AudioWorkletProcessor
         if (this.M === null || out.length === 0)
             return true;
 
+        /* Date.now, because it is the only clock here: neither Chromium nor
+           Firefox gives this scope a performance object (the one above
+           reads currentTime, which stands still inside a call). Its
+           resolution is a whole millisecond, so one call reads as the
+           floor or the ceiling of what it took -- right on average, off by
+           under a millisecond each time. Against a 2.67 ms budget that
+           makes `overBudget' a call that read 3 ms or more: one that took
+           between 2 and 3 can land either side. A wall clock, too, so a
+           clock step shows as one odd reading. Firefox under
+           resistFingerprinting rounds it to tens of milliseconds, where
+           every count is noise, which is what `coarseClock' says. */
+        const start = Date.now();
+
+        const step = start - this.lastStart;
+
+        if (step > 0 && step < this.clockStepMs)
+            this.clockStepMs = step;
+
+        this.lastStart = start;
+
         /* The module's frame counter starts at zero when tw_create ran;
            this context's is already well past zero by then, and every
            frame the page hands in -- a Play's origin above all -- is in
@@ -662,6 +701,8 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
 
         const frames = out[0].length;
+
+        this.budgetMs = frames * 1000 / sampleRate;
 
         this.feedInput(inputs[0], frames);
 
@@ -740,6 +781,18 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         if (++this.quanta >= TAPE_EVERY)
             this.postTape();
+
+        /* After the post, so the call that posted counts in the next
+           batch and not in none. */
+        const took = Math.max(0, Date.now() - start);
+
+        if (took > this.slowestMs)
+            this.slowestMs = took;
+
+        if (took > this.budgetMs)
+            this.overBudget++;
+
+        this.took[Math.min(took, TOOK_BINS - 1)]++;
 
         return true;
     }
@@ -964,6 +1017,22 @@ class ThinkProcessor extends AudioWorkletProcessor
             speed: this.M._tw_speed_now(),
             late: this.M._tw_late(),
 
+            /* process() since the last batch: how many calls ran past the
+               quantum's budget, the slowest, and how many took each whole
+               millisecond (TOOK_BINS), which is what a p99 over any span
+               the page likes is summed from. */
+            overBudget: this.overBudget,
+            slowestMs: this.slowestMs,
+            took: this.took,
+
+            /* Calls come a quantum apart or, rendering offline, closer:
+               on a millisecond clock two of them read three apart at
+               most. One that has stepped, but never by less than two
+               quanta, is too coarse to time a call by; one not yet seen to
+               step is not called coarse on no evidence. */
+            coarseClock: this.clockStepMs !== Infinity &&
+                         this.clockStepMs > 2 * this.budgetMs,
+
             /* A late joiner's transport, still being stepped up to the
                output: silent until it is (thinkweb.cpp, catchUp). */
             catching: this.M._tw_catching() !== 0,
@@ -997,6 +1066,9 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.keys = [];
         this.taps.clear();
         this.micPeak = 0;
+        this.overBudget = 0;
+        this.slowestMs = 0;
+        this.took.fill(0);
     }
 }
 

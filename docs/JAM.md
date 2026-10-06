@@ -172,6 +172,26 @@ starts where that ends:
   is moving the worst of all of them is about 0.6 ms, a fifth of the
   quantum, and p99 stays under 0.4 ms. That is the measurement that could
   have sent the scheduler back out of the worklet, and it did not.
+  `--json FILE` writes the same runs, with the node version, CPU model,
+  the script's commit and the build's path and module hash, as one
+  document for comparing machines. It plays every piece the way the page
+  does -- the kit's samples loaded, the channels a piece leaves to the
+  page given their default patches, an unseeded piece a fixed seed --
+  and `--only a.gen,b.gen` and `--seconds N` cut a run down.
+- `wasm/web/worklettime.mjs` is the same question asked of a browser: the
+  solo page plays each piece in a real-time AudioContext, under
+  `scripts/headless.sh`, and the worklet's own counts of its `process()`
+  calls are read back through `window.solo.quanta`. It prints the calls
+  over the quantum's budget per minute, the slowest call and the p99, and
+  the audio clock against the wall clock, and `--json FILE` writes them:
+
+  ```
+  node wasm/web/worklettime.mjs --browser firefox --seconds 30 \
+      --json ff.json build-web airports.gen fern.gen
+  ```
+
+  Not a gate: the counts belong to the machine and the browser, and the
+  worklet's clock is a whole millisecond.
 - What is left for done: the same bench and the same pieces on a slow
   machine and on real hardware, in Chrome and Firefox. A fast desktop and a
   headless browser are not the case that decides it.

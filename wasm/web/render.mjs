@@ -232,6 +232,53 @@ export function schedule (M, c)
         throw new Error(`no scheduler command '${c.op}'`);
 }
 
+/* A loaded piece's channels aimed the page's way, which playAimed below
+   describes. Apart from it so that the bench plays a piece the way the
+   page does as well. */
+export function aim (M, patchFor, log)
+{
+    const aimed = [];
+
+    /* Channels the piece asked for that `patchFor' had nothing for. Kept
+       and returned rather than skipped quietly: a caller that cannot tell
+       "this piece names no channel" from "this build ships no patch for
+       its channels" sends somebody hunting in the wrong place. */
+    const unaimed = [];
+
+    for (let i = 0; i < M._tw_sink_count(); i++)
+    {
+        const channel = M._tw_sink_channel(i);
+        const want = M.ccall('tw_patch_default', 'string', ['number'],
+                             [channel]);
+        const text = want === '' ? null : patchFor(want);
+
+        if (text === null || text === undefined)
+        {
+            unaimed.push({ channel, wanted: want });
+            continue;
+        }
+
+        /* The whole .patch, read by the module: the graph it names, its
+           side, its effect and its overrides, in the order the format
+           requires. This used to be a tw_load and a loop of tw_chanarg
+           done here in the right order by hand -- a third copy of that
+           order, beside patch.js's and the application's. */
+        if (M.ccall('tw_patch_apply', 'number',
+                    ['number', 'string', 'string'],
+                    [channel, text, want]) === 0)
+        {
+            log.push(`channel ${channel + 1}: ${want}: ` +
+                     M.ccall('tw_patch_why', 'string', [], []));
+            unaimed.push({ channel, wanted: want });
+            continue;
+        }
+
+        aimed.push({ channel, patch: want });
+    }
+
+    return { aimed, unaimed };
+}
+
 /* A piece played the way the page plays it: loaded, then aimed, then
  * listened to.
  *
@@ -280,44 +327,7 @@ export async function playAimed (createThinkWeb,
         return { ok, log, errors, aimed: [], unaimed: [], listens: [],
                  peak: 0, at: 0 };
 
-    const aimed = [];
-
-    /* Channels the piece asked for that `patchFor' had nothing for. Kept
-       and returned rather than skipped quietly: a caller that cannot tell
-       "this piece names no channel" from "this build ships no patch for
-       its channels" sends somebody hunting in the wrong place. */
-    const unaimed = [];
-
-    for (let i = 0; i < M._tw_sink_count(); i++)
-    {
-        const channel = M._tw_sink_channel(i);
-        const want = M.ccall('tw_patch_default', 'string', ['number'],
-                             [channel]);
-        const text = want === '' ? null : patchFor(want);
-
-        if (text === null || text === undefined)
-        {
-            unaimed.push({ channel, wanted: want });
-            continue;
-        }
-
-        /* The whole .patch, read by the module: the graph it names, its
-           side, its effect and its overrides, in the order the format
-           requires. This used to be a tw_load and a loop of tw_chanarg
-           done here in the right order by hand -- a third copy of that
-           order, beside patch.js's and the application's. */
-        if (M.ccall('tw_patch_apply', 'number',
-                    ['number', 'string', 'string'],
-                    [channel, text, want]) === 0)
-        {
-            log.push(`channel ${channel + 1}: ${want}: ` +
-                     M.ccall('tw_patch_why', 'string', [], []));
-            unaimed.push({ channel, wanted: want });
-            continue;
-        }
-
-        aimed.push({ channel, patch: want });
-    }
+    const { aimed, unaimed } = aim(M, patchFor, log);
 
     const listens = [];
 

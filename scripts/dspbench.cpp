@@ -26,25 +26,34 @@
  * - chord: -n notes struck at once and held for -w windows. Prints
  *   addNote's time per note, the first window's time -- every voice's
  *   first window at once, which is where a note-on's cost lands on the
- *   audio thread -- and the mean over the rest.
+ *   audio thread -- and the mean, p99 and worst over the rest.
  *
- * - play: a note every -s windows up a scale across five octaves, each
- *   released -h windows later, so voices pile up in release the way a
- *   player's do. Prints the mean and worst window. -o writes its output,
+ * - play: a note every -s ms up a scale across five octaves, each
+ *   released -h ms later, so voices pile up in release the way a player's
+ *   do. In milliseconds, rounded to whole windows, so that the notes are the
+ *   same at any -l; -w is in windows, so scale it with -l for the same
+ *   length of play. Prints the mean and worst window. -o writes its output,
  *   raw interleaved floats, for comparing two plugin sets sample by sample.
  *
+ * -l and -r set the window length and the sample rate, the default
+ * engine's otherwise; a browser runs 128 or 256 frames at 44.1 or 48 kHz.
  * Times are wall clock on the calling thread, against the window's own
- * length at the default rate; on a loaded machine take the best of a few
+ * length at that rate; on a loaded machine take the best of a few
  * runs. -v prints the chord's mean every two seconds, for a graph whose
- * cost changes as its voices decay.
+ * cost changes as its voices decay. -j writes the inputs and both loads'
+ * numbers to a file as one JSON object, for a script to compare runs.
  */
 
 #include "config.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include <algorithm>
+#include <vector>
 
 #include "think.h"
 
@@ -67,11 +76,30 @@ static int playNote (int k)
     return 33 + 12 * ((k / 7) % 5) + scale[k % 7];
 }
 
+static void jsonString (FILE *f, const char *s)
+{
+    fputc('"', f);
+
+    for (; *s; s++)
+    {
+        if (*s == '"' || *s == '\\')
+            fprintf(f, "\\%c", *s);
+        else if ((unsigned char)*s < 0x20)
+            fprintf(f, "\\u%04x", *s);
+        else
+            fputc(*s, f);
+    }
+
+    fputc('"', f);
+}
+
 int main (int argc, char **argv)
 {
     string plugins = "plugins/";
-    const char *file = NULL, *dump = NULL;
-    int voices = 16, windows = 400, step = 4, hold = 20;
+    const char *file = NULL, *dump = NULL, *json = NULL;
+    int voices = 16, windows = 400;
+    double stepMs = 100, holdMs = 500;
+    int windowlen = TH_DEFAULT_WINDOW_LENGTH, rate = TH_DEFAULT_SAMPLES;
     bool verbose = false;
 
     for (int i = 1; i < argc; i++)
@@ -83,11 +111,17 @@ int main (int argc, char **argv)
         else if (!strcmp(argv[i], "-w") && i + 1 < argc)
             windows = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-s") && i + 1 < argc)
-            step = atoi(argv[++i]);
+            stepMs = atof(argv[++i]);
         else if (!strcmp(argv[i], "-h") && i + 1 < argc)
-            hold = atoi(argv[++i]);
+            holdMs = atof(argv[++i]);
+        else if (!strcmp(argv[i], "-l") && i + 1 < argc)
+            windowlen = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-r") && i + 1 < argc)
+            rate = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-o") && i + 1 < argc)
             dump = argv[++i];
+        else if (!strcmp(argv[i], "-j") && i + 1 < argc)
+            json = argv[++i];
         else if (!strcmp(argv[i], "-v"))
             verbose = true;
         else if (argv[i][0] != '-' && file == NULL)
@@ -96,21 +130,39 @@ int main (int argc, char **argv)
             file = NULL, i = argc;
     }
 
-    if (file == NULL || voices < 1 || windows < 1 || step < 1 || hold < 0)
+    if (file == NULL || voices < 1 || windows < 1 || !(stepMs > 0) ||
+        !(holdMs >= 0) ||
+        windowlen < 1 || rate < 1)
     {
         fprintf(stderr,
                 "usage: dspbench [-p plugins/] [-n voices] [-w windows] "
-                "[-s step] [-h hold] [-o play.f32] [-v] file.dsp\n");
+                "[-s step_ms] [-h hold_ms] [-l windowlen] [-r rate] [-o play.f32] "
+                "[-j out.json] [-v] file.dsp\n");
         return 2;
     }
 
-    const double windowSec =
-        (double)TH_DEFAULT_WINDOW_LENGTH / TH_DEFAULT_SAMPLES;
-    const int block = (int)(2.0 / windowSec + 0.5);
+    /* Opened before the timing, so a path that cannot be written is
+       known before a run's worth of waiting rather than after. */
+    FILE *jsonOut = NULL;
+
+    if (json != NULL && (jsonOut = fopen(json, "w")) == NULL)
+    {
+        perror(json);
+        return 1;
+    }
+
+    const double windowSec = (double)windowlen / rate;
+    const int block = max(1, (int)(2.0 / windowSec + 0.5));
+    const int step = max(1, (int)(stepMs / 1e3 / windowSec + 0.5));
+    const int hold = (int)(holdMs / 1e3 / windowSec + 0.5);
+
+    /* Each load's numbers, in ms, for -j. */
+    double chordAdd, chordFirst, chordMean, chordP99, chordWorst;
+    double playAdd, playMean, playWorst;
 
     /* chord */
     {
-        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thSynth synth(plugins, windowlen, rate);
 
         if (synth.loadTree(file, 0, 100) == NULL)
         {
@@ -118,14 +170,15 @@ int main (int argc, char **argv)
             return 1;
         }
 
-        double add = 0, t, first, since;
+        double add = 0, t, first, busy = 0, since = 0;
+        vector<double> took(windows);
 
-        /* Fifths up from C2, so no two voices share a pitch, at three
-           velocities. */
+        /* Fifths up from C1, wrapping round 73 semitones, so no two of up
+           to 73 voices share a pitch, at three velocities. */
         for (int i = 0; i < voices; i++)
         {
             t = now();
-            synth.addNote(0, 36 + (i * 7) % 60, 40 + 40 * (i % 3));
+            synth.addNote(0, 24 + (i * 7) % 73, 40 + 40 * (i % 3));
             add += now() - t;
         }
 
@@ -133,30 +186,40 @@ int main (int argc, char **argv)
         synth.process();
         first = now() - t;
 
-        t = since = now();
-
         for (int w = 0; w < windows; w++)
         {
+            t = now();
             synth.process();
+            took[w] = now() - t;
+            busy += took[w];
+            since += took[w];
 
             if (verbose && (w + 1) % block == 0)
             {
                 printf("  %4.0f s: %.3f ms/window\n", (w + 1) * windowSec,
-                       1e3 * (now() - since) / block);
-                since = now();
+                       1e3 * since / block);
+                since = 0;
             }
         }
 
-        t = now() - t;
-        printf("chord %d: %.3f ms/window, %.1f%% of real time; "
-               "addNote %.3f ms; first window %.3f ms\n",
-               voices, 1e3 * t / windows, 100 * t / windows / windowSec,
-               1e3 * add / voices, 1e3 * first);
+        sort(took.begin(), took.end());
+        chordAdd = 1e3 * add / voices;
+        chordFirst = 1e3 * first;
+        chordMean = 1e3 * busy / windows;
+        /* Nearest rank: below a hundred windows this is the worst
+           one, which is why the count is printed beside it. */
+        chordP99 = 1e3 * took[(size_t)ceil(0.99 * windows) - 1];
+        chordWorst = 1e3 * took.back();
+        printf("chord %d: %.3f ms/window, %.1f%% of real time, p99 %.3f ms "
+               "of %d windows, worst %.3f ms; addNote %.3f ms; "
+               "first window %.3f ms\n",
+               voices, chordMean, 100 * busy / windows / windowSec,
+               chordP99, windows, chordWorst, chordAdd, chordFirst);
     }
 
     /* play */
     {
-        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thSynth synth(plugins, windowlen, rate);
 
         synth.loadTree(file, 0, 100);
 
@@ -202,10 +265,34 @@ int main (int argc, char **argv)
         if (out)
             fclose(out);
 
+        playAdd = 1e3 * add / notes;
+        playMean = 1e3 * busy / windows;
+        playWorst = 1e3 * worst;
         printf("play: %.3f ms/window, %.1f%% of real time, worst %.3f ms; "
                "addNote %.3f ms\n",
-               1e3 * busy / windows, 100 * busy / windows / windowSec,
-               1e3 * worst, 1e3 * add / notes);
+               playMean, 100 * busy / windows / windowSec, playWorst,
+               playAdd);
+    }
+
+    if (jsonOut != NULL)
+    {
+        FILE *f = jsonOut;
+        const double windowMs = 1e3 * windowSec;
+
+        fputs("{\"dsp\": ", f);
+        jsonString(f, file);
+        fprintf(f, ", \"voices\": %d, \"windows\": %d, \"stepMs\": %g, "
+                "\"holdMs\": %g, \"windowlen\": %d, \"rate\": %d,\n"
+                " \"chord\": {\"addNoteMs\": %.4f, \"firstWindowMs\": %.4f, "
+                "\"meanMs\": %.4f, \"p99Ms\": %.4f, \"worstMs\": %.4f, "
+                "\"realTimePct\": %.2f},\n"
+                " \"play\": {\"addNoteMs\": %.4f, \"meanMs\": %.4f, "
+                "\"worstMs\": %.4f, \"realTimePct\": %.2f}}\n",
+                voices, windows, stepMs, holdMs, windowlen, rate, chordAdd,
+                chordFirst, chordMean, chordP99, chordWorst,
+                100 * chordMean / windowMs, playAdd, playMean, playWorst,
+                100 * playMean / windowMs);
+        fclose(f);
     }
 
     return 0;

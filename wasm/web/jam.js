@@ -1522,6 +1522,7 @@ function showNumbers ()
         `relay offset spread  ${ms(room.clock.spread)}   ` +
             `(${room.clock.count} samples)`,
     ];
+    const load = synth?.quanta();
 
     if (audioClock !== null)
         lines.push(
@@ -1531,6 +1532,12 @@ function showNumbers ()
             `base latency         ${ms(ctx.baseLatency * 1000)}`,
             `output latency       ${ms((ctx.outputLatency ?? NaN) * 1000)}`,
             `synth window         ${synth.windowlen} frames`,
+            `quanta over budget   ${load.recent.overBudget} of the last ` +
+            `${load.recent.calls}; slowest ${load.recent.slowestMs} ms, ` +
+            `p99 ${load.recent.p99Ms} ms` +
+            (load.coarseClock ? '; the clock is too coarse to trust' : ''),
+            `  since the start    ${load.overBudget} of ${load.calls}; ` +
+            `slowest ${load.slowestMs} ms, p99 ${load.p99Ms} ms`,
             `transport            ` +
             (transport.running ? `${transportNow().toFixed(3)} s` : 'stopped'));
 

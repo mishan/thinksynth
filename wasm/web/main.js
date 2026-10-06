@@ -3069,6 +3069,12 @@ window.solo = {
        were ever compiled for this page. */
     pane: (what, ...args) => panes[what](...args),
 
+    /* What the worklet's process() calls have cost (host.js, quanta),
+       and the audio clock to hold the wall clock against, for
+       worklettime.mjs. */
+    quanta: () => synth?.quanta() ?? null,
+    audioTime: () => ctx?.currentTime ?? null,
+
     /* Which of the drawing panes is asking for frames. A pane in a
        background tab, folded away or in the mode that is not up costs
        nothing, and this is the only way to see from outside that it
