@@ -58,6 +58,12 @@
  * `shift' scales every formant: 1 is an adult male, about 1.15 an adult
  * female, and under 0.8 a giant. `buzz' moves the source from a glottal
  * pulse toward a raw sawtooth, which is the robot.
+ *
+ * `talk' moves it toward `source' instead, any signal at all: a synth
+ * wired in there is said by the mouth rather than sung by a throat,
+ * which is a talk box -- the tube from the amplifier into the player's
+ * mouth on "Around the World". The words, the glides and the consonants
+ * are all the same; only what they shape is new.
  */
 
 #include <stdio.h>
@@ -76,7 +82,7 @@
 #include "thSynth.h"
 
 enum {IN_FREQ, IN_SAY, IN_TRIGGER, IN_RATE, IN_SHIFT, IN_BUZZ, IN_BREATH,
-      OUT_ARG, OUT_PLAY, INOUT_STATE};
+      IN_SOURCE, IN_TALK, OUT_ARG, OUT_PLAY, INOUT_STATE};
 
 std::atomic<int> args[INOUT_STATE + 1];
 
@@ -455,6 +461,16 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_BREATH],
                        "Aspiration under the voicing, for a whisper");
     plugin->setArgRange(args[IN_BREATH], 0, 1);
+    args[IN_SOURCE] = plugin->regArg("source", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SOURCE],
+                       "A signal for the mouth to shape, as much as `talk' "
+                       "says: a synth, for a talk box");
+    plugin->setArgRange(args[IN_SOURCE], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_SOURCE], "full scale");
+    args[IN_TALK] = plugin->regArg("talk", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_TALK],
+                       "The source: 0 the voice's own, 1 `source'");
+    plugin->setArgRange(args[IN_TALK], 0, 1);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The voice");
@@ -511,6 +527,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_shift = mod->getArg(node, args[IN_SHIFT]);
     thArg *in_buzz = mod->getArg(node, args[IN_BUZZ]);
     thArg *in_breath = mod->getArg(node, args[IN_BREATH]);
+    thArg *in_source = mod->getArg(node, args[IN_SOURCE]);
+    thArg *in_talk = mod->getArg(node, args[IN_TALK]);
     thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
 
     float st[S_LEN];
@@ -645,7 +663,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const float pulse = (flow - st[S_FLOW]) * rate / (f0 > 1 ? f0 : 1) /
                             12;
         const float saw = 1 - 2 * phase;
-        const float voice = pulse + (saw * 0.5f - pulse) * buzz;
+        const float own = pulse + (saw * 0.5f - pulse) * buzz;
+        const float talk = thClampArg((*in_talk)[i], 0, 1);
+        const float in = (*in_source)[i];
+        const float source = thIsFinite(in) ? fmaxf(TH_MIN, fminf(TH_MAX, in))
+                                            : 0;
+        const float voice = own + (source * 0.5f - own) * talk;
 
         st[S_FLOW] = flow;
 
