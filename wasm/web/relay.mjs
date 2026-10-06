@@ -1473,9 +1473,14 @@ export function relay ({ port = 8787, host = '0.0.0.0',
                                          maxPayload: DOC_FRAME_MAX });
 
     /* Nothing a client sends may throw out of here: an exception in an
-       upgrade listener is the whole process. */
+       upgrade listener is the whole process. So is an error on a socket
+       refused here, a reset after its 403, say: the server stops
+       listening for its errors at the upgrade, and ws does only for the
+       sockets it takes. */
     server.on('upgrade', (req, socket, head) =>
     {
+        socket.on('error', () => socket.destroy());
+
         try
         {
             upgrade(req, socket, head);
