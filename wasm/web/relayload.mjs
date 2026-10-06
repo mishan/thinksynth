@@ -529,7 +529,9 @@ class Peer
 
             case 'editor':
             {
+                const line = '# load\n';
                 let typed = null;
+                let at = 0;
 
                 this.every(o.editRate, () =>
                 {
@@ -539,20 +541,36 @@ class Peer
                         return;
 
                     /* Typing and taking it back, so the text stays the
-                       size it was. */
+                       size it was. Each character is taken back from
+                       wherever the other editors' typing has moved it
+                       since, and only those: another's line typed into
+                       the middle of this one stays. */
                     if (typed === null)
                     {
-                        typed = Math.floor(rand() * (text.length + 1));
-                        text.insert(typed, '# load\n');
+                        at = Math.floor(rand() * (text.length + 1));
+                        text.insert(at, line);
+                        typed = [...line].map((c, i) =>
+                            Y.createRelativePositionFromTypeIndex(text, at + i));
                     }
                     else
                     {
-                        text.delete(typed, '# load\n'.length);
+                        this.doc.transact(() =>
+                        {
+                            for (const rel of typed)
+                            {
+                                const { index } = Y
+                                    .createAbsolutePositionFromRelativePosition(
+                                        rel, this.doc);
+
+                                text.delete(index, 1);
+                            }
+                        });
                         typed = null;
+                        at = 0;
                     }
 
                     this.provider.awareness.setLocalStateField(
-                        'cursor', { at: typed ?? 0 });
+                        'cursor', { at });
                     results.edits++;
                 });
                 break;
