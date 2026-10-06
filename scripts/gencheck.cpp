@@ -4111,6 +4111,7 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
         "instrument lead {\n"
         "    dsp \"amb01.dsp\";\n"
         "    a = 900 ms;\n"
+        "    amp = -6 dB;\n"
         "    effect \"fx/echo.dsp\" {\n"
         "        delay = 0.5 beats;\n"
         "        mix = 0.5;\n"
@@ -4198,6 +4199,13 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
                 if (fabs((*a)[0] - wantA) > 1.0)
                     fail("the instrument's own value did not survive its "
                          "effect");
+
+                /* The level in dB of gain, 0 dB being MIDIVALMAX. */
+                thArg *amp = synth->getChanArg(0, "amp");
+
+                if (amp == NULL ||
+                    fabs((*amp)[0] - MIDIVALMAX * pow(10.0, -6.0 / 20)) > 1e-3)
+                    fail("`amp = -6 dB' is not half the voltage of unity");
             }
         }
     }

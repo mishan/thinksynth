@@ -1171,6 +1171,16 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
             return false;
         }
 
+        /* The channel's level, in dB of gain as well as in the engine's
+           own terms: 0 dB is unity, which is MIDIVALMAX. */
+        if (inst.channel >= 0 && a.name == "amp" && a.units == "dB" &&
+            a.knob.empty())
+        {
+            arg->setValue((float)(MIDIVALMAX * thFoldUnit(a.value, a.units,
+                                                          0)));
+            continue;
+        }
+
         const std::string declared = foldUnitOf(arg);
 
         /* A unit the arg is not folded in cannot be folded into it, and

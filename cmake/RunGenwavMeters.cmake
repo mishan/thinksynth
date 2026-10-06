@@ -34,11 +34,21 @@ if(NOT tape MATCHES "^# channel 0 = plink\nN ")
   message(FATAL_ERROR "the tape did not name the instrument before its events")
 endif()
 
-if(NOT report MATCHES "1[ ]+0  plink[ ]+([0-9]+\\.[0-9]+)  ([0-9]+\\.[0-9]+)\n")
-  message(FATAL_ERROR "the channel's peak and RMS row is missing: ${report}")
+if(NOT report MATCHES "1[ ]+0  plink[ ]+([0-9]+\\.[0-9]+)  ([0-9]+\\.[0-9]+)  (-[0-9]+\\.[0-9])\n")
+  message(FATAL_ERROR "the channel's peak, RMS and loudness row is missing: ${report}")
 endif()
 set(channel_peak "${CMAKE_MATCH_1}")
 set(channel_rms "${CMAKE_MATCH_2}")
+set(channel_lufs "${CMAKE_MATCH_3}")
+
+# One instrument is the whole mix, so the two read the same loudness.
+if(NOT report MATCHES "\nmix[ ]+[0-9]+\\.[0-9]+  [0-9]+\\.[0-9]+  (-[0-9]+\\.[0-9])\n")
+  message(FATAL_ERROR "the mix's loudness row is missing: ${report}")
+endif()
+
+if(NOT CMAKE_MATCH_1 STREQUAL channel_lufs)
+  message(FATAL_ERROR "one instrument and the mix it makes read differently: ${report}")
+endif()
 
 if(NOT channel_peak GREATER 0 OR NOT channel_rms GREATER 0)
   message(FATAL_ERROR "the instrument's measured level is silent: ${report}")
