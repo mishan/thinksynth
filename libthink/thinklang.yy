@@ -29,6 +29,7 @@
 #include "think.h"
 #include "parser.h"
 #include "thUnits.h"
+#include "thArrays.h"
 
 /* The shim yyparse calls and the reporter it reaches errors through;
    bodies live after the grammar, beside thParseDsp. */
@@ -1179,7 +1180,18 @@ static int parseLexed (thSynth *synth, thParseContext &ctx, bool lexed,
         result = 1;
     }
     else
-        result = yyparse(&ctx);
+    {
+        std::string why;
+        int line = 0;
+
+        if (!thExpandArrays(ctx.tokens, why, line))
+        {
+            fprintf(stderr, "line %d: error: %s\n", line, why.c_str());
+            result = 1;
+        }
+        else
+            result = yyparse(&ctx);
+    }
 
     delete ctx.node;
 

@@ -85,6 +85,8 @@
 #include <sstream>
 #include <vector>
 
+#include "thUtil.h"
+
 #include "think.h"
 #include "NodeGraph.h"
 #include "NodeEdit.h"
@@ -487,12 +489,16 @@ int main (int argc, char **argv)
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
 
-    /* The system's temporary directory, not "/tmp": this is a ctest gate
-       now, and ctest runs it under MSYS2 on Windows, where a leading slash
-       is the current drive's root and usually is not writable. */
-    const string tmp =
-        (std::filesystem::temp_directory_path() / "dspwrite-scratch.dsp")
-            .string();
+    /* A file of its own in the system's temporary directory: two runs at
+       once -- parallel ctest, two build trees -- writing one fixed name
+       edit each other's copies. */
+    const string tmp = thUtil::tempFile("dspwrite-");
+
+    if (tmp.empty())
+    {
+        fprintf(stderr, "dspwrite: no temporary file to work in\n");
+        return 1;
+    }
 
     int failed = 0, files = 0, edits = 0, skipped = 0, inserted = 0;
     int unwritable = 0, noops = 0, respelt = 0;
@@ -533,6 +539,9 @@ int main (int argc, char **argv)
             for (size_t k = 0; k < bx.params.size() && problems < 4; k++)
             {
                 const NodeGraph::Param &p = bx.params[k];
+
+                if (NodeEdit::Text::shared(original, bx.name, p.name))
+                    continue;
 
                 if (p.kind != NodeGraph::Param::VALUE || p.isOutput)
                     continue;
@@ -1001,6 +1010,9 @@ int main (int argc, char **argv)
 
             const string arg = tb.ports[ed.toPort].name;
             const string port = fb.ports[ed.fromPort].name;
+
+            if (NodeEdit::Text::shared(original, tb.name, arg))
+                continue;
 
             if (!spit(tmp, original))
             { printf("FAIL  %s: could not stage a copy\n", argv[f]);

@@ -255,6 +255,13 @@ public:
         static Result createFile (string &source, const string &name,
                                   const string &author, string &why);
 
+        /* True if `node'.`arg' is written by a line other things share:
+           `node' is one element of an array, or `arg' one of the lines a
+           `[]' writes in the io node. The edits that would change all of
+           them at once are refused there. */
+        static bool shared (const string &source, const string &node,
+                            const string &arg);
+
         static Result find (const string &source, const string &node,
                             const string &arg);
     };

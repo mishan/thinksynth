@@ -188,10 +188,16 @@ bool DspCatalog::readHeader (const string &text, Entry &out)
                         depth--;
                 }
                 else if (depth == 1 && tokens[i].kind == thLexToken::WORD &&
-                         tokens[i].text == INPUTPREFIX "0" &&
-                         i + 1 < tokens.size() &&
-                         tokens[i + 1].kind == thLexToken::PUNCT &&
-                         tokens[i + 1].text == "=")
+                         ((tokens[i].text == INPUTPREFIX "0" &&
+                           i + 1 < tokens.size() &&
+                           tokens[i + 1].kind == thLexToken::PUNCT &&
+                           tokens[i + 1].text == "=") ||
+                          /* `in[] = 0;', in0 and the rest at once. */
+                          (tokens[i].text == INPUTPREFIX &&
+                           i + 3 < tokens.size() &&
+                           tokens[i + 1].text == "[" &&
+                           tokens[i + 2].text == "]" &&
+                           tokens[i + 3].text == "=")))
                 {
                     /* An assignment and not a mention: `in0 = 0' is how an
                        effect declares the arg the engine writes into, and
