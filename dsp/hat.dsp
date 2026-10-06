@@ -75,8 +75,8 @@ node ionode {
     choke = 1;
     poly = 2;
 
-    out0 = vca->out;
-    out1 = vca->out;
+    out0 = air->out_low * 2;
+    out1 = air->out_low * 2;
     play = env->play * foot->out;
 };
 
@@ -123,6 +123,30 @@ node foot env::adsr {
 node vca mixer::mul {
     in0 = hp->out_high;
     in1 = env->out * foot->out;
+};
+
+# The ear is most sensitive between two and five kilohertz, and partials
+# low enough to land there make a cymbal clang and bite rather than
+# shimmer. Two gentle high-pass stages at 6000 Hz, each letting half of
+# the band below through, lower that body by four to six decibels against
+# the sizzle above it, and a low-pass at 12.5 kHz takes the fizz off the
+# top; the gain puts the sizzle back where it was.
+node soft filt::svf {
+    in = vca->out;
+    cutoff = 6000;
+    res = 0;
+};
+
+node soft2 filt::svf {
+    in = soft->out_high + soft->out_band * 0.5;
+    cutoff = 6000;
+    res = 0;
+};
+
+node air filt::svf {
+    in = soft2->out_high + soft2->out_band * 0.5;
+    cutoff = 12500;
+    res = 0;
 };
 
 io ionode;

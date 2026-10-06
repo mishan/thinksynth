@@ -86,8 +86,8 @@ node ionode {
     # this one lands, and a cymbal that cuts itself off is a hi-hat.
     poly = 6;
 
-    out0 = out->out;
-    out1 = out->out;
+    out0 = air->out_low * 1.6;
+    out1 = air->out_low * 1.6;
     play = env->play;
 };
 
@@ -145,6 +145,30 @@ node how math::mul {
 node out math::add {
     in0 = (edge->out_band * 0.7 + edge->out_high * 0.6) * env->out;
     in1 = ring->out_band * benv->out * how->out * @cup * 1.2;
+};
+
+# The ear is most sensitive between two and five kilohertz, and partials
+# low enough to land there make a cymbal clang and bite rather than
+# shimmer. Two gentle high-pass stages at 4000 Hz, each letting half of
+# the band below through, lower that body by four to six decibels against
+# the sizzle above it, and a low-pass at 12.5 kHz takes the fizz off the
+# top; the gain puts the sizzle back where it was.
+node soft filt::svf {
+    in = out->out;
+    cutoff = 4000;
+    res = 0;
+};
+
+node soft2 filt::svf {
+    in = soft->out_high + soft->out_band * 0.5;
+    cutoff = 4000;
+    res = 0;
+};
+
+node air filt::svf {
+    in = soft2->out_high + soft2->out_band * 0.5;
+    cutoff = 12500;
+    res = 0;
 };
 
 io ionode;
