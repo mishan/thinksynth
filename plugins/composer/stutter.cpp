@@ -139,7 +139,12 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     if (rolls.empty() || !hold || !*hold || !beats || !*beats)
         return t->now + period;
 
-    const double length = get(P_LENGTH) < period ? get(P_LENGTH) : period;
+    /* A param's range is advice, so a length of nothing or less is the
+       default's, before it can put the roll after the phrase. */
+    double length = get(P_LENGTH) > 0 ? get(P_LENGTH) : 1;
+
+    if (length > period)
+        length = period;
     const double from = t->now + period - length;
     const double part = length / rolls.size();
 

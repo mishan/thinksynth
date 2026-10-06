@@ -78,8 +78,9 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_HOLD], 0, 1);
     args[IN_LENGTH] = plugin->regArg("length", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_LENGTH],
-                       "How much is repeated, read when `hold' rises; up to "
-                       "four seconds");
+                       "How much is repeated, read when `hold' rises, and "
+                       "a shorter one at each seam while held; up to four "
+                       "seconds");
     plugin->setArgUnits(args[IN_LENGTH], "samples");
     args[IN_FADE] = plugin->regArg("fade", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FADE],

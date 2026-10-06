@@ -157,7 +157,7 @@ Stutter (the last moment repeated while held)
 |---|---|---|---|---|---|---|
 | `in` | in | Signal in |  | -1 to 1 | full scale |  |
 | `hold` | in | Above 0, repeat the last `length' instead of the input |  | 0 to 1 |  |  |
-| `length` | in | How much is repeated, read when `hold' rises; up to four seconds |  |  | samples |  |
+| `length` | in | How much is repeated, read when `hold' rises, and a shorter one at each seam while held; up to four seconds |  |  | samples |  |
 | `fade` | in | The fade at each repeat's seam and into and out of the hold; 0 is 2 ms |  |  | samples |  |
 | `out` | out | The input, or the moment held |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
