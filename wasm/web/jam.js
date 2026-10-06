@@ -2709,6 +2709,7 @@ function init ()
 
         /* A late joiner still stepping up to the room (joinRun). */
         catching: () => catching,
+        catchQuanta: () => lastTape?.catchQuanta,
 
         /* A file as the document has it now. What a harness checks an
            edit against, and what one page holds the other's document
