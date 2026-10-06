@@ -5,19 +5,13 @@
 # here give: it is not an instrument and every corpus sweep globs dsp/.
 #
 # THE CYCLE: `osc' is frequency-modulated by `delay', and `delay' is fed from
-# `osc'. The engine breaks a loop like that by letting one node read the
-# previous window, so the loop's delay *is* the window length -- 23 ms at
-# 1024 frames, 5.3 ms at 256. The file therefore sounds different at
-# different buffer sizes, which is why it is a fixture and not a preset, and
-# why DSP_FORMAT.md tells authors not to write one.
+# `osc'. The loop is closed through the io node's `dfreq', so it is also
+# the case for finding a loop through an io arg. A graph with a loop runs a
+# sample at a time, so this one renders the same at every buffer size.
 #
-# It is the last cycle in the tree. Two things were checked against it and one
-# other file and have nothing else to run on:
-#
-#   scripts/dspab -B 256      that a buffer-size change is audible here and
-#                             nowhere else (docs/JAM.md)
-#   the node editor's layout  back-edges: a feedback arc set, reversed for
-#                             layering (docs/NODE_EDITOR.md)
+# The node editor's layout is checked against it and one other file:
+# back-edges, a feedback arc set reversed for layering
+# (docs/NODE_EDITOR.md).
 #
 # This is dsp/noargs/dfb.dsp, 2004, by Leif Ames. Its `dcalc' node writes `in'
 # to a `misc::freq2samples' whose input is called `freq', so nothing reads it
@@ -25,7 +19,7 @@
 # graph somebody actually wrote.
 
 name "Guard: feedback";
-description "An oscillator FM'd by a delay line fed from itself. Window-length dependent by construction.";
+description "An oscillator FM'd by a delay line fed from itself.";
 
 node ionode {
     channels = 2;

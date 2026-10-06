@@ -582,8 +582,8 @@ feedback path does on paper: a damped echo, a comb, a one-pole filter out of
 arithmetic. It costs: a looped graph runs several times slower than the same
 nodes without the loop, about seven times for a six-node voice, so an effect
 is the natural home for one, and a filter that can sit outside the loop is
-cheaper there. A node reading the io node is reading its input, which closes
-nothing.
+cheaper there. A node reading the io node's input closes nothing; reading an
+io arg that points on at a node is reading that node, and can.
 
 A channel's effect goes on **after** its instrument: loading an instrument
 builds a new channel and the effect belongs to the channel it was put on.

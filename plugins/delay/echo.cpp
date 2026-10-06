@@ -20,8 +20,8 @@
  *
  * WHAT GOES ROUND CAN BE CHANGED ON EACH LAP. A graph can filter what an
  * echo feeds back only by looping round it, which runs the graph a sample
- * at a time -- so the loop's own processing is here, at the cost of a
- * window: `tone' a low-pass and `low' a high-pass on every
+ * at a time, several times the cost -- so the loop's own processing is
+ * here: `tone' a low-pass and `low' a high-pass on every
  * repeat, `drive' a saturation, and `boost' the loop's gain past 1. That
  * is a dub echo: each repeat darker and thinner than the one before it,
  * and with the gain past 1 a tail that builds on itself until the

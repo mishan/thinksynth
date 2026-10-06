@@ -17,13 +17,11 @@
 #
 # THE LOOP IS INSIDE THE PLUGIN, and that is the point. The obvious way
 # to build this is a `delay::echo' whose output is filtered, saturated
-# and wired back to its own input, which is a cycle in the graph.
-# DSP_FORMAT.md says what happens to one: the walk clears each node's
-# recalc flag before it recurses, so the loop closes through a whole
-# window and the file sounds like whatever buffer size the audio device
-# asked for. `dsp/noargs/smoothie.dsp' was written that way in 2004 and
-# is where this instrument comes from; the delay line it wanted is the
-# one `filt::comb' already has.
+# and wired back to its own input, which is a loop in the graph, and a
+# graph with a loop runs a sample at a time, several times the cost of
+# one without. `dsp/noargs/smoothie.dsp' was written that way in 2004
+# and is where this instrument comes from; the delay line it wanted is
+# the one `filt::comb' already has.
 #
 # THE EXCITATION IS NOISE AND NOT AN OSCILLATOR. A comb at 110 Hz only
 # rings at the partials of 110 Hz, so what it is fed decides the timbre

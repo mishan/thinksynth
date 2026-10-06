@@ -718,29 +718,53 @@ int main (int argc, char **argv)
             "node y math::add {\n    in0 = osc->out;\n    in1 = z->out;\n};\n"
             "node z math::mul {\n    in0 = y->out;\n    in1 = 0.5;\n};\n"
             "io ionode;\n";
-        bool flags[2] = { true, false };
+        /* The way round is through an arg on the io node. */
+        const string viaio =
+            "name \"viaio\";\n"
+            "node ionode {\n    channels = 1;\n    out0 = y->out;\n"
+            "    fb = z->out;\n    play = 1;\n};\n"
+            "node osc osc::simple {\n};\n"
+            "node y math::add {\n    in0 = osc->out;\n    in1 = ionode->fb;\n};\n"
+            "node z math::mul {\n    in0 = y->out;\n    in1 = 0.5;\n};\n"
+            "io ionode;\n";
+        const string *graphs[3] = { &plain, &loop, &viaio };
+        bool flags[3] = { true, false, false };
 
-        for (int k = 0; k < 2; k++)
+        for (int k = 0; k < 3; k++)
         {
             thSynthTree *tree = NULL;
 
-            if (writeFile(scratch, k ? loop : plain))
+            if (writeFile(scratch, *graphs[k]))
                 tree = synth.parseTree(scratch);
 
             flags[k] = tree && tree->feedback();
             delete tree;
         }
 
-        okOrFail(!flags[0] && flags[1],
-                 "a graph is run by the sample only when it has a loop",
+        okOrFail(!flags[0] && flags[1] && flags[2],
+                 "a graph is run by the sample only when it has a loop, "
+                 "through the io node's args or not",
                  string("plain ") + (flags[0] ? "looped" : "not") +
-                 ", loop " + (flags[1] ? "looped" : "not"));
+                 ", loop " + (flags[1] ? "looped" : "not") +
+                 ", through io " + (flags[2] ? "looped" : "not"));
 
-        const string voice = plain;
+        /* A glide up to 440 Hz, out of arithmetic: nothing on the loop is
+           active or reads anything that is, so nothing but the loop keeps
+           it moving. */
+        const string voice =
+            "name \"glide\";\n"
+            "node ionode {\n    channels = 1;\n    out0 = osc->out;\n"
+            "    play = 1;\n};\n"
+            "node d math::mul {\n    in0 = 440 - z->out;\n"
+            "    in1 = 0.001;\n};\n"
+            "node y math::add {\n    in0 = z->out;\n    in1 = d->out;\n};\n"
+            "node z math::add {\n    in0 = y->out;\n    in1 = 0;\n};\n"
+            "node osc osc::simple {\n    freq = y->out;\n};\n"
+            "io ionode;\n";
         const string fx =
             "name \"loopfx\";\n"
             "node ionode {\n    channels = 2;\n    in0 = 0;\n    in1 = 0;\n"
-            "    out0 = y->out;\n    out1 = y->out;\n};\n"
+            "    out0 = y->out;\n    out1 = ionode->in1;\n};\n"
             "node line delay::echo {\n    in = y->out;\n    size = 1000;\n"
             "    delay = 37;\n    feedback = 0;\n    dry = 0;\n};\n"
             "node y math::add {\n    in0 = ionode->in0;\n"
@@ -782,8 +806,8 @@ int main (int argc, char **argv)
 
         okOrFail(heard[0].size() == 8000 && loudest > 0.01f &&
                  heard[0] == heard[1],
-                 "an effect with a loop in it sounds the same at windows of "
-                 "64 and 500", "the two differ or did not load");
+                 "a voice and an effect with loops in them sound the same at "
+                 "windows of 64 and 500", "the two differ or did not load");
     }
 
     /* ---- the box's text is the graph behind it -------------------------- */

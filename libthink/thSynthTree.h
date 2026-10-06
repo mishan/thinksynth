@@ -344,14 +344,19 @@ private:
     std::vector<thBeatFold> beatFolds_;   /* GUI thread */
     double                  beatsAt_;
 
-    /* See feedback(). The scratch processBySample reuses, so a window
-       allocates nothing once the first has sized it. */
+    /* See feedback(). What processBySample marks, hands in and fills,
+       found by prepareLoop. */
     bool                 feedback_;
-    std::vector<thNode *> marked_;
+    std::vector<thNode *> fbNodes_;
     std::vector<thArg *>  fbIns_, fbOuts_;
+    std::vector<char>     fbFilled_;
     std::vector<float>    fbInData_, fbOutData_;
 
     bool findCycle (thNode *node, std::map<thNode *, int> &state);
+    bool visitCycle (thNode *node, std::map<thNode *, int> &state);
+    thArg *loopTarget (const thArg *a);
+    void addLoopOut (thArg *a);
+    void prepareLoop (void);
     void processWindow (unsigned int windowlen);
     void processBySample (unsigned int windowlen);
 
