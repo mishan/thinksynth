@@ -4045,6 +4045,62 @@ static void checkSpeak (const string &pluginPath)
     windowsAgree(pluginPath, vector<NodeSpec>(1, n), "sp", "out",
                  "osc::speak: the same voice at one sample a window and at "
                  "five hundred");
+
+    /* A talk box: with `talk' at 1 the mouth shapes `source', a 250 Hz
+       saw, and what comes out repeats at its period and not at the
+       voice's own 110 Hz; at 0 it is the other way round. */
+    NodeSpec src;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+    src.values.push_back(Value{ "freq", 250 });
+    src.values.push_back(Value{ "waveform", 1 });
+
+    n.wires.push_back(Wire{ "source", "src", "out" });
+
+    const double lagSource = TH_DEFAULT_SAMPLES / 250.0;
+    const double lagVoice = TH_DEFAULT_SAMPLES / 110.0;
+    auto corr = [](const vector<float> &v, size_t lag) {
+        double xy = 0, xx = 0, yy = 0;
+
+        for (size_t i = 8000; i + lag < v.size(); i++)
+        {
+            xy += (double)v[i] * v[i + lag];
+            xx += (double)v[i] * v[i];
+            yy += (double)v[i + lag] * v[i + lag];
+        }
+
+        return xx > 0 && yy > 0 ? xy / sqrt(xx * yy) : 0;
+    };
+
+    for (float talk : { 0.0f, 1.0f })
+    {
+        vector<NodeSpec> spec;
+        vector<float> got;
+        string why;
+        NodeSpec t = n;
+
+        t.values.push_back(Value{ "talk", talk });
+        spec.push_back(src);
+        spec.push_back(t);
+
+        if (!render1(pluginPath, spec, "sp", "out", 256, 20000, got, why))
+        {
+            fail("osc::speak renders with a source", why);
+            continue;
+        }
+
+        const double s = corr(got, (size_t)lrint(lagSource));
+        const double v = corr(got, (size_t)lrint(lagVoice));
+
+        okOrFail(talk > 0 ? s > 0.5 && s > v + 0.2 : v > 0.5 && v > s + 0.2,
+                 talk > 0 ? "osc::speak: at `talk' 1 the mouth says the "
+                            "source, at its pitch"
+                          : "osc::speak: at `talk' 0 the source is not "
+                            "heard",
+                 "repeats at the source's period " + num(s) +
+                 ", the voice's " + num(v));
+    }
 }
 
 /* ---- delay::echo's loop -----------------------------------------------

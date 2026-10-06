@@ -1242,6 +1242,8 @@ Speech (formant synthesizer, ARPAbet)
 | `shift` | in | Every formant times this: 1 an adult male, 1.15 an adult female, under 0.8 a giant | 1 | 0.5 to 2 | ratio |  |
 | `buzz` | in | The source: 0 a glottal pulse, 1 a raw sawtooth |  | 0 to 1 |  |  |
 | `breath` | in | Aspiration under the voicing, for a whisper |  | 0 to 1 |  |  |
+| `source` | in | A signal for the mouth to shape, as much as `talk' says: a synth, for a talk box |  | -1 to 1 | full scale |  |
+| `talk` | in | The source: 0 the voice's own, 1 `source' |  | 0 to 1 |  |  |
 | `out` | out | The voice |  | -1 to 1 | full scale |  |
 | `play` | out | 1 until the last phoneme has been said |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
