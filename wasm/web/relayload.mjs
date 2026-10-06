@@ -84,7 +84,7 @@ const SCRAPE_EVERY_MIN_S = 0.1;
 /* A distribution's buckets per factor of e: each a percent wide. */
 const HIST_STEPS = 100;
 
-/* Under the relay's chat rate (relay.mjs, CHAT_PER_SECOND). */
+/* Under the relay's chat rate (relay.mjs, CHAT_BURST). */
 const CHAT_RATE_MAX = 4;
 
 const USAGE = `usage: relayload.mjs [options]

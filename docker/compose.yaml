@@ -26,6 +26,8 @@ services:
     mem_limit: 512m
     environment:
       NODE_OPTIONS: --max-old-space-size=384
+      # mem_limit, which the relay sheds load short of (docs/RELAY.md).
+      MEMORY_MAX_BYTES: "536870912"
       # The room page's origin (the Pages site, say). Unset, the relay
       # has no accounts: the account API is not there, and a session in
       # a hello is ignored.

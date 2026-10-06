@@ -569,65 +569,86 @@ export const taken = (handle) =>
 export const passkeyTaken = () =>
     new ApiError(409, 'passkey_taken', 'that passkey is registered already');
 
-/* One token bucket per key, least recently seen first. */
-class RateLimiter
+/* A token bucket: `burst' at once, then one back every `refillMs', by
+   the clock `now'. */
+export class Bucket
 {
     constructor ({ burst, refillMs }, now)
     {
         this.burst = burst;
         this.refillMs = refillMs;
         this.now = now;
+        this.tokens = burst;
+        this.at = now();
+    }
+
+    refill ()
+    {
+        const now = this.now();
+
+        /* A wall clock stepped back must not drain the bucket. */
+        this.tokens = Math.min(this.burst, this.tokens +
+                               Math.max(0, now - this.at) / this.refillMs);
+        this.at = now;
+    }
+
+    take (n = 1)
+    {
+        this.refill();
+
+        if (this.tokens < n)
+            return false;
+
+        this.tokens -= n;
+        return true;
+    }
+
+    waitMs ()
+    {
+        this.refill();
+
+        return this.tokens >= 1
+            ? 0 : Math.ceil((1 - this.tokens) * this.refillMs);
+    }
+}
+
+/* One token bucket per key, least recently seen first. */
+class RateLimiter
+{
+    constructor (limit, now)
+    {
+        this.limit = limit;
+        this.now = now;
         this.buckets = new Map();
     }
 
-    refilled (b, now)
+    take (key, n = 1)
     {
-        /* A wall clock stepped back must not drain the bucket. */
-        return Math.min(this.burst, b.tokens +
-                        Math.max(0, now - b.at) / this.refillMs);
-    }
-
-    take (key)
-    {
-        const now = this.now();
         let b = this.buckets.get(key);
 
         if (b === undefined)
         {
-            b = { tokens: this.burst, at: now };
+            b = new Bucket(this.limit, this.now);
 
             if (this.buckets.size >= TRACKED_MAX)
                 this.buckets.delete(this.buckets.keys().next().value);
         }
         else
-        {
-            b.tokens = this.refilled(b, now);
-            b.at = now;
             this.buckets.delete(key);
-        }
 
         this.buckets.set(key, b);
-
-        if (b.tokens < 1)
-            return false;
-
-        b.tokens--;
-        return true;
+        return b.take(n);
     }
 
     waitMs (key)
     {
-        const b = this.buckets.get(key);
-        const tokens = b === undefined ? this.burst
-                                       : this.refilled(b, this.now());
-
-        return tokens >= 1 ? 0 : Math.ceil((1 - tokens) * this.refillMs);
+        return this.buckets.get(key)?.waitMs() ?? 0;
     }
 }
 
 /* A request's limits, narrowest first, so that a client already over its
    own spends nothing of the shared ones. */
-class TieredLimit
+export class TieredLimit
 {
     constructor (tiers, now, onShared)
     {
@@ -636,7 +657,7 @@ class TieredLimit
         this.onShared = onShared;
     }
 
-    take (client)
+    take (client, n = 1)
     {
         const site = siteKey(client);
 
@@ -644,7 +665,7 @@ class TieredLimit
                                       [site === null ? null : this.site, site],
                                       [this.everyone, '*']])
         {
-            if (limiter === null || limiter.take(key))
+            if (limiter === null || limiter.take(key, n))
                 continue;
 
             if (key === '*')
@@ -655,6 +676,17 @@ class TieredLimit
                                { 'Retry-After': String(Math.max(1, Math.ceil(
                                    limiter.waitMs(key) / 1000))) });
         }
+    }
+
+    /* How long until `client' may take one, with nothing taken: 0 if it
+       may now. */
+    waitMs (client)
+    {
+        const site = siteKey(client);
+
+        return Math.max(this.own?.waitMs(client) ?? 0,
+                        site === null ? 0 : this.site?.waitMs(site) ?? 0,
+                        this.everyone?.waitMs('*') ?? 0);
     }
 }
 
@@ -1022,6 +1054,32 @@ function bearer (authorization)
     return m[1];
 }
 
+/* What a request is limited as (clientKey), behind `trustProxy' proxies
+   that append to X-Forwarded-For. Behind a proxy that sends none, every
+   client is the proxy's address and shares its buckets: a few
+   registrations, or rooms, would hold off everyone's. Said once,
+   loudly, with `log'. */
+export function clientOf (trustProxy, log)
+{
+    let unforwarded = false;
+
+    return (req) =>
+    {
+        const header = req.headers['x-forwarded-for'];
+
+        if (trustProxy > 0 && header === undefined && !unforwarded)
+        {
+            unforwarded = true;
+            log('relay: TRUST_PROXY is set but the proxy sends no ' +
+                'X-Forwarded-For; every client shares one rate limit ' +
+                'until it does (docs/RELAY.md)');
+        }
+
+        return clientKey(forwardedAddress(header, trustProxy) ??
+                         req.socket.remoteAddress ?? 'unknown');
+    };
+}
+
 /* ---- the routes ---- */
 
 /* A request listener for everything under ACCOUNT_API. `corsOrigin' is
@@ -1030,17 +1088,16 @@ function bearer (authorization)
    serves none of this without one (relay.mjs);
    `trustProxy' how many proxies in front append to X-Forwarded-For. Only
    count proxies that set it, or a client picks its own rate limit.
-   `passkeys' is a Passkeys (passkeys.mjs), or null for none. */
+   `passkeys' is a Passkeys (passkeys.mjs), or null for none. `client' is
+   clientOf's, for one shared with the relay's rooms. */
 export function accountRoutes (accounts, { corsOrigin = null,
                                            trustProxy = 0,
                                            log = accounts.log,
-                                           passkeys = null } = {})
+                                           passkeys = null,
+                                           client: keyOf =
+                                               clientOf(trustProxy, log) }
+                                   = {})
 {
-    /* Behind a proxy that sends no X-Forwarded-For, every client is the
-       proxy's address and shares its buckets: a few registrations would
-       hold off everyone's. Said once, loudly. */
-    let unforwarded = false;
-
     const routes = {
         '/register': ['POST', (c, a, body) => accounts.register(c, body)],
         '/login': ['POST', (c, a, body) => accounts.login(c, body)],
@@ -1123,20 +1180,7 @@ export function accountRoutes (accounts, { corsOrigin = null,
                                    'the body must be application/json',
                                    { Connection: 'close' });
 
-            const forwarded = forwardedAddress(req.headers['x-forwarded-for'],
-                                               trustProxy);
-
-            if (trustProxy > 0 && req.headers['x-forwarded-for'] ===
-                    undefined && !unforwarded)
-            {
-                unforwarded = true;
-                log('accounts: TRUST_PROXY is set but the proxy sends no ' +
-                    'X-Forwarded-For; every client shares one rate limit ' +
-                    'until it does (docs/RELAY.md)');
-            }
-
-            const client = clientKey(forwarded ?? req.socket.remoteAddress ??
-                                     'unknown');
+            const client = keyOf(req);
             const body = method === 'POST'
                 ? await readJson(req, large ? RESPONSE_MAX_BYTES
                                             : BODY_MAX_BYTES)
