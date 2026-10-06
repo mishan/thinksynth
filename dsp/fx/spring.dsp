@@ -6,19 +6,18 @@
 # forth along the coil smears it further. That chirp, repeating every few
 # tens of milliseconds and dying, is the drip and the boing.
 #
-# THE CHIRP is sixteen first-order allpasses in series: each passes
-# every frequency at full level but delays the ones under `Chirp' more
-# than the ones over it, about a millisecond each at the default, so the
-# bottom of a click arrives some fifteen milliseconds after its top. A
-# real spring smears more than that and more with every trip; this is
-# the part of it a graph can afford. THE REPEATS are delay::echo at the spring's length, darkened
-# and thinned on every lap the way a spring loses its top and its
-# bottom. Two springs of different lengths, one a side, as the tanks in
-# an amplifier have.
+# THE CHIRP is first-order allpasses in series: each passes every
+# frequency at full level but delays the ones under `Chirp' more than the
+# ones over it, about a millisecond each at the default. Twelve go on
+# before the spring, so a click's bottom arrives some ten milliseconds
+# after its top, and four more on every trip round, so each repeat is
+# smeared further than the last, as in steel. THE REPEATS are a delay at
+# the spring's length with that chirp and a low-pass and a high-pass in
+# its loop, darker and thinner each time. Two springs of different
+# lengths, one a side, as the tanks in an amplifier have.
 #
-# The chirp is put on once, before the repeats rather than on each lap:
-# a graph cannot run a filter inside a delay's loop, and the dispersion
-# that builds lap by lap in steel is the one thing traded away.
+# The nodes on the loop run a sample at a time, several times the cost
+# of a window at once, so the first twelve allpasses are kept off it.
 
 name "Spring";
 author "Misha Nasledov";
@@ -66,6 +65,9 @@ node ionode {
     out1 = mixr->out;
 };
 
+# The chirp, then a short diffuser so a repeat is a smear and not a
+# copy: the drip. Then the spring, which reads what came round it a
+# sample ago through four more allpasses and the two filters.
 node apl0 filt::allpass { in = ionode->in0; freq = @chirp; };
 node apl1 filt::allpass { in = apl0->out; freq = @chirp; };
 node apl2 filt::allpass { in = apl1->out; freq = @chirp; };
@@ -78,10 +80,23 @@ node apl8 filt::allpass { in = apl7->out; freq = @chirp; };
 node apl9 filt::allpass { in = apl8->out; freq = @chirp; };
 node apl10 filt::allpass { in = apl9->out; freq = @chirp; };
 node apl11 filt::allpass { in = apl10->out; freq = @chirp; };
-node apl12 filt::allpass { in = apl11->out; freq = @chirp; };
-node apl13 filt::allpass { in = apl12->out; freq = @chirp; };
-node apl14 filt::allpass { in = apl13->out; freq = @chirp; };
-node apl15 filt::allpass { in = apl14->out; freq = @chirp; };
+
+node dripl delay::allpass { in = apl11->out; delay = 3.1 ms; gain = 0.6; };
+
+node springl delay::echo {
+    in = dripl->out + lowl->out_high * min(@decay, 0.95);
+    size = 100 ms;
+    delay = 33 ms;
+    feedback = 0;
+    dry = 0;
+};
+
+node lapl0 filt::allpass { in = springl->out; freq = @chirp; };
+node lapl1 filt::allpass { in = lapl0->out; freq = @chirp; };
+node lapl2 filt::allpass { in = lapl1->out; freq = @chirp; };
+node lapl3 filt::allpass { in = lapl2->out; freq = @chirp; };
+node tonel filt::svf { in = lapl3->out; cutoff = @tone; res = 0; };
+node lowl filt::svf { in = tonel->out_low; cutoff = @low; res = 0; };
 
 node apr0 filt::allpass { in = ionode->in1; freq = @chirp; };
 node apr1 filt::allpass { in = apr0->out; freq = @chirp; };
@@ -95,37 +110,23 @@ node apr8 filt::allpass { in = apr7->out; freq = @chirp; };
 node apr9 filt::allpass { in = apr8->out; freq = @chirp; };
 node apr10 filt::allpass { in = apr9->out; freq = @chirp; };
 node apr11 filt::allpass { in = apr10->out; freq = @chirp; };
-node apr12 filt::allpass { in = apr11->out; freq = @chirp; };
-node apr13 filt::allpass { in = apr12->out; freq = @chirp; };
-node apr14 filt::allpass { in = apr13->out; freq = @chirp; };
-node apr15 filt::allpass { in = apr14->out; freq = @chirp; };
 
-# A short diffuser after the chirp, so a repeat is a smear and not a
-# copy: the drip.
-node dripl delay::allpass { in = apl15->out; delay = 3.1 ms; gain = 0.6; };
-node dripr delay::allpass { in = apr15->out; delay = 3.7 ms; gain = 0.6; };
-
-# The input scaled up by what delay::echo's crossfade takes off it; see
-# fx/dub.dsp.
-node springl delay::echo {
-    in = dripl->out / (1 - min(@decay, 0.95));
-    size = 100 ms;
-    delay = 33 ms;
-    feedback = min(@decay, 0.95);
-    dry = 0;
-    tone = @tone;
-    low = @low;
-};
+node dripr delay::allpass { in = apr11->out; delay = 3.7 ms; gain = 0.6; };
 
 node springr delay::echo {
-    in = dripr->out / (1 - min(@decay, 0.95));
+    in = dripr->out + lowr->out_high * min(@decay, 0.95);
     size = 100 ms;
     delay = 41 ms;
-    feedback = min(@decay, 0.95);
+    feedback = 0;
     dry = 0;
-    tone = @tone;
-    low = @low;
 };
+
+node lapr0 filt::allpass { in = springr->out; freq = @chirp; };
+node lapr1 filt::allpass { in = lapr0->out; freq = @chirp; };
+node lapr2 filt::allpass { in = lapr1->out; freq = @chirp; };
+node lapr3 filt::allpass { in = lapr2->out; freq = @chirp; };
+node toner filt::svf { in = lapr3->out; cutoff = @tone; res = 0; };
+node lowr filt::svf { in = toner->out_low; cutoff = @low; res = 0; };
 
 node mixl mixer::fade {
     in0 = ionode->in0;

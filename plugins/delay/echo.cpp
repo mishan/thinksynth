@@ -19,7 +19,7 @@
 /* Echo: a ring and a tap.
  *
  * WHAT GOES ROUND CAN BE CHANGED ON EACH LAP. A graph can filter what an
- * echo feeds back only by looping round it, which runs the graph a sample
+ * echo feeds back only by looping round it, whose nodes then run a sample
  * at a time, several times the cost -- so the loop's own processing is
  * here: `tone' a low-pass and `low' a high-pass on every
  * repeat, `drive' a saturation, and `boost' the loop's gain past 1. That

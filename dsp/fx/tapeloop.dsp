@@ -23,7 +23,7 @@
 # itself so a quiet loop comes through at unity and a loud one flattens.
 #
 # DAMPING, TWICE, AND NEITHER IN THE LOOP. A node reading its own output
-# is a loop, which runs the whole graph a sample at a time; fx/tape.dsp
+# is a loop, whose nodes run a sample at a time; fx/tape.dsp
 # says so at length. So
 # `Tone' is a low-pass on what goes onto the tape and the same again on
 # what comes off it: heavy, and the same for every lap.

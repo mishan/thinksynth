@@ -15,8 +15,8 @@
 # `Damping' is a lowpass on the wet, which is what stops a long tail
 # turning into a hall of mirrors. On the wet as a whole rather than
 # inside the feedback path: putting it there would mean the ring reading
-# the filter and the filter reading the ring, and a graph with a loop in
-# it runs a sample at a time, several times the cost of one without. The
+# the filter and the filter reading the ring, and the nodes on a loop run
+# a sample at a time, several times the cost. The
 # repeats therefore darken together rather than one after another.
 #
 # `Sync' above 0 times the delay in beats of the piece's tempo instead:

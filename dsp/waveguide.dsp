@@ -17,9 +17,8 @@
 #
 # THE LOOP IS INSIDE THE PLUGIN, and that is the point. The obvious way
 # to build this is a `delay::echo' whose output is filtered, saturated
-# and wired back to its own input, which is a loop in the graph, and a
-# graph with a loop runs a sample at a time, several times the cost of
-# one without. `dsp/noargs/smoothie.dsp' was written that way in 2004
+# and wired back to its own input, which is a loop in the graph, and the
+# nodes on a loop run a sample at a time, several times the cost. `dsp/noargs/smoothie.dsp' was written that way in 2004
 # and is where this instrument comes from; the delay line it wanted is
 # the one `filt::comb' already has.
 #
