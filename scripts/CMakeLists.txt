@@ -507,6 +507,10 @@ think_harness(editcheck COMPOSERHOST)
 # for reading a level off a new instrument block. Not a test.
 think_harness(genwav COMPOSERHOST)
 
+# scripts/Loudness.h, which genwav --levels reports with, against what
+# BS.1770 says a known signal measures.
+think_harness(lufscheck)
+
 # The MIDI file genwav --midi writes, read back: notes, tempo, meter,
 # markers, and the overlaps a MIDI channel cannot hold.
 think_harness(midicheck COMPOSERHOST)
@@ -809,6 +813,7 @@ add_test(NAME dspcapture
 # Cheap and entirely self-contained, so it runs the full sweep rather than a
 # representative sample.
 add_test(NAME ringcheck COMMAND ringcheck 20000)
+add_test(NAME lufscheck COMMAND lufscheck)
 
 add_test(NAME pathcheck COMMAND pathcheck)
 

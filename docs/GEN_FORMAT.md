@@ -201,7 +201,9 @@ it is `a = 900 ms`, and the fold happens on the way in, against the unit the
 chanarg was *declared* with and at the rate the synth is actually running. The
 unit has to measure what that declaration measures: any of `ms`, `s` and
 `beats` on an arg written as a duration, `%` on one written as a percentage,
-`dB` and `cents` on their own, and a bare number on everything else. A value in
+`dB` and `cents` on their own, and a bare number on everything else. `amp`,
+the channel's level, takes either a bare number in the engine's terms (127 is
+unity) or dB of gain: `amp = -12 dB` is about `amp = 32`. A value in
 `beats` folds at the piece's tempo and follows it when it changes; one in `ms`
 or `s` stays where it was put, whatever the `.dsp` declared. A unit where none belongs is refused, and so
 is a bare number where one does — the same rule §2 applies to a stage's
@@ -1118,8 +1120,13 @@ reading `chain category { ... }` is a trap rather than a feature.
 ## Rendering and measuring
 
 `scripts/genwav --levels --sections gen/anthem.gen` renders once and reports
-each loaded channel's peak and RMS beside its instrument name, followed by
-the final mix's RMS in each section. Channel levels are measured after the
+each loaded channel's peak, RMS and integrated loudness beside its instrument
+name, then the same three for the mix, followed by the final mix's RMS in each
+section. Loudness is in LUFS, as ITU-R BS.1770 and EBU R 128 measure it
+(scripts/Loudness.h): K-weighted, gated so silence and passages 10 LU under the
+rest do not count. It is the number a streaming service levels a track by, so
+it is the one to match between pieces; a channel that never sounds reads
+`-inf`. Channel levels are measured after the
 channel effect, before the master mix, over the whole render including the
 release tail. Section levels are measured after the master effect and output
 limiter, during the arrangement; release tails after the transport stops are

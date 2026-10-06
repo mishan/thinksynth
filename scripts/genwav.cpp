@@ -78,6 +78,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,8 @@
 #include "thcGenFile.h"
 #include "thcMidiExport.h"
 #include "thcMidiFile.h"
+
+#include "Loudness.h"
 
 /* Enough silence to call a tail finished, and the longest we will wait
    for one. amb01's release tops out at five seconds; anything longer than
@@ -110,7 +113,9 @@ static void usage (const char *argv0)
            "  -t, --tape FILE         write the delivered events here (- for stdout)\n"
            "      --midi FILE         write the delivered events here, as a MIDI file\n"
            "      --midi-fine         14-bit controllers for chanargs in the MIDI file\n"
-           "      --levels            peak and RMS by instrument channel\n"
+           "      --levels            peak, RMS and loudness (LUFS) by "
+           "instrument\n"
+           "                          channel and for the mix\n"
            "      --sections          mix RMS by arrangement section\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
            "      --from N            write the audio from N seconds in\n"
@@ -296,6 +301,21 @@ struct Level
     double rms (void) const { return count ? sqrt(sumsq / count) : 0; }
 };
 
+/* Integrated loudness to a tenth, or `-inf' for a channel that never
+   rose above the meter's gate. */
+static std::string lufsText (const Loudness *loud)
+{
+    const double l = loud ? loud->integrated() : -HUGE_VAL;
+    char text[32];
+
+    if (!isfinite(l))
+        return "-inf";
+
+    snprintf(text, sizeof(text), "%.1f", l);
+
+    return text;
+}
+
 int main (int argc, char **argv)
 {
     Glib::init();
@@ -471,6 +491,9 @@ int main (int argc, char **argv)
 
     std::vector<float> pcm;
     std::vector<Level> channelLevels(levels ? synth.midiChanCount() : 0);
+    std::vector<std::unique_ptr<Loudness> > channelLoudness(
+        channelLevels.size());
+    Loudness mixLoudness(channels, TH_DEFAULT_SAMPLES);
     std::vector<Level> sectionLevels(sections ? sched.sections().size() : 0);
 
     pcm.reserve((size_t)((seconds + TAIL_MAX) / dt + 1) * frame);
@@ -499,9 +522,19 @@ int main (int argc, char **argv)
                 int outputs = 0;
                 const float *signal = synth.getChannelOutput(ch, &outputs);
 
-                if (signal != NULL)
-                    for (int i = 0; i < outputs * window; i++)
-                        channelLevels[ch].add(signal[i]);
+                if (signal == NULL)
+                    continue;
+
+                for (int i = 0; i < outputs * window; i++)
+                    channelLevels[ch].add(signal[i]);
+
+                if (!channelLoudness[ch])
+                    channelLoudness[ch].reset(
+                        new Loudness(outputs, TH_DEFAULT_SAMPLES));
+
+                /* Interleaved, so a frame at a time as it stands. */
+                for (int i = 0; i < window; i++)
+                    channelLoudness[ch]->add(signal + i * outputs);
             }
 
         if (sections && transportWindow)
@@ -522,8 +555,13 @@ int main (int argc, char **argv)
            forty-three times a second. The tape was never affected, which
            is why gencheck and compare.mjs had nothing to say about it. */
         for (int i = 0; i < window; i++)
+        {
             for (int c = 0; c < channels; c++)
                 pcm.push_back(buf[(size_t)c * window + i]);
+
+            if (levels)
+                mixLoudness.add(&pcm[pcm.size() - channels]);
+        }
 
         return peak;
     };
@@ -667,7 +705,8 @@ int main (int argc, char **argv)
     if (levels)
     {
         fprintf(stderr,
-                "channel  engine  instrument               peak     RMS\n");
+                "channel  engine  instrument               peak     RMS     "
+                "LUFS\n");
 
         for (size_t ch = 0; ch < channelLevels.size(); ch++)
         {
@@ -678,10 +717,14 @@ int main (int argc, char **argv)
 
             const std::string name = sched.holding((int)ch);
 
-            fprintf(stderr, "%7zu  %6zu  %-24s %.3f  %.4f\n", ch + 1, ch,
+            fprintf(stderr, "%7zu  %6zu  %-24s %.3f  %.4f  %s\n", ch + 1, ch,
                     name.empty() ? "-" : name.c_str(), level.peak,
-                    level.rms());
+                    level.rms(), lufsText(channelLoudness[ch].get()).c_str());
         }
+
+        fprintf(stderr, "%-41s %.3f  %.4f  %s\n", "mix", peak,
+                pcm.empty() ? 0.0 : sqrt(sumsq / pcm.size()),
+                lufsText(&mixLoudness).c_str());
     }
 
     if (sections)

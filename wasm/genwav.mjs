@@ -53,6 +53,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { Loudness } from './loudness.mjs';
 import { drain as drainTape, fixed, tapeLine } from './tape.mjs';
 
 /* genwav.cpp's TAIL_SILENT and TAIL_MAX, and its clip threshold -- the
@@ -74,7 +75,9 @@ function usage (argv0)
         '  -s, --seconds N         how long to run the transport (default 120)\n' +
         '  -o, --output FILE       write the audio here, 16-bit PCM WAV\n' +
         '  -t, --tape FILE         write the delivered events here (- for stdout)\n' +
-        '      --levels            peak and RMS by instrument channel\n' +
+        '      --levels            peak, RMS and loudness (LUFS) by ' +
+        'instrument\n' +
+        '                          channel and for the mix\n' +
         '      --sections          mix RMS by arrangement section\n' +
         '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
         '                          time AT: "AT knob NAME VALUE", "AT tempo BPM",\n' +
@@ -130,6 +133,14 @@ function wavBytes (windows, samples, channels, rate)
 
     return b;
 }
+
+/* genwav.cpp's lufsText: to a tenth, or `-inf' below the gate. */
+const lufsText = (loud) =>
+{
+    const l = loud ? loud.integrated() : -Infinity;
+
+    return Number.isFinite(l) ? fixed(l, 1) : '-inf';
+};
 
 async function main (argv0, args)
 {
@@ -324,6 +335,8 @@ async function main (argv0, args)
     const meter = () => ({ sumsq: 0, count: 0, peak: 0 });
     const channelLevels = levels
         ? Array.from({ length: M._tw_midi_channels() }, meter) : [];
+    const channelLoudness = channelLevels.map(() => null);
+    const mixLoudness = new Loudness(channels, rate);
     const sectionLevels = sections
         ? Array.from({ length: M._tw_section_count() }, meter) : [];
     const sectionNames = sectionLevels.map((_, i) =>
@@ -366,10 +379,21 @@ async function main (argv0, args)
                 const outputs = M._tw_channel_outputs(ch);
                 const q = M._tw_channel_output(ch) >> 2;
 
-                if (outputs > 0 && q !== 0)
-                    for (let i = 0; i < outputs * window; i++)
-                        addSample(channelLevels[ch], M.HEAPF32[q + i]);
+                if (outputs <= 0 || q === 0)
+                    continue;
+
+                for (let i = 0; i < outputs * window; i++)
+                    addSample(channelLevels[ch], M.HEAPF32[q + i]);
+
+                channelLoudness[ch] ??= new Loudness(outputs, rate);
+
+                for (let i = 0; i < window; i++)
+                    channelLoudness[ch].add(M.HEAPF32, q + i * outputs);
             }
+
+        if (levels)
+            for (let i = 0; i < window; i++)
+                mixLoudness.add(buf, i * channels);
 
         if (sections && transportWindow)
             for (let i = 0; i < window; i++)
@@ -582,7 +606,8 @@ async function main (argv0, args)
     if (levels)
     {
         fs.writeSync(2,
-            'channel  engine  instrument               peak     RMS\n');
+            'channel  engine  instrument               peak     RMS     ' +
+            'LUFS\n');
 
         for (let ch = 0; ch < channelLevels.length; ch++)
         {
@@ -597,8 +622,14 @@ async function main (argv0, args)
                 `${String(ch + 1).padStart(7)}  ${String(ch).padStart(6)}  ` +
                 `${name.padEnd(24)} ` +
                 `${fixed(stat.peak, 3)}  ` +
-                `${fixed(Math.sqrt(stat.sumsq / stat.count), 4)}\n`);
+                `${fixed(Math.sqrt(stat.sumsq / stat.count), 4)}  ` +
+                `${lufsText(channelLoudness[ch])}\n`);
         }
+
+        fs.writeSync(2,
+            `${'mix'.padEnd(41)} ${fixed(peak, 3)}  ` +
+            `${fixed(samples === 0 ? 0 : Math.sqrt(sumsq / samples), 4)}  ` +
+            `${lufsText(mixLoudness)}\n`);
     }
 
     if (sections)
