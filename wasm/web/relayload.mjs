@@ -934,6 +934,20 @@ function merge (argv)
         process.exit(2);
     }
 
+    /* A shard twice counts its peers twice, and one left out leaves
+       theirs out. */
+    const shards = runs.map((r) => r.inputs.shardOf);
+    const k = shards[0][1];
+
+    if (runs.length !== k || shards.some(([, n]) => n !== k) ||
+        new Set(shards.map(([i]) => i)).size !== k)
+    {
+        process.stderr.write('relayload.mjs: --merge takes each shard of ' +
+                             'the run once, not ' +
+                             `${shards.map((x) => x.join('/')).join(', ')}\n`);
+        process.exit(2);
+    }
+
     for (const { totals: x } of runs)
     {
         t.peers.planned += x.peers.planned;
