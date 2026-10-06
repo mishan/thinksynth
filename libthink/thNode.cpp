@@ -36,6 +36,9 @@ thNode::thNode (const string &name, thPlugin *thplug)
     argindex_ = NULL;
     argCount_ = 0;
     argsize_ = 0;
+    smoothLive_ = 0;
+
+    initSmoothing();
 }
 
 thNode::thNode (const thNode &copyNode)
@@ -48,13 +51,18 @@ thNode::thNode (const thNode &copyNode)
     plugin_ = copyNode.plugin();
     id_ = copyNode.id();
     argCount_ = copyNode.argCount();
+    smoothLive_ = 0;
 
     copyArgs(copyNode.args());
+    initSmoothing();
 }
 
 thNode::~thNode (void)
 {
     DestroyMap(args_);
+
+    for (size_t k = 0; k < smooth_.size(); k++)
+        delete smooth_[k].ramp;
 
     free(argindex_);
     argindex_ = NULL;
@@ -263,6 +271,9 @@ bool thNode::restore (const thNode &proto)
 {
     thArgMap::const_iterator mine = args_.begin();
 
+    for (size_t k = 0; k < smooth_.size(); k++)
+        smooth_[k].primed = false;
+
     if (argCount_ != proto.argCount_)
         return false;
 
@@ -283,6 +294,32 @@ bool thNode::restore (const thNode &proto)
     }
 
     return mine == args_.end();
+}
+
+/* In the constructors, so a voice, which is a copy, has its ramps from
+   where it is made; their buffers are sized on its first window. */
+void thNode::initSmoothing (void)
+{
+    for (size_t k = 0; k < smooth_.size(); k++)
+        delete smooth_[k].ramp;
+
+    smooth_.clear();
+    smoothLive_ = 0;
+
+    if (plugin_ == NULL)
+        return;
+
+    const vector<int> &args = plugin_->smoothedArgs();
+
+    for (size_t k = 0; k < args.size(); k++)
+    {
+        Smooth s = { args[k], plugin_->getArgSmooth(args[k]), 0, false, false,
+                     new thArg(plugin_->getArgName(args[k]), 0.0f) };
+
+        smooth_.push_back(s);
+    }
+
+    live_.assign(smooth_.size(), 0);
 }
 
 void thNode::process (void)

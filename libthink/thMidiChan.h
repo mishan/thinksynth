@@ -332,6 +332,8 @@ private:
        length -- 8k at the default window, unbounded in principle, and on the
        one thread that cannot afford to find out. */
     float *bufmix_, *bufamp_;
+    float ampY_;           /* where the amp's glide is */
+    bool ampPrimed_;
 
     /* Where the io node keeps out0..outN-1 and play, as arg indices.
      *

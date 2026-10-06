@@ -54,12 +54,14 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_CUTOFF], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff, 0 to 1 -- a fraction of the sample rate, "
                        "not hertz");
     plugin->setArgRange(args[IN_CUTOFF], 0, FMAX);
     plugin->setArgUnits(args[IN_CUTOFF], "fraction of the rate");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_RES], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 is self-oscillation and is the "
                        "edge of the stable region, so it is clamped short");

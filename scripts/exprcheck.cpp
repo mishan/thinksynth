@@ -810,6 +810,78 @@ int main (int argc, char **argv)
                  "windows of 64 and 500", "the two differ or did not load");
     }
 
+    /* ---- a knob glides ---------------------------------------------------- */
+
+    /* A step in a knob reaches a plugin that asked for smoothing as a
+       glide, through arithmetic, and so does a step in the channel's
+       level: a sample after it has gone a little of the way, 15 ms after
+       nearly all of it, and never past. The oscillator, times nothing,
+       is what runs the mixer each window, as one would in a voice. */
+    {
+        const string text =
+            "name \"glide\";\n"
+            "    @fade = 0;\n"
+            "node ionode {\n    channels = 1;\n    out0 = mix->out;\n"
+            "    play = 1;\n};\n"
+            "node osc osc::simple { };\n"
+            "node mix mixer::fade {\n    in0 = 0;\n"
+            "    in1 = 0.5 + osc->out * 0;\n    fade = @fade * 2;\n};\n"
+            "io ionode;\n";
+        const struct { const char *knob; float from, to; } knobs[] = {
+            { "fade", 0, 0.5f },
+            { "amp", 50, 100 },
+        };
+        const int len = 64;
+
+        for (const auto &kn : knobs)
+        {
+            thSynth s(pluginPath, len, TH_DEFAULT_SAMPLES);
+            vector<float> heard;
+            thArg *knob = NULL;
+
+            if (writeFile(scratch, text) && s.loadTree(scratch, 0, 100))
+            {
+                knob = s.getChanArg(0, kn.knob);
+
+                if (knob)
+                    knob->setValue(kn.from);
+
+                s.getChanArg(0, "fade")->setValue(kn.knob[0] == 'f' ? 0 : 1);
+                s.addNote(0, 60, 100);
+            }
+
+            for (int w = 0; knob && w < 20; w++)
+            {
+                if (w == 4)
+                    knob->setValue(kn.to);
+
+                s.process();
+                heard.insert(heard.end(), s.getOutput(), s.getOutput() + len);
+            }
+
+            const size_t step = 4 * len;
+            const size_t settled = step + TH_DEFAULT_SAMPLES * 15 / 1000;
+            bool rising = heard.size() == 20 * len;
+
+            for (size_t i = step; rising && i + 1 < heard.size(); i++)
+                rising = heard[i + 1] >= heard[i];
+
+            const float last = rising ? heard.back() : 0;
+            const float before = rising ? heard[step - 1] : 0;
+            const float span = last - before;
+
+            okOrFail(rising && span > 0 &&
+                     heard[step] - before < span * 0.1f &&
+                     heard[settled] - before > span * 0.95f,
+                     string("a step in `") + kn.knob + "' glides", rising ?
+                     "a sample in " + std::to_string((heard[step] - before) /
+                                                     span) +
+                     ", 15 ms in " + std::to_string((heard[settled] - before) /
+                                                    span) :
+                     "it did not load, or fell back");
+        }
+    }
+
     /* ---- the box's text is the graph behind it -------------------------- */
 
     /* The one lossy step in the whole feature, and three things lean on it.

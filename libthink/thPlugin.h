@@ -236,9 +236,15 @@ public:
          * before this could only be told apart by reading both callbacks. */
         string units;
 
+        /* How long, in ms, a step in the arg takes to settle: the time
+         * constant of a one-pole the engine runs it through whenever it holds
+         * one value for the window, as a knob or a chanarg does. 0 for none.
+         * Read by the engine, like def. See thPlugin::setArgSmooth. */
+        float smoothMs;
+
         ArgInfo (const string &n, ArgDir d)
             : name(n), dir(d), step(0), def(0), hasDefault(false),
-              min(0), max(0), hasRange(false) {}
+              min(0), max(0), hasRange(false), smoothMs(0) {}
     };
 
     typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
@@ -276,6 +282,22 @@ public:
        measured in. See ArgInfo::min and ArgInfo::units. */
     void setArgRange (int index, float min, float max);
     void setArgUnits (int index, const string &units);
+
+    /* Says a step in the arg is heard as a click or a zipper: a cutoff, a
+       gain, a pan. A knob moves the arg a window at a time; the engine
+       glides it to each new value over about `ms' instead, a sample at a
+       time, so the plugin sees a ramp. An arg that already changes within
+       the window, an envelope or an LFO, passes untouched. */
+    void setArgSmooth (int index, float ms);
+
+    float getArgSmooth (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].smoothMs;
+        return 0;
+    }
+
+    /* The args setArgSmooth named, so the engine need not look at all. */
+    const vector<int> &smoothedArgs (void) const { return smoothed_; }
 
     int argCount (void) const { return (int)args_.size(); };
     string getArgName (int index) const {
@@ -373,6 +395,7 @@ private:
        the step and the value names is not a thing worth writing; a vector of
        one struct is the same data with the bookkeeping deleted. */
     vector<ArgInfo> args_;
+    vector<int> smoothed_;
 
     /* What getArgValues() and getArgDesc() hand back for an index that has
        none, so they can return by reference without every caller checking. */

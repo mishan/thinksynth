@@ -101,6 +101,17 @@ void thPlugin::setArgStep (int index, float step)
     args_[index].step = step;
 }
 
+void thPlugin::setArgSmooth (int index, float ms)
+{
+    if (index < 0 || index >= (int)args_.size() || !(ms > 0))
+        return;
+
+    if (args_[index].smoothMs == 0)
+        smoothed_.push_back(index);
+
+    args_[index].smoothMs = ms;
+}
+
 void thPlugin::setArgValues (int index, const char *const *names, int count)
 {
     if (index < 0 || index >= (int)args_.size() || names == NULL || count <= 0)

@@ -41,10 +41,12 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_0], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_0], "Signal in");
     plugin->setArgRange(args[IN_0], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[IN_0], "full scale");
     args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_1], TH_SMOOTH_MS);
     /* `in0 * (in1/TH_MAX)' -- the second input is divided by full scale, so
        it reads as a gain where math::mul's reads as a second operand. Signed,
        and not clamped: dsp/hat0.dsp wires a bipolar oscillator in here to ring

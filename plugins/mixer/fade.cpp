@@ -46,6 +46,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_1], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[IN_1], "full scale");
     args[IN_FADE] = plugin->regArg("fade", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_FADE], TH_SMOOTH_MS);
     /* Linear and unclamped: `in0*(1-fade) + in1*fade', so a fade outside 0
        to 1 extrapolates past either input rather than stopping there. */
     plugin->setArgDesc(args[IN_FADE],
