@@ -771,7 +771,7 @@ class Room
             return out;
         };
 
-        ws.on('message', (data) =>
+        const heard = (data) =>
         {
             /* Closing is final: after a refused hello, or a session ended
                (endSessions), whatever else a client sends before the close
@@ -1168,6 +1168,23 @@ class Room
                     answer();
                     break;
                 }
+            }
+        };
+
+        /* Its fields are untrusted: one made to throw when it is read as a
+           string or a number -- {"toString": 1} -- costs its own socket,
+           not the whole relay. */
+        ws.on('message', (data) =>
+        {
+            try
+            {
+                heard(data);
+            }
+            catch (err)
+            {
+                process.stderr.write(`relay: bad room message in room ` +
+                                     `${this.name}: ${err.message}\n`);
+                ws.close();
             }
         });
 

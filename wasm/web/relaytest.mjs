@@ -352,6 +352,33 @@ async function accountsInRooms ()
               'a document socket for a room that is not there is refused, ' +
               'and the relay lives');
 
+        /* A field made to throw when read as a string or a number, in each
+           message that reads one: that socket is cut, and the relay lives. */
+        {
+            const evil = { toString: 1, valueOf: 1 };
+
+            for (const [what, m] of [['seat', { type: 'seat', seat: evil }],
+                                     ['signal', { type: 'signal', to: evil }],
+                                     ['relayed', { type: 'relayed',
+                                                   to: [evil] }],
+                                     ['hello', null]])
+            {
+                const c = await hello('evil', m === null ? { name: evil }
+                                                         : { name: 'Eve' });
+
+                if (m !== null)
+                {
+                    await c.next('welcome');
+                    c.send(m);
+                }
+
+                check(await refused(c.ws) &&
+                      (await fetch(`http://${at}/`)).ok,
+                      `a ${what} whose field throws costs its socket, and ` +
+                      'the relay lives');
+            }
+        }
+
         /* A cursor's name is the relay's to say: the room socket's name,
            a guest's marked as one, whatever the page set. And no socket
            speaks for a client another one does. */
