@@ -328,7 +328,7 @@ const HISTS = ['joinMs', 'welcomeMs', 'syncMs', 'forwardMs', 'rttMs',
 /* What every peer adds to: one process, one clock. */
 const results = {
     ...Object.fromEntries(HISTS.map((h) => [h, new Hist()])),
-    sent: 0, expected: 0,
+    sent: 0, expected: 0, unready: 0,
     offsets: new Map(),                         /* room -> [min, max] */
     edits: 0, chats: 0, knobs: 0, transports: 0,
     flood: { sent: 0, bytes: 0 },
@@ -359,6 +359,14 @@ class Peer
                              { piece: this.o.piece, now });
         this.room.on('error', (text) => results.errors.add(`relay: ${text}`))
             .on('refused', (m) => results.refusals.add(`${m.of}: ${m.why}`))
+            /* Its sender counts this peer from `joined', but its Mesh,
+               which takes this over, is made only once the doc is
+               synced. */
+            .on('relayed', (from, cmd) =>
+            {
+                if (typeof cmd?.sentMs === 'number')
+                    results.unready++;
+            })
             .on('close', (refused) =>
             {
                 if (!stopping)
@@ -841,7 +849,8 @@ async function main ()
                              .length])) },
             hists: Object.fromEntries(HISTS.map((h) => [h, results[h]])),
             offsets: Object.fromEntries(results.offsets),
-            gestures: { sent: results.sent, expected: results.expected },
+            gestures: { sent: results.sent, expected: results.expected,
+                        unready: results.unready },
             sent: { knobs: results.knobs, edits: results.edits,
                     chats: results.chats, transports: results.transports },
             flood: results.flood,
@@ -1000,7 +1009,8 @@ function summary ({ inputs, results: r, metrics })
         `max ${r.generator.eventLoopDelayMs.max} ms; ` +
         `cpu ${r.generator.cpuPercent}%`,
         `  gestures       ${r.gestures.delivered}/${r.gestures.expected} ` +
-        `delivered of ${r.gestures.sent} sent` +
+        `delivered of ${r.gestures.sent} sent, ${r.gestures.unready} ` +
+        'before the receiver was ready' +
         (inputs.shardOf[1] > 1 && !inputs.shard.endsWith('merged')
             ? ' (expected counts other shards\' peers; --merge them)' : ''),
         `  sent           ${counts(r.sent)}`,
