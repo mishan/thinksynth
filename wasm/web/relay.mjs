@@ -234,8 +234,12 @@ class Traffic
         this.doc.outBytes += bytes.length * n;
     }
 
+    /* 0 bytes: the asker had gone. */
     catchup (bytes)
     {
+        if (bytes === 0)
+            return;
+
         this.catchups++;
         this.catchupMaxBytes = Math.max(this.catchupMaxBytes, bytes);
     }
@@ -1269,7 +1273,10 @@ class Room
 
                         if (run === null)
                         {
-                            send({ type: 'catchup', start: null });
+                            const bytes = send({ type: 'catchup',
+                                                 start: null });
+
+                            this.traffic?.catchup(bytes);
                             return;
                         }
 
