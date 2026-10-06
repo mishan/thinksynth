@@ -27,7 +27,7 @@ include(ThinkPlugin)
 
 add_custom_target(plugins)
 
-think_add_plugin_category(analysis pitch)
+think_add_plugin_category(analysis pitch yin)
 
 think_add_plugin_category(delay    echo fir allpass chorus fdn pitchshift varispeed reverse stutter)
 
@@ -51,7 +51,7 @@ think_add_plugin_category(math     add sub mul div sin
 
 think_add_plugin_category(misc     latch noisegate midi2freq midi2range
                                    freq2samples print decibel slew vibrato
-                                   drift tempo)
+                                   drift tempo snap)
 
 think_add_plugin_category(mixer    add fade mul pan)
 

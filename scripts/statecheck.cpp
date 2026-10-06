@@ -4022,6 +4022,107 @@ static double meanOf (const vector<float> &v, size_t from)
     return sum / (double)(v.size() - from);
 }
 
+/* ---- analysis::yin and misc::snap --------------------------------------
+ *
+ * YIN finds a saw's fundamental, where counting zero crossings would find
+ * its harmonics, and says it is sure; noise it calls no pitch. Snap puts
+ * a pitch on the nearest note of a key, a tie going down, and leaves no
+ * pitch alone.
+ */
+static vector<NodeSpec> yinGraph (const char *src, float freq)
+{
+    vector<NodeSpec> spec;
+    NodeSpec s, y;
+
+    s.name = "src";
+    s.spelling = src;
+    s.values.push_back(Value{ "freq", freq });
+    s.values.push_back(Value{ "waveform", 1 });
+    spec.push_back(s);
+
+    y.name = "y";
+    y.spelling = "analysis/yin";
+    y.wires.push_back(Wire{ "in", "src", "out" });
+    spec.push_back(y);
+
+    return spec;
+}
+
+static void checkYin (const string &pluginPath)
+{
+    const struct { const char *src; float freq; bool pitched; } cases[] = {
+        { "osc/simple", 110, true },
+        { "osc/simple", 220, true },
+        { "osc/simple", 587.33f, true },
+        { "osc/noise", 0, false },
+    };
+
+    for (const auto &c : cases)
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        watch.push_back(Watch{ "y", "out" });
+        watch.push_back(Watch{ "y", "clarity" });
+
+        if (!render(pluginPath, yinGraph(c.src, c.freq), watch, 256, 22050,
+                    got, why))
+        {
+            fail("analysis::yin renders", why);
+            continue;
+        }
+
+        const float f = got[0].back(), clarity = got[1].back();
+        const string what = c.pitched
+            ? "analysis::yin: a " + num(c.freq) + " Hz saw reads " +
+              num(c.freq) + " Hz, clearly"
+            : string("analysis::yin: noise reads no pitch");
+
+        okOrFail(c.pitched ? fabsf(f / c.freq - 1) < 0.003f && clarity > 0.8f
+                           : f == 0 && clarity < 0.6f,
+                 what, num(f) + " Hz, clarity " + num(clarity));
+    }
+
+    windowsAgree(pluginPath, yinGraph("osc/simple", 196), "y", "out",
+                 "analysis::yin: the same at one sample a window and at "
+                 "five hundred");
+
+    /* in, key, scale -> out. */
+    const struct { float in; int key, scale; float out; } snaps[] = {
+        { 450, 0, 1, 440 },              /* near A, in C major          */
+        { 466.16f, 0, 1, 440 },          /* A#: A and B tie, down wins  */
+        { 277.18f, 0, 7, 261.63f },      /* C#, C minor pentatonic: C   */
+        { 300, 2, 6, 293.66f },          /* D major pentatonic: D       */
+        { 0, 0, 1, 0 },                  /* no pitch                    */
+    };
+
+    for (const auto &s : snaps)
+    {
+        NodeSpec n;
+        vector<float> out, ratio;
+        string why;
+
+        n.name = "s";
+        n.spelling = "misc/snap";
+        n.values.push_back(Value{ "in", s.in });
+        n.values.push_back(Value{ "key", (float)s.key });
+        n.values.push_back(Value{ "scale", (float)s.scale });
+
+        const bool ok =
+            render1(pluginPath, vector<NodeSpec>(1, n), "s", "out", 64, 64,
+                    out, why) &&
+            render1(pluginPath, vector<NodeSpec>(1, n), "s", "ratio", 64, 64,
+                    ratio, why);
+        const float want = s.out, wantRatio = s.in > 0 ? s.out / s.in : 1;
+
+        okOrFail(ok && fabsf(out[0] - want) < 0.02f &&
+                 fabsf(ratio[0] - wantRatio) < 1e-4f,
+                 "misc::snap: " + num(s.in) + " Hz goes to " + num(s.out),
+                 ok ? num(out[0]) + " Hz, ratio " + num(ratio[0]) : why);
+    }
+}
+
 /* ---- osc::speak --------------------------------------------------------
  *
  * A held note that says nothing sings AA: the glide, the resonators, the
@@ -8902,6 +9003,7 @@ int main (int argc, char **argv)
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);
     checkSpeak(pluginPath);
+    checkYin(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
     checkSampleZones(pluginPath);

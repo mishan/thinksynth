@@ -898,7 +898,8 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/shimmer.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/detune.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/granular.dsp"
-                 "${PROJECT_SOURCE_DIR}/dsp/fx/tapeloop.dsp")
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/tapeloop.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/autotune.dsp")
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
