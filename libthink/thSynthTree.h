@@ -302,6 +302,10 @@ public:
      * plugins/osc/sampleslot.h declined to open. */
     thSynth *synth (void) const { return synth_; }
 
+    /* thSynth::seed and seedGeneration, or 0 for a tree no synth holds. */
+    uint32_t seed (void) const;
+    uint32_t seedGeneration (void) const;
+
 private:
     void processHelper (unsigned int windowlen, thNode *node);
     void setActiveNodesHelper (thNode *node);

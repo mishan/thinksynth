@@ -123,7 +123,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (state[S_SEEDED] == 0)
         {
-            thDiceSeed(&state[S_DICE0], (*in_seed)[i]);
+            thDiceSeed(&state[S_DICE0], (*in_seed)[i], mod->seed());
             state[S_FROM] = (float)(2 * thDiceNext(&state[S_DICE0]) - 1);
             state[S_TO] = (float)(2 * thDiceNext(&state[S_DICE0]) - 1);
             state[S_PHASE] = 0;

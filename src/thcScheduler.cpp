@@ -3638,6 +3638,9 @@ thcScheduler::start (void)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
             chains_[ci].stages[si]->params.freeze();
 
+    /* The DSP's random nodes re-roll with the piece's seed too. */
+    synth_->setSeed(masterSeed_);
+
     lastMono_ = g_get_monotonic_time();
     running_ = true;
     started_ = true;

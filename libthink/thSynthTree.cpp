@@ -918,6 +918,16 @@ void thSynthTree::runLoop (Loop &loop, thNode *entry, unsigned int windowlen)
     }
 }
 
+uint32_t thSynthTree::seed (void) const
+{
+    return synth_ ? synth_->seed() : 0;
+}
+
+uint32_t thSynthTree::seedGeneration (void) const
+{
+    return synth_ ? synth_->seedGeneration() : 0;
+}
+
 void thSynthTree::process (unsigned int windowlen)
 {
     thPlugin *plug = NULL;
