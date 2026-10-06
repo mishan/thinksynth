@@ -103,8 +103,8 @@
  * twice the speed fold everything above a quarter of the rate back down.
  * An octave is the pad of the eighties; a fifth and a fourth down are the
  * other two everybody reaches for. It is in the node because a graph
- * that takes the tail out, shifts it and puts it back has a loop, and runs
- * a sample at a time at several times the cost.
+ * that takes the tail out, shifts it and puts it back has a loop, whose
+ * nodes run a sample at a time at several times the cost.
  *
  * And a high-pass at FDN_SHIMMER_LOW, because the one frequency a shift
  * cannot move is zero. Twice nothing is nothing, so whatever DC or

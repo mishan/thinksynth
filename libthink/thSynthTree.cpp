@@ -35,7 +35,7 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
     nodecount_ = 0;
     made_ = NULL;
     beatsAt_ = 120;
-    feedback_ = false;
+    inLoop_ = false;
 
     synth_ = synth;
 }
@@ -47,7 +47,7 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
     nodecount_ = oldtree.nodeCount();
     made_ = NULL;
     beatsAt_ = 120;
-    feedback_ = oldtree.feedback();
+    inLoop_ = false;
     name_ = oldtree.name();
     desc_ = oldtree.desc();
     synth_ = oldtree.synth();
@@ -656,82 +656,6 @@ const thExprBox *thSynthTree::exprBoxMaking (const string &name) const
     return NULL;
 }
 
-void thSynthTree::process (unsigned int windowlen)
-{
-    if (feedback_)
-        processBySample(windowlen);
-    else
-        processWindow(windowlen);
-}
-
-/* A window of a graph with a cycle in it, one sample at a time.
- *
- * The hosts write the io node's stream inputs a window long and read what
- * its outputs point at a window long, and a probe reads any node's output
- * a window long, so those are what change shape here: each input is
- * handed in one sample at a time, and each output is filled with the
- * samples it held, one after another, once the window is done. In
- * between, every plugin runs with a window of one, which windowlencheck
- * holds to sounding the same as any other. The lists are made by
- * prepareLoop. */
-void thSynthTree::processBySample (unsigned int windowlen)
-{
-    /* Last window left each output a window long. Inside the loop it is
-       one sample again, the last, which is what a node reading it round
-       the loop wants. */
-    for (size_t k = 0; k < fbOuts_.size(); k++)
-    {
-        thArg *t = fbOuts_[k];
-
-        if (fbFilled_[k] && t->len() > 1)
-        {
-            const float last = (*t)[t->len() - 1];
-
-            t->allocate(1)[0] = last;
-        }
-    }
-
-    fbInData_.resize(fbIns_.size() * windowlen);
-    fbOutData_.resize(fbOuts_.size() * windowlen);
-
-    for (size_t k = 0; k < fbIns_.size(); k++)
-    {
-        fbIns_[k]->getBuffer(&fbInData_[k * windowlen], windowlen);
-        fbIns_[k]->allocate(1);
-    }
-
-    for (unsigned int s = 0; s < windowlen; s++)
-    {
-        for (size_t k = 0; k < fbIns_.size(); k++)
-            fbIns_[k]->values()[0] = fbInData_[k * windowlen + s];
-
-        /* All of them, passive or not: a passive node on the loop reads
-           what changed a sample ago even when nothing active feeds it. */
-        for (size_t k = 0; k < fbNodes_.size(); k++)
-            fbNodes_[k]->setRecalc(true);
-
-        processWindow(1);
-
-        for (size_t k = 0; k < fbOuts_.size(); k++)
-            fbOutData_[k * windowlen + s] = (*fbOuts_[k])[0];
-    }
-
-    for (size_t k = 0; k < fbIns_.size(); k++)
-        memcpy(fbIns_[k]->allocate(windowlen), &fbInData_[k * windowlen],
-               windowlen * sizeof(float));
-
-    /* Only what a window of one left a sample long: a plugin that sizes
-       an output some other way sized it for itself. */
-    for (size_t k = 0; k < fbOuts_.size(); k++)
-    {
-        fbFilled_[k] = fbOuts_[k]->len() == 1;
-
-        if (fbFilled_[k])
-            memcpy(fbOuts_[k]->allocate(windowlen),
-                   &fbOutData_[k * windowlen], windowlen * sizeof(float));
-    }
-}
-
 /* True for what a host writes a sample per sample of: in<N>, side<N>,
    live<N>, send<N> and the pedal. Not `say', which is a list. */
 static bool isStreamInput (const string &name)
@@ -754,80 +678,247 @@ static bool isStreamInput (const string &name)
     return false;
 }
 
-/* The arg a pointer ends on, if it is a node's own value: not a chanarg,
-   which every voice shares, and not one of the io node's, which the host
-   owns. */
-thArg *thSynthTree::loopTarget (const thArg *a)
+/* Where a pointer ends, through the io node's pointers as getArg goes:
+   the node and the index of the arg on it. */
+thNode *thSynthTree::pointerEnd (const thArg *a, int *index)
 {
+    thNode *node = NULL;
+
     while (a && a->type() == thArg::ARG_POINTER)
     {
-        thNode *node = nodeAt(a->nodePtrId());
+        node = nodeAt(a->nodePtrId());
 
-        if (node == NULL || node == ionode_)
+        if (node == NULL)
             return NULL;
 
-        a = node->getArg(a->argPtrId());
+        *index = a->argPtrId();
+        a = node->getArg(*index);
     }
 
-    return a && a->type() == thArg::ARG_VALUE ? (thArg *)a : NULL;
+    return node;
 }
 
-void thSynthTree::addLoopOut (thArg *a)
+/* The nodes a node reads, with a read through an io arg that points on
+   at a node counted as reading that node. */
+void thSynthTree::readsOf (thNode *node, std::vector<thNode *> &out)
 {
-    if (a && std::find(fbOuts_.begin(), fbOuts_.end(), a) == fbOuts_.end())
-        fbOuts_.push_back(a);
+    out.clear();
+
+    const thArgMap &args = node->args();
+
+    for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+    {
+        int index = -1;
+        thNode *end = pointerEnd(i->second, &index);
+
+        if (end && end != ionode_ &&
+            std::find(out.begin(), out.end(), end) == out.end())
+            out.push_back(end);
+    }
 }
 
-/* What processBySample hands in, fills and marks, found once per tree so
-   that a window allocates nothing. */
-void thSynthTree::prepareLoop (void)
+/* Tarjan's strongly connected components over what each node reads. A
+   component of more than one node, or of one that reads itself, is a
+   loop. */
+void thSynthTree::findLoops (thNode *node, std::map<thNode *, int> &order,
+                             std::map<thNode *, int> &low,
+                             std::vector<thNode *> &stack, int &counter)
 {
-    fbNodes_.clear();
-    fbIns_.clear();
-    fbOuts_.clear();
+    order[node] = low[node] = ++counter;
+    stack.push_back(node);
 
-    if (!feedback_)
+    std::vector<thNode *> reads;
+
+    readsOf(node, reads);
+
+    bool self = false;
+
+    for (size_t k = 0; k < reads.size(); k++)
+    {
+        thNode *next = reads[k];
+
+        self = self || next == node;
+
+        if (order[next] == 0)
+        {
+            findLoops(next, order, low, stack, counter);
+            low[node] = std::min(low[node], low[next]);
+        }
+        else if (std::find(stack.begin(), stack.end(), next) != stack.end())
+            low[node] = std::min(low[node], order[next]);
+    }
+
+    if (low[node] != order[node])
         return;
 
-    const thArgMap &io = ionode_->args();
+    Loop loop;
 
-    for (thArgMap::const_iterator i = io.begin(); i != io.end(); ++i)
+    for (thNode *n = NULL; n != node; )
     {
-        thArg *a = i->second;
-
-        if (a == NULL)
-            continue;
-
-        if (a->type() == thArg::ARG_VALUE && isStreamInput(i->first))
-            fbIns_.push_back(a);
-        else if (a->type() == thArg::ARG_POINTER)
-            addLoopOut(loopTarget(a));
+        n = stack.back();
+        stack.pop_back();
+        loop.nodes.push_back(n);
     }
 
-    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+    if (loop.nodes.size() > 1 || self)
+        loops_.push_back(loop);
+}
+
+/* What a loop reads from outside it, and what it writes. */
+void thSynthTree::prepareLoop (Loop &loop)
+{
+    for (size_t k = 0; k < loop.nodes.size(); k++)
     {
-        thNode *node = i->second;
-        thPlugin *plug = node ? node->plugin() : NULL;
+        thNode *node = loop.nodes[k];
+        thPlugin *plug = node->plugin();
 
-        if (node == NULL || node == ionode_)
-            continue;
+        loopOf_[node->id()] = (int)(&loop - &loops_[0]);
 
-        fbNodes_.push_back(node);
+        if (std::find(activelist_.begin(), activelist_.end(), node) ==
+            activelist_.end())
+            activelist_.push_back(node);
 
-        for (int k = 0; plug && k < plug->argCount(); k++)
-            if (plug->getArgDir(k) == thPlugin::ARG_OUT)
-                addLoopOut(loopTarget(node->getArg(k)));
+        for (int i = 0; plug && i < plug->argCount(); i++)
+        {
+            thArg *a = node->getArg(i);
+
+            if (a && a->type() == thArg::ARG_VALUE &&
+                plug->getArgDir(i) == thPlugin::ARG_OUT)
+                loop.outs.push_back(a);
+        }
     }
 
-    fbFilled_.assign(fbOuts_.size(), 0);
+    for (size_t k = 0; k < loop.nodes.size(); k++)
+    {
+        const thArgMap &args = loop.nodes[k]->args();
+
+        for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+        {
+            int index = -1;
+            thNode *end = pointerEnd(i->second, &index);
+            thArg *a = end ? end->getArg(index) : NULL;
+
+            if (a == NULL || a->type() != thArg::ARG_VALUE ||
+                std::find(loop.nodes.begin(), loop.nodes.end(), end) !=
+                    loop.nodes.end() ||
+                std::find(loop.ins.begin(), loop.ins.end(), a) !=
+                    loop.ins.end())
+                continue;
+
+            const bool stream = end == ionode_ ? isStreamInput(a->name()) :
+                end->plugin() &&
+                end->plugin()->getArgDir(index) == thPlugin::ARG_OUT;
+
+            if (stream)
+                loop.ins.push_back(a);
+        }
+    }
+
+    loop.filled.assign(loop.outs.size(), 0);
+    loop.handed.assign(loop.ins.size(), 0);
 
     const unsigned int windowlen = synth_ ? synth_->getWindowlen() : 0;
 
-    fbInData_.reserve(fbIns_.size() * windowlen);
-    fbOutData_.reserve(fbOuts_.size() * windowlen);
+    loop.inData.reserve(loop.ins.size() * windowlen);
+    loop.outData.reserve(loop.outs.size() * windowlen);
 }
 
-void thSynthTree::processWindow (unsigned int windowlen)
+/* A window of a loop, one sample at a time.
+ *
+ * What the loop reads from outside it runs first, a window at once, and
+ * is handed in a sample at a time; what its nodes write is filled in
+ * with the samples it held, one after another, once the window is done,
+ * for whatever reads it after -- the host, a probe or a node downstream.
+ * `entry' is the node the walk reached the loop at.
+ * In between, every plugin on the loop runs with a window of one, which
+ * windowlencheck holds to sounding the same as any other. */
+void thSynthTree::runLoop (Loop &loop, thNode *entry, unsigned int windowlen)
+{
+    for (size_t k = 0; k < loop.nodes.size(); k++)
+    {
+        const thNodeList &children = loop.nodes[k]->children();
+
+        loop.nodes[k]->setRecalc(false);
+
+        for (thNodeList::const_iterator i = children.begin();
+             i != children.end(); ++i)
+            if (*i && (*i)->recalc() && loopOf(*i) != loopOf(loop.nodes[k]))
+                processHelper(windowlen, *i);
+    }
+
+    /* Last window left each output a window long. Inside the loop it is
+       one sample again, the last, which is what a node reading it round
+       the loop wants. */
+    for (size_t k = 0; k < loop.outs.size(); k++)
+    {
+        thArg *t = loop.outs[k];
+
+        if (loop.filled[k] && t->len() > 1)
+        {
+            const float last = (*t)[t->len() - 1];
+
+            t->allocate(1)[0] = last;
+        }
+    }
+
+    loop.inData.resize(loop.ins.size() * windowlen);
+    loop.outData.resize(loop.outs.size() * windowlen);
+
+    /* One that holds a single value already holds it at every sample. */
+    for (size_t k = 0; k < loop.ins.size(); k++)
+    {
+        loop.handed[k] = loop.ins[k]->len() > 1;
+
+        if (loop.handed[k])
+        {
+            loop.ins[k]->getBuffer(&loop.inData[k * windowlen], windowlen);
+            loop.ins[k]->allocate(1);
+        }
+    }
+
+    inLoop_ = true;
+
+    for (unsigned int s = 0; s < windowlen; s++)
+    {
+        for (size_t k = 0; k < loop.ins.size(); k++)
+            if (loop.handed[k])
+                loop.ins[k]->values()[0] = loop.inData[k * windowlen + s];
+
+        for (size_t k = 0; k < loop.nodes.size(); k++)
+            loop.nodes[k]->setRecalc(true);
+
+        /* In where the walk came in, so the read that closes the loop
+           is the one it comes round to, as it would be without one. */
+        processHelper(1, entry);
+
+        for (size_t k = 0; k < loop.nodes.size(); k++)
+            if (loop.nodes[k]->recalc())
+                processHelper(1, loop.nodes[k]);
+
+        for (size_t k = 0; k < loop.outs.size(); k++)
+            loop.outData[k * windowlen + s] = (*loop.outs[k])[0];
+    }
+
+    inLoop_ = false;
+
+    for (size_t k = 0; k < loop.ins.size(); k++)
+        if (loop.handed[k])
+            memcpy(loop.ins[k]->allocate(windowlen),
+                   &loop.inData[k * windowlen], windowlen * sizeof(float));
+
+    /* Only what a window of one left a sample long: a plugin that sizes
+       an output some other way sized it for itself. */
+    for (size_t k = 0; k < loop.outs.size(); k++)
+    {
+        loop.filled[k] = loop.outs[k]->len() == 1;
+
+        if (loop.filled[k])
+            memcpy(loop.outs[k]->allocate(windowlen),
+                   &loop.outData[k * windowlen], windowlen * sizeof(float));
+    }
+}
+
+void thSynthTree::process (unsigned int windowlen)
 {
     thPlugin *plug = NULL;
 
@@ -897,6 +988,12 @@ bool thSynthTree::takesInput (void) const
 void thSynthTree::processHelper (unsigned int windowlen, thNode *node)
 {
     if (node == NULL) {
+        return;
+    }
+
+    if (!inLoop_ && loopOf(node) >= 0)
+    {
+        runLoop(loops_[loopOf(node)], node, windowlen);
         return;
     }
 
@@ -1309,63 +1406,19 @@ void thSynthTree::buildSynthTree (void)
 
     buildSynthTreeHelper2(ionode_->args(), ionode_);
 
-    std::map<thNode *, int> state;
+    std::map<thNode *, int> order, low;
+    std::vector<thNode *> stack;
+    int counter = 0;
 
-    feedback_ = findCycle(ionode_, state);
-    prepareLoop();
-}
+    loops_.clear();
+    loopOf_.assign(nodecount_ > 0 ? nodecount_ : 0, -1);
 
-/* Depth first over what each node reads: 1 while a node is on the path,
-   2 once everything under it is done. Reaching a 1 again is a cycle. A
-   node reading the io node's input reads the note or the host, which is
-   no way round; reading one of its args that points on at a node is
-   reading that node. */
-bool thSynthTree::findCycle (thNode *node, std::map<thNode *, int> &state)
-{
-    state[node] = 1;
+    for (const thNodeList::value_type &n : ionode_->children())
+        if (n && n != ionode_ && order[n] == 0)
+            findLoops(n, order, low, stack, counter);
 
-    const thNodeList &children = node->children();
-
-    for (thNodeList::const_iterator i = children.begin();
-         i != children.end(); ++i)
-    {
-        if (*i == NULL || *i == ionode_)
-            continue;
-
-        if (visitCycle(*i, state))
-            return true;
-    }
-
-    const thArgMap &args = node->args();
-
-    for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
-    {
-        const thArg *a = i->second;
-
-        /* Through the io node's pointers, as getArg goes. */
-        while (a && a->type() == thArg::ARG_POINTER &&
-               nodeAt(a->nodePtrId()) == ionode_)
-            a = ionode_->getArg(a->argPtrId());
-
-        if (a == NULL || a == i->second || a->type() != thArg::ARG_POINTER)
-            continue;
-
-        thNode *next = nodeAt(a->nodePtrId());
-
-        if (next && visitCycle(next, state))
-            return true;
-    }
-
-    state[node] = 2;
-
-    return false;
-}
-
-bool thSynthTree::visitCycle (thNode *node, std::map<thNode *, int> &state)
-{
-    const int seen = state[node];
-
-    return seen == 1 || (seen == 0 && findCycle(node, state));
+    for (size_t k = 0; k < loops_.size(); k++)
+        prepareLoop(loops_[k]);
 }
 
 int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)

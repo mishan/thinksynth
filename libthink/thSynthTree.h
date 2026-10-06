@@ -218,11 +218,11 @@ public:
     void process (unsigned int windowlen);
 
     /* True if the graph has a cycle in it: a node that reads, by some
-       path, its own output. Found by buildSynthTree. Such a graph runs a
-       sample at a time, so the back edge reads the sample before -- a
-       delay of one sample at any window length, as in any feedback loop
+       path, its own output. Found by buildSynthTree. The nodes on a loop
+       run a sample at a time, so the back edge reads the sample before --
+       a delay of one sample at any window length, as in any feedback loop
        on paper, rather than of one window. */
-    bool feedback (void) const { return feedback_; }
+    bool feedback (void) const { return !loops_.empty(); }
     void setActiveNodes(void);
 
     /* Every node runs this window, whether or not anything in the graph
@@ -344,21 +344,30 @@ private:
     std::vector<thBeatFold> beatFolds_;   /* GUI thread */
     double                  beatsAt_;
 
-    /* See feedback(). What processBySample marks, hands in and fills,
-       found by prepareLoop. */
-    bool                 feedback_;
-    std::vector<thNode *> fbNodes_;
-    std::vector<thArg *>  fbIns_, fbOuts_;
-    std::vector<char>     fbFilled_;
-    std::vector<float>    fbInData_, fbOutData_;
+    /* See feedback(). A loop's nodes, what it reads from outside it and
+       what its nodes write, and the scratch runLoop keeps them in. */
+    struct Loop {
+        std::vector<thNode *> nodes;
+        std::vector<thArg *>  ins, outs;
+        std::vector<char>     filled, handed;
+        std::vector<float>    inData, outData;
+    };
 
-    bool findCycle (thNode *node, std::map<thNode *, int> &state);
-    bool visitCycle (thNode *node, std::map<thNode *, int> &state);
-    thArg *loopTarget (const thArg *a);
-    void addLoopOut (thArg *a);
-    void prepareLoop (void);
-    void processWindow (unsigned int windowlen);
-    void processBySample (unsigned int windowlen);
+    std::vector<Loop> loops_;
+    std::vector<int>  loopOf_;    /* by node id; -1 off every loop */
+    bool              inLoop_;
+
+    int loopOf (const thNode *node) const {
+        const int id = node->id();
+        return id >= 0 && id < (int)loopOf_.size() ? loopOf_[id] : -1;
+    }
+    thNode *pointerEnd (const thArg *a, int *index);
+    void readsOf (thNode *node, std::vector<thNode *> &out);
+    void findLoops (thNode *node, std::map<thNode *, int> &order,
+                    std::map<thNode *, int> &low,
+                    std::vector<thNode *> &stack, int &counter);
+    void prepareLoop (Loop &loop);
+    void runLoop (Loop &loop, thNode *entry, unsigned int windowlen);
 
     /* Empty except between the parse and desugarExprs(), and not copied, for
        the reasons above. */
