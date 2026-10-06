@@ -4376,6 +4376,165 @@ static void checkCrush (const string &pluginPath)
                  "hundred");
 }
 
+/* ---- delay::reverse and delay::stutter -----------------------------------
+ *
+ * Reverse: a constant comes through at its own level once the heads are
+ * full, which is the two sin^2 windows adding to one; and a saw that rises
+ * comes out falling, chunk by chunk. Stutter: held, the output repeats
+ * with the period it caught, exactly; let go, it is the input again.
+ */
+static vector<NodeSpec> bufferGraph (const char *spelling, const char *src,
+                                     float freq, const vector<Value> &vals)
+{
+    vector<NodeSpec> spec;
+    NodeSpec in, b;
+
+    in.name = "src";
+    in.spelling = src;
+    in.values.push_back(Value{ "freq", freq });
+    in.values.push_back(Value{ "waveform", 1 });
+    spec.push_back(in);
+
+    b.name = "b";
+    b.spelling = spelling;
+    b.values = vals;
+    b.wires.push_back(Wire{ "in", "src", "out" });
+    spec.push_back(b);
+
+    return spec;
+}
+
+static void checkBuffers (const string &pluginPath)
+{
+    vector<Watch> watch;
+    vector< vector<float> > got;
+    string why;
+
+    watch.push_back(Watch{ "b", "out" });
+    watch.push_back(Watch{ "src", "out" });
+
+    {
+        vector<NodeSpec> spec = bufferGraph("delay/reverse", "math/add", 0,
+                                            { Value{ "size", 1000 } });
+
+        spec[0].values = { Value{ "in0", 0.5f }, Value{ "in1", 0 } };
+
+        if (!render(pluginPath, spec, watch, 256, 6000, got, why))
+            fail("delay::reverse renders", why);
+        else
+            okOrFail(fabs(got[0][5000] - 0.5) < 1e-4,
+                     "delay::reverse: a constant comes through at its level",
+                     num(got[0][5000]));
+    }
+
+    /* A hit, sharp at the front and decaying: backwards, its energy comes
+       before its peak where going in it came after. */
+    {
+        vector<NodeSpec> spec = bufferGraph("delay/reverse", "env/ad", 0,
+                                            { Value{ "size", 2000 } });
+
+        spec[0].values = { Value{ "a", 0 }, Value{ "d", 300 },
+                           Value{ "p", 1 } };
+
+        if (!render(pluginPath, spec, watch, 256, 6000, got, why))
+            fail("delay::reverse renders", why);
+        else
+        {
+            auto shape = [](const vector<float> &v, double &peakAt,
+                            double &center) {
+                double e = 0, top = 0;
+
+                center = 0;
+                peakAt = 0;
+
+                for (size_t i = 0; i < v.size(); i++)
+                {
+                    const double a = fabs(v[i]);
+
+                    e += a;
+                    center += a * i;
+
+                    if (a > top)
+                    {
+                        top = a;
+                        peakAt = (double)i;
+                    }
+                }
+
+                center = e > 0 ? center / e : 0;
+            };
+            double inPeak, inCenter, outPeak, outCenter;
+
+            shape(got[1], inPeak, inCenter);
+            shape(got[0], outPeak, outCenter);
+
+            okOrFail(inCenter > inPeak + 10 && outCenter < outPeak - 10,
+                     "delay::reverse: a hit comes out swelling into its "
+                     "attack",
+                     "in: peak " + num(inPeak) + ", center " +
+                     num(inCenter) + "; out: peak " + num(outPeak) +
+                     ", center " + num(outCenter));
+        }
+    }
+
+    windowsAgree(pluginPath, bufferGraph("delay/reverse", "osc/simple", 330,
+                                         { Value{ "size", 777 } }),
+                 "b", "out",
+                 "delay::reverse: the same at one sample a window and at "
+                 "five hundred");
+
+    /* Held from 0.5 s to 1 s, a 300-sample length. */
+    {
+        vector<NodeSpec> spec = bufferGraph("delay/stutter", "osc/simple", 431,
+                                            { Value{ "length", 300 } });
+        NodeSpec gate;
+        const unsigned sr = TH_DEFAULT_SAMPLES;
+
+        gate.name = "gate";
+        gate.spelling = "osc/simple";
+        gate.values.push_back(Value{ "freq", 1 });
+        gate.values.push_back(Value{ "waveform", 2 });
+        spec.push_back(gate);
+        spec[1].wires.push_back(Wire{ "hold", "gate", "out" });
+
+        vector<Watch> three = watch;
+
+        three.push_back(Watch{ "gate", "out" });
+
+        /* Held for one half of the second and not the other; the square
+           says which. Past the fades at each end of the hold. */
+        if (!render(pluginPath, spec, three, 256, sr, got, why))
+            fail("delay::stutter renders", why);
+        else
+        {
+            double periodic = 0, through = 0;
+
+            for (size_t i = 1000; i + 300 < sr - 1000; i++)
+            {
+                const bool held = got[2][i] > 0 && got[2][i + 300] > 0 &&
+                                  got[2][i - 900] > 0;
+                const bool free = got[2][i] <= 0 && got[2][i - 900] <= 0;
+
+                if (held)
+                    periodic = fmax(periodic,
+                                    fabs(got[0][i] - got[0][i + 300]));
+                else if (free)
+                    through = fmax(through, fabs(got[0][i] - got[1][i]));
+            }
+
+            okOrFail(periodic < 1e-6 && through < 1e-6,
+                     "delay::stutter: held it repeats every `length', let go "
+                     "it is the input",
+                     "repeat off by " + num(periodic) + ", input by " +
+                     num(through));
+        }
+
+        windowsAgree(pluginPath, spec, "b", "out",
+                     "delay::stutter: the same at one sample a window and at "
+                     "five hundred");
+    }
+}
+
 static void checkBlep (const string &pluginPath)
 {
     const struct { float wave, pw; const char *what; } shapes[] = {
@@ -4955,6 +5114,85 @@ static void checkSample (const string &pluginPath)
 #else
     setenv("THINK_DSP_PATH", dir.c_str(), 1);
 #endif
+
+    /* ---- slices and reverse ---- */
+
+    /* The ramp backwards, one quarter of it, a slice counted from the end,
+       and a quarter backwards: each frame for frame between the 2 ms
+       fades at its two ends, faded at both, then over. */
+    {
+        const int q = RAMP_LEN / 4;
+        const struct { float slices, slice, reverse; int from, step, n;
+                       const char *what; } cases[] = {
+            { 0, 0, 1, RAMP_LEN - 1, -1, RAMP_LEN, "`reverse' plays it from "
+              "the end back" },
+            { 4, 2, 0, 2 * q, 1, q, "`slice = 2' of 4 is the third quarter" },
+            { 4, -1, 0, 3 * q, 1, q, "`slice = -1' wraps to the last" },
+            { 4, 1, 1, 2 * q - 1, -1, q, "a slice reversed" },
+        };
+
+        for (const auto &c : cases)
+        {
+            vector<NodeSpec> spec = sampleGraph("ramp.wav", 440, 440, 0, 0);
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+
+            spec[0].values.push_back(Value{ "slices", c.slices });
+            spec[0].values.push_back(Value{ "slice", c.slice });
+            spec[0].values.push_back(Value{ "reverse", c.reverse });
+            spec[0].values.push_back(Value{ "trigger", 1 });
+            watch.push_back(Watch{ "smp", "out" });
+            watch.push_back(Watch{ "smp", "play" });
+
+            if (!render(pluginPath, spec, watch, 256, RAMP_LEN + 100, got,
+                        why))
+            {
+                fail("osc::sample renders", why);
+                continue;
+            }
+
+            const int edge = (int)ceil(0.002 * TH_DEFAULT_SAMPLES) + 1;
+            bool same = got[1][c.n] == 0 && got[1][c.n - 1] == 1 &&
+                        fabs(got[0][0]) < 0.05 * fabs(want[c.from]) + 1e-6 &&
+                        fabs(got[0][c.n - 1]) <
+                            0.05 * fabs(want[c.from + (c.n - 1) * c.step]) +
+                            1e-6;
+            string detail = same ? "" : "it did not fade in and out and stop "
+                                        "after " + num((double)c.n) +
+                                        " frames";
+
+            for (int i = edge; i < c.n - edge && same; i++)
+                if (got[0][i] != want[c.from + i * c.step])
+                {
+                    same = false;
+                    detail = "frame " + num((double)i) + ": " +
+                             num(got[0][i]) + " against " +
+                             num(want[c.from + i * c.step]);
+                }
+
+            okOrFail(same, string("osc::sample: ") + c.what, detail);
+        }
+
+        /* More slices than frames: a slice is a frame at the least, and
+           nothing is read from outside the file. */
+        vector<NodeSpec> spec = sampleGraph("layer1.wav", 440, 440, 0, 0);
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        spec[0].values.push_back(Value{ "slices", 256 });
+        spec[0].values.push_back(Value{ "slice", 0 });
+        spec[0].values.push_back(Value{ "trigger", 1 });
+        watch.push_back(Watch{ "smp", "out" });
+        watch.push_back(Watch{ "smp", "play" });
+
+        okOrFail(render(pluginPath, spec, watch, 256, 400, got, why) &&
+                 allFinite(got[0]) && peak(got[0], 0) <= 1 &&
+                 got[1][0] == 1 && got[1][2] == 0,
+                 "osc::sample: a slice shorter than a frame plays one and "
+                 "stops, reading nothing outside the file", why);
+    }
 
     /* ---- frame for frame at freq = root ---- */
 
@@ -8298,6 +8536,7 @@ int main (int argc, char **argv)
     checkFdn(pluginPath);
     checkFmop(pluginPath);
     checkSimple(pluginPath);
+    checkBuffers(pluginPath);
     checkBlep(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);

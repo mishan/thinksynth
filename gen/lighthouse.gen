@@ -1,0 +1,236 @@
+# lighthouse.gen -- arpeggios turning against each other, and a build
+# that drops.
+#
+# In the way of Orbital: three arpeggios on one bell-like pluck, in
+# cycles of three, five and seven sixteenths against the bar, so the
+# figure they make together only comes round again every hundred and five
+# steps and is never quite the same twice. Under them an acid line through
+# fx/sweep.dsp, its cutoff ridden a bar at a time by a gen::steps row:
+# shut in the intro, opening over each build, wide in the drops, closing
+# in the outro.
+#
+# The break is loop_break100.wav cut into sixteenths by slicer.dsp and
+# played in a new order, through fx/stutter.dsp, which a second steps row
+# catches on the last two beats of every four bars. Hoover stabs ride the
+# drops. Each build is eight bars of riser.dsp climbing, and
+# revcymbal.dsp, the kit's ride backwards, started five beats from the end
+# so it lands on the downbeat of the drop.
+#
+# The sections are all multiples of eight bars, and the riser and the
+# cymbal repeat every eight, muted everywhere but the builds -- so they
+# are always in the right place.
+
+name "Lighthouse";
+author "Misha Nasledov";
+description "Polymetric arpeggios, a swept acid line, a sliced and stuttered break, and builds into drops.";
+category "Pieces";
+
+tempo 126;
+seed 1991;
+meter 4;
+
+section intro     16 bars { kick = 0;  hats = 0;  clap = 0;  brk = 0;  hoover = 0;
+                            riser = 0;  cym = 0; };
+section build      8 bars { brk = 0;  hoover = 0;  clap = 0; };
+section drop      32 bars { riser = 0;  cym = 0; };
+section breakdown 16 bars { kick = 0;  hats = 0;  clap = 0;  brk = 0;  hoover = 0;
+                            riser = 0;  cym = 0;  acid = 0.5; };
+section build2     8 bars { brk = 0;  hoover = 0;  clap = 0; };
+section drop2     32 bars { riser = 0;  cym = 0; };
+section outro     16 bars { hoover = 0;  riser = 0;  cym = 0;  clap = 0;  pad = 0.7; };
+section end;
+
+scale amin  "A2 B2 C3 D3 E3 F3 G3";
+scale roots "A3 F3 C4 G3";
+scale acidline "A1 C2 D2 E2 G2 A2";
+
+effect "fx/space.dsp" {
+    mix   = 0;
+    decay = 4;
+    size  = 1.6;
+};
+
+instrument arp {
+    dsp  "pluck.dsp";
+    amp  = 18;
+    send = 0.4;
+    effect "fx/echo.dsp" { beats = 0.75; feedback = 0.4; mix = 0.3; };
+};
+
+instrument pad {
+    dsp  "strings.dsp";
+    amp  = 24;
+    send = 0.5;
+};
+
+instrument acid {
+    dsp  "bass.dsp";
+    amp  = 16;
+    cutoff = 400;
+    depth  = 1800;
+    res    = 0.8;
+    accent = 0.6;
+    drive  = 2;
+    effect "fx/sweep.dsp" { low = 200; high = 9000; res = 0.4; };
+};
+
+instrument brk {
+    dsp  "slicer.dsp";
+    amp  = 40;
+    send = 0.1;
+    effect "fx/stutter.dsp" { beats = 0.25; };
+};
+
+instrument hoover {
+    dsp  "hoover.dsp";
+    amp  = 30;
+    send = 0.3;
+};
+
+instrument riser {
+    dsp  "riser.dsp";
+    amp  = 30;
+    send = 0.4;
+    rise = 15000 ms;
+};
+
+instrument cym {
+    dsp  "revcymbal.dsp";
+    amp  = 90;
+    send = 0.5;
+};
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 26;
+};
+
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 80;
+    send = 0.2;
+};
+
+instrument hats {
+    dsp  "hat808.dsp";
+    amp  = 45;
+};
+
+chain arp3 {
+    stage src gen::euclid {
+        steps = 3;  fills = 2;  rotate = 0;  notes = "A4 E5";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 80;
+    };
+    sink { instrument = arp; };
+};
+
+chain arp5 {
+    stage src gen::euclid {
+        steps = 5;  fills = 3;  rotate = 1;  notes = "C5 E5 G5";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 70;
+    };
+    sink { instrument = arp; };
+};
+
+chain arp7 {
+    stage src gen::euclid {
+        steps = 7;  fills = 4;  rotate = 2;  notes = "E5 G5 B5 D6";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 60;
+    };
+    sink { instrument = arp; };
+};
+
+chain pad {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F---";  depth = 0;  notes = roots;
+        step = 16 beats;  hold = 15.5 beats;  vel = 75;
+    };
+    stage chord xform::harmonize {
+        scale = amin;  voices = 3;  step = 2;  spread = 0.03 s;
+        taper = 0.9;  root = 1;  below = 0;  lead = 1;  span = 12;
+    };
+    sink { instrument = pad; };
+};
+
+chain acid {
+    stage src gen::lsystem {
+        axiom = ">F F +F >F -F F ++F >F --F F +>F F -F +F >++F ---F";
+        depth = 0;  notes = acidline;
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 80;  accent = 40;
+    };
+    sink { instrument = acid; };
+};
+
+chain sweep {
+    stage src gen::steps {
+        values = "0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.15 0.26 0.36 0.47 0.57 0.68 0.79 0.89 1.0 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.9 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.25 0.34 0.44 0.53 0.62 0.72 0.81 0.91 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.95 0.89 0.84 0.79 0.73 0.68 0.63 0.57 0.52 0.47 0.42 0.36 0.31 0.26 0.2 0.15";
+        period = 4 beats;
+    };
+    sink { instrument = acid; chanarg = "fx.position"; };
+};
+
+chain brk {
+    stage src gen::lsystem {
+        axiom = "F";  depth = 0;
+        notes = "C3 C#3 G3 D#3 E3 C3 F#3 G3 C3 A3 C4 B3 C3 C#4 G3 F#3";
+        step = 0.25 beats;  hold = 0.24 beats;  vel = 110;
+    };
+    sink { instrument = brk; };
+};
+
+chain stutter {
+    stage src gen::steps {
+        values = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1";
+        period = 1 beats;
+    };
+    sink { instrument = brk; chanarg = "fx.hold"; };
+};
+
+chain hoover {
+    stage src gen::lsystem {
+        axiom = "F_rF r_F_ rrrr rrrr F_rF r_-F_ rrrr rrrr";
+        depth = 0;  notes = "A3 G3 E3";
+        step = 0.5 beats;  hold = 0.4 beats;  vel = 100;
+    };
+    sink { instrument = hoover; };
+};
+
+chain riser {
+    stage src gen::lsystem {
+        axiom = "F";  depth = 0;  notes = "A2";
+        step = 32 beats;  hold = 31.9 beats;  vel = 100;
+    };
+    sink { instrument = riser; };
+};
+
+chain cym {
+    stage src gen::lsystem {
+        axiom = "rrrrrrrrrrrrrrrrrrrrrrrrrrrF____";  depth = 0;  notes = "C4";
+        step = 1 beats;  hold = 0.9 beats;  vel = 110;
+    };
+    sink { instrument = cym; };
+};
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  notes = "C2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 110;
+    };
+    sink { instrument = kick; };
+};
+
+chain clap {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;  notes = "D2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 100;
+    };
+    sink { instrument = clap; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 2;  fills = 1;  rotate = 1;  notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 70;
+    };
+    sink { instrument = hats; };
+};
