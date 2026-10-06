@@ -13,8 +13,11 @@
 # lead is the same graph thinner, through fx/echo.dsp at a dotted eighth.
 #
 # The drums are the kit's own graphs, swung a little behind with
-# xform::swing and put through fx/crush.dsp at 12 bits and 26 kHz: an
-# old sampler's grit, under the tape's.
+# xform::swing, and the snare and hats put through fx/crush.dsp at 12 and
+# 10 bits: an old sampler's grit, under the tape's. Not the kick: a
+# quantizer tips a sample a whole step over a last-bit difference in the
+# math before it, and a loud low sine crosses those steps often enough
+# that the browser and the desktop would not render this piece alike.
 #
 # The voice is speak.dsp with its formants raised, a child's, saying one
 # line slowly through fx/reverse.dsp, so each word arrives with its own
@@ -90,7 +93,6 @@ instrument kick {
     dsp  "kit_kick.dsp";
     amp  = 30;
     decay = 300 ms;
-    effect "fx/crush.dsp" { bits = 12; rate = 26040; };
 };
 
 instrument snare {
