@@ -6,7 +6,9 @@
 # misc::tempo, so a sixteenth stays a sixteenth whatever the piece is at:
 # 0.25 is a sixteenth, 0.5 an eighth, 1 a beat. A piece rides `Hold' with a
 # chanarg sink on `fx.hold', a step at a time from gen::steps, which is the
-# beat repeat at the end of a phrase or a vocal caught on one syllable.
+# beat repeat at the end of a phrase or a vocal caught on one syllable; or
+# gen::stutter rides both, and a shorter `Length' while held rolls the
+# repeat down from the same moment.
 
 name "Stutter";
 author "Misha Nasledov";

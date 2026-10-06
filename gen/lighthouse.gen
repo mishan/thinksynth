@@ -10,11 +10,12 @@
 # in the outro.
 #
 # The break is loop_break100.wav cut into sixteenths by slicer.dsp and
-# played in a new order, through fx/stutter.dsp, which a second steps row
-# catches on the last two beats of every four bars. Hoover stabs ride the
-# drops. Each build is eight bars of riser.dsp climbing, and
-# revcymbal.dsp, the kit's ride backwards, started five beats from the end
-# so it lands on the downbeat of the drop.
+# played in a new order, through fx/stutter.dsp, which gen::stutter
+# catches on the last two beats of every four bars and rolls down from an
+# eighth to a sixty-fourth. Hoover stabs ride the drops. Each build is
+# eight bars of riser.dsp climbing, and revcymbal.dsp, the kit's ride
+# backwards, started five beats from the end so it lands on the downbeat
+# of the drop.
 #
 # The sections are all multiples of eight bars, and the riser and the
 # cymbal repeat every eight, muted everywhere but the builds -- so they
@@ -179,11 +180,11 @@ chain brk {
 };
 
 chain stutter {
-    stage src gen::steps {
-        values = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1";
-        period = 1 beats;
+    stage src gen::stutter {
+        period = 16 beats;  length = 2 beats;
+        rolls = "0.5 0.25 0.125 0.0625";
     };
-    sink { instrument = brk; chanarg = "fx.hold"; };
+    sink { instrument = brk; chanarg = "*"; };
 };
 
 chain hoover {

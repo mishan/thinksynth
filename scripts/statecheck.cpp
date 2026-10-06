@@ -4532,6 +4532,56 @@ static void checkBuffers (const string &pluginPath)
         windowsAgree(pluginPath, spec, "b", "out",
                      "delay::stutter: the same at one sample a window and at "
                      "five hundred");
+
+        /* A roll: the length drops to 150 halfway through the hold, and
+           from the next seam the repeat is every 150. */
+        NodeSpec half, len;
+
+        half.name = "half";
+        half.spelling = "osc/simple";
+        half.values.push_back(Value{ "freq", 2 });
+        half.values.push_back(Value{ "waveform", 2 });
+        spec.push_back(half);
+
+        len.name = "len";
+        len.spelling = "math/add";
+        len.values.push_back(Value{ "in1", 225 });
+        spec.push_back(len);
+
+        NodeSpec scale;
+
+        scale.name = "scale";
+        scale.spelling = "math/mul";
+        scale.values.push_back(Value{ "in1", 75 });
+        scale.wires.push_back(Wire{ "in0", "half", "out" });
+        spec.push_back(scale);
+
+        spec[spec.size() - 2].wires.push_back(Wire{ "in0", "scale", "out" });
+        spec[1].values.clear();
+        spec[1].wires.push_back(Wire{ "length", "len", "out" });
+
+        three.push_back(Watch{ "len", "out" });
+
+        if (!render(pluginPath, spec, three, 256, sr, got, why))
+            fail("delay::stutter renders a roll", why);
+        else
+        {
+            double rolled = 0;
+            int seen = 0;
+
+            for (size_t i = 900; i + 150 < sr; i++)
+                if (got[2][i] > 0 && got[2][i + 150] > 0 &&
+                    got[3][i - 600] < 200 && got[3][i + 150] < 200)
+                {
+                    rolled = fmax(rolled, fabs(got[0][i] - got[0][i + 150]));
+                    seen++;
+                }
+
+            okOrFail(seen > 1000 && rolled < 1e-6,
+                     "delay::stutter: a shorter length while held repeats "
+                     "every new length from the next seam",
+                     num(seen) + " samples, off by " + num(rolled));
+        }
     }
 }
 
