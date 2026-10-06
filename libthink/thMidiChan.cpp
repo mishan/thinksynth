@@ -50,6 +50,8 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
     output_ = NULL;
     bufmix_ = NULL;
     bufamp_ = NULL;
+    ampPrimed_ = false;
+    ampY_ = 0;
     playindex_ = -1;
     triggerindex_ = -1;
 
@@ -977,6 +979,21 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
        the note's: it was the same buffer every time round both loops, fetched
        afresh each time. */
     amp->getBuffer(bufamp_, windowlength_);
+
+    /* A level ride is a knob like any other; see thSynthTree::smoothArgs. */
+    if (amp->len() == 1)
+    {
+        const float x = bufamp_[0];
+
+        if (!ampPrimed_ || !thIsFinite(x) || !thIsFinite(ampY_))
+            ampY_ = x;
+
+        ampPrimed_ = true;
+
+        if (ampY_ != x)
+            thGlide(bufamp_, windowlength_, ampY_, x, TH_SMOOTH_MS,
+                    samplerate_);
+    }
 
     /* Before any processing, we shall do a polyphony test. */
     if (notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 

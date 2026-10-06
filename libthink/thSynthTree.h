@@ -304,6 +304,9 @@ public:
 
 private:
     void processHelper (unsigned int windowlen, thNode *node);
+    void smoothArgs (thNode *node, unsigned int windowlen);
+    int feedOf (thNode *owner, const thArg *a,
+                std::map<thNode *, int> &seen);
     void setActiveNodesHelper (thNode *node);
     void copyHelper (thNode *parentnode);
 

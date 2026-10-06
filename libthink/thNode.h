@@ -83,7 +83,7 @@ public:
     const thNodeList &children (void) const { return children_; }
     const thNodeList &parents (void) const { return parents_; }
 
-    void setPlugin (thPlugin *plug) { plugin_ = plug; }
+    void setPlugin (thPlugin *plug) { plugin_ = plug; initSmoothing(); }
     thPlugin *plugin (void) const { return plugin_; }
 
     void copyArgs (const thArgMap &args);
@@ -94,6 +94,31 @@ public:
        args -- a name looked up on the copy and invented there, say. */
     bool restore (const thNode &proto);
     void process (void);
+
+    /* One arg the plugin asked the engine to smooth: where the glide is,
+       and the window of it handed to the plugin while it moves. See
+       thPlugin::setArgSmooth and thSynthTree::smoothArgs. */
+    struct Smooth {
+        int index;
+        float ms, y;
+        bool primed;
+        bool control;   /* fed by a knob; see thSynthTree::feedOf */
+        thArg *ramp;
+    };
+
+    std::vector<Smooth> &smoothing (void) { return smooth_; }
+
+    /* The ramp standing in for arg `index' this window, or NULL. */
+    thArg *smoothed (int index) const {
+        for (int k = 0; k < smoothLive_; k++)
+            if (smooth_[live_[k]].index == index)
+                return smooth_[live_[k]].ramp;
+        return NULL;
+    }
+
+    void setSmoothLive (int k) { live_[smoothLive_++] = k; }
+    void clearSmoothLive (void) { smoothLive_ = 0; }
+    void initSmoothing (void);
 private:
     /* Makes `slots' a valid subscript count for argindex_, growing it in
        ARGCHUNK steps. Returns false, and leaves the array exactly as it was,
@@ -113,6 +138,10 @@ private:
     bool recalc_;
 
     int id_;  /* id used as an index for thArg pointers */
+
+    std::vector<Smooth> smooth_;
+    std::vector<int>    live_;
+    int                 smoothLive_;
 };
 
 #endif /* TH_NODE_H */

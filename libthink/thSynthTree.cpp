@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+#include <algorithm>
 
 #include <algorithm>
 
@@ -204,6 +207,9 @@ thArg *thSynthTree::getArg (thNode *node, int argindex)
     {
         return NULL;
     }
+
+    if ((args = node->smoothed(argindex)) != NULL)
+        return args;
 
     args = node->getArg(argindex);
 
@@ -1011,9 +1017,123 @@ void thSynthTree::processHelper (unsigned int windowlen, thNode *node)
     /* FIRE! -- the grammar permits nodes with no plugin, so this can be NULL */
     thPlugin *plug = node->plugin();
 
+    if (plug && !node->smoothing().empty())
+        smoothArgs(node, windowlen);
+
     if (plug) {
         plug->fire(node, this, windowlen, synth_->getSampleRate());
     }
+}
+
+/* What the plugin sees of each arg it asked to have smoothed, this window.
+ *
+ * An arg a knob feeds -- a chanarg, or arithmetic on chanargs, numbers
+ * and the note -- moves a window at a time, in steps; it is run through a
+ * one-pole toward each new value, a sample at a time, and the plugin is
+ * handed the glide. Once the glide arrives the arg is handed over as it
+ * is again, so a knob at rest costs nothing. Anything a signal reaches
+ * passes untouched, however long its window: at a window of one an
+ * envelope is one value long too. A voice's first window starts where
+ * the arg is. */
+void thSynthTree::smoothArgs (thNode *node, unsigned int windowlen)
+{
+    std::vector<thNode::Smooth> &sm = node->smoothing();
+
+    node->clearSmoothLive();
+
+    for (size_t k = 0; k < sm.size(); k++)
+    {
+        thNode::Smooth &s = sm[k];
+        thArg *raw = getArg(node, s.index);
+
+        if (!s.control || raw == NULL || raw->len() != 1)
+            continue;
+
+        const float x = (*raw)[0];
+
+        if (!s.primed || !thIsFinite(x) || !thIsFinite(s.y))
+        {
+            s.y = x;
+            s.primed = true;
+            s.ramp->allocate(windowlen);
+        }
+
+        if (s.y == x)
+            continue;
+
+        thGlide(s.ramp->allocate(windowlen), windowlen, s.y, x, s.ms,
+                synth_->getSampleRate());
+
+        node->setSmoothLive((int)k);
+    }
+}
+
+/* What feeds `a', an arg on `owner': a signal (0), only numbers and the
+   note (1), or a chanarg with nothing but those and arithmetic besides
+   (2), which is a knob and is what smoothArgs glides. A number alone is
+   not: a host may write a stream into one a window at a time, and at a
+   window of one that looks like a knob being turned every sample. `seen'
+   remembers nodes; one still being looked at, as a loop's are, is a
+   signal. */
+int thSynthTree::feedOf (thNode *owner, const thArg *a,
+                         std::map<thNode *, int> &seen)
+{
+    if (a == NULL)
+        return 1;
+
+    switch (a->type())
+    {
+    case thArg::ARG_CHANNEL:
+        return 2;
+    case thArg::ARG_NOTE:
+    case thArg::ARG_TEXT:
+        return 1;
+    case thArg::ARG_VALUE:
+        return owner == ionode_ && isStreamInput(a->name()) ? 0 : 1;
+    case thArg::ARG_POINTER:
+        break;
+    }
+
+    thNode *node = nodeAt(a->nodePtrId());
+
+    if (node == ionode_)
+        return feedOf(ionode_, ionode_->getArg(a->argPtrId()), seen);
+
+    if (node == NULL)
+        return 0;
+
+    std::map<thNode *, int>::const_iterator i = seen.find(node);
+
+    if (i != seen.end())
+        return i->second;
+
+    thPlugin *plug = node->plugin();
+
+    seen[node] = 0;
+
+    if (plug == NULL || plug->state() != thPlugin::PASSIVE)
+        return 0;
+
+    int feed = 1;
+    const thArgMap &args = node->args();
+
+    for (thArgMap::const_iterator j = args.begin(); j != args.end(); ++j)
+    {
+        if (j->second == NULL ||
+            plug->getArgDir(j->second->index()) != thPlugin::ARG_IN)
+            continue;
+
+        const int f = feedOf(node, j->second, seen);
+
+        if (f == 0)
+            return 0;
+
+        feed = std::max(feed, f);
+    }
+
+    seen[node] = feed;
+
+    return feed;
 }
 
 /* reset the recalc flag for nodes with active plugins */
@@ -1419,6 +1539,34 @@ void thSynthTree::buildSynthTree (void)
 
     for (size_t k = 0; k < loops_.size(); k++)
         prepareLoop(loops_[k]);
+
+    std::map<thNode *, int> seen;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+    {
+        if (i->second == NULL)
+            continue;
+
+        std::vector<thNode::Smooth> &sm = i->second->smoothing();
+
+        for (size_t k = 0; k < sm.size(); k++)
+            sm[k].control = feedOf(i->second,
+                                   i->second->getArg(sm[k].index), seen) == 2;
+    }
+}
+
+/* A knob can move under a sounding note, so arithmetic on one has to run
+   every window like an active node, or the note keeps the value the
+   knob had when it started. */
+static bool readsChanArg (const thNode *node)
+{
+    const thArgMap &args = node->args();
+
+    for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+        if (i->second && i->second->type() == thArg::ARG_CHANNEL)
+            return true;
+
+    return false;
 }
 
 int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
@@ -1437,7 +1585,8 @@ int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
     /* The grammar permits nodes with no plugin, so this can be NULL. */
     thPlugin *plug = currentnode->plugin();
 
-    if (plug && plug->state() == thPlugin::ACTIVE)
+    if (plug && (plug->state() == thPlugin::ACTIVE ||
+                 readsChanArg(currentnode)))
         activelist_.push_back(currentnode);
 
     buildSynthTreeHelper2(currentnode->args(), currentnode);

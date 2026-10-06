@@ -255,10 +255,11 @@ are.
 
 ### What an arg says about itself
 
-`regArg` gives an arg a name and a direction; five calls beside it carry the
+`regArg` gives an arg a name and a direction; six calls beside it carry the
 rest. Four are advice, read by the editor and by `NODES.md` and by nothing in
-the audio path. `setArgDefault` is the exception: `buildArgMap` loads it into
-every arg a `.dsp` leaves out.
+the audio path. `setArgDefault` and `setArgSmooth` are the exceptions:
+`buildArgMap` loads the first into every arg a `.dsp` leaves out, and the
+second is below.
 
 | | |
 |---|---|
@@ -267,6 +268,7 @@ every arg a `.dsp` leaves out.
 | `setArgValues` | the names of those whole numbers, which implies a step |
 | `setArgDefault` | what the callback substitutes when the arg is 0 |
 | `setArgRange` / `setArgUnits` | the span the arithmetic is defined over, and what the numbers are |
+| `setArgSmooth` | that a step in the arg is heard, so a knob turning it should glide |
 
 A range is not `thArg`'s `min` and `max`. Those are a *control's* travel,
 declared by the `.dsp`, and a node arg no control drives has none; this is the
@@ -275,6 +277,17 @@ stable across. Units are what settles `filt::moog`'s cutoff (0 to 1, a fraction
 of the sample rate) against `filt::res2pole2`'s (hertz) — two args with the
 same name, the same direction and the same plausible numbers, which could
 previously only be told apart by reading both callbacks.
+
+A knob moves a window at a time, so a filter's cutoff or a gain on a knob
+steps, and a slow turn is a zipper. An arg declared with `setArgSmooth` is
+glided instead: when a chanarg feeds it, directly or through arithmetic on
+numbers and the note, `thSynthTree::smoothArgs` runs each new value through a
+one-pole of `TH_SMOOTH_MS` and hands the plugin the ramp, a sample at a time,
+until it arrives. Which args a knob feeds is worked out when the tree is
+built, not from how long the arg is: at a window of one an envelope is one
+value long too, and must not be glided. The channel's level glides the same
+way. The filters' cutoffs and resonances and the mixers' gains, fades and pans
+declare it.
 
 `scripts/dspnodes` collects all of it into [NODES.md](NODES.md) by walking the
 palette's catalogue, so the reference covers exactly what the editor offers. A
@@ -323,8 +336,7 @@ routing every drag through the queue would be silly. For a single float where
 `len_` is already 1, `setValue` does not reallocate and is one relaxed atomic
 store, and both ways a plugin reads a one-value arg — `getBuffer` and
 `operator[]` — are relaxed atomic loads, so a read cannot tear. What this does
-not give is smoothing: a knob still moves in steps, and a smoothed parameter
-is the fix for the zipper noise that makes. The
+not give is smoothing; a plugin asks for that ([above](#what-an-arg-says-about-itself)). The
 `setValue(float*, int)` overload *can* reallocate and does go through the
 queue.
 

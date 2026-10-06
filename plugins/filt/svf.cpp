@@ -123,6 +123,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgUnits(args[IN_ARG], "full scale");
 
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_CUTOFF], TH_SMOOTH_MS);
     /* Hertz, like filt::res2pole2 and unlike filt::moog. No numeric range,
        for the reason every hertz arg in the tree gives: the ceiling is
        Nyquist and that is not a number module_init knows. */
@@ -132,6 +133,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgUnits(args[IN_CUTOFF], "Hz");
 
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_RES], TH_SMOOTH_MS);
     /* A real range, unlike every other filter here: the whole span is
        stable and the whole span is usable. See RESMAX for where it stops. */
     plugin->setArgDesc(args[IN_RES],

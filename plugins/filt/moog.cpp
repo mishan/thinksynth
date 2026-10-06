@@ -145,6 +145,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_CUTOFF], TH_SMOOTH_MS);
     /* Not a fraction of the rate, whatever this said before `cutoffhz'
        existed to measure it against: 0.18 is 2564 Hz at 44.1k, which is a
        seventeenth of the rate and not a fifth. It is the fit's own number and
@@ -156,6 +157,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_CUTOFF], 0, FMAX);
     plugin->setArgUnits(args[IN_CUTOFF], "0..1");
     args[IN_CUTOFFHZ] = plugin->regArg("cutoffhz", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_CUTOFFHZ], TH_SMOOTH_MS);
     /* The same cutoff the arg above sets, in the units filt::svf and
        filt::res2pole2 take it in -- and the reason a graph can key-track this
        filter at all, since hertz of pitch is what there is to track with and
@@ -171,6 +173,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgUnits(args[IN_CUTOFFHZ], "Hz");
 
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_RES], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 self-oscillates. Clamped for "
                        "the same reason the cutoff is");

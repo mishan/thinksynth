@@ -336,6 +336,32 @@ static inline bool thIsFinite (float sample)
     return (bits & 0x7f800000u) != 0x7f800000u;
 }
 
+/* The time constant a knob's step is smoothed over, for the args a plugin
+   asks to have smoothed and the channel's level: within a twentieth of
+   a step in 15 ms, quick enough to follow a hand and long enough to round
+   the step off. */
+#define TH_SMOOTH_MS 5
+
+/* A window of a one-pole glide from `y' toward `x', `ms' its time constant:
+ * what a knob's step is smoothed with. `y' is left where the glide got to,
+ * and set to `x' once within a hair of it, so a glide ends rather than
+ * approaching forever. */
+static inline void thGlide (float *out, unsigned int n, float &y, float x,
+                            float ms, float rate)
+{
+    const float c = 1 - expf(-1000.0f / (ms * rate));
+
+    for (unsigned int i = 0; i < n; i++)
+    {
+        y += (x - y) * c;
+
+        if (fabsf(x - y) <= 1e-5f * fabsf(x) + 1e-9f)
+            y = x;
+
+        out[i] = y;
+    }
+}
+
 /* Clamp a control input into the range a plugin's arithmetic is defined over.
  *
  * A .dsp may write any number on any arg, and a node-driven arg carries

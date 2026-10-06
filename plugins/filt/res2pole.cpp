@@ -73,11 +73,13 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_CUTOFF], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff in hertz; honest to about a sixth of the "
                        "sample rate, clamped above that");
     plugin->setArgUnits(args[IN_CUTOFF], "Hz");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_RES], TH_SMOOTH_MS);
     /* No range: the floor moves with the cutoff (see the callback) and there
        is no ceiling. */
     plugin->setArgDesc(args[IN_RES],

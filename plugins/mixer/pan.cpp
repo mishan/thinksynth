@@ -60,6 +60,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_ARG], "Signal in");
     plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_PAN] = plugin->regArg("pan", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_PAN], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_PAN], "-1 left, 0 the middle, 1 right");
     plugin->setArgRange(args[IN_PAN], -1, 1);
     args[OUT_ARG0] = plugin->regArg("out0", thPlugin::ARG_OUT);
