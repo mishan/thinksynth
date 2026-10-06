@@ -58,6 +58,7 @@ struct thNoiseSlot
 {
     std::atomic<const thPlugin *> owner;
     unsigned                      state;   /* the owning synth's thread only */
+    unsigned                      gen;     /* the synth's seed generation  */
 };
 
 static thNoiseSlot thNoiseSlots[THINK_NOISE_SLOTS];
@@ -98,6 +99,7 @@ static inline void thNoiseClaim (const thPlugin *plugin)
                 none, plugin, std::memory_order_acq_rel))
         {
             thNoiseSlots[i].state = 1;
+            thNoiseSlots[i].gen = 0;
             break;
         }
     }
@@ -129,10 +131,19 @@ static inline unsigned thNoiseSharedBits (void);
  * The synth's stream is drawn from only here, once per node, in the order
  * nodes start -- which is the same at any window length, where drawing
  * every sample from it was not. */
-static inline unsigned thNoiseSeed (thNoiseSlot *slot)
+static inline unsigned thNoiseSeed (thNoiseSlot *slot, unsigned gen)
 {
     if (slot == NULL)
         return thNoiseSharedBits();
+
+    /* A piece has started since the last draw (thSynth::setSeed): over
+       from the top, as thNoiseRestart does, but on the thread that owns
+       the stream. */
+    if (slot->gen != gen)
+    {
+        slot->state = 1;
+        slot->gen = gen;
+    }
 
     slot->state = thNoiseStep(slot->state);
 

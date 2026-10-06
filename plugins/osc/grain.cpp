@@ -307,7 +307,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     {
         if (state[S_SEEDED] == 0)
         {
-            thDiceSeed(&state[S_DICE0], (*in_seed)[i]);
+            thDiceSeed(&state[S_DICE0], (*in_seed)[i], mod->seed());
             /* A grain on the voice's first sample, rather than a gap of
                1/density before the first sound. */
             state[S_CLOCK] = 1;

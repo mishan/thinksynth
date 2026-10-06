@@ -60,6 +60,13 @@ chain loop1 {
 };
 ```
 
+The seed reaches the instruments as well as the stages. Every random node in a
+`.dsp` mixes it into where its stream starts — `osc::noise` and `osc::static`,
+and `misc::drift` and `osc::grain` on top of their own `seed` — so another seed
+is another hiss, another drift and another scatter of grains as well as other
+notes, and the same seed started twice sounds the same twice. A synth no piece
+has started plays each random node as it always has.
+
 ## 2. Time carries units, and the unit decides the clock
 
 A duration param is a number with a unit: `s`, `ms`, or `beats` (alias `b`).

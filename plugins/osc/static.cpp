@@ -91,7 +91,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float dice[2] = { (*inout_last)[2], (*inout_last)[3] };
 
     if ((*inout_last)[4] == 0)
-        thDiceSeedBits(dice, thNoiseSeed(thNoiseSlotFor(node->plugin())));
+        thDiceSeedBits(dice, thDiceMix(thNoiseSeed(thNoiseSlotFor(
+            node->plugin()), mod->seedGeneration()), mod->seed()));
 
     /* `last' carries the position counter, the held sample and the node's
        stream across windows, all written back below. */

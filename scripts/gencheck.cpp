@@ -8352,6 +8352,96 @@ countOff (const std::vector<Sounded> &heard)
 
 /* ---- a key taken over by a later note --------------------------------- */
 
+/* ---- the seed reaches the noise --------------------------------------
+ *
+ * A hat is noise, and euclid's hits are the same whatever the seed, so
+ * what changes between two renders here is the DSP's draw. One seed twice
+ * is one sound twice, on the one synth; another seed is another sound.
+ */
+static bool
+renderSeeded (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth, unsigned seed, std::vector<float> &heard)
+{
+    const std::string body =
+        "seed " + std::to_string(seed) + ";\n"
+        "tempo 120;\n"
+        "instrument hat { dsp \"hat.dsp\"; };\n"
+        "chain hat {\n"
+        "    stage src gen::euclid { steps = 1; fills = 1; notes = \"C4\";\n"
+        "        period = 0.25 s; hold = 0.1 s; };\n"
+        "    sink { instrument = hat; };\n"
+        "};\n";
+    const std::string path = thUtil::tempFile("gencheck-seed-");
+
+    if (path.empty())
+        return false;
+
+    {
+        std::ofstream f(path.c_str(), std::ios::trunc);
+
+        f << body;
+    }
+
+    clearChannels(synth);
+
+    thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
+    thcGenLoader loader(plugins);
+    const bool loaded = loader.load(path, &sched);
+
+    remove(path.c_str());
+
+    if (!loaded)
+        return false;
+
+    const int window = synth->getWindowlen();
+    const int outputs = synth->audioChannelCount();
+
+    heard.clear();
+    sched.start();
+
+    while (sched.now() < 1)
+    {
+        sched.stepTransport((double)window / TH_DEFAULT_SAMPLES);
+        synth->process();
+        heard.insert(heard.end(), synth->getOutput(),
+                     synth->getOutput() + outputs * window);
+    }
+
+    sched.stop();
+    clearChannels(synth);
+
+    return true;
+}
+
+static void
+checkSeedReachesNoise (const std::map<std::string, thcPlugin *> &plugins,
+                       thSynth *synth)
+{
+    std::vector<float> one, again, two;
+
+    if (!renderSeeded(plugins, synth, 1, one) ||
+        !renderSeeded(plugins, synth, 1, again) ||
+        !renderSeeded(plugins, synth, 2, two))
+    {
+        fail("the seeded hat did not load");
+        return;
+    }
+
+    double loud = 0;
+
+    for (float v : one)
+        loud = std::max(loud, (double)fabsf(v));
+
+    if (loud < 0.01)
+        fail("the seeded hat is silent");
+    else if (one != again)
+        fail("one seed played twice is two different hats");
+    else if (one == two)
+        fail("seeds 1 and 2 play the same noise");
+}
+
 /* A channel keys its voices by note number, so a note struck on a key
  * that is already sounding takes the key over, and whatever was going to
  * end the note before it must not end this one instead. Neither a
@@ -13196,6 +13286,7 @@ main (int argc, char *argv[])
     checkHeldNotes(plugins, &synth);
     checkMidiOut(plugins, &synth);
     checkRetriggerAudio(plugins, &synth);
+    checkSeedReachesNoise(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
     checkMuteSolo(plugins, &synth);

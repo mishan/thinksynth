@@ -227,6 +227,26 @@ public:
     }
 
     int getWindowlen (void) const { return windowlen_; }
+
+    /* The piece's seed. Every random node mixes it into where its stream
+       starts, so a new seed is new noise and drift as well as new notes;
+       0, where a synth no piece has played stays, leaves each starting
+       where it always did. Set as the transport starts and read as a
+       voice starts.
+
+       Each call is also a new generation: the noise plugins start their
+       synth-wide streams over at the next voice, so a piece started
+       twice with one seed sounds the same twice. */
+    void setSeed (uint32_t seed) {
+        seed_.store(seed, std::memory_order_relaxed);
+        seedGen_.fetch_add(1, std::memory_order_release);
+    }
+    uint32_t seed (void) const {
+        return seed_.load(std::memory_order_relaxed);
+    }
+    uint32_t seedGeneration (void) const {
+        return seedGen_.load(std::memory_order_acquire);
+    }
     void setWindowlen (int);
 
     float *getOutput (void) const;
@@ -581,6 +601,7 @@ private:
     unsigned long dropped_;     /* see droppedCommands()               */
 
     std::atomic<unsigned long> nonFinite_;  /* see nonFiniteVoices() */
+    std::atomic<uint32_t> seed_, seedGen_;  /* see seed() */
 
     thMidiController *controllerHandler_;
 

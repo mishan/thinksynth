@@ -173,7 +173,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float dice[2] = { (*inout_last)[4], (*inout_last)[5] };
 
     if ((*inout_last)[6] == 0)
-        thDiceSeedBits(dice, thNoiseSeed(thNoiseSlotFor(node->plugin())));
+        thDiceSeedBits(dice, thDiceMix(thNoiseSeed(thNoiseSlotFor(
+            node->plugin()), mod->seedGeneration()), mod->seed()));
 
     out_last = inout_last->allocate(7);
 

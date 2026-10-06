@@ -96,6 +96,8 @@ thSynth::thSynth (int windowlen, int samples)
     pool_ = true;
     dropped_ = 0;
     nonFinite_ = 0;
+    seed_ = 0;
+    seedGen_ = 0;
 
     /* default path */
     pluginmanager_ = new thPluginManager(PLUGIN_PATH);
@@ -154,6 +156,8 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     pool_ = true;
     dropped_ = 0;
     nonFinite_ = 0;
+    seed_ = 0;
+    seedGen_ = 0;
 
     pluginmanager_ = new thPluginManager(plugin_path);
 

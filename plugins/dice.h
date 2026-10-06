@@ -49,12 +49,29 @@ static inline void thDiceSeedBits (float *s, uint32_t bits)
     s[1] = (float)(uint32_t)(x & 0xFFFFFFu);
 }
 
-static inline void thDiceSeed (float *s, float seed)
+/* `bits' moved by the synth's seed (thSynth::seed), and left alone by a
+   seed of 0. Hashed, so seeds 1 and 2 are streams apart rather than
+   neighbours. */
+static inline uint32_t thDiceMix (uint32_t bits, uint32_t seed)
+{
+    if (seed == 0)
+        return bits;
+
+    seed ^= seed >> 16;
+    seed *= 0x85EBCA6Bu;
+    seed ^= seed >> 13;
+    seed *= 0xC2B2AE35u;
+    seed ^= seed >> 16;
+
+    return bits ^ seed;
+}
+
+static inline void thDiceSeed (float *s, float seed, uint32_t mix = 0)
 {
     uint32_t bits;
 
     memcpy(&bits, &seed, sizeof(bits));
-    thDiceSeedBits(s, bits);
+    thDiceSeedBits(s, thDiceMix(bits, mix));
 }
 
 /* The next draw, uniform on [0, 1). */
