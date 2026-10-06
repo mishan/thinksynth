@@ -225,6 +225,15 @@ function prng (seed)
     };
 }
 
+/* murmur3's finalizer: a bijection on 32 bits that every bit of the
+   input moves every bit of. */
+function fmix32 (h)
+{
+    h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B);
+    h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35);
+    return (h ^ (h >>> 16)) >>> 0;
+}
+
 /* A room's peers by profile, in proportion to the weights: the largest
    remainders get the peers the whole parts leave over, and among equal
    ones the `r'th room starts `r' along, so that between them the rooms
@@ -763,10 +772,11 @@ async function main ()
         const first = kinds.indexOf('player');
 
         /* `guest-' starts no account's handle, so a relay with accounts
-           takes these names as guests' too. */
+           takes these names as guests' too. Each peer's stream is the
+           seed's mixed with its place in the plan, which no two share. */
         kinds.forEach((profile, p) => peers.push(new Peer(
             o, url, `${tag}-${r}`, `guest-load-${r}-${p}`, profile,
-            prng(o.seed * 7919 + r * 131 + p), p === first)));
+            prng(fmix32(fmix32(o.seed) ^ peers.length)), p === first)));
     }
 
     /* Each provider listens for the process's exit, as a page's would for
