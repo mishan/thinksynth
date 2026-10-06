@@ -401,6 +401,13 @@ class Room
                 enc, awarenessProtocol.encodeAwarenessUpdate(this.awareness,
                                                              changed));
             this.broadcastDoc(encoding.toUint8Array(enc));
+
+            /* The awareness keeps a clock for every client it has heard
+               of, gone or not: a socket making up ids and saying each gone
+               would grow that without bound. Dropped once the removal,
+               which needs it, has gone out. */
+            for (const id of removed)
+                this.awareness.meta.delete(id);
         });
     }
 
