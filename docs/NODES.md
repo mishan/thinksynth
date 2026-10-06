@@ -37,6 +37,21 @@ Follows the pitch of the input
 | `in` | in | Signal in; the period is counted between rising zero crossings |  | -1 to 1 | full scale |  |
 | `falloff` | in | Registered and never read; see the callback |  |  |  |  |
 
+### analysis::yin
+
+YIN (the pitch of a voice or an instrument)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `min` | in | The lowest pitch looked for; 70 at 0 | 70 |  | Hz |  |
+| `max` | in | The highest pitch looked for; 1000 at 0 | 1000 |  | Hz |  |
+| `threshold` | in | How deep a dip has to be to count as the period; 0.15 at 0 | 0.15 | 0.01 to 0.5 |  |  |
+| `out` | out | The pitch, or 0 where there is none |  |  | Hz |  |
+| `clarity` | out | How periodic the input is: 1 a pure tone, 0 noise |  | 0 to 1 |  |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ## delay
 
 ### delay::allpass
@@ -927,6 +942,18 @@ One-pole lag
 | `time` | in | Time constant: how long to cover 63% of a step. Under one sample passes the input straight through |  |  | samples |  |
 | `out` | out | in, lagged |  |  |  |  |
 | `last` | state |  |  |  |  |  |
+
+### misc::snap
+
+Snap (a pitch to a key and a scale)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | A pitch, or 0 for none |  |  | Hz |  |
+| `key` | in | The tonic |  |  |  | 0 = C, 1 = C#, 2 = D, 3 = D#, 4 = E, 5 = F, 6 = F#, 7 = G, 8 = G#, 9 = A, 10 = A#, 11 = B |
+| `scale` | in | The notes allowed above the tonic |  |  |  | 0 = Chromatic, 1 = Major, 2 = Minor, 3 = Harmonic minor, 4 = Dorian, 5 = Mixolydian, 6 = Major pentatonic, 7 = Minor pentatonic, 8 = Blues |
+| `out` | out | The nearest note of the scale, or 0 |  |  | Hz |  |
+| `ratio` | out | out over in, or 1 where there is no pitch |  |  | ratio |  |
 
 ### misc::tempo
 
