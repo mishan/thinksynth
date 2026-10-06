@@ -603,6 +603,7 @@ int main (int argc, char **argv)
                  (mul && d) ? "mul " + std::to_string((*mul)[0]) + ", d " +
                               std::to_string((*d)[0])
                             : string("the file did not load"));
+    }
 
     /* ---- node arrays ---------------------------------------------------- */
 
