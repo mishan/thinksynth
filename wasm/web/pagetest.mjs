@@ -236,22 +236,17 @@ try
     await page.click('#down');
     check(await page.textContent('#range') === range, 'and an octave back');
 
-    /* The live-input controls before anything has started: the window is a
-       choice until the synth takes one, and the microphone cannot be asked for
-       until there is a node to connect it to. */
+    /* The microphone cannot be asked for until there is a node to connect
+       it to. */
     check(await page.isDisabled('#mic') &&
-          await page.isDisabled('#midi') &&
-          !(await page.isDisabled('#window')),
-          'the microphone and MIDI wait for a synth and the window is still '
-          + 'a choice');
+          await page.isDisabled('#midi'),
+          'the microphone and MIDI wait for a synth');
 
-    /* And both are out of the way while nothing in play listens: the
+    /* And Live in is out of the way while nothing in play listens: the
        sequence the page opens on does not, and Voice, whose vocoder reads
-       the microphone, does -- the window with it, since it is still a
-       choice before Start. */
-    const liveShown = () => page.evaluate(() => [
-        document.getElementById('livein').checkVisibility(),
-        document.getElementById('windowlabel').checkVisibility()].join());
+       the microphone, does. */
+    const liveShown = () => page.evaluate(() =>
+        String(document.getElementById('livein').checkVisibility()));
 
     const liveBefore = await liveShown();
 
@@ -269,9 +264,9 @@ try
         () => !document.getElementById('livein').checkVisibility(),
         null, { timeout: 30000 }).catch(() => {});
 
-    check(liveBefore === 'false,false' && liveVoice === 'true,true' &&
-          await liveShown() === 'false,false',
-          'the window and Live in show only for what listens: ' +
+    check(liveBefore === 'false' && liveVoice === 'true' &&
+          await liveShown() === 'false',
+          'Live in shows only for what listens: ' +
           `${liveBefore} on the sequence, ${liveVoice} on Voice`);
 
     /* Start, then a piece, and the knobs it declared. */
@@ -281,16 +276,14 @@ try
         null, { timeout: 60000 });
     check(true, 'the synth started');
 
-    /* And after it: the window is spent, and the microphone is offerable --
-       on 127.0.0.1, which is a secure context, so micAvailable() is true and
-       the button is live. Clicking it is mictest.mjs's, which has a browser
-       launched with a fake device to answer with; here the claim is only that
-       the page put the two controls in the right state. */
-    check(await page.isDisabled('#window') &&
-          !(await page.isDisabled('#mic')) &&
+    /* And after it: the microphone is offerable -- on 127.0.0.1, which is
+       a secure context, so micAvailable() is true and the button is live.
+       Clicking it is mictest.mjs's, which has a browser launched with a fake
+       device to answer with; here the claim is only that the page put the
+       two controls in the right state. */
+    check(!(await page.isDisabled('#mic')) &&
           !(await page.isDisabled('#midi')),
-          'the window is fixed once the synth has one, and the microphone is '
-          + 'offered');
+          'the microphone is offered once there is a synth');
 
     /* ---- the sequencer, in the document ---- */
 

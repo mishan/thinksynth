@@ -106,7 +106,11 @@ function withP99 (q)
 
 const noLoad = () => ({ calls: 0, overBudget: 0, slowestMs: 0, took: [] });
 
-export async function createSynth (ctx, { windowlen = 256,
+/* A window of one quantum by default. The worklet is asked for 128 frames at
+   a time and has 128 frames' time to make them, so a longer window does all
+   of its work inside one quantum and none in the next: its deadline is the
+   quantum's, not its own. */
+export async function createSynth (ctx, { windowlen = 128,
                                           onLog = () => {},
                                           onTape = () => {},
                                           onParamEdits = () => {},

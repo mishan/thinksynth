@@ -21,7 +21,7 @@
  *
  * worklet.js holds one of these and calls a handful of things: load a .dsp
  * or a .gen, press and release a key, move a knob, start the transport,
- * render a block. The synth runs in windows of its own length -- 256 in the
+ * render a block. The synth runs in windows of its own length -- 128 in the
  * browser, docs/JAM.md -- and a worklet asks for 128-frame quanta;
  * gthSynthSource is the ring between the two, the same one the sound card's
  * callback uses on the desktop.
@@ -410,8 +410,9 @@ bool   mirror_;             /* silent for good (tw_silent) */
 std::map<std::pair<int, std::string>, double> catchControls_;
 void midiCaughtUp (void);
 
-/* Milliseconds of stepping a window may spend catching up. A window is
-   5.3 ms at 256 and 48 kHz; this leaves the render itself most of it. */
+/* Milliseconds of stepping a window may spend catching up. The deadline is a
+   quantum, 2.7 ms at 48 kHz, and a synth that is catching up is silent, so
+   its render costs next to nothing. */
 double catchBudget_ = 2.0;
 
 /* performance.now() where there is one. An AudioWorkletGlobalScope need

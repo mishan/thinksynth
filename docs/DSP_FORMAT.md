@@ -535,8 +535,8 @@ the engine renders a window, so periods are accumulated into windows
 (`src/gthSynthSource.h`), and the window handed out is always the one rendered
 before — so a live graph hears one window late where the device period equals
 the window, and two where it is smaller. In a browser the period is the
-worklet's quantum of 128, which is why the page offers a window of 128 beside
-its usual 256: 2.7 ms against 10.7.
+worklet's quantum of 128, and so is the page's window: 2.7 ms, against 10.7
+at a window of 256.
 
 **A microphone and speakers in one room is an oscillator.** The master limiter
 saturates it rather than preventing it. Headphones.

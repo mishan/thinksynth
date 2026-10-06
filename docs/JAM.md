@@ -574,7 +574,9 @@ scheduling lookahead   one worklet quantum or so
 
 The synth window is the one the tree controls. `TH_DEFAULT_WINDOW_LENGTH` is
 1024, which is 23 ms at 44.1 kHz on its own, and a note-on applies at the top
-of the next `process()`. The web build runs at 256. The ring between
+of the next `process()`. The web build runs at 128, one worklet quantum,
+which is also the render's deadline: a longer window does all of its work
+in one quantum and none in the next. The ring between
 `process()` and the device already handles a device period that is not the
 window, so this was a number, not a rework; M1 ran `scripts/dspab` at 256
 against 1024 and the only DSPs that moved were the three with a cycle in

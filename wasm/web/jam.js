@@ -2384,7 +2384,7 @@ async function start ()
     try
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
-        synth = await createSynth(ctx, { windowlen: 256, onLog: log,
+        synth = await createSynth(ctx, { onLog: log,
                                          onTape: tape,
                                          onParamEdits: paramsEdited,
                                          onMidi: (msgs) => midiOutUI.take(msgs),

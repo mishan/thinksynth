@@ -80,9 +80,9 @@ const RATE = 48000;
 const FRAMES = RATE * 2;
 const PATCHES = ['ts1.dsp', 'hat0.dsp', 'amb01.dsp'];
 
-/* The two windows the tape gate names. 256 is the page's; 128 is a window
-   as short as the quantum, which is where a step-size bug would show
-   first. */
+/* The two windows the tape gate names. 128 is the page's, a window as short
+   as the quantum, which is where a step-size bug would show first; 256 is
+   one that spans two quanta. */
 const WINDOWS = [256, 128];
 
 const nodeBuild = path.resolve(process.argv[3] ??

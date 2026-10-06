@@ -703,24 +703,8 @@ function shifted (lowest)
 
 /* ---- the live input ---- */
 
-/* The window the synth is made with, read once at Start because thSynth takes
- * it at construction and setWindowlen is a no-op.
- *
- * It is on the page rather than a constant because of what a live input costs.
- * The worklet's quantum is 128 and a window of 256 means the capture for a
- * window is only complete after the window that wanted it has already been
- * rendered -- so a live graph hears two windows late at 256 and one at 128,
- * 10.7 ms against 2.7. gthSynthSource's header has the arithmetic.
- */
-function chosenWindow ()
-{
-    const n = Number($('window').value);
-
-    return Number.isFinite(n) && n > 0 ? n : 256;
-}
-
-/* What a live graph hears late at the window in use, which is the number the
-   window select exists for. */
+/* What a live graph hears late at the window in use. gthSynthSource's header
+   has the arithmetic. */
 function captureLatency ()
 {
     if (ctx === null || synth === null)
@@ -807,16 +791,15 @@ async function toggleMic ()
 
 /* ---- whether anything is listening ----
  *
- * The window and Live in are for a graph that reads the live input, and
- * one that does names it `ionode->live0' (docs/DSP_FORMAT.md). Only
- * fx/vocoder-mic.dsp does today, so everywhere but Voice the two were
- * controls that did nothing, on the strip a phone has least room in.
+ * Live in is for a graph that reads the live input, and one that does
+ * names it `ionode->live0' (docs/DSP_FORMAT.md). Only fx/vocoder-mic.dsp
+ * does today, so everywhere but Voice it would be a control that did
+ * nothing, on the strip a phone has least room in.
  *
- * So they are offered when what is in play listens: the patch box's text
+ * So it is offered when what is in play listens: the patch box's text
  * in patch mode, and in the other two the graphs on the piece's channels
  * -- the ones it names, instrument and effect alike, and the ones the page
- * aimed. Live in stays while the input is on, so it can be switched off.
- * The window is chosen before Start and fixed by it, so it goes then.
+ * aimed. It stays while the input is on, so it can be switched off.
  */
 const LIVE = /\bionode->live\d/;
 
@@ -862,7 +845,6 @@ async function showLiveIn ()
         return;
 
     $('livein').hidden = !on;
-    $('windowlabel').hidden = synth !== null;
 
     showPackNeed();
 }
@@ -2279,8 +2261,7 @@ async function start ()
     try
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
-        synth = await createSynth(ctx, { windowlen: chosenWindow(),
-                                         onLog: log,
+        synth = await createSynth(ctx, { onLog: log,
                                          onTape: (m) =>
                                          {
                                              micPeak = m.capture ?? 0;
@@ -2324,10 +2305,8 @@ async function start ()
     }
 
     /* Here rather than at the end of start(), because these two are about the
-       synth and everything below is about what to play on it. The window is the
-       synth's now, so the choice is spent; the microphone is a click away, and
-       asking for one needs a gesture besides. */
-    $('window').disabled = true;
+       synth and everything below is about what to play on it. The microphone
+       is a click away, and asking for one needs a gesture besides. */
     $('mic').disabled = !micAvailable();
     showLiveIn();
 
