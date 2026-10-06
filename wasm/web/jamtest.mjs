@@ -2730,6 +2730,16 @@ try
             ok(`a third page joined ${((Date.now() - t0) / 1000 - JOIN_AT)
                 .toFixed(1)} s after arriving, caught up with the room`);
             C = { label, page };
+
+            /* JOIN_AT seconds of the run to step through at a budget's
+               worth a window: more than one quantum's. */
+            const quanta = await page.evaluate(
+                () => window.jam.catchQuanta());
+
+            if (quanta > 0)
+                ok(`and its catch-up spanned ${quanta + 1} quanta`);
+            else
+                fail('its catch-up ran inside one process() call');
         }
         catch
         {

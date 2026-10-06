@@ -52,8 +52,10 @@ import { drain, loadErrors } from './tape.js';
 const TAPE_EVERY = 16;
 
 /* The glue asks for the time now and then; a worklet has no performance
-   object to ask. The audio clock is the only clock here anyway. */
-globalThis.performance ??= { now: () => currentTime * 1000 };
+   object to ask. Not currentTime: it stands still through a process()
+   call, and a late joiner's catch-up budget (thinkweb.cpp, catchUp) is
+   time spent inside one. */
+globalThis.performance ??= { now: () => Date.now() };
 
 /* And it asks for entropy. An AudioWorkletGlobalScope is not a window and
    not a worker, so it has no `crypto' either -- and the module reaches for
@@ -87,6 +89,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.early = [];        /* messages that arrived before the module */
         this.quanta = 0;        /* since the last post to the page */
         this.edits = 0;         /* tw_edit_count when last told */
+        this.catchQuanta = 0;   /* ended with tw_catching set */
         this.events = [];
         this.keys = [];         /* played since the last post (drainKeys) */
 
@@ -732,6 +735,9 @@ class ThinkProcessor extends AudioWorkletProcessor
             }
         }
 
+        if (this.M._tw_catching() !== 0)
+            this.catchQuanta++;
+
         if (++this.quanta >= TAPE_EVERY)
             this.postTape();
 
@@ -961,6 +967,10 @@ class ThinkProcessor extends AudioWorkletProcessor
             /* A late joiner's transport, still being stepped up to the
                output: silent until it is (thinkweb.cpp, catchUp). */
             catching: this.M._tw_catching() !== 0,
+
+            /* How many quanta ended with it still behind: none for a
+               catch-up done inside one process() call. */
+            catchQuanta: this.catchQuanta,
 
             /* Edits applied since the load (thinkweb.cpp, applyEdit): a
                count that moved is the page's cue to read the piece again. */
