@@ -77,6 +77,10 @@ const FLOOD_WAIT_MS = 5;
 
 const DELAY_RESOLUTION_MS = 10;
 
+/* A scrape starts the relay's next window, and its event-loop timer runs
+   every 10 ms: a window much shorter holds a few of its samples at most. */
+const SCRAPE_EVERY_MIN_S = 0.1;
+
 /* A distribution's buckets per factor of e: each a percent wide. */
 const HIST_STEPS = 100;
 
@@ -124,13 +128,22 @@ function parseArgs (argv)
                 lateAfter: null, flood: 'relayed', pad: 0, duration: 10,
                 ramp: 0, seed: 1, piece: null, tag: null, shard: '0/1',
                 out: null };
-    const numbers = { '--scrape-every': 'scrapeEvery', '--rooms': 'rooms',
-                      '--peers': 'peers', '--rate': 'rate',
-                      '--edit-rate': 'editRate', '--chat-rate': 'chatRate',
-                      '--transport-every': 'transportEvery',
-                      '--late-after': 'lateAfter', '--pad': 'pad',
-                      '--duration': 'duration',
-                      '--ramp': 'ramp', '--seed': 'seed' };
+    const any = ['a number, 0 or more', (x) => x >= 0];
+    const whole = ['a whole number', (x) => Number.isInteger(x) && x >= 0];
+    const count = ['a whole number, 1 or more',
+                   (x) => Number.isInteger(x) && x >= 1];
+    const numbers = {
+        '--scrape-every': ['scrapeEvery',
+                           `at least ${SCRAPE_EVERY_MIN_S} seconds`,
+                           (x) => x >= SCRAPE_EVERY_MIN_S],
+        '--rooms': ['rooms', ...count], '--peers': ['peers', ...count],
+        '--rate': ['rate', ...any], '--edit-rate': ['editRate', ...any],
+        '--chat-rate': ['chatRate', ...any],
+        '--transport-every': ['transportEvery', ...any],
+        '--late-after': ['lateAfter', ...any], '--pad': ['pad', ...whole],
+        '--duration': ['duration', 'a number of seconds above 0',
+                       (x) => x > 0],
+        '--ramp': ['ramp', ...any], '--seed': ['seed', ...whole] };
     const strings = { '--url': 'url', '--metrics': 'metrics', '--mix': 'mix',
                       '--piece': 'piece', '--flood': 'flood', '--tag': 'tag',
                       '--shard': 'shard', '--out': 'out' };
@@ -147,10 +160,15 @@ function parseArgs (argv)
 
             if (a in strings)
                 o[strings[a]] = v;
-            else if (!(Number(v) >= 0))
-                throw new Error(`${a} takes a number, not ${v}`);
             else
-                o[numbers[a]] = Number(v);
+            {
+                const [key, what, ok] = numbers[a];
+
+                if (!ok(Number(v)))
+                    throw new Error(`${a} takes ${what}, not ${v}`);
+
+                o[key] = Number(v);
+            }
         }
         else
             throw new Error(a === '--help' ? '' : `what is ${a}?`);
