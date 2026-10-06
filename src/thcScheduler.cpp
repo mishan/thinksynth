@@ -3168,6 +3168,12 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
             return;
         }
 
+        /* A value that names its knob needs no sink to name one, so an
+           instrument's own sink takes it beside the notes: one sink for
+           a stage that plays and rides a knob at once. */
+        const bool namesItself = ev.type == THC_EV_CHANARG &&
+                                 ev.u.chanarg.name && *ev.u.chanarg.name;
+
         /* Sinks route and type-filter: notes to note sinks, chanargs to
            chanarg sinks, each on the sink's channel. Multiple matches is
            fan-out. The event's own channel is overwritten -- routing
@@ -3184,7 +3190,8 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
                fan-out means everywhere else: a chain with three sinks
                reshapes three channels. */
             if (!isStructureEdit(ev.type) &&
-                (ev.type == THC_EV_CHANARG) != sink.isChanarg())
+                (ev.type == THC_EV_CHANARG) != sink.isChanarg() &&
+                !(namesItself && !sink.isChanarg()))
                 continue;
 
             thcEvent routed = *gated;

@@ -16,7 +16,8 @@
 # not tick; a note passing through schedules a whole sweep from that note's
 # own time, so the bell opens as it is struck and the piano roll's ghosted
 # half shows the sweep coming. `swell' and `settle' are a two-second
-# gesture rather than a forty-second one.
+# gesture rather than a forty-second one. Its one sink takes the notes
+# and the sweep both, since each value names its own knob.
 #
 # Both instruments are amb01.dsp, because the presets move its filter:
 # res, fmin and fmax, and `amp', which every channel has.
@@ -157,5 +158,4 @@ chain bell {
         retrigger = 1;
     };
     sink { instrument = bell; };
-    sink { instrument = bell; chanarg = "*"; };
 };
