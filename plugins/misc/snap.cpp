@@ -125,29 +125,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const unsigned mask =
             scaleMasks[(int)thClampArg((*in_scale)[i], 0, SCALES - 1)];
         const double note = 69 + 12 * log2((double)f / 440);
-        const int near = (int)floor(note + 0.5);
-        int best = near;
+        const int below = (int)floor(note);
+        int best = below;
+        double nearest = 1e9;
 
-        /* Outward from the nearest semitone, lower first on a tie; a
-           scale holds a note within six semitones of anything. */
-        for (int k = 0; k <= 6; k++)
-        {
-            const int down = near - k, up = near + k;
-            const bool d = mask >> (((down - key) % 12 + 12) % 12) & 1;
-            const bool u = mask >> (((up - key) % 12 + 12) % 12) & 1;
-
-            if (d && (!u || note - down <= up - note))
+        /* Upward, so of two notes as near the lower is kept; a scale
+           holds a note within six semitones of anything. */
+        for (int n = below - 6; n <= below + 7; n++)
+            if ((mask >> (((n - key) % 12 + 12) % 12) & 1) &&
+                fabs(note - n) < nearest)
             {
-                best = down;
-                break;
+                nearest = fabs(note - n);
+                best = n;
             }
-
-            if (u)
-            {
-                best = up;
-                break;
-            }
-        }
 
         out[i] = (float)(440 * exp2((best - 69) / 12.0));
         ratio[i] = out[i] / f;

@@ -4088,43 +4088,6 @@ static void checkYin (const string &pluginPath)
                  "analysis::yin: the same at one sample a window and at "
                  "five hundred");
 
-    /* fx/autotune.dsp's chain: a saw 31 cents sharp of A, pulled into C
-       major at once, is read as A by a second tracker on the way out. */
-    {
-        vector<NodeSpec> spec = yinGraph("osc/simple", 448);
-        NodeSpec snap, shift, after;
-
-        snap.name = "snap";
-        snap.spelling = "misc/snap";
-        snap.values.push_back(Value{ "key", 0 });
-        snap.values.push_back(Value{ "scale", 1 });
-        snap.wires.push_back(Wire{ "in", "y", "out" });
-        spec.push_back(snap);
-
-        shift.name = "shift";
-        shift.spelling = "delay/pitchshift";
-        shift.values.push_back(Value{ "window", 1323 });
-        shift.values.push_back(Value{ "mix", 1 });
-        shift.wires.push_back(Wire{ "in", "src", "out" });
-        shift.wires.push_back(Wire{ "ratio", "snap", "ratio" });
-        spec.push_back(shift);
-
-        after.name = "after";
-        after.spelling = "analysis/yin";
-        after.wires.push_back(Wire{ "in", "shift", "out" });
-        spec.push_back(after);
-
-        vector<float> got;
-        string why;
-        const bool ok = render1(pluginPath, spec, "after", "out", 256, 44100,
-                                got, why);
-
-        okOrFail(ok && fabsf(got.back() / 440 - 1) < 0.005f,
-                 "analysis::yin, misc::snap and delay::pitchshift put a "
-                 "sharp A on A",
-                 ok ? num(got.back()) + " Hz" : why);
-    }
-
     /* in, key, scale -> out. */
     const struct { float in; int key, scale; float out; } snaps[] = {
         { 450, 0, 1, 440 },              /* near A, in C major          */

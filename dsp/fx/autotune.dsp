@@ -7,9 +7,11 @@
 # pull at once, every slide and vibrato turned into steps -- Cher's
 # "Believe", and the robot in a thousand songs since.
 #
-# Where there is no pitch -- breath, a consonant, a drum -- snap's ratio
-# is 1 and the channel goes through unshifted. Everything comes out 15 ms
-# late, half the shifter's window, shifted or not.
+# Where there is no pitch -- breath, a consonant, a drum -- the shifters
+# are set to 1 at once, whatever the pull was doing, so the breath after
+# a corrected vowel is not shifted. What the shifters put out is 15 ms
+# late, half their window, shifted or not; at `Mix' under 1 the dry part
+# of it is not.
 
 name "Autotune";
 author "Misha Nasledov";
@@ -69,16 +71,22 @@ node pull misc::slew {
     time = @speed;
 };
 
+node ratio mixer::fade {
+    in0 = 1;
+    in1 = pull->out;
+    fade = min(track->out, 1);
+};
+
 node shiftl delay::pitchshift {
     in = ionode->in0;
-    ratio = pull->out;
+    ratio = ratio->out;
     window = 30 ms;
     mix = @mix;
 };
 
 node shiftr delay::pitchshift {
     in = ionode->in1;
-    ratio = pull->out;
+    ratio = ratio->out;
     window = 30 ms;
     mix = @mix;
 };

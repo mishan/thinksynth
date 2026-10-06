@@ -1580,6 +1580,102 @@ int main (int argc, char **argv)
                  "echo density " + num(net) + " against " + num(hall));
     }
 
+    /* ---- fx/autotune.dsp: a sharp A put on A, and breath let alone ----- */
+
+    /* A saw 31 cents sharp of A through the effect in C major: once the
+     * pull has arrived the channel's period is A's. Then the saw gives way
+     * to noise, and within a few of the tracker's measurements the
+     * shifters are at 1 though the pull, a 100 ms lag, is still most of
+     * the way back from where it was.
+     */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/autotune.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        const string singer =
+            "name \"fxcheck-singer\";\n\n"
+            "    @noisy = 0;\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = mix->out;\n"
+            "    out1 = mix->out;\n"
+            "    play = 1;\n"
+            "};\n\n"
+            "node saw osc::simple {\n"
+            "    freq = 448;\n"
+            "    waveform = 1;\n"
+            "};\n\n"
+            "node hiss osc::noise { };\n\n"
+            "node mix mixer::fade {\n"
+            "    in0 = saw->out * 0.5;\n"
+            "    in1 = hiss->out * 0.5;\n"
+            "    fade = @noisy;\n"
+            "};\n\n"
+            "io ionode;\n";
+        Session s(pluginPath);
+
+        if (!writeFile(instFile, singer) ||
+            s.synth.loadTree(instFile, 0, 100) == NULL ||
+            s.synth.loadEffect(shipped[i], 0) == NULL)
+        {
+            fail("a saw and " + shipped[i] + " load", "");
+            break;
+        }
+
+        const int len = s.synth.getWindowlen();
+        const int rate = TH_DEFAULT_SAMPLES;
+
+        s.synth.setChanArg(0, new thArg("fx.speed", 0.1f * rate));
+        s.synth.addNote(0, 60, 100);
+        s.run(rate / len);
+
+        /* The lag in [rate / 470, rate / 420] the output is most like
+           itself at, between samples. */
+        const vector<float> sung = s.take();
+        const size_t from = sung.size() - rate / 4;
+        const int lo = rate / 470, hi = rate / 420 + 1;
+        vector<double> c(hi + 2, 0);
+
+        for (int lag = lo - 1; lag <= hi + 1; lag++)
+            for (size_t k = from; k + hi + 1 < sung.size(); k++)
+                c[lag] += (double)sung[k] * sung[k + lag];
+
+        int best = lo;
+
+        for (int lag = lo; lag <= hi; lag++)
+            if (c[lag] > c[best])
+                best = lag;
+
+        const double a = c[best - 1], b = c[best], d = c[best + 1];
+        const double lag = best + (a - 2 * b + d < 0 ? 0.5 * (a - d) /
+                                                       (a - 2 * b + d) : 0);
+        const double heard = rate / lag;
+
+        okOrFail(fabs(heard / 440 - 1) < 0.005,
+                 shipped[i] + ": a saw 31 cents sharp comes out as A",
+                 num(heard) + " Hz");
+
+        s.synth.getChanArg(0, "noisy")->setValue(1);
+        s.run(rate / 16 / len);
+        s.take();
+
+        thSynthTree *tree = s.synth.getEffect(0)->tree();
+        thArg *pull = tree->getArg("pull", "out");
+        thArg *ratio = tree->getArg("ratio", "out");
+        const float p = pull ? (*pull)[pull->len() - 1] : 1;
+        const float r = ratio ? (*ratio)[ratio->len() - 1] : 0;
+
+        okOrFail(r == 1 && fabsf(p - 1) > 0.005f,
+                 shipped[i] + ": noise after the saw is not shifted, though "
+                 "the pull is still on its way back",
+                 "shifters at " + num(r) + ", pull at " + num(p));
+    }
+
     /* ---- fx/space.dsp: a longer tail, not a louder one ----------------- */
 
     /* Held noise through the reverb, wet only and with its filters open,
