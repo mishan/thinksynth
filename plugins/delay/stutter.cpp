@@ -28,8 +28,11 @@
  * seam, and the move between the input and the repeats is a crossfade of
  * the same length rather than a cut.
  *
- * The length is taken when `hold' rises and kept until it falls, so a
- * length that moves does not tear a repeat in half.
+ * The length is taken when `hold' rises. A shorter one while held takes
+ * over at the next seam, from the same start, so a repeat rolls an
+ * eighth, a sixteenth, a thirty-second of one moment without tearing; a
+ * longer one waits for the next hold, since the ring holds nothing past
+ * the moment caught.
  */
 
 #include <stdio.h>
@@ -75,8 +78,9 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_HOLD], 0, 1);
     args[IN_LENGTH] = plugin->regArg("length", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_LENGTH],
-                       "How much is repeated, read when `hold' rises; up to "
-                       "four seconds");
+                       "How much is repeated, read when `hold' rises, and "
+                       "a shorter one at each seam while held; up to four "
+                       "seconds");
     plugin->setArgUnits(args[IN_LENGTH], "samples");
     args[IN_FADE] = plugin->regArg("fade", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FADE],
@@ -161,6 +165,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
             rep = ring[((unsigned)st[S_START] + (unsigned)pos) % len] * g;
             st[S_POS] = pos + 1 >= n ? 0 : pos + 1;
+
+            if (st[S_POS] == 0 && hold)
+            {
+                const float shorter = floorf(thClampArg((*in_length)[i], 2,
+                                                        n));
+
+                if (shorter < n)
+                    st[S_LENGTH] = shorter;
+            }
         }
 
         out[i] = in + (rep - in) * st[S_MIX];

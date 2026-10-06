@@ -7950,6 +7950,59 @@ checkThrow (const std::map<std::string, thcPlugin *> &plugins,
              "them");
 }
 
+/* ---- a composed beat repeat --------------------------------------------- */
+
+/* gen::stutter: `length' before the end of each `period' the hold goes up
+ * with the first roll, the length steps through the rest at equal parts,
+ * and the hold comes down as the phrase ends -- each value naming its
+ * knob, through a `*' sink. */
+static void
+checkStutter (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth)
+{
+    /* A length of less than nothing is the default second, not a roll
+       scheduled backwards past the phrase's end. */
+    const char *const lengths[] = { "1 s", "-1 s" };
+    const std::string want =
+        "1.00 fx.beats=0.5, 1.00 fx.hold=1, 1.50 fx.beats=0.25, "
+        "2.00 fx.hold=0, 3.00 fx.beats=0.5, 3.00 fx.hold=1, "
+        "3.50 fx.beats=0.25";
+
+    for (const char *length : lengths)
+    {
+        const std::string tape = tapeBody(plugins, synth, "stutter",
+            std::string("chain c {\n"
+            "  stage s gen::stutter { period = 2 s; length = ") + length +
+            "; rolls = \"0.5 0.25\"; };\n"
+            "  sink { channel = 1; chanarg = \"*\"; };\n"
+            "};\n", 3.9);
+        std::istringstream lines(tape);
+        std::string line, got;
+
+        while (std::getline(lines, line))
+        {
+            std::istringstream f(line);
+            std::string tag, name;
+            double at, value;
+            int chan;
+
+            if ((f >> tag >> at >> chan >> name >> value) && tag == "C")
+            {
+                char b[64];
+
+                snprintf(b, sizeof(b), "%s%.2f %s=%g", got.empty() ? "" : ", ",
+                         at, name.c_str(), value);
+                got += b;
+            }
+        }
+
+        if (got != want)
+            fail(std::string("stutter: at a length of ") + length +
+                 ", the hold up a second before each two-second phrase ends, "
+                 "the roll halving at its middle; got " + got);
+    }
+}
+
 /* ---- a graph's text args ------------------------------------------------ */
 
 /* `smp.file = "kit_ride_mid.wav";' in an instrument block reaches the
@@ -13302,6 +13355,7 @@ main (int argc, char *argv[])
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkThrow(plugins, &synth);
+    checkStutter(plugins, &synth);
     checkInstrumentText(plugins, &synth);
     checkSay(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
