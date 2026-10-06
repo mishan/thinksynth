@@ -7834,7 +7834,8 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
 
 /* xform::throw: every note passes, and the ones the pattern marks bring
  * the knob up `lead' before them and down `hold' after, on a chanarg sink
- * beside the note sink, while the dry ones put it down at their own
+ * beside the note sink or on the note sink alone when the stage names the
+ * knob, while the dry ones put it down at their own
  * instant. A note every half second under "..x." is a throw at 1 s and
  * 3 s. And thrown notes closer together than `hold' keep it up: wherever
  * one's `down' lands inside the next one's throw, the knob goes back up
@@ -7887,6 +7888,20 @@ checkThrow (const std::map<std::string, thcPlugin *> &plugins,
         fail("throw: eight notes, the knob down on the dry ones and up "
              "before the third of each four and down after it; got " +
              std::to_string(notes) + " notes and " + knob);
+
+    /* And with the knob named on the stage, the instrument's one sink
+       carries the notes and the knob both: the same tape. */
+    const std::string one = tapeBody(plugins, synth, "throw one sink",
+        "chain c {\n"
+        "  stage src gen::euclid { steps = 1; fills = 1;"
+        "    notes = \"C4\"; period = 0.5 s; hold = 0.1 s; vel = 100; };\n"
+        "  stage t xform::throw { pattern = \"..x.\"; up = 1; down = 0;"
+        " hold = 0.2 s; lead = 0.01 s; knob = \"throwtest\"; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n", 3.9);
+
+    if (one != tape)
+        fail("throw: `knob' through one sink is not the tape of two sinks");
 
     /* Sixteenths at 0.125 s under "x" with a hold of 0.2 s. */
     const std::string close = tapeBody(plugins, synth, "throw close",

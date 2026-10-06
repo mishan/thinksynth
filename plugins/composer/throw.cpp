@@ -25,13 +25,15 @@
  * the knob at `up' a moment before it -- `lead', so the knob is open when
  * the note arrives -- and back at `down' `hold' after it.
  *
- * The knob is whatever a chanarg sink on the same chain names. A chain
- * with two sinks -- the instrument, and its `fx.input' -- plays the notes
+ * The knob is `knob', and then the instrument's own sink plays the notes
  * and rides the echo's input with them:
  *
- *     stage t xform::throw { pattern = ".......x"; hold = 0.2 s; };
+ *     stage t xform::throw { pattern = ".......x"; hold = 0.2 s;
+ *                            knob = "fx.input"; };
  *     sink { instrument = snare; };
- *     sink { instrument = snare; chanarg = "fx.input"; };
+ *
+ * With `knob' empty it is whatever a chanarg sink on the chain names,
+ * beside the note sink.
  *
  * `pattern' is read a character a note and goes round: `.' leaves the
  * note dry, `x' throws it. Notes at one instant are a chord and count as
@@ -49,7 +51,7 @@
 
 #include "thcomposer.h"
 
-enum { P_PATTERN, P_UP, P_DOWN, P_HOLD, P_LEAD, P_COUNT };
+enum { P_PATTERN, P_UP, P_DOWN, P_HOLD, P_LEAD, P_KNOB, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -67,6 +69,8 @@ composer_init (thcComposerInfo *info)
           THC_PARAM_FLOAT, 0.01, 60, 0.2, NULL, "s" },
         { "lead", "how long before the note the knob goes up",
           THC_PARAM_FLOAT, 0, 1, 0.01, NULL, "s" },
+        { "knob", "the chanarg it rides; empty for the one a chanarg sink "
+          "names", THC_PARAM_STRING, 0, 0, 0, "", NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -137,7 +141,10 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     knob.type = THC_EV_CHANARG;
     knob.channel = ev->channel;
-    knob.u.chanarg.name = NULL;            /* the sink names the target */
+    const char *name = p->get_string(p->ctx, paramIndex[P_KNOB]);
+
+    /* NULL: the sink names the target. */
+    knob.u.chanarg.name = name && *name ? name : NULL;
 
     if (len == 0 || pattern[n % len] != 'x')
     {

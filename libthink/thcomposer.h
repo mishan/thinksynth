@@ -76,8 +76,10 @@ extern "C" {
  * changes sizeof does. */
 /* 3: the note arm gained `aux', four floats, which takes it from 24 bytes to
  * 40 and the union with it -- a bump for version 2's reason.
- * 4: and `say', THC_NOTE_SAY phoneme codes, for version 2's reason again. */
-#define COMPOSER_IFACE_VER 4
+ * 4: and `say', THC_NOTE_SAY phoneme codes, for version 2's reason again.
+ * 5: thcEvent gained `reserved', room for what comes next, so that the next
+ * field is not a bump: see thcEvent. */
+#define COMPOSER_IFACE_VER 5
 
 typedef struct _cairo cairo_t;  /* drawing is optional; no hard cairo dep */
 
@@ -152,6 +154,14 @@ typedef enum {
    syllable is a handful, and a word sung on one note a dozen or so. */
 #define THC_NOTE_SAY 32
 
+/* How a field gets added without a bump: it is carved from the front of
+ * `reserved', so sizeof(thcEvent) and every offset stay where they are, and
+ * it means at 0 what an event without it always meant -- since a plugin
+ * built before it zero-fills it, and passes on whatever it was handed. The
+ * union is full: a note's new field goes in `reserved' too, not in `note'.
+ * Only a field that cannot be given a 0 that means "as before" is a bump. */
+#define THC_EVENT_RESERVED 64
+
 typedef struct {
     thcEventType type;
     double       at;         /* absolute transport seconds                */
@@ -191,6 +201,7 @@ typedef struct {
             float       value;
         } nodearg;
     } u;
+    unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */
 } thcEvent;
 
 /* Host-provided. emit() copies the event; the composer keeps ownership

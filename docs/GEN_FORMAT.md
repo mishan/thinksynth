@@ -590,6 +590,11 @@ sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
 
+A note sink takes a value that names its own knob as well, so a stage that
+plays and rides a knob at once needs one sink: `xform::throw` with `knob =
+"fx.input"` throws into the echo through `sink { instrument = snare; }`, and
+`xform::morph` sweeps the bell it strikes through the bell's.
+
 A `chanarg` name is what a `.dsp` could declare — a letter and then letters,
 digits and underscores — optionally behind the `fx.` that names the channel's
 effect rather than its instrument. `fx.` is a prefix and not punctuation a

@@ -253,9 +253,9 @@ chain voice {
     stage words xform::say {
         words = "over the river the clouds are drifting home";
     };
-    stage t xform::throw { pattern = "..........x"; hold = 0.6 s; };
+    stage t xform::throw { pattern = "..........x"; hold = 0.6 s;
+                           knob = "fx.input"; };
     sink { instrument = voice; };
-    sink { instrument = voice; chanarg = "fx.input"; };
 };
 
 # ---- the groove ---------------------------------------------------------
@@ -313,9 +313,9 @@ chain snare {
         steps = 4;  fills = 2;  rotate = 1;  notes = "D2";
         period = 1 beats;  hold = 0.25 beats;  vel = 100;
     };
-    stage t xform::throw { pattern = ".......x"; hold = 0.4 s; };
+    stage t xform::throw { pattern = ".......x"; hold = 0.4 s;
+                           knob = "fx.input"; };
     sink { instrument = snare; };
-    sink { instrument = snare; chanarg = "fx.input"; };
 };
 
 chain hats {
