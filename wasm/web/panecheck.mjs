@@ -837,8 +837,15 @@ try
     await phone.evaluate(() => window.solo.settled());
 
     /* A first visit opens on the mode's own pane, not the keys the
-       markup had up before the mode was applied. */
+       markup had up before the mode was applied. The panes are laid out
+       after settled() resolves, so give them time to; a phone that never
+       gets there still fails below, with what it shows. */
     {
+        await phone.waitForFunction(() => /^Sequencer/.test(
+            document.querySelector('.panetab[aria-selected="true"]')
+                ?.textContent.trim() ?? ''), null,
+            { polling: 100, timeout: 10000 }).catch(() => {});
+
         const shown = await phone.evaluate(() => [document.getElementById(
             'mode').value, document.querySelector(
                 '.panetab[aria-selected="true"]')?.textContent.trim()]);
