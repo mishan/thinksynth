@@ -14,8 +14,10 @@
 #   THE TAPE ITSELF saturates, lifts the low end with the head bump
 #   around 90 Hz, loses the top above `Tone', and hisses. The saturation
 #   and the bump are divided back down by `Drive', so a quiet passage
-#   keeps its level and only the peaks are rounded. The hiss never stops,
-#   as on a real tape, so a render waits out its full tail.
+#   keeps its level and only the peaks are rounded. The hiss is the tape
+#   moving, so it comes in as the music does and goes a few seconds
+#   after it stops: a piece not yet played is silent, and a pause inside
+#   one keeps its hiss.
 #
 #   DROPOUTS are where the oxide is worn: now and then the level and the
 #   top fall for a moment. A slower drift is the wear under the head;
@@ -79,6 +81,9 @@ category "Effects";
     @hiss.min = 0;
     @hiss.max = 0.2;
     @hiss.label = "Hiss";
+
+    # How long the hiss lasts after the last sound. Not a knob.
+    @letgo = 3 s;
 
     @dropouts = 0.5;
     @dropouts.widget = 1;
@@ -162,6 +167,20 @@ node bumpr filt::svf {
     res = 0.5;
 };
 
+# Whether anything has been on the tape lately: 1 at any sound above
+# -60 dB, letting go over three seconds after the last, and a moment's
+# slew so the hiss comes in rather than switching on. The hold reads
+# itself a sample back, a loop of two nodes.
+node held math::max {
+    in0 = min((abs(ionode->in0) + abs(ionode->in1)) * 1000, 1);
+    in1 = held->out * exp2(-1.4427 / @letgo);
+};
+
+node moving misc::slew {
+    in = min(held->out * 2, 1);
+    time = 50 ms;
+};
+
 node hissl osc::noise {
     color = 1;
 };
@@ -172,12 +191,12 @@ node hissr osc::noise {
 
 node tapel math::add {
     in0 = hotl->out / @drive + bumpl->out_band * @bump / @drive;
-    in1 = hissl->out * @age * @hiss;
+    in1 = hissl->out * @age * @hiss * moving->out;
 };
 
 node taper math::add {
     in0 = hotr->out / @drive + bumpr->out_band * @bump / @drive;
-    in1 = hissr->out * @age * @hiss;
+    in1 = hissr->out * @age * @hiss * moving->out;
 };
 
 node tonel filt::svf {

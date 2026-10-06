@@ -1676,6 +1676,85 @@ int main (int argc, char **argv)
                  "shifters at " + num(r) + ", pull at " + num(p));
     }
 
+    /* ---- fx/cassette.dsp: hiss while the tape moves -------------------- */
+
+    /* Loaded and not played, the tape is silent; a blip sets it hissing,
+     * and long after the blip it is silent again. */
+    for (size_t i = 0; i < shipped.size(); i++)
+    {
+        const string leaf = "fx/cassette.dsp";
+
+        if (shipped[i].size() < leaf.size() ||
+            shipped[i].compare(shipped[i].size() - leaf.size(), leaf.size(),
+                               leaf) != 0)
+            continue;
+
+        const string blip =
+            "name \"fxcheck-blip\";\n\n"
+            "node ionode {\n"
+            "    channels = 2;\n"
+            "    out0 = vca->out;\n"
+            "    out1 = vca->out;\n"
+            "    play = env->play;\n"
+            "};\n\n"
+            "node tone osc::simple {\n"
+            "    freq = 440;\n"
+            "};\n\n"
+            "node env env::ad {\n"
+            "    a = 0;\n"
+            "    d = 20 ms;\n"
+            "    p = th_max;\n"
+            "};\n\n"
+            "node vca mixer::mul {\n"
+            "    in0 = tone->out * 0.5;\n"
+            "    in1 = env->out;\n"
+            "};\n\n"
+            "io ionode;\n";
+        Session s(pluginPath);
+
+        if (!writeFile(instFile, blip) ||
+            s.synth.loadTree(instFile, 0, 100) == NULL ||
+            s.synth.loadEffect(shipped[i], 0) == NULL)
+        {
+            fail("a blip and " + shipped[i] + " load", "");
+            break;
+        }
+
+        const int second = TH_DEFAULT_SAMPLES / s.synth.getWindowlen();
+        auto loudest = [](const vector<float> &v) {
+            float p = 0;
+
+            for (float x : v)
+                p = fmaxf(p, fabsf(x));
+
+            return p;
+        };
+
+        s.run(second);
+
+        const float before = loudest(s.take());
+
+        s.synth.addNote(0, 60, 100);
+        s.run(second);
+        s.synth.delNote(0, 60);
+
+        vector<float> after = s.take();
+        const float hiss = loudest(vector<float>(after.end() - after.size() / 4,
+                                                 after.end()));
+
+        s.run(30 * second);
+        s.take();
+        s.run(second);
+
+        const float later = loudest(s.take());
+
+        okOrFail(before == 0 && hiss > 1e-3f && later < 1e-4f,
+                 shipped[i] + ": silent until played, hissing after a "
+                 "note, and silent again long after",
+                 "peaks " + num(before) + ", " + num(hiss) + ", " +
+                 num(later));
+    }
+
     /* ---- fx/space.dsp: a longer tail, not a louder one ----------------- */
 
     /* Held noise through the reverb, wet only and with its filters open,
