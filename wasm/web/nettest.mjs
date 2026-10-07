@@ -800,12 +800,12 @@ async function main ()
             await p.page.evaluate(() => window.nettestStop?.())
                 .catch(() => {});
 
-        /* A key played ahead is let go a bar after the hand lets go, and
-           one let go after the Stop is never let go at all. */
+        /* A key played ahead sounds and is let go a bar after the hand,
+           and one let go after the Stop is never let go at all. */
         await sleep(o.holdMs + 1000);
-        await until(() => Promise.all(pages.map((p) => p.page.evaluate(
-            () => window.jam.heard().length === 0)))
-            .then((r) => r.every(Boolean)), 5000, 250);
+        await until(() => A.page.evaluate(() => window.jam.transportNow() >
+            Math.max(...window.jam.sent().filter((c) => c.type === 'noteoff')
+                .map((c) => c.at + 0.2))), 10000, 100);
         await A.page.evaluate(() => window.jam.stop());
         await sleep(3000 + 2 * Math.max(...o.rtt));
 
