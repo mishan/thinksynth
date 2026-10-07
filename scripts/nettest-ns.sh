@@ -38,8 +38,10 @@
 # host has a default route to the hub all the same, because Chromium
 # gathers candidates only on an interface that has one.
 #
-# Everything goes when the command exits: the holders are killed, and a
-# namespace with no process in it is gone.
+# Everything goes when the command exits, however it ends: this script is
+# the first process of a PID namespace of its own, and the kernel kills
+# everything else in it when it goes, browsers and all, and itself if
+# unshare is killed. A namespace with no process in it is gone.
 
 set -eu
 
@@ -51,24 +53,13 @@ fi
 PATH="$PATH:/usr/sbin:/sbin"
 
 if [ -z "${NETTEST_IN_HUB:-}" ]; then
-    NETTEST_IN_HUB=1 exec unshare -rn "$0" "$@"
+    NETTEST_IN_HUB=1 exec unshare -rnmpf --mount-proc --kill-child "$0" "$@"
 fi
 
 n=$1
 shift
 
 holders=
-cleanup()
-{
-    set +e
-    for pid in $holders; do
-        kill "$pid" 2>/dev/null
-        wait "$pid" 2>/dev/null
-    done
-}
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 ip link set lo up
 ip link add br0 type bridge
@@ -107,6 +98,6 @@ done
 export NETTEST_HUB=10.77.0.1
 export NETTEST_PIDS="${holders# }"
 
-# Not exec: the trap has to outlive the command to kill the holders.
-"$@" && status=0 || status=$?
-exit "$status"
+# Not exec: the first process of a PID namespace ignores a signal it has
+# no handler for, and the command is to die of a ^C.
+"$@"

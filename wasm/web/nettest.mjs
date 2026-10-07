@@ -270,6 +270,8 @@ async function launch (env, i, o)
                                       self, '--forward', sock, String(port)],
                           { stdio: 'ignore' });
     const server = net.createServer((c) => pipeTo(c, net.connect(sock)))
+        .on('error', (e) => process.stdout.write(
+            `nettest.mjs: p${i + 1}'s debugging port: ${e.message}\n`))
         .listen(port, '127.0.0.1');
 
     /* The site on the page's own loopback, which is a secure context
