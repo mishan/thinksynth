@@ -77,6 +77,7 @@ jobs:
           save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -92,6 +93,7 @@ jobs:
       # the runner image has none; without one it skips. Checked here, so a
       # locale that fails to generate is a failed step and not a quiet skip.
       - name: A comma-decimal locale
+        timeout-minutes: 10
         run: |
           sudo apt-get install -y --no-install-recommends locales
           sudo locale-gen de_DE.UTF-8
@@ -183,6 +185,7 @@ jobs:
           save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -303,6 +306,7 @@ jobs:
           save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -314,6 +318,7 @@ jobs:
 
       # See the linux job.
       - name: A comma-decimal locale
+        timeout-minutes: 10
         run: |
           sudo apt-get install -y --no-install-recommends locales
           sudo locale-gen de_DE.UTF-8
@@ -395,6 +400,7 @@ jobs:
       # No pulseaudio here: the live-context tests are in the jam job, and
       # this one opens nothing.
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -581,6 +587,7 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
         with:
           native: 'true'
 
@@ -612,7 +619,7 @@ jobs:
     needs: wasm-build
 
     # See wasm-browsers: minutes, not hours.
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -622,6 +629,7 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
         with:
           native: 'true'
 
@@ -786,8 +794,11 @@ jobs:
     # Everything here is minutes, so an hour means something is wedged rather
     # than slow. Without this a hang runs to GitHub's six-hour default, which
     # is what a live AudioContext with no audio backend did once: the job said
-    # nothing, cost everything, and looked exactly like a slow one.
-    timeout-minutes: 30
+    # nothing, cost everything, and looked exactly like a slow one. Each step
+    # that installs from a package mirror has ten minutes of its own, so a
+    # stalled mirror fails there and says so; the job's limit leaves room for
+    # a slow one on top of the tests' quarter hour.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -804,6 +815,7 @@ jobs:
       # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
       # runs there.
       - name: Install dependencies
+        timeout-minutes: 10
         if: matrix.browser == 'chromium'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
@@ -820,6 +832,7 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
 
       - name: npm ci
         working-directory: wasm/web
@@ -827,6 +840,7 @@ jobs:
 
       # Both engines on the chromium leg, for the page's gates below it.
       - name: Playwright's browsers
+        timeout-minutes: 10
         working-directory: wasm/web
         run: >-
           npx playwright install --with-deps
@@ -917,12 +931,13 @@ jobs:
     needs: wasm-build
 
     # See wasm-browsers: minutes, not hours.
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
       # A sound card, of sorts, for jamtest below. It opens a live
@@ -945,6 +960,7 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
         with:
           native: 'true'
 
@@ -999,11 +1015,14 @@ jobs:
       # page types a number into a node, and the file in both documents is
       # the one native NodeEdit writes -- which is why the build job builds
       # dspedit.
+      - name: Playwright's browsers
+        timeout-minutes: 10
+        working-directory: wasm/web
+        run: npx playwright install --with-deps chromium firefox
+
       - name: Two browsers, one room
         working-directory: wasm/web
-        run: |
-          npx playwright install --with-deps chromium firefox
-          node jamtest.mjs ../../build-web ../../build-wasm ../../build
+        run: node jamtest.mjs ../../build-web ../../build-wasm ../../build
 
   # The demo: master's browser build, at https://mishan.github.io/thinksynth/.
   # It deploys what wasm-build packaged rather than building again, and only
