@@ -262,6 +262,12 @@ export class Maker
     }
 }
 
+/* How far behind a sender's newest seq a duplicate is still told apart:
+   by distance rather than by how many were kept, so a reliable copy held
+   up behind a knob drag is still known for one. A minute of a slider
+   moving sixty times a second; anything older is taken as seen. */
+const DEDUPE_SEQS = 4096;
+
 /* What a receiver keeps per sender: the last `seq' seen, so a duplicate
    is dropped and a gap is counted. The mesh is unordered and drops
    things; the count says how much. */
@@ -283,7 +289,7 @@ export class Dedupe
             this.seen.set(cmd.from, s);
         }
 
-        if (s.have.has(cmd.seq))
+        if (s.have.has(cmd.seq) || cmd.seq <= s.last - DEDUPE_SEQS)
         {
             s.duplicates++;
             return false;
@@ -291,15 +297,12 @@ export class Dedupe
 
         s.have.add(cmd.seq);
 
-        /* Forgotten once well behind, so the set does not grow for ever. */
-        if (s.have.size > 256)
+        /* Forgotten once out of reach, so the set does not grow for
+           ever. */
+        if (s.have.size > 2 * DEDUPE_SEQS)
             for (const k of s.have)
-            {
-                if (s.have.size <= 128)
-                    break;
-
-                s.have.delete(k);
-            }
+                if (k <= s.last - DEDUPE_SEQS)
+                    s.have.delete(k);
 
         if (cmd.seq > s.last + 1)
             s.gaps += cmd.seq - s.last - 1;
