@@ -748,9 +748,10 @@ and a trap for four.
 **Gestures go peer-to-peer.** Two data channels per pair, mesh: one
 `ordered: false`, `maxRetransmits: 0`, carrying everything, and one ordered
 and reliable carrying everything but knobs again, so that a key or a mute is
-never lost and the first copy to arrive is the one applied. A mesh is fine
-to about six peers; past that the relay fans out and the latency is what it
-is.
+never lost and the first copy to arrive is the one applied. A pair whose
+channels do not open, or whose connection drops, goes through the relay
+until they do, and back. A mesh is fine to about six peers; past that the
+relay fans out and the latency is what it is.
 
 **One clock.** Each peer estimates its offset to the relay's clock with a
 periodic ping, keeping the lowest-RTT samples, the way NTP does. The
