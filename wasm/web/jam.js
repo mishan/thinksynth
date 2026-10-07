@@ -2014,6 +2014,19 @@ function openRoom (url, roomName, name, opts)
                 status(`The relay did not switch to ${m.piece}: ${m.why}.`);
                 showPiece();
             }
+            /* A Play, a Stop or a tempo went over the mesh as well, and
+               missed only the peers the relay carries for; an edit goes
+               by the relay alone. Said, for whoever pressed it to press
+               it again. */
+            else if (m.of === 'transport')
+                status(`The relay did not pass your ` +
+                       `${{ start: 'Play', stop: 'Stop' }[m.op] ??
+                          m.op ?? 'command'} on` +
+                       (['start', 'stop', 'tempo'].includes(m.op)
+                           ? ', so only peers on the mesh had it'
+                           : ' to the room') + `: ${m.why}.`);
+            else if (m.of === 'edit')
+                editRefused(m);
         })
         .on('switched', switched)
         .on('clock', () => { showNumbers(); enable(); })
@@ -2129,6 +2142,42 @@ function followTickets ()
     room.on('ticket', (ticket) => { provider.params = { ticket }; });
 }
 
+/* Whether the relay refused an edit of this page's, which this document
+   holds and the room's does not: the provider would send it again at
+   every reconnect, and be refused again. The document stops here, as
+   when the room is lost, and stays stopped through a rejoin; a reload
+   brings the room's back. The room plays on. One refused for the relay
+   being full stops only until it is sent again, no more often than the
+   relay answers a document socket's sync (relay.mjs, SYNC_ASKS). */
+let docRefused = false;
+let editRetry = null;
+const EDIT_RETRY_MS = 10 * 1000;
+
+function editRefused (m)
+{
+    provider?.disconnect();
+    $('editor').inert = true;
+    clearTimeout(editRetry);
+
+    if (m.why === 'rooms')
+    {
+        status('The relay holds as much as it can; sending your edit ' +
+               `again in ${EDIT_RETRY_MS / 1000} s...`);
+        editRetry = setTimeout(() =>
+        {
+            provider.connect();
+            $('editor').inert = false;
+        }, EDIT_RETRY_MS);
+        return;
+    }
+
+    docRefused = true;
+    status((m.why === 'big'
+                ? 'Your edit was too large for the room and was not kept.'
+                : `Your edit was not kept: ${m.text}.`) +
+           ' Reload the page to go on editing.');
+}
+
 /* One mesh to a room socket: a room lost while the join awaited the
    document is joined again, and given its mesh, before the join goes on
    to open one. */
@@ -2150,20 +2199,38 @@ const REJOIN_FIRST_MS = 1000;
 const REJOIN_MAX_MS = 30 * 1000;
 const REJOIN_TRIES = 8;
 
+/* How long a room joined again stays up before the tries start over: a
+   page the relay cuts again sooner -- one that keeps falling behind, or
+   keeps sending too much -- goes on backing off, and stops. */
+const REJOIN_STEADY_MS = 30 * 1000;
+
+/* What the relay closes a room for that may pass, so the page tries
+   again as for a relay gone away: too many new rooms, or a full room or
+   relay; a page that fell behind, or sent too much; an accounts file
+   busy; a relay short of memory. The rest stand until something
+   changes here: a session ended, a name taken, a page too old, a
+   document too large. */
+const PASSING = new Set(['rooms', 'full', 'slow', 'flood', 'accounts',
+                         'memory']);
+
 let rejoinTimer = null;
 let rejoinTries = 0;
+let rejoinSteady = null;
 
 /* The room socket `r' closed. Its tickets went with it, so the document
    socket would be refused at every retry and the editor would type into
    a document nobody else sees: the document stops, and stays as it is on
    this page, the editor read only, until the room is joined again -- by
-   itself, after a relay restart or a dropped network, or with Rejoin
-   when the relay said no or would not answer. */
+   itself, after a relay restart, a dropped network or a refusal that
+   passes, no sooner than the relay says; or with Rejoin when the relay
+   said no for good or would not answer. */
 function lost (r, refused)
 {
     if (r !== room)
         return;
 
+    clearTimeout(rejoinSteady);
+    clearTimeout(editRetry);
     provider?.disconnect();
     mesh?.close();
     $('editor').inert = true;
@@ -2172,7 +2239,19 @@ function lost (r, refused)
     if (refused?.why === 'session')
         accounts.ended(r.session);
 
-    if (refused !== null || rejoinTries >= REJOIN_TRIES)
+    /* A refusal that says when to try again -- too many joins or new
+       rooms from this address -- is the relay pacing it, and spends no
+       try: a class behind one address, joining again after a relay
+       restart, is let in one a second past the burst, and waits its turn
+       however long that takes, a second apart at random so that the
+       waiting do not all ask at once. A cut for memory is everyone in
+       the rooms cut joining again at once, to a relay that may cut them
+       again: it spends a try, doubling the wait to REJOIN_MAX_MS, and
+       waits up to as long again at random. */
+    const retryMs = Number(refused?.retryMs) || 0;
+
+    if ((refused !== null && !PASSING.has(refused.why)) ||
+        (retryMs === 0 && rejoinTries >= REJOIN_TRIES))
     {
         status(refused !== null
                    ? `The relay closed the room: ${refused.text}.`
@@ -2180,11 +2259,15 @@ function lost (r, refused)
         return;
     }
 
-    const wait = Math.min(REJOIN_FIRST_MS * 2 ** rejoinTries++,
-                          REJOIN_MAX_MS);
+    const wait = refused?.why === 'memory'
+        ? Math.min(retryMs * 2 ** rejoinTries++, REJOIN_MAX_MS) *
+          (1 + Math.random())
+        : retryMs > 0 ? retryMs + Math.random() * 1000
+        : Math.min(REJOIN_FIRST_MS * 2 ** rejoinTries++, REJOIN_MAX_MS);
 
-    status(`The relay went away; joining again in ${Math.round(
-        wait / 1000)} s...`);
+    status(`${refused === null ? 'The relay went away'
+                               : `The relay closed the room: ${refused.text}`}` +
+           `; joining again in ${Math.round(wait / 1000)} s...`);
     clearTimeout(rejoinTimer);
     rejoinTimer = setTimeout(rejoin, wait);
 }
@@ -2221,13 +2304,15 @@ async function rejoin ()
         if (e.why === 'session')
             accounts.ended(session);
 
-        /* Refused: said, and left to Rejoin. Unreachable: tried again. */
+        /* Refused: said, and tried again if it passes, or left to
+           Rejoin. Unreachable: tried again. */
         lost(was, e.why === undefined ? null : { text: e.message,
-                                                 why: e.why });
+                                                 why: e.why,
+                                                 retryMs: e.retryMs });
         return;
     }
 
-    rejoinTries = 0;
+    rejoinSteady = setTimeout(() => { rejoinTries = 0; }, REJOIN_STEADY_MS);
     room = next;
 
     maker = new Maker(room.peer, transportNow,
@@ -2235,9 +2320,14 @@ async function rejoin ()
                         transportLead: maker.transportLead });
     provider.params = room.ticket === null ? {} : { ticket: room.ticket };
     followTickets();
-    provider.connect();
+
+    if (!docRefused)
+    {
+        provider.connect();
+        $('editor').inert = false;
+    }
+
     openMesh();
-    $('editor').inert = false;
 
     if (seat !== null)
         room.claim(seat);

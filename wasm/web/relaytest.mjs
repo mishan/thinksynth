@@ -44,14 +44,18 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 
 import WebSocket, { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import * as encoding from 'lib0/encoding';
+import * as awarenessProtocol from 'y-protocols/awareness';
+import * as syncProtocol from 'y-protocols/sync';
 
-import { dspNames, fileNames, hashOf, pieceText, readFile, seenOf, snapshot }
-    from './doc.js';
+import { dspNames, fileNames, hashOf, pieceName, pieceText, readFile, seenOf,
+         snapshot } from './doc.js';
 import { AccountStore, runAdmin } from './accounts.mjs';
 import { PROTOCOL, relay } from './relay.mjs';
 import { Room } from './room.js';
@@ -60,6 +64,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const tree = path.join(here, '..', '..');
 
 let failures = 0;
+
+v8.setFlagsFromString('--expose-gc');
+
+const gc = vm.runInNewContext('gc');
+
+/* What this process's heap holds once what nothing holds is gone: the
+   relay's, besides the test's own. */
+function heapUsed ()
+{
+    gc();
+    return process.memoryUsage().heapUsed;
+}
 
 function fail (what)
 {
@@ -161,6 +177,29 @@ function refused (ws, ms = 2000)
         ws.on('error', () => {});
         ws.on('close', () => { clearTimeout(timer); r(true); });
     });
+}
+
+/* A provider's sync update: what `doc' has past state vector `sv', or
+   an update as it is. */
+function frame (doc, sv)
+{
+    const enc = encoding.createEncoder();
+
+    encoding.writeVarUint(enc, 0);
+    syncProtocol.writeUpdate(enc, doc instanceof Uint8Array
+        ? doc : Y.encodeStateAsUpdate(doc, sv));
+    return encoding.toUint8Array(enc);
+}
+
+/* A document socket into relay `q''s `room' on `ticket', open. */
+async function docSocket (q, room, ticket)
+{
+    const d = new WebSocket(`ws://127.0.0.1:${q.address().port}/doc/` +
+                            `${room}?ticket=${ticket}`);
+
+    d.on('error', () => {});
+    await new Promise((r) => d.on('open', r));
+    return d;
 }
 
 /* Who a room socket is, and what lets its document in: a relay of its
@@ -513,6 +552,26 @@ async function accountsInRooms ()
                   'a cursor that names nobody is named by the relay');
             bare.close();
 
+            /* What is kept of a state is what a page's holds. */
+            {
+                const s = await opened();
+                const at = { type: { client: 1, clock: 2 }, item: null,
+                             tname: null, assoc: 0 };
+
+                s.send(states([[4343, {
+                    user: { name: 'X', pad: [{}] },
+                    cursor: { anchor: { ...at, pad: [{}] }, head: at, pad: 1 },
+                    pad: Array(250).fill({}) }]]));
+                await new Promise((r) => setTimeout(r, 300));
+                check(JSON.stringify(watcher.awareness.getStates().get(4343)) ===
+                      JSON.stringify({ user: { name: 'Hob (guest)',
+                                               account: false },
+                                       cursor: { anchor: at, head: at } }),
+                      'a state is kept as the fields a page\'s has, and ' +
+                      'nothing else it carries');
+                s.close();
+            }
+
             /* A page echoes every state it hears: three cursors other
                sockets hold, in one update, are passed over, not cut. */
             {
@@ -541,6 +600,18 @@ async function accountsInRooms ()
                 check(await cut && !watcher.awareness.getStates().has(5003) &&
                       !watcher.awareness.getStates().has(6003),
                       `a socket claiming three clients ${what} is cut`);
+            }
+
+            /* A cursor is a few hundred bytes: one far longer is cut, and
+               not kept for the room. */
+            {
+                const s = await opened();
+                const cut = refused(s);
+
+                s.send(states([[8001, { pad: 'x'.repeat(64 * 1024) }]]));
+                check(await cut && !watcher.awareness.getStates().has(8001),
+                      'a socket sending a cursor far longer than a page\'s ' +
+                      'is cut, and the cursor not kept');
             }
 
             /* Clients nobody has, said to be gone: nothing to forget, and
@@ -628,7 +699,10 @@ async function accountsInRooms ()
             await new Promise((r) => setTimeout(r, 200));
 
             const id = pj.awareness.clientID;
-            const seen = () => pw.awareness.getStates().get(id)?.user;
+            const moved = { type: { client: 9, clock: 9 }, item: null,
+                            tname: null, assoc: 0 };
+            const seen = () => pw.awareness.getStates().get(id);
+            const movedBy = () => seen()?.cursor?.anchor.type?.clock === 9;
             const again = docSocket('takeover', jt);
             const update = encoding.createEncoder();
             const enc = encoding.createEncoder();
@@ -641,20 +715,21 @@ async function accountsInRooms ()
             encoding.writeVarUint(update, id);
             encoding.writeVarUint(update, pj.awareness.meta.get(id).clock + 1);
             encoding.writeVarString(update, JSON.stringify(
-                { user: { name: 'Jo', at: 'again' } }));
+                { user: { name: 'Jo' },
+                  cursor: { anchor: moved, head: moved } }));
             encoding.writeVarUint(enc, 1);
             encoding.writeVarUint8Array(enc, encoding.toUint8Array(update));
             again.send(encoding.toUint8Array(enc));
             await new Promise((r) => setTimeout(r, 200));
 
-            const taken = seen()?.at === 'again';
+            const taken = movedBy();
 
             /* And the old one dies as dead sockets do: no last word. */
             pj.shouldConnect = false;
             pj.ws._socket.destroy();
             await new Promise((r) => setTimeout(r, 200));
 
-            check(taken && seen()?.at === 'again',
+            check(taken && movedBy(),
                   'a document socket of the same peer takes its cursor ' +
                   'over, ' +
                   'and keeps it when the old one closes');
@@ -938,6 +1013,2130 @@ async function metricsServed ()
     }
 }
 
+/* What the relay queues for a socket is bounded, for each and for all of
+   them, on a relay with caps small enough to reach. */
+async function queuesBounded ()
+{
+    const q = await relay({ port: 0, host: '127.0.0.1', tree,
+                            queuedMaxBytes: 1024 * 1024,
+                            queuedTotalMaxBytes: 4 * 1024 * 1024,
+                            limits: { fanout: [2 ** 30, 2 ** 30],
+                                      roomIn: [2 ** 30, 2 ** 30] } });
+    let at = `ws://127.0.0.1:${q.address().port}`;
+    const join = async (room, name) =>
+    {
+        const c = new Client(`${at}/room/${room}`, name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+        c.welcome = await c.next('welcome');
+        return c;
+    };
+    const until = async (cond, ms = 5000) =>
+    {
+        for (const end = performance.now() + ms; !cond();)
+        {
+            if (performance.now() > end)
+                return false;
+
+            await new Promise((r) => setTimeout(r, 20));
+        }
+
+        return true;
+    };
+    const relayed = (c) => c.got.filter((m) => m.type === 'relayed').length;
+    const pad = 'x'.repeat(64 * 1024);
+
+    try
+    {
+        /* One that stops reading: cut, and told why once it reads again;
+           the one that reads has everything. Gestures alone do not cut
+           it: a peer half way to its cap misses them instead. */
+        {
+            const a = await join('slow', 'A');
+            const b = await join('slow', 'B');
+            const c = await join('slow', 'C');
+
+            const closed = refused(a.ws, 8000);
+            const transports = () =>
+                c.got.filter((m) => m.type === 'transport').length;
+
+            /* As fast as the one that reads takes them, which is under
+               its cap: a burst would be over it too. */
+            const paced = async (m, got) =>
+            {
+                for (let i = 0; i < 400; i += 20)
+                {
+                    for (let k = i; k < i + 20; k++)
+                        b.send(m(k));
+
+                    await until(() => got() >= i + 20);
+                }
+            };
+
+            a.ws._socket.pause();
+            await paced((i) => ({ type: 'relayed', data: { i, pad } }),
+                        () => relayed(c));
+
+            const spared = a.ws.readyState === WebSocket.OPEN &&
+                           q.rooms.get('slow').peers.has(a.welcome.peer);
+
+            await paced((i) => ({ type: 'transport',
+                                  data: { type: 'transport', op: 'tempo', i,
+                                          pad } }), transports);
+
+            const left = await c.next('left', 5000);
+
+            a.ws._socket.resume();
+
+            const why = await a.next('error', 5000);
+            const all = relayed(c) === 400 && transports() === 400;
+
+            check(spared, 'a socket that stops reading misses gestures ' +
+                          'past half its cap, and is not cut for them');
+            check(all && left.peer === a.welcome.peer &&
+                  why.why === 'slow' && await closed &&
+                  b.ws.readyState === WebSocket.OPEN,
+                  'a socket that stops reading is cut past its cap and told ' +
+                  'why, and the others are not');
+            b.close();
+            c.close();
+        }
+
+        /* A catch-up larger than the cap, to a socket that reads it. */
+        {
+            const f = await join('big', 'F');
+            const g = await join('big', 'G');
+            const hash = await hashOf(q.rooms.get('big').doc);
+            const key = `${f.welcome.peer}#0`;
+
+            f.send({ type: 'transport',
+                     data: { type: 'transport', op: 'start', origin: 1,
+                             piece: { hash }, seed: 1, seq: 0, at: -1 } });
+
+            for (let i = 1; i <= 32; i++)
+                f.send({ type: 'log', run: key,
+                         data: { type: 'knob', at: i, seq: i, pad } });
+
+            await new Promise((r) => setTimeout(r, 300));
+            g.send({ type: 'catchup' });
+
+            const run = await g.next('catchup');
+
+            check(run.log?.length === 32 &&
+                  g.ws.readyState === WebSocket.OPEN,
+                  'a catch-up larger than a socket\'s cap reaches it');
+
+            /* Two asked for at once are one answer, which the page takes
+               for both: two would be over the cap. */
+            g.ws._socket.cork();
+            g.send({ type: 'catchup' });
+            g.send({ type: 'catchup' });
+            g.ws._socket.uncork();
+            await g.next('catchup');
+            check(await g.none('catchup', 500) &&
+                  g.ws.readyState === WebSocket.OPEN,
+                  'two catch-ups asked for at once are answered once');
+
+            /* Two at once are the same bytes, and one after another
+               command has it as well. */
+            const raw = async (c) =>
+            {
+                const got = new Promise((r) => c.ws.on('message', (d) =>
+                {
+                    if (JSON.parse(d).type === 'catchup')
+                        r(d);
+                }));
+
+                c.send({ type: 'catchup' });
+                return got;
+            };
+            const h = await join('big', 'H');
+            const [x, y] = await Promise.all([raw(g), raw(h)]);
+
+            f.send({ type: 'log', run: key,
+                     data: { type: 'knob', at: 33, seq: 33 } });
+            await new Promise((r) => setTimeout(r, 200));
+
+            const z = JSON.parse(await raw(h));
+
+            check(x.equals(y) && z.log.map((c) => c.seq).join() ===
+                      Array.from({ length: 33 }, (_, i) => i + 1).join(),
+                  'two catch-ups at once are the same bytes, and a later ' +
+                  'one has the commands since');
+
+            f.close();
+            g.close();
+            h.close();
+        }
+    }
+    finally
+    {
+        q.shutdown();
+    }
+
+    /* A catch-up asked for while the last answer drains, after a Play
+       has replaced its run, is answered with the run since once that has
+       drained. */
+    const k = await relay({ port: 0, host: '127.0.0.1', tree,
+                            limits: { roomIn: [2 ** 30, 2 ** 30] } });
+
+    at = `ws://127.0.0.1:${k.address().port}`;
+
+    try
+    {
+        const f = await join('drains', 'F');
+        const g = await join('drains', 'G');
+        const hash = await hashOf(k.rooms.get('drains').doc);
+        const start = (seq) => f.send({
+            type: 'transport',
+            data: { type: 'transport', op: 'start', origin: 1,
+                    piece: { hash }, seed: 1, seq, at: -1 } });
+        const answers = () => g.got.filter((m) => m.type === 'catchup');
+        const big = 'x'.repeat(500 * 1024);
+
+        start(0);
+
+        for (let i = 1; i <= 14; i++)
+            f.send({ type: 'log', run: `${f.welcome.peer}#0`,
+                     data: { type: 'knob', at: i, seq: i, pad: big } });
+
+        await new Promise((r) => setTimeout(r, 500));
+        g.ws._socket.pause();
+        g.send({ type: 'catchup' });
+        await new Promise((r) => setTimeout(r, 300));
+
+        const held = [...k.rooms.get('drains').peers.values()]
+            .find((p) => p.name === 'G').ws.heldBytes > 0;
+
+        start(1);
+        await new Promise((r) => setTimeout(r, 200));
+        g.send({ type: 'catchup' });
+        await new Promise((r) => setTimeout(r, 200));
+        g.ws._socket.resume();
+        await until(() => answers().length === 2, 5000);
+        check(held && answers().map((m) => m.start.seq).join() === '0,1',
+              'a catch-up asked for while the last drains is answered with ' +
+              'the run as it is once that has drained');
+        f.close();
+        g.close();
+    }
+    finally
+    {
+        k.shutdown();
+    }
+
+    /* Two that stop reading, each under its own cap: over the relay-wide
+       total, the one holding more is cut, and the other is left. */
+    const w = await relay({ port: 0, host: '127.0.0.1', tree,
+                            queuedTotalMaxBytes: 4 * 1024 * 1024 });
+
+    at = `ws://127.0.0.1:${w.address().port}`;
+
+    try
+    {
+        /* What one turn sends a socket goes in one write, and in the
+           order it was sent, small frames and large alike. */
+        {
+            const x = await join('order', 'X');
+            const y = await join('order', 'Y');
+            const sizes = Array.from({ length: 300 },
+                                     (_, i) => (i % 50 === 7 ? 100000 : i));
+
+            sizes.forEach((n, i) =>
+            {
+                x.send({ type: 'relayed', data: { i, pad: 'x'.repeat(n) } });
+
+                if (i % 30 === 0)
+                    y.send({ type: 'ping', t0: i });
+            });
+
+            await until(() => relayed(y) === sizes.length);
+
+            const order = y.got.filter((m) => m.type === 'relayed')
+                .map((m) => m.data.i);
+            const pongs = y.got.filter((m) => m.type === 'pong');
+
+            check(order.join() === sizes.map((n, i) => i).join() &&
+                  pongs.map((m) => m.t0).join() ===
+                      sizes.map((n, i) => i).filter((i) => i % 30 === 0)
+                          .join(),
+                  'what a socket is sent arrives in order, written a turn ' +
+                  'at a time');
+            x.close();
+            y.close();
+        }
+
+        const a = await join('both', 'A');
+        const b = await join('both', 'B');
+        const s = await join('both', 'S');
+        const queued = (c) =>
+            w.rooms.get('both').peers.get(c.welcome.peer)?.ws
+                .bufferedAmount ?? 0;
+        const fill = (c, bytes) => until(() =>
+        {
+            s.send({ type: 'relayed', to: c.welcome.peer, data: { pad } });
+            return queued(c) > bytes || s.got.some((m) => m.type === 'left');
+        }, 20000);
+
+        a.ws._socket.pause();
+        b.ws._socket.pause();
+        await fill(a, 3 * 1024 * 1024);
+        await fill(b, 4 * 1024 * 1024);
+
+        const left = await s.next('left');
+
+        check(left.peer === a.welcome.peer && await s.none('left', 300) &&
+              w.rooms.get('both').peers.has(b.welcome.peer),
+              'over the relay-wide total, the socket holding the most is ' +
+              'cut');
+        a.ws.terminate();
+        b.ws.terminate();
+        s.close();
+    }
+    finally
+    {
+        w.shutdown();
+    }
+
+    /* A socket cut is not counted again before its close comes: a
+       second look at once cuts nobody else. */
+    const x = await relay({ port: 0, host: '127.0.0.1', tree,
+                            limits: { fanout: [2 ** 30, 2 ** 30],
+                                      roomIn: [2 ** 30, 2 ** 30] } });
+
+    at = `ws://127.0.0.1:${x.address().port}`;
+
+    try
+    {
+        const [a, b, s] = await Promise.all(['A', 'B', 'S'].map((n) =>
+            join('twice', n)));
+        const room = x.rooms.get('twice');
+        const queued = (c) =>
+            room.peers.get(c.welcome.peer)?.ws.bufferedAmount ?? 0;
+        const fill = (c, bytes) => until(() =>
+        {
+            s.send({ type: 'relayed', to: c.welcome.peer, data: { pad } });
+            return queued(c) > bytes;
+        }, 20000);
+
+        a.ws._socket.pause();
+        b.ws._socket.pause();
+        await fill(a, 2 * 1024 * 1024);
+        await fill(b, 1024 * 1024);
+        room.ctx.queues.totalMax = queued(a) + queued(b) - 1;
+        room.ctx.queues.trim();
+        room.ctx.queues.trim();
+        await new Promise((r) => setTimeout(r, 300));
+        check(!room.peers.has(a.welcome.peer) &&
+              room.peers.has(b.welcome.peer),
+              'a socket cut for the relay-wide total is not counted ' +
+              'again before it closes');
+        a.ws.terminate();
+        b.ws.terminate();
+        s.close();
+    }
+    finally
+    {
+        x.shutdown();
+    }
+
+    /* What a socket has had queued for others lately is not what it
+       holds: over the total, one holding an edit it does not read goes,
+       and not one that sent others what they read. The total is above
+       one gesture to both readers, and each is read before the next is
+       sent, so only the edit takes the relay over it however slowly the
+       readers drain. */
+    const t = await relay({ port: 0, host: '127.0.0.1', tree,
+                            queuedTotalMaxBytes: 2.5 * 1024 * 1024 });
+
+    at = `ws://127.0.0.1:${t.address().port}`;
+
+    try
+    {
+        const [a, c, e, f, g] = await Promise.all(
+            ['A', 'C', 'E', 'F', 'G'].map((n) => join('blame', n)));
+        const cd = await docSocket(t, 'blame', c.welcome.ticket);
+        const ad = await docSocket(t, 'blame', a.welcome.ticket);
+        const big = 'x'.repeat(900 * 1024);
+
+        await new Promise((r) => setTimeout(r, 200));
+        cd._socket.pause();
+
+        for (let i = 1; i <= 3; i++)
+        {
+            e.send({ type: 'relayed', to: [f.welcome.peer, g.welcome.peer],
+                     data: { big } });
+            await until(() => relayed(f) === i && relayed(g) === i);
+        }
+
+        const y = new Y.Doc();
+
+        y.getText('t').insert(0, 'y'.repeat(3000 * 1000));
+        ad.send(frame(y));
+
+        /* A paused socket reads no close: gone is the relay's to say. */
+        const room = t.rooms.get('blame');
+        const gone = await until(() => ![...room.docConns].some((x) =>
+            room.docOwner.get(x) === room.peers.get(c.welcome.peer)));
+
+        await until(() => relayed(f) === 3 && relayed(g) === 3);
+        check(gone && e.ws.readyState === WebSocket.OPEN &&
+              relayed(f) === 3 && relayed(g) === 3,
+              'over the relay-wide total, a socket holding an edit it ' +
+              'does not read is cut, and not one that sent others what ' +
+              'they read');
+        ad.close();
+        cd.terminate();
+
+        for (const x of [a, c, e, f, g])
+            x.close();
+    }
+    finally
+    {
+        t.shutdown();
+    }
+}
+
+/* A room is made by a hello the relay welcomes and by nothing else, and
+   only so many, by count, by what they hold and by who asks. */
+async function roomsBounded ()
+{
+    const open = async (q, room, query = '') =>
+    {
+        const c = new Client(`ws://127.0.0.1:${q.address().port}/room/` +
+                             `${room}${query}`, room);
+
+        await c.open();
+        return c;
+    };
+    const hello = async (q, room, query) =>
+    {
+        const c = await open(q, room, query);
+
+        c.send({ type: 'hello', name: room, protocol: PROTOCOL,
+                 tickets: true });
+        c.said = await Promise.race([c.next('welcome'), c.next('error')]);
+        return c;
+    };
+    const synced = (p) => new Promise((r) =>
+    {
+        const timer = setTimeout(() => r(false), 5000);
+
+        p.synced ? r(true) : p.once('synced', () =>
+        {
+            clearTimeout(timer);
+            r(true);
+        });
+    });
+    const q = await relay({ port: 0, host: '127.0.0.1', tree, roomsMax: 2,
+                            roomLimits: [{ burst: 3, refillMs: 60000 },
+                                         null, null] });
+
+    try
+    {
+        const bare = await open(q, 'bare');
+        const wrong = await open(q, 'wrong');
+        const doc = new WebSocket(`ws://127.0.0.1:${q.address().port}` +
+                                  '/doc/nodoc');
+
+        wrong.send({ type: 'hello', protocol: PROTOCOL + 1, tickets: true });
+        await wrong.next('error');
+        await refused(doc);
+        await new Promise((r) => setTimeout(r, 200));
+        check(q.rooms.size === 0,
+              'a room socket with no hello, one with a hello the relay ' +
+              'refuses, and a document socket make no room');
+        bare.close();
+
+        const a = await hello(q, 'one');
+        const b = await hello(q, 'two');
+        const c = await hello(q, 'three');
+        const again = await hello(q, 'one');
+
+        check(a.said.type === 'welcome' && b.said.type === 'welcome' &&
+              c.said.why === 'rooms' && /as many rooms/.test(c.said.text) &&
+              again.said.type === 'welcome',
+              'past the most rooms a new one is refused, and one already ' +
+              'open is joined');
+
+        b.close();
+        await a.next('left', 500).catch(() => null);
+        await new Promise((r) => setTimeout(r, 200));
+
+        const d = await hello(q, 'four');
+
+        check(d.said.type === 'welcome' && !q.rooms.has('two') &&
+              q.rooms.has('one'),
+              'and an empty room goes to make room for a new one');
+
+        const e = await hello(q, 'five');
+
+        check(e.said.why === 'rooms' &&
+              /too many new rooms/.test(e.said.text) && e.said.retryMs > 0 && e.said.retryMs <= 60000,
+              'a client that makes rooms too fast is refused another, and ' +
+              'told when to try again; one refused for the most rooms was ' +
+              'not one of its new rooms');
+
+        for (const x of [a, again, d, e, c])
+            x.close();
+    }
+    finally
+    {
+        q.shutdown();
+    }
+
+    /* So many joins from one address, into a room already open as into a
+       new one: each is told to the whole room. */
+    const j = await relay({ port: 0, host: '127.0.0.1', tree,
+                            joinLimits: [{ burst: 3, refillMs: 60000 },
+                                         null, null] });
+
+    try
+    {
+        const joins = [];
+
+        for (let i = 0; i < 4; i++)
+            joins.push(await hello(j, 'joins'));
+
+        const [last] = joins.slice(-1);
+
+        check(joins.slice(0, 3).every((c) => c.said.type === 'welcome') &&
+              last.said.why === 'flood' &&
+              /too many joins/.test(last.said.text) &&
+              last.said.retryMs > 0 && last.said.retryMs <= 60000,
+              'a client that joins too often is refused, and told when to ' +
+              'try again');
+
+        /* Before its hello is read for anything else. */
+        const wrong = await open(j, 'joins');
+
+        wrong.send({ type: 'hello', protocol: PROTOCOL + 1, tickets: true });
+        check((await wrong.next('error')).why === 'flood',
+              'and a hello past its joins is refused for them before ' +
+              'anything in it is looked at');
+        joins.push(wrong);
+
+        for (const c of joins)
+            c.close();
+    }
+    finally
+    {
+        j.shutdown();
+    }
+
+    /* So many people in a room and no more, a page joining again
+       aside. */
+    const p = await relay({ port: 0, host: '127.0.0.1', tree, peersMax: 2 });
+
+    try
+    {
+        const a = await hello(p, 'full');
+        const b = await hello(p, 'full');
+        const c = await hello(p, 'full');
+        const back = await open(p, 'full');
+
+        back.send({ type: 'hello', name: 'back', protocol: PROTOCOL,
+                    tickets: true, was: b.said.ticket });
+
+        check(c.said.why === 'full' && /2 people/.test(c.said.text) &&
+              (await back.next('welcome')).peers.length === 2,
+              'a room of the most people refuses another, and lets one ' +
+              'join again');
+
+        for (const x of [a, b, c, back])
+            x.close();
+    }
+    finally
+    {
+        p.shutdown();
+    }
+
+    /* A room is charged for what its document took, and no more than an
+       eighth of the budget: an edit that could take it past that is
+       refused, and the room is joined, read and edited as before. A
+       frame Yjs cannot read costs its socket and charges nothing. And
+       empty rooms go only as many as make room for a new one. */
+    const e = await relay({ port: 0, host: '127.0.0.1', tree, roomsMax: 3,
+                            roomsMaxBytes: 128 * 1024,
+                            roomMaxBytes: 64 * 1024 });
+
+    try
+    {
+        const a = await hello(e, 'edits');
+        const j = await docSocket(e, 'edits', a.said.ticket);
+        const junk = new Uint8Array(16 * 1024).fill(0xff);
+        const room = e.rooms.get('edits');
+        const before = room.bytes;
+        const big = new Y.Doc();
+        const text = big.getText('t');
+        let sv = Y.encodeStateVector(big);
+        const typed = () =>
+        {
+            const f = frame(big, sv);
+
+            sv = Y.encodeStateVector(big);
+            return f;
+        };
+
+        junk.set([0, 2]);
+        j.send(junk);
+
+        const junked = await refused(j) && room.bytes === before;
+        const d = await docSocket(e, 'edits', a.said.ticket);
+
+        text.insert(0, 'x'.repeat(10 * 1024));
+        d.send(typed());
+        await new Promise((r) => setTimeout(r, 200));
+
+        const grown = room.bytes;
+
+        /* Keystrokes, each splitting the text it lands in: an item, and
+           the piece of the text after it. */
+        for (let i = 0; i < 10; i++)
+        {
+            text.insert(i * 500, 'k');
+            d.send(typed());
+        }
+
+        await new Promise((r) => setTimeout(r, 200));
+
+        const keyed = room.bytes - grown;
+        const n = Math.floor((64 * 1024 - room.bytes) / 2) - 2048;
+
+        text.insert(0, 'y'.repeat(n));
+        d.send(typed());
+        await new Promise((r) => setTimeout(r, 200));
+
+        const took = room.doc.getText('t').toString().startsWith('y');
+
+        text.insert(0, 'z'.repeat(20 * 1024));
+        d.send(typed());
+
+        const told = await a.next('refused');
+
+        check(junked && grown > before + 20 * 1024 &&
+              keyed > 10 * 2 * 256 && took && told.of === 'edit' &&
+              told.why === 'big' && await refused(d) &&
+              a.ws.readyState === WebSocket.OPEN &&
+              room.bytes <= 64 * 1024 &&
+              !room.doc.getText('t').toString().includes('z'),
+              'a room is charged for what its document takes, and not ' +
+              'for a frame it could not read, and an edit that could take ' +
+              'it past its most is refused: the page is told, and its ' +
+              'document socket closed and its room socket not');
+
+        const b = await hello(e, 'edits');
+        const bd = new Y.Doc();
+        const pb = new WebsocketProvider(`ws://127.0.0.1:${e.address().port}` +
+                                         '/doc', 'edits', bd,
+                                         { WebSocketPolyfill: WebSocket,
+                                           params: { ticket: b.said.ticket },
+                                           disableBc: true });
+
+        const bSynced = await synced(pb);
+
+        bd.getText('t').insert(0, 'ok');
+        await new Promise((r) => setTimeout(r, 300));
+        check(bSynced && b.ws.readyState === WebSocket.OPEN &&
+              room.doc.getText('t').toString().startsWith('oky') &&
+              bd.getText('t').toString() === room.doc.getText('t').toString(),
+              'and the room is joined, read and edited after the refusal');
+        pb.destroy();
+        bd.destroy();
+        b.close();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const [x, y, z] = [await hello(e, 'x'), await hello(e, 'y'),
+                           await hello(e, 'z')];
+
+        x.close();
+        await new Promise((r) => setTimeout(r, 200));
+        y.close();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const huge = await hello(e, 'huge', '?piece=sunrise.gen');
+
+        check(huge.said.why === 'rooms' && e.rooms.has('x') &&
+              e.rooms.has('y'),
+              'a room the empty ones would not make room for is refused, ' +
+              'and they stay');
+
+        const w = await hello(e, 'w');
+
+        check(w.said.type === 'welcome' && !e.rooms.has('x') &&
+              e.rooms.has('y'),
+              'and a new room lets go of the empty ones it needs, oldest ' +
+              'first, and no more');
+
+        for (const c of [z, huge, w])
+            c.close();
+    }
+    finally
+    {
+        e.shutdown();
+    }
+
+    /* A room already past its most -- seeded with more than that -- is
+       joined and read by every page, and only what would add to it is
+       refused. */
+    const o = await relay({ port: 0, host: '127.0.0.1', tree,
+                            roomMaxBytes: 16 * 1024 });
+
+    try
+    {
+        const join = async () =>
+        {
+            const c = await hello(o, 'over');
+            const doc = new Y.Doc();
+            const p = new WebsocketProvider(
+                `ws://127.0.0.1:${o.address().port}/doc`, 'over', doc,
+                { WebSocketPolyfill: WebSocket,
+                  params: { ticket: c.said.ticket }, disableBc: true });
+
+            const ok = await synced(p);
+
+            await new Promise((r) => setTimeout(r, 300));
+            return { c, doc, p, ok };
+        };
+        const x = await join();
+        const y = await join();
+        const read = [x, y].every(({ c, doc, ok }) =>
+            ok && c.ws.readyState === WebSocket.OPEN &&
+            readFile(doc, 'airports.gen') ===
+                readFile(o.rooms.get('over').doc, 'airports.gen'));
+
+        x.doc.getMap('files').get('airports.gen')?.insert(0, '# more\n');
+
+        const told = await x.c.next('refused');
+
+        check(read && told.of === 'edit' && told.why === 'big' &&
+              x.c.ws.readyState === WebSocket.OPEN &&
+              !readFile(o.rooms.get('over').doc, 'airports.gen')
+                  .startsWith('# more') &&
+              y.c.ws.readyState === WebSocket.OPEN,
+              'a room past its most is joined and read, and an edit that ' +
+              'adds to it is refused');
+
+        /* A switch leaves what it replaced in the document, and is not
+           read before it is made: a room past its most makes none. */
+        y.c.send({ type: 'switch', piece: 'ebb.gen' });
+
+        const unswitched = await y.c.next('refused');
+
+        check(unswitched.of === 'switch' &&
+              /as large as/.test(unswitched.why) &&
+              pieceName(o.rooms.get('over').doc) === 'airports.gen',
+              'and so is a switch');
+
+        /* An edit that frees more than it splits is taken. */
+        const was = o.rooms.get('over').bytes;
+        const gen = y.doc.getMap('files').get('airports.gen');
+
+        gen.delete(10, gen.length - 20);
+        await new Promise((r) => setTimeout(r, 300));
+        check(readFile(o.rooms.get('over').doc, 'airports.gen').length === 20 &&
+              o.rooms.get('over').bytes < was && await y.c.none('refused'),
+              'and an edit that cuts it down is taken');
+
+        for (const { c, doc, p } of [x, y])
+        {
+            p.destroy();
+            doc.destroy();
+            c.close();
+        }
+    }
+    finally
+    {
+        o.shutdown();
+    }
+
+    /* What an update makes the document hold can be many times its size:
+       deleting every other character splits a text into a struct for
+       each, at 2 B of update apiece, and an empty object in an array, a
+       client or a root type is a few bytes of one. None takes a room past
+       its most, by what each of them holds of the heap as measured. */
+    const m = await relay({ port: 0, host: '127.0.0.1', tree,
+                            roomMaxBytes: 1024 * 1024 });
+
+    try
+    {
+        const N = 100000;
+        const text = new Y.Doc();
+
+        text.getText('t').insert(0, 'x'.repeat(N));
+
+        /* Every other character of `text', deleted, in updates of
+           `per'. */
+        const split = (per) =>
+        {
+            const out = [];
+
+            for (let start = 1; start < N; start += 2 * per)
+            {
+                const e = encoding.createEncoder();
+                const end = Math.min(N, start + 2 * per);
+
+                encoding.writeVarUint(e, 0);
+                encoding.writeVarUint(e, 1);
+                encoding.writeVarUint(e, text.clientID);
+                encoding.writeVarUint(e, Math.ceil((end - start) / 2));
+
+                for (let i = start; i < end; i += 2)
+                {
+                    encoding.writeVarUint(e, i);
+                    encoding.writeVarUint(e, 1);
+                }
+
+                out.push(encoding.toUint8Array(e));
+            }
+
+            return out;
+        };
+        const made = (f) =>
+        {
+            const d = new Y.Doc();
+
+            d.transact(() => f(d));
+            return [Y.encodeStateAsUpdate(d)];
+        };
+        const structs = (doc) => [...doc.store.clients.values()]
+            .reduce((sum, s) => sum + s.length, 0);
+
+        for (const [what, updates, holds] of [
+            ['a text with every other character deleted',
+             [Y.encodeStateAsUpdate(text), ...split(N / 8)],
+             (doc) => 256 * structs(doc)],
+            ['an array of empty objects',
+             made((d) => d.getArray('a').push(
+                 Array.from({ length: N }, () => ({})))),
+             (doc) => 66 * doc.getArray('a').length],
+            ['a client for every key of a map',
+             [Y.mergeUpdates(Array.from({ length: N / 5 }, () => made(
+                 (d) => d.getMap('m').set('k', 1))[0]))],
+             (doc) => 490 * doc.store.clients.size],
+            ['a root type for every item',
+             made((d) =>
+             {
+                 for (let i = 0; i < N / 5; i++)
+                     d.getMap(`r${i}`).set('k', 1);
+             }),
+             (doc) => 300 * doc.share.size],
+            ['an XML element with a long name',
+             made((d) => d.getXmlFragment('x').insert(
+                 0, [new Y.XmlElement('e'.repeat(6 * N))])),
+             (doc) => 2 * doc.getXmlFragment('x').toArray()
+                 .reduce((sum, e) => sum + e.nodeName.length, 0)],
+            ['a document in the document',
+             made((d) => d.getArray('d').insert(
+                 0, [new Y.Doc({ guid: 'g'.repeat(6 * N) })])),
+             (doc) => [...doc.subdocs]
+                 .reduce((sum, sub) => sum + 2 * sub.guid.length, 0)]])
+        {
+            const name = what.replaceAll(' ', '-');
+            const c = await hello(m, name);
+            const d = await docSocket(m, name, c.said.ticket);
+            const room = m.rooms.get(name);
+
+            for (const u of updates)
+                if (d.readyState === WebSocket.OPEN)
+                {
+                    d.send(frame(u));
+                    await new Promise((r) => setTimeout(r, 200));
+                }
+
+            check(room.bytes <= 1024 * 1024 &&
+                  holds(room.doc) <= 1024 * 1024 &&
+                  (await fetch(`http://127.0.0.1:${m.address().port}/`)).ok,
+                  `${what} takes a room no further than its most`);
+            d.close();
+            c.close();
+        }
+
+        /* A root type an update makes is charged once it is made. */
+        {
+            const c = await hello(m, 'roots');
+            const d = await docSocket(m, 'roots', c.said.ticket);
+            const room = m.rooms.get('roots');
+            const [roots, before] = [room.doc.share.size, room.bytes];
+            d.send(frame(made((doc) =>
+            {
+                for (let i = 0; i < 10; i++)
+                    doc.getMap(`r${i}`).set('k', 1);
+            })[0]));
+            await new Promise((r) => setTimeout(r, 200));
+            check(room.doc.share.size === roots + 10 &&
+                  room.bytes - before >= 10 * 1024,
+                  'a root type an update makes is charged');
+            d.close();
+            c.close();
+        }
+
+        /* A document brought back whole to a room the relay lost, two
+           clients' keystrokes in turn, splits nothing, and is not
+           charged as if each of its items split two structs. */
+        {
+            const c = await hello(m, 'restored', '?piece=');
+            const d = await docSocket(m, 'restored', c.said.ticket);
+            const doc = new Y.Doc();
+
+            for (let i = 0; i < 2000; i++)
+            {
+                doc.clientID = 1 + i % 2;
+                doc.getText('t').insert(i, 'x');
+            }
+
+            d.send(frame(doc));
+            await new Promise((r) => setTimeout(r, 300));
+            check(m.rooms.get('restored').doc.getText('t').length === 2000,
+                  'a document brought back whole is charged only the ' +
+                  'splits it can make ' +
+                  `(${Math.round(m.rooms.get('restored').bytes / 1024)} KiB)`);
+            d.close();
+            c.close();
+        }
+
+        /* Nor does an update whose type is written in two bytes, which
+           would make its first bytes a sync step 1's. */
+        const c = await hello(m, 'long');
+        const d = await docSocket(m, 'long', c.said.ticket);
+        const long = encoding.createEncoder();
+        const cut = refused(d);
+
+        encoding.writeUint8(long, 0x80);
+        encoding.writeUint8(long, 0);
+        encoding.writeVarUint(long, syncProtocol.messageYjsUpdate);
+        encoding.writeVarUint8Array(long, made((doc) =>
+            doc.getText('t').insert(0, 'x'.repeat(1024 * 1024)))[0]);
+        d.send(encoding.toUint8Array(long));
+        check(await cut && m.rooms.get('long').doc.getText('t').length === 0,
+              'and nor does one whose type is written long');
+        c.close();
+    }
+    finally
+    {
+        m.shutdown();
+    }
+
+    /* The rooms' budget holds as they grow, as when they are made: an
+       edit lets go of the rooms empty longest that it needs, and with
+       too few to let go it is refused. */
+    const g = await relay({ port: 0, host: '127.0.0.1', tree,
+                            roomsMaxBytes: 272 * 1024,
+                            roomMaxBytes: 224 * 1024 });
+
+    try
+    {
+        const total = () => [...g.rooms.values()]
+            .reduce((sum, r) => sum + r.bytes, 0);
+        const edit = async (name) =>
+        {
+            const c = await hello(g, name);
+            const d = await docSocket(g, name, c.said.ticket);
+            const doc = new Y.Doc();
+            let sv = Y.encodeStateVector(doc);
+
+            c.errors = [];
+            c.ws.on('message', (m) =>
+            {
+                if (JSON.parse(m).type === 'refused')
+                    c.errors.push(JSON.parse(m));
+            });
+            c.type = async (kib) =>
+            {
+                doc.getText('t').insert(0, 'x'.repeat(kib * 1024));
+                d.send(frame(doc, sv));
+                sv = Y.encodeStateVector(doc);
+                await new Promise((r) => setTimeout(r, 200));
+                return g.rooms.get(name)?.doc.getText('t').length / 1024;
+            };
+            return c;
+        };
+        const e = await hello(g, 'idle');
+
+        e.close();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const a = await edit('a');
+        const b = await edit('b');
+        const took = [await a.type(40), await b.type(40)];
+
+        await a.type(40);
+
+        const told = a.errors[0] ?? {};
+        const under = total() <= 272 * 1024 && g.rooms.has('idle');
+
+        check(took.join() === '40,40' && told.why === 'rooms' && under &&
+              g.rooms.get('a').doc.getText('t').length === 40 * 1024,
+              'an edit that would take the rooms past their budget is ' +
+              'refused, and no empty room goes for it in vain');
+        check(await b.type(12) === 52 && !g.rooms.has('idle') &&
+              total() <= 272 * 1024,
+              'and one an empty room going makes room for lets it go');
+
+        for (const c of [a, b])
+            c.close();
+    }
+    finally
+    {
+        g.shutdown();
+    }
+
+    /* An update that builds on what the room does not have is held
+       until that arrives, and charged while it is; held past a little,
+       it goes, and so does the socket that sent it. */
+    const h = await relay({ port: 0, host: '127.0.0.1', tree });
+
+    try
+    {
+        const c = await hello(h, 'held');
+        const d = await docSocket(h, 'held', c.said.ticket);
+        const room = h.rooms.get('held');
+        const doc = new Y.Doc();
+        const text = doc.getText('t');
+        const before = room.bytes;
+        const closed = refused(d);
+        let sv;
+        const after = async (insert) =>
+        {
+            sv = Y.encodeStateVector(doc);
+            insert();
+            d.send(frame(doc, sv));
+            await new Promise((r) => setTimeout(r, 200));
+        };
+
+        text.insert(0, 'withheld');
+        await after(() => text.insert(0, 'k'.repeat(1024)));
+
+        const small = room.bytes - before;
+        const open = d.readyState === WebSocket.OPEN;
+
+        await after(() => text.insert(0, 'k'.repeat(100 * 1024)));
+        check(small >= 2 * 1024 && small < 4 * 1024 && open &&
+              await closed && room.bytes === before &&
+              room.doc.store.pendingStructs === null,
+              'an update held for what it builds on is charged, and one ' +
+              'that leaves much held goes, and its socket with it');
+
+        /* Held past the most by one socket's frame, most of it another's:
+           the other goes. */
+        const holder = async (kib) =>
+        {
+            const p = await hello(h, 'held');
+            const s = await docSocket(h, 'held', p.said.ticket);
+            const own = new Y.Doc();
+
+            own.getText('t').insert(0, 'withheld');
+
+            const base = Y.encodeStateVector(own);
+
+            own.getText('t').insert(0, 'k'.repeat(kib * 1024));
+            s.send(frame(own, base));
+            await new Promise((r) => setTimeout(r, 200));
+            return s;
+        };
+        const most = await holder(60);
+        const cut = refused(most);
+        const last = await holder(8);
+
+        check(await cut && last.readyState === WebSocket.OPEN &&
+              room.doc.store.pendingStructs === null,
+              'and of the sockets holding it, the one that holds the most ' +
+              'goes');
+        last.close();
+        c.close();
+    }
+    finally
+    {
+        h.shutdown();
+    }
+
+    /* What a run keeps is charged to its room: past what the room or
+       the rooms may be charged, the run overflows, and an edit to the
+       document that needs what it holds overflows it. */
+    const l = await relay({ port: 0, host: '127.0.0.1', tree,
+                            roomsMaxBytes: 150 * 1024,
+                            roomMaxBytes: 128 * 1024 });
+
+    try
+    {
+        const pad = 'x'.repeat(20 * 1024);
+        const play = async (name) =>
+        {
+            const c = await hello(l, name);
+
+            c.send({ type: 'transport',
+                     data: { type: 'transport', op: 'start', seq: 0 } });
+            c.log = async (n) =>
+            {
+                for (let i = 0; i < n; i++)
+                    c.send({ type: 'log', run: `${c.said.peer}#0`,
+                             data: { type: 'knob', pad } });
+
+                await new Promise((r) => setTimeout(r, 200));
+                return l.rooms.get(name).run;
+            };
+            return c;
+        };
+        const a = await play('la');
+        const b = await play('lb');
+        const doc = (await hello(l, 'la')).said;
+        const before = l.rooms.get('la').bytes;
+        const kept = (await a.log(4)).length;
+        const charged = l.rooms.get('la').bytes - before;
+        const seeded = l.rooms.get('lb').bytes;
+        const spilled = (await b.log(1)).overflowed;
+
+        check(kept === 4 && charged > 80 * 1024 && spilled &&
+              l.rooms.get('lb').bytes === seeded,
+              'a run\'s commands are charged to its room, and one past ' +
+              'what the rooms may be charged overflows the run');
+
+        /* An edit the room has no room for even without them leaves
+           them be. */
+        const big = (await hello(l, 'la')).said;
+        const bd = await docSocket(l, 'la', big.ticket);
+        const huge = new Y.Doc();
+
+        huge.getText('h').insert(0, 'h'.repeat(100 * 1024));
+        bd.send(frame(huge));
+        await new Promise((r) => setTimeout(r, 200));
+        check(!l.rooms.get('la').run.overflowed &&
+              l.rooms.get('la').run.length === 4 &&
+              l.rooms.get('la').doc.getText('h').length === 0,
+              'an edit too large for the room even without the run\'s ' +
+              'commands is refused, and leaves them be');
+
+        const d = await docSocket(l, 'la', doc.ticket);
+        const ydoc = new Y.Doc();
+
+        ydoc.getText('t').insert(0, 'y'.repeat(20 * 1024));
+        d.send(frame(ydoc));
+        await new Promise((r) => setTimeout(r, 200));
+        check(l.rooms.get('la').run.overflowed &&
+              l.rooms.get('la').doc.getText('t').length === 20 * 1024 &&
+              l.rooms.get('la').bytes < before + 50 * 1024,
+              'and an edit the room has room for only without the run\'s ' +
+              'commands overflows the run, and is taken');
+        d.close();
+        a.close();
+        b.close();
+    }
+    finally
+    {
+        l.shutdown();
+    }
+
+    /* And it holds them as what they are charged: parsed, a command of
+       empty objects holds twenty times its JSON. */
+    const ob = await relay({ port: 0, host: '127.0.0.1', tree });
+
+    try
+    {
+        const c = await hello(ob, 'objects');
+        const room = ob.rooms.get('objects');
+        const lines = Array.from({ length: 8 }, (_, i) => JSON.stringify(
+            { type: 'log', run: `${c.said.peer}#0`,
+              data: { type: 'knob', i, x: Array(100000).fill({}) } }));
+
+        c.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', seq: 0 } });
+        await new Promise((r) => setTimeout(r, 200));
+
+        const heap = heapUsed();
+        const before = room.bytes;
+
+        for (const line of lines)
+            c.ws.send(line);
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        const held = heapUsed() - heap;
+        const charged = room.bytes - before;
+
+        check(room.run.length === 8 && held < 2 * charged + 1024 * 1024,
+              'a run\'s commands hold about what they are charged ' +
+              `(${Math.round(held / 1024)} KiB held, ` +
+              `${Math.round(charged / 1024)} KiB charged)`);
+        c.close();
+
+        /* And its start is the fields a page reads of one. */
+        const s = await hello(ob, 'start');
+        const start = JSON.stringify(
+            { type: 'transport',
+              data: { type: 'transport', op: 'start', seq: 0,
+                      x: Array(300000).fill({}) } });
+        const was = heapUsed();
+
+        s.ws.send(start);
+        await new Promise((r) => setTimeout(r, 300));
+
+        const kept = heapUsed() - was;
+
+        check(ob.rooms.get('start').playing?.seq === 0 &&
+              !('x' in ob.rooms.get('start').playing) && kept < 1024 * 1024,
+              'a start is kept as the fields a page reads of one ' +
+              `(${Math.round(kept / 1024)} KiB held)`);
+        s.close();
+    }
+    finally
+    {
+        ob.shutdown();
+    }
+
+    /* A room waits for one start's document at a time, however many
+       starts come: each would look at the whole document at every update
+       for as long as it waited. A stop ends the wait. */
+    const k = await relay({ port: 0, host: '127.0.0.1', tree });
+
+    try
+    {
+        const c = await hello(k, 'starts');
+        const room = k.rooms.get('starts');
+        const waits = () => room.doc._observers.get('update').size;
+        const idle = waits();
+
+        for (let i = 0; i < 100; i++)
+            c.send({ type: 'transport',
+                     data: { type: 'transport', op: 'start', seq: i,
+                             piece: { hash: `h${i}` } } });
+
+        await new Promise((r) => setTimeout(r, 300));
+
+        const playing = waits();
+
+        c.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop' } });
+        await new Promise((r) => setTimeout(r, 200));
+        check(room.playing === null && playing === idle + 1 &&
+              waits() === idle,
+              'a room waits for one start\'s document at a time, and a ' +
+              'stop ends the wait');
+        c.close();
+    }
+    finally
+    {
+        k.shutdown();
+    }
+
+    /* A run is charged the document its start named, a copy of every
+       text kept for late joiners, and that as a catch-up's JSON once one
+       is asked for; a stop gives them back. */
+    const v = await relay({ port: 0, host: '127.0.0.1', tree });
+
+    try
+    {
+        const c = await hello(v, 'kept');
+        const room = v.rooms.get('kept');
+        const texts = Object.values(snapshot(room.doc).files)
+            .reduce((n, t) => n + t.length, 0);
+        const idle = room.bytes;
+
+        c.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', seq: 0,
+                         piece: { hash: await hashOf(room.doc) } } });
+        await new Promise((r) => setTimeout(r, 300));
+
+        const named = room.bytes - idle;
+
+        c.send({ type: 'catchup' });
+        await c.next('catchup');
+
+        const asked = room.bytes - idle;
+
+        c.send({ type: 'transport',
+                 data: { type: 'transport', op: 'stop' } });
+        await new Promise((r) => setTimeout(r, 200));
+        check(named >= 2 * texts && asked >= named + texts &&
+              room.bytes === idle,
+              'a run is charged the document its start named, and its ' +
+              'catch-up, until it stops');
+        c.close();
+    }
+    finally
+    {
+        v.shutdown();
+    }
+
+    /* A room let go of while a switch in it waits to be played is
+       charged nothing after: the switch's Play would give back its run's
+       commands a second time. */
+    const s = await relay({ port: 0, host: '127.0.0.1', tree,
+                            roomsMaxBytes: 160 * 1024,
+                            roomMaxBytes: 128 * 1024 });
+
+    try
+    {
+        const b = await hello(s, 'grows');
+        const a = await hello(s, 'goes');
+        const d = await docSocket(s, 'grows', b.said.ticket);
+        const pad = 'x'.repeat(20 * 1024);
+        const ydoc = new Y.Doc();
+
+        a.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', seq: 0 } });
+
+        for (let i = 0; i < 2; i++)
+            a.send({ type: 'log', run: `${a.said.peer}#0`,
+                     data: { type: 'knob', pad } });
+
+        await new Promise((r) => setTimeout(r, 200));
+
+        const logged = s.rooms.get('goes').run.length;
+
+        a.send({ type: 'switch', piece: 'airports.gen' });
+        a.ws.terminate();
+        await new Promise((r) => setTimeout(r, 15));
+        ydoc.getText('t').insert(0, 'y'.repeat(40 * 1024));
+        d.send(frame(ydoc));
+        await new Promise((r) => setTimeout(r, 300));
+
+        const room = s.rooms.get('grows');
+
+        check(logged === 2 && !s.rooms.has('goes') &&
+              room.doc.getText('t').length === 40 * 1024 &&
+              room.ctx.costs.bytes === room.bytes,
+              'a room let go of while a switch in it is played is charged ' +
+              'nothing after');
+        d.close();
+        b.close();
+    }
+    finally
+    {
+        s.shutdown();
+    }
+
+    /* A ticket past its life, not yet swept, lets in nobody past the
+       most. */
+    const t = await relay({ port: 0, host: '127.0.0.1', tree, peersMax: 1,
+                            ticketMs: 1000 });
+
+    try
+    {
+        const a = await hello(t, 'lapsed');
+
+        await new Promise((r) => setTimeout(r, 1050));
+
+        const late = await Promise.all([1, 2, 3].map(async () =>
+        {
+            const c = await open(t, 'lapsed');
+
+            c.send({ type: 'hello', name: 'late', protocol: PROTOCOL,
+                     tickets: true, was: a.said.ticket });
+            c.said = await Promise.race([c.next('welcome'), c.next('error')]);
+            return c;
+        }));
+
+        check(late.every((c) => c.said.why === 'full') &&
+              t.rooms.get('lapsed').peers.size === 1 &&
+              a.ws.readyState === WebSocket.OPEN,
+              'a page joining again with a lapsed ticket counts against ' +
+              'the most people');
+
+        for (const x of [a, ...late])
+            x.close();
+    }
+    finally
+    {
+        t.shutdown();
+    }
+
+    /* A seeded room is charged for what it was seeded with; one made and
+       seeded and then refused for it is one of its client's new rooms. */
+    const w = await relay({ port: 0, host: '127.0.0.1', tree,
+                            roomsMaxBytes: 200 * 1024,
+                            roomLimits: [{ burst: 3, refillMs: 60000 },
+                                         null, null] });
+
+    try
+    {
+        const big = await hello(w, 'big', '?piece=sunrise.gen');
+        const bigger = await hello(w, 'bigger', '?piece=sunrise.gen');
+        const small = await hello(w, 'small', '?piece=');
+
+        check(big.said.type === 'welcome' && bigger.said.why === 'rooms' &&
+              small.said.type === 'welcome',
+              'rooms are charged for the piece they are seeded with');
+
+        const again = await hello(w, 'again', '?piece=sunrise.gen');
+
+        check(/too many new rooms/.test(again.said.text),
+              'and a room made and refused for it counts as one of its ' +
+              'client\'s new rooms');
+
+        for (const x of [big, bigger, small, again])
+            x.close();
+    }
+    finally
+    {
+        w.shutdown();
+    }
+}
+
+/* Every message a room socket sends is limited by type, as chat is: past
+   its rate it is dropped and the page told, and a socket that keeps on is
+   cut. A document socket's frames are limited too. */
+async function ratesLimited ()
+{
+    const types = ['ping', 'signal', 'relayed', 'log', 'transport', 'seat',
+                   'switch', 'catchup', 'chat', 'other'];
+    const q = await relay({ port: 0, host: '127.0.0.1', tree,
+                            limits: { room: Object.fromEntries(
+                                          types.map((t) => [t, [3, 0.001]])),
+                                      drops: [5, 0.001], doc: [3, 0.001] } });
+    const at = `127.0.0.1:${q.address().port}`;
+    const join = async (room, name) =>
+    {
+        const c = new Client(`ws://${at}/room/${room}`, name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+        c.welcome = await c.next('welcome');
+        return c;
+    };
+    const count = (c, type) => c.got.filter((m) => m.type === type).length;
+
+    try
+    {
+        /* Each type: what is sent, and what three of it come to. */
+        for (const [type, m, seen] of [
+            ['ping', { type: 'ping', t0: 1 }, (a) => count(a, 'pong')],
+            ['signal', (b) => ({ type: 'signal', to: b, data: {} }),
+             (a, b) => count(b, 'signal')],
+            ['relayed', { type: 'relayed', data: {} },
+             (a, b) => count(b, 'relayed')],
+            ['log', { type: 'log', data: {}, run: 'x#0' }, null],
+            ['transport', { type: 'transport', data: { op: 'tempo' } },
+             (a, b) => count(b, 'transport')],
+            ['seat', { type: 'seat', seat: 1 }, (a) => count(a, 'seats')],
+            ['switch', { type: 'switch', piece: 'ebb.gen' },
+             (a) => count(a, 'switched')],
+            ['catchup', { type: 'catchup' }, (a) => count(a, 'catchup')],
+            ['chat', { type: 'chat', channel: 'stage', text: 'hi' },
+             (a, b) => count(b, 'chat')],
+            ['other', { type: 'hello', protocol: PROTOCOL, tickets: true },
+             null],
+            ['other', { type: 'constructor' }, null]])
+        {
+            const a = await join(`rate-${type}`, 'A');
+            const b = await join(`rate-${type}`, 'B');
+
+            for (let i = 0; i < 5; i++)
+                a.send(typeof m === 'function' ? m(b.welcome.peer) : m);
+
+            await new Promise((r) => setTimeout(r, 300));
+
+            const told = a.got.filter((x) => x.type === 'refused');
+
+            check(told.length === 1 && told[0].of === type &&
+                  /too fast/.test(told[0].why) &&
+                  (seen === null || seen(a, b) === 3) &&
+                  a.ws.readyState === WebSocket.OPEN,
+                  `${type === 'other' ? `${m.type} (as other)` : type} ` +
+                  'messages past their rate are dropped, and the ' +
+                  'page told once');
+            a.close();
+            b.close();
+        }
+
+        /* A Play past its rate is played all the same, the mesh having
+           carried it, but not the one whose refusal cuts the socket. */
+        {
+            const a = await join('rate-cut', 'A');
+
+            for (let seq = 0; seq < 9; seq++)
+                a.send({ type: 'transport',
+                         data: { type: 'transport', op: 'start', seq } });
+
+            const cut = await refused(a.ws);
+
+            check(cut && q.rooms.get('rate-cut').playing?.seq === 7,
+                  'a Play that gets its socket cut for flooding does not ' +
+                  `change the run (${q.rooms.get('rate-cut').playing?.seq})`);
+        }
+
+        /* A catch-up past its rate is refused, and the page's wait for
+           it ends then. */
+        {
+            const r = new Room(`ws://${at}`, 'rate-room', 'R');
+
+            await r.connect();
+
+            for (let i = 0; i < 3; i++)
+                await r.catchUp(2000);
+
+            const t0 = performance.now();
+            const why = await r.catchUp(5000).then(() => '', (e) => e.message);
+
+            check(/refused a catchup: too fast/.test(why) &&
+                  performance.now() - t0 < 1000,
+                  'a catch-up the relay refuses ends the page\'s wait for ' +
+                  `it (${why || 'answered'})`);
+            r.close();
+        }
+
+        /* A start past its rate is not passed on, and is the run all
+           the same: the mesh carried it. */
+        {
+            const a = await join('rate-start', 'A');
+            const b = await join('rate-start', 'B');
+
+            for (let seq = 0; seq < 5; seq++)
+                a.send({ type: 'transport',
+                         data: { type: 'transport', op: 'start', seq } });
+
+            await new Promise((r) => setTimeout(r, 300));
+            check(count(b, 'transport') === 3 &&
+                  q.rooms.get('rate-start').playing?.seq === 4,
+                  'a start past its rate is not passed on, and is the run ' +
+                  'all the same');
+            a.close();
+            b.close();
+        }
+
+        /* Each chat line the page counts is told of, past the first. */
+        {
+            const a = await join('rate-chat-n', 'A');
+
+            for (let n = 1; n <= 5; n++)
+                a.send({ type: 'chat', channel: 'stage', text: 'hi', n });
+
+            await new Promise((r) => setTimeout(r, 300));
+            check(a.got.filter((x) => x.type === 'refused')
+                      .map((x) => x.n).join() === '4,5',
+                  'every counted chat line past the rate is refused with ' +
+                  'its count, more than one a second');
+            a.close();
+        }
+
+        /* A switch refused names its piece, whatever was sent as one. */
+        {
+            const a = await join('rate-evil', 'A');
+
+            for (let i = 0; i < 5; i++)
+                a.send({ type: 'switch', piece: { toString: 1, valueOf: 1 } });
+
+            await new Promise((r) => setTimeout(r, 300));
+            check(a.got.some((x) => x.type === 'refused' &&
+                                    /too fast/.test(x.why)) &&
+                  a.ws.readyState === WebSocket.OPEN &&
+                  (await fetch(`http://${at}/`)).ok,
+                  'a switch past its rate whose piece throws is refused, ' +
+                  'and the relay lives');
+            a.close();
+        }
+
+        /* Before a hello, as after it. */
+        {
+            const w = new WebSocket(`ws://${at}/room/early`);
+
+            await new Promise((r) => w.on('open', r));
+
+            const cut = refused(w);
+
+            for (let i = 0; i < 10; i++)
+                w.send(i % 2 ? '{' : JSON.stringify({ type: 'ping', t0: i }));
+
+            check(await cut && !q.rooms.has('early'),
+                  'a socket that goes on sending something before its ' +
+                  'hello is cut');
+        }
+
+        /* And one that goes on is cut, and told why. */
+        for (const m of [{ type: 'ping', t0: 1 },
+                         { type: 'chat', channel: 'stage', text: 'hi' }])
+        {
+            const a = await join(`flood-${m.type}`, 'A');
+
+            for (let i = 0; i < 12; i++)
+                a.send(m);
+
+            const e = await a.next('error');
+
+            check(e.why === 'flood' && await refused(a.ws),
+                  `a socket that keeps on past its rate is cut (${m.type})`);
+        }
+
+        /* A cursor past the document socket's rate is dropped; an update
+           past it cuts the socket. */
+        {
+            const a = await join('docrate', 'A');
+            const d = await docSocket(q, 'docrate', a.welcome.ticket);
+            const step1 = encoding.createEncoder();
+            const cursor = encoding.createEncoder();
+            const aw = new awarenessProtocol.Awareness(new Y.Doc());
+
+            encoding.writeVarUint(step1, 0);
+            syncProtocol.writeSyncStep1(step1, new Y.Doc());
+            aw.setLocalState({});
+            encoding.writeVarUint(cursor, 1);
+            encoding.writeVarUint8Array(cursor,
+                awarenessProtocol.encodeAwarenessUpdate(aw, [aw.clientID]));
+
+            const closed = refused(d);
+
+            for (let i = 0; i < 5; i++)
+                d.send(encoding.toUint8Array(i < 3 ? step1 : cursor));
+
+            await new Promise((r) => setTimeout(r, 300));
+
+            const open = d.readyState === WebSocket.OPEN;
+
+            d.send(encoding.toUint8Array(step1));
+            check(open && await closed,
+                  'a cursor past the document socket\'s rate is dropped, ' +
+                  'and an update past it cuts the socket');
+
+            /* The rate is the peer's: a socket opened again on its
+               ticket has none of it back. */
+            const e = await docSocket(q, 'docrate', a.welcome.ticket);
+            const doc = new Y.Doc();
+            const cut = refused(e);
+
+            doc.getText('t').insert(0, 'again');
+            e.send(frame(doc));
+            check(await cut &&
+                  q.rooms.get('docrate').doc.getText('t').length === 0,
+                  'and one opened again in its place has none of the rate ' +
+                  'back');
+            aw.destroy();
+            a.close();
+        }
+    }
+    finally
+    {
+        q.shutdown();
+    }
+}
+
+/* What one socket's messages have queued for others is bounded in bytes,
+   however its `to' is written. */
+async function fanoutBounded ()
+{
+    const f = await relay({ port: 0, host: '127.0.0.1', tree,
+                            limits: { fanout: [2 * 1024 * 1024, 1024],
+                                      runFanout: [2 * 1024 * 1024, 1024] } });
+    const join = async (name) =>
+    {
+        const c = new Client(`ws://127.0.0.1:${f.address().port}/room/fan`,
+                             name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+        c.welcome = await c.next('welcome');
+        return c;
+    };
+
+    try
+    {
+        const [s, v, w] = [await join('S'), await join('V'), await join('W')];
+
+        s.send({ type: 'relayed', to: Array(1000).fill(v.welcome.peer),
+                 data: { once: true } });
+        await v.next('relayed');
+        check(await v.none('relayed', 300),
+              'a relayed gesture naming a peer many times reaches it once');
+
+        const pad = 'x'.repeat(900 * 1024);
+
+        s.send({ type: 'relayed', data: { pad } });
+        s.send({ type: 'relayed', data: { pad } });
+
+        const told = await s.next('refused');
+
+        await new Promise((r) => setTimeout(r, 300));
+        check(told.of === 'relayed' &&
+              [v, w].every((c) => c.got.filter((m) =>
+                  m.type === 'relayed').length === 1 &&
+                  c.ws.readyState === WebSocket.OPEN) &&
+              s.ws.readyState === WebSocket.OPEN,
+              'past its bytes for others a socket\'s gesture goes to ' +
+              'nobody, and the page is told');
+
+        /* A start past its bytes goes to nobody from here, and is the
+           run here all the same: the mesh carried it. An edit, which only
+           goes from here, leaves the run as it was. */
+        const start = (seq) => s.send({ type: 'transport',
+                                        data: { type: 'transport',
+                                                op: 'start', seq,
+                                                piece: { hash: pad } } });
+        const edit = (text) => s.send({ type: 'transport',
+                                        run: `${s.welcome.peer}#2`,
+                                        data: { type: 'edit', text } });
+
+        start(1);
+        start(2);
+
+        const no = await s.next('refused');
+
+        edit('x');
+        edit(pad);
+        await new Promise((r) => setTimeout(r, 300));
+        check(no.of === 'transport' && no.op === 'start' &&
+              f.rooms.get('fan').playing?.seq === 2 &&
+              f.rooms.get('fan').run.length === 1 &&
+              [v, w].every((c) => c.got.filter((m) =>
+                  m.type === 'transport').length === 2),
+              'past its bytes for others a transport command goes to ' +
+              'nobody, and the page is told which; a start is the run ' +
+              'all the same, and an edit is not kept');
+
+        s.close();
+        check((await v.next('left')).peer === s.welcome.peer,
+              'and its leaving is still told to the others');
+
+        for (const c of [v, w])
+            c.close();
+    }
+    finally
+    {
+        f.shutdown();
+    }
+}
+
+/* What a socket sends is bounded in bytes before it is read: a frame as
+   long as the relay takes goes through, and a socket sending them back to
+   back is cut. */
+async function inBytesBounded ()
+{
+    const g = await relay({ port: 0, host: '127.0.0.1', tree,
+                            limits: { roomIn: [2 * 1024 * 1024, 1024],
+                                      docIn: [64 * 1024, 1024],
+                                      drops: [40, 0.001] } });
+    const at = `127.0.0.1:${g.address().port}`;
+    const join = async (name) =>
+    {
+        const c = new Client(`ws://${at}/room/in`, name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+        c.welcome = await c.next('welcome');
+        return c;
+    };
+
+    try
+    {
+        const [s, v] = [await join('S'), await join('V')];
+        const line = { type: 'relayed', data: 'x'.repeat(1023 * 1024) };
+
+        s.send(line);
+        await v.next('relayed');
+        check(s.ws.readyState === WebSocket.OPEN,
+              'a room line near the longest the relay takes goes through');
+
+        for (let i = 0; i < 6; i++)
+            s.send(line);
+
+        const e = await s.next('error');
+
+        check(e.why === 'flood' && await refused(s.ws) &&
+              s.got.filter((m) => m.type === 'refused' &&
+                                  m.of === 'bytes').length === 1 &&
+              v.got.filter((m) => m.type === 'relayed').length === 1,
+              'a socket sending the longest lines back to back is refused ' +
+              'past its bytes, and then cut');
+
+        const d = await docSocket(g, 'in', v.welcome.ticket);
+        const doc = new Y.Doc();
+        const text = doc.getText('t');
+        const closed = refused(d);
+
+        text.insert(0, 'x'.repeat(40 * 1024));
+        d.send(frame(doc));
+        await new Promise((r) => setTimeout(r, 200));
+
+        const took = g.rooms.get('in').doc.getText('t').length;
+
+        text.insert(0, 'x'.repeat(40 * 1024));
+        d.send(frame(doc));
+        check(took === 40 * 1024 && await closed &&
+              g.rooms.get('in').doc.getText('t').length === took,
+              'a document update past the socket\'s bytes cuts it');
+        doc.destroy();
+        v.close();
+    }
+    finally
+    {
+        g.shutdown();
+    }
+
+    /* And an address's peers' updates between them: one past what they
+       have sent together is cut, however little its own peer has. */
+    const u = await relay({ port: 0, host: '127.0.0.1', tree,
+                            updateLimits: [{ burst: 64 * 1024,
+                                             refillMs: 1000 }, null, null] });
+
+    try
+    {
+        const edit = async (name) =>
+        {
+            const c = new Client(`ws://127.0.0.1:${u.address().port}/room/up`,
+                                 name);
+
+            await c.open();
+            c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+
+            const { ticket } = await c.next('welcome');
+            const d = await docSocket(u, 'up', ticket);
+            const doc = new Y.Doc();
+            const cut = refused(d, 500);
+
+            doc.getText(name).insert(0, 'x'.repeat(40 * 1024));
+            d.send(frame(doc));
+            return [c, await cut];
+        };
+        const [a, aCut] = await edit('a');
+        const [b, bCut] = await edit('b');
+        const { doc } = u.rooms.get('up');
+
+        check(!aCut && bCut && doc.getText('a').length === 40 * 1024 &&
+              doc.getText('b').length === 0,
+              'an update past what its address\'s peers have sent ' +
+              'between them cuts its socket');
+        a.close();
+        b.close();
+    }
+    finally
+    {
+        u.shutdown();
+    }
+}
+
+/* A sync step 1 is answered with the whole document, so a document
+   socket may ask for one only so often. */
+async function syncAsksBounded ()
+{
+    const y = await relay({ port: 0, host: '127.0.0.1', tree });
+
+    try
+    {
+        const at = `127.0.0.1:${y.address().port}`;
+        const a = new Client(`ws://${at}/room/asks`, 'A');
+
+        await a.open();
+        a.send({ type: 'hello', name: 'A', protocol: PROTOCOL,
+                 tickets: true });
+
+        const { ticket } = await a.next('welcome');
+        const d = await docSocket(y, 'asks', ticket);
+        const step1 = encoding.createEncoder();
+        let answers = 0;
+
+        encoding.writeVarUint(step1, 0);
+        syncProtocol.writeSyncStep1(step1, new Y.Doc());
+        d.on('message', (x) =>
+        {
+            const b = new Uint8Array(x);
+
+            if (b[0] === 0 && b[1] === syncProtocol.messageYjsSyncStep2)
+                answers++;
+        });
+
+        const closed = refused(d);
+
+        for (let i = 0; i < 10; i++)
+            d.send(encoding.toUint8Array(step1));
+
+        check(await closed && answers === 4,
+              `a document socket asking for the document again and again ` +
+              `is answered ${answers} times, and closed`);
+
+        const e = await docSocket(y, 'asks', ticket);
+        let more = 0;
+
+        e.on('message', (x) =>
+        {
+            const b = new Uint8Array(x);
+
+            if (b[0] === 0 && b[1] === syncProtocol.messageYjsSyncStep2)
+                more++;
+        });
+
+        const shut = refused(e);
+
+        e.send(encoding.toUint8Array(step1));
+        check(await shut && more === 0,
+              'and one opened again on the same ticket is not answered ' +
+              'again');
+        a.close();
+    }
+    finally
+    {
+        y.shutdown();
+    }
+}
+
+/* Past its share of memory, whatever the rooms are charged, the relay
+   sheds load a thing at a time: the empty rooms, then what a run keeps
+   for late joiners, and only then the room charged the most, whose
+   people are told why. */
+async function memoryShed ()
+{
+    const q = await relay({ port: 0, host: '127.0.0.1', tree, metricsPort: 0,
+                            memoryMaxBytes: 2 ** 40 });
+    const at = `127.0.0.1:${q.address().port}`;
+    const join = async (room, name) =>
+    {
+        const c = new Client(`ws://${at}/room/${room}`, name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+        c.welcome = await c.next('welcome');
+        return c;
+    };
+    const until = async (cond) =>
+    {
+        for (let i = 0; i < 100 && !cond(); i++)
+            await new Promise((r) => setTimeout(r, 50));
+    };
+    const usage = process.memoryUsage;
+    const write = process.stderr.write;
+    const shed = [];
+
+    try
+    {
+        (await join('idle', 'E')).close();
+
+        const [b, p] = [await join('big', 'B'), await join('played', 'P')];
+        const d = await docSocket(q, 'big', b.welcome.ticket);
+        const doc = new Y.Doc();
+
+        doc.getText('t').insert(0, 'x'.repeat(100 * 1024));
+        d.send(frame(doc));
+        p.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', seq: 0 } });
+
+        for (let i = 0; i < 4; i++)
+            p.send({ type: 'log', run: `${p.welcome.peer}#0`,
+                     data: { type: 'knob', pad: 'x'.repeat(1024) } });
+
+        await until(() => q.rooms.get('played').run?.length === 4);
+        await until(() => q.rooms.get('idle').empty);
+
+        process.stderr.write = (line) =>
+            (/shedding/.test(line) ? shed.push(line)
+                                   : write.call(process.stderr, line));
+        process.memoryUsage = () => ({ ...usage(), external: 2 ** 40 });
+        await until(() => shed.length >= 3);
+        process.memoryUsage = usage;
+        process.stderr.write = write;
+
+        const scraped = await (await fetch(
+            `http://127.0.0.1:${q.metrics.address().port}/`)).json();
+
+        const told = await b.next('error');
+
+        check(/the empty rooms \(1\)/.test(shed[0]) &&
+              /room played's \d+ B kept for late joiners/.test(shed[1]) &&
+              /room big/.test(shed[2]) && !q.rooms.has('idle') &&
+              !q.rooms.has('big') &&
+              scraped.shed.rooms >= 2 && scraped.shed.runs === 1,
+              'past its share of memory the relay sheds the empty rooms, ' +
+              'then a run\'s log, then the largest room ' +
+              `(${shed.map((l) => l.replace(/^.*shedding /, '').trim())
+                  .join('; ')})`);
+        check(told.why === 'memory' && told.retryMs > 0 &&
+              /short of memory/.test(told.text),
+              'and the people in a room cut for memory are told to join ' +
+              `again shortly (${JSON.stringify(told)})`);
+        p.close();
+    }
+    finally
+    {
+        process.memoryUsage = usage;
+        process.stderr.write = write;
+        q.shutdown();
+    }
+}
+
+/* The backstop where little is left to shed. */
+async function memoryShedEdges ()
+{
+    const q = await relay({ port: 0, host: '127.0.0.1', tree, metricsPort: 0,
+                            memoryMaxBytes: 2 ** 40 });
+    const usage = process.memoryUsage;
+    const write = process.stderr.write;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    try
+    {
+        const p = new Client(`ws://127.0.0.1:${q.address().port}/room/played`,
+                             'P');
+
+        await p.open();
+        p.send({ type: 'hello', name: 'P', protocol: PROTOCOL, tickets: true });
+
+        const w = await p.next('welcome');
+
+        p.send({ type: 'transport',
+                 data: { type: 'transport', op: 'start', seq: 0 } });
+        p.send({ type: 'log', run: `${w.peer}#0`,
+                 data: { type: 'knob', v: 1 } });
+
+        for (let i = 0; i < 40 && q.rooms.get('played').run?.length !== 1; i++)
+            await sleep(25);
+
+        p.close();
+
+        for (let i = 0; i < 40 && !q.rooms.get('played').empty; i++)
+            await sleep(25);
+
+        process.stderr.write = (line) =>
+            (/shedding/.test(line) ? true : write.call(process.stderr, line));
+        process.memoryUsage = () => ({ ...usage(), external: 2 ** 40 });
+        await sleep(600);
+        check(!q.rooms.has('played'),
+              'past its share of memory the relay lets go of an empty room ' +
+              'that is still playing, and goes on');
+
+        let [last, worst] = [Date.now(), 0];
+        const tick = setInterval(() =>
+        {
+            worst = Math.max(worst, Date.now() - last);
+            last = Date.now();
+        }, 10);
+
+        await sleep(2000);
+        clearInterval(tick);
+
+        const { shed } = await (await fetch(
+            `http://127.0.0.1:${q.metrics.address().port}/`)).json();
+
+        check(worst < 500 && shed.streak === 0,
+              'and with nothing left to shed it looks again as often, ' +
+              `counting no more to shed (${worst} ms, ${shed.streak})`);
+    }
+    finally
+    {
+        process.memoryUsage = usage;
+        process.stderr.write = write;
+        q.shutdown();
+    }
+}
+
+/* One page that stops reading, its queue most of what the relay holds
+   and under the queues' caps: its room is the one shed, and the memory
+   goes with it, so that no other room is. */
+async function memoryShedQueued ()
+{
+    const memoryMaxBytes = 100 * 1024 * 1024;
+    const q = await relay({ port: 0, host: '127.0.0.1', tree, memoryMaxBytes,
+                            queuedMaxBytes: 2 ** 27,
+                            queuedTotalMaxBytes: 2 ** 30,
+                            limits: { fanout: [2 ** 30, 2 ** 30],
+                                      roomIn: [2 ** 30, 2 ** 30],
+                                      room: { relayed: [1e6, 1e6] } } });
+    const join = async (room, name) =>
+    {
+        const c = new Client(`ws://127.0.0.1:${q.address().port}/room/${room}`,
+                             name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true });
+        c.welcome = await c.next('welcome');
+        return c;
+    };
+    const usage = process.memoryUsage;
+    const write = process.stderr.write;
+    const others = [];
+
+    try
+    {
+        /* Nothing held until the queue is: this process's own heap would
+           otherwise count against the relay's memory while it fills. */
+        process.memoryUsage = () => ({ ...usage(), heapUsed: 0, external: 0 });
+
+        for (let i = 0; i < 12; i++)
+            others.push(await join(`other${i}`, `O${i}`));
+
+        const [a, s] = [await join('slow', 'A'), await join('slow', 'S')];
+        const pad = 'x'.repeat(256 * 1024);
+        const queued = () =>
+            q.rooms.get('slow').peers.get(a.welcome.peer).ws.bufferedAmount;
+
+        a.ws._socket.pause();
+
+        while (queued() < 40 * 1024 * 1024)
+        {
+            s.send({ type: 'relayed', to: a.welcome.peer, data: { pad } });
+            await new Promise((r) => setImmediate(r));
+        }
+
+        const { heapUsed, external } = (gc(), usage());
+        const offset = 0.8 * memoryMaxBytes - heapUsed - external;
+
+        process.stderr.write = (line) =>
+            (/shedding/.test(line) ? true : write.call(process.stderr, line));
+        process.memoryUsage = () =>
+        {
+            const u = usage();
+
+            return { ...u, external: u.external + offset };
+        };
+        await new Promise((r) => setTimeout(r, 3000));
+        process.memoryUsage = usage;
+        process.stderr.write = write;
+
+        const kept = others.filter((c, i) => q.rooms.has(`other${i}`));
+
+        check(!q.rooms.has('slow') && kept.length === others.length,
+              'a page that stops reading, its queue most of the relay\'s ' +
+              'memory, costs its own room and no other ' +
+              `(${others.length - kept.length} others shed)`);
+        s.close();
+    }
+    finally
+    {
+        process.memoryUsage = usage;
+        process.stderr.write = write;
+        others.forEach((c) => c.close());
+        q.shutdown();
+    }
+}
+
+/* Room sockets that do not say hello: one address holds no more than
+   UNWELCOMED_MAX of them open (relay.mjs), and each is cut once its time
+   to say hello is up. */
+async function unwelcomedBounded ()
+{
+    const q = await relay({ port: 0, host: '127.0.0.1', tree });
+    const at = `ws://127.0.0.1:${q.address().port}/room/quiet`;
+    const open = (ws) => new Promise((r) =>
+    {
+        ws.on('open', () => r(true));
+        ws.on('error', () => r(false));
+    });
+
+    try
+    {
+        const held = [];
+
+        for (let i = 0; i < 128; i++)
+            held.push(new WebSocket(at));
+
+        const opened = await Promise.all(held.map(open));
+        const over = new WebSocket(at);
+        const refusedOver = !(await open(over));
+        const t0 = Date.now();
+        const cut = await Promise.all(held.map((ws) => refused(ws, 8000)));
+        const cutMs = Date.now() - t0;
+        const after = new WebSocket(at);
+        const openAfter = await open(after);
+
+        check(opened.every(Boolean) && refusedOver,
+              'one address holds no more than 128 room sockets open that ' +
+              'have not said hello');
+        check(cut.every(Boolean) && cutMs > 3000 && openAfter,
+              'and each is cut once its time to say hello is up, which ' +
+              `frees its place (${cutMs} ms)`);
+        after.terminate();
+    }
+    finally
+    {
+        q.shutdown();
+    }
+}
+
 /* CORS_ORIGIN is an origin or nothing: the relay will not start on one
    with a path, which no request's Origin would ever match, or on `*'. */
 for (const [value, status] of [['https://page.example.org', null],
@@ -960,6 +3159,12 @@ for (const [value, status] of [['https://page.example.org', null],
 const server = await relay({ port: 0, host: '127.0.0.1', tree });
 const port = server.address().port;
 const base = `ws://127.0.0.1:${port}`;
+
+/* Its bytes in unbounded: the log's tests send a long run's commands at
+   once. */
+const logs = await relay({ port: 0, host: '127.0.0.1', tree,
+                           limits: { roomIn: [2 ** 30, 2 ** 30] } });
+const logsBase = `ws://127.0.0.1:${logs.address().port}`;
 
 try
 {
@@ -1417,8 +3622,8 @@ try
        command and in all, past which it is a run that cannot be caught up
        with; and who made a start or a command is the relay's to say. */
     {
-        const f = new Client(`${base}/room/logcap`, 'F');
-        const g = new Client(`${base}/room/logcap`, 'G');
+        const f = new Client(`${logsBase}/room/logcap`, 'F');
+        const g = new Client(`${logsBase}/room/logcap`, 'G');
 
         await Promise.all([f.open(), g.open()]);
         f.send({ type: 'hello', name: 'Fay', protocol: PROTOCOL,
@@ -1430,7 +3635,7 @@ try
                  tickets: true });
         await g.next('welcome');
 
-        const hash = await hashOf(server.rooms.get('logcap').doc);
+        const hash = await hashOf(logs.rooms.get('logcap').doc);
         const caughtUp = async (seq, log) =>
         {
             f.send({ type: 'transport',
@@ -1470,11 +3675,13 @@ try
               'a command is measured in the bytes it is sent as, not ' +
               'its characters');
 
-        const many = await caughtUp(4, Array.from({ length: 66 },
+        const many = await caughtUp(4, Array.from({ length: 17 },
                                                   (_, i) => edit(5 + i, 510)));
 
-        check(many.overflowed === true && many.log.length < 66,
-              'and so do more commands than the run keeps bytes for');
+        check(many.overflowed === true && many.log.length === 0 &&
+              many.files?.piece === 'airports.gen',
+              'and so do more commands than the run keeps bytes for, and ' +
+              'none of them is sent, but the document is');
 
         f.close();
         g.close();
@@ -1544,6 +3751,10 @@ try
         h.send({ type: 'chat', channel: 'stage', text: 'y'.repeat(500) });
         await i.next('chat');
         await h.next('chat');
+
+        /* A refused line counts against the rate as well: a full bucket
+           first. */
+        await new Promise((r) => setTimeout(r, 1000));
 
         for (let k = 0; k < 10; k++)
             h.send({ type: 'chat', channel: 'stage', text: `burst ${k}` });
@@ -1804,9 +4015,25 @@ try
                                  ['a garbage', new Uint8Array([255, 255, 255,
                                                                255, 255])]])
     {
-        const bad = new WebSocket(`${base}/doc/test?ticket=${ticket}`);
+        /* The last one's close can reach this side before the relay has
+           counted it gone: past DOCS_PER_PEER the ticket is refused
+           until it has. */
+        let bad = null;
 
-        await new Promise((r) => bad.on('open', r));
+        for (let tries = 0; bad === null && tries < 50; tries++)
+        {
+            const w = new WebSocket(`${base}/doc/test?ticket=${ticket}`);
+
+            if (await new Promise((r) =>
+                {
+                    w.on('open', () => r(true));
+                    w.on('error', () => r(false));
+                }))
+                bad = w;
+            else
+                await new Promise((r) => setTimeout(r, 50));
+        }
+
         bad.send(bytes);
 
         const closed = await new Promise((r) =>
@@ -1884,6 +4111,16 @@ try
 
     await accountsInRooms();
     await metricsServed();
+    await queuesBounded();
+    await roomsBounded();
+    await ratesLimited();
+    await fanoutBounded();
+    await inBytesBounded();
+    await syncAsksBounded();
+    await memoryShed();
+    await memoryShedEdges();
+    await memoryShedQueued();
+    await unwelcomedBounded();
 }
 catch (e)
 {
@@ -1891,6 +4128,7 @@ catch (e)
 }
 
 server.shutdown();
+logs.shutdown();
 
 process.stdout.write(`\n${failures === 0 ? 'the relay does what it says'
                                           : `${failures} failed`}\n`);

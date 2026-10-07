@@ -245,17 +245,136 @@ relay looks at the sessions behind its open rooms once a minute and
 closes those that have ended, so a ban or a revoke empties the account
 out of every room within the minute.
 
+## Limits
+
+What one client can cost the relay is bounded, by constants in
+`wasm/web/relay.mjs`. A client past one is refused or cut, and told why
+on its room socket where that can reach it, which the page shows as the
+room closing. A refusal that passes -- too many new rooms, a full room
+or relay, a page that fell behind or sent too much, a relay short of
+memory -- the page waits
+out and joins again by itself, as after a relay restart, no sooner
+than the relay's `retryMs` when it gives one; the rest it leaves to
+Rejoin.
+
+- Send queues: 16 MiB queued for one socket, 128 MiB for all of them,
+  looked at every quarter second. A page that stops reading is cut
+  ("the connection fell too far behind the room"). The reason reaches
+  it when its document socket fell behind, on the room socket; when
+  the room socket did, the reason is queued behind its backlog, and a
+  page that has not read that within 5 s sees the room close without
+  it. Over the total, the socket holding the most is cut at once, with
+  no time to say why. A catch-up or a sync of the whole document is held apart
+  from its socket's cap. A gesture or a signal is not queued for a
+  peer with half its cap queued, rather than cutting it.
+- What a socket's messages queue for others: 8 MiB at once and 4 MiB a
+  second, each message's size times its recipients; a `to` list counts
+  each peer once, and as many as a room holds. Past it a message is
+  dropped, as one past its rate. A transport command -- a start, a
+  stop, an edit -- has 64 MiB at once and 8 MiB a second of its own, so
+  the longest line fits a full room. A start, a stop or a tempo dropped,
+  for this or for its rate, is still the run the relay keeps, since the
+  mesh carried it to every peer; an edit, which goes by the relay alone,
+  dropped changes nothing.
+- What a socket sends, counted before a frame is read: a room socket
+  4 MiB at once and 1 MiB a second, a peer's document sockets between
+  them 16 MiB and 2 MiB. Past it a frame is dropped unread, as one past
+  its rate, and counts as one drop for every 64 KiB of it, so that a
+  flood of long lines is cut too. The document updates of one address's
+  peers between them have the same, and an IPv6 /48's four times it:
+  reading an update is most of what it costs, up to a quarter second of
+  the loop for a frame of one-byte structs, and an address has as many
+  peers as it has joins. Past it the document socket is cut.
+- Rooms: a room is made by the first hello the relay welcomes into it,
+  at most 4096 of them, holding at most 128 MiB between them by what
+  each is charged: 8 KiB, and what its document holds of the heap,
+  measured after every update -- 320 B a struct, whole or split from
+  another, 512 B a client, 1 KiB a type, 80 B a value or a key, and 2 B
+  a character of a string or of an XML element's name; one room at most
+  16 MiB, and a document inside the document, which no page makes, is
+  past any room's most. An update that could
+  take a room past that, read before it is applied, is refused ("the
+  room's document is as large as the relay keeps one"): the page is told
+  on its room socket, which stays, and its document socket is closed;
+  the page stops its document, which holds the edit, until it is
+  reloaded. One that adds nothing the room has not, or lets go of as
+  much as it adds, is taken, so a room at its most is still joined,
+  read and cut down. A room past its most, or a relay
+  past its budget, is switched to no other piece. An update that builds
+  on structs the room does not have is held by Yjs until they arrive,
+  and charged what it could add, or twice its size, while it is; past 64
+  KiB held, it goes, and the document socket whose frames added the most
+  of it is cut. A frame Yjs cannot read closes its document socket. The
+  commands a playing run keeps for late joiners, 8 MiB of them at most,
+  are charged to its room at their size, and the copy of the document
+  its start named at two bytes a character, and as JSON once a catch-up
+  has been asked for; a command that does not fit, or an edit that fits
+  only without them, makes the run one a joiner cannot catch up with,
+  and it is handed the document alone. Past either cap, the rooms empty
+  longest go, as many as make room for a new room or an edit; with too
+  few to, the room is refused ("the relay has as many rooms as it can
+  hold"), and the edit ("the relay holds as much as it can"), which the
+  page sends again ten seconds later rather than stopping its document. An empty
+  room is otherwise kept for ten minutes. One address may make 20 rooms
+  at once and one more every 3 s, and an IPv6 /48 60 and one a second,
+  read through `TRUST_PROXY` as the account API's limits are; a room
+  refused for the caps before its piece is read does not count, and one
+  seeded and then refused does.
+- People: 64 in a room. Past that a hello is refused ("the room is
+  full"), unless it is a page joining again with a live ticket, whose
+  old peer goes. One address may join rooms 128 times at once and once
+  more a second, and an IPv6 /48 512 times and four a second; past that
+  a hello is refused ("too many joins from your address"), with when to
+  try again, which a page waits for. A page waiting on that, or on too
+  many new rooms, spends none of its eight tries, and tries again when
+  told, a second apart at random: a class of 300 behind one address,
+  all joining again after a relay restart, is back within three
+  minutes, 128 at once and the rest one a second, the last of them
+  having asked about a hundred times. The steady rate stays at one a second rather than more because
+  every join is told to everyone in its room; a client joining and
+  leaving as fast as it could otherwise did so 2300 times a second.
+  A room socket has 5 s to say hello, and one address may hold 128
+  open that have not been welcomed; past that the upgrade is refused
+  (429).
+- Message rates: every type a room socket sends has a burst and a rate
+  a second (`RATES`), set well above what a page sends; chat's is 5 at
+  once and 5 a second. Past one a message is dropped and the page told
+  so, once a second for each type, and for each chat line, so the page
+  can mark it; a socket that has had 1000 dropped, at 100 more a
+  second, is cut ("this page sent more than the relay takes"). A peer's document sockets' frames are limited the same way,
+  between them, and their sync step 1s, each answered with the whole
+  document, to 4 and then one every 10 s; past that the socket is
+  closed, and its provider connects again.
+
+- Memory: what the rooms are charged is a model of what they hold, and
+  apart from it the relay looks at its heap four times a second. Past
+  75% of the most V8 gives it, or, with `MEMORY_MAX_BYTES` set to the
+  container's limit, past 75% of that in heap and Buffers together, it
+  collects its garbage, and while it is still past 60% sheds the empty
+  rooms and one thing more a look, twice as many at each look it is
+  still over, what costs nobody their session first: the largest
+  runs' logs, overflowed, so that a late joiner has the document alone.
+  Only then a room: the one whose charge grew the most since the last
+  look, or with none grown the one charged the most with what its
+  sockets have queued. Everyone in it is told "the relay is short of
+  memory; joining again shortly" (`why: 'memory'`, with a `retryMs` of
+  10 s), and their pages join again by themselves. Each is logged, and counted in the metrics' `shed`. What
+  grows faster than a look -- many rooms each sent a megabyte at once,
+  in the same turn of the loop -- it cannot catch, and the charges are
+  what bound.
+
 ## Metrics
 
 - `METRICS_PORT`: a port to serve the relay's metrics on, for a load
   test (`wasm/web/relayload.mjs`): `GET /` answers JSON with the event
   loop's delay, the worst lag of a 10 ms timer and the CPU used, all
   over the window since the last reset; memory; counts of rooms, peers
-  and sockets; and messages and bytes each way by type, since the start.
-  `GET /?reset` answers the same and starts a new window; `window`
-  counts the resets. Have one scraper reset -- relayload's first shard
-  does -- and anyone else read without it. Unset, there is no such port,
-  and nothing is counted.
+  and sockets; messages and bytes each way by type, since the start;
+  what the rooms are charged, and what has been shed for memory
+  (Limits). `GET /?reset` answers the
+  same and starts a new window; `window` counts the resets. Have one
+  scraper reset -- relayload's first shard does -- and anyone else read
+  without it. Unset, there is no such port, and nothing is counted.
 
 It listens on 127.0.0.1 alone, and never on the relay's own port: nginx
 reaches that port from loopback, so a loopback check there would let
@@ -270,5 +389,3 @@ with `METRICS_PORT: "9100"` in the service's `environment`.
 
 - TURN. Peers whose NATs defeat STUN fall back to the relay forwarding
   their commands (`mesh.js`), which works but adds a hop.
-- Limits on rooms. Anyone who can reach the relay can open one; the
-  account API is the part that is rate-limited.

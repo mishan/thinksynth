@@ -103,6 +103,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, firefox } from 'playwright';
+import { WebSocketServer } from 'ws';
 
 import { tapeBefore } from '../tape.mjs';
 import { firstDifference, reference } from './piececheck.mjs';
@@ -1969,6 +1970,132 @@ async function accountsTogether (pages)
             + 'rejoined'}, the edit ${synced ? 'synced' : 'not synced'} -- ` +
              await why(A.page));
 
+    /* Cut for falling behind, the room socket's reason said: that passes,
+       and the page joins again by itself too. */
+    const r = relayServer.rooms.get('jamaccounts');
+
+    for (const p of r.peers.values())
+        if (p.name === 'Ann')
+            r.drop(p.ws, 'slow',
+                   'the connection fell too far behind the room');
+
+    const retrying = await A.page.waitForFunction(
+        () => /behind the room; joining again in/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 10000 }).then(() => true, () => false);
+    const waitS = () => A.page.evaluate(() => Number(/joining again in (\d+) s/
+        .exec(document.getElementById('status').textContent)?.[1]));
+    const firstS = await waitS();
+    const backAgain = retrying && await A.page.waitForFunction(
+        () => /^Back in jamaccounts/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 15000 }).then(() => true, () => false);
+
+    if (backAgain)
+        ok('a page cut for falling behind says so, and joins again');
+    else
+        fail(`a page cut for falling behind: ${retrying ? 'retried' : 'not ' +
+             'retried'}, ${backAgain ? 'back' : 'not back'} -- ` +
+             await why(A.page));
+
+    /* Cut again as soon as it is back: it waits longer this time. */
+    for (const p of r.peers.values())
+        if (p.name === 'Ann')
+            r.drop(p.ws, 'slow',
+                   'the connection fell too far behind the room');
+
+    const again = await A.page.waitForFunction(
+        () => /behind the room; joining again in/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 5000 }).then(() => true, () => false);
+    const againS = await waitS();
+
+    if (again && againS > firstS)
+        ok(`a page cut again as soon as it is back waits longer to join ` +
+           `again: ${againS} s, after ${firstS} s`);
+    else
+        fail(`a page cut again as soon as it is back: ${firstS} s, then ` +
+             `${againS} s -- ${await why(A.page)}`);
+
+    await A.page.waitForFunction(
+        () => /^Back in jamaccounts/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 15000 }).catch(() => {});
+
+    /* A transport command the relay did not pass on is said. */
+    for (const p of r.peers.values())
+        if (p.name === 'Ann')
+            p.ws.send(JSON.stringify({ type: 'refused', of: 'transport',
+                                       op: 'start',
+                                       why: 'too fast; slow down' }));
+
+    if (await A.page.waitForFunction(
+            () => /Play on, so only peers on the mesh had it: too fast/.test(
+                document.getElementById('status').textContent),
+            null, { timeout: 5000 }).then(() => true, () => false))
+        ok('a Play the relay did not pass on is said');
+    else
+        fail(`a Play the relay did not pass on: ${await why(A.page)}`);
+
+    /* An edit refused for a full relay is sent again by itself. */
+    for (const p of r.peers.values())
+        if (p.name === 'Ann')
+            p.ws.send(JSON.stringify({ type: 'refused', of: 'edit',
+                                       why: 'rooms',
+                                       text: 'the relay holds as much as ' +
+                                             'it can; try again later' }));
+
+    const waiting = await A.page.waitForFunction(
+        () => /sending your edit again in 10 s/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 5000 }).then(() => true, () => false);
+    const resent = waiting && await A.page.waitForFunction(
+        () => !document.getElementById('editor').inert, null,
+        { timeout: 15000 }).then(() => true, () => false);
+
+    await A.page.evaluate(() => window.jam.setFile(
+        'hands.gen', `# sent again\n${window.jam.file('hands.gen')}`));
+
+    if (resent && await B.page.waitForFunction(
+            () => window.jam.file('hands.gen')?.startsWith('# sent again'),
+            null, { timeout: 10000 }).then(() => true, () => false))
+        ok('an edit refused for a full relay is sent again by itself');
+    else
+        fail(`an edit refused for a full relay: ${waiting ? '' : 'not '}` +
+             `said, ${resent ? '' : 'not '}sent again -- ` +
+             await why(A.page));
+
+    /* An edit too large for the room is refused: the page says so and
+       stops its document, which would send the edit again at every
+       reconnect, and stays in the room. */
+    const peerOf = () => [...r.peers.values()].find((p) => p.name === 'Ann');
+    const was = peerOf()?.ws;
+    const most = r.ctx.bytesMax;
+
+    r.ctx.bytesMax = r.bytes + 1024;
+    await A.page.evaluate(() => window.jam.setFile(
+        'hands.gen',
+        `# ${'x'.repeat(4096)}\n${window.jam.file('hands.gen')}`));
+
+    const told = await A.page.waitForFunction(
+        () => /too large for the room and was not kept/.test(
+            document.getElementById('status').textContent),
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    r.ctx.bytesMax = most;
+
+    if (told && peerOf()?.ws === was && r.docConns.size === 1 &&
+        !r.doc.getMap('files').get('hands.gen').toString()
+            .startsWith('# xxx') &&
+        await A.page.evaluate(() => document.getElementById('editor').inert))
+        ok('an edit too large for the room is said, and stops the page\'s ' +
+           'document, and the page stays in the room');
+    else
+        fail(`an edit too large for the room: ${told ? 'said' : 'not said'}` +
+             `, the room socket ${peerOf()?.ws === was ? '' : 'not '}kept, ` +
+             `${r.docConns.size} document sockets -- ${await why(A.page)}`);
+
     await A.page.evaluate(() => localStorage.clear());
 }
 
@@ -1978,6 +2105,54 @@ async function accountsTogether (pages)
  * answers whatever asks while its presence is simulated, the login form's
  * autofill offer included; the button is tried with autofill taken away.
  */
+/* A page the relay keeps turning away for too many joins from its
+ * address -- a class behind one, after a relay restart -- tries again
+ * when it says, as long as it says, and spends none of its tries on it.
+ */
+async function joinsPaced (pages)
+{
+    const [A] = pages;
+    const first = await relay({ port: 0, host: '127.0.0.1', tree: top });
+    const port = first.address().port;
+    let hellos = 0;
+
+    await A.page.goto(`${url}&room=jampaced&name=Pat&relay=` +
+                      `ws://127.0.0.1:${port}`);
+    await A.page.waitForFunction(
+        () => !document.getElementById('roompanel').hidden, null,
+        { timeout: 15000 });
+    first.shutdown();
+    await new Promise((r) => setTimeout(r, 100));
+
+    const pacer = new WebSocketServer({ port, host: '127.0.0.1' });
+
+    pacer.on('connection', (ws) => ws.on('message', () =>
+    {
+        hellos++;
+        ws.send(JSON.stringify({ type: 'error', why: 'flood', retryMs: 300,
+                                 text: 'too many joins from your address; ' +
+                                       'try again in 1 s' }));
+        ws.close();
+    }));
+
+    const t0 = performance.now();
+
+    while (hellos < 8 && performance.now() - t0 < 12000)
+        await new Promise((r) => setTimeout(r, 100));
+
+    const s = (performance.now() - t0) / 1000;
+
+    if (hellos >= 8)
+        ok(`a page refused for too many joins tries again as the relay ` +
+           `says: 8 times in ${s.toFixed(1)} s`);
+    else
+        fail(`a page refused for too many joins tried ${hellos} times in ` +
+             `${s.toFixed(1)} s -- ${await why(A.page)}`);
+
+    pacer.close();
+    await A.page.goto('about:blank');
+}
+
 async function passkeysTogether (browser)
 {
     const context = await browser.newContext();
@@ -2923,6 +3098,7 @@ try
     /* ---- as an account, and a guest ---- */
 
     await accountsTogether(pages);
+    await joinsPaced(pages);
     await passkeysTogether(browsers[0]);
 
     for (const e of errors)

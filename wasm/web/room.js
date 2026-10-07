@@ -97,7 +97,9 @@ export class Room
                                           ? `?piece=${this.piece}` : ''));
             let welcomed = false;
 
-            /* The relay's last word, if it said one: { text, why }. */
+            /* The relay's last word, if it said one: { text, why }, and
+               `retryMs' when it says how long until it would take
+               another. */
             let refused = null;
 
             this.ws = ws;
@@ -126,7 +128,7 @@ export class Room
                     reject(Object.assign(new Error(
                         refused?.text ?? `the relay at ${this.url} closed ` +
                                          'the connection before welcoming us'),
-                        { why: refused?.why }));
+                        { why: refused?.why, retryMs: refused?.retryMs }));
 
                 for (const c of this.catchups.splice(0))
                     c.reject(new Error('the relay closed the connection'));
@@ -235,7 +237,13 @@ export class Room
                         this.emit('ticket', m.ticket);
                         break;
 
+                    /* A catch-up past its rate is not coming: the last
+                       one asked for, which the others' answer covers. */
                     case 'refused':
+                        if (m.of === 'catchup')
+                            this.catchups.pop()?.reject(new Error(
+                                `the relay refused a catchup: ${m.why}`));
+
                         this.emit('refused', m);
                         break;
 
@@ -249,7 +257,8 @@ export class Room
                         break;
 
                     case 'error':
-                        refused = { text: m.text, why: m.why };
+                        refused = { text: m.text, why: m.why,
+                                    retryMs: m.retryMs };
                         this.emit('error', m.text);
                         break;
                 }

@@ -355,7 +355,56 @@ is many relays with a rule for which one.
 One Node process carries thousands of musician rooms, so this is for
 tens of thousands of concurrent sessions.
 
-## 8. Decisions to make early
+## 8. What the relay's memory model misses
+
+**What.** The relay charges each room a model of what its document
+holds, and bounds the rooms by those charges. One thing the model does
+not see: Yjs splits a text item by slicing its string, and V8 keeps a
+slice of 13 characters or more as a view of the parent string, so a
+`ContentString` cut down to a few characters keeps its whole original
+string alive. `watch` credits the deleted parts as freed, so the heap
+can grow past what the rooms are charged.
+
+**Measured** with 20 rooms, each sent a text of a million characters
+in one update and then a deletion of all but 41 characters in its
+middle. After a full collection the relay held about 21 MB more, and
+the rooms were charged under 1 MB.
+
+**Today** the memory backstop covers it: past its share of memory the
+relay sheds load whatever the rooms are charged. But it picks the room
+to shed by charge, with its sockets' queues: a room holding what the
+model misses is charged less than it holds, so the largest rooms go
+first, and the one holding the memory may go last.
+
+**Candidate fixes:**
+
+- Charge a sliced text by the length of the parent string it retains,
+  not by its own.
+- Copy a sliced string when Yjs splits an item, so the parent can be
+  collected. This needs a change to Yjs.
+
+**Done when** a room's charge bounds what its texts keep alive, and the
+measurement above holds the heap to about what the rooms are charged.
+
+## 9. Smaller relay gaps
+
+- **A second catch-up refused within a second waits 15 s.** The relay
+  tells a refusal once a second for each type, so the page hears of the
+  first and its wait for the second runs out (room.js, `CATCHUP_WAIT`).
+  Telling every catch-up refusal, as for counted chat lines, fixes it.
+- **Every update is read twice.** `refusal()` decodes it to price it
+  and the apply decodes it again, about 85% more on a large update.
+  Pricing from the apply's own read, or applying what was priced, would
+  read it once.
+- **Empty rooms go for an update that is then not taken.** `refusal()`
+  lets go of the empty rooms an update needs before it is applied; one
+  that then fails to decode has cost them for nothing.
+- **`Queues.trim` may count a fan-out Buffer once per socket.** A line
+  sent to a room is one Buffer in every recipient's `bufferedAmount`,
+  so the total can be several times what is held, and sockets cut past
+  `QUEUED_TOTAL_MAX_BYTES` sooner than they need be.
+
+## 10. Decisions to make early
 
 The short list of things that are free now and costly later, gathered
 from above:
