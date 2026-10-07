@@ -830,6 +830,70 @@ async function staleIndex (createThinkWeb, piece, dsps)
           `${muted.join(' and ')}, wanted 0 and 1`;
 }
 
+/* A stamped key pressed before the run ends and released after it, into
+   the piece on `seat' and onto `plain', which the piece does not take: the
+   way the run ends, a Stop or a Play over it, has to let go of both. The
+   keys left sounding, as `channel:note', from the record the page lights
+   its keyboard from. */
+async function keysAtTheEnd (createThinkWeb, piece, dsps, seat, plain, play)
+{
+    const { M, ok } = await loadPiece(createThinkWeb, {
+        gen: piece.text, instruments: dsps,
+    });
+
+    if (!ok)
+        return ['did not load'];
+
+    M.ccall('tw_load', 'number', ['number', 'string'],
+            [plain, dsps['rhodes.dsp']]);
+
+    const held = new Map();
+    let frames = 0;
+    const render = () =>
+    {
+        M._tw_render(128);
+        frames += 128;
+
+        const base = M._tw_keys() >>> 0;
+
+        for (let k = 0; k < M._tw_key_count(); k++)
+        {
+            const [channel, note, , on] =
+                M.HEAP32.subarray((base + k * 24 + 8) >> 2);
+            const key = `${channel}:${note}`;
+
+            held.set(key, (held.get(key) ?? 0) + (on ? 1 : -1));
+        }
+
+        M._tw_keys_clear();
+    };
+
+    engineApply(M, { type: 'begin', frame: 0 });
+
+    for (const channel of [seat, plain])
+        for (const [at, on] of [[0.5, true], [1.5, false]])
+            engineApply(M, { type: 'noteat', at, channel, note: 60,
+                             velocity: 90, on, tie: 0 });
+
+    if (!play)
+        engineApply(M, { type: 'at', op: 'stop', at: 1 });
+
+    while (M._tw_now() < 1)
+        render();
+
+    if (play)
+    {
+        M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                [piece.text, -1]);
+        engineApply(M, { type: 'begin', frame: frames + 1024 });
+    }
+
+    while (frames < 3 * 48000)
+        render();
+
+    return [...held].filter(([, n]) => n > 0).map(([key]) => key);
+}
+
 /* The first shown knob, as the page reads it (see session). */
 function firstKnob (M)
 {
@@ -1677,6 +1741,27 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             process.stdout.write(`ok    ${piece.name.padEnd(14)} a mute ` +
                                  'made before an edit and stamped after it ' +
                                  'is dropped\n');
+    }
+
+    {
+        const piece = pieces(build).find((p) => p.name === 'free.gen');
+
+        for (const [play, how] of [[false, 'a Stop'], [true, 'a Play']])
+        {
+            const lit = await keysAtTheEnd(createThinkWeb, piece, dsps, 0, 10,
+                                           play);
+
+            if (lit.length > 0)
+            {
+                failures++;
+                process.stdout.write(`FAIL  ${piece.name.padEnd(14)} keys ` +
+                                     `released past ${how}: ` +
+                                     `${lit.join(', ')} left sounding\n`);
+            }
+            else
+                process.stdout.write(`ok    ${piece.name.padEnd(14)} ${how} ` +
+                                     'lets go of keys released past it\n');
+        }
     }
 
     /* Keys into a piece. */

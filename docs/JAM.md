@@ -360,7 +360,9 @@ M4 is done. Where it stands:
   applies inside the step (`TW_NOTE`) -- so a key into a piece's
   `input midi` composes the same thing everywhere, and is logged for a
   late joiner. A key a bar ahead onto a plain channel is heard by its
-  player at once and by everyone else a bar later.
+  player at once and by everyone else a bar later. A Stop, or a Play over
+  the run, lets go of every stamped key still down, since a release
+  stamped past it is never reached.
 - Keys stamped for one time are applied in an order made from the
   sender's id and counter, not in the order they arrived: two quantised
   seats meet on grid lines all the time, and a quantizer passes on what
