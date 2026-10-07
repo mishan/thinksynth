@@ -504,8 +504,8 @@ int epoch_;
 /* Where each stamped key's on went, by channel and note, so that its off
    goes the same way (TW_NOTE): an edit between the two can change whether
    the piece takes input on the channel, and an off sent the other way
-   leaves the note held. Emptied at each begin, where a late joiner's
-   catching up starts from too. */
+   leaves the note held. Let go of at each stop and begin (releaseKeys),
+   where a late joiner's catching up starts from too. */
 enum KeyRoute { KEY_PIECE, KEY_CHANNEL, KEY_HEARD };
 std::map<std::pair<int, int>, KeyRoute> keyRoutes_;
 
@@ -537,6 +537,46 @@ void playedKey (int channel, int note, int velocity, bool on)
     if (!catching_ && keyCount_ < (int)(sizeof keys_ / sizeof keys_[0]))
         keys_[keyCount_++] = { sched_->now(), channel, note, velocity,
                                on ? 1 : 0 };
+}
+
+/* A stamped key, the way its route goes: nowhere for KEY_HEARD, whose
+   player sounded it live and lets go of it live. */
+void keyByRoute (KeyRoute route, int channel, int note, double velocity,
+                 bool on)
+{
+    if (route == KEY_PIECE)
+    {
+        /* CMD_MIDI_ON's event, at the time it was stamped for rather than
+           the top of whichever window it arrived in -- which is what makes
+           a key into the piece compose the same thing on every peer. */
+        thcEvent ev = {};
+
+        ev.type = on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+        ev.at = sched_->now();
+        ev.channel = channel;
+        ev.u.note.note = note;
+        ev.u.note.velocity = (int)velocity;
+        ev.u.note.duration = 0;
+        ev.u.note.level = 1;
+
+        if (sched_->injectMidiEvent(ev) || !on)
+            playedKey(channel, note, (int)velocity, on);
+    }
+    else if (route == KEY_CHANNEL)
+        keyOnChannel(channel, (float)note, (float)velocity, on,
+                     sched_->now());
+}
+
+/* Every stamped key still down, let go: at a stop or a begin the run its
+   keys were pressed in is over, and a release stamped later than that is
+   never reached -- dropped with the run, or waiting for a time a stopped
+   transport does not get to -- if it was sent at all. */
+void releaseKeys (void)
+{
+    for (const auto &k : keyRoutes_)
+        keyByRoute(k.second, k.first.first, k.first.second, 0, false);
+
+    keyRoutes_.clear();
 }
 
 void newEpoch (void)
@@ -637,6 +677,7 @@ void applyDue (double start, int len)
                        ring out -- see thcScheduler::halt. */
                     case TW_STOP:
                         sched_->halt();
+                        releaseKeys();
                         break;
 
                     case TW_REWIND:
@@ -690,7 +731,7 @@ void beginDue (double start, int len)
        that at the load (tw_piece_load). */
     sched_->reset();
     newEpoch();
-    keyRoutes_.clear();
+    releaseKeys();
 
     /* From the top, or from where a seek said: played up to there without
        a sound, and the frame below pinned to wherever that is. */
@@ -1005,6 +1046,7 @@ void applyScheduled (const Scheduled &given)
     {
         case TW_STOP:
             sched_->halt();
+            releaseKeys();
             break;
 
 
@@ -1171,29 +1213,7 @@ void applyScheduled (const Scheduled &given)
                 keyRoutes_.erase(was);
             }
 
-            if (route == KEY_PIECE)
-            {
-                /* CMD_MIDI_ON's event, at the time it was stamped for
-                   rather than the top of whichever window it arrived
-                   in -- which is what makes a key into the piece compose
-                   the same thing on every peer. */
-                thcEvent ev = {};
-
-                ev.type = c.on ? THC_EV_NOTE : THC_EV_NOTEOFF;
-                ev.at = sched_->now();
-                ev.channel = c.channel;
-                ev.u.note.note = c.note;
-                ev.u.note.velocity = (int)c.value;
-                ev.u.note.duration = 0;
-                ev.u.note.level = 1;
-
-                if (sched_->injectMidiEvent(ev) || !c.on)
-                    playedKey(c.channel, c.note, (int)c.value, c.on);
-            }
-            else if (route == KEY_CHANNEL)
-                keyOnChannel(c.channel, (float)c.note, (float)c.value, c.on,
-                             sched_->now());
-
+            keyByRoute(route, c.channel, c.note, c.value, c.on);
             break;
         }
 
