@@ -21,9 +21,18 @@
  *
  * One RTCPeerConnection per pair, the peer with the smaller id offering,
  * offer, answer and ICE candidates through the room socket's `signal'.
- * On it one data channel, unordered and without retransmission: a knob
- * that arrives late is worse than one that does not arrive, since a later
- * knob has superseded it, and a note that arrives late is just late.
+ * On it two data channels. Everything goes on one unordered and without
+ * retransmission: a knob that arrives late is worse than one that does not
+ * arrive, since a later knob has superseded it. Everything but knobs goes
+ * on one ordered and reliable as well: a lost key is a note left sounding,
+ * a lost mute or param two peers composing two pieces from there, and
+ * either is worse than late. The first copy to arrive is applied and the
+ * other dropped (commands.js, Dedupe), so the reliable channel's wait for
+ * a retransmission holds up only what the other channel lost too.
+ *
+ * A page from before the second channel offers only the first, and takes
+ * the second as another of the first: it gets everything either way, and
+ * sends everything on the one it has.
  *
  * And the way round it. If a pair's channel has not opened within
  * OPEN_WITHIN, or drops, both sides send each other their gestures
@@ -74,6 +83,14 @@ export class Mesh
         this.handlers.get(type)?.(...args);
     }
 
+    /* Both channels open, or the one a page from before the second
+       offered. */
+    open (l)
+    {
+        return l.channel?.readyState === 'open' &&
+               (l.keys === null || l.keys.readyState === 'open');
+    }
+
     /* What the page shows: for each peer, 'direct', 'relayed' or
        'connecting', and the round trip in milliseconds if known. */
     status (peer)
@@ -84,7 +101,7 @@ export class Mesh
             return { path: 'none', rtt: NaN };
 
         return { path: l.relayed ? 'relayed'
-                       : l.channel?.readyState === 'open' ? 'direct'
+                       : this.open(l) ? 'direct'
                        : 'connecting',
                  rtt: l.rtt };
     }
@@ -101,7 +118,7 @@ export class Mesh
         }
 
         const pc = new RTCPeerConnection(ICE);
-        const l = { pc, channel: null, relayed: false, rtt: NaN,
+        const l = { pc, channel: null, keys: null, relayed: false, rtt: NaN,
                     pinger: null, timer: null, pending: [] };
 
         this.links.set(peer, l);
@@ -124,6 +141,9 @@ export class Mesh
 
         if (offering)
         {
+            /* The reliable one first: the other side is given it first,
+               so it is open by the time the unreliable one is. */
+            this.attach(peer, l, pc.createDataChannel('keys'));
             this.attach(peer, l, pc.createDataChannel('gestures', {
                 ordered: false, maxRetransmits: 0 }));
 
@@ -140,22 +160,30 @@ export class Mesh
         /* The clock on opening. */
         l.timer = setTimeout(() =>
         {
-            if (l.channel?.readyState !== 'open')
+            if (!this.open(l))
                 this.fallBack(peer, `not open in ${OPEN_WITHIN / 1000} s`);
         }, OPEN_WITHIN);
     }
 
     attach (peer, l, channel)
     {
-        l.channel = channel;
+        if (channel.label === 'keys')
+            l.keys = channel;
+        else
+            l.channel = channel;
 
         channel.addEventListener('open', () =>
         {
+            if (!this.open(l))
+                return;
+
             clearTimeout(l.timer);
+            clearInterval(l.pinger);
             l.pinger = setInterval(() =>
             {
-                if (channel.readyState === 'open')
-                    channel.send(JSON.stringify({ ping: performance.now() }));
+                if (l.channel.readyState === 'open')
+                    l.channel.send(JSON.stringify(
+                        { ping: performance.now() }));
             }, PING_EVERY);
             this.emit('change', peer);
         });
@@ -282,8 +310,13 @@ export class Mesh
 
         for (const [peer, l] of this.links)
         {
-            if (!l.relayed && l.channel?.readyState === 'open')
+            if (!l.relayed && this.open(l))
+            {
                 l.channel.send(text);
+
+                if (cmd.type !== 'knob' && l.keys !== null)
+                    l.keys.send(text);
+            }
             else
                 through.push(peer);
         }

@@ -1592,6 +1592,38 @@ async function keysSeen (pages)
     else
         fail(`a direct key from the other seat: down ${down}, up ${up}`);
 
+    /* And with everything B sends on the unreliable channel lost: a key
+       rides the reliable one as well. */
+    const direct = await B.page.evaluate(() =>
+    {
+        const send = RTCDataChannel.prototype.send;
+
+        window.unlose = () => { RTCDataChannel.prototype.send = send; };
+        RTCDataChannel.prototype.send = function (data)
+        {
+            if (this.maxRetransmits !== 0)
+                send.call(this, data);
+        };
+        window.jam.press(71, 90);
+
+        return window.jam.peers().some((p) => p.path === 'direct');
+    });
+    const lostDown = await until((s) => onRoll(s, 71, true));
+
+    await B.page.evaluate(() => window.jam.release(71));
+
+    const lostUp = await until((s) => onRoll(s, 71, false) &&
+                                      !s.heard.includes(71));
+
+    await B.page.evaluate(() => window.unlose());
+
+    if (direct && lostDown && lostUp)
+        ok('and one pressed and let go with the unreliable channel ' +
+           'losing everything');
+    else
+        fail(`a key with the unreliable channel losing everything: direct ` +
+             `${direct}, down ${lostDown}, up ${lostUp}`);
+
     await A.page.evaluate(() => window.jam.play());
     await A.page.waitForFunction(() => window.jam.probe().running, null,
                                  { timeout: 10000 }).catch(() => {});

@@ -403,9 +403,31 @@ function receive (from, cmd)
     return done;
 }
 
+/* `from seat note' -> the seq of the last key of it applied. */
+const lastKeys = new Map();
+
+/* A key behind a later one of the same note, which came first by another
+   channel or path -- its own copy lost on the mesh's unreliable channel,
+   say, or relayed while the mesh came back -- is dropped: a press applied
+   after its own release would sound until the next. */
+function overtaken (cmd)
+{
+    if (cmd.type !== 'note' && cmd.type !== 'noteoff')
+        return false;
+
+    const key = `${cmd.from} ${cmd.seat} ${cmd.note}`;
+
+    if (cmd.seq < (lastKeys.get(key) ?? -1))
+        return true;
+
+    lastKeys.set(key, cmd.seq);
+    return false;
+}
+
 async function applyOne (from, cmd)
 {
-    if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd))
+    if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd) ||
+        overtaken(cmd))
         return;
 
     /* The run this page is in, as soon as it is: a knob moved from here
