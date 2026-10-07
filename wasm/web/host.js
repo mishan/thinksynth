@@ -74,6 +74,38 @@ function wasmBytes ()
     return fetched;
 }
 
+/* The tape batches the load's recent figures are summed over: 64 is
+   2.7 s at 48 kHz. */
+const RECENT_BATCHES = 64;
+
+/* A batch's process() costs (worklet.js, postTape) added into a sum. */
+function addLoad (into, m)
+{
+    into.overBudget += m.overBudget;
+    into.slowestMs = Math.max(into.slowestMs, m.slowestMs);
+
+    for (let ms = 0; ms < m.took.length; ms++)
+    {
+        into.took[ms] = (into.took[ms] ?? 0) + m.took[ms];
+        into.calls += m.took[ms];
+    }
+}
+
+/* A sum, and the whole millisecond 99% of its calls took no longer than;
+   the last bin is that many or more. */
+function withP99 (q)
+{
+    let ms = 0;
+
+    for (let seen = q.took[0] ?? 0; seen < 0.99 * q.calls;
+         seen += q.took[ms])
+        ms++;
+
+    return { ...q, took: [...q.took], p99Ms: ms };
+}
+
+const noLoad = () => ({ calls: 0, overBudget: 0, slowestMs: 0, took: [] });
+
 export async function createSynth (ctx, { windowlen = 256,
                                           onLog = () => {},
                                           onTape = () => {},
@@ -129,6 +161,15 @@ export async function createSynth (ctx, { windowlen = 256,
 
     if (mirror !== null)
         mirror.onmessage = (e) => onMirror(e.data);
+
+    /* What the worklet's process() calls have cost, summed since the
+       start: a batch is 16 calls, too few to have a p99 of its own. And
+       the last RECENT_BATCHES batches, kept apart, because the first
+       quantum of a run builds the graphs and is the slowest by far, and
+       a figure since the start goes on showing it for good. */
+    const quanta = noLoad();
+    const recent = [];
+    let batches = 0;
 
     /* One message, both ports. See the top of this file. */
     /* Collecting, inside batch() below. */
@@ -222,6 +263,18 @@ export async function createSynth (ctx, { windowlen = 256,
                 mirror?.postMessage({ type: 'step', frame: m.frame,
                                       epoch: m.epoch, keys: m.keys });
                 onTape(m);
+
+                /* After the tape, and only when the batch carries them: a
+                   worklet.js from another build may post none, and a load
+                   figure is not worth losing the tape over. */
+                if (m.took === undefined)
+                    break;
+
+                addLoad(quanta, m);
+                quanta.coarseClock = m.coarseClock;
+                recent[batches++ % RECENT_BATCHES] =
+                    { overBudget: m.overBudget, slowestMs: m.slowestMs,
+                      took: m.took };
                 break;
         }
     };
@@ -260,6 +313,17 @@ export async function createSynth (ctx, { windowlen = 256,
         node,
         windowlen: info.windowlen,
         sampleRate: info.sampleRate,
+
+        /* The sums above, the recent one as `recent'. */
+        quanta: () =>
+        {
+            const last = noLoad();
+
+            for (const b of recent)
+                addLoad(last, b);
+
+            return { ...withP99(quanta), recent: withP99(last) };
+        },
 
         /* Resolves true if the .dsp parsed. The channel is the caller's:
            a piece that routes `input midi' to a channel it declares no

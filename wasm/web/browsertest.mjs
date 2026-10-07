@@ -193,7 +193,9 @@ async function pieceInBrowser (page, gen, dsps, windowlen)
         await synth.flush();
 
         return { ok: true, logs, errors: [], events,
-                 knobs: piece.knobs.length, windowlen: synth.windowlen };
+                 knobs: piece.knobs.length, windowlen: synth.windowlen,
+                 load: synth.quanta(),
+                 rendered: Math.ceil(ctx.length / 128) };
     }, { gen, dsps, windowlen, seconds: SECONDS, rate: RATE });
 }
 
@@ -358,9 +360,18 @@ async function runBrowser (label, type)
             const tape = tapeBefore(got.events.map(tapeLine).join(''),
                                     SECONDS);
 
-            cells.push(tape === want ? `${windowlen} ok`
-                       : `${windowlen} DIFFERS -- ` +
-                         firstDifference(want, tape));
+            /* Every quantum timed once: one lost or counted twice where a
+               batch is posted is a load figure that means nothing. */
+            const load = got.load;
+
+            cells.push(tape !== want
+                       ? `${windowlen} DIFFERS -- ` +
+                         firstDifference(want, tape)
+                       : load.calls !== got.rendered
+                       ? `${windowlen} timed ${load.calls} of ${got.rendered} ` +
+                         `quanta, ${load.overBudget} over, p99 ` +
+                         `${load.p99Ms} ms, slowest ${load.slowestMs} ms`
+                       : `${windowlen} ok`);
         }
 
         const bad = cells.some((c) => !c.endsWith('ok'));

@@ -1005,6 +1005,51 @@ set_tests_properties(editorcheck PROPERTIES
 set_tests_properties(composercheck editorcheck windowcheck PROPERTIES
     RUN_SERIAL TRUE)
 
+# What a few instruments cost, in instructions under Valgrind, against
+# instrcount.json. The counts belong to the compiler as much as to the code,
+# so the toolchain names the set it is held to; one with no counts skips,
+# except in CI (instrcount.py says why). Not under a sanitizer,
+# whose binaries Valgrind cannot run and whose counts would say nothing about
+# a release build anyway.
+find_package(Python3 COMPONENTS Interpreter)
+
+if(Python3_Interpreter_FOUND AND NOT THINK_SANITIZE)
+  # The flags and LTO too: an -O3 -march=native build is another toolchain,
+  # and compared with CI's counts it would pass or fail for nothing.
+  string(TOUPPER "${CMAKE_BUILD_TYPE}" _config)
+  separate_arguments(_flags UNIX_COMMAND
+                     "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${_config}}")
+  list(JOIN _flags " " _flags)
+  string(CONCAT _toolchain
+         "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} "
+         "${CMAKE_BUILD_TYPE} [${_flags}]")
+
+  if(THINK_FAST_MATH)
+    string(APPEND _toolchain " fast-math")
+  endif()
+
+  if(CMAKE_INTERPROCEDURAL_OPTIMIZATION OR
+     CMAKE_INTERPROCEDURAL_OPTIMIZATION_${_config})
+    string(APPEND _toolchain " lto")
+  endif()
+
+  set(_instrcount Python3::Interpreter
+                  "${PROJECT_SOURCE_DIR}/scripts/instrcount.py"
+                  --toolchain "${_toolchain}")
+  add_test(NAME instrcount COMMAND ${_instrcount} "${PROJECT_BINARY_DIR}")
+
+  # Four Valgrinds at once, one a workload.
+  set_tests_properties(instrcount PROPERTIES SKIP_RETURN_CODE 77
+                       PROCESSORS 4)
+
+  # A target and not a test, because it writes a baseline; this build's
+  # key is the one thing it needs and nobody should have to type.
+  add_custom_target(instrcount-update
+                    COMMAND ${_instrcount} --update "${PROJECT_BINARY_DIR}"
+                    USES_TERMINAL)
+  add_dependencies(instrcount-update dspbench plugins)
+endif()
+
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
                      exprcheck statecheck voicecheck poolcheck fxcheck gencheck

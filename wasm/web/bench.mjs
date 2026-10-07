@@ -20,7 +20,8 @@
 /*
  * bench.mjs -- what one quantum costs with a piece running.
  *
- *   node wasm/web/bench.mjs [BUILD_DIR]
+ *   node wasm/web/bench.mjs [--json out.json] [--only a.gen,b.gen]
+ *                           [--seconds 60] [BUILD_DIR]
  *
  * The one measurement that could send the scheduler back out of the
  * worklet. A quantum is 128 frames, 2.67 ms at 48 kHz, and it is a
@@ -36,6 +37,12 @@
  * distribution of the per-quantum time and the worst one, against the
  * budget.
  *
+ * Each piece is played the way the page plays it, or a piece that leans on
+ * the page measures as silence: the kit's samples handed over, and every
+ * channel the piece leaves to the page given its default patch. A piece
+ * that pins no seed is given SEED below, so that two runs time the same
+ * composition rather than two the host happened to draw.
+ *
  * Node rather than a browser on purpose: this is the engine's cost, and
  * the engine is the same wasm either way. What a browser adds on top is the
  * port and the de-interleave, and browsertest.mjs already holds a browser's
@@ -44,18 +51,41 @@
  * anything a background tab can throttle.
  *
  * The number that decides anything is this run on the slowest machine the
- * thing is meant to play on, not on the one it was written on.
+ * thing is meant to play on, not on the one it was written on. --json
+ * writes every run's numbers and the machine they came from, so runs on
+ * two machines can be set side by side.
  */
 
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseArgs } from 'node:util';
 
-import { instruments, pieces } from './piececheck.mjs';
-import { loadPiece } from './render.mjs';
+import { defaults, instruments, pieces, samples } from './piececheck.mjs';
+import { aim, loadPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const build = path.resolve(process.argv[2] ??
+const { values: opts, positionals } =
+    parseArgs({ options: { json: { type: 'string' },
+                           only: { type: 'string' },
+                           seconds: { type: 'string', default: '60' } },
+                allowPositionals: true });
+const build = path.resolve(positionals[0] ??
                            path.join(here, '..', '..', 'build-web'));
+const SECONDS = Number(opts.seconds);
+
+if (!(Number.isFinite(SECONDS) && SECONDS > 0))
+{
+    process.stderr.write(`bench: --seconds ${opts.seconds} is not a time\n`);
+    process.exit(2);
+}
+
+/* Opened now, so a path that cannot be written is known before the
+   minutes of timing rather than after. */
+const jsonOut = opts.json !== undefined ? fs.openSync(opts.json, 'w') : null;
 
 const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
@@ -63,7 +93,9 @@ const { default: createThinkWeb } =
 const RATE = 48000;
 const WINDOW = 256;
 const QUANTUM = 128;
-const SECONDS = 60;
+
+/* Any fixed seed would do; what matters is that it is fixed. */
+const SEED = 1;
 
 /* A chord, pressed and released twice a second: six voices is a hand. */
 const CHORD = [48, 55, 60, 64, 67, 72];
@@ -77,15 +109,21 @@ function quantile (sorted, q)
 
 const ms = (x) => `${x.toFixed(3)} ms`;
 
-async function run (gen, dsps, chord)
+async function run (gen, dsps, kit, patchFor, chord)
 {
     const { M, ok, errors } =
         await loadPiece(createThinkWeb, { rate: RATE, windowlen: WINDOW,
                                           block: QUANTUM, gen,
-                                          instruments: dsps });
+                                          instruments: dsps, samples: kit,
+                                          seed: SEED });
 
     if (!ok)
         return { errors };
+
+    /* Kept: a channel left unaimed is timed as silence, which is cheaper
+       than the page would play it. */
+    const log = [];
+    const { unaimed } = aim(M, patchFor, log);
 
     M._tw_transport(-1, 0, 0);
 
@@ -141,11 +179,14 @@ async function run (gen, dsps, chord)
     }
 
     return { times: times.subarray(0, taken).sort(), notes, worst, worstAt,
-             moving };
+             moving, unaimed, log };
 }
 
 const budget = QUANTUM / RATE * 1000;
 const dsps = instruments(build);
+const kit = samples(build);
+const patchFor = defaults(build);
+const only = opts.only?.split(',');
 
 process.stdout.write(
     `a quantum of ${QUANTUM} frames at ${RATE} Hz is ${budget.toFixed(2)} ms, ` +
@@ -156,20 +197,34 @@ process.stdout.write(
     `of quantum   worst at\n`);
 
 const rows = [];
+const failed = [];
+const all = pieces(build);
 
-for (const piece of pieces(build))
+/* Kept with the failures, so that a misspelled name fails the run and is
+   in --json's document, rather than timing nothing. */
+for (const name of only ?? [])
 {
-    if (!piece.seeded)
+    if (!all.some((p) => p.name === name))
+    {
+        process.stdout.write(`${name}: no such piece\n`);
+        failed.push({ name, chord: null, errors: ['no such piece'] });
+    }
+}
+
+for (const piece of all)
+{
+    if (only !== undefined && !only.includes(piece.name))
         continue;
 
     for (const chord of [false, true])
     {
-        const r = await run(piece.text, dsps, chord);
+        const r = await run(piece.text, dsps, kit, patchFor, chord);
 
         if (r.errors !== undefined)
         {
             process.stdout.write(`${piece.name}: did not load -- ` +
                                  `${r.errors.join('; ')}\n`);
+            failed.push({ name: piece.name, chord, errors: r.errors });
             continue;
         }
 
@@ -184,6 +239,14 @@ for (const piece of pieces(build))
             `${ms(r.worst)} ` +
             `${(r.worst / budget * 100).toFixed(1).padStart(8)}%   ` +
             `${r.worstAt.toFixed(2)} s\n`);
+
+        if (!chord && r.unaimed.length > 0)
+            process.stdout.write(
+                `  timed as silence: channel ` +
+                `${r.unaimed.map((u) => `${u.channel + 1} ` +
+                                        `(${u.wanted || 'no default'})`)
+                    .join(', ')}` +
+                `${r.log.map((l) => `\n  ${l}`).join('')}\n`);
     }
 }
 
@@ -199,12 +262,68 @@ const top = rows[0];
    on a machine where every first quantum is the worst there would be no
    such run, and on any other a run's second-worst was being thrown away
    with its first. */
-const running = [...rows].sort((a, b) => b.moving - a.moving)[0];
+if (top !== undefined)
+{
+    const running = [...rows].sort((a, b) => b.moving - a.moving)[0];
 
-process.stdout.write(
-    `\nworst of all: ${top.name} at ${top.worst.toFixed(3)} ms, ` +
-    `${(top.worst / budget * 100).toFixed(1)}% of the quantum, ` +
-    `${top.worstAt.toFixed(2)} s in\n` +
-    `worst once the transport is moving: ${running.name} at ` +
-    `${running.moving.toFixed(3)} ms, ` +
-    `${(running.moving / budget * 100).toFixed(1)}% of the quantum\n`);
+    process.stdout.write(
+        `\nworst of all: ${top.name} at ${top.worst.toFixed(3)} ms, ` +
+        `${(top.worst / budget * 100).toFixed(1)}% of the quantum, ` +
+        `${top.worstAt.toFixed(2)} s in\n` +
+        `worst once the transport is moving: ${running.name} at ` +
+        `${running.moving.toFixed(3)} ms, ` +
+        `${(running.moving / budget * 100).toFixed(1)}% of the quantum\n`);
+}
+
+if (jsonOut !== null)
+{
+    /* This script's checkout, which need not be what the build was made
+       from: the build is named by its path and the hash of the module
+       that was timed. */
+    const git = (...args) =>
+    {
+        try
+        {
+            return execFileSync('git', ['-C', here, ...args],
+                                { encoding: 'utf8',
+                                  stdio: ['ignore', 'pipe', 'ignore'] })
+                .trim();
+        }
+        catch
+        {
+            /* Not a checkout, or no git: the run is still worth having. */
+            return null;
+        }
+    };
+    const status = git('status', '--porcelain', '--untracked-files=no');
+
+    /* By piece and then chord, not by time, so that two documents line
+       up run for run. */
+    const runs = [
+        ...rows.map((r) => ({
+            piece: r.name, chord: r.chord, notes: r.notes,
+            p50Ms: quantile(r.times, 0.5), p99Ms: quantile(r.times, 0.99),
+            p999Ms: quantile(r.times, 0.999), maxMs: r.worst,
+            worstAtS: r.worstAt, movingMaxMs: r.moving,
+            unaimed: r.unaimed.map((u) => ({ channel: u.channel + 1,
+                                             wanted: u.wanted })),
+            aimLog: r.log })),
+        ...failed.map((f) => ({ piece: f.name, chord: f.chord,
+                                error: f.errors.join('; ') })),
+    ].sort((a, b) => (a.piece > b.piece) - (a.piece < b.piece) ||
+                     a.chord - b.chord);
+
+    fs.writeFileSync(jsonOut, JSON.stringify({
+        rate: RATE, windowlen: WINDOW, quantum: QUANTUM, seconds: SECONDS,
+        seed: SEED, budgetMs: budget,
+        env: { node: process.version, cpu: os.cpus()[0]?.model ?? null,
+               benchCommit: git('rev-parse', 'HEAD'),
+               benchDirty: status === null ? null : status !== '',
+               build,
+               wasmSha256: createHash('sha256')
+                   .update(fs.readFileSync(path.join(build, 'thinkweb.wasm')))
+                   .digest('hex') },
+        runs }, null, 2) + '\n');
+}
+
+process.exit(failed.length > 0 || rows.length === 0 ? 1 : 0);

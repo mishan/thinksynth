@@ -56,7 +56,10 @@ concurrency:
 jobs:
   linux:
     name: linux (gcc)
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: instrcount's baseline is this image's
+    # compiler and glibc, so a move to a new Ubuntu is a commit that records
+    # the new image's counts rather than a gate that fails every PR.
+    runs-on: ubuntu-24.04
 
     env:
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -83,7 +86,7 @@ jobs:
             adwaita-icon-theme librsvg2-common \
             libx11-dev libxcursor-dev libxext-dev libxrandr-dev \
             libxtst-dev libdbus-1-dev \
-            xvfb
+            valgrind xvfb
 
       # localecheck wants a locale whose decimal separator is a comma, and
       # the runner image has none; without one it skips. Checked here, so a
@@ -126,8 +129,25 @@ jobs:
       # cores. The two that build widgets are RUN_SERIAL in
       # scripts/CMakeLists.txt, so they still run with the machine to
       # themselves.
+      #
+      # instrcount holds a few instruments' instruction counts to
+      # scripts/instrcount.json. Counted under Valgrind rather than timed,
+      # because a runner's times move by several percent between runs and a
+      # count does not move at all, and rather than with perf, because these
+      # runners expose no hardware counters. Strict here: a toolchain the
+      # file has no counts for is a failure rather than the skip it is on a
+      # desktop, so a new compiler on the image cannot turn the gate off
+      # without anybody noticing. About ten seconds, beside the others.
       - name: Test
+        env:
+          THINK_INSTRCOUNT_STRICT: 1
         run: xvfb-run -a ctest --test-dir build --output-on-failure -j "$(nproc)"
+
+      # ctest shows a passing test's output to nobody, and the margin under
+      # instrcount's limits is the number worth seeing on every run.
+      - name: Instruction counts
+        if: ${{ !cancelled() }}
+        run: '[ ! -f build/instrcount.txt ] || cat build/instrcount.txt'
 
       - name: Package
         run: cpack --config build/CPackConfig.cmake -B build/package
