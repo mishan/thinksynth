@@ -2105,6 +2105,10 @@ async function join ()
 
     chat.peers(room.peers);
 
+    /* Before anything is awaited: a peer offers the moment it hears we
+       have joined, and a signal with no mesh to take it is dropped. */
+    openMesh();
+
     /* The name the relay gave us -- a handle, or the guest name cleaned
        up -- as everyone else sees it. */
     const name = shownName(room.identity);
@@ -2137,8 +2141,6 @@ async function join ()
     if (!room.features.includes('switch'))
         $('piece').title = 'This relay is older than the page and cannot ' +
                            'switch pieces.';
-
-    openMesh();
 
     $('joinrow').hidden = true;
     $('roompanel').hidden = false;
@@ -2207,14 +2209,9 @@ function editRefused (m)
            ' Reload the page to go on editing.');
 }
 
-/* One mesh to a room socket: a room lost while the join awaited the
-   document is joined again, and given its mesh, before the join goes on
-   to open one. */
+/* One mesh to a room socket, opened as soon as it is welcomed. */
 function openMesh ()
 {
-    if (mesh?.room === room)
-        return;
-
     mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
     mesh.on('change', showPeers)
         .on('fallback', (peer, why) =>

@@ -2922,6 +2922,13 @@ try
                  `playing: ${await page.evaluate(() =>
                      document.getElementById('rooms').textContent)}`);
 
+        /* Its document held back a second, so the others' offers come
+           while it is still syncing. */
+        await page.routeWebSocket(/\/doc\//, (ws) =>
+        {
+            ws.connectToServer().onMessage(
+                (m) => setTimeout(() => ws.send(m), 1000));
+        });
         await page.goto(`${url}&room=jamtest&name=${label}&piece=${PIECE}`);
         await page.waitForFunction(
             () => !document.getElementById('roompanel').hidden,
@@ -2988,6 +2995,19 @@ try
             `      ${r.label}: the other peer's commands arrived ` +
             `${remote.map((m) => (m.margin * 1000).toFixed(0)).join(', ')} ms ` +
             `ahead of their time (least ${(least * 1000).toFixed(0)} ms)\n`);
+    }
+
+    /* The others offer to a late joiner the moment it arrives, while its
+       document is still syncing. */
+    if (C !== null)
+    {
+        const paths = results.at(-1).peers.filter((p) => p.path !== 'none')
+            .map((p) => `${p.name} ${p.path}`);
+
+        if (paths.length === 2 && paths.every((p) => p.endsWith(' direct')))
+            ok(`the late joiner's mesh is direct: ${paths.join(', ')}`);
+        else
+            fail(`the late joiner's mesh: ${paths.join(', ')}`);
     }
 
     /* The run's command stream, for genwav. Only what is stamped with a
