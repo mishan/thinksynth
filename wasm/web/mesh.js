@@ -367,7 +367,9 @@ export class Mesh
     /* The offering side tries a relayed pair again, backing off: a new
        connection in place of one that has not got anywhere or has come
        apart. One still connecting, or finding its way back from a
-       disconnect, is left to it. */
+       disconnect or a failure, is left to it: an ICE restart keeps the
+       channels and what is queued on them, and a new connection throws
+       that away. */
     later (peer, l)
     {
         if (l.pc === undefined || l.retry !== null || !(this.room.peer < peer))
@@ -383,7 +385,7 @@ export class Mesh
             const gone = (c) => c?.readyState === 'closing' ||
                                 c?.readyState === 'closed';
 
-            if (['new', 'failed', 'closed'].includes(l.pc.connectionState) ||
+            if (['new', 'closed'].includes(l.pc.connectionState) ||
                 gone(l.channel) || gone(l.keys))
                 this.connect(peer, l, l.gen + 1);
 
