@@ -26,6 +26,11 @@
 
 #define SQR(x) ((x)*(x))
 
+/* Partials whose wavelength and gain are kept from one sample to the next;
+   any past these are worked out every sample, so the state has a fixed
+   size. */
+#define MULTIWAVE_KEPT 64
+
 /* Not parabolas, and not the same plugin as osc::multisined, which shipped
    with this same description. */
 static const char desc[] = "Sums sines in a series";
@@ -138,6 +143,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_ampmul = mod->getArg(node, args[IN_AMPMUL]);
     in_ampadd = mod->getArg(node, args[IN_AMPADD]);
 
+    /* pow() is most of what a partial costs, and the args it reads seldom
+       move inside a window. So each partial's wavelength and gain are kept
+       until an arg they depend on differs from the last sample's, and
+       pitchmul^j until pitchmul does, since freq may sweep under a fixed
+       pitchmul. */
+    const int kept = waves < MULTIWAVE_KEPT ? waves : MULTIWAVE_KEPT;
+    double keptPitchpow[MULTIWAVE_KEPT];
+    double keptLength[MULTIWAVE_KEPT], keptGain[MULTIWAVE_KEPT];
+    double keptFreq = 0;
+    float keptPitchmul = 0, keptPitchadd = 0;
+    float keptAmpmul = 0, keptAmpadd = 0;
+
+    auto partialLength = [&](int n, double pitchpow) {
+        wfreq = freq * pitchpow + (pitchadd * n);
+        return samples / thBoundFreq(wfreq, samples);
+    };
+    auto partialGain = [&](int n) { return pow(ampmul, n) + (ampadd * n); };
+
     for(i = 0; i < (int)windowlen; i++) {
         //wavelength = TH_SAMPLE/(*in_freq)[i];
         freq = (*in_freq)[i];
@@ -151,6 +174,31 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         ampmul = (*in_ampmul)[i];
         ampadd = (*in_ampadd)[i];
 
+        const bool newPitchmul = i == 0 || pitchmul != keptPitchmul;
+
+        if (newPitchmul)
+        {
+            for (j = 1; j < kept; j++)
+                keptPitchpow[j] = pow(pitchmul, j);
+            keptPitchmul = pitchmul;
+        }
+
+        if (newPitchmul || freq != keptFreq || pitchadd != keptPitchadd)
+        {
+            for (j = 1; j < kept; j++)
+                keptLength[j] = partialLength(j, keptPitchpow[j]);
+            keptFreq = freq;
+            keptPitchadd = pitchadd;
+        }
+
+        if (i == 0 || ampmul != keptAmpmul || ampadd != keptAmpadd)
+        {
+            for (j = 1; j < kept; j++)
+                keptGain[j] = partialGain(j);
+            keptAmpmul = ampmul;
+            keptAmpadd = ampadd;
+        }
+
         wavelength = samples / thBoundFreq(freq, samples);
         out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
         if(++(out_last[0]) > wavelength)
@@ -158,9 +206,20 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         for(j = 1; j < waves; j++)
         {
-            wfreq = freq * pow(pitchmul, j) + (pitchadd * j);
-            wavelength = samples / thBoundFreq(wfreq, samples);
-            out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * (pow(ampmul, j) + (ampadd * j)));
+            double gain;
+
+            if (j < kept)
+            {
+                wavelength = keptLength[j];
+                gain = keptGain[j];
+            }
+            else
+            {
+                wavelength = partialLength(j, pow(pitchmul, j));
+                gain = partialGain(j);
+            }
+
+            out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * gain);
             if(++(out_last[j]) > wavelength)
                 out_last[j] = 0;
         }

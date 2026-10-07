@@ -44,9 +44,8 @@
  *   it is the capture.            A pass-through live effect hands back the
  *      frames that went in, which is the claim tw_capture makes and the only
  *      one a render can be held to sample for sample -- and it hands them back
- *      two windows later, because the worklet's quantum is 128 and the page
- *      runs a window of 256. scripts/dspcapture says where the two come from
- *      and why a page that wants a live input should ask for 128.
+ *      a window later at the pages' window of 128, the worklet's quantum, and
+ *      two at 256. scripts/dspcapture says where the two come from.
  *
  *   nothing else moves.          A graph that declares no live0 renders bit for
  *      bit the same while a capture is being fed, which is what lets a page
@@ -74,7 +73,7 @@ const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
 export const RATE = 48000;
-export const WINDOW = 256;
+export const WINDOW = 128;
 export const BLOCK = 128;
 
 let failures = 0;
@@ -268,10 +267,11 @@ chain held {
 /* A piece rendered for `frames', with `capture' fed a block at a time the way
    the worklet feeds a quantum. The transport is started at the next window,
    which is where the page's Play lands. */
-export async function renderPiece ({ gen, capture, frames })
+export async function renderPiece ({ gen, capture, frames,
+                                    windowlen = WINDOW })
 {
     const { M, ok: loaded, errors } = await loadPiece(createThinkWeb, {
-        rate: RATE, windowlen: WINDOW, block: BLOCK, gen,
+        rate: RATE, windowlen, block: BLOCK, gen,
         instruments: DSPS,
     });
 
@@ -361,7 +361,8 @@ async function main ()
 
             okOrFail(got.dropped === 0 && got.starved === 0,
                      'the capture accumulator drops nothing and starves for '
-                     + 'nothing at a quantum of 128 in a window of 256',
+                     + `nothing at a quantum of ${BLOCK} in a window of `
+                     + `${WINDOW}`,
                      `dropped ${got.dropped}, starved ${got.starved}`);
         }
     }
@@ -412,18 +413,21 @@ async function main ()
      * absolute number is what keeps this a check on the samples rather than on the
      * output stage.
      *
-     * The delay is two windows and not one, because a quantum of 128 is smaller
-     * than a window of 256: the first ask for a window of capture comes with a
-     * quantum in hand. scripts/dspcapture pins both numbers and gthSynthSource's
-     * header says where they come from. It is asserted here rather than allowed for
-     * because it is the number a page picks its window by.
+     * The delay is one window at a window of the quantum, and two at 256,
+     * because a quantum smaller than the window means the first ask for a
+     * window of capture comes with a quantum in hand. scripts/dspcapture pins
+     * both numbers and gthSynthSource's header says where they come from. It
+     * is asserted here rather than allowed for because it is what a live input
+     * costs at the window the pages run.
      */
+    for (const windowlen of [WINDOW, 256])
     {
         const frames = RATE / 4;
         const capture = makeCapture(frames);
+        const windows = windowlen > BLOCK ? 2 : 1;
 
         const got = await renderPiece({ gen: piece('miccheck-live.dsp'),
-                                        capture, frames });
+                                        capture, frames, windowlen });
 
         if (!got.ok)
             fail('a pass-through live effect loads', got.errors.join('; '));
@@ -458,10 +462,10 @@ async function main ()
                      `it arrived ${lead} frames in; worst frame ${at} off by `
                      + `${worst}`);
 
-            okOrFail(lead === 2 * WINDOW,
-                     'two windows later, which is what a quantum smaller than the '
-                     + 'window costs -- and the reason to ask for a window of 128',
-                     `it arrived ${lead} frames in, not ${2 * WINDOW}`);
+            okOrFail(lead === windows * windowlen,
+                     `${windows === 1 ? 'a window' : 'two windows'} later, at a `
+                     + `window of ${windowlen}`,
+                     `it arrived ${lead} frames in, not ${windows * windowlen}`);
         }
     }
 

@@ -91,7 +91,7 @@ const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
 const RATE = 48000;
-const WINDOW = 256;
+const WINDOW = 128;
 const QUANTUM = 128;
 
 /* Any fixed seed would do; what matters is that it is fixed. */
@@ -191,8 +191,7 @@ const only = opts.only?.split(',');
 process.stdout.write(
     `a quantum of ${QUANTUM} frames at ${RATE} Hz is ${budget.toFixed(2)} ms, ` +
     `and that is the deadline\n` +
-    `the synth runs in windows of ${WINDOW}, so one quantum in ` +
-    `${WINDOW / QUANTUM} carries a scheduler step\n\n` +
+    `the synth runs in windows of ${WINDOW}, as the page does\n\n` +
     `piece            chord        p50       p99     p99.9       max    ` +
     `of quantum   worst at\n`);
 

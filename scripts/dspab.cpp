@@ -28,11 +28,11 @@
  *
  * -A and -B set each side's window length, and the two sides may share a
  * plugin directory, which turns this into the other question a plugin can
- * be asked -- does it sound the same cut into windows of 256 as of 1024?
+ * be asked -- does it sound the same cut into windows of 128 as of 1024?
  *
- *   scripts/dspab -p plugins/ -B 256 $(find dsp -name '*.dsp')
+ *   scripts/dspab -p plugins/ -B 128 $(find dsp -name '*.dsp')
  *
- * The browser build runs at 256 (docs/JAM.md). -w counts windows of the
+ * The browser build runs at 128 (docs/JAM.md). -w counts windows of the
  * default length, so both sides render the same number of frames whatever
  * their windows are, and the renders are compared interleaved, since the
  * synth's own window is planar and two lengths of it only line up frame by

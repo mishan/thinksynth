@@ -66,8 +66,11 @@ const build = path.resolve(process.argv[2] ??
                            path.join(here, '..', '..', 'build-web'));
 
 const RATE = 48000;
-const WINDOW = 256;
 const BLOCK = 128;
+
+/* 128 is the pages' window, one quantum long. 256 spans two quanta, so the
+   renderer has made more of the piece than the frames it has handed out. */
+const WINDOWS = [128, 256];
 
 /* worklet.js's TAPE_EVERY: how many quanta between posts to the page, and
    so how far behind the worklet the mirror is told to step. */
@@ -88,7 +91,7 @@ const { default: createThinkWeb } =
 
 /* One instance, rendering or mirroring. `silent' is the whole difference:
    tw_silent before any load, and tw_step instead of tw_render after. */
-async function instance ({ silent })
+async function instance ({ silent, windowlen })
 {
     const log = [];
     const M = await createThinkWeb({
@@ -96,7 +99,7 @@ async function instance ({ silent })
         printErr: (s) => log.push(s),
     });
 
-    M._tw_create(RATE, WINDOW, BLOCK);
+    M._tw_create(RATE, windowlen, BLOCK);
 
     if (silent)
         M._tw_silent();
@@ -257,10 +260,11 @@ function throughCanvas (M, control, view)
 
 /* ---- one piece, both ways ---------------------------------------------- */
 
-async function run (piece, dsps, { clicking = false, canvas = false } = {})
+async function run (piece, dsps, windowlen,
+                    { clicking = false, canvas = false } = {})
 {
-    const rendering = await instance({ silent: false });
-    const mirror = await instance({ silent: true });
+    const rendering = await instance({ silent: false, windowlen });
+    const mirror = await instance({ silent: true, windowlen });
     const both = [rendering, mirror];
 
     for (const [name, text] of Object.entries(dsps))
@@ -473,43 +477,49 @@ async function run (piece, dsps, { clicking = false, canvas = false } = {})
 
 const dsps = instruments(build);
 
-for (const piece of pieces(build))
+for (const windowlen of WINDOWS)
 {
-    if (!piece.seeded)
+    process.stdout.write(`\na window of ${windowlen}\n`);
+
+    for (const piece of pieces(build))
     {
-        process.stdout.write(`skip  ${piece.name.padEnd(14)} pins no seed; ` +
-                             'it is not meant to repeat\n');
-        continue;
+        if (!piece.seeded)
+        {
+            process.stdout.write(`skip  ${piece.name.padEnd(14)} pins no ` +
+                                 'seed; it is not meant to repeat\n');
+            continue;
+        }
+
+        const plain = await run(piece, dsps, windowlen);
+
+        if (plain === null || plain.control === null)
+            continue;
+
+        /* And the same piece with three clicks on the stage whose picture
+           is a control. Two things have to be true of it: the mirror
+           still composed what the renderer composed -- an input is a
+           command and lands at the same point in the piece on both -- and
+           the tape is *not* the unclicked one. A click that changed
+           nothing would look exactly like agreement, which is the lesson
+           gen/hands.gen taught. */
+        const clicked = await run(piece, dsps, windowlen, { clicking: true });
+
+        if (clicked !== null && clicked.tape === plain.tape)
+            fail(`${piece.name}: three clicks on ${plain.control.name} ` +
+                 'changed nothing, so nothing about them was tested');
+
+        /* And once more with the gestures coming out of the canvas rather
+           than out of this file: the press, the drag and the release arrive
+           in shell pixels, the canvas works out which stage they are on and
+           where in its picture, and what it hands back is what the page
+           stamps and sends. The same tape on both instances again, and again
+           not the untouched one. */
+        const drawn = await run(piece, dsps, windowlen,
+                                { clicking: true, canvas: true });
+
+        if (drawn !== null && drawn.tape === plain.tape)
+            fail(`${piece.name}: gestures through the canvas changed nothing`);
     }
-
-    const plain = await run(piece, dsps);
-
-    if (plain === null || plain.control === null)
-        continue;
-
-    /* And the same piece with three clicks on the stage whose picture
-       is a control. Two things have to be true of it: the mirror
-       still composed what the renderer composed -- an input is a
-       command and lands at the same point in the piece on both -- and
-       the tape is *not* the unclicked one. A click that changed
-       nothing would look exactly like agreement, which is the lesson
-       gen/hands.gen taught. */
-    const clicked = await run(piece, dsps, { clicking: true });
-
-    if (clicked !== null && clicked.tape === plain.tape)
-        fail(`${piece.name}: three clicks on ${plain.control.name} ` +
-             'changed nothing, so nothing about them was tested');
-
-    /* And once more with the gestures coming out of the canvas rather
-       than out of this file: the press, the drag and the release arrive
-       in shell pixels, the canvas works out which stage they are on and
-       where in its picture, and what it hands back is what the page
-       stamps and sends. The same tape on both instances again, and again
-       not the untouched one. */
-    const drawn = await run(piece, dsps, { clicking: true, canvas: true });
-
-    if (drawn !== null && drawn.tape === plain.tape)
-        fail(`${piece.name}: gestures through the canvas changed nothing`);
 }
 
 process.stdout.write(failures === 0

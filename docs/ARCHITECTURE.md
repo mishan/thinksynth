@@ -437,8 +437,8 @@ Two consequences, neither a bug:
 out the window it has and renders the next; a second where the device period is
 *smaller* than the window, because then the first ask for a window of capture
 comes with only a period in hand and that window is rendered with silence. In a
-browser the period is the worklet's quantum of 128, which is the whole reason
-the page offers a window of 128 beside its usual 256.
+browser the period is the worklet's quantum of 128, and so is the page's
+window.
 
 **And the alignment depends on the block size**, which is the one place a live
 input breaks the property `scripts/dspblock` exists to check. The *samples* a

@@ -102,9 +102,8 @@ class thSynth;
  *      128     48 kHz      2.7 ms             5.3 ms
  *
  * and makes a window equal to the device period worth having twice over. In a
- * browser the period is the worklet's quantum of 128, which is exactly why a
- * page that wants a live input asks for a window of 128 rather than the 256 it
- * otherwise runs at: 2.7 ms against 10.7.
+ * browser the period is the worklet's quantum of 128, which is one reason the
+ * page runs a window of 128: a live input is 2.7 ms late against 10.7 at 256.
  *
  * AND THE ALIGNMENT DEPENDS ON THE BLOCK SIZE, which is the one place a live
  * input breaks the property dspblock exists to check. The *samples* a graph
