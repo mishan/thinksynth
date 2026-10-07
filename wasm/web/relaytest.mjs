@@ -1343,9 +1343,12 @@ async function queuesBounded ()
 
     /* What a socket has had queued for others lately is not what it
        holds: over the total, one holding an edit it does not read goes,
-       and not one that sent others what they read. */
+       and not one that sent others what they read. The total is above
+       one gesture to both readers, and each is read before the next is
+       sent, so only the edit takes the relay over it however slowly the
+       readers drain. */
     const t = await relay({ port: 0, host: '127.0.0.1', tree,
-                            queuedTotalMaxBytes: 1024 * 1024 });
+                            queuedTotalMaxBytes: 2.5 * 1024 * 1024 });
 
     at = `ws://127.0.0.1:${t.address().port}`;
 
@@ -1360,9 +1363,12 @@ async function queuesBounded ()
         await new Promise((r) => setTimeout(r, 200));
         cd._socket.pause();
 
-        for (let i = 0; i < 3; i++)
+        for (let i = 1; i <= 3; i++)
+        {
             e.send({ type: 'relayed', to: [f.welcome.peer, g.welcome.peer],
                      data: { big } });
+            await until(() => relayed(f) === i && relayed(g) === i);
+        }
 
         const y = new Y.Doc();
 
@@ -4009,9 +4015,25 @@ try
                                  ['a garbage', new Uint8Array([255, 255, 255,
                                                                255, 255])]])
     {
-        const bad = new WebSocket(`${base}/doc/test?ticket=${ticket}`);
+        /* The last one's close can reach this side before the relay has
+           counted it gone: past DOCS_PER_PEER the ticket is refused
+           until it has. */
+        let bad = null;
 
-        await new Promise((r) => bad.on('open', r));
+        for (let tries = 0; bad === null && tries < 50; tries++)
+        {
+            const w = new WebSocket(`${base}/doc/test?ticket=${ticket}`);
+
+            if (await new Promise((r) =>
+                {
+                    w.on('open', () => r(true));
+                    w.on('error', () => r(false));
+                }))
+                bad = w;
+            else
+                await new Promise((r) => setTimeout(r, 50));
+        }
+
         bad.send(bytes);
 
         const closed = await new Promise((r) =>
