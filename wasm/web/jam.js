@@ -249,6 +249,7 @@ const KEEP = 256;
 const sent = [];                /* the last commands this peer made */
 const late = [];                /* the last the page saw were late */
 const margins = [];             /* how early each stamped command came */
+const dropped = [];             /* the last applyOne let go, and why */
 let sentCount = 0;
 let lateSeen = 0;
 let lateCount = 0;              /* the worklet's count */
@@ -427,11 +428,18 @@ function overtaken (cmd)
     return false;
 }
 
+function drop (cmd, why)
+{
+    keep(dropped, { from: cmd.from, seq: cmd.seq, why });
+}
+
 async function applyOne (from, cmd)
 {
-    if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd) ||
-        overtaken(cmd))
+    if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd))
         return;
+
+    if (overtaken(cmd))
+        return drop(cmd, 'overtaken');
 
     /* The run this page is in, as soon as it is: a knob moved from here
        on is logged under it (room.log), whichever path brought the Play,
@@ -444,7 +452,7 @@ async function applyOne (from, cmd)
        or retime the new run at a time stamped against the old one. */
     if (cmd.type === 'transport' && cmd.op !== 'start' &&
         cmd.run !== undefined && cmd.run !== appliedRun)
-        return;
+        return drop(cmd, 'old run');
 
     if (startOrStop)
     {
@@ -458,7 +466,7 @@ async function applyOne (from, cmd)
        does. */
     if ((cmd.type === 'edit' || cmd.type === 'pick') &&
         cmd.run !== room.runKey)
-        return;
+        return drop(cmd, 'old run');
 
     /* The relay's Play is a switch's, which the feed has said already. */
     if ((cmd.type === 'transport' || cmd.type === 'edit') && from !== RELAY)
@@ -471,7 +479,7 @@ async function applyOne (from, cmd)
         if (!startOrStop && replayable(cmd) && early.length < EARLY_MAX)
             early.push(cmd);
 
-        return;
+        return drop(cmd, 'before Start');
     }
 
     if (isLate(cmd, transportNow()))
@@ -2824,6 +2832,7 @@ function init ()
         sent: () => sent,
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
+        dropped: () => dropped,
         ready: () => synth !== null && piece !== null && clocksReady(),
 
         /* A late joiner still stepping up to the room (joinRun). */
