@@ -124,9 +124,8 @@ export class Mesh
             return;
         }
 
-        const l = { pc: null, gen: 0, channel: null, keys: null,
-                    relayed: false, rtt: NaN, pinger: null, timer: null,
-                    retry: null, tries: 0, pending: [] };
+        const l = { relayed: false, rtt: NaN, pinger: null, timer: null,
+                    retry: null, tries: 0 };
 
         this.links.set(peer, l);
         this.connect(peer, l, 0);
