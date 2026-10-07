@@ -95,7 +95,7 @@ export class Mesh
     open (l)
     {
         return l.channel?.readyState === 'open' &&
-               (l.keys === null || l.keys.readyState === 'open');
+               (l.keys === null ? !l.keyed : l.keys.readyState === 'open');
     }
 
     /* What the page shows: for each peer, 'direct', 'relayed' or
@@ -308,6 +308,11 @@ export class Mesh
                 pc.restartIce();
             else if (data.description !== undefined)
             {
+                /* A page with the second channel sends a generation,
+                   and is not direct until both have opened. */
+                if (data.description.type === 'offer')
+                    l.keyed = data.gen !== undefined;
+
                 await pc.setRemoteDescription(data.description);
 
                 for (const c of pending.splice(0))
