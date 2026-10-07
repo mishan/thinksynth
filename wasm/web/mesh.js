@@ -192,8 +192,11 @@ export class Mesh
                     .then(() => this.room.signal(
                         peer, { gen,
                                 description: pc.localDescription.toJSON() }))
-                    .catch((e) => this.fallBack(peer,
-                                                `no offer: ${e.message}`)));
+                    .catch((e) =>
+                    {
+                        if (l.pc === pc)
+                            this.fallBack(peer, `no offer: ${e.message}`);
+                    }));
         }
         else
             pc.addEventListener('datachannel', (e) =>
@@ -364,7 +367,8 @@ export class Mesh
         this.emit('change', peer);
     }
 
-    /* The offering side tries a relayed pair again, backing off: a new
+    /* A relayed pair tried again, backing off: direct again if what
+       relayed it changed nothing, and on the offering side a new
        connection in place of one that has not got anywhere or has come
        apart. One still connecting, or finding its way back from a
        disconnect or a failure, is left to it: an ICE restart keeps the
@@ -372,21 +376,27 @@ export class Mesh
        that away. */
     later (peer, l)
     {
-        if (l.pc === undefined || l.retry !== null || !(this.room.peer < peer))
+        if (l.pc === undefined || l.retry !== null)
             return;
 
         l.retry = setTimeout(() =>
         {
             l.retry = null;
 
-            if (this.links.get(peer) !== l || !l.relayed)
+            if (this.links.get(peer) !== l)
+                return;
+
+            this.back(peer, l);
+
+            if (!l.relayed)
                 return;
 
             const gone = (c) => c?.readyState === 'closing' ||
                                 c?.readyState === 'closed';
 
-            if (['new', 'closed'].includes(l.pc.connectionState) ||
-                gone(l.channel) || gone(l.keys))
+            if (this.room.peer < peer &&
+                (['new', 'closed'].includes(l.pc.connectionState) ||
+                 gone(l.channel) || gone(l.keys)))
                 this.connect(peer, l, l.gen + 1);
 
             this.later(peer, l);
