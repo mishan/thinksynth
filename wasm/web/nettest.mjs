@@ -970,7 +970,7 @@ function holeIn (env, o, pages, links, result, event)
             if (state === 'before' && t >= o.at)
             {
                 state = 'holed';
-                collect(B).catch(() => {}).then(() =>
+                collect(B).catch(() => { B.failedPolls++; }).then(() =>
                 {
                     out.seatBefore = B.seat;
                     out.idBefore = B.sent.at(-1)?.from;
