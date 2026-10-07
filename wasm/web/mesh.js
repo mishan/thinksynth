@@ -288,9 +288,9 @@ export class Mesh
         if (l?.pc === undefined)
             return;
 
-        /* A page from before generations sends none: its one connection
-           is the first. */
-        const gen = data.gen ?? 0;
+        /* A page from before generations sends none: what it sends is
+           for the one connection it has, whichever this side's is. */
+        const gen = data.gen ?? l.gen;
 
         /* The offering side has made the pair again: this side's
            connection goes, and one comes to answer it. */
