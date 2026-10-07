@@ -408,8 +408,10 @@ const lastKeys = new Map();
 
 /* A key behind a later one of the same note, which came first by another
    channel or path -- its own copy lost on the mesh's unreliable channel,
-   say, or relayed while the mesh came back -- is dropped: a press applied
-   after its own release would sound until the next. */
+   say, or relayed while the mesh came back -- is dropped if it would be
+   played now: a press applied after its own release would sound until
+   the next. A stamped key in time is played at its stamp, whatever it
+   arrived behind. */
 function overtaken (cmd)
 {
     if (cmd.type !== 'note' && cmd.type !== 'noteoff')
@@ -418,7 +420,8 @@ function overtaken (cmd)
     const key = `${cmd.from} ${cmd.seat} ${cmd.note}`;
 
     if (cmd.seq < (lastKeys.get(key) ?? -1))
-        return true;
+        return (cmd.mode ?? 'direct') === 'direct' ||
+               isLate(cmd, transportNow());
 
     lastKeys.set(key, cmd.seq);
     return false;
