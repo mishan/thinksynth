@@ -313,7 +313,8 @@ async function launch (env, i, o)
     });
 
     return { i, label: `p${i + 1}`, browser, context, page, errors,
-             truth: NaN, samples: [], margins: [], sent: [],
+             truth: NaN, samples: [], margins: [], sent: [], lates: [],
+             dropped: new Map(), failedPolls: 0,
              paths: [], seen: new Set(), since: 0 };
 }
 
@@ -391,11 +392,13 @@ async function sample (env, p)
 const isSelf = (p, q) => q.name.replace(/ \(guest\)$/, '') === p.label;
 
 /* The bounded lists the page keeps (jam.js, KEEP), taken in full by
-   asking often enough. */
+   asking often enough. What the page dropped, and why, from a page that
+   says. */
 async function collect (p)
 {
     const got = await p.page.evaluate(() => ({
         margins: window.jam.margins(), sent: window.jam.sent(),
+        late: window.jam.late().page, dropped: window.jam.dropped?.() ?? [],
         peers: window.jam.peers(),
         log: document.getElementById('log').textContent,
         status: document.getElementById('status').textContent,
@@ -415,6 +418,16 @@ async function collect (p)
             p.seen.add(`s${c.from}:${c.seq}`);
             p.sent.push(c);
         }
+
+    for (const c of got.late)
+        if (!p.seen.has(`l${c.from}:${c.seq}`))
+        {
+            p.seen.add(`l${c.from}:${c.seq}`);
+            p.lates.push(c);
+        }
+
+    for (const d of got.dropped)
+        p.dropped.set(`${d.from}:${d.seq}`, d.why);
 
     p.peersNow = got.peers;
     p.status = got.status;
@@ -496,7 +509,8 @@ function received (p, pages)
 {
     const own = new Set(p.sent.map((c) => c.from));
     const byTag = new Map(p.margins.map((m) => [`${m.from}:${m.seq}`, m]));
-    const out = { kinds: {}, lost: 0, sent: 0, stuck: 0, reordered: 0 };
+    const out = { kinds: {}, lost: 0, dropped: {}, sent: 0, stuck: 0,
+                  reordered: 0 };
 
     for (const q of pages)
     {
@@ -509,12 +523,20 @@ function received (p, pages)
         {
             const k = KIND(c);
             const m = byTag.get(`${c.from}:${c.seq}`);
-            const kind = out.kinds[k] ??= { sent: 0, lost: 0, margins: [] };
+            const kind = out.kinds[k] ??= { sent: 0, lost: 0, dropped: {},
+                                            margins: [] };
+            const why = p.dropped.get(`${c.from}:${c.seq}`);
 
             kind.sent++;
             out.sent++;
 
-            if (m === undefined)
+            /* Arrived and dropped by the page, or never arrived. */
+            if (m === undefined && why !== undefined)
+            {
+                kind.dropped[why] = (kind.dropped[why] ?? 0) + 1;
+                out.dropped[why] = (out.dropped[why] ?? 0) + 1;
+            }
+            else if (m === undefined)
             {
                 kind.lost++;
                 out.lost++;
@@ -564,6 +586,7 @@ function received (p, pages)
         kind.leastMs = r1(Math.min(...kind.margins));
         kind.p1Ms = r1(quantile(kind.margins, 0.01));
         kind.medianMs = r1(quantile(kind.margins, 0.5));
+        kind.got = kind.margins.length;
         kind.lateCount = kind.margins.filter((m) => m < 0).length;
         delete kind.margins;
     }
@@ -740,12 +763,12 @@ async function main ()
 
             await Promise.all(pages.map((p) => sample(env, p)
                 .then(() => { p.samples.at(-1).round = k; })
-                .catch(() => {})));
+                .catch(() => { p.failedPolls++; })));
 
             if (t >= nextCollect)
             {
                 await Promise.all(pages.map((p) => collect(p)
-                    .catch(() => {})));
+                    .catch(() => { p.failedPolls++; })));
                 nextCollect = t + 1;
             }
 
@@ -777,7 +800,12 @@ async function main ()
             await p.page.evaluate(() => window.nettestStop?.())
                 .catch(() => {});
 
+        /* A key played ahead is let go a bar after the hand lets go, and
+           one let go after the Stop is never let go at all. */
         await sleep(o.holdMs + 1000);
+        await until(() => Promise.all(pages.map((p) => p.page.evaluate(
+            () => window.jam.heard().length === 0)))
+            .then((r) => r.every(Boolean)), 5000, 250);
         await A.page.evaluate(() => window.jam.stop());
         await sleep(3000 + 2 * Math.max(...o.rtt));
 
@@ -810,13 +838,22 @@ async function main ()
             s.close();
         }
 
-        for (const c of env.procs)
-            c.kill();
+        /* Gone before their directories are: a Chromium writes its
+           profile until it is. */
+        await Promise.all(env.procs.map((c) => new Promise((resolve) =>
+        {
+            if (c.exitCode !== null || c.signalCode !== null ||
+                c.pid === undefined)
+                return resolve();
+
+            c.once('exit', resolve);
+            c.kill('SIGKILL');
+        })));
 
         if (o.json !== null)
             fs.writeFileSync(o.json, JSON.stringify(result, null, 2) + '\n');
 
-        fs.rmSync(env.tmp, { recursive: true, force: true });
+        fs.rmSync(env.tmp, { recursive: true, force: true, maxRetries: 5 });
     }
 
     process.exit(failed === null ? 0 : 1);
@@ -1067,8 +1104,13 @@ function report (o, pages, result, playAt)
             clockAfter: o.scenario === 'throttle' ? clockOf(p, after)
                                                   : undefined,
             received: received(p, pages),
-            late: { worklet: p.late.worklet, page: p.late.seen },
-            heldAtEnd: p.heard,
+            /* A direct key is stamped with when it was played, and is
+               always late by the time it arrives anywhere. */
+            late: { worklet: p.late.worklet,
+                    page: p.lates.filter(
+                        (c) => !KIND(c).startsWith('direct')).length },
+            litAfterStop: p.heard,
+            failedPolls: p.failedPolls,
             tapeEvents: tape.split('\n').length - 1,
             tapeSame: tape === want,
             tapeDiff: tape === want ? null : firstDifference(want, tape),
@@ -1095,8 +1137,12 @@ function report (o, pages, result, playAt)
                             transport: need('transport', TRANSPORT_LEAD) };
 
     const w = (s) => process.stdout.write(s + '\n');
+    const counts = (byWhy) => Object.entries(byWhy)
+        .map(([why, n]) => `${why} ${n}`);
     const kinds = (r) => Object.entries(r.kinds).map(([k, v]) =>
-        `${k} ${v.sent - v.lost}/${v.sent}` +
+        `${k} ${v.got}/${v.sent}` +
+        (v.got < v.sent ? ` (${[`lost ${v.lost}`, ...counts(v.dropped)]
+                                   .join(', ')})` : '') +
         (k.startsWith('direct')
              ? ` delay median ${r1(-v.medianMs)} worst ${r1(-v.leastMs)} ms`
              : ` margin least ${v.leastMs} p1 ${v.p1Ms} ms, ${v.lateCount} ` +
@@ -1117,11 +1163,13 @@ function report (o, pages, result, playAt)
                           `p95 ${p.clockAfter.p95Ms} ms, ` +
                           `${p.clockAfter.visibility.join('/')}` : ''));
         w(`      got ${kinds(p.received)}`);
-        w(`      late ${p.late.worklet} by the worklet, ${p.late.page} by ` +
-          `the page; stuck keys ${p.received.stuck}` +
+        w(`      late ${p.late.worklet} by the worklet, ${p.late.page} ` +
+          `stamped by the page; stuck keys ${p.received.stuck} by what ` +
+          'arrived' +
           (p.received.reordered
-               ? ` (${p.received.reordered} overtaken)` : '') +
-          `, held at the end [${p.heldAtEnd.join(' ')}]`);
+               ? ` (${p.received.reordered} with the release first)` : '') +
+          `, lit after the Stop [${p.litAfterStop.join(' ')}]` +
+          (p.failedPolls > 0 ? `; ${p.failedPolls} polls failed` : ''));
         w(`      tape ${p.tapeSame ? 'same' : `DIFFERS (${p.tapeDiff})`}, ` +
           `${p.tapeEvents} events; paths ` +
           p.paths.map((x) => `${x.t.toFixed(1)}s ${x.shown}`).join(' | ') +
