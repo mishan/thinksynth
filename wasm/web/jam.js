@@ -249,6 +249,7 @@ const KEEP = 256;
 const sent = [];                /* the last commands this peer made */
 const late = [];                /* the last the page saw were late */
 const margins = [];             /* how early each stamped command came */
+const dropped = [];             /* the last applyOne let go, and why */
 let sentCount = 0;
 let lateSeen = 0;
 let lateCount = 0;              /* the worklet's count */
@@ -403,10 +404,42 @@ function receive (from, cmd)
     return done;
 }
 
+/* `from seat note' -> the seq of the last key of it applied. */
+const lastKeys = new Map();
+
+/* A key behind a later one of the same note, which came first by another
+   channel or path -- its own copy lost on the mesh's unreliable channel,
+   say, or relayed while the mesh came back -- is dropped if it would be
+   played now: a press applied after its own release would sound until
+   the next. A stamped key in time is played at its stamp, whatever it
+   arrived behind. */
+function overtaken (cmd)
+{
+    if (cmd.type !== 'note' && cmd.type !== 'noteoff')
+        return false;
+
+    const key = `${cmd.from} ${cmd.seat} ${cmd.note}`;
+
+    if (cmd.seq < (lastKeys.get(key) ?? -1))
+        return (cmd.mode ?? 'direct') === 'direct' ||
+               isLate(cmd, transportNow());
+
+    lastKeys.set(key, cmd.seq);
+    return false;
+}
+
+function drop (cmd, why)
+{
+    keep(dropped, { from: cmd.from, seq: cmd.seq, why });
+}
+
 async function applyOne (from, cmd)
 {
     if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd))
         return;
+
+    if (overtaken(cmd))
+        return drop(cmd, 'overtaken');
 
     /* The run this page is in, as soon as it is: a knob moved from here
        on is logged under it (room.log), whichever path brought the Play,
@@ -419,7 +452,7 @@ async function applyOne (from, cmd)
        or retime the new run at a time stamped against the old one. */
     if (cmd.type === 'transport' && cmd.op !== 'start' &&
         cmd.run !== undefined && cmd.run !== appliedRun)
-        return;
+        return drop(cmd, 'old run');
 
     if (startOrStop)
     {
@@ -433,7 +466,7 @@ async function applyOne (from, cmd)
        does. */
     if ((cmd.type === 'edit' || cmd.type === 'pick') &&
         cmd.run !== room.runKey)
-        return;
+        return drop(cmd, 'old run');
 
     /* The relay's Play is a switch's, which the feed has said already. */
     if ((cmd.type === 'transport' || cmd.type === 'edit') && from !== RELAY)
@@ -446,7 +479,7 @@ async function applyOne (from, cmd)
         if (!startOrStop && replayable(cmd) && early.length < EARLY_MAX)
             early.push(cmd);
 
-        return;
+        return drop(cmd, 'before Start');
     }
 
     if (isLate(cmd, transportNow()))
@@ -2083,6 +2116,10 @@ async function join ()
 
     chat.peers(room.peers);
 
+    /* Before anything is awaited: a peer offers the moment it hears we
+       have joined, and a signal with no mesh to take it is dropped. */
+    openMesh();
+
     /* The name the relay gave us -- a handle, or the guest name cleaned
        up -- as everyone else sees it. */
     const name = shownName(room.identity);
@@ -2115,8 +2152,6 @@ async function join ()
     if (!room.features.includes('switch'))
         $('piece').title = 'This relay is older than the page and cannot ' +
                            'switch pieces.';
-
-    openMesh();
 
     $('joinrow').hidden = true;
     $('roompanel').hidden = false;
@@ -2185,14 +2220,9 @@ function editRefused (m)
            ' Reload the page to go on editing.');
 }
 
-/* One mesh to a room socket: a room lost while the join awaited the
-   document is joined again, and given its mesh, before the join goes on
-   to open one. */
+/* One mesh to a room socket, opened as soon as it is welcomed. */
 function openMesh ()
 {
-    if (mesh?.room === room)
-        return;
-
     mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
     mesh.on('change', showPeers)
         .on('fallback', (peer, why) =>
@@ -2802,6 +2832,7 @@ function init ()
         sent: () => sent,
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
+        dropped: () => dropped,
         ready: () => synth !== null && piece !== null && clocksReady(),
 
         /* A late joiner still stepping up to the room (joinRun). */

@@ -21,13 +21,24 @@
  *
  * One RTCPeerConnection per pair, the peer with the smaller id offering,
  * offer, answer and ICE candidates through the room socket's `signal'.
- * On it one data channel, unordered and without retransmission: a knob
- * that arrives late is worse than one that does not arrive, since a later
- * knob has superseded it, and a note that arrives late is just late.
+ * On it two data channels. Everything goes on one unordered and without
+ * retransmission: a knob that arrives late is worse than one that does not
+ * arrive, since a later knob has superseded it. Everything but knobs goes
+ * on one ordered and reliable as well: a lost key is a note left sounding,
+ * a lost mute or param two peers composing two pieces from there, and
+ * either is worse than late. The first copy to arrive is applied and the
+ * other dropped (commands.js, Dedupe), so the reliable channel's wait for
+ * a retransmission holds up only what the other channel lost too.
  *
- * And the way round it. If a pair's channel has not opened within
- * OPEN_WITHIN, or drops, both sides send each other their gestures
- * through the relay instead: the same commands, one more hop. The page
+ * A page from before the second channel offers only the first, and takes
+ * the second as another of the first: it gets everything either way, and
+ * sends everything on the one it has.
+ *
+ * And the way round it. If a pair's channels have not opened within
+ * OPEN_WITHIN, or the connection drops, both sides send each other their
+ * gestures through the relay instead: the same commands, one more hop.
+ * The connection is not given up on: it goes on trying, and is made again
+ * if it gets nowhere, and the pair is direct again once it opens. The page
  * shows which peers are which, with the round trip to each, so a LAN with
  * awkward ICE still gives a tape to compare and a failure is visible
  * rather than mysterious.
@@ -38,6 +49,11 @@ const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 /* How long a pair gets to open its channel before the relay carries it. */
 const OPEN_WITHIN = 10000;
+
+/* Once relayed, how long until the offering side tries the pair again,
+   doubling to the last. */
+const RETRY_FIRST_MS = 5000;
+const RETRY_MAX_MS = 60000;
 
 /* A ping over the channel this often, for the round trip shown. */
 const PING_EVERY = 1000;
@@ -74,6 +90,14 @@ export class Mesh
         this.handlers.get(type)?.(...args);
     }
 
+    /* Both channels open, or the one a page from before the second
+       offered. */
+    open (l)
+    {
+        return l.channel?.readyState === 'open' &&
+               (l.keys === null ? !l.keyed : l.keys.readyState === 'open');
+    }
+
     /* What the page shows: for each peer, 'direct', 'relayed' or
        'connecting', and the round trip in milliseconds if known. */
     status (peer)
@@ -84,7 +108,7 @@ export class Mesh
             return { path: 'none', rtt: NaN };
 
         return { path: l.relayed ? 'relayed'
-                       : l.channel?.readyState === 'open' ? 'direct'
+                       : this.open(l) ? 'direct'
                        : 'connecting',
                  rtt: l.rtt };
     }
@@ -100,38 +124,79 @@ export class Mesh
             return;
         }
 
-        const pc = new RTCPeerConnection(ICE);
-        const l = { pc, channel: null, relayed: false, rtt: NaN,
-                    pinger: null, timer: null, pending: [] };
+        const l = { relayed: false, rtt: NaN, pinger: null, timer: null,
+                    retry: null, tries: 0 };
 
         this.links.set(peer, l);
+        this.connect(peer, l, 0);
+    }
+
+    /* Connection `gen' of a pair: the first, or one the offering side
+       made again after the last would not open or came apart. Signals
+       carry it, so a late one for a connection gone is not taken for its
+       successor's. */
+    connect (peer, l, gen)
+    {
+        l.pc?.close();
+        clearTimeout(l.timer);
+        clearInterval(l.pinger);
+
+        const pc = new RTCPeerConnection(ICE);
+        const offering = this.room.peer < peer;
+
+        Object.assign(l, { pc, gen, channel: null, keys: null, pending: [] });
 
         pc.addEventListener('icecandidate', (e) =>
         {
             if (e.candidate !== null)
-                this.room.signal(peer, { candidate: e.candidate.toJSON() });
+                this.room.signal(peer, { gen,
+                                         candidate: e.candidate.toJSON() });
         });
 
+        /* Disconnected is a network that may come back, and ICE finds
+           its way back by itself: relayed meanwhile, direct again once it
+           has. Failed is one an ICE restart may find again, which keeps
+           the channels and what is queued on them. */
         pc.addEventListener('connectionstatechange', () =>
         {
-            if (pc.connectionState === 'failed' ||
-                pc.connectionState === 'disconnected' ||
-                pc.connectionState === 'closed')
-                this.fallBack(peer, `the connection ${pc.connectionState}`);
-        });
+            if (l.pc !== pc)
+                return;
 
-        const offering = this.room.peer < peer;
+            if (pc.connectionState === 'connected')
+                this.back(peer, l);
+            else if (pc.connectionState === 'disconnected' ||
+                     pc.connectionState === 'failed')
+                this.fallBack(peer, `the connection ${pc.connectionState}`);
+
+            if (pc.connectionState !== 'failed')
+                return;
+
+            if (offering)
+                pc.restartIce();
+            else
+                this.room.signal(peer, { gen, restart: true });
+        });
 
         if (offering)
         {
+            /* The reliable one first: the other side is given it first,
+               so it is open by the time the unreliable one is. */
+            this.attach(peer, l, pc.createDataChannel('keys'));
             this.attach(peer, l, pc.createDataChannel('gestures', {
                 ordered: false, maxRetransmits: 0 }));
 
-            pc.createOffer()
-                .then((offer) => pc.setLocalDescription(offer))
-                .then(() => this.room.signal(
-                    peer, { description: pc.localDescription.toJSON() }))
-                .catch((e) => this.fallBack(peer, `no offer: ${e.message}`));
+            /* The first offer, and an ICE restart's. */
+            pc.addEventListener('negotiationneeded', () =>
+                pc.createOffer()
+                    .then((offer) => pc.setLocalDescription(offer))
+                    .then(() => this.room.signal(
+                        peer, { gen,
+                                description: pc.localDescription.toJSON() }))
+                    .catch((e) =>
+                    {
+                        if (l.pc === pc)
+                            this.fallBack(peer, `no offer: ${e.message}`);
+                    }));
         }
         else
             pc.addEventListener('datachannel', (e) =>
@@ -140,28 +205,27 @@ export class Mesh
         /* The clock on opening. */
         l.timer = setTimeout(() =>
         {
-            if (l.channel?.readyState !== 'open')
+            if (!this.open(l))
                 this.fallBack(peer, `not open in ${OPEN_WITHIN / 1000} s`);
         }, OPEN_WITHIN);
     }
 
     attach (peer, l, channel)
     {
-        l.channel = channel;
+        if (channel.label === 'keys')
+            l.keys = channel;
+        else
+            l.channel = channel;
 
-        channel.addEventListener('open', () =>
-        {
-            clearTimeout(l.timer);
-            l.pinger = setInterval(() =>
-            {
-                if (channel.readyState === 'open')
-                    channel.send(JSON.stringify({ ping: performance.now() }));
-            }, PING_EVERY);
-            this.emit('change', peer);
-        });
+        const current = () => channel === l.channel || channel === l.keys;
+
+        channel.addEventListener('open', () => this.back(peer, l));
 
         channel.addEventListener('close', () =>
-            this.fallBack(peer, 'the channel closed'));
+        {
+            if (current())
+                this.fallBack(peer, 'the channel closed');
+        });
 
         channel.addEventListener('message', (e) =>
         {
@@ -191,7 +255,29 @@ export class Mesh
         });
     }
 
-    /* Offer, answer or candidate from the other side. */
+    /* The pair direct, for the first time or again: both channels open,
+       and the connection through any disconnect it had. */
+    back (peer, l)
+    {
+        if (!this.open(l) || l.pc.connectionState === 'disconnected' ||
+            l.pc.connectionState === 'failed')
+            return;
+
+        clearTimeout(l.timer);
+        clearTimeout(l.retry);
+        clearInterval(l.pinger);
+        l.retry = null;
+        l.tries = 0;
+        l.relayed = false;
+        l.pinger = setInterval(() =>
+        {
+            if (l.channel.readyState === 'open')
+                l.channel.send(JSON.stringify({ ping: performance.now() }));
+        }, PING_EVERY);
+        this.emit('change', peer);
+    }
+
+    /* Offer, answer, candidate or restart from the other side. */
     async signalled (from, data)
     {
         let l = this.links.get(from);
@@ -202,25 +288,45 @@ export class Mesh
             l = this.links.get(from);
         }
 
-        const pc = l?.pc;
-
-        if (pc === undefined)
+        if (l?.pc === undefined)
             return;
+
+        /* A page from before generations sends none: what it sends is
+           for the one connection it has, whichever this side's is. */
+        const gen = data.gen ?? l.gen;
+
+        /* The offering side has made the pair again: this side's
+           connection goes, and one comes to answer it. */
+        if (gen > l.gen && data.description?.type === 'offer')
+            this.connect(from, l, gen);
+
+        if (gen !== l.gen)
+            return;
+
+        const { pc, pending } = l;
 
         try
         {
-            if (data.description !== undefined)
+            if (data.restart === true)
+                pc.restartIce();
+            else if (data.description !== undefined)
             {
+                /* A page with the second channel sends a generation,
+                   and is not direct until both have opened. */
+                if (data.description.type === 'offer')
+                    l.keyed = data.gen !== undefined;
+
                 await pc.setRemoteDescription(data.description);
 
-                for (const c of l.pending.splice(0))
+                for (const c of pending.splice(0))
                     await pc.addIceCandidate(c);
 
                 if (data.description.type === 'offer')
                 {
                     await pc.setLocalDescription(await pc.createAnswer());
                     this.room.signal(
-                        from, { description: pc.localDescription.toJSON() });
+                        from, { gen,
+                                description: pc.localDescription.toJSON() });
                 }
             }
             else if (data.candidate !== undefined)
@@ -228,31 +334,73 @@ export class Mesh
                 /* A candidate before the description is held, since
                    addIceCandidate wants the description first. */
                 if (pc.remoteDescription === null)
-                    l.pending.push(data.candidate);
+                    pending.push(data.candidate);
                 else
                     await pc.addIceCandidate(data.candidate);
             }
         }
         catch (e)
         {
-            this.fallBack(from, `signalling: ${e.message}`);
+            if (l.pc === pc)
+                this.fallBack(from, `signalling: ${e.message}`);
         }
     }
 
+    /* The relay carries the pair's gestures until it is direct again. */
     fallBack (peer, why)
     {
         const l = this.links.get(peer);
 
-        if (l === undefined || l.relayed)
+        if (l === undefined)
+            return;
+
+        this.later(peer, l);
+
+        if (l.relayed)
             return;
 
         l.relayed = true;
         l.rtt = NaN;
         clearTimeout(l.timer);
         clearInterval(l.pinger);
-        l.pc?.close();
         this.emit('fallback', peer, why);
         this.emit('change', peer);
+    }
+
+    /* A relayed pair tried again, backing off: direct again if what
+       relayed it changed nothing, and on the offering side a new
+       connection in place of one that has not got anywhere or has come
+       apart. One still connecting, or finding its way back from a
+       disconnect or a failure, is left to it: an ICE restart keeps the
+       channels and what is queued on them, and a new connection throws
+       that away. */
+    later (peer, l)
+    {
+        if (l.pc === undefined || l.retry !== null)
+            return;
+
+        l.retry = setTimeout(() =>
+        {
+            l.retry = null;
+
+            if (this.links.get(peer) !== l)
+                return;
+
+            this.back(peer, l);
+
+            if (!l.relayed)
+                return;
+
+            const gone = (c) => c?.readyState === 'closing' ||
+                                c?.readyState === 'closed';
+
+            if (this.room.peer < peer &&
+                (['new', 'closed'].includes(l.pc.connectionState) ||
+                 gone(l.channel) || gone(l.keys)))
+                this.connect(peer, l, l.gen + 1);
+
+            this.later(peer, l);
+        }, Math.min(RETRY_FIRST_MS * 2 ** l.tries++, RETRY_MAX_MS));
     }
 
     drop (peer)
@@ -263,6 +411,7 @@ export class Mesh
             return;
 
         clearTimeout(l.timer);
+        clearTimeout(l.retry);
         clearInterval(l.pinger);
         l.pc?.close();
         this.links.delete(peer);
@@ -282,8 +431,13 @@ export class Mesh
 
         for (const [peer, l] of this.links)
         {
-            if (!l.relayed && l.channel?.readyState === 'open')
+            if (!l.relayed && this.open(l))
+            {
                 l.channel.send(text);
+
+                if (cmd.type !== 'knob' && l.keys !== null)
+                    l.keys.send(text);
+            }
             else
                 through.push(peer);
         }

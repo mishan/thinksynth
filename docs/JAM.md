@@ -530,7 +530,7 @@ Keeping them apart is most of the design.
 | what | the piece: `.gen` text, the `.dsp` files it names, presets | tempo, seed, playing or stopped, origin time | knob moves, hand-played notes |
 | changes | rarely, by editing | rarely, by pressing play or changing tempo | constantly |
 | ordering | matters; must converge | matters; tiny | latest wins, or scheduled by beat |
-| delivery | CRDT (Yjs) over a relay | reliable, via the same relay | WebRTC data channel, unordered, no retransmit |
+| delivery | CRDT (Yjs) over a relay | reliable, via the same relay | WebRTC data channels: unordered with no retransmit, and all but knobs reliable as well |
 | latency tolerance | seconds | seconds, but must apply at an agreed beat | milliseconds |
 
 What is *not* on the list is the generated material. Every stage of every
@@ -747,9 +747,14 @@ persists and a late joiner has somewhere to fetch it from), and the
 reference clock. Peer-to-peer without any server is possible for two people
 and a trap for four.
 
-**Gestures go peer-to-peer.** One data channel per pair, `ordered: false`,
-`maxRetransmits: 0`, mesh. A mesh is fine to about six peers; past that the
-relay fans out and the latency is what it is.
+**Gestures go peer-to-peer.** Two data channels per pair, mesh: one
+`ordered: false`, `maxRetransmits: 0`, carrying everything, and one ordered
+and reliable carrying everything but knobs again, and the first copy to
+arrive is the one applied. A key or a mute is lost only with the connection:
+what is queued on the reliable channel when a connection comes apart for
+good goes with it. A pair whose channels do not open, or whose connection
+drops, goes through the relay until they do, and back. A mesh is fine to
+about six peers; past that the relay fans out and the latency is what it is.
 
 **One clock.** Each peer estimates its offset to the relay's clock with a
 periodic ping, keeping the lowest-RTT samples, the way NTP does. The

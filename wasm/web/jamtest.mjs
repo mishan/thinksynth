@@ -1592,6 +1592,42 @@ async function keysSeen (pages)
     else
         fail(`a direct key from the other seat: down ${down}, up ${up}`);
 
+    /* And with everything B sends on the unreliable channel lost: a key
+       rides the reliable one as well. */
+    const direct = await B.page.evaluate(() =>
+    {
+        const send = RTCDataChannel.prototype.send;
+
+        window.unlose = () => { RTCDataChannel.prototype.send = send; };
+        RTCDataChannel.prototype.send = function (data)
+        {
+            if (this.maxRetransmits !== 0)
+                send.call(this, data);
+        };
+        window.jam.press(71, 90);
+
+        return window.jam.peers().some((p) => p.path === 'direct');
+    });
+    const lostDown = await until((s) => onRoll(s, 71, true));
+    const directUp = await B.page.evaluate(() =>
+    {
+        window.jam.release(71);
+
+        return window.jam.peers().some((p) => p.path === 'direct');
+    });
+
+    const lostUp = await until((s) => onRoll(s, 71, false) &&
+                                      !s.heard.includes(71));
+
+    await B.page.evaluate(() => window.unlose());
+
+    if (direct && lostDown && directUp && lostUp)
+        ok('and one pressed and let go with the unreliable channel ' +
+           'losing everything');
+    else
+        fail(`a key with the unreliable channel losing everything: direct ` +
+             `${direct}, down ${lostDown}, direct ${directUp}, up ${lostUp}`);
+
     await A.page.evaluate(() => window.jam.play());
     await A.page.waitForFunction(() => window.jam.probe().running, null,
                                  { timeout: 10000 }).catch(() => {});
@@ -2890,10 +2926,40 @@ try
                  `playing: ${await page.evaluate(() =>
                      document.getElementById('rooms').textContent)}`);
 
-        await page.goto(`${url}&room=jamtest&name=${label}&piece=${PIECE}`);
-        await page.waitForFunction(
-            () => !document.getElementById('roompanel').hidden,
-            null, { timeout: 15000 });
+        /* Its document held back a second, so the others' offers come
+           while it is still syncing. */
+        await page.routeWebSocket(/\/doc\//, (ws) =>
+        {
+            ws.connectToServer().onMessage(
+                (m) => setTimeout(() => ws.send(m), 1000));
+        });
+        /* And under a name of its own each time until another page's id
+           is the smaller, which makes that page the one to offer. */
+        let offered = false;
+
+        for (let k = 0; k < 5 && !offered; k++)
+        {
+            await page.goto(`${url}&room=jamtest&name=${label}${k}` +
+                            `&piece=${PIECE}`);
+            await page.waitForFunction(
+                () => !document.getElementById('roompanel').hidden,
+                null, { timeout: 15000 });
+            /* Itself the one peer it has no link to; and not an earlier
+               join of its own the relay has yet to see go. */
+            offered = await page.evaluate((label) =>
+            {
+                const peers = window.jam.peers();
+                const self = peers.find((p) => p.path === 'none');
+
+                return peers.some((p) => !p.name.startsWith(label) &&
+                                         p.id < self?.id);
+            }, label);
+        }
+
+        if (!offered)
+            fail('no page offered to the late joiner: its id was the ' +
+                 'smallest in five joins');
+
         await page.click('#start');
 
         try
@@ -2956,6 +3022,26 @@ try
             `      ${r.label}: the other peer's commands arrived ` +
             `${remote.map((m) => (m.margin * 1000).toFixed(0)).join(', ')} ms ` +
             `ahead of their time (least ${(least * 1000).toFixed(0)} ms)\n`);
+    }
+
+    /* The others offer to a late joiner the moment it arrives, while its
+       document is still syncing. A pair that missed the offer is made
+       again later, and direct by now; but not before it had gone through
+       the relay, which the log says. */
+    if (C !== null)
+    {
+        const { peers, log } = results.at(-1);
+        const paths = peers.filter((p) => p.path !== 'none')
+            .map((p) => `${p.name} ${p.path}`);
+        const relayed = log.split('\n')
+            .filter((line) => /: through the relay/.test(line));
+
+        if (paths.length === 2 && paths.every((p) => p.endsWith(' direct')) &&
+            relayed.length === 0)
+            ok(`the late joiner's mesh is direct: ${paths.join(', ')}`);
+        else
+            fail(`the late joiner's mesh: ${paths.join(', ')}` +
+                 (relayed.length > 0 ? `; ${relayed.join('; ')}` : ''));
     }
 
     /* The run's command stream, for genwav. Only what is stamped with a

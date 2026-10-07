@@ -1727,6 +1727,26 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             process.stdout.write('ok    two peers\' Plays are both played\n');
     }
 
+    /* A key's reliable copy held up behind a knob drag is still a copy. */
+    {
+        const dedupe = new Dedupe();
+        const maker = new Maker('a', () => 0);
+        const key = maker.note(0, 60, 90);
+        const drag = Array.from({ length: 1000 },
+                                () => maker.knob('cutoff', 0.5));
+
+        if ([key, ...drag].every((c) => dedupe.accept(c)) &&
+            !dedupe.accept(key))
+            process.stdout.write('ok    a key\'s second copy a thousand ' +
+                                 'knobs late is dropped\n');
+        else
+        {
+            failures++;
+            process.stdout.write('FAIL  a key\'s second copy a thousand ' +
+                                 'knobs late was applied again\n');
+        }
+    }
+
     {
         const piece = all.find((p) => p.name === 'airports.gen') ?? all[0];
         const why = await staleIndex(createThinkWeb, piece, dsps);
