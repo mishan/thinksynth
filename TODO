@@ -14,14 +14,12 @@ In order. Each is described where it points.
 1. The knob lead follows the measured latency.  (docs/JAM_BACKLOG.md §10)
 2. A page recovers from a long outage: a pong timeout, its seat back, a
    catch-up.  (docs/JAM_BACKLOG.md §10)
-3. A second catch-up refused within a second waits 15 s.
-   (docs/JAM_BACKLOG.md §9)
-4. Roles, visibility and an owner, enforced by the relay.
+3. Roles, visibility and an owner, enforced by the relay.
    (docs/JAM_BACKLOG.md §0)
-5. The recording format, with its build hash.  (docs/JAM_BACKLOG.md §4.1)
-6. A gate that compares rendered audio against a reference, and one on
+4. The recording format, with its build hash.  (docs/JAM_BACKLOG.md §4.1)
+5. A gate that compares rendered audio against a reference, and one on
    instruction counts.  (Coverage, below)
-7. The rest of the relay's gaps and its memory model.
+6. The rest of the relay's gaps and its memory model.
    (docs/JAM_BACKLOG.md §8, §9)
 
 
