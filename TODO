@@ -260,12 +260,6 @@ Composition
   propagate, the writer, GEN_FORMAT.md §3 and §5, and a gencheck case.
   About 90 lines.
 
-- gen::euclid's `rotate' is described as "rotate the pattern this many
-  steps", which does not say which way. It moves every onset that many
-  steps earlier, so 1 puts a lone onset on the last step -- the trap in a
-  pickup or a one-shot. The description should say so and GEN_FORMAT.md
-  should gain the sentence.  (plugins/composer/euclid.cpp)
-
 - genwav cannot set a knob. With one option to do so, it could render a
   piece twice at two values of a knob and print the RMS difference per
   channel beside --levels, so "does the Pump knob do anything" is one

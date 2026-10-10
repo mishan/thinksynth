@@ -86,6 +86,9 @@ A bare number on a duration param is an error, not a defaulted second. Units
 were optional in `.dsp` and the corpus shows what that buys: every reader of
 an old file guessing. Not this time.
 
+`gen::euclid`'s `rotate` moves every onset that many steps earlier, so
+`rotate = 1` puts a lone onset on the last step.
+
 `gen::euclid` normally emits each note when its step arrives. Set
 `ahead = 1` to emit a whole cycle at its start, with each note still dated
 for its own step. This gives a following `xform::run` time to place pickup

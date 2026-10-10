@@ -88,7 +88,7 @@ composer_init (thcComposerInfo *info)
           1, 64, 16, NULL, NULL },
         { "fills",  "onsets spread across the steps", THC_PARAM_INT,
           0, 64, 4, NULL, NULL },
-        { "rotate", "rotate the pattern this many steps", THC_PARAM_INT,
+        { "rotate", "move every onset this many steps earlier", THC_PARAM_INT,
           0, 63, 0, NULL, NULL },
         { "notes",  "pitch pool, cycled through the onsets",
           THC_PARAM_NOTESET, 0, 0, 0, "60", NULL },
