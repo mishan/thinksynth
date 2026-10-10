@@ -641,7 +641,7 @@ let runSeed = null;
  * meantime is applied after the catching up rather than lost under it --
  * or dropped as a duplicate of the copy the relay had.
  */
-function joinRun ()
+function joinRun ({ unlessSeen = null } = {})
 {
     const wanted = room.runKey;
 
@@ -677,6 +677,14 @@ function joinRun ()
         }
 
         if (run.start === null || room.runKey !== wanted)
+            return;
+
+        /* Back in the run it plays (rejoin): caught up again, which plays
+           it from its start, only if the room sent something this page
+           never heard. Its own commands, by the id it had, it made. */
+        if (unlessSeen !== null && runOf(run.start) === appliedRun &&
+            run.log.every((c) => c.from === unlessSeen || !replayable(c) ||
+                                 dedupe.has(c)))
             return;
 
         if (run.overflowed)
@@ -2511,10 +2519,11 @@ async function rejoin ()
     chat.peers(room.peers);
     status(`Back in ${room.roomName}.`);
 
-    /* The run this page was playing too: what the room sent while this
-       page was away is in the relay's log and nowhere here. */
+    /* The run this page was playing too, if the room went on without it:
+       what it sent meanwhile is in the relay's log and nowhere here. */
     if (synth !== null && room.playing !== null)
-        await joinRun();
+        await joinRun(room.runKey === appliedRun ? { unlessSeen: was.peer }
+                                                 : {});
 }
 
 /* The room's address without the name in it (join). */

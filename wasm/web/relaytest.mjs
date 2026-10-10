@@ -3891,7 +3891,7 @@ try
                 .connect().then(() => false, (e) => e.unreachable === true),
         ]);
 
-        check(closedS > 4 && closedS < 8,
+        check(closedS > 9 && closedS < 14,
               `a room socket whose pings go unanswered closes (${
                   closedS.toFixed(1)} s)`);
         check(unreachable && performance.now() - t0 < 12000,

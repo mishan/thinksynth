@@ -43,7 +43,7 @@ const CATCHUP_WAIT = 15 * 1000;
 /* How long a ping may go unanswered before the room socket is taken for
    gone. Nothing else notices a link that has gone quiet: the relay's
    reset never arrives, and TCP retries for minutes. */
-const PONG_WAIT_MS = 5 * 1000;
+const PONG_WAIT_MS = 10 * 1000;
 
 /* How long a join may go unwelcomed. A connect to a relay out of reach
    otherwise waits out TCP's retries, minutes again. */
@@ -90,6 +90,7 @@ export class Room
         this.pinger = null;
         this.unanswered = null;         /* when the oldest unanswered ping
                                            went, performance.now */
+        this.misses = 0;                /* ticks since, with no pong */
         this.ws = null;
         this.catchups = [];             /* { resolve, reject } of catchUp() */
         this.features = [];             /* what the relay says it does */
@@ -216,14 +217,23 @@ export class Room
 
                         /* Timed by the oldest unanswered ping, not by
                            the timer, which a hidden tab slows to a
-                           minute. */
+                           minute; and two ticks of it, since a tab
+                           waking runs its timer before the pong that
+                           waited for it. */
                         this.pinger = setInterval(() =>
                         {
                             const now = performance.now();
 
-                            this.unanswered ??= now;
+                            if (this.unanswered === null)
+                            {
+                                this.unanswered = now;
+                                this.misses = 0;
+                            }
+                            else
+                                this.misses++;
 
-                            if (now - this.unanswered > PONG_WAIT_MS)
+                            if (this.misses >= 2 &&
+                                now - this.unanswered > PONG_WAIT_MS)
                             {
                                 lose();
                                 ws.close();

@@ -278,6 +278,15 @@ export class Dedupe
         this.seen = new Map();      /* from -> { last, gaps, duplicates } */
     }
 
+    /* Whether the command has been accepted already, changing nothing. */
+    has (cmd)
+    {
+        const s = this.seen.get(cmd.from);
+
+        return s !== undefined &&
+               (s.have.has(cmd.seq) || cmd.seq <= s.last - DEDUPE_SEQS);
+    }
+
     /* True if the command is new and should be applied. */
     accept (cmd)
     {
