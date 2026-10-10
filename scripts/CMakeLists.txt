@@ -1048,6 +1048,34 @@ if(Python3_Interpreter_FOUND AND NOT THINK_SANITIZE)
                     COMMAND ${_instrcount} --update "${PROJECT_BINARY_DIR}"
                     USES_TERMINAL)
   add_dependencies(instrcount-update dspbench plugins)
+
+  # The corpus sounds as it did when corpushash.txt was written. dspcheck
+  # holds a render to itself and dsplevel to the rails; neither notices a
+  # change to libthink that makes every graph a different sound, such as
+  # every channel of the mix reading out0. Held to a toolchain by the same
+  # key as the counts, because a render differs in its last bits from one
+  # compiler or libm to the next: the committed file is CI's, and a desktop
+  # holds its own with `cmake --build BUILD --target corpushash-update'. A
+  # change meant to sound different commits CI's new lines, the A side of
+  # its failure, or the same target's output on the linux job's image.
+  set(_corpushash "${CMAKE_COMMAND}"
+                  -DHARNESS=$<TARGET_FILE:dsphash>
+                  -DREFERENCE=${CMAKE_CURRENT_SOURCE_DIR}/corpushash.txt
+                  -DLOCAL=${PROJECT_BINARY_DIR}/corpushash.txt
+                  "-DKEY=${_toolchain}"
+                  -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                  -DMODE=dsp
+                  "-DEXTRA_ARGS=-i ${PROJECT_SOURCE_DIR}/dsp/supersaw.dsp")
+  add_test(NAME dsphash.reference COMMAND ${_corpushash} -P "${_runner}")
+  set_tests_properties(dsphash.reference PROPERTIES
+                       SKIP_REGULAR_EXPRESSION "SKIP  no reference")
+
+  add_custom_target(corpushash-update
+                    COMMAND ${_corpushash} -DUPDATE=ON -P "${_runner}"
+                    USES_TERMINAL)
+  add_dependencies(corpushash-update dsphash plugins)
 endif()
 
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
