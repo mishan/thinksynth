@@ -26,6 +26,16 @@
   <!-- The room's address without your name in it (jam.js, copyInvite),
        and the link itself where the clipboard is refused. -->
   <button id="invite" hidden>Copy invite link</button>
+  <!-- Who finds the room, and whether its owner alone edits the piece:
+       the owner's to change (jam.js, showRoom). -->
+  <span id="roomsettings" hidden>
+    <select id="visibility" aria-label="Who can join the room">
+      <option value="public">Listed</option>
+      <option value="unlisted">Unlisted</option>
+      <option value="private">Invite only</option>
+    </select>
+    <label><input id="lock" type="checkbox"> Lock the piece</label>
+  </span>
   <!-- The room again after the relay went away (jam.js, lost). -->
   <button id="rejoin" hidden>Rejoin</button>
   <input id="invitelink" readonly hidden aria-label="Invite link">

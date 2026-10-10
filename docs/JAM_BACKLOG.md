@@ -54,8 +54,18 @@ days. Guests are still a name per session, marked as guests wherever
 the room shows names. The document is no longer open to anyone who can
 reach the relay: its socket needs a short-lived ticket the room socket
 hands out. An account logs in with a passkey, or with its key, which
-is the way back in when a passkey is lost. Roles, visibility and
-moderation within a room are not done.
+is the way back in when a passkey is lost.
+
+*Done of this too:* roles, visibility and moderation. The room's first
+peer owns it, and it passes to the longest-present musician when they
+leave; the owner's page joining again, or an account owner within two
+minutes, takes it back. Everyone joins as a musician; the owner makes a
+peer a spectator, removes one, lists the room, makes it private, or
+locks the piece. The relay refuses a spectator's seat, commands, chat
+and edits, and pages drop a spectator's commands on the mesh. A new
+room is unlisted. A guest has no persistent id, so one removed or made a
+spectator can come back as a musician; in a private room, removal changes
+the invite and keeps them out.
 
 ## 1. The headless peer, and load
 

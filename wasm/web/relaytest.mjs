@@ -202,6 +202,280 @@ async function docSocket (q, room, ticket)
     return d;
 }
 
+/* Who may do what in a room: its owner, its musicians and its
+   spectators, each held to it by the relay and not by the page. */
+async function rolesEnforced ()
+{
+    const q = await relay({ port: 0, host: '127.0.0.1', tree });
+    const at = `ws://127.0.0.1:${q.address().port}`;
+    const join = async (name, extra = {}) =>
+    {
+        const c = new Client(`${at}/room/roles`, name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true,
+                 ...extra });
+        c.welcome = await Promise.race([c.next('welcome'), c.next('error')]);
+        return c;
+    };
+    /* The last room line a client has, once nothing more is coming. */
+    const room = async (c) =>
+    {
+        await new Promise((r) => setTimeout(r, 100));
+
+        const lines = c.got.filter((m) => m.type === 'room');
+
+        return lines.at(-1) ?? c.welcome.room;
+    };
+    const edit = (c, text) =>
+    {
+        const doc = new Y.Doc();
+
+        doc.getText('t').insert(0, text);
+        return frame(doc);
+    };
+
+    try
+    {
+        const a = await join('Ann');
+        const b = await join('Bo');
+        const c = await join('Cy');
+        const [A, B, C] = [a, b, c].map((x) => x.welcome.peer);
+
+        check(a.welcome.room.owner === A &&
+              a.welcome.room.visibility === 'unlisted' &&
+              (await room(c)).roles[C] === 'musician',
+              'the room\'s first peer owns it, it is unlisted, and a peer ' +
+              'joins as a musician');
+
+        b.send({ type: 'set', locked: true });
+
+        const notOwner = await b.next('refused');
+
+        check(notOwner.of === 'set' && !(await room(a)).locked,
+              'only the owner changes the room');
+
+        a.send({ type: 'role', peer: B, role: 'spectator' });
+        b.send({ type: 'seat', seat: 1 });
+
+        const seat = await b.next('refused');
+        const bRoom = await room(b);
+
+        b.send({ type: 'chat', channel: 'stage', text: 'hi', n: 1 });
+        b.send({ type: 'relayed', data: { type: 'knob' } });
+
+        const chat = await b.next('refused');
+
+        check(bRoom.roles[B] === 'spectator' && bRoom.invite === null &&
+              seat.of === 'seat' && chat.of === 'chat' && chat.n === 1 &&
+              await a.none('relayed') && await a.none('chat'),
+              'a spectator takes no seat, says nothing in the stage chat, ' +
+              'and sends no gesture, and is not given the invite');
+
+        /* What a spectator's page holds, answering the sync, goes; an
+           edit does not. */
+        const bd = await docSocket(q, 'roles', b.welcome.ticket);
+
+        bd.send(frame(new Y.Doc()));
+        bd.send(edit(b, 'spectated'));
+
+        const bEdit = await b.next('refused');
+
+        check(bEdit.of === 'edit' && bEdit.why === 'spectator' &&
+              !q.rooms.get('roles').doc.getText('t').toString()
+                  .includes('spectated'),
+              'a spectator\'s edit is refused, and an empty sync is not');
+
+        a.send({ type: 'set', locked: true });
+        await a.next('room');
+
+        const cd = await docSocket(q, 'roles', c.welcome.ticket);
+        const ad = await docSocket(q, 'roles', a.welcome.ticket);
+
+        cd.send(edit(c, 'locked out'));
+
+        const cEdit = await c.next('refused');
+
+        ad.send(edit(a, 'owner'));
+        await new Promise((r) => setTimeout(r, 100));
+
+        check(cEdit.why === 'locked' &&
+              q.rooms.get('roles').doc.getText('t').toString() === 'owner',
+              'a locked piece is edited by its owner alone');
+
+        const piece = q.rooms.get('roles').doc.getMap('meta').get('piece');
+
+        c.send({ type: 'switch', piece: 'mirrorball.gen' });
+        c.send({ type: 'transport', data: { type: 'edit', text: '' } });
+
+        const [cSwitch, cApply] = [await c.next('refused'),
+                                   await c.next('refused')];
+
+        check(cSwitch.of === 'switch' && cApply.of === 'transport' &&
+              q.rooms.get('roles').doc.getMap('meta').get('piece') === piece,
+              'nor is a locked piece switched or applied over by anyone else');
+
+        const unlisted = (await room(a)).invite;
+
+        a.send({ type: 'set', visibility: 'private' });
+
+        const invite = (await room(a)).invite;
+        const d0 = await join('Di');
+        const old = await join('Di', { invite: unlisted });
+        const d = await join('Di', { invite });
+
+        check(d0.welcome.why === 'private' && old.welcome.why === 'private' &&
+              d.welcome.type === 'welcome',
+              'a private room is joined by the invite it was given when it ' +
+              'was made private, and nothing else');
+
+        a.send({ type: 'remove', peer: d.welcome.peer });
+
+        const out = await d.next('error');
+        const rotated = (await room(a)).invite;
+        const d2 = await join('Di', { invite });
+
+        check(out.why === 'removed' && rotated !== invite &&
+              d2.welcome.why === 'private',
+              'a removed peer is told so, and the invite they had stops ' +
+              'working');
+
+        /* Ann goes: Bo, here longer, is a spectator, so Cy has it. Cy
+           joining again keeps it. */
+        a.close();
+
+        check((await room(c)).owner === C,
+              'the owner gone, the longest-present musician owns the room');
+
+        const c2 = await join('Cy', { was: c.welcome.ticket,
+                                      invite: rotated });
+
+        check((await room(c2)).owner === c2.welcome.peer &&
+              (await room(c2)).roles[B] === 'spectator',
+              'the owner joining again is the owner still, and a spectator ' +
+              'is one still');
+
+        for (const x of [b, c2, d2, d0, old, bd, cd, ad])
+            x.close();
+    }
+    finally
+    {
+        q.shutdown();
+    }
+}
+
+/* Roles for accounts: what follows an account across its tabs and its
+   joining again, and an owner's grace. */
+async function rolesForAccounts ()
+{
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'relaytest-'));
+    const q = await relay({ port: 0, host: '127.0.0.1', tree,
+                            db: path.join(dir, 'relay.db'),
+                            corsOrigin: 'https://page.example.org' });
+    const at = `127.0.0.1:${q.address().port}`;
+    const session = async (handle) => (await (await fetch(
+        `http://${at}/api/account/register`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ handle }) })).json()).session;
+    const join = async (roomName, m) =>
+    {
+        const c = new Client(`ws://${at}/room/${roomName}`, m.name ?? 'x');
+
+        await c.open();
+        c.send({ type: 'hello', protocol: PROTOCOL, tickets: true, ...m });
+        c.welcome = await Promise.race([c.next('welcome'), c.next('error')]);
+        return c;
+    };
+    const settle = () => new Promise((r) => setTimeout(r, 100));
+    const owner = (name) => q.rooms.get(name).owner;
+    const [ann, bo, dee, eve] = await Promise.all(
+        ['Ann', 'Bo', 'Dee', 'Eve'].map(session));
+    const open = [];
+
+    try
+    {
+        /* An owner's page reloading its private room has no invite. */
+        const a = await join('acc', { session: ann });
+
+        a.send({ type: 'set', visibility: 'private' });
+        await settle();
+        a.close();
+        await settle();
+
+        const a2 = await join('acc', { session: ann });
+
+        check(a2.welcome.type === 'welcome' &&
+              owner('acc') === a2.welcome.peer,
+              'an account owner is let back into its private room without ' +
+              'the invite');
+        a2.send({ type: 'set', visibility: 'unlisted' });
+
+        /* Two tabs of one account are one person. */
+        const b1 = await join('acc', { session: bo });
+        const b2 = await join('acc', { session: bo });
+
+        a2.send({ type: 'role', peer: b1.welcome.peer, role: 'spectator' });
+        await settle();
+
+        const roles = q.rooms.get('acc');
+
+        check(roles.peers.get(b2.welcome.peer)?.role === 'spectator',
+              'an account made a spectator in one tab is one in all');
+
+        a2.send({ type: 'remove', peer: b1.welcome.peer });
+
+        const out = await b2.next('error');
+        const b3 = await join('acc', { session: bo });
+        const b4 = await join('acc', { session: bo, was: b2.welcome.ticket });
+
+        check(out.why === 'removed' && b3.welcome.why === 'removed' &&
+              b4.welcome.why === 'removed',
+              'an account removed in one tab is out of all, and stays out');
+
+        /* Somebody else's ticket takes over nothing. */
+        const g = await join('acc', { name: 'Gus', was: a2.welcome.ticket });
+
+        await settle();
+        check(g.welcome.type === 'welcome' &&
+              owner('acc') === a2.welcome.peer &&
+              q.rooms.get('acc').peers.has(a2.welcome.peer),
+              'a hello naming another\'s ticket is a peer of its own');
+
+        /* The owner's grace outlasts whoever held the room meanwhile, an
+           account or a stranger in an empty room. */
+        const o = await join('grace', { session: ann });
+        const d = await join('grace', { session: dee });
+        const c = await join('grace', { name: 'Cy' });
+
+        o.close();
+        await settle();
+        d.close();
+        await settle();
+
+        const o2 = await join('grace', { session: ann });
+
+        check(owner('grace') === o2.welcome.peer,
+              'an owner back within its grace has the room again after two ' +
+              'others held it');
+
+        c.close();
+        o2.close();
+        await settle();
+
+        const e = await join('grace', { session: eve });
+        const o3 = await join('grace', { session: ann });
+
+        check(owner('grace') === o3.welcome.peer,
+              'and after a stranger found the room empty');
+        open.push(a2, b1, b3, b4, g, e, o3);
+    }
+    finally
+    {
+        open.forEach((x) => x.close());
+        q.shutdown();
+    }
+}
+
 /* Who a room socket is, and what lets its document in: a relay of its
    own, on a file the admin commands can open beside it, and with times
    short enough to wait out. */
@@ -3247,9 +3521,16 @@ try
     check(wb.peers.length === 2 && ja.peer === wb.peer && ja.name === 'Bo',
           'a second peer is told who is here, and the first is told');
 
+    const unlisted = await (await fetch(`http://127.0.0.1:${port}/`)).json();
+
+    a.send({ type: 'set', visibility: 'public' });
+    await a.next('room');
+
     const health = await (await fetch(`http://127.0.0.1:${port}/`)).json();
     const listed = health.rooms.find((r) => r.name === 'test');
 
+    check(!unlisted.rooms.some((r) => r.name === 'test'),
+          'a new room is unlisted');
     check(listed?.peers === 2 && listed.piece === 'airports.gen' &&
           listed.playing === false,
           'the health line lists the room, its two people and its piece');
@@ -4204,6 +4485,8 @@ try
     /* ---- accounts ---- */
 
     await accountsInRooms();
+    await rolesEnforced();
+    await rolesForAccounts();
     await metricsServed();
     await queuesBounded();
     await roomsBounded();
