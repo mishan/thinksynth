@@ -110,6 +110,21 @@ import { firstDifference, reference } from './piececheck.mjs';
 import { relay } from './relay.mjs';
 import { serve } from './serve.mjs';
 
+/* A document socket the relay refuses, as the browser logs it: one
+   reconnecting in the moment between the relay cutting its room socket,
+   which takes its tickets with it, and the page hearing so and stopping
+   it. Expected whenever a test cuts a room socket. */
+const REFUSED_DOC = new RegExp(
+    "/doc/[^ ']+\\?ticket=[^ ']+' failed: Error during WebSocket " +
+    'handshake: Unexpected response code: 403' +
+    "|can[’']t establish a connection to the server at \\S+/doc/\\S+\\?ticket=");
+
+/* How often the late joiner joins again for an id another page's sorts
+   before, which makes that page the one to offer. The others' ids are
+   fixed for the run, and when both sort low a join is one in a few: five
+   left one run in twenty without an offer. */
+const JOINS_MAX = 20;
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const top = path.join(here, '..', '..');
 const build = path.resolve(process.argv[2] ?? path.join(top, 'build-web'));
@@ -2728,7 +2743,7 @@ try
         page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
         page.on('console', (m) =>
         {
-            if (m.type() === 'error')
+            if (m.type() === 'error' && !REFUSED_DOC.test(m.text()))
                 errors.push(`${label} console: ${m.text()}`);
         });
 
@@ -2906,7 +2921,7 @@ try
         page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
         page.on('console', (m) =>
         {
-            if (m.type() === 'error')
+            if (m.type() === 'error' && !REFUSED_DOC.test(m.text()))
                 errors.push(`${label} console: ${m.text()}`);
         });
 
@@ -2939,7 +2954,7 @@ try
            is the smaller, which makes that page the one to offer. */
         let offered = false;
 
-        for (let k = 0; k < 5 && !offered; k++)
+        for (let k = 0; k < JOINS_MAX && !offered; k++)
         {
             await page.goto(`${url}&room=jamtest&name=${label}${k}` +
                             `&piece=${PIECE}`);
@@ -2960,7 +2975,7 @@ try
 
         if (!offered)
             fail('no page offered to the late joiner: its id was the ' +
-                 'smallest in five joins');
+                 `smallest in ${JOINS_MAX} joins`);
 
         await page.click('#start');
 
