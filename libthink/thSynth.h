@@ -20,6 +20,7 @@
 #define TH_SYNTH_H
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -316,6 +317,15 @@ public:
        first process(). */
     void setProfiling (bool on);
     const double *channelSeconds (void) const { return profile_.data(); }
+
+    /* Renders a window's channels on `threads' more threads beside the one
+       calling process(), which works too; 0, the default, is that thread
+       alone. The mix is summed afterwards in the one order, so the output is
+       the same samples however many there are. Channels whose graphs share a
+       plugin's synth-wide table, and a channel and the one its effect
+       listens to, render in turn on one thread. Before the first process(). */
+    void setThreads (int threads);
+    int threads (void) const { return threads_; }
 
     /* A chanarg by name. `fx.<name>' reaches the channel effect's, anything
        else the instrument's -- see TH_EFFECT_PREFIX. */
@@ -636,6 +646,30 @@ private:
     /* setProfiling's: on, and the last window's seconds by channel. */
     bool profiling_ = false;
     std::vector<double> profile_;
+
+    /* setThreads': the pool, and each window's lanes -- the channels one
+       thread renders in turn, in `order' -- laneStart_[k] to
+       laneStart_[k + 1] of laneChannels_. */
+    struct RenderPool;
+    std::unique_ptr<RenderPool> renderPool_;
+    int threads_ = 0;
+    int laneChannels_[TH_MIDI_CHANNELS];
+    int laneStart_[TH_MIDI_CHANNELS + 1];
+
+    /* What process() hands each channel: its probes and its side. */
+    struct ChannelJob
+    {
+        thProbe *taps[TH_MAX_PROBES];
+        int ntaps;
+        const float *side;
+        int sidechannels;
+    };
+
+    ChannelJob jobs_[TH_MIDI_CHANNELS];
+
+    int buildLanes (const int *order, int norder);
+    void renderLane (int lane);
+    void renderChannel (int i, thRing<thRetired, TH_RETIRE_QUEUE_SIZE> *retire);
 };
 
 #endif /* TH_SYNTH_H */

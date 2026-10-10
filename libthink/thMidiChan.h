@@ -125,6 +125,16 @@ public:
                   int nprobes = 0, const float *side = NULL,
                   int sidechannels = 0);
 
+    /* Where process() retires to when it runs beside other channels, which
+       share no queue: thSynth hands this on to its own after the window. */
+    RetireQueue *retiring (void) { return &retiring_; }
+
+    /* Whether the graph has a plugin that keeps one table for the whole
+       synth (thSynth.cpp, sharesSynthState), so that this channel renders
+       in turn with every other that has one. Set before it is published. */
+    bool sharesState (void) const { return sharesState_; }
+    void setSharesState (bool shares) { sharesState_ = shares; }
+
     /* ---- either, with care ---- */
 
     thMidiNote *getNote (int note);
@@ -405,6 +415,9 @@ private:
     bool saidNonFiniteEffect_;
 
     static std::atomic<unsigned long> nextSerial_;
+
+    RetireQueue retiring_;
+    bool sharesState_ = false;
 };
 
 #endif /* TH_MIDICHAN_H */

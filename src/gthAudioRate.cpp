@@ -46,11 +46,13 @@ bool gthFollowDeviceRate (gthAudio *audio, thSynth *&synth,
     audio->stop();
 
     const int windowlen = synth->getWindowlen();
+    const int threads = synth->threads();
 
     delete source;
     delete synth;
 
     synth = new thSynth(pluginPath, windowlen, fmt.rate);
+    synth->setThreads(threads);
     source = new gthSynthSource(synth);
 
     /* The period the device settled on, asked for again, so the reopen
