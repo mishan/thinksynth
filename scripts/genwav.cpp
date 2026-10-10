@@ -909,10 +909,13 @@ int main (int argc, char **argv)
 
             const double t = windowAt[w];
             const int section = sched.sectionAt(t);
+            /* Rounded once, in tenths, so 179.97 s reads 3:00.0 and not
+               2:60.0. */
+            const long tenths = lround(t * 10);
             char text[128];
 
-            snprintf(text, sizeof text, "%d:%04.1f%s%s", (int)(t / 60),
-                     fmod(t, 60), section >= 0 ? " " : "",
+            snprintf(text, sizeof text, "%ld:%02ld.%ld%s%s", tenths / 600,
+                     tenths % 600 / 10, tenths % 10, section >= 0 ? " " : "",
                      section >= 0 ? sched.sections()[section].name.c_str()
                                   : "");
             return text;
