@@ -1924,7 +1924,7 @@ async function accountsTogether (pages)
     const peersOf = (page) => page.evaluate(() =>
         [...document.querySelectorAll('#peers .peer')]
             .map((p) => p.firstChild.textContent).sort().join(', '));
-    const want = 'Ann, Bo (guest) (channel 1)';
+    const want = 'Ann (owner), Bo (guest) (channel 1)';
 
     for (const who of [A, B])
     {
@@ -2910,7 +2910,9 @@ try
                 errors.push(`${label} console: ${m.text()}`);
         });
 
-        /* Before joining, the room is in the list, with the two in it. */
+        /* Before joining, the room is in the list, with the two in it,
+           once its owner has listed it. */
+        await A.page.selectOption('#visibility', 'public');
         await page.goto(url);
 
         const listed = await page.waitForFunction(() =>
