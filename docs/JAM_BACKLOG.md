@@ -87,6 +87,11 @@ broadcast peer of section 4.1, so it is built once and early.
 **Done when** a scripted run prints those numbers and CI runs a small one
 against the Node module.
 
+**Built:** `wasm/web/relayload.mjs`, fake peers on room.js against a relay
+with opt-in metrics, and `wasm/web/nettest.mjs`, real pages behind
+impaired links (section 10). Not yet: a peer on the Node wasm build, the
+determinism diff of every peer's tape at scale, and the CI run.
+
 ## 2. Spectators
 
 **What.** An audience that hears the session and has something to look
@@ -404,7 +409,28 @@ measurement above holds the heap to about what the rooms are charged.
   so the total can be several times what is held, and sockets cut past
   `QUEUED_TOTAL_MAX_BYTES` sooner than they need be.
 
-## 10. Decisions to make early
+## 10. What the network harness found
+
+`wasm/web/nettest.mjs` puts each page behind a link of its own, with delay,
+jitter and loss, and measures what a player hears. Stuck notes, a late
+joiner's mesh and pairs stuck on the relay are fixed. What is left, worst
+first:
+
+- **The knob lead is a constant.** `KNOB_LEAD` is 150 ms. Past about 140 ms
+  one way between two pages, every knob lands late and the tapes
+  diverge. The lead wants to follow the measured latency.
+- **A long outage is recovered slowly and wrongly.** After 60 s with no
+  link, the page rejoins 11 s after the link is back, since nothing times
+  out a missing pong; its seat is a ghost for about 46 s; it gets no
+  catch-up within the run, and its tape diverges.
+- **A short outage lands all at once.** After 10 to 25 s, the backlog
+  arrives together, up to 32 s late.
+- **Asymmetric paths skew the clock** by half the difference: 90 ms at a
+  300 ms round trip split 80/20. A visible tab slowed 20x is 59 ms off.
+- **The page's late count includes direct keys**, which have no stamp to
+  be late against. Cosmetic.
+
+## 11. Decisions to make early
 
 The short list of things that are free now and costly later, gathered
 from above:
