@@ -316,10 +316,10 @@ on the site, which is that build's `dist` tree as it was deployed; the
 playback page refuses a recording whose build the site no longer keeps
 rather than playing it on another.
 
-*Decide now:* the page reads its build hash and the hello carries it.
-Nothing reads `VERSION` outside the service worker today; the worker is
-the one place that knows which build served a page, so it is the
-worker that answers for it.
+*Done:* the page reads its build hash and the hello carries it. The
+service worker is the one place that knows which build served a page,
+so it answers for it (`offline.js`, `buildOf`), and the relay keeps the
+first build a room's hellos name.
 
 ### 4.2 The broadcast peer
 
@@ -362,7 +362,7 @@ Grouped by what unlocks what. Sizes are relative to a milestone.
 
 | | Item | Needs | Size |
 |---|---|---|---|
-| 1 | Roles and visibility (section 0; the persistent id is done, for accounts) | M3 | S |
+| 1 | Roles and visibility (section 0; done) | M3 | S |
 | 2 | Headless peer and load testing (section 1) | M3, before M5 | M |
 | 3 | The recording format, fixed (section 4.1; done) | M3 | S |
 | 4 | Spectators, with the relay fan-out and the delay (section 2) | M4, 1, 2 | M |
@@ -515,8 +515,8 @@ path and a long outage's rejoin are fixed. What is left, worst first:
 The short list of things that are free now and costly later, gathered
 from above:
 
-1. The relay enforces roles; `hello` carries a persistent id. (The id is
-   done, for accounts: section 0.)
+1. The relay enforces roles; `hello` carries a persistent id. (Both done,
+   the id for accounts: section 0.)
 2. Musicians' pages send a copy of their commands to the relay when the
    room has spectators or recording on.
 3. The recording format is the protocol plus a header naming the build
@@ -524,7 +524,7 @@ from above:
    section 4.1.)
 4. Applause carries a beat.
 5. Rooms have an owner from the first M3 deployment, even if the owner
-   can do nothing yet.
+   can do nothing yet. (Done: section 0.)
 6. The page resolves a room's relay through one endpoint rather than
    reading a single relay from `config.json`, and a relay's room state
    is a value another relay can be handed, so an upstream is a client
