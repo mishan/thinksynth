@@ -21,6 +21,9 @@
 #
 # Both instruments are amb01.dsp, because the presets move its filter:
 # res, fmin and fmax, and `amp', which every channel has.
+#
+# The room is fx/space.dsp on the mix at `mix = 0', which both send into:
+# a long tail for the filter to travel through.
 
 name "Tide";
 author "Misha Nasledov";
@@ -51,6 +54,7 @@ instrument pad {
     rwave = 3;
     centermix = 0.5;
     sidemix   = 0.4;
+    send = 0.3;
 };
 
 # The same graph struck: a few milliseconds of attack and a long decay,
@@ -72,6 +76,14 @@ instrument bell {
     rdetune = 1.9;
     centermix = 0.4;
     sidemix   = 0.4;
+    send = 0.4;
+};
+
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 8;
+    size = 2;
+    predelay = 30 ms;
 };
 
 scale fmin_scale "F2 Ab2 C3 Db3 Eb3 F3 Ab3";

@@ -47,6 +47,8 @@
 # byte for byte -- gencheck renders this file twice and diffs it, which
 # is the same gate every other piece here passes and the reason a node
 # had to be as repeatable as a composer before it was allowed in.
+#
+# The pad sends into fx/space.dsp on the mix.
 
 name "Breath";
 author "Misha Nasledov";
@@ -74,6 +76,14 @@ instrument pad {
     res  = 0.65;
     fmin = 0.05;
     fmax = 0.6;
+    send = 0.35;
+};
+
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 7;
+    size = 2;
+    predelay = 30 ms;
 };
 
 # The breathing itself: a twenty-second cycle, ten seconds opening and
