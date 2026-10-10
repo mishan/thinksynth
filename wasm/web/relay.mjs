@@ -1253,6 +1253,8 @@ class Room
         this.locked = false;
         this.removed = new Set();           /* account ids               */
         this.spectating = new Set();        /* account ids made spectators */
+        this.build = null;                  /* the first build a hello
+                                               named                     */
         this.emptySince = relayNow();
         this.ctx.empties.set(this, true);
 
@@ -2826,6 +2828,12 @@ class Room
             id = newId();
 
         const name = asked ?? id;
+
+        /* What a recording of the room is pinned to: a page's VERSION,
+           when a worker served it. */
+        if (this.build === null && typeof m.build === 'string' &&
+            /^[0-9a-f]{16}$/.test(m.build))
+            this.build = m.build;
 
         /* The room's first, or first since it emptied, owns it; the owner
            joining again, or an account owner back within its grace, takes

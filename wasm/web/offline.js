@@ -131,6 +131,41 @@ export async function keepOffline ({ busy = () => false,
     });
 }
 
+/* How long the worker has to say which build it is. */
+const VERSION_WAIT_MS = 1000;
+
+/* The build this page was served from, as the worker that served it
+   says: its VERSION. Null for a page the network served, which no worker
+   answers for. */
+export function buildOf ()
+{
+    const worker = navigator.serviceWorker?.controller ?? null;
+
+    if (worker === null)
+        return Promise.resolve(null);
+
+    return new Promise((resolve) =>
+    {
+        const answer = (e) =>
+        {
+            if (typeof e.data?.version !== 'string')
+                return;
+
+            clearTimeout(timer);
+            navigator.serviceWorker.removeEventListener('message', answer);
+            resolve(e.data.version);
+        };
+        const timer = setTimeout(() =>
+        {
+            navigator.serviceWorker.removeEventListener('message', answer);
+            resolve(null);
+        }, VERSION_WAIT_MS);
+
+        navigator.serviceWorker.addEventListener('message', answer);
+        worker.postMessage('version');
+    });
+}
+
 /* Every version that comes to be waiting: the one already waiting, the one
    installing now, and any the browser finds later. Each once. */
 function whenWaiting (reg, then)
