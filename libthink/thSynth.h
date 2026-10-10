@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <vector>
 
 #include "thExport.h"
 
@@ -307,6 +308,14 @@ public:
     }
 
     int midiChanCount (void) const { return midiChannelCnt_; }
+
+    /* A profiler's: with it on, process() times each channel's window --
+       its voices and its effect -- and the master effect's, and after it
+       channelSeconds() holds them, the master effect's at midiChanCount().
+       Off, the cost is one test a channel. Audio thread, or before the
+       first process(). */
+    void setProfiling (bool on);
+    const double *channelSeconds (void) const { return profile_.data(); }
 
     /* A chanarg by name. `fx.<name>' reaches the channel effect's, anything
        else the instrument's -- see TH_EFFECT_PREFIX. */
@@ -623,6 +632,10 @@ private:
     void claimInstance (void);
 
     static std::atomic<thSynth *> instance_;
+
+    /* setProfiling's: on, and the last window's seconds by channel. */
+    bool profiling_ = false;
+    std::vector<double> profile_;
 };
 
 #endif /* TH_SYNTH_H */
