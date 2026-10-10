@@ -556,6 +556,12 @@ Three consequences fall out:
   at, whether they came from the keyboard, the page or a peer. The worklet
   cannot tell which, and that is the point.
 
+Live input is local by design. Each peer's `live0` is their own microphone, so
+a piece through `fx/vocoder-mic.dsp` makes the peers' mixes differ for the
+first time while their tapes do not, and a recording the relay makes cannot
+contain it. Nothing composed may read it, or the tapes would part too
+(DSP_FORMAT.md's "An effect graph").
+
 ## 2. Latency, and where it goes
 
 Musicians feel lag from about 20–30 ms one way and ensembles drift above

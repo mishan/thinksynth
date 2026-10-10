@@ -110,6 +110,11 @@ Binding a stage param to a knob (`prob = @density;`) is the composer-world
 every stage bound to it, mid-piece, with no plumbing in the plugin. The
 plugin just calls `params->get()` as always.
 
+Nothing a stage reads may carry microphone audio. DSP_FORMAT.md's "An effect
+graph" gives live input to effects only; a knob or chanarg fed from it would
+compose different notes on each jam peer, each hearing its own microphone, while
+every offline gate, which captures nothing, would still pass.
+
 A param not bound to a knob is a plain value (`ARG_VALUE`). There is no
 composer equivalent of `ARG_NODE` in v2 — stages do not wire params to each
 other. What flows between stages is events, and only events. If wiring turns
