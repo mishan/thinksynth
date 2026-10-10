@@ -55,8 +55,13 @@ const OPEN_WITHIN = 10000;
 const RETRY_FIRST_MS = 5000;
 const RETRY_MAX_MS = 60000;
 
-/* A ping over the channel this often, for the round trip shown. */
+/* A ping over the pair's path this often, for the round trip shown and
+   the lead (worst). */
 const PING_EVERY = 1000;
+
+/* How many of a pair's latest round trips its worst is taken over: ten
+   seconds of pings, so one quick answer does not hide the jitter. */
+const RTTS_KEPT = 10;
 
 export class Mesh
 {
@@ -119,13 +124,13 @@ export class Mesh
         if (this.links.has(peer) || typeof RTCPeerConnection === 'undefined')
         {
             if (!this.links.has(peer))
-                this.links.set(peer, { relayed: true, rtt: NaN });
+                this.links.set(peer, { relayed: true, rtt: NaN, rtts: [] });
 
             return;
         }
 
-        const l = { relayed: false, rtt: NaN, pinger: null, timer: null,
-                    retry: null, tries: 0 };
+        const l = { relayed: false, rtt: NaN, rtts: [], pinger: null,
+                    timer: null, retry: null, tries: 0 };
 
         this.links.set(peer, l);
         this.connect(peer, l, 0);
@@ -246,10 +251,7 @@ export class Mesh
                     channel.send(JSON.stringify({ pong: m.ping }));
             }
             else if (m.pong !== undefined)
-            {
-                l.rtt = performance.now() - m.pong;
-                this.emit('change', peer);
-            }
+                this.heard(peer, l, performance.now() - m.pong);
             else
                 this.received(peer, m);
         });
@@ -269,6 +271,7 @@ export class Mesh
         l.retry = null;
         l.tries = 0;
         l.relayed = false;
+        l.rtts = [];
         l.pinger = setInterval(() =>
         {
             if (l.channel.readyState === 'open')
@@ -361,8 +364,11 @@ export class Mesh
 
         l.relayed = true;
         l.rtt = NaN;
+        l.rtts = [];
         clearTimeout(l.timer);
         clearInterval(l.pinger);
+        l.pinger = setInterval(() =>
+            this.room.relayed({ ping: performance.now() }, peer), PING_EVERY);
         this.emit('fallback', peer, why);
         this.emit('change', peer);
     }
@@ -418,9 +424,40 @@ export class Mesh
         this.emit('change', peer);
     }
 
+    /* A ping or a pong through the relay is a relayed pair's own. */
     received (from, cmd)
     {
-        this.onCommand(from, cmd);
+        if (cmd?.ping !== undefined)
+            this.room.relayed({ pong: cmd.ping }, from);
+        else if (cmd?.pong !== undefined)
+        {
+            const l = this.links.get(from);
+
+            if (l?.relayed)
+                this.heard(from, l, performance.now() - cmd.pong);
+        }
+        else
+            this.onCommand(from, cmd);
+    }
+
+    heard (peer, l, rtt)
+    {
+        l.rtt = rtt;
+        l.rtts.push(rtt);
+
+        if (l.rtts.length > RTTS_KEPT)
+            l.rtts.shift();
+
+        this.emit('change', peer);
+    }
+
+    /* The worst recent round trip to any peer, by its path now, in
+       milliseconds; NaN before any is known. */
+    worst ()
+    {
+        const rtts = [...this.links.values()].flatMap((l) => l.rtts);
+
+        return rtts.length === 0 ? NaN : Math.max(...rtts);
     }
 
     /* A command to every other peer, by whichever path each has. */

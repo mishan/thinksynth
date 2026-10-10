@@ -196,6 +196,14 @@ let midiIn = null;              /* the MIDI in button (midi.js)          */
 let chat = null;                /* the room's text (chat.js)             */
 let accounts = null;            /* who this page is (accountui.js)       */
 let maker = null;
+
+/* The knob lead as the page is set, which the lead never goes under. */
+let knobFloor = KNOB_LEAD;
+
+/* Past the floor, the knob lead is half the worst round trip to any peer
+   and this: a command reaches the farthest peer before its time, with
+   room for jitter, an asymmetric path and the clocks' error. */
+const LEAD_MARGIN_MS = 50;
 const dedupe = new Dedupe();
 
 let piece = null;               /* the worklet's word on the loaded piece */
@@ -1552,6 +1560,8 @@ function showNumbers ()
     const ms = (x) => Number.isNaN(x) ? 'not yet' : `${x.toFixed(2)} ms`;
     const lines = [
         `relay round trip     ${ms(room.clock.rtt)}`,
+        `knob lead            ${ms((maker?.knobLead ?? NaN) * 1000)}   ` +
+            `(worst round trip to a peer ${ms(mesh?.worst() ?? NaN)})`,
         `relay offset spread  ${ms(room.clock.spread)}   ` +
             `(${room.clock.count} samples)`,
     ];
@@ -2224,10 +2234,20 @@ function editRefused (m)
 function openMesh ()
 {
     mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
-    mesh.on('change', showPeers)
+    mesh.on('change', () => { showPeers(); fitLead(); })
         .on('fallback', (peer, why) =>
             log(`${room.peers.get(peer)?.name ?? peer}: through the relay ` +
                 `(${why})`));
+}
+
+function fitLead ()
+{
+    const worst = mesh.worst();
+
+    if (maker !== null)
+        maker.knobLead = Number.isNaN(worst)
+            ? knobFloor
+            : Math.max(knobFloor, (worst / 2 + LEAD_MARGIN_MS) / 1000);
 }
 
 /* How long a lost room waits before it is joined again, doubling to the
@@ -2738,7 +2758,8 @@ function init ()
     });
     $('knoblead').addEventListener('change', () =>
     {
-        maker.knobLead = Number($('knoblead').value);
+        knobFloor = Number($('knoblead').value);
+        fitLead();
     });
     $('transportlead').addEventListener('change', () =>
     {
