@@ -1,8 +1,28 @@
 TODO
 ====
 
-Grouped by kind rather than priority. Line references were checked against the
-tree; if one has drifted, the description should still find it.
+Grouped by kind rather than priority, after the short list of what comes next.
+Line references were checked against the tree; if one has drifted, the
+description should still find it.
+
+
+Next
+----
+
+In order. Each is described where it points.
+
+1. The knob lead follows the measured latency.  (docs/JAM_BACKLOG.md §10)
+2. A page recovers from a long outage: a pong timeout, its seat back, a
+   catch-up.  (docs/JAM_BACKLOG.md §10)
+3. A second catch-up refused within a second waits 15 s.
+   (docs/JAM_BACKLOG.md §9)
+4. Roles, visibility and an owner, enforced by the relay.
+   (docs/JAM_BACKLOG.md §0)
+5. The recording format, with its build hash.  (docs/JAM_BACKLOG.md §4.1)
+6. A gate that compares rendered audio against a reference, and one on
+   instruction counts.  (Coverage, below)
+7. The rest of the relay's gaps and its memory model.
+   (docs/JAM_BACKLOG.md §8, §9)
 
 
 Packaging
@@ -107,8 +127,13 @@ Coverage
   scale's output from whichever build runs it, so two builds can be compared
   with cmp; what is missing is a gate that does it against a reference.
 
+- Nothing gates performance. Wall time spreads up to 11% run to run and
+  instruction counts under 0.005%, so callgrind's count over three or four
+  pieces, held to a committed baseline, would catch a regression wall time
+  cannot.
+
 - gen/README.md's first line spells out how many pieces there are, and it
-  is wrong again: it says thirty-six and there are 38. gencheck already
+  has drifted from the count more than once. gencheck already
   checks every piece has a category; it could read the spelled number
   against the count too, with a table of number words to fifty. About
   thirty lines in scripts/gencheck.cpp.
