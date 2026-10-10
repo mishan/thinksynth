@@ -2178,6 +2178,57 @@ async function roomsBounded ()
               'a start is kept as the fields a page reads of one ' +
               `(${Math.round(kept / 1024)} KiB held)`);
         s.close();
+
+        /* A text cut down to a few characters keeps nothing of what it
+           was cut from: what is left is what the room is charged for. A
+           decoded text is held outside the heap, so both are counted,
+           and a buffer outside it goes some turns after its collection. */
+        const withExternal = async () =>
+        {
+            for (let i = 0; i < 4; i++)
+            {
+                gc();
+                await new Promise((r) => setTimeout(r, 50));
+            }
+
+            return process.memoryUsage().heapUsed +
+                   process.memoryUsage().external;
+        };
+        const texts = [];
+        const heap0 = await withExternal();
+        const charged0 = [...ob.rooms.values()]
+            .reduce((sum, r) => sum + r.bytes, 0);
+
+        for (let i = 0; i < 8; i++)
+        {
+            const t = await hello(ob, `cut${i}`);
+            const d = await docSocket(ob, `cut${i}`, t.said.ticket);
+            const doc = new Y.Doc();
+            const text = doc.getText('t');
+            const updates = [];
+
+            doc.on('update', (u) => updates.push(u));
+            text.insert(0, 'x'.repeat(2 * 1024 * 1024 - 1) + String(i));
+            text.delete(1000041, text.length - 1000041);
+            text.delete(0, 1000000);
+
+            for (const u of updates)
+                d.send(frame(u));
+
+            texts.push(t, d);
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        const cutHeld = await withExternal() - heap0;
+        const cutCharged = [...ob.rooms.values()]
+            .reduce((sum, r) => sum + r.bytes, 0) - charged0;
+
+        check(cutHeld < cutCharged + 8 * 1024 * 1024,
+              'a text cut down keeps nothing of what it was cut from ' +
+              `(${Math.round(cutHeld / 1024)} KiB held, ` +
+              `${Math.round(cutCharged / 1024)} KiB charged)`);
+        texts.forEach((x) => x.close());
     }
     finally
     {

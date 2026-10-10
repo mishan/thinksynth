@@ -1071,6 +1071,22 @@ function pendingOf (doc)
 }
 
 /* A short random id: for a peer, and for nothing else. */
+/* Yjs splits a text item by slicing its string, and V8 keeps a slice of
+   13 characters or more as a view of the string it was cut from: an
+   item cut down to a few characters would keep the whole of what it was
+   decoded from alive, which the room is not charged for (growthOf). Both
+   halves are copied, so what is cut away can go. */
+const splice = Y.ContentString.prototype.splice;
+
+Y.ContentString.prototype.splice = function (offset)
+{
+    const right = splice.call(this, offset);
+
+    this.str = (' ' + this.str).slice(1);
+    right.str = (' ' + right.str).slice(1);
+    return right;
+};
+
 function newId ()
 {
     return Math.random().toString(36).slice(2, 8);
