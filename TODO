@@ -131,13 +131,10 @@ Engine
 
 - Performance left on the table, measured on grand.dsp and not yet done:
 
-    * No flush-to-zero on the audio thread. Every plugin with feedback state
-      has to flush its own denormals (filt::svf sat in a denormal limit
-      cycle for the life of every note until it did); setting FTZ/DAZ
-      around thSynth::process would cover them all natively. The browser
-      has no such switch, so the plugins' own flushes stay.
-    * The browser build compiles at -O3 without -msimd128, so nothing in it
-      vectorizes. Every browser the page targets has wasm SIMD.
+    * The browser build compiles without -msimd128, so nothing in it
+      vectorizes. It measured no faster on its own, and it would raise the
+      page's floor from Safari 15.2 to 16.4, so it waits for code written
+      to use it, such as filt::pianostring's unison below.
     * filt::pianostring is most of what a grand voice costs once it is
       sounding. Its unison strings run the same cascade side by side and
       would go into one SIMD vector; keeping the state in double rather
@@ -147,6 +144,17 @@ Engine
       40 s a note that is a lot of voices under a sustained passage. Ending
       a voice sooner once it is inaudible under the others is the biggest
       lever left, and a question about the sound rather than the code.
+
+- philly and mirrorball are still over budget on a slow machine: 154 and
+  54 over-budget quanta a minute in Chromium on a 4-core cloud VM, against
+  4 and 3 on the desktop #390 measured. The quanta that run over mostly
+  start no note; it is the steady load, a p50 of 0.74 ms of the 2.67 ms a
+  quantum has (philly). Natively, delay::chorus and osc::simple are half
+  of it: tonewheel.dsp's ten sines and scanner and section.dsp's chorus,
+  per voice, then rhodes.dsp. Tabling osc::multiwave's sines measured no
+  faster. What is left changes the sound: one scanner per organ, as on a
+  Hammond, rather than one per voice; the section's chorus on the
+  channel; fewer tonewheels where a drawbar is down.
 
 - Arg descriptions cover 33 of 314 args. That is every one an author had
   already written a comment about, and the rest are deliberately empty rather
