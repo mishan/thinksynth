@@ -56,12 +56,15 @@ export class Room
        handle instead. `now' is the wall clock the offset is kept against
        -- the page's performance.now, or a harness's. `was' is the last
        ticket of the room socket this one replaces, whose peer the relay
-       then lets go. `invite' is a private room's way in. */
+       then lets go. `invite' is a private room's way in, and `build'
+       the build this page was served from (offline.js, buildOf). */
     constructor (url, roomName, name,
                  { now = () => performance.now(), piece = null,
-                   session = null, was = null, invite = null } = {})
+                   session = null, was = null, invite = null,
+                   build = null } = {})
     {
         this.invite = invite;
+        this.build = build;
         this.url = url;
         this.roomName = roomName;
         this.name = name;
@@ -142,7 +145,9 @@ export class Room
                             ...(this.was === null
                                 ? {} : { was: this.was }),
                             ...(this.invite === null
-                                ? {} : { invite: this.invite }) });
+                                ? {} : { invite: this.invite }),
+                            ...(this.build === null
+                                ? {} : { build: this.build }) });
             });
 
             ws.addEventListener('error', () =>

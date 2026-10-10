@@ -99,6 +99,14 @@ self.addEventListener('activate', (e) =>
    and are not counted. */
 self.addEventListener('message', (e) =>
 {
+    /* Which build served the page asking: this one, whose cache it came
+       from. A room's recording is pinned to it. */
+    if (e.data === 'version')
+    {
+        e.source?.postMessage({ version: VERSION });
+        return;
+    }
+
     if (e.data !== 'activate')
         return;
 

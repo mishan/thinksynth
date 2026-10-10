@@ -3501,7 +3501,8 @@ try
     const a = new Client(`${base}/room/test?piece=airports.gen`, 'A');
 
     await a.open();
-    a.send({ type: 'hello', name: 'Ann', protocol: PROTOCOL, tickets: true });
+    a.send({ type: 'hello', name: 'Ann', protocol: PROTOCOL, tickets: true,
+             build: '0123456789abcdef' });
 
     const wa = await a.next('welcome');
 
@@ -3513,10 +3514,14 @@ try
     const b = new Client(`${base}/room/test`, 'B');
 
     await b.open();
-    b.send({ type: 'hello', name: 'Bo', protocol: PROTOCOL, tickets: true });
+    b.send({ type: 'hello', name: 'Bo', protocol: PROTOCOL, tickets: true,
+             build: 'fedcba9876543210' });
 
     const wb = await b.next('welcome');
     const ja = await a.next('joined');
+
+    check(server.rooms.get('test').build === '0123456789abcdef',
+          'a room keeps the build its first hello named');
 
     check(wb.peers.length === 2 && ja.peer === wb.peer && ja.name === 'Bo',
           'a second peer is told who is here, and the first is told');

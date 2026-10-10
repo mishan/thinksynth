@@ -164,6 +164,18 @@ try
     check(first.length === 1 && first[0].startsWith('thinksynth-'),
           `one cache, the site's: ${first.join(', ')}`);
 
+    /* What a room is told this page's build is (offline.js, buildOf). */
+    const built = /^const VERSION = "(\w+)";$/m.exec(
+        fs.readFileSync(path.join(site, 'sw.js'), 'utf8'))[1];
+    const said = await page.evaluate(() => new Promise((resolve) =>
+    {
+        navigator.serviceWorker.addEventListener(
+            'message', (e) => resolve(e.data?.version));
+        navigator.serviceWorker.controller.postMessage('version');
+    }));
+
+    check(said === built, `the worker says which build it is: ${said}`);
+
     const cdp = await context.newCDPSession(page);
     const { installabilityErrors } =
         await cdp.send('Page.getInstallabilityErrors');

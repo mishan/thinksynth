@@ -62,7 +62,7 @@ import { numberIn, showPanel } from './panel.js';
 import { Mesh } from './mesh.js';
 import { midiAvailable, midiToggle } from './midi.js';
 import { MidiOutControls } from './midioutui.js';
-import { keepOffline } from './offline.js';
+import { buildOf, keepOffline } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as patch from './patch.js';
 import * as packs from './packs.js';
@@ -2145,7 +2145,8 @@ async function join ()
                                   `guest-${Math.floor(Math.random() * 1000)}`,
                               { piece: $('newpiece').value ||
                                        params.get('piece'),
-                                session, invite: params.get('invite') });
+                                session, invite: params.get('invite'),
+                                build: await buildOf() });
     }
     catch (e)
     {
@@ -2445,7 +2446,8 @@ async function rejoin ()
                                   ? `guest-${Math.floor(Math.random() * 1000)}`
                                   : was.identity.name,
                               { piece: '', session, was: was.ticket,
-                                invite: was.settings.invite ?? was.invite });
+                                invite: was.settings.invite ?? was.invite,
+                                build: was.build });
     }
     catch (e)
     {
