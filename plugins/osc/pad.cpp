@@ -56,11 +56,12 @@
  * in one octave with the same params share one table.
  *
  * THE PARAMS ARE READ ONCE, when a voice starts. A table is an FFT of a
- * quarter of a million points, about fifty milliseconds here, and it
+ * quarter of a million points, about twelve milliseconds natively, and it
  * happens on the thread that renders -- osc/sampleslot.h's trade for
- * osc/sampleslot.h's reason, and a dropout on the first note of each
- * octave in a live synth -- so a knob swept under a sounding voice must
- * not ask for a new one every window. A sweep changes the next note. At most PAD_TABLES tables are kept per synth; a new one past that
+ * osc/sampleslot.h's reason, and a window that long on the first note of
+ * each octave in a live synth -- so a knob swept under a sounding voice
+ * must not ask for a new one every window. A sweep changes the next note.
+ * At most PAD_TABLES tables are kept per synth; a new one past that
  * replaces the one used longest ago.
  *
  * DETERMINISTIC. The phases come from a fixed seed through splitmix64,
@@ -177,16 +178,55 @@ static uint64_t padDice (uint64_t &x)
     return z ^ (z >> 31);
 }
 
+/* What every table's build shares: the FFT's twiddle factors, and each
+   bin's phase as a cosine and a sine, which are the same for every table
+   since the phases come from one fixed seed. Made once, by module_init on
+   the loading thread, so that a voice's first window does not pay for
+   them. */
+struct PadConst
+{
+    std::vector<double> wr, wi, cosPhase, sinPhase;
+};
+
+static const PadConst &padConst (void)
+{
+    static const PadConst c = []
+    {
+        PadConst made;
+        const size_t n = PAD_LEN;
+        uint64_t dice = 20260922u;
+
+        made.wr.resize(n / 2);
+        made.wi.resize(n / 2);
+
+        for (size_t j = 0; j < n / 2; j++)
+        {
+            made.wr[j] = cos(M_PI * (double)j / (double)(n / 2));
+            made.wi[j] = -sin(M_PI * (double)j / (double)(n / 2));
+        }
+
+        made.cosPhase.resize(n / 2);
+        made.sinPhase.resize(n / 2);
+
+        for (size_t k = 1; k < n / 2; k++)
+        {
+            const double phase = 2 * M_PI * (double)(padDice(dice) >> 11) /
+                                 9007199254740992.0;
+
+            made.cosPhase[k] = cos(phase);
+            made.sinPhase[k] = sin(phase);
+        }
+
+        return made;
+    }();
+
+    return c;
+}
+
 static void padFft (std::vector<double> &re, std::vector<double> &im, int m)
 {
     const size_t n = (size_t)1 << m;
-    std::vector<double> wr(n / 2), wi(n / 2);
-
-    for (size_t j = 0; j < n / 2; j++)
-    {
-        wr[j] = cos(M_PI * (double)j / (double)(n / 2));
-        wi[j] = -sin(M_PI * (double)j / (double)(n / 2));
-    }
+    const std::vector<double> &wr = padConst().wr, &wi = padConst().wi;
 
     size_t le = n, windex = 1;
 
@@ -196,13 +236,14 @@ static void padFft (std::vector<double> &re, std::vector<double> &im, int m)
 
         le >>= 1;
 
-        for (size_t j = 0; j < le; j++)
-        {
-            const double ur = wr[j * windex], ui = wi[j * windex];
-
-            for (size_t i = j; i < n; i += increment)
+        /* Block by block, each run of butterflies along the arrays rather
+           than across them: the same arithmetic in another order, three
+           times as fast for the cache. */
+        for (size_t b = 0; b < n; b += increment)
+            for (size_t j = 0; j < le; j++)
             {
-                const size_t ip = i + le;
+                const double ur = wr[j * windex], ui = wi[j * windex];
+                const size_t i = b + j, ip = i + le;
                 const double tr = re[i] - re[ip], ti = im[i] - im[ip];
 
                 re[i] += re[ip];
@@ -210,7 +251,6 @@ static void padFft (std::vector<double> &re, std::vector<double> &im, int m)
                 re[ip] = tr * ur - ti * ui;
                 im[ip] = tr * ui + ti * ur;
             }
-        }
 
         windex <<= 1;
     }
@@ -290,18 +330,15 @@ static bool padBuild (const PadKey &key, unsigned rate,
     }
 
     std::vector<double> re(PAD_LEN, 0.0), im(PAD_LEN, 0.0);
-    uint64_t dice = 20260922u;
+    const PadConst &c = padConst();
 
     for (size_t k = 1; k < mag.size(); k++)
     {
-        const double phase = 2 * M_PI * (double)(padDice(dice) >> 11) /
-                             9007199254740992.0;
-
         /* The conjugate of what the inverse wants, so that the forward
            transform below is the inverse: conj(FFT(conj(X))) is N times
            IFFT(X), and the real part is all that is kept. */
-        re[k] = mag[k] * cos(phase);
-        im[k] = -mag[k] * sin(phase);
+        re[k] = mag[k] * c.cosPhase[k];
+        im[k] = -mag[k] * c.sinPhase[k];
         re[PAD_LEN - k] = re[k];
         im[PAD_LEN - k] = -im[k];
     }
@@ -372,6 +409,7 @@ int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);
     plugin->setState (mystate);
+    padConst();
 
     for (int i = 0; i < PAD_SLOTS; i++)
     {
