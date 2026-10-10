@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Forty-five `.gen` files, each of which is meant to be read as well as heard.
+Forty-six `.gen` files, each of which is meant to be read as well as heard.
 Some of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
 being impressive; the rest are pieces first and lessons second. The
@@ -153,11 +153,11 @@ typo in it.
 | [`weather.gen`](weather.gen) | **Generative timbre, plainly** — and **one knob, both worlds.** Four random walks pointed at knobs, over a pad of three lines: the walk emits a number and does not know where it lands, and the sink names the target. It carries that pad now, so `Breadth` drives a stage's density and two of the instrument's own chanargs from one slider, and `Tail` sets the pad's release in milliseconds. Read its header before pointing a walk at something new — a chanarg's range belongs to the patch, and `amp` runs 0–127. |
 | [`tide.gen`](tide.gen) | **Presets, and the line between two.** `gen::morph` travels between two named chanarg vectors — as a generator on its own clock, and as a transformer where each note schedules its own sweep. |
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
-| [`cloud.gen`](cloud.gen) | **A recording as a texture.** `cloud.dsp` holds the tree's own orchestra hit and ride cymbal as grain clouds (`osc::grain`) sustained for as long as a note is down, three `eno_line` loops of long notes hold chords of them, and two `gen::walk`s move where in the recordings the grains come from and lean the cloud from the hit to the ride. Under it `bed.dsp`, three colors of noise through wandering bands; once a minute, when `xform::chance` allows, a singing bowl into `fx/space.dsp`. Ten minutes, arranged in seconds. |
+| [`cloud.gen`](cloud.gen) | **A recording as a texture.** `cloud.dsp` holds the tree's own orchestra hit and ride cymbal as grain clouds (`osc::grain`) sustained for as long as a note is down, three `eno_line` loops of long notes hold chords of them, and two `gen::walk`s move where in the recordings the grains come from and lean the cloud from the hit to the ride. Under it `bed.dsp`, three colors of noise through wandering bands; once a minute, when `xform::chance` allows, a singing bowl. Every channel is in one `fx/space.dsp` on the mix by its `send`. Ten minutes, arranged in seconds. |
 
 ## Pieces
 
-Eight files where the idea is the music and the mechanism is in service of
+Nine files where the idea is the music and the mechanism is in service of
 it. Each carries its own instruments; each header says how it is put
 together, in the same detail as the others.
 
@@ -169,6 +169,7 @@ together, in the same detail as the others.
 | [`invention.gen`](invention.gen) | **Two voices on a Moog, a chorus on the way out, and the ornaments are rules.** In the spirit of Wendy Carlos: a two-part invention in D minor, a saw lead and a square bass each on their own patch, a harpsichord of broken chords from a pool, and for once an L-system's rules are not empty -- `M`, `T` and `N` in the axiom are rewritten into a mordent, a trill and a turn on whatever note the turtle is standing on. The alto reads the same axiom with the ornaments spelled plain, through `xform::counterpoint`, every other time round, on a `Third` fader. |
 | [`discreet.gen`](discreet.gen) | **Two phrases and a tape loop, for twenty minutes.** Discreet Music's arrangement: two `gen::lsystem` phrases of different lengths, 13 and 18.6 seconds, on one electric piano, into `fx/tapeloop.dsp`, a 14-second loop that keeps 88% of each lap, so everything played comes back layered under what is played next and the two phrases drift against each other and the tape. `xform::cloud` thickens the second phrase for five minutes. The room is a send: `fx/space.dsp` on the mix at `mix = 0`, the piano's `send` into it, and a walk riding `fx.send`. |
 | [`cumulus.gen`](cumulus.gen) | **Ambient house, and a mixing desk played as an instrument.** A beatless dawn -- a shortwave radio between stations, a pad, a ride cymbal played down into a slow swell (the piece choosing its sampler's file with `smp.file`), and a voice reading a line -- with a groove let in under it. The break is `osc::stretch` keeping its pitch at the piece's tempo, its filter ridden open by `gen::steps` and wound to a halt by `fx/tapestop.dsp` before the drop. The snare is dry but for one hit in four bars, and the last word of each line, thrown into `fx/dub.dsp` by `xform::throw`. Sub, acid, a dub siren. |
+| [`shimmer.gen`](shimmer.gen) | **Five long notes into a reverb that climbs.** `glass.dsp` and `pad.dsp` on five `gen::eno_line` loops of their own lengths, into `fx/shimmer.dsp` on the mix -- `delay::fdn` with a pitch shifter in its feedback, so everything comes back an octave up, and again. A `misc::drift` at control rate, read by a `gen::walk`, writes the `Interval` knob, taking the climb between a fifth and an octave. Sections in minutes. |
 | [`kodachrome.gen`](kodachrome.gen) | **A summer remembered off a worn tape.** In the way of Boards of Canada: `fx/cassette.dsp` is the master effect, so one motor's wow bends everything and its hiss and dropouts are the room. Drifting `analog.dsp` chords from `xform::harmonize`, a thin lead through a dotted-eighth echo, the kit swung behind the beat and crushed to 12 bits by `fx/crush.dsp`, and a child's voice from `speak.dsp` arriving through `fx/reverse.dsp`, each word swelling in backwards. |
 | [`lighthouse.gen`](lighthouse.gen) | **Arpeggios turning against each other, and builds that drop.** In the way of Orbital: three `gen::euclid` arpeggios in cycles of three, five and seven sixteenths, an acid line under `fx/sweep.dsp` ridden a bar at a time by a `gen::steps` row, and the break cut into sixteenths by `slicer.dsp`, played in a new order and caught by `fx/stutter.dsp` on the last two beats of every four bars. Each build is `riser.dsp` climbing, and `revcymbal.dsp` lands on the drop; both repeat every eight bars and are muted everywhere else, which is what keeps them in place. |
 
@@ -339,6 +340,8 @@ puts `input midi` in front of one so what is played is what is drawn.
 cumulus adds `throw`, on a snare and on the last word of a line, and
 `steps` riding an effect's switch.
 transmission adds `say`, words on a melody's notes.
+shimmer adds a chain writing a piece knob, `sink { knob = @interval; }`,
+and a knob bound into the master effect.
 
 Language: `tempo` and `beats` (pulse), free-running seconds (airports,
 weather), `scale` (airports, hands, loosen, weather), `preset` (tide, bloom),

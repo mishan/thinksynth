@@ -1288,11 +1288,11 @@ async function passedTogether (pages)
 
 /* A .gen pasted over the room's, naming other graphs: colony.gen's text
  * replaced by airports.gen's, which names amb01.dsp and not ts1.dsp, and
- * then by ebb.gen's, which names organ0.dsp, which the room lacks. The
- * tabs and the node editor's menu follow the text on both pages; ts1.dsp
- * stays in the document, which a paste does not take anything out of; and
- * the Apply brings organ0.dsp in from the shipped graphs, which both pages
- * then load. */
+ * then by ebb.gen's, which names organ0.dsp and fx/space.dsp, which the
+ * room lacks. The tabs and the node editor's menu follow the text on both
+ * pages; ts1.dsp stays in the document, which a paste does not take
+ * anything out of; and the Apply brings organ0.dsp and fx/space.dsp in
+ * from the shipped graphs, which both pages then load. */
 async function pasteTogether (pages)
 {
     const [A] = pages;
@@ -1329,9 +1329,10 @@ async function pasteTogether (pages)
     for (const { label, page } of pages)
     {
         const wrong = await shows(page, [
-            ['amb01.dsp', 'colony.gen', 'organ0.dsp', 'ts1.dsp'],
-            ['amb01.dsp', 'colony.gen', 'organ0.dsp'],
-            ['amb01.dsp', 'organ0.dsp']]);
+            ['amb01.dsp', 'colony.gen', 'fx/space.dsp', 'organ0.dsp',
+             'ts1.dsp'],
+            ['amb01.dsp', 'colony.gen', 'fx/space.dsp', 'organ0.dsp'],
+            ['amb01.dsp', 'fx/space.dsp', 'organ0.dsp']]);
         const loaded = await page.waitForFunction(
             () => window.jam.instruments().some((i) => i.dsp === 'organ0.dsp'),
             null, { timeout: 10000 }).then(() => true, () => false);

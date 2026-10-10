@@ -30,6 +30,8 @@
 # The three pad lines run on periods that share no factor (3.7, 5.3 and
 # 8.1 seconds), airports.gen's arrangement, so the cloud never repeats a
 # voicing exactly. A walk opens and closes the pad's filter underneath.
+# All three are in one fx/space.dsp on the mix, by their sends: the
+# bells most, the ground hardly at all.
 #
 # Seed pinned so it replays. Self-contained: open it and press Play.
 
@@ -81,6 +83,7 @@ instrument pad {
     res  = 0.55;
     fmin = 0.05;
     fmax = 0.45;                # where the walk below starts it
+    send = 0.35;
 };
 
 # The same graph struck rather than swelled: a few milliseconds of attack,
@@ -108,6 +111,7 @@ instrument bell {
     res  = 0.82;
     fmin = 0.35;
     fmax = 0.9;
+    send = 0.5;
 };
 
 # Four sine drawbars on a slow swell, for a ground that is all
@@ -127,6 +131,14 @@ instrument ground {
     d    = 400 ms;
     s    = 0.9;
     r    = 950 ms;
+    send = 0.1;
+};
+
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 6;
+    size = 2;
+    predelay = 30 ms;
 };
 
 # ---- the ground -------------------------------------------------------

@@ -14,8 +14,10 @@
 # Under it, bed.dsp holds one note for the whole piece: three colors of
 # noise through bands that wander, which is the room the cloud is in.
 # And once a minute a singing bowl is struck -- or is not, when
-# xform::chance says so -- ringing twenty seconds into fx/space.dsp's
-# long tail.
+# xform::chance says so -- ringing twenty seconds into the room.
+#
+# THE ROOM IS ONE fx/space.dsp on the mix, at `mix = 0', and every
+# instrument is in it by its `send': the bowl most, the bed least.
 #
 # The arrangement is in seconds, since there are no bars in it: the bed
 # and the low loop alone for a minute, everything for four, the middle
@@ -32,20 +34,14 @@ scale dmaj "D3 E3 F#3 A3 B3 D4 E4 F#4 A4 B4";
 
 instrument cloud {
     dsp "cloud.dsp";
-    amp = 115;
+    amp = 80;
     grain = 140 ms;
     density = 32;
     spread = 0.05;
     jitter = 0.06;
     a = 3000 ms;
     r = 8000 ms;
-
-    effect "fx/space.dsp" {
-        decay = 12;
-        size = 2;
-        predelay = 40 ms;
-        mix = 0.4;
-    };
+    send = 0.4;
 };
 
 instrument bed {
@@ -53,18 +49,21 @@ instrument bed {
     amp = 75;
     a = 15000 ms;
     r = 15000 ms;
+    send = 0.2;
 };
 
 instrument bowl {
     dsp "bowl.dsp";
-    amp = 85;
+    amp = 58;
     ring = 1.2;
+    send = 0.5;
+};
 
-    effect "fx/space.dsp" {
-        decay = 18;
-        size = 2.5;
-        mix = 0.35;
-    };
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 15;
+    size = 2.2;
+    predelay = 40 ms;
 };
 
 section open   60 s { mid = 0; high = 0; bowl = 0; };

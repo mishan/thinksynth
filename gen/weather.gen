@@ -34,6 +34,9 @@
 # curves never line up twice. That is airports.gen's trick applied to
 # timbre instead of to melody.
 #
+# The pad sends into fx/space.dsp on the mix, so the swells have a room
+# to swell in.
+#
 # The Weather knob scales how far the three filter walks may step, so one
 # slider runs from "almost still" to "restless" across all of them at
 # once. `swell' keeps its own step because its knob is in different
@@ -120,6 +123,14 @@ instrument pad {
     res  = 0.7;
     fmin = 0.06;
     fmax = 0.55;
+    send = 0.35;
+};
+
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 7;
+    size = 2;
+    predelay = 30 ms;
 };
 
 # Dense enough to hear the weather happening to it. Three lines at

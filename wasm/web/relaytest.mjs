@@ -1832,8 +1832,8 @@ async function roomsBounded ()
        frame Yjs cannot read costs its socket and charges nothing. And
        empty rooms go only as many as make room for a new one. */
     const e = await relay({ port: 0, host: '127.0.0.1', tree, roomsMax: 3,
-                            roomsMaxBytes: 128 * 1024,
-                            roomMaxBytes: 64 * 1024 });
+                            roomsMaxBytes: 164 * 1024,
+                            roomMaxBytes: 76 * 1024 });
 
     try
     {
@@ -1876,7 +1876,7 @@ async function roomsBounded ()
         await new Promise((r) => setTimeout(r, 200));
 
         const keyed = room.bytes - grown;
-        const n = Math.floor((64 * 1024 - room.bytes) / 2) - 2048;
+        const n = Math.floor((76 * 1024 - room.bytes) / 2) - 2048;
 
         text.insert(0, 'y'.repeat(n));
         d.send(typed());
@@ -1893,7 +1893,7 @@ async function roomsBounded ()
               keyed > 10 * 2 * 256 && took && told.of === 'edit' &&
               told.why === 'big' && await refused(d) &&
               a.ws.readyState === WebSocket.OPEN &&
-              room.bytes <= 64 * 1024 &&
+              room.bytes <= 76 * 1024 &&
               !room.doc.getText('t').toString().includes('z'),
               'a room is charged for what its document takes, and not ' +
               'for a frame it could not read, and an edit that could take ' +
@@ -2196,8 +2196,8 @@ async function roomsBounded ()
        edit lets go of the rooms empty longest that it needs, and with
        too few to let go it is refused. */
     const g = await relay({ port: 0, host: '127.0.0.1', tree,
-                            roomsMaxBytes: 272 * 1024,
-                            roomMaxBytes: 224 * 1024 });
+                            roomsMaxBytes: 308 * 1024,
+                            roomMaxBytes: 236 * 1024 });
 
     try
     {
@@ -2238,14 +2238,14 @@ async function roomsBounded ()
         await a.type(40);
 
         const told = a.errors[0] ?? {};
-        const under = total() <= 272 * 1024 && g.rooms.has('idle');
+        const under = total() <= 308 * 1024 && g.rooms.has('idle');
 
         check(took.join() === '40,40' && told.why === 'rooms' && under &&
               g.rooms.get('a').doc.getText('t').length === 40 * 1024,
               'an edit that would take the rooms past their budget is ' +
               'refused, and no empty room goes for it in vain');
         check(await b.type(12) === 52 && !g.rooms.has('idle') &&
-              total() <= 272 * 1024,
+              total() <= 308 * 1024,
               'and one an empty room going makes room for lets it go');
 
         for (const c of [a, b])
@@ -2329,8 +2329,8 @@ async function roomsBounded ()
        the rooms may be charged, the run overflows, and an edit to the
        document that needs what it holds overflows it. */
     const l = await relay({ port: 0, host: '127.0.0.1', tree,
-                            roomsMaxBytes: 150 * 1024,
-                            roomMaxBytes: 128 * 1024 });
+                            roomsMaxBytes: 174 * 1024,
+                            roomMaxBytes: 140 * 1024 });
 
     try
     {

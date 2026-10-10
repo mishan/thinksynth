@@ -10,6 +10,7 @@ ec342f02321dce15  anasync.dsp
 2bcc4e464097dec5  bowl.dsp
 2c78f5057d66d7dd  brass.dsp
 d519f8f8ddd4fc35  breakloop.dsp
+4979d999a65eef1d  choir.dsp
 55a1a067f97548d5  clap.dsp
 2467420c07f3be0d  clav.dsp
 c4d241b83ad90435  clave.dsp
@@ -64,6 +65,7 @@ f11a33c1be79f4e1  fx/tapestop.dsp
 aadbceb37770b1b1  fx/vocoder-mic.dsp
 dedc11ca49bd8151  fx/vocoder.dsp
 778b3544f06e5ead  fx/wah.dsp
+618c640d3c38c165  glass.dsp
 bd2d3b666be57ccd  grand.dsp
 5dcde5157f24c3bd  guitar.dsp
 7849213614212ccd  hat.dsp
@@ -86,6 +88,7 @@ bd167d2a7ddfbb55  linn.dsp
 4210ef4bddc07135  orchestron.dsp
 e8815851f2af9d0d  orchhit.dsp
 de5dac8336857be5  organ0.dsp
+74eaff6953a3c2a9  pad.dsp
 de9cece59b7685c5  pluck.dsp
 4bb4bcac6f0ebc05  radio.dsp
 90bc2c8e5a5a05d5  revcymbal.dsp

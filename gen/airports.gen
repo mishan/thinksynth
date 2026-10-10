@@ -11,6 +11,9 @@
 # written in -- and the sinks below bind to the name rather than to a
 # channel number nobody agreed on. The channel underneath is the
 # loader's business. See docs/UNIFICATION.md.
+#
+# The room is fx/space.dsp on the mix at `mix = 0', which the pad sends
+# into: one long tail under the loops.
 
 name "Airports";
 author "Misha Nasledov";
@@ -50,6 +53,14 @@ instrument pad {
     res  = 0.72;
     fmin = 0.06;                # where the drift chain below starts it
     fmax = 0.55;
+    send = 0.35;
+};
+
+effect "fx/space.dsp" {
+    mix = 0;
+    decay = 8;
+    size = 2;
+    predelay = 30 ms;
 };
 
 chain loop_f3 {
