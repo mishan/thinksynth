@@ -305,7 +305,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                for, three is a section. */
             const double turn = (double)phase + (double)offset +
                                 (double)t / (2 * taps);
-            const double swing = depth * sin(2.0 * M_PI * turn);
+            const double swing = depth * thSinTurns(turn);
             double back = delay + swing;
             unsigned int whole;
             float frac, a, b;
@@ -322,8 +322,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             whole = (unsigned int)back;
             frac = (float)(back - whole);
 
-            a = buffer[(at + len - whole) % len];
-            b = buffer[(at + len - whole - 1) % len];
+            /* `whole' is 1 to len - 2 and `at' under len, so a wrap is one
+               compare where a division was two a tap a sample. */
+            {
+                const unsigned int ia = at >= whole ? at - whole
+                                                    : at + len - whole;
+
+                a = buffer[ia];
+                b = buffer[ia == 0 ? len - 1 : ia - 1];
+            }
 
             /* Between the two, which is the whole effect: the fraction
                is where the pitch shift lives. */
@@ -348,7 +355,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         out[i] = in + (wet - in) * mix;
 
-        at = (at + 1) % len;
+        at = at + 1 == len ? 0 : at + 1;
         phase += rate / (float)samples;
 
         if (phase >= 1.0f || phase < 0.0f)

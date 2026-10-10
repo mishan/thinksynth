@@ -362,6 +362,27 @@ static inline void thGlide (float *out, unsigned int n, float &y, float x,
     }
 }
 
+/* sin(2 pi x), x in turns and not negative, to about 5e-8: an odd series
+ * on a quarter wave. An oscillator or an LFO calling libm's sin every sample
+ * spent most of its time there, and float audio has no use for its last
+ * bits. Written out rather than sinf, so that every libm gives the same
+ * answer.
+ */
+static inline double thSinTurns (double x)
+{
+    x -= (double)(long long)(x + 0.5);
+
+    if (x > 0.25)
+        x = 0.5 - x;
+    else if (x < -0.25)
+        x = -0.5 - x;
+
+    const double y = 2 * M_PI * x, y2 = y * y;
+
+    return y * (1 + y2 * (-1.0 / 6 + y2 * (1.0 / 120 + y2 * (-1.0 / 5040 +
+                y2 * (1.0 / 362880 + y2 * (-1.0 / 39916800))))));
+}
+
 /* Clamp a control input into the range a plugin's arithmetic is defined over.
  *
  * A .dsp may write any number on any arg, and a node-driven arg carries

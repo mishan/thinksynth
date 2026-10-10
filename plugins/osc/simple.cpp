@@ -270,7 +270,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle,
                5 = parabola */
             case 0:    /* SINE WAVE */
-                out[i] = amp_max*sin(ratio*2*M_PI); /* This will fuck up if 
+                out[i] = amp_max*thSinTurns(ratio); /* This will fuck up if 
                                                        TH_MIX is not the 
                                                        negative of TH_MIN */
                 break;
