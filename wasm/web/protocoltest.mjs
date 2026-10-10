@@ -76,6 +76,7 @@ import { AudioClock, RelayClock, TransportClock, frameOfRelayMs }
     from './clock.js';
 import { Dedupe, GRID, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, catchUp,
          isLate, keyAt, nextBar, replayable } from './commands.js';
+import { Mesh } from './mesh.js';
 import { firstDifference, instruments, pieces, reference }
     from './piececheck.mjs';
 import { loadPiece, schedule } from './render.mjs';
@@ -2092,6 +2093,34 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         else
             process.stdout.write('ok    a seek 30 s in, joined and caught ' +
                                  'up with\n');
+    }
+
+    /* A round trip is a pong to a ping this page sent: one it did not,
+       or not a time at all, is nobody's round trip, and no lead. */
+    {
+        const room = { peer: 'a', peers: new Map([['b', {}]]),
+                       on: () => {}, relayed: () => {} };
+        const mesh = new Mesh(room, () => {});
+        const l = mesh.links.get('b');
+
+        mesh.received('b', { pong: -1e9 });
+        mesh.received('b', { pong: 'soon' });
+
+        const forged = mesh.worst();
+
+        mesh.received('b', { pong: mesh.stamp(l) });
+
+        const rtt = mesh.worst();
+
+        if (!Number.isNaN(forged) || !(rtt >= 0 && rtt < 1000))
+        {
+            failures++;
+            process.stdout.write(`FAIL  a pong not of ours set the round ` +
+                                 `trip: ${forged}, then ${rtt}\n`);
+        }
+        else
+            process.stdout.write('ok    only a pong to our own ping is a ' +
+                                 'round trip\n');
     }
 
     process.stdout.write(

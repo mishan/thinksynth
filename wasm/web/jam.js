@@ -2330,14 +2330,27 @@ function openMesh ()
                 `(${why})`));
 }
 
+/* When the lead was last fitted, performance.now. */
+let leadFitAt = null;
+
+/* Never past the transport's lead, and down no faster than time passes:
+   a knob stamped after a sudden fall would land before one stamped just
+   ahead of it, and a drag would end on an older value. */
 function fitLead ()
 {
-    const worst = mesh.worst();
+    if (maker === null)
+        return;
 
-    if (maker !== null)
-        maker.knobLead = Number.isNaN(worst)
-            ? knobFloor
-            : Math.max(knobFloor, (worst / 2 + LEAD_MARGIN_MS) / 1000);
+    const worst = mesh.worst();
+    const now = performance.now();
+    const want = Number.isNaN(worst) ? knobFloor
+        : Math.max(knobFloor,
+                   Math.min(maker.transportLead,
+                            (worst / 2 + LEAD_MARGIN_MS) / 1000));
+    const fall = leadFitAt === null ? Infinity : (now - leadFitAt) / 1000;
+
+    maker.knobLead = Math.max(want, maker.knobLead - fall);
+    leadFitAt = now;
 }
 
 /* How long a lost room waits before it is joined again, doubling to the

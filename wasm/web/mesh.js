@@ -124,13 +124,14 @@ export class Mesh
         if (this.links.has(peer) || typeof RTCPeerConnection === 'undefined')
         {
             if (!this.links.has(peer))
-                this.links.set(peer, { relayed: true, rtt: NaN, rtts: [] });
+                this.links.set(peer, { relayed: true, rtt: NaN, rtts: [],
+                                       sent: [] });
 
             return;
         }
 
-        const l = { relayed: false, rtt: NaN, rtts: [], pinger: null,
-                    timer: null, retry: null, tries: 0 };
+        const l = { relayed: false, rtt: NaN, rtts: [], sent: [],
+                    pinger: null, timer: null, retry: null, tries: 0 };
 
         this.links.set(peer, l);
         this.connect(peer, l, 0);
@@ -251,7 +252,7 @@ export class Mesh
                     channel.send(JSON.stringify({ pong: m.ping }));
             }
             else if (m.pong !== undefined)
-                this.heard(peer, l, performance.now() - m.pong);
+                this.heard(peer, l, m.pong);
             else
                 this.received(peer, m);
         });
@@ -272,10 +273,11 @@ export class Mesh
         l.tries = 0;
         l.relayed = false;
         l.rtts = [];
+        l.sent = [];
         l.pinger = setInterval(() =>
         {
             if (l.channel.readyState === 'open')
-                l.channel.send(JSON.stringify({ ping: performance.now() }));
+                l.channel.send(JSON.stringify({ ping: this.stamp(l) }));
         }, PING_EVERY);
         this.emit('change', peer);
     }
@@ -365,10 +367,11 @@ export class Mesh
         l.relayed = true;
         l.rtt = NaN;
         l.rtts = [];
+        l.sent = [];
         clearTimeout(l.timer);
         clearInterval(l.pinger);
         l.pinger = setInterval(() =>
-            this.room.relayed({ ping: performance.now() }, peer), PING_EVERY);
+            this.room.relayed({ ping: this.stamp(l) }, peer), PING_EVERY);
         this.emit('fallback', peer, why);
         this.emit('change', peer);
     }
@@ -434,14 +437,38 @@ export class Mesh
             const l = this.links.get(from);
 
             if (l?.relayed)
-                this.heard(from, l, performance.now() - cmd.pong);
+                this.heard(from, l, cmd.pong);
         }
         else
             this.onCommand(from, cmd);
     }
 
-    heard (peer, l, rtt)
+    /* A ping's time, kept until its pong comes or RTTS_KEPT more have
+       gone. */
+    stamp (l)
     {
+        const t = performance.now();
+
+        l.sent.push(t);
+
+        if (l.sent.length > RTTS_KEPT)
+            l.sent.shift();
+
+        return t;
+    }
+
+    /* A pong, if it answers a ping of ours: one that does not is a peer's
+       word for a round trip, and would set the lead to anything. */
+    heard (peer, l, pong)
+    {
+        const k = l.sent.indexOf(pong);
+
+        if (k < 0)
+            return;
+
+        const rtt = performance.now() - pong;
+
+        l.sent.splice(0, k + 1);
         l.rtt = rtt;
         l.rtts.push(rtt);
 
