@@ -347,6 +347,9 @@ function clocksReady ()
 /* A command of our own: applied here, sent to everyone. */
 async function send (cmd)
 {
+    if (room.roleOf() === 'spectator')
+        return;
+
     sentCount++;
     keep(sent, cmd);
 
@@ -396,6 +399,11 @@ let appliedRun = null;
 
 function receive (from, cmd)
 {
+    /* The relay refuses what a spectator sends through it; this is the
+       mesh's half of that. */
+    if (room.roleOf(from) === 'spectator')
+        return Promise.resolve();
+
     if (cmd?.type === 'transport' &&
         (cmd.op === 'start' || cmd.op === 'stop') &&
         !runsSeen.has(runOf(cmd)))
@@ -1265,7 +1273,24 @@ function showPeers ()
 
         el.className = me ? 'peer me' : 'peer';
         el.textContent = p.name + (p.seat === null
-                                   ? '' : ` (channel ${p.seat + 1})`);
+                                   ? '' : ` (channel ${p.seat + 1})`) +
+                         (room.settings.owner === id ? ' (owner)'
+                          : room.roleOf(id) === 'spectator' ? ' (spectator)'
+                          : '');
+
+        if (room.owns && !me)
+        {
+            const spectator = room.roleOf(id) === 'spectator';
+            const role = document.createElement('button');
+            const remove = document.createElement('button');
+
+            role.textContent = spectator ? 'Make musician' : 'Make spectator';
+            role.addEventListener('click', () =>
+                room.setRole(id, spectator ? 'musician' : 'spectator'));
+            remove.textContent = 'Remove';
+            remove.addEventListener('click', () => room.remove(id));
+            el.append(role, remove);
+        }
 
         if (!me && mesh !== null)
         {
@@ -1602,7 +1627,9 @@ function showNumbers ()
 
 function enable ()
 {
-    const ready = synth !== null && piece !== null && clocksReady();
+    const playing = room.roleOf() !== 'spectator';
+    const ready = synth !== null && piece !== null && clocksReady() &&
+                  playing;
 
     $('play').disabled = !ready;
     $('play').classList.toggle('primary', ready && room.playing === null);
@@ -1610,9 +1637,9 @@ function enable ()
     /* Not waiting on a piece that loaded: one that did not is what a
        switch is for. */
     $('piece').disabled = synth === null || !clocksReady() ||
-                          shippedGraphs.size === 0 ||
+                          shippedGraphs.size === 0 || !playing ||
                           !room.features.includes('switch');
-    $('stop').disabled = synth === null;
+    $('stop').disabled = synth === null || !playing;
     $('tempo').disabled = !ready;
     $('export').disabled = synth === null;
 }
@@ -2077,6 +2104,13 @@ function openRoom (url, roomName, name, opts)
                            : ' to the room') + `: ${m.why}.`);
             else if (m.of === 'edit')
                 editRefused(m);
+            else
+                status(`The relay refused your ${m.of}: ${m.why}.`);
+        })
+        .on('room', () =>
+        {
+            if (r === room)
+                showRoom();
         })
         .on('switched', switched)
         .on('clock', () => { showNumbers(); enable(); })
@@ -2111,7 +2145,7 @@ async function join ()
                                   `guest-${Math.floor(Math.random() * 1000)}`,
                               { piece: $('newpiece').value ||
                                        params.get('piece'),
-                                session });
+                                session, invite: params.get('invite') });
     }
     catch (e)
     {
@@ -2167,7 +2201,7 @@ async function join ()
     $('roompanel').hidden = false;
     $('roomname').textContent = `\u2014 ${roomName}`;
     $('invite').hidden = false;
-    showPeers();
+    showRoom();
     showNumbers();
 
     status(`In ${roomName} as ${name}. Press Start.` +
@@ -2183,8 +2217,36 @@ async function join ()
                                             : {}) };
 
     history.replaceState(null, '', `?${new URLSearchParams(
-        { ...where, name: room.identity.name })}`);
-    invite = new URL(`?${new URLSearchParams(where)}`, location.href).href;
+        { ...where, name: room.identity.name,
+          ...(params.get('invite') ? { invite: params.get('invite') }
+                                   : {}) })}`);
+    inviteWhere = where;
+}
+
+/* Whether this page may change the piece, as the relay holds it to. */
+function mayEdit ()
+{
+    return room.roleOf() === 'musician' && (!room.settings.locked || room.owns);
+}
+
+/* What the room's settings say this page can do, and the owner's controls
+   for them. */
+function showRoom ()
+{
+    const spectator = room.roleOf() === 'spectator';
+
+    $('roomsettings').hidden = !room.features.includes('roles');
+    $('visibility').value = room.settings.visibility ?? 'unlisted';
+    $('lock').checked = room.settings.locked;
+    $('visibility').disabled = $('lock').disabled = !room.owns;
+    $('seat').disabled = spectator;
+    $('chatinput').disabled = spectator;
+
+    if (!docRefused && provider?.wsconnected)
+        $('editor').inert = !mayEdit();
+
+    showPeers();
+    enable();
 }
 
 /* The document socket's next reconnect goes in with the room socket's
@@ -2354,7 +2416,8 @@ async function rejoin ()
                               was.identity.account === true
                                   ? `guest-${Math.floor(Math.random() * 1000)}`
                                   : was.identity.name,
-                              { piece: '', session, was: was.ticket });
+                              { piece: '', session, was: was.ticket,
+                                invite: was.settings.invite ?? was.invite });
     }
     catch (e)
     {
@@ -2395,7 +2458,7 @@ async function rejoin ()
     if (!docRefused)
     {
         provider.connect();
-        $('editor').inert = false;
+        $('editor').inert = !mayEdit();
     }
 
     openMesh();
@@ -2403,7 +2466,7 @@ async function rejoin ()
     if (seat !== null)
         room.claim(seat);
 
-    showPeers();
+    showRoom();
     chat.peers(room.peers);
     status(`Back in ${room.roomName}.`);
 
@@ -2414,7 +2477,7 @@ async function rejoin ()
 }
 
 /* The room's address without the name in it (join). */
-let invite = '';
+let inviteWhere = {};
 
 /* How long "Copied" stays on the invite button. */
 const COPIED_MS = 1500;
@@ -2422,6 +2485,12 @@ const COPIED_MS = 1500;
 async function copyInvite ()
 {
     const button = $('invite');
+    const invite = new URL(`?${new URLSearchParams(
+        { ...inviteWhere,
+          ...(room.settings.visibility === 'private' &&
+              room.settings.invite !== null
+              ? { invite: room.settings.invite } : {}) })}`,
+                           location.href).href;
 
     try
     {
@@ -2732,6 +2801,10 @@ function init ()
     $('stop').addEventListener('click', stop);
     $('tempo').addEventListener('change', tempo);
     $('export').addEventListener('click', exportTape);
+    $('visibility').addEventListener('change', () =>
+        room.set({ visibility: $('visibility').value }));
+    $('lock').addEventListener('change', () =>
+        room.set({ locked: $('lock').checked }));
     $('seat').addEventListener('change', () =>
     {
         releaseAll();

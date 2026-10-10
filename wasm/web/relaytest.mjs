@@ -202,6 +202,149 @@ async function docSocket (q, room, ticket)
     return d;
 }
 
+/* Who may do what in a room: its owner, its musicians and its
+   spectators, each held to it by the relay and not by the page. */
+async function rolesEnforced ()
+{
+    const q = await relay({ port: 0, host: '127.0.0.1', tree });
+    const at = `ws://127.0.0.1:${q.address().port}`;
+    const join = async (name, extra = {}) =>
+    {
+        const c = new Client(`${at}/room/roles`, name);
+
+        await c.open();
+        c.send({ type: 'hello', name, protocol: PROTOCOL, tickets: true,
+                 ...extra });
+        c.welcome = await Promise.race([c.next('welcome'), c.next('error')]);
+        return c;
+    };
+    /* The last room line a client has, once nothing more is coming. */
+    const room = async (c) =>
+    {
+        await new Promise((r) => setTimeout(r, 100));
+
+        const lines = c.got.filter((m) => m.type === 'room');
+
+        return lines.at(-1) ?? c.welcome.room;
+    };
+    const edit = (c, text) =>
+    {
+        const doc = new Y.Doc();
+
+        doc.getText('t').insert(0, text);
+        return frame(doc);
+    };
+
+    try
+    {
+        const a = await join('Ann');
+        const b = await join('Bo');
+        const c = await join('Cy');
+        const [A, B, C] = [a, b, c].map((x) => x.welcome.peer);
+
+        check(a.welcome.room.owner === A &&
+              a.welcome.room.visibility === 'unlisted' &&
+              (await room(c)).roles[C] === 'musician',
+              'the room\'s first peer owns it, it is unlisted, and a peer ' +
+              'joins as a musician');
+
+        b.send({ type: 'set', locked: true });
+
+        const notOwner = await b.next('refused');
+
+        check(notOwner.of === 'set' && !(await room(a)).locked,
+              'only the owner changes the room');
+
+        a.send({ type: 'role', peer: B, role: 'spectator' });
+        b.send({ type: 'seat', seat: 1 });
+
+        const seat = await b.next('refused');
+        const bRoom = await room(b);
+
+        b.send({ type: 'chat', channel: 'stage', text: 'hi', n: 1 });
+        b.send({ type: 'relayed', data: { type: 'knob' } });
+
+        const chat = await b.next('refused');
+
+        check(bRoom.roles[B] === 'spectator' && bRoom.invite === null &&
+              seat.of === 'seat' && chat.of === 'chat' && chat.n === 1 &&
+              await a.none('relayed') && await a.none('chat'),
+              'a spectator takes no seat, says nothing in the stage chat, ' +
+              'and sends no gesture, and is not given the invite');
+
+        /* What a spectator's page holds, answering the sync, goes; an
+           edit does not. */
+        const bd = await docSocket(q, 'roles', b.welcome.ticket);
+
+        bd.send(frame(new Y.Doc()));
+        bd.send(edit(b, 'spectated'));
+
+        const bEdit = await b.next('refused');
+
+        check(bEdit.of === 'edit' && bEdit.why === 'spectator' &&
+              !q.rooms.get('roles').doc.getText('t').toString()
+                  .includes('spectated'),
+              'a spectator\'s edit is refused, and an empty sync is not');
+
+        a.send({ type: 'set', locked: true });
+        await a.next('room');
+
+        const cd = await docSocket(q, 'roles', c.welcome.ticket);
+        const ad = await docSocket(q, 'roles', a.welcome.ticket);
+
+        cd.send(edit(c, 'locked out'));
+
+        const cEdit = await c.next('refused');
+
+        ad.send(edit(a, 'owner'));
+        await new Promise((r) => setTimeout(r, 100));
+
+        check(cEdit.why === 'locked' &&
+              q.rooms.get('roles').doc.getText('t').toString() === 'owner',
+              'a locked piece is edited by its owner alone');
+
+        a.send({ type: 'set', visibility: 'private' });
+
+        const invite = (await a.next('room')).invite;
+        const d0 = await join('Di');
+        const d = await join('Di', { invite });
+
+        check(d0.welcome.why === 'private' && d.welcome.type === 'welcome',
+              'a private room is joined by its invite alone');
+
+        a.send({ type: 'remove', peer: d.welcome.peer });
+
+        const out = await d.next('error');
+        const rotated = (await room(a)).invite;
+        const d2 = await join('Di', { invite });
+
+        check(out.why === 'removed' && rotated !== invite &&
+              d2.welcome.why === 'private',
+              'a removed peer is told so, and the invite they had stops ' +
+              'working');
+
+        /* Ann goes: Bo, here longer, is a spectator, so Cy has it. Cy
+           joining again keeps it. */
+        a.close();
+
+        check((await room(c)).owner === C,
+              'the owner gone, the longest-present musician owns the room');
+
+        const c2 = await join('Cy', { was: c.welcome.ticket,
+                                      invite: rotated });
+
+        check((await room(c2)).owner === c2.welcome.peer,
+              'the owner joining again is the owner still');
+
+        for (const x of [b, c2, d2, d0, bd, cd, ad])
+            x.close();
+    }
+    finally
+    {
+        q.shutdown();
+    }
+}
+
 /* Who a room socket is, and what lets its document in: a relay of its
    own, on a file the admin commands can open beside it, and with times
    short enough to wait out. */
@@ -3196,9 +3339,16 @@ try
     check(wb.peers.length === 2 && ja.peer === wb.peer && ja.name === 'Bo',
           'a second peer is told who is here, and the first is told');
 
+    const unlisted = await (await fetch(`http://127.0.0.1:${port}/`)).json();
+
+    a.send({ type: 'set', visibility: 'public' });
+    await a.next('room');
+
     const health = await (await fetch(`http://127.0.0.1:${port}/`)).json();
     const listed = health.rooms.find((r) => r.name === 'test');
 
+    check(!unlisted.rooms.some((r) => r.name === 'test'),
+          'a new room is unlisted');
     check(listed?.peers === 2 && listed.piece === 'airports.gen' &&
           listed.playing === false,
           'the health line lists the room, its two people and its piece');
@@ -4153,6 +4303,7 @@ try
     /* ---- accounts ---- */
 
     await accountsInRooms();
+    await rolesEnforced();
     await metricsServed();
     await queuesBounded();
     await roomsBounded();

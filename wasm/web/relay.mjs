@@ -439,13 +439,27 @@ const TOO_BIG = { why: 'big', text: 'the room\'s document is as large as ' +
 const RELAY_FULL = { why: 'rooms', text: 'the relay holds as much as it ' +
                                          'can; try again later' };
 
+/* How long an account that owned a room and left has to come back for
+   it: a reload, a dropped network, a laptop lid. */
+const OWNER_GRACE_MS = 2 * 60 * 1000;
+
+/* What a room may be: in the relay's list, joined by its link, or joined
+   by its link with the invite in it. */
+const VISIBILITIES = ['public', 'unlisted', 'private'];
+
+/* What a spectator may not send: they play nothing, hold no seat, switch
+   no piece, and have no chat to post in until the house exists. */
+const MUSICIANS_ONLY = new Set(['seat', 'transport', 'log', 'relayed',
+                                'switch', 'chat']);
+
 /* The room socket's message types, each counted apart for the metrics
    port. Any other a client sends is counted as `other', so that a made-up
    type costs one counter and not one more each. */
 const ROOM_TYPES = ['hello', 'welcome', 'joined', 'left', 'seat', 'seats',
                     'ping', 'pong', 'signal', 'relayed', 'transport', 'log',
                     'chat', 'switch', 'switched', 'catchup', 'ticket',
-                    'refused', 'error', 'other'];
+                    'room', 'set', 'role', 'remove', 'refused', 'error',
+                    'other'];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1062,6 +1076,45 @@ function growthOf (doc, update, decode = Y.decodeUpdate)
     return bytes;
 }
 
+/* Whether the sync frame `bytes', a step 2 or an update, would change
+   `doc': a struct it has not got, or a deletion of an item it has not
+   deleted. A page that may not edit still answers a sync with what it
+   holds, which adds nothing and is let through. */
+function addsTo (doc, bytes)
+{
+    const dec = decoding.createDecoder(bytes);
+
+    decoding.readVarUint(dec);
+    decoding.readVarUint(dec);
+
+    const { structs, ds } = Y.decodeUpdate(decoding.readVarUint8Array(dec));
+    const { store } = doc;
+
+    if (structs.some((s) => !(s instanceof Y.Skip) &&
+                            s.id.clock + s.length >
+                                Y.getState(store, s.id.client)))
+        return true;
+
+    for (const [client, deletes] of ds.clients)
+    {
+        const has = store.clients.get(client);
+        const state = Y.getState(store, client);
+
+        for (const { clock, len } of deletes)
+        {
+            if (clock + len > state)
+                return true;
+
+            for (let i = Y.findIndexSS(has, clock);
+                 i < has.length && has[i].id.clock < clock + len; i++)
+                if (!has[i].deleted)
+                    return true;
+        }
+    }
+
+    return false;
+}
+
 /* The bytes of updates Yjs holds for `doc' until what they build on
    arrives. */
 function pendingOf (doc)
@@ -1074,6 +1127,12 @@ function pendingOf (doc)
 function newId ()
 {
     return Math.random().toString(36).slice(2, 8);
+}
+
+/* What a private room's link carries, and nobody can guess. */
+function newInvite ()
+{
+    return crypto.randomBytes(12).toString('base64url');
 }
 
 /* Whether a hello `m' is let in, and as whom: `{ account, asked }', an
@@ -1166,6 +1225,18 @@ class Room
                                                asks, docRates }          */
         this.seats = new Map();             /* seat -> peer id           */
         this.playing = null;                /* the last transport start  */
+
+        /* Who holds the room's settings, a peer id or nobody; what the
+           room is; and whether only its owner may edit the document. An
+           account owner who left (`ownerAway') has OWNER_GRACE_MS to take
+           it back from whoever it passed to. */
+        this.owner = null;
+        this.ownerAway = null;              /* { account, until }        */
+        this.visibility = 'unlisted';
+        this.invite = newInvite();
+        this.locked = false;
+        this.removed = new Set();           /* account ids               */
+        this.spectating = new Set();        /* account ids made spectators */
         this.emptySince = relayNow();
         this.ctx.empties.set(this, true);
 
@@ -1725,6 +1796,49 @@ class Room
             d.terminate();
     }
 
+    /* Whether `peer' may change the document. */
+    mayEdit (peer)
+    {
+        return peer.role === 'musician' &&
+               (!this.locked || peer.id === this.owner);
+    }
+
+    /* What the room is, as `p' is told it: the invite only to a musician,
+       who may bring somebody in. */
+    roomLine (p)
+    {
+        return { type: 'room', owner: this.owner,
+                 visibility: this.visibility, locked: this.locked,
+                 roles: Object.fromEntries(
+                     [...this.peers].map(([id, q]) => [id, q.role])),
+                 invite: p.role === 'musician' ? this.invite : null };
+    }
+
+    tellRoom ()
+    {
+        for (const p of this.peers.values())
+            sendLine(this.ctx.queues, this.ctx.traffic, [p.ws],
+                     this.roomLine(p));
+    }
+
+    /* The owner gone: the room passes to whoever has been in it longest,
+       a musician first, made one if they are not. An account owner may
+       come back for it. */
+    passOwner (gone)
+    {
+        if (gone.account !== null)
+            this.ownerAway = { account: gone.account.id,
+                               until: relayNow() + OWNER_GRACE_MS };
+
+        const peers = [...this.peers.values()];
+        const next = peers.find((p) => p.role === 'musician') ?? peers[0];
+
+        this.owner = next?.id ?? null;
+
+        if (next !== undefined)
+            next.role = 'musician';
+    }
+
     /* ---- the document socket ---- */
 
     /* An awareness update from `ws', as the relay will pass it on: the
@@ -1916,7 +2030,15 @@ class Room
 
                         const no =
                             bytes[1] === syncProtocol.messageYjsSyncStep1
-                                ? null : this.refusal(bytes);
+                                ? null
+                            : !this.mayEdit(owner) && addsTo(this.doc, bytes)
+                                ? { why: owner.role === 'spectator'
+                                             ? 'spectator' : 'locked',
+                                    text: owner.role === 'spectator'
+                                        ? 'a spectator cannot edit the piece'
+                                        : 'the room\'s owner has locked ' +
+                                          'the piece' }
+                            : this.refusal(bytes);
 
                         /* Said on the room socket, and the document socket
                            closed, whose provider would only send it again;
@@ -2226,8 +2348,98 @@ class Room
 
             const me = this.peers.get(id);
 
+            /* Refused here, whatever a page shows. A gesture or a log copy
+               is dropped unsaid: there would be one a keystroke. */
+            if (me.role === 'spectator' && MUSICIANS_ONLY.has(m.type))
+            {
+                if (m.type !== 'relayed' && m.type !== 'log')
+                    send({ type: 'refused', of: m.type,
+                           why: 'a spectator cannot',
+                           ...(m.type === 'chat' &&
+                               Number.isSafeInteger(m.n) && { n: m.n }),
+                           ...(m.type === 'switch' &&
+                               { piece: String(m.piece ?? '') }) });
+                return;
+            }
+
+            if (['set', 'role', 'remove'].includes(m.type) &&
+                id !== this.owner)
+            {
+                send({ type: 'refused', of: m.type,
+                       why: 'only the room\'s owner can' });
+                return;
+            }
+
             switch (m.type)
             {
+                /* The room's settings, either or both. */
+                case 'set':
+                    if (VISIBILITIES.includes(m.visibility))
+                        this.visibility = m.visibility;
+
+                    if (typeof m.locked === 'boolean')
+                        this.locked = m.locked;
+
+                    this.tellRoom();
+                    break;
+
+                /* A peer made a spectator, or a musician again. A
+                   spectator's seat goes; an account stays what it was
+                   made if it joins again. The owner is a musician. */
+                case 'role':
+                {
+                    const p = this.peers.get(String(m.peer));
+
+                    if (p === undefined || p.id === this.owner ||
+                        !['musician', 'spectator'].includes(m.role))
+                        break;
+
+                    p.role = m.role;
+
+                    if (p.account !== null)
+                    {
+                        if (m.role === 'spectator')
+                            this.spectating.add(p.account.id);
+                        else
+                            this.spectating.delete(p.account.id);
+                    }
+
+                    if (m.role === 'spectator' && p.seat !== null)
+                    {
+                        this.seats.delete(p.seat);
+                        p.seat = null;
+
+                        const seats = { type: 'seats', seats: seatMap() };
+
+                        send(seats);
+                        toPeers(seats);
+                    }
+
+                    this.tellRoom();
+                    break;
+                }
+
+                /* A peer out of the room. An account stays out; a private
+                   room's link changes, so the one they had stops
+                   working, and the musicians are told the new one. */
+                case 'remove':
+                {
+                    const p = this.peers.get(String(m.peer));
+
+                    if (p === undefined || p.id === id)
+                        break;
+
+                    if (p.account !== null)
+                        this.removed.add(p.account.id);
+
+                    if (this.visibility === 'private')
+                        this.invite = newInvite();
+
+                    this.drop(p.ws, 'removed',
+                              'the room\'s owner removed you from it');
+                    break;
+                }
+
                 /* First claim wins; a taken seat answers with the map as
                    it is and no change. `seat: null' releases. */
                 case 'seat':
@@ -2501,8 +2713,13 @@ class Room
                 this.seats.delete(me.seat);
 
             this.peers.delete(id);
+
+            if (this.owner === id)
+                this.passOwner(me);
+
             toPeers({ type: 'left', peer: id });
             toPeers({ type: 'seats', seats: seatMap() });
+            this.tellRoom();
             this.touch();
         };
 
@@ -2518,6 +2735,8 @@ class Room
            the heartbeat finds it, goes now, and its seat and cursor with
            it. */
         const was = this.rejoining(m.was);
+        const wasPeer = was === null ? null : this.ctx.tickets.get(m.was).peer;
+        const wasOwner = wasPeer !== null && wasPeer.id === this.owner;
 
         if (was !== null)
         {
@@ -2531,7 +2750,22 @@ class Room
             id = newId();
 
         const name = asked ?? id;
-        const peer = { ws, name, seat: null, account, client,
+
+        /* The room's first, or first since it emptied, owns it; the owner
+           joining again, or an account owner back within its grace, takes
+           it back. Somebody made a spectator stays one. */
+        const back = account !== null && this.ownerAway?.account === account.id &&
+                     this.ownerAway.until > relayNow();
+        const owns = wasOwner || back || this.owner === null;
+        const role = owns ? 'musician'
+            : wasPeer?.role ?? (account !== null &&
+                                this.spectating.has(account.id)
+                                    ? 'spectator' : 'musician');
+
+        if (owns)
+            this.ownerAway = null;
+
+        const peer = { id, ws, name, seat: null, account, client, role,
                        tickets: new Set(), docs: new Set(),
                        asks: new Bucket(this.ctx.limits.syncAsks),
                        docRates: { frames: new Bucket(this.ctx.limits.doc),
@@ -2541,6 +2775,10 @@ class Room
 
         this.peers.set(id, peer);
         this.ctx.empties.delete(this);
+
+        if (owns)
+            this.owner = id;
+
         ticketing = setInterval(
             () => send({ type: 'ticket', ticket: this.issue(peer) }),
             this.ctx.ticketMs * 2 / 5);
@@ -2557,11 +2795,13 @@ class Room
             piece: this.doc.getMap('meta').get('piece') ?? null,
             playing: this.playing,
             /* What a page cannot assume of an older relay. */
-            features: ['switch'],
+            features: ['switch', 'roles'],
+            room: this.roomLine(peer),
         });
 
         toPeers({ type: 'joined', peer: id, name,
                  account: this.isAccount(peer) });
+        this.tellRoom();
     }
 
     /* The room socket a hello joining again replaces, or null. A page
@@ -2828,16 +3068,27 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             const who = wait > 0 ? null
                 : admit(m, corsOrigin === null ? null : accounts);
             const there = rooms.get(name);
+            const again = there?.rejoining(m.was) ?? null;
 
-            /* A page joining again counts once: its old peer goes. */
+            /* A page joining again counts once: its old peer goes. It
+               needs no invite and is not a removed one: the owner's
+               removal closed its socket and took its tickets. */
             const r = wait > 0
                     ? { why: 'flood', retryMs: wait,
                         text: 'too many joins from your address; try ' +
                               `again in ${Math.ceil(wait / 1000)} s` }
                 : who.text !== undefined ? who
                 : there === undefined ? newRoom(name, seedWith, client)
-                : there.peers.size >= peersMax &&
-                      there.rejoining(m.was) === null
+                : again === null && who.account !== null &&
+                      there.removed.has(who.account.id)
+                    ? { why: 'removed',
+                        text: 'the room\'s owner removed you from it' }
+                : again === null && there.visibility === 'private' &&
+                      m.invite !== there.invite
+                    ? { why: 'private',
+                        text: 'the room is private: join it by its invite ' +
+                              'link' }
+                : there.peers.size >= peersMax && again === null
                     ? { why: 'full',
                         text: `the room is full: ${peersMax} people are in it` }
                 : there;
@@ -2900,9 +3151,10 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
                 /* The RP ID, for the page to tell whether it is on it. */
                 passkeys: keys?.rpId ?? null,
-                rooms: [...rooms].map(([name, r]) =>
-                    ({ name, peers: r.peers.size, piece: pieceName(r.doc),
-                       playing: r.playing !== null })),
+                rooms: [...rooms].filter(([, r]) => r.visibility === 'public')
+                    .map(([name, r]) =>
+                        ({ name, peers: r.peers.size, piece: pieceName(r.doc),
+                           playing: r.playing !== null })),
             }) + '\n');
             return;
         }

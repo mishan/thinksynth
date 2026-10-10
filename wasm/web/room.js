@@ -56,11 +56,12 @@ export class Room
        handle instead. `now' is the wall clock the offset is kept against
        -- the page's performance.now, or a harness's. `was' is the last
        ticket of the room socket this one replaces, whose peer the relay
-       then lets go. */
+       then lets go. `invite' is a private room's way in. */
     constructor (url, roomName, name,
                  { now = () => performance.now(), piece = null,
-                   session = null, was = null } = {})
+                   session = null, was = null, invite = null } = {})
     {
+        this.invite = invite;
         this.url = url;
         this.roomName = roomName;
         this.name = name;
@@ -77,6 +78,13 @@ export class Room
            (account.js, shownName). */
         this.peers = new Map();
         this.playing = null;            /* the last transport start */
+
+        /* The room's settings as the relay last said them; `roles' is
+           peer id -> 'musician' or 'spectator', and `invite' null for a
+           spectator. A relay without roles says nothing, and everyone is
+           a musician. */
+        this.settings = { owner: null, visibility: null, locked: false,
+                          roles: {}, invite: null };
         this.clock = new RelayClock();
         this.handlers = new Map();
         this.pinger = null;
@@ -132,7 +140,9 @@ export class Room
                             ...(this.session === null
                                 ? {} : { session: this.session }),
                             ...(this.was === null
-                                ? {} : { was: this.was }) });
+                                ? {} : { was: this.was }),
+                            ...(this.invite === null
+                                ? {} : { invite: this.invite }) });
             });
 
             ws.addEventListener('error', () =>
@@ -198,6 +208,10 @@ export class Room
 
                         this.playing = m.playing;
                         this.features = m.features ?? [];
+
+                        if (m.room !== undefined)
+                            this.settings = m.room;
+
                         clearTimeout(deadline);
 
                         /* Timed by the oldest unanswered ping, not by
@@ -221,6 +235,11 @@ export class Room
                         this.ping();
                         resolve(m);
                         this.emit('peers');
+                        break;
+
+                    case 'room':
+                        this.settings = m;
+                        this.emit('room');
                         break;
 
                     case 'joined':
@@ -327,6 +346,34 @@ export class Room
     ping ()
     {
         this.send({ type: 'ping', t0: this.now() });
+    }
+
+    /* A peer's role, ours with no id. */
+    roleOf (peer = this.peer)
+    {
+        return this.settings.roles[peer] ?? 'musician';
+    }
+
+    get owns ()
+    {
+        return this.peer !== null && this.settings.owner === this.peer;
+    }
+
+    /* The owner's: the room's `visibility' or `locked', a peer's role,
+       and a peer out. */
+    set (settings)
+    {
+        this.send({ type: 'set', ...settings });
+    }
+
+    setRole (peer, role)
+    {
+        this.send({ type: 'role', peer, role });
+    }
+
+    remove (peer)
+    {
+        this.send({ type: 'remove', peer });
     }
 
     /* Our seat, from the last map the relay sent. */
