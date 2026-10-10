@@ -134,6 +134,9 @@ static void usage (const char *argv0)
            "      --sections          mix RMS by arrangement section\n"
            "      --profile           what each window cost to render, and "
            "where\n"
+           "  -j, --threads N         render channels on N more threads; "
+           "the same\n"
+           "                          samples as on one\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
            "      --from N            write the audio from N seconds in\n"
            "      --length N          and only N seconds of it, for a loop\n"
@@ -345,6 +348,7 @@ int main (int argc, char **argv)
     double seconds = 120, from = 0, length = -1;
     bool quiet = false;
     bool levels = false, sections = false, profile = false;
+    int threads = 0;
     std::string knobName;
     double knobA = 0, knobB = 0;
     bool compare = false;
@@ -425,6 +429,11 @@ int main (int argc, char **argv)
             sections = true;
         else if (!strcmp(argv[i], "--profile"))
             profile = true;
+        else if (!strcmp(argv[i], "-j") || !strcmp(argv[i], "--threads"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            threads = atoi(argv[i]);
+        }
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
             quiet = true;
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
@@ -475,6 +484,8 @@ int main (int argc, char **argv)
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thcScheduler sched(&synth);
 
+    synth.setThreads(threads);
+
     /* A piece that listens replays exactly only if the ear answers
        inside the tick; offline, that costs nothing but time. */
     sched.setAuditionSynchronous(true);
@@ -501,6 +512,7 @@ int main (int argc, char **argv)
     {
         otherSynth.reset(new thSynth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
                                      TH_DEFAULT_SAMPLES));
+        otherSynth->setThreads(threads);
         other.reset(new thcScheduler(otherSynth.get()));
         other->setAuditionSynchronous(true);
         other->setMasterSeed(sched.masterSeed());
