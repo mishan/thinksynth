@@ -574,7 +574,8 @@ has no one channel's pedal to hear, reads zeros.
 
 A piece presses it with a chanarg sink —
 `sink { instrument = piano; chanarg = "SusPedal"; };` fed 0…127 — and a
-keyboard's pedal reaches it through a MIDI Map binding of CC 64 to `SusPedal`.
+keyboard's pedal, CC 64, reaches it with no binding, natively and on the solo
+page. Natively, a MIDI Map binding of CC 64 replaces that route.
 
 **Its `@chanargs` are its own**, kept apart from the instrument's so that an
 instrument's `@a` and an effect's cannot collide. From outside they are named

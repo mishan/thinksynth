@@ -72,11 +72,6 @@ The corpus
   sympathetic work is only heard by someone who assembles the chain by
   hand. A Grand patch, and a short piece to show it off.
 
-- docs/DSP_FORMAT.md says a keyboard's pedal reaches SusPedal through a
-  MIDI Map binding of CC 64. CC 64 has gone there by default since #232,
-  a binding replacing the default, and the solo page reads the pedal
-  since #234.
-
 - grand.dsp's note-on cost has not been measured in the browser again since
   it was cut. Through the wasm module on a desktop, one note-on cost about
   1.4 ms of a quantum -- half the 2.67 ms a 128-frame quantum has at 48 kHz
