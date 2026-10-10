@@ -464,21 +464,11 @@ in one update and then a deletion of all but 41 characters in its
 middle. After a full collection the relay held about 21 MB more, and
 the rooms were charged under 1 MB.
 
-**Today** the memory backstop covers it: past its share of memory the
-relay sheds load whatever the rooms are charged. But it picks the room
-to shed by charge, with its sockets' queues: a room holding what the
-model misses is charged less than it holds, so the largest rooms go
-first, and the one holding the memory may go last.
-
-**Candidate fixes:**
-
-- Charge a sliced text by the length of the parent string it retains,
-  not by its own.
-- Copy a sliced string when Yjs splits an item, so the parent can be
-  collected. This needs a change to Yjs.
-
-**Done when** a room's charge bounds what its texts keep alive, and the
-measurement above holds the heap to about what the rooms are charged.
+**Done.** The relay wraps `ContentString`'s split so that both halves
+are copies, and what is cut away can be collected; the parent was a
+decoded string, held outside the heap, which is why the heap alone never
+showed it. relaytest holds eight rooms cut down that way to about what
+they are charged.
 
 ## 9. Smaller relay gaps
 
