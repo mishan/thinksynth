@@ -393,10 +393,6 @@ measurement above holds the heap to about what the rooms are charged.
 
 ## 9. Smaller relay gaps
 
-- **A second catch-up refused within a second waits 15 s.** The relay
-  tells a refusal once a second for each type, so the page hears of the
-  first and its wait for the second runs out (room.js, `CATCHUP_WAIT`).
-  Telling every catch-up refusal, as for counted chat lines, fixes it.
 - **Every update is read twice.** `refusal()` decodes it to price it
   and the apply decodes it again, about 85% more on a large update.
   Pricing from the apply's own read, or applying what was priced, would
