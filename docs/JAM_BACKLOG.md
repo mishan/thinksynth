@@ -63,7 +63,9 @@ minutes, takes it back. Everyone joins as a musician; the owner makes a
 peer a spectator, removes one, lists the room, makes it private, or
 locks the piece. The relay refuses a spectator's seat, commands, chat
 and edits, and pages drop a spectator's commands on the mesh. A new
-room is unlisted.
+room is unlisted. A guest has no persistent id, so one removed or made a
+spectator can come back as a musician; in a private room, removal changes
+the invite and keeps them out.
 
 ## 1. The headless peer, and load
 

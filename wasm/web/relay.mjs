@@ -1821,12 +1821,33 @@ class Room
                      this.roomLine(p));
     }
 
+    /* Whether `account' is the owner's, here or within its grace: let
+       into its private room without the invite, which its page may not
+       have. */
+    ownedBy (account)
+    {
+        return account !== null &&
+               (this.peers.get(this.owner)?.account?.id === account.id ||
+                (this.ownerAway?.account === account.id &&
+                 this.ownerAway.until > relayNow()));
+    }
+
+    /* `p', and every other tab of its account. */
+    alike (p)
+    {
+        return p.account === null ? [p]
+            : [...this.peers.values()].filter(
+                (q) => q.account?.id === p.account.id);
+    }
+
     /* The owner gone: the room passes to whoever has been in it longest,
        a musician first, made one if they are not. An account owner may
        come back for it. */
     passOwner (gone)
     {
-        if (gone.account !== null)
+        /* An earlier owner's claim, still live, outlasts one who only
+           held the room meanwhile. */
+        if (gone.account !== null && !(this.ownerAway?.until > relayNow()))
             this.ownerAway = { account: gone.account.id,
                                until: relayNow() + OWNER_GRACE_MS };
 
@@ -2372,8 +2393,14 @@ class Room
 
             switch (m.type)
             {
-                /* The room's settings, either or both. */
+                /* The room's settings, either or both. Made private, it
+                   has a new invite: whoever had the old one, a removed
+                   peer among them, is not in by it. */
                 case 'set':
+                    if (m.visibility === 'private' &&
+                        this.visibility !== 'private')
+                        this.invite = newInvite();
+
                     if (VISIBILITIES.includes(m.visibility))
                         this.visibility = m.visibility;
 
@@ -2394,8 +2421,6 @@ class Room
                         !['musician', 'spectator'].includes(m.role))
                         break;
 
-                    p.role = m.role;
-
                     if (p.account !== null)
                     {
                         if (m.role === 'spectator')
@@ -2404,11 +2429,25 @@ class Room
                             this.spectating.delete(p.account.id);
                     }
 
-                    if (m.role === 'spectator' && p.seat !== null)
-                    {
-                        this.seats.delete(p.seat);
-                        p.seat = null;
+                    let unseated = false;
 
+                    for (const q of this.alike(p))
+                    {
+                        if (q.id === this.owner)
+                            continue;
+
+                        q.role = m.role;
+
+                        if (m.role === 'spectator' && q.seat !== null)
+                        {
+                            this.seats.delete(q.seat);
+                            q.seat = null;
+                            unseated = true;
+                        }
+                    }
+
+                    if (unseated)
+                    {
                         const seats = { type: 'seats', seats: seatMap() };
 
                         send(seats);
@@ -2426,17 +2465,19 @@ class Room
                 {
                     const p = this.peers.get(String(m.peer));
 
-                    if (p === undefined || p.id === id)
+                    /* Not the owner, nor another tab of theirs. */
+                    if (p === undefined || p.id === id ||
+                        (p.account !== null && p.account.id === me.account?.id))
                         break;
 
                     if (p.account !== null)
                         this.removed.add(p.account.id);
 
-                    if (this.visibility === 'private')
-                        this.invite = newInvite();
+                    this.invite = newInvite();
 
-                    this.drop(p.ws, 'removed',
-                              'the room\'s owner removed you from it');
+                    for (const q of this.alike(p))
+                        this.drop(q.ws, 'removed',
+                                  'the room\'s owner removed you from it');
                     break;
                 }
 
@@ -2503,6 +2544,17 @@ class Room
                 {
                     if (typeof m.data !== 'object' || m.data === null)
                         break;
+
+                    /* An edit or a pick changes the piece as much as a
+                       keystroke does, and a lock holds them too. */
+                    if ((m.data.type === 'edit' || m.data.type === 'pick') &&
+                        !this.mayEdit(me))
+                    {
+                        send({ type: 'refused', of: 'transport',
+                               why: 'the room\'s owner has locked the piece',
+                               op: m.data.type });
+                        break;
+                    }
 
                     /* Who made it is the relay's to say: a late joiner is
                        told whose Play it catches up with, and the run's
@@ -2620,8 +2672,10 @@ class Room
                 case 'switch':
                 {
                     const piece = typeof m.piece === 'string' ? m.piece : '';
-                    const full = this.bytes > this.ctx.bytesMax ? TOO_BIG
-                               : !this.ctx.spare(this, 0) ? RELAY_FULL : null;
+                    const full = !this.mayEdit(me)
+                        ? { text: 'the room\'s owner has locked the piece' }
+                        : this.bytes > this.ctx.bytesMax ? TOO_BIG
+                        : !this.ctx.spare(this, 0) ? RELAY_FULL : null;
 
                     if (full !== null)
                     {
@@ -2698,7 +2752,10 @@ class Room
 
         /* Gone from the room: at the close, or at once when the session
            ends. */
-        const leave = () =>
+        /* `replaced' by the same page joining again, which keeps what it
+           held: the room is not passed on, and the room is told once it
+           is back. */
+        const leave = (replaced = false) =>
         {
             clearInterval(ticketing);
 
@@ -2714,19 +2771,22 @@ class Room
 
             this.peers.delete(id);
 
-            if (this.owner === id)
+            if (this.owner === id && !replaced)
                 this.passOwner(me);
 
             toPeers({ type: 'left', peer: id });
             toPeers({ type: 'seats', seats: seatMap() });
-            this.tellRoom();
+
+            if (!replaced)
+                this.tellRoom();
+
             this.touch();
         };
 
         ws.on('close', () =>
         {
             this.leaving.delete(ws);
-            leave();
+            leave(false);
         });
         ws.on('error', () => ws.close());
         this.leaving.set(ws, leave);
@@ -2734,14 +2794,14 @@ class Room
         /* The peer it was, on a socket a dropped network left open until
            the heartbeat finds it, goes now, and its seat and cursor with
            it. */
-        const was = this.rejoining(m.was);
+        const was = this.rejoining(m.was, account);
         const wasPeer = was === null ? null : this.ctx.tickets.get(m.was).peer;
         const wasOwner = wasPeer !== null && wasPeer.id === this.owner;
 
         if (was !== null)
         {
             was.terminate();
-            this.leaving.get(was)();
+            this.leaving.get(was)(true);
         }
 
         id = newId();
@@ -2762,7 +2822,7 @@ class Room
                                 this.spectating.has(account.id)
                                     ? 'spectator' : 'musician');
 
-        if (owns)
+        if (back)
             this.ownerAway = null;
 
         const peer = { id, ws, name, seat: null, account, client, role,
@@ -2807,11 +2867,14 @@ class Room
     /* The room socket a hello joining again replaces, or null. A page
        joining again names the last ticket it was handed, which only its
        own room socket ever was. */
-    rejoining (ticket)
+    rejoining (ticket, account)
     {
         const was = this.ctx.tickets.get(ticket);
 
+        /* Only as whoever it was: a ticket seen in a log is not a way to
+           take over somebody's peer, and with it their room. */
         return was?.room === this && was.until > relayNow() &&
+               (was.peer.account?.id ?? null) === (account?.id ?? null) &&
                this.leaving.has(was.peer.ws) ? was.peer.ws : null;
     }
 
@@ -3068,7 +3131,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             const who = wait > 0 ? null
                 : admit(m, corsOrigin === null ? null : accounts);
             const there = rooms.get(name);
-            const again = there?.rejoining(m.was) ?? null;
+            const again = there?.rejoining(m.was, who?.account) ?? null;
 
             /* A page joining again counts once: its old peer goes. It
                needs no invite and is not a removed one: the owner's
@@ -3084,7 +3147,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
                     ? { why: 'removed',
                         text: 'the room\'s owner removed you from it' }
                 : again === null && there.visibility === 'private' &&
-                      m.invite !== there.invite
+                      m.invite !== there.invite && !there.ownedBy(who.account)
                     ? { why: 'private',
                         text: 'the room is private: join it by its invite ' +
                               'link' }

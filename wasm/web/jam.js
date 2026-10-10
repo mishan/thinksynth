@@ -399,11 +399,6 @@ let appliedRun = null;
 
 function receive (from, cmd)
 {
-    /* The relay refuses what a spectator sends through it; this is the
-       mesh's half of that. */
-    if (room.roleOf(from) === 'spectator')
-        return Promise.resolve();
-
     if (cmd?.type === 'transport' &&
         (cmd.op === 'start' || cmd.op === 'stop') &&
         !runsSeen.has(runOf(cmd)))
@@ -1030,6 +1025,11 @@ async function edited (m)
    peer alike. */
 function addShipped ()
 {
+    /* Not by a page the relay would refuse the write from, which would
+       stop its document (editRefused). */
+    if (!mayEdit())
+        return;
+
     const gen = pieceText(doc);
     const missing = gen === null ? [] : dspNames(gen).filter(
         (name) => !files(doc).has(name) && shippedGraphs.has(name));
@@ -2221,6 +2221,23 @@ async function join ()
           ...(params.get('invite') ? { invite: params.get('invite') }
                                    : {}) })}`);
     inviteWhere = where;
+    keepInvite();
+}
+
+/* A private room's invite in the address as it is now, so that a reload
+   is let in: the owner's page never had one, and a removal changes it.
+   A spectator, who is not given it, keeps the one it came with. */
+function keepInvite ()
+{
+    const url = new URL(location.href);
+
+    if (room.settings.visibility === 'private' &&
+        room.settings.invite !== null)
+        url.searchParams.set('invite', room.settings.invite);
+    else if (room.settings.visibility !== 'private')
+        url.searchParams.delete('invite');
+
+    history.replaceState(null, '', url);
 }
 
 /* Whether this page may change the piece, as the relay holds it to. */
@@ -2247,6 +2264,9 @@ function showRoom ()
 
     showPeers();
     enable();
+
+    if (inviteWhere.room === room.roomName)
+        keepInvite();
 }
 
 /* The document socket's next reconnect goes in with the room socket's
@@ -2289,13 +2309,21 @@ function editRefused (m)
     status((m.why === 'big'
                 ? 'Your edit was too large for the room and was not kept.'
                 : `Your edit was not kept: ${m.text}.`) +
-           ' Reload the page to go on editing.');
+           (m.why === 'spectator' || m.why === 'locked'
+                ? ' Reload the page to follow the room\'s piece again.'
+                : ' Reload the page to go on editing.'));
 }
 
 /* One mesh to a room socket, opened as soon as it is welcomed. */
 function openMesh ()
 {
-    mesh = new Mesh(room, (from, cmd) => receive(from, cmd));
+    /* The relay refuses what a spectator sends through it; this is the
+       mesh's half of that. */
+    mesh = new Mesh(room, (from, cmd) =>
+    {
+        if (room.roleOf(from) !== 'spectator')
+            receive(from, cmd);
+    });
     mesh.on('change', () => { showPeers(); fitLead(); })
         .on('fallback', (peer, why) =>
             log(`${room.peers.get(peer)?.name ?? peer}: through the relay ` +
