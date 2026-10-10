@@ -135,8 +135,8 @@ export async function keepOffline ({ busy = () => false,
 const VERSION_WAIT_MS = 1000;
 
 /* The build this page was served from, as the worker that served it
-   says: its VERSION. Null for a page the network served, which no worker
-   answers for. */
+   says: its VERSION. Null when no worker controls the page, as for a
+   forced reload or a site served without one. */
 export function buildOf ()
 {
     const worker = navigator.serviceWorker?.controller ?? null;
