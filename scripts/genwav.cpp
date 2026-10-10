@@ -39,6 +39,14 @@
  * printed at the end (peak, RMS, clipped samples, notes delivered) is the
  * number a level question wants.
  *
+ * `--profile' times every window as it renders, and says which ones
+ * would not have kept up with a sound card: the mean, the 99th
+ * percentile and the worst against a window's own length, the slowest
+ * second, which is what a slow machine runs out of, the worst windows
+ * with their sections and the channels that cost the most in them, and
+ * each channel's share. The times are this machine's; what carries to
+ * another is where the cost is and how it moves through the piece.
+ *
  * `--midi' writes the same delivered events as a Standard MIDI File, a
  * track per chain at the piece's tempo, for taking a piece into a DAW
  * (thcMidiFile says what each event becomes). Its times are the
@@ -82,6 +90,7 @@
 #include <math.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -123,6 +132,8 @@ static void usage (const char *argv0)
            "instrument\n"
            "                          channel and for the mix\n"
            "      --sections          mix RMS by arrangement section\n"
+           "      --profile           what each window cost to render, and "
+           "where\n"
            "  -m, --mono              sum the channels into one, for a sample\n"
            "      --from N            write the audio from N seconds in\n"
            "      --length N          and only N seconds of it, for a loop\n"
@@ -333,7 +344,7 @@ int main (int argc, char **argv)
     bool mono = false, midiFine = false;
     double seconds = 120, from = 0, length = -1;
     bool quiet = false;
-    bool levels = false, sections = false;
+    bool levels = false, sections = false, profile = false;
     std::string knobName;
     double knobA = 0, knobB = 0;
     bool compare = false;
@@ -412,6 +423,8 @@ int main (int argc, char **argv)
             levels = true;
         else if (!strcmp(argv[i], "--sections"))
             sections = true;
+        else if (!strcmp(argv[i], "--profile"))
+            profile = true;
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
             quiet = true;
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
@@ -575,12 +588,33 @@ int main (int argc, char **argv)
 
     pcm.reserve((size_t)((seconds + TAIL_MAX) / dt + 1) * frame);
 
+    /* --profile's: each window's seconds, where in the piece it started
+       (-1 in the tail), and each channel's seconds in it, the master
+       effect's last. */
+    const int profiled = synth.midiChanCount() + 1;
+    std::vector<double> windowSeconds, windowAt, channelSeconds;
+
+    if (profile)
+        synth.setProfiling(true);
+
     /* One window of audio per step of the clock. The scheduler enqueues
        what it delivers and process() applies it, exactly as the GUI's
        timer and the audio thread do between them. */
     auto renderWindow = [&](bool transportWindow, double windowStart) -> float
     {
+        const auto t0 = std::chrono::steady_clock::now();
+
         synth.process();
+
+        if (profile)
+        {
+            windowSeconds.push_back(std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - t0).count());
+            windowAt.push_back(transportWindow ? windowStart : -1);
+            channelSeconds.insert(channelSeconds.end(),
+                                  synth.channelSeconds(),
+                                  synth.channelSeconds() + profiled);
+        }
 
         const float *buf = synth.getOutput();
         float peak = 0;
@@ -862,6 +896,124 @@ int main (int argc, char **argv)
         for (size_t i = 0; i < sectionLevels.size(); i++)
             fprintf(stderr, "%-24s  %.4f\n", sched.sections()[i].name.c_str(),
                     sectionLevels[i].rms());
+    }
+
+    if (profile && !windowSeconds.empty())
+    {
+        const size_t n = windowSeconds.size();
+        const auto ms = [] (double sec) { return sec * 1000; };
+        const auto at = [&] (size_t w) -> std::string
+        {
+            if (windowAt[w] < 0)
+                return "tail";
+
+            const double t = windowAt[w];
+            const int section = sched.sectionAt(t);
+            char text[128];
+
+            snprintf(text, sizeof text, "%d:%04.1f%s%s", (int)(t / 60),
+                     fmod(t, 60), section >= 0 ? " " : "",
+                     section >= 0 ? sched.sections()[section].name.c_str()
+                                  : "");
+            return text;
+        };
+        const auto name = [&] (int ch) -> std::string
+        {
+            if (ch == profiled - 1)
+                return "master effect";
+
+            const std::string held = sched.holding(ch);
+
+            return held.empty() ? "channel " + std::to_string(ch + 1) : held;
+        };
+        std::vector<size_t> byCost(n);
+        double sum = 0;
+
+        for (size_t w = 0; w < n; w++)
+        {
+            byCost[w] = w;
+            sum += windowSeconds[w];
+        }
+
+        std::sort(byCost.begin(), byCost.end(), [&] (size_t a, size_t b)
+                  { return windowSeconds[a] > windowSeconds[b]; });
+
+        /* A window over its time now and then is a click; a second over
+           on average is a machine that cannot keep up with the piece. */
+        const size_t span = std::min(n, std::max<size_t>(1,
+                                          (size_t)lround(1.0 / dt)));
+        double run = 0, slowest = 0;
+        size_t slowestAt = 0;
+
+        for (size_t w = 0; w < n; w++)
+        {
+            run += windowSeconds[w];
+
+            if (w >= span)
+                run -= windowSeconds[w - span];
+
+            if (w + 1 >= span && run > slowest)
+            {
+                slowest = run;
+                slowestAt = w + 1 - span;
+            }
+        }
+
+        const size_t worst = byCost[0];
+
+        fprintf(stderr, "profile: %zu windows of %d frames, %.2f ms each\n",
+                n, window, ms(dt));
+        fprintf(stderr, "window          mean %.2f ms, p99 %.2f ms, worst "
+                "%.2f ms (%.0f%% of its time) at %s\n", ms(sum / n),
+                ms(windowSeconds[byCost[n / 100]]), ms(windowSeconds[worst]),
+                100 * windowSeconds[worst] / dt, at(worst).c_str());
+        fprintf(stderr, "slowest second  %.2f ms a window, %.0f%% of real "
+                "time, from %s\n", ms(slowest / span),
+                100 * slowest / (span * dt), at(slowestAt).c_str());
+        fprintf(stderr, "worst windows\n");
+
+        for (size_t k = 0; k < std::min<size_t>(8, n); k++)
+        {
+            const size_t w = byCost[k];
+            const double *cost = &channelSeconds[w * profiled];
+            std::vector<int> heaviest(profiled);
+
+            for (int ch = 0; ch < profiled; ch++)
+                heaviest[ch] = ch;
+
+            std::sort(heaviest.begin(), heaviest.end(), [&] (int a, int b)
+                      { return cost[a] > cost[b]; });
+            fprintf(stderr, "  %-28s %7.2f ms ", at(w).c_str(),
+                    ms(windowSeconds[w]));
+
+            for (int j = 0; j < 3 && cost[heaviest[j]] > 0; j++)
+                fprintf(stderr, "%s %s %.2f", j ? "," : "",
+                        name(heaviest[j]).c_str(), ms(cost[heaviest[j]]));
+
+            fputc('\n', stderr);
+        }
+
+        fprintf(stderr, "channel  instrument               mean ms  "
+                "worst ms  share\n");
+
+        for (int ch = 0; ch < profiled; ch++)
+        {
+            double total = 0, top = 0;
+
+            for (size_t w = 0; w < n; w++)
+            {
+                total += channelSeconds[w * profiled + ch];
+                top = std::max(top, channelSeconds[w * profiled + ch]);
+            }
+
+            if (total == 0)
+                continue;
+
+            fprintf(stderr, "%7s  %-24s %7.3f  %8.2f  %4.1f%%\n",
+                    ch == profiled - 1 ? "-" : std::to_string(ch + 1).c_str(),
+                    name(ch).c_str(), ms(total / n), ms(top),
+                    100 * total / sum);
+        }
     }
 
     /* 4 before 3: a piece that clips is loud, a piece with a non-finite

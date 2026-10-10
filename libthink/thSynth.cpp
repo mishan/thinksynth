@@ -27,6 +27,7 @@
 #include <system_error>
 
 #include <algorithm>
+#include <chrono>
 
 #if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
 #include <xmmintrin.h>
@@ -2095,6 +2096,14 @@ void thSynth::process (void)
        nothing about the sum changes. */
     int order[TH_MIDI_CHANNELS];
     const int norder = orderChannels(order);
+    using Clock = std::chrono::steady_clock;
+    const auto since = [] (Clock::time_point t0)
+    {
+        return std::chrono::duration<double>(Clock::now() - t0).count();
+    };
+
+    if (profiling_)
+        std::fill(profile_.begin(), profile_.end(), 0.0);
 
     for (int o = 0; o < norder; o++)
     {
@@ -2150,7 +2159,14 @@ void thSynth::process (void)
                 sidechannels = midiChannels_[sidechan]->numChannels();
             }
 
+            const Clock::time_point t0 = profiling_ ? Clock::now()
+                                                    : Clock::time_point();
+
             chan->process(&retired_, taps, ntaps, side, sidechannels);
+
+            if (profiling_)
+                profile_[i] = since(t0);
+
             chanoutput = chan->output();
 
             if (chanoutput == NULL || mixchannels <= 0) {
@@ -2224,9 +2240,15 @@ void thSynth::process (void)
      * this is the last thing in the piece. An effect that fails hands back
      * what the channels mixed, dry, and says so once per load -- the voices
      * are summed by now, so there is no bad one left to drop. */
-    if (master_ != NULL &&
-        !master_->processPlanar(output_, channels_, windowlen_, send_) &&
-        !masterSaidSo_)
+    const Clock::time_point m0 = profiling_ ? Clock::now()
+                                            : Clock::time_point();
+    const bool masterOk = master_ == NULL ||
+        master_->processPlanar(output_, channels_, windowlen_, send_);
+
+    if (profiling_)
+        profile_[midiChannelCnt_] = since(m0);
+
+    if (!masterOk && !masterSaidSo_)
     {
         fprintf(stderr, "thSynth: the master effect went non-finite; the "
                 "mix is going out dry\n");
@@ -2257,6 +2279,12 @@ void thSynth::process (void)
         if (probes_[p])
             probes_[p]->publish();
     }
+}
+
+void thSynth::setProfiling (bool on)
+{
+    profiling_ = on;
+    profile_.assign(on ? midiChannelCnt_ + 1 : 0, 0.0);
 }
 
 void thSynth::printChan(int chan)
