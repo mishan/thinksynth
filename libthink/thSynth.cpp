@@ -28,6 +28,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <thread>
 
 #if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
 #include <xmmintrin.h>
@@ -37,6 +39,162 @@
 #include "parser.h"
 
 std::atomic<thSynth *> thSynth::instance_(NULL);
+
+/* Denormals flushed to zero, in and out, for as long as a window renders,
+ * and the caller's mode back afterwards: every plugin with feedback state
+ * decays into them, and one that does not flush its own sits in a denormal
+ * limit cycle. Around the render rather than process-wide, because the GUI
+ * on the same thread, or a DAW hosting the plugin build, is none of this
+ * engine's business. The browser has no such switch and keeps the plugins'
+ * own flushes. */
+namespace {
+struct FlushDenormals
+{
+#if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
+    unsigned int saved = _mm_getcsr();
+
+    FlushDenormals (void) { _mm_setcsr(saved | 0x8040); }   /* FTZ | DAZ */
+    ~FlushDenormals (void) { _mm_setcsr(saved); }
+#elif !defined(__EMSCRIPTEN__) && defined(__aarch64__)
+    uint64_t saved;
+
+    /* The clobbers keep the render's arithmetic between the two. */
+    FlushDenormals (void)
+    {
+        __asm__ __volatile__ ("mrs %0, fpcr" : "=r"(saved));
+        __asm__ __volatile__ ("msr fpcr, %0"
+                              : : "r"(saved | (uint64_t(1) << 24)) : "memory");
+    }
+    ~FlushDenormals (void)
+    {
+        __asm__ __volatile__ ("msr fpcr, %0" : : "r"(saved) : "memory");
+    }
+#endif
+};
+}
+
+/* setThreads' threads. Each window, process() publishes the lanes and
+ * bumps `generation'; every thread, the caller among them, takes lanes off
+ * `next' until there are none, and the caller waits for `done' to count
+ * them all. A thread late out of one window can only take a lane of the
+ * next, which is published whole before `next' is reset, so it renders
+ * that lane rightly.
+ *
+ * A worker sleeps between windows and the caller spins while the last lane
+ * finishes: a window's wait is a fraction of a millisecond, and a sleep on
+ * the audio thread is a dropout's worth of risk for nothing. */
+struct thSynth::RenderPool
+{
+    RenderPool (thSynth *synth, int threads) : synth_(synth)
+    {
+        for (int i = 0; i < threads; i++)
+            threads_.emplace_back([this] { work(); });
+    }
+
+    ~RenderPool (void)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+
+            quit_ = true;
+        }
+
+        wake_.notify_all();
+
+        for (std::thread &t : threads_)
+            t.join();
+    }
+
+    void run (int lanes)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+
+            lanes_.store(lanes, std::memory_order_relaxed);
+            done_.store(0, std::memory_order_relaxed);
+            next_.store(0, std::memory_order_release);
+            generation_++;
+        }
+
+        wake_.notify_all();
+        drain();
+
+        while (done_.load(std::memory_order_acquire) < lanes)
+            std::this_thread::yield();
+    }
+
+private:
+    void drain (void)
+    {
+        int lane;
+
+        while ((lane = next_.fetch_add(1, std::memory_order_acq_rel)) <
+               lanes_.load(std::memory_order_relaxed))
+        {
+            synth_->renderLane(lane);
+            done_.fetch_add(1, std::memory_order_acq_rel);
+        }
+    }
+
+    void work (void)
+    {
+        /* Set once, for the thread's life: it does nothing but render. */
+        FlushDenormals flush;
+        unsigned long seen = 0;
+
+        for (;;)
+        {
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+
+                wake_.wait(lock, [&] { return quit_ || generation_ != seen; });
+
+                if (quit_)
+                    return;
+
+                seen = generation_;
+            }
+
+            drain();
+        }
+    }
+
+    thSynth *synth_;
+    std::vector<std::thread> threads_;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    unsigned long generation_ = 0;
+    bool quit_ = false;
+    std::atomic<int> lanes_{0}, next_{0}, done_{0};
+};
+
+/* The plugins that keep one table for a whole synth, keyed by their
+   thPlugin rather than held by a node -- osc/noiseslot.h, osc/sampleslot.h,
+   osc/pad.cpp -- and that two channels may not touch at once. */
+static bool sharesSynthState (const thSynthTree *tree)
+{
+    static const char *const shared[] = { "osc/noise", "osc/static",
+                                          "osc/sample", "osc/grain",
+                                          "osc/stretch", "osc/pad" };
+
+    for (const auto &n : tree->nodes())
+    {
+        const thPlugin *plugin = n.second->plugin();
+
+        if (plugin == NULL)
+            continue;
+
+        const std::filesystem::path path(plugin->path());
+        const std::string name = path.parent_path().filename().string() +
+                                 "/" + path.stem().string();
+
+        for (const char *s : shared)
+            if (name == s)
+                return true;
+    }
+
+    return false;
+}
 
 /* `-l N' reaches windowlen through atoi(), which has no opinion about what a
    sensible window is: it will hand back 0, a negative, or two billion just as
@@ -198,6 +356,8 @@ void thSynth::setTempo (float bpm)
 
 thSynth::~thSynth (void)
 {
+    renderPool_.reset();
+
     delete [] output_;
     delete [] send_;
     delete [] capture_;
@@ -1458,6 +1618,8 @@ thSynthTree *thSynth::placeChannel (const string &filename, thSynthTree *raw,
        inside it; the audio thread hands it back once it is unreachable. */
     thMidiChan *newchan = new thMidiChan(tree, amp, windowlen_, sampleRate_);
 
+    newchan->setSharesState(sharesSynthState(tree));
+
     /* Base name rather than path: the log line has to answer "which
        instrument", and a full path is the same answer at greater length. */
     newchan->describe(channum,
@@ -1571,6 +1733,8 @@ thSynthTree *thSynth::loadEffectFrom (const string &filename,
 
     thChanEffect *fx = new thChanEffect(tree, chan->numChannels(), windowlen_,
                                         sideChan);
+
+    fx->setSharesState(sharesSynthState(tree));
 
     thSynthCommand cmd;
 
@@ -2016,37 +2180,117 @@ void thSynth::setSilent (bool silent)
                thOutputSamples(channels_, windowlen_) * sizeof(float));
 }
 
-/* Denormals flushed to zero, in and out, for as long as a window renders,
- * and the caller's mode back afterwards: every plugin with feedback state
- * decays into them, and one that does not flush its own sits in a denormal
- * limit cycle. Around the render rather than process-wide, because the GUI
- * on the same thread, or a DAW hosting the plugin build, is none of this
- * engine's business. The browser has no such switch and keeps the plugins'
- * own flushes. */
-namespace {
-struct FlushDenormals
+/* Before the first process(). */
+void thSynth::setThreads (int threads)
 {
-#if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
-    unsigned int saved = _mm_getcsr();
+    threads_ = threads > 0 ? threads : 0;
+    renderPool_.reset(threads_ > 0 ? new RenderPool(this, threads_) : NULL);
+}
 
-    FlushDenormals (void) { _mm_setcsr(saved | 0x8040); }   /* FTZ | DAZ */
-    ~FlushDenormals (void) { _mm_setcsr(saved); }
-#elif !defined(__EMSCRIPTEN__) && defined(__aarch64__)
-    uint64_t saved;
+/* Audio thread: this window's lanes, from `order'. A channel whose graph or
+   effect shares a plugin's synth-wide table goes on one lane with every
+   other that does, and a channel goes on its side's lane, so that a lane
+   is a run of `order' that one thread renders as a single thread would.
+   Every other channel is a lane of its own. Returns the number of lanes. */
+int thSynth::buildLanes (const int *order, int norder)
+{
+    int root[TH_MIDI_CHANNELS], laneOf[TH_MIDI_CHANNELS];
+    int count[TH_MIDI_CHANNELS], shared = -1, lanes = 0;
+    const auto find = [&root] (int c)
+    {
+        while (root[c] != c)
+            c = root[c] = root[root[c]];
 
-    /* The clobbers keep the render's arithmetic between the two. */
-    FlushDenormals (void)
+        return c;
+    };
+
+    for (int i = 0; i < midiChannelCnt_; i++)
     {
-        __asm__ __volatile__ ("mrs %0, fpcr" : "=r"(saved));
-        __asm__ __volatile__ ("msr fpcr, %0"
-                              : : "r"(saved | (uint64_t(1) << 24)) : "memory");
+        root[i] = i;
+        laneOf[i] = -1;
     }
-    ~FlushDenormals (void)
+
+    for (int o = 0; o < norder; o++)
     {
-        __asm__ __volatile__ ("msr fpcr, %0" : : "r"(saved) : "memory");
+        const int i = order[o];
+        const thMidiChan *chan = midiChannels_[i];
+
+        if (chan == NULL)
+            continue;
+
+        const thChanEffect *fx = chan->effect();
+        const int side = fx ? fx->sideChan() : -1;
+
+        if (chan->sharesState() || (fx && fx->sharesState()))
+        {
+            if (shared < 0)
+                shared = i;
+            else
+                root[find(i)] = find(shared);
+        }
+
+        if (side >= 0 && side < midiChannelCnt_ && midiChannels_[side])
+            root[find(i)] = find(side);
     }
-#endif
-};
+
+    for (int o = 0; o < norder; o++)
+    {
+        const int r = find(order[o]);
+
+        if (midiChannels_[order[o]] == NULL)
+            continue;
+
+        if (laneOf[r] < 0)
+        {
+            laneOf[r] = lanes;
+            count[lanes++] = 0;
+        }
+
+        count[laneOf[r]]++;
+    }
+
+    laneStart_[0] = 0;
+
+    for (int k = 0; k < lanes; k++)
+    {
+        laneStart_[k + 1] = laneStart_[k] + count[k];
+        count[k] = laneStart_[k];
+    }
+
+    for (int o = 0; o < norder; o++)
+        if (midiChannels_[order[o]] != NULL)
+            laneChannels_[count[laneOf[find(order[o])]]++] = order[o];
+
+    return lanes;
+}
+
+/* Any thread of the pool's, one lane of this window. */
+void thSynth::renderLane (int lane)
+{
+    for (int k = laneStart_[lane]; k < laneStart_[lane + 1]; k++)
+    {
+        const int i = laneChannels_[k];
+
+        renderChannel(i, midiChannels_[i]->retiring());
+    }
+}
+
+/* Whichever thread renders it: channel `i''s window, timed for a profiler
+   into its own slot of profile_. */
+void thSynth::renderChannel (int i,
+                             thRing<thRetired, TH_RETIRE_QUEUE_SIZE> *retire)
+{
+    using Clock = std::chrono::steady_clock;
+    const ChannelJob &job = jobs_[i];
+    const Clock::time_point t0 = profiling_ ? Clock::now()
+                                            : Clock::time_point();
+
+    midiChannels_[i]->process(retire, job.taps, job.ntaps, job.side,
+                              job.sidechannels);
+
+    if (profiling_)
+        profile_[i] = std::chrono::duration<double>(Clock::now() - t0)
+                          .count();
 }
 
 /* Audio thread. */
@@ -2108,30 +2352,80 @@ void thSynth::process (void)
     for (int o = 0; o < norder; o++)
     {
         const int i = order[o];
+        ChannelJob &job = jobs_[i];
+
+        job.ntaps = 0;
+        job.side = NULL;
+        job.sidechannels = 0;
+        chan = midiChannels_[i];
+
+        if (chan == NULL)
+            continue;
 
         /* Gathered per channel, so thMidiChan is handed only the probes that
            concern it and its note loops carry no test beyond the count. Eight
            slots, so this is a fixed eight-iteration scan and not worth
            caching. */
-        thProbe *taps[TH_MAX_PROBES];
-        int ntaps = 0;
-
-        chan = midiChannels_[i];
-
-        if (probeCount && chan)
+        for (int p = 0; probeCount && p < TH_MAX_PROBES; p++)
         {
-            for (int p = 0; p < TH_MAX_PROBES; p++)
+            /* The serial is what makes a probe stop rather than start
+               reading a different node when the patch on this channel is
+               replaced. See thMidiChan::serial(). */
+            if (probes_[p] && probes_[p]->chan() == i &&
+                probes_[p]->chanSerial() == chan->serial())
             {
-                /* The serial is what makes a probe stop rather than start
-                   reading a different node when the patch on this channel is
-                   replaced. See thMidiChan::serial(). */
-                if (probes_[p] && probes_[p]->chan() == i &&
-                    probes_[p]->chanSerial() == chan->serial())
-                {
-                    taps[ntaps++] = probes_[p];
-                }
+                job.taps[job.ntaps++] = probes_[p];
             }
         }
+
+        /* The channel this one's effect listens to, if any: its own output,
+           which the order above has filled this window by the time this
+           channel's effect reads it -- on the same thread, since they share
+           a lane. A side pointing at an empty slot is silence rather than
+           an error -- the instrument may yet be loaded onto it. */
+        thChanEffect *fx = chan->effect();
+        const int sidechan = fx ? fx->sideChan() : -1;
+
+        if (sidechan >= 0 && sidechan < midiChannelCnt_ &&
+            midiChannels_[sidechan] != NULL)
+        {
+            job.side = midiChannels_[sidechan]->output();
+            job.sidechannels = midiChannels_[sidechan]->numChannels();
+        }
+    }
+
+    if (renderPool_ == NULL)
+    {
+        for (int o = 0; o < norder; o++)
+            if (midiChannels_[order[o]] != NULL)
+                renderChannel(order[o], &retired_);
+    }
+    else
+    {
+        renderPool_->run(buildLanes(order, norder));
+
+        /* What each channel retired, onto the one queue the GUI thread
+           empties, in the order a single thread would have put it there. */
+        for (int o = 0; o < norder; o++)
+        {
+            if ((chan = midiChannels_[order[o]]) == NULL)
+                continue;
+
+            thRetired item;
+
+            while (chan->retiring()->pop(item))
+                if (!retired_.push(item))
+                    delete item.note;
+        }
+    }
+
+    /* The mix, in `order', whoever rendered the channels: the same floats
+       added in the same order, so the same samples. */
+    for (int o = 0; o < norder; o++)
+    {
+        const int i = order[o];
+
+        chan = midiChannels_[i];
 
         if (chan)
         {
@@ -2141,31 +2435,6 @@ void thSynth::process (void)
             if (mixchannels > channels_) {
                 mixchannels = channels_;
             }
-            
-            /* The channel this one's effect listens to, if any: its own
-               output, which the order above has already filled this window.
-               A side pointing at an empty slot is silence rather than an
-               error -- the instrument may yet be loaded onto it. */
-            const float *side = NULL;
-            int sidechannels = 0;
-
-            thChanEffect *fx = chan->effect();
-            const int sidechan = fx ? fx->sideChan() : -1;
-
-            if (sidechan >= 0 && sidechan < midiChannelCnt_ &&
-                midiChannels_[sidechan] != NULL)
-            {
-                side = midiChannels_[sidechan]->output();
-                sidechannels = midiChannels_[sidechan]->numChannels();
-            }
-
-            const Clock::time_point t0 = profiling_ ? Clock::now()
-                                                    : Clock::time_point();
-
-            chan->process(&retired_, taps, ntaps, side, sidechannels);
-
-            if (profiling_)
-                profile_[i] = since(t0);
 
             chanoutput = chan->output();
 

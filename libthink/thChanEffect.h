@@ -174,6 +174,10 @@ public:
      * to change it, the way it is built with its graph. */
     int sideChan (void) const { return sideChan_; }
 
+    /* thMidiChan::sharesState's, for the effect's own graph. */
+    bool sharesState (void) const { return sharesState_; }
+    void setSharesState (bool shares) { sharesState_ = shares; }
+
     /* Audio thread. Bring the output down to nothing over `samples', and
      * then forget everything the graph remembers.
      *
@@ -244,6 +248,8 @@ private:
     /* Where `pedal' lives, or -1 where the file declared none. Last, for
        the reason above. */
     int pedalindex_;
+
+    bool sharesState_ = false;
 };
 
 #endif /* TH_CHANEFFECT_H */

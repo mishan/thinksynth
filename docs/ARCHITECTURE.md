@@ -295,10 +295,21 @@ ctest regenerates and diffs it, so it cannot go stale.
 
 ## Threading
 
-There are exactly two threads.
+There are two threads, and with `thSynth::setThreads` a few more that
+render for the audio thread.
 
 **The audio thread** is RtAudio's callback. It is the sole mutator of
 everything reachable from `midiChannels_`.
+
+**Render threads**, if any, take the window's channels off the audio thread
+in lanes while it waits on them: a channel and the one its effect listens
+to render on one lane, as does every channel whose graph holds a plugin
+that keeps one table for the whole synth (noise, samples, pad). Each
+channel renders into its own buffer and retires into its own queue; the
+audio thread sums the buffers and hands on what was retired afterwards, in
+the order one thread would have, so the samples are the same however many
+threads there are. `genwav -j` and its `genwav.threads` gates hold it to
+that.
 
 **The GUI thread** is everything else: the on-screen keyboard, patch
 load/unload, preference restore, and MIDI (see below).

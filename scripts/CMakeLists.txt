@@ -745,6 +745,21 @@ add_test(NAME dspsweep.guard
 
 # And the same piece through genwav, for the status and the summary line a
 # script asks about. See cmake/RunGuardPiece.cmake for the three claims.
+# Rendered with its channels on three more threads, the same bytes as on
+# one: two pieces with a dozen channels and a noise kit among them.
+foreach(piece mirrorball philly)
+  add_test(NAME genwav.threads.${piece}
+           COMMAND "${CMAKE_COMMAND}"
+                   -DGENWAV=$<TARGET_FILE:genwav>
+                   -DPIECE=${PROJECT_SOURCE_DIR}/gen/${piece}.gen
+                   -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                   -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                   -DOUT=${PROJECT_BINARY_DIR}/genwav-threads-${piece}
+                   -DTHREADS=3
+                   -DSECONDS=30
+                   -P "${PROJECT_SOURCE_DIR}/cmake/RunThreadedPiece.cmake")
+endforeach()
+
 add_test(NAME genwav.nonfinite
          COMMAND "${CMAKE_COMMAND}"
                  -DGENWAV=$<TARGET_FILE:genwav>

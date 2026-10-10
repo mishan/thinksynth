@@ -26,6 +26,9 @@
 #include <locale.h>
 #include <signal.h>
 
+#include <algorithm>
+#include <thread>
+
 #ifdef USE_SIG_T
 typedef sig_t sighandler_t;
 #else
@@ -94,7 +97,9 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-G\t\t\treport whether GTK's schemas, icon theme and image loaders\n"
 "\t\t\tare reachable, then exit nonzero if any are not\n"
 "-r [sample rate]\tset the sample rate\n"
-"-l [window length]\tset the window length\n";
+"-l [window length]\tset the window length\n"
+"-j [threads]\t\trender channels on this many more threads; 0 renders\n"
+"\t\t\tthem all on the audio thread\n";
 ;
 
 /* Set by the signal handler, read by the GUI thread.
@@ -301,6 +306,12 @@ int main (int argc, char *argv[])
     int havearg = -1;
     int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
 
+    /* A few threads beside the audio thread, not every core: the GUI
+       drawing the roll keeps one, and a piece has only so many channels to
+       spread across them. */
+    int threads = std::min(4, std::max(0, (int)std::thread::hardware_concurrency()
+                                          - 1));
+
     /* seed the random number generator */
     srand(time(NULL));
 
@@ -347,7 +358,7 @@ int main (int argc, char *argv[])
      * its lexer, so anything embedding the library has to do the same. */
     setlocale(LC_NUMERIC, "C");
 
-    while ((havearg = getopt (argc, argv, "hLGp:o:d:m:r:l:")) != -1)
+    while ((havearg = getopt (argc, argv, "hLGp:o:d:m:r:l:j:")) != -1)
     {
         switch (havearg)
         {
@@ -368,6 +379,11 @@ int main (int argc, char *argv[])
             case 'l':
             {
                 windowlen = atoi(optarg);
+                break;
+            }
+            case 'j':
+            {
+                threads = atoi(optarg);
                 break;
             }
             case 'd':
@@ -417,6 +433,7 @@ int main (int argc, char *argv[])
 
     /* XXX: create global Synth object */
     Synth = new thSynth(plugin_path, windowlen, samples);
+    Synth->setThreads(threads);
     gthPrefs *prefs = gthPrefs::instance();
 
     signal(SIGINT, (sighandler_t)cleanup);
