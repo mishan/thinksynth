@@ -264,8 +264,9 @@ const CHAT_PER_SECOND = 5;
  *
    Past one, the message is dropped, and the page told so at most once a
    second for each type; a socket that has had DROPS dropped is cut. A
-   chat line the page counts is told of each time: the page waits to
-   hear of every line it sent. */
+   chat line the page counts, and a catch-up, are told of each time: the
+   page waits to hear of every line it sent and every catch-up it asked
+   for. */
 const RATES = {
     ping: [10, 4],
     signal: [2048, 128],
@@ -2073,6 +2074,7 @@ class Room
                 this.drop(ws, 'flood', 'this page sent more than the ' +
                                        'relay takes; rejoin');
             else if ((type === 'chat' && Number.isSafeInteger(m.n)) ||
+                     type === 'catchup' ||
                      !(now - told.get(type) < 1000))
             {
                 /* With what the page matches it to: the piece it asked

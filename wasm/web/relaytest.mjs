@@ -2426,15 +2426,18 @@ async function ratesLimited ()
 
             await new Promise((r) => setTimeout(r, 300));
 
+            /* A catch-up is told of each time: the page waits on each. */
             const told = a.got.filter((x) => x.type === 'refused');
+            const tells = type === 'catchup' ? 2 : 1;
 
-            check(told.length === 1 && told[0].of === type &&
+            check(told.length === tells &&
+                  told.every((x) => x.of === type) &&
                   /too fast/.test(told[0].why) &&
                   (seen === null || seen(a, b) === 3) &&
                   a.ws.readyState === WebSocket.OPEN,
                   `${type === 'other' ? `${m.type} (as other)` : type} ` +
                   'messages past their rate are dropped, and the ' +
-                  'page told once');
+                  `page told ${tells === 1 ? 'once' : 'of each'}`);
             a.close();
             b.close();
         }
