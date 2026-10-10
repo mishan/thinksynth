@@ -225,29 +225,6 @@ Composition
   merge is still waiting on a payoff rather than blocking one.
   (docs/UNIFICATION.md)
 
-- A chain cannot drive a piece knob. `sink { knob = @runs; };' would set
-  the knob from a CHANARG event, and everything bound to it follows: stage
-  params through the live binding bindKnob already resolves, and instrument
-  chanargs. One stage moving several things at once is what "the strings
-  get busier for the chorus" is; philly.gen writes it as two string chains
-  because the loader refuses a sink and a knob on the same arg
-  (src/thcGenFile.cpp). Two rules: a stage bound to a knob its own chain
-  writes is a cycle, refused at load with both names; and a knob a chain
-  writes moves under the hand, a drag holding until the chain's next event,
-  as a chanarg under gen::pump already does. The sink grammar, delivery in
-  propagate, the writer, GEN_FORMAT.md §3 and §5, and a gencheck case.
-  About 90 lines.
-
-- genwav cannot set a knob. With one option to do so, it could render a
-  piece twice at two values of a knob and print the RMS difference per
-  channel beside --levels, so "does the Pump knob do anything" is one
-  command. About 40 lines.  (scripts/genwav.cpp)
-
-- A piece's master effect can only be chosen in its .gen file. The engine
-  and the loader have it; neither the Composer window nor the page offers
-  a chooser, where a channel's effect has one on the patch page. The
-  master one should follow that shape.
-
 
 Node editor
 -----------

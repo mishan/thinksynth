@@ -158,6 +158,17 @@ public:
         return fileCommand_;
     }
 
+    /* The piece's effect wants choosing, from the browser the channels'
+       come from; the answer goes to setMasterEffect. Carries the current
+       one. */
+    sigc::signal<void (std::string)> &signal_choose_effect (void)
+    {
+        return chooseEffect_;
+    }
+
+    /* The piece's effect, written to the file; empty takes it off. */
+    void setMasterEffect (const std::string &dsp);
+
 protected:
     /* Scan <pluginroot>/composer/ exactly as NodeEditor scans visual/. */
     void loadComposers (void);
@@ -456,6 +467,7 @@ protected:
     sigc::signal<void ()> wanted_;
     sigc::signal<void ()> startedSig_;
     sigc::signal<void ()> fileCommand_;
+    sigc::signal<void (std::string)> chooseEffect_;
 
     /* The document up, and what the other one was left holding: its file,
        its work text and whether that had unsaved edits. `held' false for

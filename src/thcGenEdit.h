@@ -86,6 +86,10 @@ public:
         int channel;
         std::string instrument;
         std::string chanarg;
+
+        /* `knob = @runs;': the piece knob it writes, without the `@', and
+           then neither of the two above. */
+        std::string knob;
     };
 
     /* One value an instrument sets, with the right-hand side as
@@ -199,6 +203,7 @@ public:
         std::vector<Preset>     presets;
         std::vector<Instrument> instruments;
         std::vector<Chain>      chains;
+        std::string             masterEffect;   /* empty: none */
     };
 
     static Result describe (const std::string &filename, Doc &doc,
@@ -290,6 +295,11 @@ public:
                                       const std::string &name,
                                       const std::string &dsp,
                                       std::string &why);
+
+    /* The piece's own effect, on the mix: replaced as a whole statement,
+       added before the first chain, or taken out when `dsp' is empty. */
+    static Result setMasterEffect (const std::string &filename,
+                                   const std::string &dsp, std::string &why);
 
     /* ---- presets ------------------------------------------------------ */
 

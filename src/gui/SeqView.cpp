@@ -92,7 +92,7 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         int channel = -1;
 
         for (size_t k = 0; k < live->sinks.size(); k++)
-            if (!live->sinks[k].isChanarg())
+            if (live->sinks[k].isNotes())
             {
                 channel = live->sinks[k].channel;
                 break;

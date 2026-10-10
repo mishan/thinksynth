@@ -43,7 +43,8 @@
  *   6. A text that does not load changes nothing.
  *   7. Edits to small texts, each after what a whole piece cannot show: a
  *      chain's start, its history, a knob's metadata, a device, a removed
- *      chain's queue, a held key, the tempo.
+ *      chain's queue, a held key, the tempo, where a rewind puts a knob a
+ *      chain writes.
  *
  * Headless, as gencheck is: the scheduler's virtual clock, no audio.
  * EDITCHECK_DUMP=<dir> writes each piece's three tapes there, for reading a
@@ -968,6 +969,22 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
                std::to_string(semitones) + "; };\n"
                "    sink { channel = 1; };\n};\n";
     };
+    const std::string writer =
+        "chain m {\n    stage w gen::walk { min = 0.6; max = 1.4; "
+        "step = 0.2; period = 0.5 s; };\n    sink { knob = @w; };\n};\n";
+    auto homeIs = [](float want)
+    {
+        return [want](Peer &p)
+        {
+            p.sched.reset();
+
+            const float got = (*p.sched.knob("w"))[0];
+
+            return got == want ? std::string()
+                               : "a rewind put @w at " +
+                                     std::to_string(got);
+        };
+    };
     StubMidiOut out;
     std::vector<std::string> errors;
 
@@ -1107,6 +1124,13 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
                          : "note " + std::to_string(held.begin()->second) +
                                " was never released";
           } },
+        { "a rewind puts a written knob at its edited declaration",
+          head + "@w = 0.25;\n" + writer, head + "@w = 0.5;\n" + writer,
+          1.01, nullptr, homeIs(0.5f) },
+        { "a rewind puts a written knob at its declaration, not at Play's",
+          head + "@w = 0.25;\n" + writer,
+          "# a comment\n" + head + "@w = 0.25;\n" + writer, 1.01,
+          [](Peer &p) { p.sched.knob("w")->setValue(0.9f); }, homeIs(0.25f) },
         { "a changed tempo line changes the tempo", head + late,
           "tempo 90;\n" + head.substr(head.find('\n') + 1) + late, 1.01,
           nullptr,

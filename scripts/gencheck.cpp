@@ -4434,6 +4434,257 @@ checkEffectSide (const std::map<std::string, thcPlugin *> &plugins,
     clearChannels(synth);
 }
 
+/* ---- a chain driving a piece knob --------------------------------------
+ *
+ * `sink { knob = @runs; };' sets the knob from a chain's values, and
+ * everything bound to it follows: a stage param through its live binding,
+ * an instrument chanarg through its push. A rewind puts the knob back where
+ * it stood when the transport started, so a replay is a replay. A stage
+ * reading a knob its own chain writes is refused at load, naming both. */
+static void
+checkKnobSink (const std::map<std::string, thcPlugin *> &plugins,
+               thSynth *synth)
+{
+    clearChannels(synth);
+
+    const std::string body =
+        "@runs = 0.25;\n"
+        "@runs.min = 0;\n"
+        "@runs.max = 1;\n"
+        "instrument lead { dsp \"amb01.dsp\"; fmin = @runs; };\n"
+        "chain a { stage s gen::eno_line { notes = \"C4\"; period = 0.5 s;"
+        " prob = @runs; }; sink { instrument = lead; }; };\n"
+        "chain m {\n"
+        "    stage w gen::walk { min = 1.2; max = 1.4; step = 0.1;"
+        " period = 0.25 s; };\n"
+        "    sink { knob = @runs; };\n"
+        "};\n";
+
+    std::string path = thUtil::tempFile("gencheck-knobsink-");
+
+    if (path.empty())
+    {
+        fail("could not make a scratch file for the knob sink check");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    {
+        thcScheduler sched(synth);
+
+        sched.setAuditionSynchronous(true);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a sink aimed at a knob did not load");
+        }
+        else
+        {
+            thArg *runs = sched.knob("runs");
+            thArg *fmin = synth->getChanArg(0, "fmin");
+
+            if (runs == NULL || fmin == NULL)
+                fail("the knob or the chanarg it drives is missing");
+            else
+            {
+                const std::string first = render(sched, 4.0, 0.02);
+
+                /* The walk runs 1.2 to 1.4, past the knob's .max: a range
+                   is the slider's travel, and the chain's value stands. */
+                if ((*runs)[0] < 1.2f || (*runs)[0] > 1.4f)
+                    fail("the knob did not follow the chain: it reads " +
+                         std::to_string((*runs)[0]));
+
+                if ((*fmin)[0] != (*runs)[0])
+                    fail("the instrument's `fmin' did not follow the knob a "
+                         "chain moved: " + std::to_string((*fmin)[0]) +
+                         " against " + std::to_string((*runs)[0]));
+
+                sched.reset();
+
+                if ((*runs)[0] != 0.25f || (*fmin)[0] != 0.25f)
+                    fail("a rewind left the knob where the chain put it: " +
+                         std::to_string((*runs)[0]));
+
+                if (render(sched, 4.0, 0.02) != first)
+                    fail("a piece whose chain drives a knob did not replay "
+                         "the same after a rewind");
+            }
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    /* A sleeper woken by another chain's knob write: gen::morph, arrived
+       and asleep on THC_NEVER, ticks again when its `time' moves. It is
+       woken at the write's time, whatever the step, and a rewind that
+       puts the knob back wakes it once. */
+    const std::string sleeper =
+        "seed 5;\n"
+        "@t = 0.5;\n"
+        "preset lo { fmin = 0.1; };\n"
+        "preset hi { fmin = 0.9; };\n"
+        "chain s { stage m gen::morph { from = lo; to = hi; time = @t;"
+        " steps = 3; mode = 0; }; sink { channel = 2; chanarg = \"*\"; };"
+        " };\n"
+        "chain w { stage w gen::walk { min = 0.6; max = 1.4; step = 0.2;"
+        " period = 1.5 s; }; sink { knob = @t; }; };\n";
+
+    path = thUtil::tempFile("gencheck-knobsink-sleeper-");
+    std::ofstream(path.c_str(), std::ios::trunc) << sleeper;
+
+    std::string coarse;
+
+    for (double step : { 0.02, 0.0123 })
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            fail("a sleeper bound to a knob a chain writes did not load");
+            break;
+        }
+
+        const std::string tape = render(sched, 5.0, step);
+
+        if (coarse.empty())
+        {
+            coarse = tape;
+            sched.reset();
+
+            if (render(sched, 5.0, step) != coarse)
+                fail("a rewind woke a sleeper bound to a knob a chain "
+                     "writes twice");
+        }
+        else if (tape != coarse)
+        {
+            fail("a sleeper woken by a knob a chain writes was woken by "
+                 "the step, not the write");
+            showDivergence(coarse, tape, "0.02", "0.0123");
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    expectReject(plugins, synth, "knobsink-cycle",
+        "@runs = 0.5;\n"
+        "chain m { stage w gen::walk { min = 0; max = @runs; step = 0.1;"
+        " period = 0.25 s; }; sink { knob = @runs; }; };\n",
+        "chain m writes '@runs', and its stage 'w' reads it");
+
+    expectReject(plugins, synth, "knobsink-cycle-expr",
+        "@runs = 0.5;\n"
+        "chain m { stage w gen::walk { min = 0; max = @runs * 2;"
+        " step = 0.1; period = 0.25 s; }; sink { knob = @runs; }; };\n",
+        "its stage 'w' reads it");
+
+    expectReject(plugins, synth, "knobsink-undeclared",
+        "chain m { stage w gen::walk { }; sink { knob = @ghost; }; };\n",
+        "'@ghost' is not a declared knob");
+
+    expectReject(plugins, synth, "knobsink-two-targets",
+        "@runs = 0.5;\n"
+        "chain m { stage w gen::walk { };"
+        " sink { knob = @runs; channel = 2; }; };\n",
+        "a knob sink names the knob and nothing else");
+
+    /* Another chain reading it is the point, and loads. And the writer:
+       the sink is described, and the knob it writes cannot be deleted out
+       from under it. */
+    std::string ok = thUtil::tempFile("gencheck-knobsink-ok-");
+
+    if (ok.empty())
+    {
+        fail("could not make a scratch file for the knob sink edit check");
+        return;
+    }
+
+    std::ofstream(ok.c_str(), std::ios::trunc) <<
+        "@runs = 0.5;\n"
+        "chain a { stage s gen::eno_line { prob = @runs; };"
+        " sink { channel = 1; }; };\n"
+        "chain m { stage w gen::walk { }; sink { knob = @runs; }; };\n";
+
+    /* The editor and a live bind say what the loader says: the writer's
+       own stage cannot be bound to it, another chain's can. */
+    struct
+    {
+        const char *chain, *param;
+        size_t ci;
+        bool bound;
+    } binds[] = {
+        { "m", "max", 1, false },
+        { "a", "jitter", 0, true },
+    };
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(ok, &sched))
+            fail("another chain reading a knob a chain writes was refused");
+        else
+            for (const auto &b : binds)
+            {
+                thcStage *st = sched.chain(b.ci)->stages[0].get();
+                const int idx = st->plugin->paramIndex(b.param);
+
+                sched.bindKnob(st, idx, sched.knob("runs"));
+
+                if ((st->params.knobBinding(idx) != NULL) != b.bound)
+                    fail(std::string("binding @runs live to chain ") +
+                         b.chain + "'s `" + b.param + "' was " +
+                         (b.bound ? "refused" : "allowed"));
+            }
+    }
+
+    for (const auto &b : binds)
+    {
+        std::string why;
+        const thcGenEdit::Result r =
+            thcGenEdit::setParam(ok, b.chain, 0, b.param, "@runs", why);
+
+        if ((r == thcGenEdit::OK) != b.bound ||
+            (!b.bound && why.find("its stage 'w' reads it") ==
+                             std::string::npos))
+            fail(std::string("writing `") + b.param + " = @runs' into "
+                 "chain " + b.chain + " gave " + std::to_string(r) + ": " +
+                 why);
+    }
+
+    thcGenEdit::Doc doc;
+    std::string why;
+    int rewritten = 0;
+
+    if (thcGenEdit::describe(ok, doc, why) != thcGenEdit::OK ||
+        doc.chains.size() != 2 || doc.chains[1].sinks.size() != 1 ||
+        doc.chains[1].sinks[0].knob != "runs")
+        fail("the editor does not describe a knob sink" +
+             (why.empty() ? std::string() : ": " + why));
+
+    if (thcGenEdit::removeKnob(ok, "runs", 0.5, rewritten, why) !=
+        thcGenEdit::REFUSED)
+        fail("a knob a chain writes was deleted from under it");
+
+    std::filesystem::remove(ok);
+}
+
 /* And the other half of the seam: a *sink* aimed at an effect's knob.
  *
  * Setting an effect's chanargs in the `effect' block is one thing and
@@ -11939,6 +12190,59 @@ checkMasterEffect (const std::map<std::string, thcPlugin *> &plugins,
         clearChannels(synth);
         drainSynth();
     }
+
+    /* ---- the chooser's edit: replace, take off, put on, and it loads -- */
+
+    {
+        const std::string path = thUtil::tempFile("gencheck-master-set-");
+
+        std::ofstream(path.c_str(), std::ios::trunc) << shape;
+
+        /* The one it has first: choosing it again keeps its values. */
+        struct { const char *dsp; const char *want; } steps[] = {
+            { "fx/limiter.dsp", "fx/limiter.dsp" },
+            { "fx/space.dsp", "fx/space.dsp" },
+            { "", "" },
+            { "fx/hall.dsp", "fx/hall.dsp" },
+        };
+
+        for (const auto &step : steps)
+        {
+            std::string why;
+            thcGenEdit::Doc doc;
+
+            if (thcGenEdit::setMasterEffect(path, step.dsp, why) !=
+                    thcGenEdit::OK ||
+                thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+                doc.masterEffect != step.want)
+            {
+                fail(std::string("setMasterEffect(\"") + step.dsp +
+                     "\") left '" + doc.masterEffect + "' " + why);
+                continue;
+            }
+
+            if (&step == steps &&
+                slurp(path).find("ceiling = 0.75;") == std::string::npos)
+                fail("choosing the effect a piece has dropped its values");
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail(std::string("after setMasterEffect(\"") + step.dsp +
+                     "\") the piece no longer loads");
+            else if ((synth->getMasterEffect() != NULL) != (*step.want != 0))
+                fail(std::string("after setMasterEffect(\"") + step.dsp +
+                     "\") the mix's effect is not what the file says");
+        }
+
+        remove(path.c_str());
+        clearChannels(synth);
+        drainSynth();
+    }
 }
 
 /* ---- a scale pickup before a written note ------------------------------ */
@@ -13350,6 +13654,7 @@ main (int argc, char *argv[])
     checkInstrumentEffects(plugins, &synth);
     checkEffectSide(plugins, &synth);
     checkEffectChanargSink(plugins, &synth);
+    checkKnobSink(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);

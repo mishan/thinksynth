@@ -351,6 +351,18 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The piece's effect on the mix, in a text given. */
+        if (m.type === 'geneffect')
+        {
+            this.port.postMessage({
+                type: 'geneffect', id: m.id,
+                text: this.M.ccall('tw_gen_set_effect', 'string',
+                                   ['string', 'string'], [m.text, m.dsp]),
+            });
+
+            return;
+        }
+
         /* A knob's value in a text given, for a room's document. */
         if (m.type === 'genknob')
         {
@@ -585,7 +597,7 @@ class ThinkProcessor extends AudioWorkletProcessor
     {
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
-                     tempo: 0, beats: false,
+                     effect: '', tempo: 0, beats: false,
                      knobs: [], instruments: [], listens: [], sinks: [] };
 
         /* Off the panel, so there is one answer to "which knobs are shown"
@@ -635,6 +647,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             errors: [],
             name: this.M.UTF8ToString(this.M._tw_piece_name()),
             description: this.M.UTF8ToString(this.M._tw_piece_description()),
+            effect: this.M.UTF8ToString(this.M._tw_piece_effect()),
             seeded: this.M._tw_piece_seeded() !== 0,
             seed: this.M._tw_seed(),
 

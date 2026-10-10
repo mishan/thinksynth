@@ -521,6 +521,17 @@ struct thcSink
      * `*' cannot collide with a real name: a chanarg is a .dsp
      * identifier, and identifiers do not contain it. */
     bool namesItsOwn (void) const { return chanarg == "*"; }
+
+    /* `sink { knob = @runs; };': the chain's values set a piece knob,
+       and everything bound to it follows -- stage params through their
+       live binding, instrument chanargs through their push. No channel
+       (-1) and no chanarg: a knob is the piece's, not a channel's. */
+    thArg      *knob = NULL;
+
+    bool isKnob (void) const { return knob != NULL; }
+
+    /* The sink a chain's notes go to: neither of the two value sinks. */
+    bool isNotes (void) const { return chanarg.empty() && knob == NULL; }
 };
 
 /* A linear pipeline: stage 0 is usually a generator, the rest
@@ -614,6 +625,12 @@ public:
 
     void      addSink (size_t chain, int channel,
                        const std::string &chanarg = "");
+    void      addKnobSink (size_t chain, thArg *knob);
+
+    /* A knob's value written into the piece's text: where a rewind puts
+       it back, if a chain writes it. */
+    void      setKnobHome (thArg *knob, float value);
+
     void      setChainInput (size_t chain, bool midi);
     /* May be set while loading the chain, before transport starts. */
     void      setChainStart (size_t chain, double at, bool beats);
@@ -655,7 +672,10 @@ public:
         return knobs_;
     }
 
+    /* Refuses a knob the stage's own chain writes, as the loader does:
+       the chain's every value would move what it does next. */
     void bindKnob (thcStage *stage, int paramIndex, thArg *knob);
+    bool chainWrites (size_t chain, const thArg *knob) const;
 
     /* Back to the stored value, whichever kind of binding was shadowing
        it.
@@ -1249,7 +1269,8 @@ private:
 
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride,
-                       int chain);
+                       int chain, thArg *knob = NULL);
+    void setKnobFrom (thArg *knob, const thcEvent &ev, int chain);
 
     /* deliver(), saying which chain the event came from while it does. */
     void deliverFrom (const thcEvent &ev, int chain);
@@ -1336,6 +1357,11 @@ private:
        stages are frozen, as start() freezes every stage: from then on a
        rewind replays their load and not what came after. */
     bool                            started_;
+
+    /* Every knob a chain writes, and the value the text declares for it.
+       A rewind puts it back there: a knob otherwise holds its place
+       across one, and a replay would begin wherever the chain left it. */
+    std::map<thArg *, float>        knobHome_;
 
     /* Disconnect and forget every knob binding that pushes into this
        channel. Called by applyValues before it wires the new set, which
@@ -1482,6 +1508,8 @@ private:
         unsigned long seq;
 
         int      chain;          /* which made it, or -1                */
+
+        thArg   *knob = NULL;    /* a knob sink's: set this, not a chanarg */
     };
 
     /* min-heaps kept as vectors with std::push_heap/pop_heap --
@@ -1549,6 +1577,11 @@ private:
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
+
+    /* While a knob sink's value is being set: its time, which is when a
+       sleeper it wakes is woken. The step's end would make that wake a
+       function of the step size. -1 otherwise. */
+    double knobWriteAt_ = -1;
 
     /* Set by propagate() for the one call that carries an event past a
        stage with no receive, so that stage is not lit as its source. */

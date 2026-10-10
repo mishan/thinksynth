@@ -362,6 +362,11 @@
     <span class="hint">Loads the .gen in the box above.</span>
     <label class="numbered"><input type="checkbox"> Line numbers</label>
   </div>
+  <!-- The piece's effect on the mix: its `effect' statement, written into
+       the box above and loaded, as a channel's is chosen on its patch. -->
+  <div class="row">
+    <label>Effect on the mix <select id="pieceeffect" disabled></select></label>
+  </div>
   <!-- The piece being played, composed offline into a .mid with the seed
        it plays with (thcMidiExport). A piece whose arrangement ends goes
        to its end; the length is for one that does not. -->

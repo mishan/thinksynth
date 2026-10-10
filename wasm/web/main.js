@@ -1266,6 +1266,54 @@ async function moveStage (chainName, from, to)
         synth.transport('start');
 }
 
+/* The loaded piece's `effect' statement as the menu shows it, read the way
+   the engine reads the text; a piece that did not load has none to show. */
+function showPieceEffect ()
+{
+    const menu = $('pieceeffect');
+    const now = piece?.effect ?? '';
+    const names = textDsps().filter((n) => n.startsWith('fx/'));
+
+    if (now !== '' && !names.includes(now))
+        names.unshift(now);
+
+    menu.replaceChildren(new Option('None', ''),
+                         ...names.map((n) => new Option(n, n)));
+    menu.value = now;
+    menu.disabled = synth === null || piece === null;
+}
+
+/* On moveStage's terms about text that was never loaded. */
+async function choosePieceEffect ()
+{
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before choosing an effect.', true);
+        showPieceEffect();
+        return;
+    }
+
+    const wasRunning = lastTape?.running === true;
+    const { text } = await synth.genSetEffect(was, $('pieceeffect').value);
+
+    if (text === '' || $('gen').value !== was || loadedText !== was ||
+        loading > 0)
+    {
+        status('Could not put that effect on the piece.', true);
+        showPieceEffect();
+        return;
+    }
+
+    $('gen').value = text;
+    await loadPiece();
+
+    if (wasRunning && piece !== null)
+        synth.transport('start');
+}
+
 /* A chain's F on the canvas: what it just played, as a new chain with a
  * grid, written into the box by the worklet, which heard it; the piece
  * loaded again with the frozen chain's original muted, and playing again
@@ -1360,6 +1408,7 @@ async function loadPiece ()
     piece = it.errors.length === 0 ? it : null;
     placed = aiming.placed;
     showLiveIn();
+    showPieceEffect();
     fitTracks();
 
     if (piece === null)
@@ -3390,6 +3439,7 @@ async function init ()
 
     $('loadpiece').addEventListener('click', loadPiece);
     $('exportmidi').addEventListener('click', exportMidi);
+    $('pieceeffect').addEventListener('change', choosePieceEffect);
     $('piece').addEventListener('change', pickPiece);
 
     showLineNumbers(savedLineNumbers());

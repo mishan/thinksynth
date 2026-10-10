@@ -2322,7 +2322,10 @@ Composer::onCanvasKnob (std::string name, double value, bool commit)
     std::string why;
 
     if (editOk(thcGenEdit::setKnobValue(workPath_, name, value, why), why))
+    {
+        sched_->setKnobHome(arg, (float)value);
         setDirty(true);
+    }
 
     /* The Knobs section's own slider is now stale. Only when the panel
        is up: rebuildEditor on a hidden panel is work nobody sees, and
@@ -3078,10 +3081,53 @@ Composer::buildPieceSection (void)
     grid->attach(*pin, 0, 4);
     grid->attach(*seedSpin, 1, 4);
 
+    /* The mix's effect, in the shape a channel's has on its patch page. */
+    const std::string fx = doc_.masterEffect;
+    Gtk::Label *fxLbl = manage(new Gtk::Label("effect"));
+    Gtk::Label *which = manage(new Gtk::Label(
+        fx.empty() ? "None \xe2\x80\x94 the mix goes out as it is" : fx));
+    Gtk::Button *choose = manage(new Gtk::Button(
+        fx.empty() ? "Choose\xe2\x80\xa6" : "Replace\xe2\x80\xa6"));
+    Gtk::Button *none = manage(new Gtk::Button("None"));
+
+    fxLbl->set_xalign(0);
+    which->set_xalign(0);
+    which->set_hexpand(true);
+    which->set_sensitive(!fx.empty());
+    none->set_sensitive(!fx.empty());
+
+    choose->signal_clicked().connect(
+        [this, fx] { chooseEffect_.emit(fx); });
+    none->signal_clicked().connect(
+        [this]
+        {
+            /* Out of the click: the reload rebuilds this button. */
+            Glib::signal_idle().connect_once(
+                [this] { setMasterEffect(""); });
+        });
+
+    Gtk::Box *fxRow = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+
+    fxRow->append(*which);
+    fxRow->append(*choose);
+    fxRow->append(*none);
+    grid->attach(*fxLbl, 0, 5);
+    grid->attach(*fxRow, 1, 5, 2, 1);
+
     exp->set_child(*grid);
     exp->set_expanded(false);
 
     return exp;
+}
+
+void
+Composer::setMasterEffect (const std::string &dsp)
+{
+    std::string why;
+
+    if (dsp != doc_.masterEffect &&
+        editOk(thcGenEdit::setMasterEffect(workPath_, dsp, why), why))
+        structuralReload();
 }
 
 Gtk::Widget *
@@ -3913,6 +3959,29 @@ Composer::buildSinkSelection (size_t ci, size_t ki)
     selBox_->append(*manage(new Gtk::Label(chainName + " · sink")));
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+
+    /* A knob sink has one thing to say, and nothing here edits it: a
+       different knob is a different sink. */
+    if (!chain.sinks[ki].knob.empty())
+    {
+        Gtk::Button *rm = manage(new Gtk::Button("Remove"));
+
+        row->append(*manage(new Gtk::Label("writes @" +
+                                           chain.sinks[ki].knob)));
+        rm->set_sensitive(chain.sinks.size() > 1);
+        rm->signal_clicked().connect(
+            [this, chainName, sinkIndex]
+            {
+                std::string why;
+
+                if (editOk(thcGenEdit::removeSink(workPath_, chainName,
+                        sinkIndex, why), why))
+                    structuralReload();
+            });
+        row->append(*rm);
+        selBox_->append(*row);
+        return;
+    }
 
     /* An instrument sink carries no channel of its own, and the spinner
        has to start somewhere legal; 1 is what it offers if the target is

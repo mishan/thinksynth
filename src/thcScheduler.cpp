@@ -458,6 +458,33 @@ thcScheduler::addSink (size_t chain, int channel, const std::string &chanarg)
 }
 
 void
+thcScheduler::addKnobSink (size_t chain, thArg *knob)
+{
+    if (chain >= chains_.size() || knob == NULL)
+        return;
+
+    thcSink s;
+
+    s.channel = -1;
+    s.knob = knob;
+
+    chains_[chain].sinks.push_back(s);
+
+    /* What the text declares, which in a staged edit is the stand-in's
+       value and not the live knob's. */
+    knobHome_.emplace(knob, (*knobMeta(knob->name()))[0]);
+}
+
+void
+thcScheduler::setKnobHome (thArg *knob, float value)
+{
+    std::map<thArg *, float>::iterator h = knobHome_.find(knob);
+
+    if (h != knobHome_.end())
+        h->second = value;
+}
+
+void
 thcScheduler::setChainInput (size_t chain, bool midi)
 {
     if (chain < chains_.size())
@@ -624,6 +651,7 @@ thcScheduler::clearChains (void)
         knobConns_[i].conn.disconnect();
     knobConns_.clear();
     holding_.clear();
+    knobHome_.clear();
 
     /* A staged scheduler's knobs are partly the live one's (lent_), and
        those are not this one's to delete. */
@@ -772,6 +800,9 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
         return;
     }
 
+    if (chainWrites(stage->chain, knob))
+        return;
+
     stage->params.bindKnob(paramIndex, knob);
 
     /* And say so once, now, the way setting the param would.
@@ -795,6 +826,19 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
         [store, paramIndex](thArg *) { store->notifyChanged(paramIndex); });
 
     knobConns_.push_back(kc);
+}
+
+bool
+thcScheduler::chainWrites (size_t chain, const thArg *knob) const
+{
+    if (chain >= chains_.size())
+        return false;
+
+    for (const thcSink &s : chains_[chain].sinks)
+        if (s.knob == knob)
+            return true;
+
+    return false;
 }
 
 /* Every binding that pushes into this channel, gone.
@@ -2286,6 +2330,9 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
     next.knobs_.clear();
     next.lent_.clear();
 
+    knobHome_.swap(next.knobHome_);
+    next.knobHome_.clear();
+
     /* A kept knob's metadata is the new text's, and what it no longer
        says goes back to a fresh knob's. */
     for (const auto &m : next.pendingMeta_)
@@ -3031,7 +3078,8 @@ thcScheduler::rearmStage (size_t chain, size_t stage)
         return;
 
     s->sleeping = false;
-    wakeups_.push_back({ transportNow_, chain, stage, heapSeq_++ });
+    wakeups_.push_back({ knobWriteAt_ >= 0 ? knobWriteAt_ : transportNow_,
+                         chain, stage, heapSeq_++ });
     std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
 }
 
@@ -3193,6 +3241,16 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
         {
             const thcSink &sink = c.sinks[i];
 
+            /* A knob sink takes values and nothing else: a note has no
+               number to set it to, and a structure edit has no channel
+               here to reshape. */
+            if (sink.isKnob())
+            {
+                if (ev.type == THC_EV_CHANARG)
+                    queuePending(*gated, NULL, chainIndex, sink.knob);
+                continue;
+            }
+
             /* The type filter, which is a rule about notes and chanargs
                and says nothing about a structure edit -- a swap is
                neither, and both kinds of sink name the channel it needs.
@@ -3245,13 +3303,15 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
  * know or care which patch knob it lands on). */
 void
 thcScheduler::queuePending (const thcEvent &ev,
-                            const std::string *nameOverride, int chain)
+                            const std::string *nameOverride, int chain,
+                            thArg *knob)
 {
     Pending p;
 
     p.at = ev.at;
     p.ev = ev;
     p.chain = chain;
+    p.knob = knob;
 
     if (ev.type == THC_EV_CHANARG)
     {
@@ -3288,7 +3348,10 @@ thcScheduler::queuePending (const thcEvent &ev,
        wait for Play. It should not -- the keys were pressed now. */
     if (injectingLive_ && p.at <= transportNow_)
     {
-        deliverFrom(p.ev, chain);
+        if (knob != NULL)
+            setKnobFrom(knob, p.ev, chain);
+        else
+            deliverFrom(p.ev, chain);
         return;
     }
 
@@ -3307,7 +3370,30 @@ thcScheduler::deliverDue (double now)
         Pending p = pending_.back();
         pending_.pop_back();
 
-        deliverFrom(p.ev, p.chain);
+        if (p.knob != NULL)
+            setKnobFrom(p.knob, p.ev, p.chain);
+        else
+            deliverFrom(p.ev, p.chain);
+    }
+}
+
+/* As written: a knob's .min and .max are its slider's travel, not a bound
+ * on the piece. A seek sets it too: where a knob stands is where the piece
+ * is. Nothing holds a hand off, so a drag stays until the chain's next
+ * value, as a chanarg under gen::pump does. */
+void
+thcScheduler::setKnobFrom (thArg *knob, const thcEvent &ev, int chain)
+{
+    const float v = ev.u.chanarg.value;
+
+    if (!seeking_ && chain >= 0 && (size_t)chain < chains_.size())
+        chains_[chain].lastHeard[1] = transportNow_;
+
+    if ((*knob)[0] != v)
+    {
+        knobWriteAt_ = ev.at;
+        knob->setValue(v);
+        knobWriteAt_ = -1;
     }
 }
 
@@ -3821,6 +3907,15 @@ thcScheduler::reset (void)
 
     transportNow_ = beat_ = 0;
     tempoAt_ = beatAtTempo_ = 0;
+
+    /* Before the stages are rebuilt below, so they are created hearing
+       it, and through setValue, so an instrument bound to it is pushed.
+       And before the wakes are cleared: a sleeper bound to it is re-armed
+       by the move, and the loop below arms every stage again. */
+    for (const auto &h : knobHome_)
+        if ((*h.first)[0] != h.second)
+            h.first->setValue(h.second);
+
     pending_.clear();
     wakeups_.clear();
     started_ = false;
