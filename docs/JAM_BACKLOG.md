@@ -219,8 +219,97 @@ Three consequences:
   keeps the recordings that need them.
 
 **Depends on** section 2's stream copy, M4's fast-forward, M5's
-deployment. The format can be fixed as soon as M3 settles, since it is
-the protocol with a file around it.
+deployment.
+
+**The format**, fixed: the protocol with a file around it. A recording
+is UTF-8 JSON lines, one object a line, in the order the relay wrote
+them. The relay appends each line as it happens, so a relay that dies
+leaves a recording good to its last whole line, and nothing caps a
+recording the way `LOG_BYTES_MAX` caps a catch-up. The first line is the
+header:
+
+```
+{ "recording": 1, "build": "3f9c0a1e5b7d2c48", "protocol": 1,
+  "room": "ab12cd", "piece": "free.gen",
+  "started": "2026-10-10T19:04:11.208Z", "clock": 81234567.25,
+  "keeps": ["stage", "applause"] }
+```
+
+- `recording` is the format's version. A reader refuses one it does not
+  know.
+- `build` is the room's build hash: `VERSION` in `sw.js`, the first 16
+  hex digits of a sha256 over the name and contents of every file either
+  page loads (`precache.mjs`). That is the wasm, the module, the pages
+  and every shipped `.dsp`, `.gen` and `.patch`, so the hash names
+  everything a replay can depend on, and a change to a stylesheet is a
+  new build too, which costs only a directory. It is the build named by
+  the hello that made the room.
+- `protocol` is the relay's `PROTOCOL` for the session.
+- `room` and `piece` are the room's name and its piece when recording
+  began; each run below names its own.
+- `started` is the wall-clock time recording began, in UTC. `clock` is
+  the relay-clock time, in milliseconds, of the same moment: every line's
+  `t` is milliseconds after it, and a start's `origin`, which is
+  relay-clock, is read against it.
+- `keeps` is what the owner chose to keep of the side channels: any of
+  `stage`, `house` and `applause`. A kind not named has no lines, rather
+  than lines a player is trusted to skip.
+
+Every other line is an entry with `t` and a `type`:
+
+```
+run      { t, start, files }       a start, and the document it named
+command  { t, data }               a command, as the relay received it
+stop     { t, data }               a stop, as the relay received it
+joined   { t, peer, name, account }
+left     { t, peer }
+seats    { t, seats }              seat: peer
+chat     { t, channel, from, name, account, text, bar }
+clap     { t, count, at }          one second's applause
+```
+
+- **A run** line and the `command` lines after it, up to the next `run`
+  or `stop`, are the catch-up a late joiner would be handed at the run's
+  end: `start` and `files` are the catch-up's own fields, the start as
+  the relay keeps it (its `origin`, `seed`, `seek` and `piece`) and the
+  document at the revision it named, with `matched` saying whether the
+  relay had that revision. A seed a piece pins is in the files; any
+  other is the start's.
+- **A command** is `data` exactly as the protocol carries it, with `from`
+  set by the relay, as for the log: knobs, edits, picks, tempos, inputs,
+  params, mutes, solos, sections and keys, each with its `at`. The file
+  order is the relay's; the order a command applies in is its stamp,
+  then `tieOf`, as in the worklet. A run replays the way a late joiner
+  catches up (`commands.js`, `catchUp`), from the run's start to its
+  stop.
+- **A direct key** has no stamp. Its copy to the relay carries `played`,
+  the transport time its player pressed or let go of it at, and a
+  replay plays it there: where its player heard it, which is the
+  nearest thing it has to an intended time.
+- **A command made while stopped** (`at` -1) is kept in its place in the
+  file, between a stop and the next run, and a replay applies it in that
+  order, on arrival, as a peer present at the time did.
+- **The transport** is the `run` and `stop` lines and the tempo
+  commands. A replay puts each run at its `origin` against `clock`; the
+  time between a stop and the next start is the player's to keep or
+  close up.
+- **Presence**, `joined`, `left` and `seats`, is kept whatever `keeps`
+  says: it is who played, which seat lit and whose name a line carries,
+  and everyone in the room is told the moment recording is on.
+- **Chat** is the line the relay sends the room, without the sender's
+  `n`, and only for a channel `keeps` names. **Applause** is the relay's
+  count for one second, with `at` the run's transport time at that
+  second; a beat is derived from it as everywhere else.
+
+A replay runs on the build the header names, from `builds/<hash>/`
+on the site, which is that build's `dist` tree as it was deployed; the
+playback page refuses a recording whose build the site no longer keeps
+rather than playing it on another.
+
+*Decide now:* the page reads its build hash and the hello carries it.
+Nothing reads `VERSION` outside the service worker today; the worker is
+the one place that knows which build served a page, so it is the
+worker that answers for it.
 
 ### 4.2 The broadcast peer
 
@@ -265,7 +354,7 @@ Grouped by what unlocks what. Sizes are relative to a milestone.
 |---|---|---|---|
 | 1 | Roles and visibility (section 0; the persistent id is done, for accounts) | M3 | S |
 | 2 | Headless peer and load testing (section 1) | M3, before M5 | M |
-| 3 | The recording format, fixed (section 4.1) | M3 | S |
+| 3 | The recording format, fixed (section 4.1; done) | M3 | S |
 | 4 | Spectators, with the relay fan-out and the delay (section 2) | M4, 1, 2 | M |
 | 5 | Applause and chat (section 3) | 4 | S |
 | 6 | Recordings, kept and played back (section 4.1) | 4, 3, M5 | M |
@@ -429,7 +518,8 @@ from above:
 2. Musicians' pages send a copy of their commands to the relay when the
    room has spectators or recording on.
 3. The recording format is the protocol plus a header naming the build
-   hash, and the site keeps builds by hash.
+   hash, and the site keeps builds by hash. (The format is fixed:
+   section 4.1.)
 4. Applause carries a beat.
 5. Rooms have an owner from the first M3 deployment, even if the owner
    can do nothing yet.
