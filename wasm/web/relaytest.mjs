@@ -3473,6 +3473,46 @@ try
         old.close();
     }
 
+    /* A link gone quiet sends no close either way: a room socket whose
+       pings go unanswered is given up on, and a join nobody answers
+       rejects as out of reach, both while TCP would still be waiting.
+       Side by side, since each takes its wait in real time. */
+    {
+        const quiet = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+        const mute = net.createServer(() => {});
+
+        await Promise.all([new Promise((r) => quiet.on('listening', r)),
+                           new Promise((r) => mute.listen(0, '127.0.0.1', r))]);
+
+        quiet.on('connection', (ws) => ws.once('message', () =>
+            ws.send(JSON.stringify({ type: 'welcome', peer: 'p', peers: [],
+                                     playing: null }))));
+
+        const t0 = performance.now();
+        const [closedS, unreachable] = await Promise.all([
+            (async () =>
+            {
+                const room = new Room(
+                    `ws://127.0.0.1:${quiet.address().port}`, 'test', 'Fay');
+                const closed = new Promise((r) => room.on('close', r));
+
+                await room.connect();
+                await closed;
+                return (performance.now() - t0) / 1000;
+            })(),
+            new Room(`ws://127.0.0.1:${mute.address().port}`, 'test', 'Gus')
+                .connect().then(() => false, (e) => e.unreachable === true),
+        ]);
+
+        check(closedS > 4 && closedS < 8,
+              `a room socket whose pings go unanswered closes (${
+                  closedS.toFixed(1)} s)`);
+        check(unreachable && performance.now() - t0 < 12000,
+              'a join nobody answers rejects as out of reach');
+        quiet.close();
+        mute.close();
+    }
+
     /* ---- the document socket ---- */
 
     /* Let in by a ticket the room socket's welcome hands out. */

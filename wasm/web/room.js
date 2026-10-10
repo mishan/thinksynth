@@ -40,6 +40,15 @@ const PING_EVERY = 1000;
    come. A relay from before `catchup' never answers. */
 const CATCHUP_WAIT = 15 * 1000;
 
+/* How long a ping may go unanswered before the room socket is taken for
+   gone. Nothing else notices a link that has gone quiet: the relay's
+   reset never arrives, and TCP retries for minutes. */
+const PONG_WAIT_MS = 5 * 1000;
+
+/* How long a join may go unwelcomed. A connect to a relay out of reach
+   otherwise waits out TCP's retries, minutes again. */
+const CONNECT_WAIT_MS = 10 * 1000;
+
 export class Room
 {
     /* `url' is the relay, ws://host:port; `name' is what the others see
@@ -71,6 +80,8 @@ export class Room
         this.clock = new RelayClock();
         this.handlers = new Map();
         this.pinger = null;
+        this.unanswered = null;         /* when the oldest unanswered ping
+                                           went, performance.now */
         this.ws = null;
         this.catchups = [];             /* { resolve, reject } of catchUp() */
         this.features = [];             /* what the relay says it does */
@@ -96,6 +107,8 @@ export class Room
                                      (this.piece !== null
                                           ? `?piece=${this.piece}` : ''));
             let welcomed = false;
+            let opened = false;
+            let gone = false;
 
             /* The relay's last word, if it said one: { text, why }, and
                `retryMs' when it says how long until it would take
@@ -104,19 +117,36 @@ export class Room
 
             this.ws = ws;
 
+            /* Given up on, unopened: out of reach rather than refused. */
+            const deadline = setTimeout(() =>
+            {
+                lose({ unreachable: !opened });
+                ws.close();
+            }, CONNECT_WAIT_MS);
+
             ws.addEventListener('open', () =>
+            {
+                opened = true;
                 this.send({ type: 'hello', name: this.name,
                             protocol: PROTOCOL, tickets: true,
                             ...(this.session === null
                                 ? {} : { session: this.session }),
                             ...(this.was === null
-                                ? {} : { was: this.was }) }));
+                                ? {} : { was: this.was }) });
+            });
 
             ws.addEventListener('error', () =>
                 reject(new Error(`could not reach the relay at ${this.url}`)));
 
-            ws.addEventListener('close', () =>
+            /* Closed, or given up on: once, whichever comes first. A
+               socket given up on closes for good only when TCP does. */
+            const lose = ({ unreachable = false } = {}) =>
             {
+                if (gone)
+                    return;
+
+                gone = true;
+                clearTimeout(deadline);
                 clearInterval(this.pinger);
                 this.pinger = null;
 
@@ -128,13 +158,16 @@ export class Room
                     reject(Object.assign(new Error(
                         refused?.text ?? `the relay at ${this.url} closed ` +
                                          'the connection before welcoming us'),
-                        { why: refused?.why, retryMs: refused?.retryMs }));
+                        { why: refused?.why, retryMs: refused?.retryMs,
+                          unreachable }));
 
                 for (const c of this.catchups.splice(0))
                     c.reject(new Error('the relay closed the connection'));
 
                 this.emit('close', refused);
-            });
+            };
+
+            ws.addEventListener('close', () => lose());
 
             ws.addEventListener('message', (e) =>
             {
@@ -165,8 +198,26 @@ export class Room
 
                         this.playing = m.playing;
                         this.features = m.features ?? [];
-                        this.pinger = setInterval(() => this.ping(),
-                                                  PING_EVERY);
+                        clearTimeout(deadline);
+
+                        /* Timed by the oldest unanswered ping, not by
+                           the timer, which a hidden tab slows to a
+                           minute. */
+                        this.pinger = setInterval(() =>
+                        {
+                            const now = performance.now();
+
+                            this.unanswered ??= now;
+
+                            if (now - this.unanswered > PONG_WAIT_MS)
+                            {
+                                lose();
+                                ws.close();
+                            }
+                            else
+                                this.ping();
+                        }, PING_EVERY);
+                        this.unanswered = performance.now();
                         this.ping();
                         resolve(m);
                         this.emit('peers');
@@ -205,6 +256,7 @@ export class Room
                         break;
 
                     case 'pong':
+                        this.unanswered = null;
                         this.clock.sample(m.t0, m.t1, this.now());
                         this.emit('clock');
                         break;

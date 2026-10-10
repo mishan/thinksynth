@@ -2341,8 +2341,22 @@ async function rejoin ()
         if (e.why === 'session')
             accounts.ended(session);
 
+        /* Out of reach, the link down: tried again steadily, spending no
+           try, for as long as it lasts. Each try is a connect nobody
+           answers, which costs the relay nothing, and the next one finds
+           the link the moment it is back. */
+        if (e.unreachable)
+        {
+            status('The relay is out of reach; trying again...');
+            $('rejoin').hidden = false;
+            rejoinTimer = setTimeout(rejoin,
+                                     REJOIN_FIRST_MS + Math.random() * 1000);
+            return;
+        }
+
         /* Refused: said, and tried again if it passes, or left to
-           Rejoin. Unreachable: tried again. */
+           Rejoin. Not let in, or a relay that does not answer the hello:
+           tried again, backing off. */
         lost(was, e.why === undefined ? null : { text: e.message,
                                                  why: e.why,
                                                  retryMs: e.retryMs });
@@ -2373,8 +2387,9 @@ async function rejoin ()
     chat.peers(room.peers);
     status(`Back in ${room.roomName}.`);
 
-    if (synth !== null && room.playing !== null &&
-        room.runKey !== appliedRun)
+    /* The run this page was playing too: what the room sent while this
+       page was away is in the relay's log and nowhere here. */
+    if (synth !== null && room.playing !== null)
         await joinRun();
 }
 

@@ -943,15 +943,13 @@ function holeIn (env, o, pages, links, result, event)
     {
         const seatBefore = out.seatBefore;
 
-        /* Back in, as the status says, or still on the room socket it
-           had: the relay lets a socket go only at its heartbeat
-           (relay.mjs, HEARTBEAT_MS), and the page notices nothing until
-           the relay's reset reaches it. Every page collected meanwhile,
-           or what each keeps runs past what was taken. */
+        /* Back in, as the status says -- or, the room playing, the
+           catch-up that follows says over it. Every page collected
+           meanwhile, or what each keeps runs past what was taken. */
         const back = await until(async () =>
         {
             await Promise.all(pages.map(collect));
-            return /Back in/.test(B.status);
+            return /Back in|Caught up with the room/.test(B.status);
         }, 45000, 250);
 
         out.idAfter = B.sent.at(-1)?.from;
