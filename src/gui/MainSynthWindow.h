@@ -115,6 +115,8 @@ protected:
     /* Both graph choosers: the same browser over the two halves of the
        corpus, since the only difference between them is which half. */
     void openDspBrowser (bool effects, int chan);
+    void browseDsp (bool effects, const string &title, const string &current,
+                    sigc::slot<void (string)> chosen);
     void onEffectChosen (string picked, int chan);
     void onEffectRemove (int chan);
 

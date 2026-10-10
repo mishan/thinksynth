@@ -340,7 +340,12 @@ ComposerCanvas::layoutRow (size_t ci, double x0, double y, double &h,
            agree. */
         int channel = chain.sinks[ki].channel;
 
-        if (!chain.sinks[ki].instrument.empty())
+        if (!chain.sinks[ki].knob.empty())
+        {
+            b.title = "@" + chain.sinks[ki].knob;
+            channel = 0;
+        }
+        else if (!chain.sinks[ki].instrument.empty())
         {
             const thcInstrument *inst = sched_
                 ? sched_->instrument(chain.sinks[ki].instrument) : NULL;
@@ -355,6 +360,7 @@ ComposerCanvas::layoutRow (size_t ci, double x0, double y, double &h,
         }
 
         b.sub = small ? ""
+            : !chain.sinks[ki].knob.empty() ? "knob"
             : chain.sinks[ki].chanarg.empty()
                 ? "notes" : "@" + chain.sinks[ki].chanarg;
         b.live = NULL;
@@ -1470,12 +1476,14 @@ ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
 
         if (b.what.kind == Selection::SINK)
         {
-            /* By the kind the sink takes: notes, or a chanarg. */
-            const int kind = doc_ != NULL &&
+            /* By the kind the sink takes: notes, or values -- a chanarg's
+               or a knob's. */
+            const thcGenEdit::Sink *sk = doc_ != NULL &&
                 b.what.chain < doc_->chains.size() &&
-                b.what.index < doc_->chains[b.what.chain].sinks.size() &&
-                !doc_->chains[b.what.chain].sinks[b.what.index]
-                     .chanarg.empty() ? 1 : 0;
+                b.what.index < doc_->chains[b.what.chain].sinks.size()
+                    ? &doc_->chains[b.what.chain].sinks[b.what.index] : NULL;
+            const int kind = sk != NULL &&
+                (!sk->chanarg.empty() || !sk->knob.empty()) ? 1 : 0;
 
             if (live != NULL)
             {

@@ -54,7 +54,8 @@ sameChain (const thcGenEdit::Chain &a, const thcGenEdit::Chain &b)
     for (size_t i = 0; i < a.sinks.size(); i++)
         if (a.sinks[i].channel != b.sinks[i].channel ||
             a.sinks[i].instrument != b.sinks[i].instrument ||
-            a.sinks[i].chanarg != b.sinks[i].chanarg)
+            a.sinks[i].chanarg != b.sinks[i].chanarg ||
+            a.sinks[i].knob != b.sinks[i].knob)
             return false;
 
     return true;

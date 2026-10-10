@@ -267,6 +267,8 @@ struct SinkIdx
     bool   hasArg;
     std::string chanarg;
     size_t argStmtA, argStmtB, argValA, argValB;
+
+    std::string knob;                      /* `knob = @name;', or empty */
 };
 
 /* One value inside an instrument block: `a = 900 ms;'. The same shape as
@@ -390,6 +392,10 @@ struct Index
     std::vector<SectionIdx>    sections;
     std::vector<ChainIdx>      chains;
 
+    /* The piece's own `effect "<file>" ...;', whole statement. */
+    std::string masterEffect;
+    size_t masterA, masterB;
+
     size_t topInsert;        /* line start of the first token            */
     size_t headerEnd;        /* after the info/tempo/seed statements     */
     size_t firstScaleOff;    /* npos when there is none                  */
@@ -485,6 +491,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.firstPresetOff = std::string::npos;
     ix.firstInstrumentOff = std::string::npos;
     ix.firstChainOff = std::string::npos;
+    ix.masterA = ix.masterB = 0;
 
     size_t i = 0;
 
@@ -723,6 +730,18 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             }
 
             i = skipStmt(t, i);
+            continue;
+        }
+
+        if (kw == "effect" && t[i + 1].kind == Tok::STRING)
+        {
+            ix.masterEffect = t[i + 1].text;
+            ix.masterA = t[i].off;
+
+            const size_t j = skipStmt(t, i);
+
+            ix.masterB = t[j - 1].end;
+            i = j;
             continue;
         }
 
@@ -1066,6 +1085,17 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                             s.instStmtB = t[k + 3].end;
                             s.instValA = t[k + 2].off;
                             s.instValB = t[k + 2].end;
+                            k += 4;
+                            continue;
+                        }
+
+                        if (t[k].kind == Tok::WORD &&
+                            t[k].text == "knob" &&
+                            isPunct(t[k + 1], '=') &&
+                            t[k + 2].kind == Tok::KNOB &&
+                            isPunct(t[k + 3], ';'))
+                        {
+                            s.knob = t[k + 2].text;
                             k += 4;
                             continue;
                         }
@@ -1426,6 +1456,7 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
     doc.seed = (unsigned)ix.seed.num;
     doc.hasTempo = ix.tempo.present;
     doc.tempo = ix.tempo.num;
+    doc.masterEffect = ix.masterEffect;
 
     if (ix.infos.count("name"))
         doc.name = ix.infos["name"].str;
@@ -1536,6 +1567,7 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
             s.channel = c.sinks[ki].channel;
             s.instrument = c.sinks[ki].instrument;
             s.chanarg = c.sinks[ki].hasArg ? c.sinks[ki].chanarg : "";
+            s.knob = c.sinks[ki].knob;
             out.sinks.push_back(s);
         }
 
@@ -1930,6 +1962,18 @@ thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
         return NOT_FOUND;
     }
 
+    /* A number cannot stand in for a knob a chain writes: the sink would
+       have nothing left to write to. Its chain says first what it should
+       drive instead. */
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+        for (size_t ki = 0; ki < ix.chains[ci].sinks.size(); ki++)
+            if (ix.chains[ci].sinks[ki].knob == name)
+            {
+                why = "chain " + ix.chains[ci].name + " writes @" + name +
+                      "; remove that sink first";
+                return REFUSED;
+            }
+
     if (!format(fallback, num))
     {
         why = "the knob's value cannot be written in its place";
@@ -2212,6 +2256,56 @@ thcGenEdit::setInstrumentGraph (const std::string &filename,
                                 const std::string &dsp, std::string &why)
 {
     return swapGraph(filename, name, dsp, true, why);
+}
+
+/* Its values go with the old graph: they are that graph's chanargs, and
+   one the new graph does not declare would stop the piece loading. */
+R
+thcGenEdit::setMasterEffect (const std::string &filename,
+                             const std::string &dsp, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (dsp.find('"') != std::string::npos)
+    {
+        why = "a file name cannot have a quote in it here";
+        return UNWRITABLE;
+    }
+
+    /* The same graph: its values are still its chanargs. */
+    if (dsp == ix.masterEffect)
+        return OK;
+
+    std::vector<Edit> edits;
+    const std::string stmt = "effect \"" + dsp + "\";";
+
+    if (!ix.masterEffect.empty())
+        edits.push_back(dsp.empty()
+                        ? eraseStmt(text, ix.masterA, ix.masterB)
+                        : Edit{ ix.masterA, ix.masterB, stmt });
+    else if (!dsp.empty())
+    {
+        size_t at = ix.firstChainOff;
+
+        if (at == std::string::npos)
+        {
+            if (!text.empty() && text[text.size() - 1] != '\n')
+                text += "\n";
+
+            at = text.size();
+        }
+        else
+            at = lineStartOf(text, at);
+
+        edits.push_back({ at, at, stmt + "\n\n" });
+    }
+
+    return finish(filename, text, edits, why);
 }
 
 /* ---- building blocks for chains and stages ---------------------------- */
@@ -3423,6 +3517,24 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
     StageIdx &s = c->stages[stageIndex];
     std::vector<Edit> edits;
 
+    /* The loader's refusal, made here so a line it would refuse is never
+       written, nor bound live by whoever wrote it. */
+    std::vector<Tok> vt;
+    std::string err;
+    int line;
+
+    thcGenLoader::tokenize(valueText, vt, err, line);
+
+    for (const Tok &k : vt)
+        for (const SinkIdx &sk : c->sinks)
+            if (k.kind == Tok::KNOB && k.text == sk.knob)
+            {
+                why = "chain " + c->name + " writes '@" + sk.knob +
+                      "', and its stage '" + s.name + "' reads it; a "
+                      "chain cannot drive a knob it is driven by";
+                return REFUSED;
+            }
+
     for (size_t i = 0; i < s.params.size(); i++)
         if (s.params[i].name == param)
         {
@@ -3579,6 +3691,16 @@ thcGenEdit::setSink (const std::string &filename, const std::string &chain,
 
     SinkIdx &s = c->sinks[sinkIndex];
     std::vector<Edit> edits;
+
+    /* A knob sink has no channel, instrument or chanarg to edit, and
+       turning one into a sink that has them is a different sink, which
+       the text has to say: addSink has no knob form. */
+    if (!s.knob.empty())
+    {
+        why = "this sink writes @" + s.knob + "; edit the text to aim it "
+              "elsewhere";
+        return REFUSED;
+    }
 
     /* Same spelling as before: edit the value in place, so a sink whose
        channel moves from 4 to 5 changes one character. */

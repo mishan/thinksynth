@@ -22,6 +22,7 @@
  *   scripts/genwav -p plugins/ -s 180 -o ebb.wav gen/ebb.gen
  *   scripts/genwav -p plugins/ -t - gen/round.gen | head
  *   scripts/genwav -p plugins/ -s 180 --midi anthem.mid gen/anthem.gen
+ *   scripts/genwav -p plugins/ -s 60 --knob pump=0,1 gen/warehouse.gen
  *
  * gencheck drives the scheduler through its virtual clock and keeps the
  * delivered events as a tape, which is how it proves a piece replays. This
@@ -57,6 +58,11 @@
  * instruments renders those channels silent, since nothing is loaded on
  * them -- that is what such a piece does before somebody aims the channel,
  * and this tool has no somebody.
+ *
+ * `--knob NAME=A' sets a piece knob before Play. `--knob NAME=A,B' renders
+ * the piece a second time at B, in step with the first, and `--levels'
+ * gains the RMS of the difference between the two per channel: zero is a
+ * knob that does nothing to that channel. Only the first render is written.
  *
  * After the transport stops the render continues until the tails have rung
  * out, up to a few seconds, so a long release is in the file rather than
@@ -120,6 +126,8 @@ static void usage (const char *argv0)
            "  -m, --mono              sum the channels into one, for a sample\n"
            "      --from N            write the audio from N seconds in\n"
            "      --length N          and only N seconds of it, for a loop\n"
+           "      --knob NAME=A[,B]   set a piece knob; with B, compare a "
+           "render at B by channel\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -326,6 +334,9 @@ int main (int argc, char **argv)
     double seconds = 120, from = 0, length = -1;
     bool quiet = false;
     bool levels = false, sections = false;
+    std::string knobName;
+    double knobA = 0, knobB = 0;
+    bool compare = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -367,6 +378,35 @@ int main (int argc, char **argv)
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
             length = atof(argv[i]);
+        }
+        else if (!strcmp(argv[i], "--knob"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+
+            const char *eq = strchr(argv[i], '=');
+            char *end = NULL;
+
+            if (eq == NULL || eq == argv[i]) { usage(argv[0]); return 2; }
+
+            knobName.assign(argv[i], eq - argv[i]);
+            knobA = strtod(eq + 1, &end);
+
+            if (end == eq + 1) { usage(argv[0]); return 2; }
+
+            compare = *end == ',';
+
+            if (compare)
+            {
+                const char *b = end + 1;
+
+                knobB = strtod(b, &end);
+
+                if (end == b) { usage(argv[0]); return 2; }
+            }
+
+            if (*end != '\0') { usage(argv[0]); return 2; }
+
+            levels = levels || compare;
         }
         else if (!strcmp(argv[i], "--levels"))
             levels = true;
@@ -438,6 +478,41 @@ int main (int argc, char **argv)
     for (size_t k = 0; k < loader.warnings().size(); k++)
         fprintf(stderr, "%s\n", loader.warnings()[k].c_str());
 
+    /* The same piece on a synth of its own, for --knob A,B: the same seed,
+       so the knob is the only thing the two renders disagree on. */
+    std::unique_ptr<thSynth> otherSynth;
+    std::unique_ptr<thcScheduler> other;
+    thcGenLoader otherLoader(plugins);
+
+    if (compare)
+    {
+        otherSynth.reset(new thSynth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                                     TH_DEFAULT_SAMPLES));
+        other.reset(new thcScheduler(otherSynth.get()));
+        other->setAuditionSynchronous(true);
+        other->setMasterSeed(sched.masterSeed());
+
+        if (!otherLoader.load(genFile, other.get()))
+            return 1;
+    }
+
+    if (!knobName.empty())
+    {
+        thArg *knob = sched.knob(knobName);
+
+        if (knob == NULL)
+        {
+            fprintf(stderr, "%s: %s declares no knob @%s\n", argv[0],
+                    genFile.c_str(), knobName.c_str());
+            return 2;
+        }
+
+        knob->setValue((float)knobA);
+
+        if (other)
+            other->knob(knobName)->setValue((float)knobB);
+    }
+
     FILE *tape = NULL;
 
     if (tapeFile == "-")
@@ -495,6 +570,8 @@ int main (int argc, char **argv)
         channelLevels.size());
     Loudness mixLoudness(channels, TH_DEFAULT_SAMPLES);
     std::vector<Level> sectionLevels(sections ? sched.sections().size() : 0);
+    std::vector<Level> channelDiffs(channelLevels.size());
+    Level mixDiff;
 
     pcm.reserve((size_t)((seconds + TAIL_MAX) / dt + 1) * frame);
 
@@ -537,6 +614,36 @@ int main (int argc, char **argv)
                     channelLoudness[ch]->add(signal + i * outputs);
             }
 
+        if (other)
+        {
+            otherSynth->process();
+
+            const float *b = otherSynth->getOutput();
+
+            /* The tail runs until both are silent. */
+            for (size_t i = 0; i < frame; i++)
+            {
+                mixDiff.add(buf[i] - b[i]);
+                peak = std::max(peak, fabsf(b[i]));
+            }
+
+            /* A channel only one of the two renders sounded on is all
+               difference, so the silent side reads as zeros. */
+            for (int ch = 0; ch < synth.midiChanCount(); ch++)
+            {
+                int na = 0, nb = 0;
+                const float *sa = synth.getChannelOutput(ch, &na);
+                const float *sb = otherSynth->getChannelOutput(ch, &nb);
+
+                if (sa == NULL) na = 0;
+                if (sb == NULL) nb = 0;
+
+                for (int k = 0; k < std::max(na, nb) * window; k++)
+                    channelDiffs[ch].add((k < na * window ? sa[k] : 0) -
+                                         (k < nb * window ? sb[k] : 0));
+            }
+        }
+
         if (sections && transportWindow)
             for (int i = 0; i < window; i++)
             {
@@ -568,6 +675,9 @@ int main (int argc, char **argv)
 
     sched.start();
 
+    if (other)
+        other->start();
+
     /* Until the time asked for, or until the piece is over: a piece
        whose arrangement closes with `section end;' stops its own
        transport, and a loop that only watched the clock would step a
@@ -576,6 +686,10 @@ int main (int argc, char **argv)
     {
         const double windowStart = sched.now();
         sched.stepTransport(dt);
+
+        if (other)
+            other->stepTransport(dt);
+
         renderWindow(true, windowStart);
     }
 
@@ -584,6 +698,10 @@ int main (int argc, char **argv)
     const double stoppedAt = sched.now();
 
     sched.stop();
+
+    if (other)
+        other->stop();
+
     conn.disconnect();
     midi.end(stoppedAt);
 
@@ -706,25 +824,35 @@ int main (int argc, char **argv)
     {
         fprintf(stderr,
                 "channel  engine  instrument               peak     RMS     "
-                "LUFS\n");
+                "LUFS%s\n", other ? "  diff RMS" : "");
 
         for (size_t ch = 0; ch < channelLevels.size(); ch++)
         {
             const Level &level = channelLevels[ch];
 
-            if (!level.count)
+            if (!level.count && !channelDiffs[ch].count)
                 continue;
 
             const std::string name = sched.holding((int)ch);
 
-            fprintf(stderr, "%7zu  %6zu  %-24s %.3f  %.4f  %s\n", ch + 1, ch,
+            fprintf(stderr, "%7zu  %6zu  %-24s %.3f  %.4f  %s", ch + 1, ch,
                     name.empty() ? "-" : name.c_str(), level.peak,
                     level.rms(), lufsText(channelLoudness[ch].get()).c_str());
+
+            if (other)
+                fprintf(stderr, "  %.4f", channelDiffs[ch].rms());
+
+            fputc('\n', stderr);
         }
 
-        fprintf(stderr, "%-41s %.3f  %.4f  %s\n", "mix", peak,
+        fprintf(stderr, "%-41s %.3f  %.4f  %s", "mix", peak,
                 pcm.empty() ? 0.0 : sqrt(sumsq / pcm.size()),
                 lufsText(&mixLoudness).c_str());
+
+        if (other)
+            fprintf(stderr, "  %.4f", mixDiff.rms());
+
+        fputc('\n', stderr);
     }
 
     if (sections)

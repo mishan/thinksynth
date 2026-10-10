@@ -903,7 +903,7 @@ bool StagePanel::deliver (const thPanelEdit &edit) const
         {
             thArg *knob = knobNamed(sched_, v.text);
 
-            if (knob == NULL)
+            if (knob == NULL || sched_->chainWrites(stage->chain, knob))
                 return false;
 
             /* A knob reads as plain seconds; a beats flag left over from

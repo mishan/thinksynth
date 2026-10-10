@@ -451,6 +451,17 @@ void MainSynthWindow::buildPanes (void)
                 setDesktopMode(PIECE_MODE);
         });
 
+    composer_->signal_choose_effect().connect(
+        [this](std::string current)
+        {
+            browseDsp(true, "thinksynth - Piece Effect", current,
+                      [this](string picked)
+                      {
+                          if (!picked.empty())
+                              composer_->setMasterEffect(picked);
+                      });
+        });
+
     /* A track's graph, chosen from the same browser the channels use. */
     composer_->sequencer().signal_choose().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onChooseTrack));
@@ -2463,16 +2474,31 @@ void MainSynthWindow::openDspBrowser (bool effects, int chan)
     gthPatchManager::PatchFile *patch =
         gthPatchManager::instance()->getPatch(chan);
 
+    const string current = patch == NULL ? string()
+                         : effects ? patch->doc.effect : patch->doc.dsp;
+
+    if (effects)
+        browseDsp(true, "thinksynth - Channel Effect", current,
+                  sigc::bind(sigc::mem_fun(*this,
+                                           &MainSynthWindow::onEffectChosen),
+                             chan));
+    else
+        browseDsp(false, "thinksynth - Instrument", current,
+                  sigc::bind(sigc::mem_fun(*this,
+                                           &MainSynthWindow::onBrowseChosen),
+                             chan));
+}
+
+void MainSynthWindow::browseDsp (bool effects, const string &title,
+                                 const string &current,
+                                 sigc::slot<void (string)> chosen)
+{
     std::shared_ptr<DspCatalog> catalog = std::make_shared<DspCatalog>();
 
     catalog->scan(dspDir_);
 
-    const string current = patch == NULL ? string()
-                         : effects ? patch->doc.effect : patch->doc.dsp;
-
     ItemBrowser *browser = new ItemBrowser(
-        *this,
-        effects ? "thinksynth - Channel Effect" : "thinksynth - Instrument",
+        *this, title,
         [catalog, effects](const std::string &needle)
         {
             return dspRows(catalog.get(), effects, needle);
@@ -2484,15 +2510,7 @@ void MainSynthWindow::openDspBrowser (bool effects, int chan)
                           "<small>Set THINK_DSP_PATH, or use Other "
                           "File...</small>");
 
-    if (effects)
-        browser->signal_chosen().connect(
-            sigc::bind(sigc::mem_fun(*this,
-                                     &MainSynthWindow::onEffectChosen), chan));
-    else
-        browser->signal_chosen().connect(
-            sigc::bind(sigc::mem_fun(*this,
-                                     &MainSynthWindow::onBrowseChosen), chan));
-
+    browser->signal_chosen().connect(chosen);
     browser->present();
 }
 

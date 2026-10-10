@@ -2139,6 +2139,10 @@ thcGenLoader::parseChain (thcScheduler *sched)
     bool sawStart = false;
     bool ok = true;
 
+    stageReading_.clear();
+    knobsRead_.clear();
+    knobsWritten_.clear();
+
     while (true)
     {
         const Token &t = peek();
@@ -2310,6 +2314,22 @@ thcGenLoader::parseChain (thcScheduler *sched)
         error(nameTok.line, "chain " + nameTok.text + " has no sink");
         ok = false;
     }
+
+    /* A stage reading a knob its own chain writes: every value the chain
+       puts out moves what the chain does next. Refused with both names,
+       since the stage and the sink can be a screen apart. Another chain
+       may read it -- that is what the sink is for. */
+    for (const auto &w : knobsWritten_)
+        for (const auto &r : knobsRead_)
+            if (r.first == w.first)
+            {
+                error(w.second, "chain " + nameTok.text + " writes '@" +
+                      w.first + "', and its stage '" + r.second +
+                      "' reads it; a chain cannot drive a knob it is "
+                      "driven by");
+                ok = false;
+                break;
+            }
 
     if (!sawGenerator && !sawInput)
     {
@@ -2595,6 +2615,7 @@ thcGenLoader::parseExprFactor (thcScheduler *sched)
             return NULL;
         }
 
+        knobsRead_.push_back(std::make_pair(k.text, stageReading_));
         return thExprChanRef(k.text);
     }
 
@@ -3047,6 +3068,8 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
     Token stageName = take();
     const Token &c = peek();
 
+    stageReading_ = stageName.text;
+
     if (c.kind != Token::WORD)
     {
         error(c.line, "stage " + stageName.text +
@@ -3428,6 +3451,7 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
         }
 
         sched->bindKnob(stage, idx, knob);
+        knobsRead_.push_back(std::make_pair(knobTok.text, stageName));
 
         return expectPunct(';');
     }
@@ -3690,6 +3714,8 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
     std::string chanarg;
     std::string instrument;
     int instrumentLine = 0;
+    thArg *knob = NULL;
+    int knobLine = 0;
 
     while (true)
     {
@@ -3709,11 +3735,11 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
         if (t.kind != Token::WORD ||
             (t.text != "channel" && t.text != "chanarg" &&
-             t.text != "instrument"))
+             t.text != "instrument" && t.text != "knob"))
         {
             error(t.line, "a sink says 'instrument = name' or "
                   "'channel = N', and optionally 'chanarg = \"name\"' "
-                  "or 'chanarg = \"*\"'");
+                  "or 'chanarg = \"*\"'; or 'knob = @name'");
             return false;
         }
 
@@ -3722,7 +3748,30 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
         if (!expectPunct('='))
             return false;
 
-        if (key.text == "instrument")
+        if (key.text == "knob")
+        {
+            const Token &v = peek();
+
+            if (v.kind != Token::KNOB)
+            {
+                error(v.line, "knob wants a declared knob, '@name'");
+                return false;
+            }
+
+            Token ref = take();
+
+            knob = sched->knob(ref.text);
+            knobLine = ref.line;
+
+            if (knob == NULL)
+            {
+                error(ref.line, "'@" + ref.text + "' is not a declared knob");
+                return false;
+            }
+
+            knobsWritten_.push_back(std::make_pair(ref.text, ref.line));
+        }
+        else if (key.text == "instrument")
         {
             const Token &v = peek();
 
@@ -3856,6 +3905,22 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
         if (!expectPunct(';'))
             return false;
+    }
+
+    /* A knob is the piece's, so a sink that writes one has no channel
+       and no chanarg to go with it: those would be a second target, and
+       a sink has one. */
+    if (knob != NULL)
+    {
+        if (!instrument.empty() || channel >= 0 || !chanarg.empty())
+        {
+            error(knobLine, "a knob sink names the knob and nothing else; "
+                  "an instrument, a channel or a chanarg is a second sink");
+            return false;
+        }
+
+        sched->addKnobSink(chain, knob);
+        return expectPunct(';');
     }
 
     if (!instrument.empty() && channel >= 0)

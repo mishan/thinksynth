@@ -234,6 +234,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'geninstrument':
             case 'genfreeze':
             case 'genknob':
+            case 'geneffect':
             case 'patchdefault':
             case 'patchdefaults':
             case 'dsps':
@@ -503,6 +504,10 @@ export async function createSynth (ctx, { windowlen = 128,
            own values. Resolves to { text, why }, "" when refused. */
         genSetInstrument: (text, name, dsp) =>
             ask({ type: 'geninstrument', text, name, dsp }),
+
+        /* The piece's effect on the mix in `text', or none for "".
+           Resolves to { text }, "" when the writer refused. */
+        genSetEffect: (text, dsp) => ask({ type: 'geneffect', text, dsp }),
 
         /* A chain frozen into `text' from what the worklet heard it play
            in the last `bars' bars. Resolves to { text, why }. */

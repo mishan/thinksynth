@@ -1837,6 +1837,31 @@ try
 
         await page.click('#stop');
 
+        /* The piece's effect, chosen from the menu: written into the text
+           in place of the one it had, and loaded. */
+        {
+            const shown = await page.$eval('#pieceeffect', (m) => m.value);
+            const loads = await page.evaluate(() => window.solo.pieces());
+
+            await page.$eval('#pieceeffect', (m) =>
+            {
+                m.value = 'fx/space.dsp';
+                m.dispatchEvent(new Event('change'));
+            });
+            await page.waitForFunction((n) => window.solo.pieces() > n,
+                                       loads, { timeout: 30000 })
+                .catch(() => {});
+
+            const text = await page.evaluate(() => window.solo.genText());
+            const now = await page.$eval('#pieceeffect', (m) => m.value);
+
+            check(shown === 'fx/glue.dsp' && now === 'fx/space.dsp' &&
+                  /^effect "fx\/space\.dsp";/m.test(text) &&
+                  !/fx\/glue\.dsp/.test(text),
+                  'the piece\'s effect menu shows fx/glue.dsp and puts ' +
+                  `fx/space.dsp in its place: ${shown} -> ${now}`);
+        }
+
         /* The euclid ring, enlarged and right-clicked in its middle: a hit
            fewer, which the end of the gesture writes into the piece. */
         await page.locator('#composerscroll').scrollIntoViewIfNeeded();

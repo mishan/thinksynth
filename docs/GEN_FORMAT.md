@@ -126,6 +126,12 @@ out to be wanted, it is an extension, not a reinterpretation.
 The same `@density` may also drive an instrument's chanarg — see §4b. One
 declaration, one slider, both sides of the boundary.
 
+A chain may move a knob too, through `sink { knob = @density; };` (§5), and
+then everything bound to it follows: "the strings get busier for the chorus"
+is one chain moving one knob. The knob still moves under the hand; a drag holds
+until the chain's next value. A rewind puts it back at the value the text
+declares, as a load would.
+
 ## 4. Scales are named objects
 
 ```
@@ -332,6 +338,11 @@ every channel has been summed and before the master gain and the output
 limiter. A reverb belongs here rather than on four channels that each pay for
 a room of their own, and a limiter can be nowhere else, because the thing it
 is limiting is the sum.
+
+The Composer's Piece section and the page's piece source pane choose it from
+the effect graphs, as a channel's is chosen on its patch page. Choosing
+another writes a bare `effect "...";` in place of the old statement, values
+and all, since those were the old graph's chanargs.
 
 Its values carry no `fx.` anywhere — that prefix keeps an instrument's
 chanargs and its effect's apart on one channel, and the mix has no instrument
@@ -606,6 +617,19 @@ sink { channel = 3; chanarg = "cutoff"; };      # values -> a patch knob
 sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
+
+A sink may write a piece knob instead (§3):
+
+```
+sink { knob = @runs; };                         # values -> the knob, and
+                                                #   everything bound to it
+```
+
+It takes values and ignores notes, writes each as it is (`.min` and `.max` are
+the slider's travel, not a bound), and names nothing else: no instrument,
+channel or chanarg beside it. A stage
+reading a knob its own chain writes would be fed its own output, and is
+refused at load with both names. Another chain reading it is what it is for.
 
 A note sink takes a value that names its own knob as well, so a stage that
 plays and rides a knob at once needs one sink: `xform::throw` with `knob =
@@ -975,9 +999,10 @@ factor      : "(" expr ")" | "-" factor | NUMBER | CHANARG
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
-              | "chanarg" "=" STRING) ";"
+              | "chanarg" "=" STRING | "knob" "=" CHANARG) ";"
                                                        # instrument or
                                                        #   channel, not both
+                                                       # knob alone
                                                        # channel is 1-16
                                                        # STRING = a name,
                                                        #   "fx." a name,
@@ -1143,6 +1168,12 @@ accumulate into one row per section name.
 
 The level table names a channel twice: `channel` is the one-based number the
 application shows, `engine` the zero-based one every event line carries.
+
+`genwav --knob NAME=A` sets the piece's `@NAME` to A before Play. `--knob
+NAME=A,B` renders the piece a second time with it at B, on the same seed and in
+step with the first, and the level table gains a `diff RMS` column: the RMS of
+the difference between the two renders, per channel and for the mix. Zero is a
+knob that does nothing to that channel. Only the render at A is written.
 
 With `-t`, the tape begins with `# channel N = name` lines for the piece's
 instruments, where `N` is that engine number. The event lines keep their

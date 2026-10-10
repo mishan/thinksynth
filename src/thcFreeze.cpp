@@ -216,7 +216,7 @@ thcFreeze::write (const std::string &path, const thcGenEdit::Chain &from,
     const thcGenEdit::Sink *sink = NULL;
 
     for (const thcGenEdit::Sink &s : from.sinks)
-        if (s.chanarg.empty())
+        if (s.chanarg.empty() && s.knob.empty())
         {
             sink = &s;
             break;

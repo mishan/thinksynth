@@ -1335,6 +1335,8 @@ void applyScheduled (const Scheduled &given)
                 break;
             }
 
+            sched_->setKnobHome(knobs_[c.knob], (float)value);
+
             if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
                 thcGenEdit::OK)
                 fprintf(stderr, "the piece will not read back: %s\n",
@@ -2867,6 +2869,12 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_description (void)
     return loader_->pieceDescription().c_str();
 }
 
+/* The piece's own effect on the mix, as its text names it; "" for none. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_effect (void)
+{
+    return canvasDoc_.masterEffect.c_str();
+}
+
 /* What the transport is running at, in beats per minute. The piece's own
    `tempo' after a load, and whatever a tempo command has since made it. */
 EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
@@ -3402,7 +3410,7 @@ EMSCRIPTEN_KEEPALIVE int tw_chain_channel (int chain)
         return -1;
 
     for (size_t i = 0; i < c->sinks.size(); i++)
-        if (!c->sinks[i].isChanarg())
+        if (c->sinks[i].isNotes())
             return c->sinks[i].channel;
 
     return -1;
@@ -5483,6 +5491,21 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
         [&](const std::string &path, std::string &why)
         {
             return thcGenEdit::moveStage(path, chain, from, to, why);
+        });
+}
+
+/* The piece's own effect on the mix, in `text'; an empty `dsp' takes it
+   off. "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_effect (const char *text,
+                                                    const char *dsp)
+{
+    if (text == NULL || dsp == NULL)
+        return "";
+
+    return spliceText(text, "effect",
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setMasterEffect(path, dsp, why);
         });
 }
 

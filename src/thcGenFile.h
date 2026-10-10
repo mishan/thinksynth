@@ -348,6 +348,14 @@ private:
 
     std::vector<PendingNodeBind> pendingNodeBinds_;
 
+    /* The chain being read: the knobs its stages read, with the stage
+       that reads each, and the knobs its sinks write. A chain that reads
+       a knob it writes feeds its own output back into itself, which the
+       end of parseChain refuses. */
+    std::string stageReading_;
+    std::vector<std::pair<std::string, std::string> > knobsRead_;
+    std::vector<std::pair<std::string, int> > knobsWritten_;
+
     /* Beats to a bar for sections and chain starts. Both are folded as
        read, so a later meter must be rejected. */
     double meter_;
