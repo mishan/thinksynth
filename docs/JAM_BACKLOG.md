@@ -474,11 +474,13 @@ in one update and then a deletion of all but 41 characters in its
 middle. After a full collection the relay held about 21 MB more, and
 the rooms were charged under 1 MB.
 
-**Done.** The relay wraps `ContentString`'s split so that both halves
-are copies, and what is cut away can be collected; the parent was a
-decoded string, held outside the heap, which is why the heap alone never
-showed it. relaytest holds eight rooms cut down that way to about what
-they are charged.
+**Done.** The relay copies a text as it is integrated, and a piece of a
+split once it is under half of what it views, so that what is cut away
+can be collected and no split costs more than the piece split off. The
+parent was a decoded string, held outside the heap, which is why the
+heap alone never showed it; one held for what it builds on is a slice
+of its update's whole string table. relaytest holds both to about what
+they are charged, and times a long text split three thousand times.
 
 ## 9. Smaller relay gaps
 

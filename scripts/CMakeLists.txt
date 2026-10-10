@@ -1014,15 +1014,16 @@ set_tests_properties(composercheck editorcheck windowcheck PROPERTIES
 find_package(Python3 COMPONENTS Interpreter)
 
 if(Python3_Interpreter_FOUND AND NOT THINK_SANITIZE)
-  # The flags and LTO too: an -O3 -march=native build is another toolchain,
-  # and compared with CI's counts it would pass or fail for nothing.
+  # The processor, the flags and LTO too: an -O3 -march=native build, or
+  # one for aarch64, which contracts into FMA, is another toolchain, and
+  # compared with CI's numbers it would pass or fail for nothing.
   string(TOUPPER "${CMAKE_BUILD_TYPE}" _config)
   separate_arguments(_flags UNIX_COMMAND
                      "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${_config}}")
   list(JOIN _flags " " _flags)
   string(CONCAT _toolchain
          "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} "
-         "${CMAKE_BUILD_TYPE} [${_flags}]")
+         "${CMAKE_SYSTEM_PROCESSOR} ${CMAKE_BUILD_TYPE} [${_flags}]")
 
   if(THINK_FAST_MATH)
     string(APPEND _toolchain " fast-math")

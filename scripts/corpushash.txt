@@ -1,4 +1,4 @@
-toolchain: GNU 13.3.0 RelWithDebInfo [-O2 -g -DNDEBUG]
+toolchain: GNU 13.3.0 x86_64 RelWithDebInfo [-O2 -g -DNDEBUG]
 c17b2c8e9db78241  amb01.dsp
 870804c2133c856d  analog.dsp
 ec342f02321dce15  anasync.dsp

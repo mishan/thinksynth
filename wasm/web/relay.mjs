@@ -1123,23 +1123,49 @@ function pendingOf (doc)
            (doc.store.pendingDs?.length ?? 0);
 }
 
-/* A short random id: for a peer, and for nothing else. */
 /* Yjs splits a text item by slicing its string, and V8 keeps a slice of
    13 characters or more as a view of the string it was cut from: an
    item cut down to a few characters would keep the whole of what it was
-   decoded from alive, which the room is not charged for (growthOf). Both
-   halves are copied, so what is cut away can go. */
+   decoded from alive, which the room is not charged for (growthOf).
+ *
+   A piece is copied once it is under half of the string it views
+   (`base'), so that nothing holds more than twice what it is charged,
+   and a split copies no more than the piece split off: copying both
+   halves of every split was a guest's way to make each one-character
+   insert cost the relay the whole text. A string is copied as it is
+   integrated too, since one held for what it builds on comes out of the
+   update's string table, a slice of every string in it. */
+const flat = (s) => (' ' + s).slice(1);
+const integrate = Y.ContentString.prototype.integrate;
 const splice = Y.ContentString.prototype.splice;
+
+Y.ContentString.prototype.integrate = function (transaction, item)
+{
+    integrate.call(this, transaction, item);
+    this.str = flat(this.str);
+    this.base = this.str.length;
+};
 
 Y.ContentString.prototype.splice = function (offset)
 {
+    const base = this.base ?? this.str.length;
     const right = splice.call(this, offset);
 
-    this.str = (' ' + this.str).slice(1);
-    right.str = (' ' + right.str).slice(1);
+    for (const c of [this, right])
+    {
+        c.base = base;
+
+        if (c.str.length * 2 < base)
+        {
+            c.str = flat(c.str);
+            c.base = c.str.length;
+        }
+    }
+
     return right;
 };
 
+/* A short random id: for a peer, and for nothing else. */
 function newId ()
 {
     return Math.random().toString(36).slice(2, 8);

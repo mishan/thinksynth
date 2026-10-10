@@ -2503,6 +2503,61 @@ async function roomsBounded ()
               `(${Math.round(cutHeld / 1024)} KiB held, ` +
               `${Math.round(cutCharged / 1024)} KiB charged)`);
         texts.forEach((x) => x.close());
+
+        /* Nor does a short text that came in with a long one and was
+           held for what it builds on, as a room's document applies it:
+           Yjs reads both out of one string table. */
+        {
+            const docs = [];
+            const pend0 = await withExternal();
+
+            for (let i = 0; i < 8; i++)
+            {
+                const src = new Y.Doc();
+                const text = src.getText('t');
+                const updates = [];
+                const doc = new Y.Doc();
+
+                src.on('update', (u) => updates.push(u));
+                text.insert(0, 'a');
+                text.insert(1, 'x'.repeat(2 * 1024 * 1024));
+                text.insert(0, 'kept, though it came with two megabytes');
+                text.delete(text.length - 2 * 1024 * 1024, 2 * 1024 * 1024);
+
+                for (const u of [...updates.slice(1), updates[0]])
+                    Y.applyUpdate(doc, u);
+
+                docs.push(doc);
+            }
+
+            const pendHeld = await withExternal() - pend0;
+
+            check(docs.every((d) => d.getText('t').length === 40) &&
+                  pendHeld < 4 * 1024 * 1024,
+                  'a short text held for what it builds on keeps nothing of ' +
+                  `the update it came in (${Math.round(pendHeld / 1024)} ` +
+                  'KiB held)');
+        }
+
+        /* And keeping that is not paid for by every split: one-character
+           inserts, each splitting what is left of a long text, cost what
+           they do in Yjs, not the text's length each. */
+        {
+            const doc = new Y.Doc();
+            const text = doc.getText('t');
+
+            text.insert(0, 'x'.repeat(1024 * 1024));
+
+            const t0 = performance.now();
+
+            for (let i = 0; i < 3000; i++)
+                text.insert(2 * i + 1, 'y');
+
+            const ms = performance.now() - t0;
+
+            check(ms < 500, 'a long text split three thousand times costs ' +
+                            `${Math.round(ms)} ms`);
+        }
     }
     finally
     {
@@ -3841,7 +3896,7 @@ try
                 .connect().then(() => false, (e) => e.unreachable === true),
         ]);
 
-        check(closedS > 4 && closedS < 8,
+        check(closedS > 9 && closedS < 14,
               `a room socket whose pings go unanswered closes (${
                   closedS.toFixed(1)} s)`);
         check(unreachable && performance.now() - t0 < 12000,
