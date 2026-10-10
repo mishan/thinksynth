@@ -86,6 +86,9 @@ A bare number on a duration param is an error, not a defaulted second. Units
 were optional in `.dsp` and the corpus shows what that buys: every reader of
 an old file guessing. Not this time.
 
+`gen::euclid`'s `rotate` moves every onset that many steps earlier, so
+`rotate = 1` puts a lone onset on the last step.
+
 `gen::euclid` normally emits each note when its step arrives. Set
 `ahead = 1` to emit a whole cycle at its start, with each note still dated
 for its own step. This gives a following `xform::run` time to place pickup
@@ -109,6 +112,11 @@ Binding a stage param to a knob (`prob = @density;`) is the composer-world
 `ARG_CHAN`: the param store resolves it live, so dragging the knob changes
 every stage bound to it, mid-piece, with no plumbing in the plugin. The
 plugin just calls `params->get()` as always.
+
+Nothing a stage reads may carry microphone audio. DSP_FORMAT.md's "An effect
+graph" gives live input to effects only; a knob or chanarg fed from it would
+compose different notes on each jam peer, each hearing its own microphone, while
+every offline gate, which captures nothing, would still pass.
 
 A param not bound to a knob is a plain value (`ARG_VALUE`). There is no
 composer equivalent of `ARG_NODE` in v2 — stages do not wire params to each

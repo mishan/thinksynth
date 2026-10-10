@@ -530,6 +530,12 @@ live graph renders the same today as it did before one could. And a graph that
 declares no `live0` renders bit for bit the same whether or not a host is
 capturing: nothing is written where nothing was asked for.
 
+**It may reach the graph and must never reach the composer scheduler.** Live
+input exists only on an effect's io node, so today nothing a composer reads can
+carry it. Keep it that way: a chanarg fed from `analysis::pitch` on `live0` and
+read by a composer would part two jam peers' tapes, each peer hearing its own
+microphone, and every gate would pass, because every offline path reads zeros.
+
 **What it costs is one window, or two.** A host captures a device period and
 the engine renders a window, so periods are accumulated into windows
 (`src/gthSynthSource.h`), and the window handed out is always the one rendered
@@ -568,7 +574,8 @@ has no one channel's pedal to hear, reads zeros.
 
 A piece presses it with a chanarg sink —
 `sink { instrument = piano; chanarg = "SusPedal"; };` fed 0…127 — and a
-keyboard's pedal reaches it through a MIDI Map binding of CC 64 to `SusPedal`.
+keyboard's pedal, CC 64, reaches it with no binding, natively and on the solo
+page. Natively, a MIDI Map binding of CC 64 replaces that route.
 
 **Its `@chanargs` are its own**, kept apart from the instrument's so that an
 instrument's `@a` and an effect's cannot collide. From outside they are named
