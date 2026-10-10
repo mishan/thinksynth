@@ -22,10 +22,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdint.h>
 #include <filesystem>
 #include <system_error>
 
 #include <algorithm>
+
+#if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
+#include <xmmintrin.h>
+#endif
 
 #include "think.h"
 #include "parser.h"
@@ -2010,9 +2015,43 @@ void thSynth::setSilent (bool silent)
                thOutputSamples(channels_, windowlen_) * sizeof(float));
 }
 
+/* Denormals flushed to zero, in and out, for as long as a window renders,
+ * and the caller's mode back afterwards: every plugin with feedback state
+ * decays into them, and one that does not flush its own sits in a denormal
+ * limit cycle. Around the render rather than process-wide, because the GUI
+ * on the same thread, or a DAW hosting the plugin build, is none of this
+ * engine's business. The browser has no such switch and keeps the plugins'
+ * own flushes. */
+namespace {
+struct FlushDenormals
+{
+#if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
+    unsigned int saved = _mm_getcsr();
+
+    FlushDenormals (void) { _mm_setcsr(saved | 0x8040); }   /* FTZ | DAZ */
+    ~FlushDenormals (void) { _mm_setcsr(saved); }
+#elif !defined(__EMSCRIPTEN__) && defined(__aarch64__)
+    uint64_t saved;
+
+    /* The clobbers keep the render's arithmetic between the two. */
+    FlushDenormals (void)
+    {
+        __asm__ __volatile__ ("mrs %0, fpcr" : "=r"(saved));
+        __asm__ __volatile__ ("msr fpcr, %0"
+                              : : "r"(saved | (uint64_t(1) << 24)) : "memory");
+    }
+    ~FlushDenormals (void)
+    {
+        __asm__ __volatile__ ("msr fpcr, %0" : : "r"(saved) : "memory");
+    }
+#endif
+};
+}
+
 /* Audio thread. */
 void thSynth::process (void)
 {
+    FlushDenormals flush;
     int mixchannels, notechannels;
     thMidiChan *chan;
     float *chanoutput;
