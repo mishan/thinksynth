@@ -56,9 +56,10 @@ concurrency:
 jobs:
   linux:
     name: linux (gcc)
-    # Pinned, not ubuntu-latest: instrcount's baseline is this image's
-    # compiler and glibc, so a move to a new Ubuntu is a commit that records
-    # the new image's counts rather than a gate that fails every PR.
+    # Pinned, not ubuntu-latest: instrcount's baseline and corpushash.txt
+    # are this image's compiler and glibc, so a move to a new Ubuntu is a
+    # commit that records the new image's numbers rather than a gate that
+    # fails every PR.
     runs-on: ubuntu-24.04
 
     env:
@@ -140,9 +141,13 @@ jobs:
       # file has no counts for is a failure rather than the skip it is on a
       # desktop, so a new compiler on the image cannot turn the gate off
       # without anybody noticing. About ten seconds, beside the others.
+      # dsphash.reference is strict here for the same reason: it holds the
+      # corpus's sound bit for bit to scripts/corpushash.txt, which is this
+      # image's toolchain's, and skips on any other.
       - name: Test
         env:
           THINK_INSTRCOUNT_STRICT: 1
+          THINK_CORPUSHASH_STRICT: 1
         run: xvfb-run -a ctest --test-dir build --output-on-failure -j "$(nproc)"
 
       # ctest shows a passing test's output to nobody, and the margin under

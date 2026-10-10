@@ -9,11 +9,16 @@
 #
 # Required: -DHARNESS= -DCORPUS= -DPLUGIN_DIR= -DMODE=dsp|patch
 # Optional: -DEXTRA_ARGS= -DHARNESS_B= -DEXTRA_ARGS_B=
+#           -DREFERENCE= -DLOCAL= -DKEY= -DUPDATE=
 #
 # HARNESS_B and EXTRA_ARGS_B make it a comparison: a second harness, or the
 # same one with more arguments, run over the same files. Both sides have to
 # succeed and print exactly the same thing; the lines that differ are the
 # failure.
+#
+# REFERENCE makes it a comparison with a committed file instead, which is
+# what notices a change to libthink itself; UPDATE writes the harness's
+# output over that file, or over LOCAL for a toolchain KEY it is not for.
 
 if(NOT HARNESS OR NOT CORPUS OR NOT PLUGIN_DIR OR NOT MODE)
   message(FATAL_ERROR "RunHarness.cmake: HARNESS, CORPUS, PLUGIN_DIR and MODE are all required")
@@ -88,7 +93,7 @@ if(DSP_PATH)
   set(ENV{THINK_DSP_PATH} "${DSP_PATH}")
 endif()
 
-if(HARNESS_B OR EXTRA_ARGS_B)
+if(HARNESS_B OR EXTRA_ARGS_B OR REFERENCE)
   if(NOT HARNESS_B)
     set(HARNESS_B "${HARNESS}")
   endif()
@@ -96,7 +101,9 @@ if(HARNESS_B OR EXTRA_ARGS_B)
   separate_arguments(extra_B NATIVE_COMMAND "${EXTRA_ARGS_B}")
 
   foreach(side A B)
-    if(side STREQUAL "A")
+    if(side STREQUAL "B" AND REFERENCE)
+      break()
+    elseif(side STREQUAL "A")
       set(_h "${HARNESS}")
       set(_x ${extra})
     else()
@@ -115,6 +122,49 @@ if(HARNESS_B OR EXTRA_ARGS_B)
       message(FATAL_ERROR "${_h}: ${rc} failure(s) over ${count} ${MODE} files")
     endif()
   endforeach()
+
+  if(REFERENCE)
+    # Paths under CORPUS, so that one reference holds for any checkout.
+    string(REPLACE "${CORPUS}/" "" out_A "${out_A}")
+    set(_head "toolchain: ${KEY}\n")
+    set(out_A "${_head}${out_A}")
+
+    # Bit for bit, a render belongs to the compiler and its libm as much as
+    # to the code, so a reference is held to the toolchain on its first
+    # line. Another toolchain's is LOCAL, in the build tree, where no commit
+    # carries it; with neither this skips, unless THINK_CORPUSHASH_STRICT
+    # makes it fail and print what it rendered.
+    set(held "${LOCAL}")
+    set(out_B "")
+
+    foreach(_f "${REFERENCE}" "${LOCAL}")
+      if(EXISTS "${_f}")
+        file(READ "${_f}" _text)
+        string(FIND "${_text}" "${_head}" at)
+
+        if(at EQUAL 0)
+          set(held "${_f}")
+          set(out_B "${_text}")
+          break()
+        endif()
+      endif()
+    endforeach()
+
+    if(NOT EXISTS "${REFERENCE}")
+      set(held "${REFERENCE}")
+    endif()
+
+    if(UPDATE)
+      file(WRITE "${held}" "${out_A}")
+      message(STATUS "wrote ${held}")
+      return()
+    endif()
+
+    if(out_B STREQUAL "" AND "$ENV{THINK_CORPUSHASH_STRICT}" STREQUAL "")
+      message("SKIP  no reference for ${KEY}")
+      return()
+    endif()
+  endif()
 
   if(NOT out_A STREQUAL out_B)
     # Line by line with string(FIND) rather than as CMake lists: a list
@@ -148,6 +198,13 @@ if(HARNESS_B OR EXTRA_ARGS_B)
         math(EXPR differ "${differ} + 1")
       endif()
     endwhile()
+
+    if(REFERENCE)
+      get_filename_component(_name "${REFERENCE}" NAME_WE)
+      message(FATAL_ERROR "${differ} line(s) differ from ${held} over "
+                          "${count} ${MODE} files. If the change is meant, "
+                          "the ${_name}-update target rewrites it.")
+    endif()
 
     message(FATAL_ERROR "${differ} line(s) differ between ${HARNESS} and "
                         "${HARNESS_B} ${EXTRA_ARGS_B} over ${count} ${MODE} "

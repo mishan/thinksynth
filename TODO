@@ -15,9 +15,7 @@ In order. Each is described where it points.
    (docs/JAM_BACKLOG.md §0)
 2. The page reads its build hash, and the hello carries it.
    (docs/JAM_BACKLOG.md §4.1)
-3. A gate that compares rendered audio against a reference, and one on
-   instruction counts.  (Coverage, below)
-4. The rest of the relay's gaps.
+3. The rest of the relay's gaps.
    (docs/JAM_BACKLOG.md §9)
 
 
@@ -107,21 +105,6 @@ Coverage
 - thSynthTree::buildSynthTree walks the graph recursively with a recalc flag
   rather than a proper topological order. An editor makes it easy to build
   pathological graphs.
-
-- Nothing gated compares rendered audio against a reference. dspcheck asserts
-  a render is deterministic and dsplevel asserts it is inside the rails;
-  neither notices it becoming a *different* sound. Found by accident: making
-  every channel of the mix read out0 passed all thirteen ctest gates, and a
-  bitwise dump of the corpus caught it in one line. dspab does this across two
-  sets of plugins, and cannot do it across two builds of libthink, which is
-  where a change to the mix loop lives. scripts/dspbench -o dumps a played
-  scale's output from whichever build runs it, so two builds can be compared
-  with cmp; what is missing is a gate that does it against a reference.
-
-- Nothing gates performance. Wall time spreads up to 11% run to run and
-  instruction counts under 0.005%, so callgrind's count over three or four
-  pieces, held to a committed baseline, would catch a regression wall time
-  cannot.
 
 - gen/README.md's first line spells out how many pieces there are, and it
   has drifted from the count more than once. gencheck already
