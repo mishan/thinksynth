@@ -2450,14 +2450,14 @@ thcGenLoader::parseChain (thcScheduler *sched)
 /* ---- arithmetic over signals -------------------------------------------
  *
  * See the declarations in thcGenFile.h. The shape of these three functions
- * is thinklang.yy's, rule for rule, so that `a - b - c' and `a / b / c'
+ * is thDspParser.cpp's, rule for rule, so that `a - b - c' and `a / b / c'
  * group the same way in both languages -- to the left, as in arithmetic.
  * One language should not read two ways depending on which file it is in.
  *
  * It did once. `-60 + 100' was 40 here and -160 there, because .dsp put its
  * unary minus at the top of an expression where it scoped over everything to
- * the right, and parseExprFactor binds it to its operand. thinklang.yy has a
- * `factor: SUB factor' now and the two agree; exprcheck and gencheck fold the
+ * the right, and parseExprFactor binds it to its operand. thDspParser.cpp binds
+ * it the same way now and the two agree; exprcheck and gencheck fold the
  * same list of expressions so that they go on agreeing.
  */
 

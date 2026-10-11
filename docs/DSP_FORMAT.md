@@ -1,7 +1,7 @@
 # The `.dsp` and `.patch` formats
 
-The DSP language is parsed by bison/flex (`libthink/thinklang.yy`,
-`thinklex.ll`). It is a node-graph description language, which is why the node
+The DSP language is parsed by recursive descent
+(`libthink/thDspParser.cpp`) over a flex lexer (`thinklex.ll`). It is a node-graph description language, which is why the node
 editor maps onto it with essentially no impedance mismatch.
 
 The lexer is shared with the `.gen` format (`libthink/thLexer.h`): one scanner

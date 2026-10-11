@@ -1191,14 +1191,11 @@ int main (int argc, char **argv)
             ok("a unit inside arithmetic is a parse error");
     }
 
-    /* The other way a parse gives up partway, and the reason the grammar
-     * grew %destructor declarations: YYERROR unwinds the stack, and a
-     * failure from inside a node body leaves the node's name, its plugin's
-     * name and the arg's name on it. The arithmetic case above is what
-     * found that; this one is here because the plugin-load failure stopped
-     * freeing by hand when the destructors took the job, and a double free
-     * would look exactly like a pass until asan ran. Both paths are
-     * exercised, and the CI job with detect_leaks=1 is the assertion. */
+    /* The other way a parse gives up partway: a plugin that will not load,
+     * after the node's body has been read into a node that never joins the
+     * tree. A leak or a double free there would look exactly like a pass
+     * until asan ran. Both paths are exercised, and the CI job with
+     * detect_leaks=1 is the assertion. */
     {
         writeOrFail(wrap("", "node osc gen::no_such_plugin {\n"
                              "    freq = ionode->note;\n"

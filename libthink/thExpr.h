@@ -117,8 +117,8 @@ THINK_API bool thExprPlugin (const thExprNode *e, const char *&path,
  * denominator is a non-finite result, and the guard in thMidiChan reports
  * one at the voice that produced it.
  *
- * That last rule reaches .gen and not .dsp. thinklang.yy folds two numbers
- * in its own action before it ever builds a node, so `a = 1 / 0' in a .dsp
+ * That last rule reaches .gen and not .dsp. thDspParser.cpp folds two numbers
+ * itself before it ever builds a node, so `a = 1 / 0' in a .dsp
  * is the infinity it has always been, which is what keeps the corpus
  * rendering as it did; .gen has no such shortcut and gets the node. Both
  * are deliberate, and exprcheck and gencheck pin one each. */

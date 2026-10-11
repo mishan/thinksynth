@@ -29,8 +29,8 @@
 /* The thinklang lexical layer, on its own, for everyone who reads a
  * thinklang-shaped file.
  *
- * There are two such readers and there will not be a third: the bison
- * grammar in thinklang.yy, which builds a thSynthTree out of `.dsp', and
+ * There are two such readers and there will not be a third: the recursive
+ * descent in thDspParser.cpp, which builds a thSynthTree out of `.dsp', and
  * thcGenLoader's recursive descent in src/, which builds scheduler chains
  * out of `.gen'. They were written years apart and the second one
  * reproduced the first one's lexer by hand -- faithfully, and with the

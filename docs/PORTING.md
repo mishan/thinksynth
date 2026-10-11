@@ -80,7 +80,7 @@ cmake/
   GtkRuntime.cmake          GTK data files for bundles
   Packaging.cmake           CPack + the dependency closure
   RunHarness.cmake          drives the harnesses under CTest
-libthink/CMakeLists.txt     bison/flex targets, SHARED lib, export header
+libthink/CMakeLists.txt     flex target, SHARED lib, export header
 plugins/CMakeLists.txt      one think_add_plugin_category() line per category
 src/CMakeLists.txt          app + gui
 scripts/CMakeLists.txt      the harnesses, and which of them are CTest gates
@@ -98,10 +98,9 @@ Three rules worth keeping:
 - **Plugin lists stay explicit**, one entry per plugin, never `file(GLOB)`. The
   exclusion of `input/`, `fft/` and `test/` is load-bearing — see
   [DSP_FORMAT.md](DSP_FORMAT.md#5-known-bad-files).
-- **Generated sources live in the build tree.** `bison_target(... DEFINES_FILE
-  ...)` and `flex_target()` replace the whole `build.mk` bison dance, including
-  the `.SECONDARY` workaround that stopped make deleting the generated sources
-  every build.
+- **Generated sources live in the build tree.** `flex_target()` replaces the
+  whole `build.mk` dance, including the `.SECONDARY` workaround that stopped
+  make deleting the generated sources every build.
 - **`RunHarness.cmake` filters the corpus by file *content*, not by name**, so
   the known-bad exclusions cannot go stale.
 
@@ -203,10 +202,9 @@ limited to `master` and a `concurrency` group cancels superseded runs.
 
 ## 5. Traps worth knowing before you hit them
 
-- **Apple ships bison 2.3 and flex 2.5.35.** `/usr/bin/bison` is a GPLv2-era
-  fossil that does not understand `--defines=`. Homebrew's `bison` and `flex` are
-  keg-only, so `$(brew --prefix bison)/bin` has to go on `PATH` explicitly. This
-  catches everyone once.
+- **Apple ships flex 2.5.35.** Homebrew's `flex` is keg-only, so
+  `$(brew --prefix flex)/bin` has to go on `PATH` explicitly. This catches
+  everyone once.
 - **No MSVC, and it is gtkmm that decides that**, not preference. The VLAs
   (eleven sites) and `-fvisibility` idioms follow from the same choice.
 - **Hosted CI runners have no audio device.** The harnesses are headless by

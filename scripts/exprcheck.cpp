@@ -1047,8 +1047,8 @@ int main (int argc, char **argv)
                `50% - 3' is either the percentage and a subtraction -- which
                carries a unit into arithmetic and is refused, as it always
                was -- or 50 modulo -3, which is 2 and parses. The refusal is
-               what says the grammar still reads it the first way. See the
-               %precedence block in thinklang.yy. */
+               what says the grammar still reads it the first way. See
+               unitFactor in thDspParser.cpp. */
             { "a percentage inside arithmetic", "",
               "node osc osc::simple {\n    mul = 50% - 3;\n};\n" },
         };

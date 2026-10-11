@@ -59,16 +59,10 @@ struct thcGenToken
 
 /* Loads a .gen file into a scheduler. See docs/GEN_FORMAT.md for the language.
  *
- * A hand-rolled recursive-descent parser rather than the bison/flex
- * additions to thinklang.yy, and the deviation is deliberate.
- * thinklang.yy builds a thSynthTree as it goes and folds `ms' into
- * *samples* inside the grammar -- engine semantics a .gen value must not
- * inherit. And the loader has to resolve stage names against thcPlugin
- * and build thcScheduler chains, both of which live in src/, which
- * libthink cannot see; a shared grammar would have meant a neutral AST
- * in libthink plus a second walker here. Recursive descent also says
- * what is wrong by name and line far better than yacc does, which for a
- * file format people hand-write is most of the job.
+ * Recursive descent, as .dsp's parser is (libthink/thDspParser.cpp), but
+ * a separate one: the loader resolves stage names against thcPlugin and
+ * builds thcScheduler chains, both of which live in src/, which libthink
+ * cannot see.
  *
  * The *lexical* layer is shared, and that is the half worth sharing. It
  * began here as a faithful copy of thinklex.ll's rules -- cheap to write
@@ -214,7 +208,7 @@ private:
      *
      * Grouping is .dsp's, `-' and `/' to the left, because one language
      * should not read two ways depending on which file it is in. See
-     * thinklang.yy.
+     * thDspParser.cpp.
      *
      * NULL having reported, on a syntax error. A caller that is not sure
      * whether it is looking at an expression at all calls parseExpr()
