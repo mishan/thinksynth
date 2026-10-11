@@ -13,13 +13,14 @@ add_library(think_nodemodel OBJECT
     NodeEdit.cpp
     NodeLayout.cpp
     NodeCatalog.cpp
-    NodeMutate.cpp)
+    NodeMutate.cpp
+    NodeEvolve.cpp)
 
 target_include_directories(think_nodemodel PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(think_nodemodel PUBLIC think)
+target_link_libraries(think_nodemodel PUBLIC think Threads::Threads)
 
 # The host side of the visual plugin ABI: dlopen, look up six symbols, clip and
 # call. Its own object library rather than a member of think_nodemodel because

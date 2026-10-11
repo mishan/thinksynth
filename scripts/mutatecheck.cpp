@@ -24,6 +24,8 @@
  * and the places an edit can go are found, that every edit it proposes is a
  * graph that parses, and -- the ablation in miniature -- that a graph with
  * a node taken out is offered exactly that node back in exactly that place.
+ * And the search over it (src/NodeEvolve.h), briefly: a tune that comes
+ * nearer, and a cancel that stops.
  *
  *   mutatecheck -p build/plugins/ -d dsp/
  */
@@ -34,12 +36,15 @@
 #include <string.h>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "think.h"
+#include "NodeEvolve.h"
 #include "NodeMutate.h"
 
 using std::string;
@@ -194,6 +199,72 @@ int main (int argc, char **argv)
              std::to_string(parsed) + " of " + std::to_string(all.size()));
     okOrFail(back, "a graph with its saturator taken out is offered it back, "
              "between the filter and the vca", "");
+
+    /* And the search that uses it, on a thread of its own: an enveloped
+       sine with its sustain moved, searched toward itself as written,
+       comes nearer; and a search cancelled stops. No choice genes -- no
+       waveform line -- so there is nothing to race and the tune is seconds. */
+    {
+        const string target =
+            "node ionode { channels = 1; out0 = vca->out; play = env->play; };\n"
+            "io ionode;\n"
+            "node freq misc::midi2freq { note = ionode->note; };\n"
+            "node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n"
+            "node filt filt::svf { in = osc->out; cutoff = 900; res = 0.4; };\n"
+            "node env env::adsr { a = 5 ms; d = 200 ms; s = 0.7; r = 100 ms;\n"
+            "    trigger = ionode->trigger; };\n"
+            "node vca mixer::mul { in0 = filt->out_low; in1 = env->out; };\n";
+        string scrambled = target;
+        const size_t d = scrambled.find("s = 0.7;");
+
+        if (d != string::npos)
+            scrambled.replace(d, strlen("s = 0.7;"), "s = 0.05;");
+
+        NodeEvolve::Job job;
+        NodeEvolve::Job::Spec spec;
+        string why, found;
+        double distance = 0;
+
+        spec.pluginPath = pluginPath;
+        spec.start = scrambled;
+        spec.targetGraph = target;
+        spec.generations = 20;
+
+        okOrFail(d != string::npos && job.start(spec, why),
+                 "a search starts", why);
+
+        for (int i = 0; i < 6000 && !job.done(); i++)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        const bool ok = job.result(found, distance, why);
+
+        okOrFail(ok && distance < job.started() * 0.5 && found != scrambled,
+                 "a tune moves the graph toward its target",
+                 std::to_string(job.started()) + " -> " +
+                 std::to_string(distance) + (ok ? "" : " (no result) ") +
+                 (job.done() ? "" : " (not done) ") + why);
+
+        NodeEvolve::Job grow;
+
+        spec.grow = true;
+        grow.start(spec, why);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        grow.cancel();
+
+        /* Promptly: a window waits on this when it closes. */
+        const auto asked = std::chrono::steady_clock::now();
+
+        while (!grow.done() &&
+               std::chrono::steady_clock::now() - asked <
+                   std::chrono::seconds(30))
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        const double took = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - asked).count();
+
+        okOrFail(grow.done() && took < 3, "a search that is cancelled stops "
+                 "within a few seconds", std::to_string(took) + " s");
+    }
 
     delete cut;
     delete tree;
