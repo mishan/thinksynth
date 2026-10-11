@@ -1458,6 +1458,54 @@ int main (int argc, char **argv)
                      "swap: taking the channel away still cuts it" + on, "");
         }
 
+        /* A key pressed again on the new graph is let go of on the old one:
+           a sequencer re-pressing a held key sends one note-off, for the
+           last press. After the old graph's release only the new one is
+           left, an octave up. And a monophonic graph sounds one key, so a
+           different key on the new graph lets go of what the old held. */
+        static const struct { const char *io; int again; double hz;
+                              const char *what; } handoffs[] = {
+            { "", 60, C5, "swap: a key pressed again on the new graph is let "
+                          "go of on the old one" },
+            { "    mono = 1;\n", 64, 659.2551,
+              "swap: on a monophonic graph, a new key on the new graph lets "
+              "go of what the old one held" },
+        };
+
+        for (const auto &h : handoffs)
+        {
+            Session m(pluginPath);
+
+            if (!writeFile(file, graph(h.io, "freq->out", "")) ||
+                !writeFile(octave, graph(h.io, "freq->out * 2", "")) ||
+                !m.load(file))
+            {
+                fail(h.what, "the graphs did not load");
+                continue;
+            }
+
+            m.synth.addNote(0, 60, 100);
+
+            const double one = rms(m.settled(16));
+
+            if (m.synth.loadTree(octave, 0, 100) == NULL)
+                fail(h.what, "the second graph did not load");
+
+            m.synth.addNote(0, h.again, 100);
+
+            /* One voice, at the new pitch: the old graph's, still held,
+               would be a second at the same level. */
+            vector<float> after = m.settled(40);
+
+            okOrFail(near(rms(after), one, 0.1) &&
+                     near(pitch(after, rate), h.hz, 0.02), h.what,
+                     num(rms(after)) + " against one voice's " + num(one) +
+                     ", " + num(pitch(after, rate)) + " Hz");
+        }
+
+        writeFile(file, graph("", "freq->out", ""));
+        writeFile(octave, graph("", "freq->out * 2", ""));
+
         /* The pedal is the channel's, whatever graph is on it: a note held
            by it across a swap comes up when it does. */
         Session s(pluginPath);
