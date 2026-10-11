@@ -805,11 +805,16 @@ Composer::startEvolve (const std::string &instrument,
     if (!playable(what, instrument))
         return false;
 
+    thcAuditioner::Instrument values;
+
     if (!sched_->graphText(what->channel, spec.start))
     {
         why = instrument + " has no graph here to evolve";
         return false;
     }
+
+    if (sched_->auditionInstrument(*what, values))
+        spec.startArgs = values.chanargs;
 
     if (!towardWav.empty())
         spec.targetWav = towardWav;
@@ -825,11 +830,15 @@ Composer::startEvolve (const std::string &instrument,
             why = towardInstrument + " has no graph here to move toward";
             return false;
         }
+
+        if (sched_->auditionInstrument(*toward, values))
+            spec.targetArgs = values.chanargs;
     }
 
     thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
 
     spec.pluginPath = pm ? pm->pluginPath() : std::string(PLUGIN_PATH);
+    spec.rate = synth_->getSampleRate();
     spec.grow = grow;
     spec.seed = sched_->masterSeed();
 

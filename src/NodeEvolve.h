@@ -138,6 +138,12 @@ public:
         string targetGraph;
         string targetWav;
 
+        /* The values an instrument sets on each graph, in the engine's
+           terms at `rate' -- a time folded to samples is folded at one --
+           so the search hears what the piece plays. */
+        vector<pair<string, float> > startArgs, targetArgs;
+        double rate = TH_DEFAULT_SAMPLES;
+
         bool grow = false;      /* the graph's shape too, not only its
                                    constants                              */
         unsigned int seed = 1;

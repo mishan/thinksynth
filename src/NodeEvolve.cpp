@@ -623,8 +623,8 @@ void Job::work (const Spec &spec)
     {
         synths.emplace_back(new thSynth(spec.pluginPath,
                                         TH_DEFAULT_WINDOW_LENGTH,
-                                        TH_DEFAULT_SAMPLES));
-        exs.emplace_back(new thsound::Extractor(TH_DEFAULT_SAMPLES));
+                                        (int)spec.rate));
+        exs.emplace_back(new thsound::Extractor((int)spec.rate));
     }
 
     thSynth &synth = *synths[0];
@@ -660,16 +660,16 @@ void Job::work (const Spec &spec)
                        ? -1 : thsound::detectNote(recording);
     const int at = detected >= 0 ? detected : 60;
 
-    /* `text' rendered as one note on `on', under a name of its own in the
-       registry inline graphs use. */
+    /* `text' rendered as one note on `on' with `args', under a name of its
+       own in the registry inline graphs use. */
     const auto render = [&] (thSynth &on, const string &text,
+                             const vector<pair<string, float> > &args,
                              vector<float> &mono)
     {
         const string name = "evolve#" + std::to_string(++serial) + ".dsp";
         thUtil::GraphHold hold = thUtil::addGraphText(name, text);
 
-        return thsound::renderNote(on, name, vector<pair<string, float> >(),
-                                   at, thsound::HOLD_WINDOWS,
+        return thsound::renderNote(on, name, args, at, thsound::HOLD_WINDOWS,
                                    thsound::TAIL_WINDOWS, mono);
     };
 
@@ -678,7 +678,7 @@ void Job::work (const Spec &spec)
 
     srand(1);
 
-    if (!render(synth, spec.start, mono))
+    if (!render(synth, spec.start, spec.startArgs, mono))
     {
         finish(false, "", 0, "the graph to evolve does not load");
         return;
@@ -688,7 +688,8 @@ void Job::work (const Spec &spec)
 
     srand(1);
 
-    if (!spec.targetGraph.empty() && !render(synth, spec.targetGraph, heard))
+    if (!spec.targetGraph.empty() &&
+        !render(synth, spec.targetGraph, spec.targetArgs, heard))
     {
         finish(false, "", 0, "the target graph does not load");
         return;
@@ -710,7 +711,7 @@ void Job::work (const Spec &spec)
         vector<float> got;
         thsound::Features f;
 
-        if (!render(*synths[w], source, got))
+        if (!render(*synths[w], source, spec.startArgs, got))
             return DEAD;
 
         exs[w]->extract(got, f);

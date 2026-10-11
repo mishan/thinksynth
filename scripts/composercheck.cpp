@@ -2105,7 +2105,8 @@ runExportMidi (const std::string &pluginPath)
         /* Evolve toward: one instrument tuned toward another's sound on a
            thread of its own, the result heard on its channel, and kept.
            The two are the same enveloped sine with a different sustain,
-           which a tune can find in seconds. */
+           which a tune can find in seconds -- and the target's is its
+           instrument's value, so it is heard only if values are. */
         auto graphWith = [] (const char *sustain)
         {
             return std::string(
@@ -2123,8 +2124,9 @@ runExportMidi (const std::string &pluginPath)
                 "name \"evolving\";\n"
                 "instrument pad {\n    dsp {\n" + graphWith("0.05") +
                 "    };\n};\n"
-                "instrument ref {\n    dsp {\n" + graphWith("0.7") +
-                "    };\n};\n"
+                "instrument ref {\n    dsp {\n"
+                "@sus = 0.05;\n@sus.min = 0;\n@sus.max = 1;\n" +
+                graphWith("@sus") + "    };\n    sus = 0.7;\n};\n"
                 "chain melody {\n"
                 "    stage s gen::eno_line { notes = \"A3\"; "
                 "period = 1 s; prob = 1; };\n"
@@ -2172,7 +2174,7 @@ runExportMidi (const std::string &pluginPath)
 
         const std::string text = readAll(win->workPath_);
 
-        check(kept && text.find("s = 0.05;") == std::string::npos &&
+        check(kept && text.find("s = 0.05; r") == std::string::npos &&
               win->sched_->instrument("pad") != NULL,
               "...and Keep writes it into the piece, which loads");
 
