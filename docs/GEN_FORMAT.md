@@ -918,13 +918,17 @@ hears up to `listen` (4 unless set) against the target and takes the nearest.
     stage g gen::grow { every = 20 s; depth = 4; target = "bell"; listen = 8; };
 ```
 
-Each step is still one untuned edit and a step back still the dice's, so the
-graph drifts toward the target rather than climbing to it; **Evolve toward**,
-below, is the climb. Live, the edits are heard on the ear's own thread and the
-step goes on when the answers are in, a fraction of a second later, so no note
-waits for it; offline, `genwav` hears them in the tick, and renders are
-deterministic, so a piece that leans replays as one that wanders does. Where the
-host has no ear, the first edit is taken.
+An edit arrives with its plugin's defaults, which are rarely what would bring it
+nearer, so each one heard is first tuned toward the target for `tune`
+generations (6 unless set; 0 for none) — only in the constants the edit added,
+with the search Evolve toward uses — and judged, and put on, as tuned. A step
+back is still the dice's, so the graph drifts toward the target rather than
+climbing to it; **Evolve toward**, below, is the climb. Tuning is a few dozen
+renders an edit, a few seconds a step: live, the edits are heard on the ear's
+own thread and the step goes on when the answers are in, so no note waits for
+it; offline, `genwav` hears them in the tick, and renders are deterministic, so
+a piece that leans replays as one that wanders does. Where the host has no ear,
+the first edit is taken, untuned.
 
 What grew is the performance's, not the piece's: the file never changes by
 itself, and a rewind puts the declared graph back. To keep a graph, select the

@@ -904,8 +904,22 @@ thcScheduler::ensureAuditioner (void)
 #ifndef __EMSCRIPTEN__
     if (auditioner_ == NULL && synth_ != NULL &&
         synth_->getPluginManager() != NULL)
+    {
         auditioner_ = new thcAuditioner(synth_->getPluginManager()->pluginPath(),
                                         (double)synth_->getSampleRate());
+        auditioner_->setTuner(tuner_);
+    }
+#endif
+}
+
+void
+thcScheduler::setTuner (const thcAuditioner::Tuner &fn)
+{
+    tuner_ = fn;
+
+#ifndef __EMSCRIPTEN__
+    if (auditioner_ != NULL)
+        auditioner_->setTuner(fn);
 #endif
 }
 
@@ -1077,7 +1091,8 @@ thcScheduler::hear (thcStage *stage, const char *target,
 
 int
 thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
-                           const char *target)
+                           const char *target, int tune,
+                           const std::string &from)
 {
 #ifdef __EMSCRIPTEN__
     return -1;
@@ -1091,7 +1106,7 @@ thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
             return -1;
 
         return auditioner_->hear(candidate, "instrument:" + other->name,
-                                 &targetInstrument, "");
+                                 &targetInstrument, "", tune, from);
     }
 
     std::string file = target;
@@ -1108,14 +1123,16 @@ thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
         file = found;
     }
 
-    return auditioner_->hear(candidate, "file:" + file, NULL, file);
+    return auditioner_->hear(candidate, "file:" + file, NULL, file, tune,
+                             from);
 #endif
 }
 
 std::vector<int>
 thcScheduler::hearAll (const thcInstrument &inst,
                        const std::vector<std::string> &options,
-                       const std::string &target)
+                       const std::string &target, size_t tuned, int tune,
+                       const std::string &from)
 {
     std::vector<int> tickets(options.size(), -1);
 
@@ -1131,11 +1148,15 @@ thcScheduler::hearAll (const thcInstrument &inst,
         as.graphs.push_back(thUtil::addGraphText(as.dsp, options[i]));
 
         if (auditionInstrument(as, candidate))
-            tickets[i] = hearAgainst(candidate, target.c_str());
+            tickets[i] = hearAgainst(candidate, target.c_str(),
+                                     i < tuned ? tune : 0, from);
     }
 #else
     (void)inst;
     (void)target;
+    (void)tuned;
+    (void)tune;
+    (void)from;
 #endif
 
     return tickets;
@@ -1151,7 +1172,7 @@ thcScheduler::collect (Growth &g)
     {
         double d;
         const int r = g.tickets[i] < 0 || auditioner_ == NULL ? -1 :
-                      auditioner_->heard(g.tickets[i], &d);
+                      auditioner_->heard(g.tickets[i], &d, &g.tuned[i]);
 
         if (r == 0)
             all = false;
@@ -1177,6 +1198,7 @@ thcScheduler::forgetHearing (Growth &g)
 
     g.options.clear();
     g.optionWhats.clear();
+    g.tuned.clear();
     g.tickets.clear();
     g.distances.clear();
 }
@@ -2028,18 +2050,18 @@ thcScheduler::graphText (int channel, std::string &text) const
 bool
 thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
                               const std::string &kinds,
-                              const std::string &target, int listen,
+                              const std::string &target, int listen, int tune,
                               std::string &why)
 {
     return stepGraph(channel, shrink, NULL, choice, kinds, target, listen,
-                     why);
+                     tune, why);
 }
 
 bool
 thcScheduler::tryGraph (int channel, const std::string &text,
                         std::string &why)
 {
-    return stepGraph(channel, false, &text, 0, "", "", 0, why);
+    return stepGraph(channel, false, &text, 0, "", "", 0, 0, why);
 }
 
 thcScheduler::Growth *
@@ -2085,7 +2107,7 @@ thcScheduler::growthOf (int channel, std::string &why)
 bool
 thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
                          unsigned int choice, const std::string &kinds,
-                         const std::string &target, int listen,
+                         const std::string &target, int listen, int tune,
                          std::string &why)
 {
     Growth *g = growthOf(channel, why);
@@ -2130,7 +2152,9 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
 
     g->options = options;
     g->optionWhats = whats;
-    g->tickets = hearAll(*instrument(holding(channel)), heard, target);
+    g->tuned.assign(heard.size(), std::string());
+    g->tickets = hearAll(*instrument(holding(channel)), heard, target,
+                         options.size(), tune, g->texts.back());
     g->distances.assign(heard.size(), HUGE_VAL);
 
     /* Answered later on a live host, so the step is taken then and the
@@ -2158,7 +2182,8 @@ thcScheduler::takeHeard (int channel, Growth &g, std::string &why)
     step.from = step.heard[n];
     step.heard.pop_back();
 
-    const std::string text = g.options[step.taken];
+    const std::string text = g.tuned[step.taken].empty()
+                           ? g.options[step.taken] : g.tuned[step.taken];
     const std::string what = g.optionWhats[step.taken];
 
     forgetHearing(g);
@@ -3983,7 +4008,7 @@ thcScheduler::deliver (const thcEvent &ev)
                                 ev.u.grow.shrink != 0,
                                 ev.u.grow.kinds ? ev.u.grow.kinds : "",
                                 ev.u.grow.target ? ev.u.grow.target : "",
-                                ev.u.grow.listen, why))
+                                ev.u.grow.listen, ev.u.grow.tune, why))
                 fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
                         ev.channel + 1, why.c_str());
             break;

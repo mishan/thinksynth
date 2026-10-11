@@ -163,8 +163,11 @@ typedef enum {
      *
      * With a `target', the host hears up to `listen' of the edits from
      * `choice' on against it, as it hears breed's candidates, and takes
-     * the nearest: a walk that leans. Live, the step is taken once the
-     * answers are in, not when the event is. Without an ear, the first. */
+     * the nearest: a walk that leans. With `tune', each is first tuned
+     * toward the target, only in what the edit added, so it is judged as
+     * it could sound rather than as its defaults. Live, the step is taken
+     * once the answers are in, not when the event is. Without an ear, the
+     * first. */
     THC_EV_GROW
 } thcEventType;
 
@@ -227,6 +230,8 @@ typedef struct {
                                      sound file, or NULL or empty for
                                      none; copied                        */
             int          listen;  /* edits heard when there is a target  */
+            int          tune;    /* generations each is tuned toward it
+                                     first, where the host can           */
         } grow;
     } u;
     unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */

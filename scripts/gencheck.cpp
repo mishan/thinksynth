@@ -65,6 +65,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "NodeEvolve.h"
 #include "NodeMutate.h"
 #include "thcNodeHost.h"
 #include "thcAudition.h"
@@ -6532,7 +6533,8 @@ static std::string
 grownToward (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &aim, const std::string &target,
              int listen, bool sync, Interrupt interrupt = HEARD_OUT,
-             const std::function<void (thcScheduler &, int)> &then = NULL)
+             const std::function<void (thcScheduler &, int)> &then = NULL,
+             int tune = 0)
 {
     const std::string path = thUtil::tempFile("gencheck-toward-");
 
@@ -6547,7 +6549,8 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                "    sink { instrument = pad; };\n};\n"
                "chain shape {\n    stage g gen::grow { every = 2 s; depth = 1; "
                "shrink = 0; kinds = \"voice\"; listen = " << listen
-            << "; target = \"" << target << "\"; };\n"
+            << "; tune = " << tune << "; target = \"" << target
+            << "\"; };\n"
                "    sink { instrument = pad; };\n};\n";
     }
 
@@ -6568,6 +6571,7 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                                  std::string &why)
                         { return NodeMutate::grow(synth, text, base, choice,
                                                   kinds, want, g, w, why); });
+        sched.setTuner(NodeEvolve::tuneAdded);
 
         if (!loader.load(path, &sched))
             fail("the piece growing toward a target does not load");
@@ -6707,6 +6711,72 @@ checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
                 log.size() != 2 || log[1].depth != 0 || !log[1].what.empty())
                 fail("going back to the declared graph did not: " + why);
         });
+
+        /* The target is the edit with what it added moved well away, so
+           the edit as it comes is near it but not on it: tuned first, the
+           step lands nearer. */
+        std::string aim = options[i];
+        thSynthTree *before, *after;
+
+        {
+            thUtil::GraphHold a = thUtil::addGraphText("gencheck-base.dsp",
+                                                       base);
+            thUtil::GraphHold b = thUtil::addGraphText("gencheck-aim.dsp",
+                                                       aim);
+
+            before = synth->parseTree("gencheck-base.dsp");
+            after = synth->parseTree("gencheck-aim.dsp");
+        }
+
+        std::vector<NodeMutate::Gene> genes;
+        NodeMutate::Shape was;
+
+        if (before != NULL && after != NULL)
+        {
+            NodeMutate::read(before, base, NULL, &was);
+            NodeMutate::read(after, aim, &genes, NULL);
+        }
+
+        delete before;
+        delete after;
+
+        bool moved = false;
+
+        for (const NodeMutate::Gene &g : genes)
+            if (!moved && g.choices.empty() && !g.node.empty() &&
+                std::find(was.names.begin(), was.names.end(), g.node) ==
+                    was.names.end())
+                moved = NodeMutate::write(aim, g, NodeMutate::fromU(
+                            g, NodeMutate::toU(g, g.value) + 2.0));
+
+        double untuned = NAN, tuned = NAN;
+        bool playsTuned = false;
+
+        for (int t = 0; moved && t < 2; t++)
+            grownToward(plugins, synth, aim, "aim", 16, true, HEARD_OUT,
+                        [&] (thcScheduler &sched, int ch)
+            {
+                std::vector<std::string> stack;
+                std::vector<thcScheduler::GrowthStep> log;
+
+                std::string text;
+
+                if (sched.growth(ch, stack, log) && !log.empty())
+                    (t ? tuned : untuned) = log.back().distance;
+
+                if (t && sched.grownText(ch, text))
+                    playsTuned = std::find(options.begin(), options.end(),
+                                           text) == options.end();
+            }, t ? 6 : 0);
+
+        if (!moved)
+            fail("the second voice added no constant to move");
+        else if (!(tuned < untuned))
+            fail("an edit tuned before it was heard did not land nearer: " +
+                 std::to_string(tuned) + " dB tuned, " +
+                 std::to_string(untuned) + " untuned");
+        else if (!playsTuned)
+            fail("the channel plays an edit as it came, not as it was tuned");
 
         return;
     }

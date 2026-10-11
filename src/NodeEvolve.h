@@ -116,6 +116,16 @@ void tune (const Host &host, Candidate &c, std::mt19937 &rng, int generations);
 bool candidate (const Host &host, const string &source, const string &what,
                 Candidate &c, Shape *shape = NULL);
 
+/* What an edit added to `from' to make `text' -- the constants of nodes
+   `from' does not have -- tuned for `generations' toward what `distance'
+   measures, from where the edit put them; parsed on `synth'. `text' as it
+   is when the edit added no constant, or nothing nearer was found. For a
+   host growing toward a target, so an edit is judged as it could sound
+   rather than with whatever its plugin's defaults happen to be. */
+string tuneAdded (thSynth &synth, const string &from, const string &text,
+                  int generations,
+                  const std::function<double (const string &)> &distance);
+
 /* The graph itself: up to `rounds' of every single edit raced against the
    graph as it stands, the winner kept if it wins by enough, and then
    searchAll over what is left. 0, with `found', or 2 for a start that

@@ -394,6 +394,70 @@ bool candidate (const Host &host, const string &source, const string &what,
     return true;
 }
 
+string tuneAdded (thSynth &synth, const string &from, const string &text,
+                  int generations,
+                  const std::function<double (const string &)> &distance)
+{
+    static std::atomic<unsigned int> serial { 0 };
+    Host host;
+
+    host.score = [&] (const string &source, Distance *)
+    {
+        return distance(source);
+    };
+    host.scoreAll = [&] (const vector<string> &sources, vector<double> &out)
+    {
+        out.resize(sources.size());
+
+        for (size_t i = 0; i < sources.size(); i++)
+            out[i] = distance(sources[i]);
+    };
+    host.read = [&] (const string &source, vector<Gene> *genes, Shape *shape)
+    {
+        const string name = "tune#" + std::to_string(++serial) + ".dsp";
+        thUtil::GraphHold hold = thUtil::addGraphText(name, source);
+        thSynthTree *tree = synth.parseTree(name);
+
+        if (tree == NULL)
+            return false;
+
+        NodeMutate::read(tree, source, genes, shape);
+        delete tree;
+
+        return true;
+    };
+
+    Shape before;
+    Candidate c;
+
+    if (!host.read(from, NULL, &before) || !candidate(host, text, "", c))
+        return text;
+
+    /* Only what the edit brought: the rest is the graph the piece has. */
+    vector<Gene> added;
+    vector<double> at;
+
+    for (size_t g = 0; g < c.genes.size(); g++)
+        if (!c.genes[g].node.empty() &&
+            std::find(before.names.begin(), before.names.end(),
+                      c.genes[g].node) == before.names.end())
+        {
+            added.push_back(c.genes[g]);
+            at.push_back(c.at[g]);
+        }
+
+    if (added.empty())
+        return text;
+
+    std::mt19937 rng(1);
+    string found;
+    vector<double> bestAt;
+
+    search(host, text, added, at, 1.0, rng, generations, NULL, found, bestAt);
+
+    return found.empty() ? text : found;
+}
+
 int grow (const Host &host, const vector<Splice> &pool,
           const string &start, unsigned int seed, int generations,
           int rounds, string &found)

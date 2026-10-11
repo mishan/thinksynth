@@ -33,9 +33,11 @@
  *
  * Given a `target' -- an instrument of the piece or a sound file, as
  * breed's -- the walk leans: the host hears `listen' of the edits that
- * would do and takes the one that sounds nearest. Each step is still
- * one untuned edit, and a step back is still the dice's, so it drifts
- * toward the target rather than climbing to it. Offline the hearing is
+ * would do and takes the one that sounds nearest. An edit arrives with
+ * its plugin's defaults, which are rarely what would bring it nearer, so
+ * each is first tuned for `tune' generations -- only in what it added --
+ * and judged as tuned. A step back is still the dice's, so the graph
+ * drifts toward the target rather than climbing to it. Offline the hearing is
  * done in the tick and a piece replays as the plain walk does; live, as
  * with breed, the step lands on the tick its answers come in.
  */
@@ -46,7 +48,8 @@
 #include "thcomposer.h"
 #include "thcRandom.h"
 
-enum { P_EVERY, P_DEPTH, P_SHRINK, P_KINDS, P_TARGET, P_LISTEN, P_COUNT };
+enum { P_EVERY, P_DEPTH, P_SHRINK, P_KINDS, P_TARGET, P_LISTEN, P_TUNE,
+       P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -66,6 +69,8 @@ composer_init (thcComposerInfo *info)
           "toward; omit to wander", THC_PARAM_STRING, 0, 0, 0, "", NULL },
         { "listen", "edits heard each step toward `target', the nearest "
           "taken", THC_PARAM_INT, 1, 16, 4, NULL, NULL },
+        { "tune",   "generations each edit heard is tuned toward `target' "
+          "first; 0 for none", THC_PARAM_INT, 0, 40, 6, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -145,6 +150,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     ev.u.grow.listen = (int)std::min(std::max(p->get(p->ctx,
                                                      paramIndex[P_LISTEN]),
                                               1.0), 16.0);
+    ev.u.grow.tune = (int)std::min(std::max(p->get(p->ctx, paramIndex[P_TUNE]),
+                                            0.0), 40.0);
 
     st->depth += ev.u.grow.shrink ? -1 : 1;
 

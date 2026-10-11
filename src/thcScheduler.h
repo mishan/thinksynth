@@ -754,11 +754,12 @@ public:
        a host with a grower (setGrower). The grown graph is loaded as an
        inline graph is, under a name its text decides, and goes on as a
        swap does. With a `target', up to `listen' edits are heard against
-       it and the nearest is taken -- on a later step if the ear answers
+       it, each tuned toward it first for `tune' generations if a tuner is
+       set, and the nearest is taken -- on a later step if the ear answers
        later. False with `why' when it cannot be done. */
     bool growInstrument (int channel, unsigned int choice, bool shrink,
                          const std::string &kinds, const std::string &target,
-                         int listen, std::string &why);
+                         int listen, int tune, std::string &why);
 
     /* `text' on `channel' as growth would put it there, one step up the
        same stack: heard at once, gone with a step back or a rewind, and
@@ -779,6 +780,11 @@ public:
                                 std::string &why)> Grower;
 
     void setGrower (const Grower &fn) { grower_ = fn; }
+
+    /* What tunes each edit a growth toward a target hears, before it is
+       judged: NodeEvolve::tuneAdded, for a host that links the node model.
+       Set before the piece plays; the ear's thread reads it. */
+    void setTuner (const thcAuditioner::Tuner &fn);
 
     /* One change growth made to a channel, for a host to show. */
     struct GrowthStep
@@ -1517,24 +1523,27 @@ private:
            with the graph on the channel heard last. */
         std::vector<std::string> options;
         std::vector<std::string> optionWhats;
+        std::vector<std::string> tuned;     /* what the ear tuned each to */
         std::vector<int> tickets;
         std::vector<double> distances;
     };
 
     std::map<int, Growth> grown_;
     Grower grower_;
+    thcAuditioner::Tuner tuner_;
 
     /* growInstrument and tryGraph: one step up the channel's stack, to
        `given' or to what the grower makes, or one back. */
     bool stepGraph (int channel, bool shrink, const std::string *given,
                     unsigned int choice, const std::string &kinds,
-                    const std::string &target, int listen,
+                    const std::string &target, int listen, int tune,
                     std::string &why);
 
     /* `candidate' queued against `target' as hear() resolves it: an
        instrument of the piece, or a sound file. */
     int hearAgainst (const thcAuditioner::Instrument &candidate,
-                     const char *target);
+                     const char *target, int tune = 0,
+                     const std::string &from = std::string());
 
     /* The channel's stack, started from what it plays if it has none;
        NULL with `why' for a channel nothing can grow on. */
@@ -1553,10 +1562,12 @@ private:
     unsigned int growthSerial_ = 0;
 
     /* Each of `options', a graph in `inst''s place, queued against
-       `target': a ticket each, -1 for one that cannot be heard. */
+       `target', the first `tuned' to be tuned for `tune' generations as
+       grown from `from': a ticket each, -1 for one that cannot be heard. */
     std::vector<int> hearAll (const thcInstrument &inst,
                               const std::vector<std::string> &options,
-                              const std::string &target);
+                              const std::string &target, size_t tuned,
+                              int tune, const std::string &from);
 
     /* `g''s answers that are in; true once all are. */
     bool collect (Growth &g);

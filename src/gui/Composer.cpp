@@ -292,6 +292,7 @@ Composer::start (void)
                std::string &why)
         { return NodeMutate::grow(synth_, text, base, choice, kinds, want,
                                   grown, w, why); });
+    sched_->setTuner(NodeEvolve::tuneAdded);
     sched_->setInstrumentLoader(
         [this](const thcInstrument &inst, std::string &why)
         { return loadInstrument(inst, why); });
@@ -1068,7 +1069,7 @@ Composer::onEvolve (void)
                 evolveState_->set_text("it is no longer on the channel");
             else
                 evolveState_->set_text(
-                    sched_->growInstrument(what->channel, 0, true, "", "", 0,
+                    sched_->growInstrument(what->channel, 0, true, "", "", 0, 0,
                                            why)
                     ? "put back as it was" : why);
 
