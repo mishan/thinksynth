@@ -650,14 +650,14 @@ void Job::work (const Spec &spec)
     string unread;
 
     if (!spec.targetWav.empty() &&
-        !thsound::readWav(spec.targetWav, recording, unread))
+        !thsound::readWav(spec.targetWav, recording, unread, spec.rate))
     {
         finish(false, "", 0, unread);
         return;
     }
 
     const int detected = recording.empty()
-                       ? -1 : thsound::detectNote(recording);
+                       ? -1 : thsound::detectNote(recording, spec.rate);
     const int at = detected >= 0 ? detected : 60;
 
     /* `text' rendered as one note on `on' with `args', under a name of its

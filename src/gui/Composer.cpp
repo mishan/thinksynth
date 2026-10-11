@@ -838,7 +838,7 @@ Composer::startEvolve (const std::string &instrument,
     thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
 
     spec.pluginPath = pm ? pm->pluginPath() : std::string(PLUGIN_PATH);
-    spec.rate = synth_->getSampleRate();
+    spec.rate = synth_ ? synth_->getSampleRate() : TH_DEFAULT_SAMPLES;
     spec.grow = grow;
     spec.seed = sched_->masterSeed();
 
