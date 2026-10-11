@@ -6121,7 +6121,9 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
     const std::string path = thUtil::tempFile("gencheck-inline-");
 
     {
-        std::ofstream out(path.c_str(), std::ios::trunc);
+        /* Binary: the read-back below compares bytes, and text mode on
+           Windows would write every newline as two. */
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
 
         out << "seed 7;\ninstrument pad {\n    dsp {\n" << amb01
             << "\n    };\n    fmin = 0.06;\n    effect {\n        dsp {\n"
