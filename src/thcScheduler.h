@@ -767,6 +767,19 @@ public:
 
     void setGrower (const Grower &fn) { grower_ = fn; }
 
+    /* The graph growth has put on `channel', as text, or false while the
+       channel holds what the piece declares. What Keep writes into it. */
+    bool grownText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.texts.size() < 2)
+            return false;
+
+        text = g->second.texts.back();
+        return true;
+    }
+
     /* Which instrument `channel' is holding: the last one swapped onto
        it, or the one whose declaration owns it, or empty for a channel
        this piece has no instrument on. The host asks so that a reload

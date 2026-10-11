@@ -910,6 +910,13 @@ home rather than only getting bigger. Each graph goes on as a swap does, so
 what is sounding finishes on the one it started on. A host that does not link
 the node model — the Node build — refuses growth and says so.
 
+What grew is the performance's, not the piece's: the file never changes by
+itself, and a rewind puts the declared graph back. To keep a graph, select the
+`gen::grow` stage in the Composer and press **Keep the grown graph**, which
+writes it into the piece as the instrument's `dsp { ... }` — over its file name
+if it had one — and reloads; from then on that is what the piece declares, and
+growth goes on from there.
+
 **All three are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
 the seed, so a piece sounds the same twice; and drawn on the roll, so you can

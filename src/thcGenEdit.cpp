@@ -2320,19 +2320,27 @@ swapGraph (const std::string &filename, const std::string &name,
     return thcGenEdit::NOT_FOUND;
 }
 
-/* The `{' to the `}' of an instrument's inline graph, or NOT_FOUND. */
+/* The `{' to the `}' of an instrument's inline graph, or NOT_FOUND. With
+   `file', the quoted name of one whose graph is a file will do too, and
+   `inlined' says which it was. */
 static R
 findInlineGraph (const Index &ix, const std::string &name, size_t &a,
-                 size_t &b, std::string &why)
+                 size_t &b, std::string &why, bool file = false,
+                 bool *inlined = NULL)
 {
     for (size_t i = 0; i < ix.instruments.size(); i++)
         if (ix.instruments[i].name == name)
         {
-            if (!ix.instruments[i].dspInline)
+            if (!ix.instruments[i].dspInline &&
+                (!file || ix.instruments[i].dspB == 0))
                 break;
 
             a = ix.instruments[i].dspA;
             b = ix.instruments[i].dspB;
+
+            if (inlined != NULL)
+                *inlined = ix.instruments[i].dspInline;
+
             return thcGenEdit::OK;
         }
 
@@ -2366,17 +2374,22 @@ thcGenEdit::setInlineGraph (const std::string &filename,
     std::string text;
     Index ix;
     size_t a = 0, b = 0;
+    bool inlined = true;
     R r = loadIndexed(filename, text, ix, why);
 
     if (r == OK)
-        r = findInlineGraph(ix, name, a, b, why);
+        r = findInlineGraph(ix, name, a, b, why, true, &inlined);
 
     if (r != OK)
         return r;
 
     std::vector<Edit> edits;
 
-    edits.push_back({ a + 1, b - 1, body });
+    /* Between the braces, or the file's name replaced by braces. */
+    if (inlined)
+        edits.push_back({ a + 1, b - 1, body });
+    else
+        edits.push_back({ a, b, "{" + body + "}" });
 
     return finish(filename, text, edits, why);
 }

@@ -669,6 +669,43 @@ Composer::inlineGraph (const std::string &name, std::string &instrument,
 }
 
 bool
+Composer::keepGrown (size_t ci, std::string &why)
+{
+    if (!started_ || ci >= doc_.chains.size())
+        return false;
+
+    std::string inst;
+
+    for (const thcGenEdit::Sink &sink : doc_.chains[ci].sinks)
+        if (!sink.instrument.empty() && sink.chanarg.empty())
+            inst = sink.instrument;
+
+    const thcInstrument *declared = inst.empty() ? NULL
+                                                 : sched_->instrument(inst);
+    std::string text;
+
+    if (declared == NULL)
+    {
+        why = "chain " + doc_.chains[ci].name + " plays no instrument";
+        return false;
+    }
+
+    if (!sched_->grownText(declared->channel, text))
+    {
+        why = inst + " has not grown";
+        return false;
+    }
+
+    if (thcGenEdit::setInlineGraph(workPath_, inst, "\n" + text + "\n",
+                                   why) != thcGenEdit::OK)
+        return false;
+
+    scheduleReload(true);
+
+    return true;
+}
+
+bool
 Composer::setInlineGraph (const std::string &instrument,
                           const std::string &body, std::string &name,
                           std::string &why)
@@ -3952,6 +3989,29 @@ Composer::buildStageSelection (size_t ci, size_t si)
             [this, ci, si] { captureStage(ci, si); });
 
         selBox_->append(*cap);
+    }
+
+    /* What a growing stage has made of its instrument, kept: a decision
+       about the piece, as a capture is, and so a button here and nothing
+       the stage does by itself. */
+    if (stage.category == "gen" && stage.plugin == "grow")
+    {
+        Gtk::Button *keep = manage(new Gtk::Button("Keep the grown graph"));
+
+        keep->set_tooltip_text("Write the graph the instrument has grown "
+                               "into the piece, as its dsp { }");
+
+        keep->signal_clicked().connect(
+            [this, ci]
+            {
+                std::string why;
+
+                status_->set_text(keepGrown(ci, why)
+                                  ? "kept into the piece; Save to keep it"
+                                  : why);
+            });
+
+        selBox_->append(*keep);
     }
 
     Gtk::Button *rm = manage(new Gtk::Button("Remove stage"));
