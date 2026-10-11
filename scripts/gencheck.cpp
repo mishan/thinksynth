@@ -6606,8 +6606,12 @@ static void
 checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
 {
-    const std::string base = slurp(thUtil::findDataFile(
-        "bass.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH));
+    /* Binary, as the scheduler reads it: a CRLF checkout's graph is
+       another text in text mode. */
+    std::ifstream in(thUtil::findDataFile("bass.dsp", "dsp", "THINK_DSP_PATH",
+                                          DSP_PATH).c_str(), std::ios::binary);
+    const std::string base((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
     std::vector<std::string> options;
     std::string why;
 
