@@ -6241,6 +6241,59 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                  ":3: 'ms' cannot be used in arithmetic");
 }
 
+/* One mistake, one error. Four here, each inside a block -- an instrument,
+ * an effect inside one, a stage -- where skipping on from the mistake
+ * rather than past the block used to read the block's tail as statements
+ * of its own, and a sink naming the instrument that failed said it was
+ * never declared. */
+static void
+checkOneErrorEach (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-errors-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "seed 1;\n"
+               "instrument pad {\n    dsp 5;\n    a = 1;\n};\n"
+               "instrument keys {\n    dsp \"rhodes.dsp\";\n"
+               "    effect { dsp { node o osc::simple { amp = 5 ms + 1; }; }; "
+               "mix = 1; };\n    amp = 30;\n};\n"
+               "chain c {\n"
+               "    stage s gen::eno_line { notes = \"A3\"; period = 2; };\n"
+               "    sink { instrument = keys; };\n};\n"
+               "chain d {\n"
+               "    stage s gen::eno_line { notes = \"A3\"; period = 1 s; "
+               "bogus = 3; vel = 4; };\n"
+               "    sink { channel = 1; };\n};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (loader.load(path, &sched))
+        fail("a file with four mistakes loaded");
+    else
+    {
+        static const char *const lines[] = { ":3:", ":8:", ":12:", ":16:" };
+        bool each = loader.errors().size() == 4;
+
+        for (size_t i = 0; each && i < 4; i++)
+            each = loader.errors()[i].find(lines[i]) != std::string::npos;
+
+        if (!each)
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("four mistakes are not four errors, one on each line");
+        }
+    }
+
+    std::remove(path.c_str());
+}
+
 static void
 checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
                      thSynth *synth, const std::string &genFile)
@@ -13813,6 +13866,7 @@ main (int argc, char *argv[])
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkInlineGraph(plugins, &synth);
+    checkOneErrorEach(plugins, &synth);
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkThrow(plugins, &synth);

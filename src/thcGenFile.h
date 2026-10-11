@@ -20,6 +20,7 @@
 #define THCGENFILE_H
 
 #include <map>
+#include <set>
 #include <utility>
 #include <string>
 #include <vector>
@@ -317,6 +318,7 @@ private:
        the graph does not declare) is reported against the block that
        asked for it, like every other error in this file. */
     std::map<std::string, size_t> instruments_;
+    std::set<std::string>         failedInstruments_;
     std::vector<int>              instrumentLines_;
 
     /* Channels claimed outright by a `channel = N' sink, and the sinks
