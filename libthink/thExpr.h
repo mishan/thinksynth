@@ -111,12 +111,8 @@ THINK_API bool thExprPlugin (const thExprNode *e, const char *&path,
 
 /* Constructors. Each takes ownership of the nodes handed to it.
  *
- * thExprOp and thExprCall fold when every operand is a CONST, which is what
- * keeps `a = 5 * 2' one number and no nodes. A fold that would divide by
- * zero is left as a tree instead: math::div's own description says a zero
- * denominator is a non-finite result, and the guard in thMidiChan reports
- * one at the voice that produced it.
- *
+ * thExprCall folds when every argument is a CONST, which is what keeps
+ * `a = exp2(2)' one number and no node. thExprOp does not fold:
  * thDspParser.cpp, which reads both .dsp and .gen arithmetic, folds two
  * numbers itself before it builds a node, so `1 / 0' is the infinity it has
  * always been in either file -- which is what keeps the corpus rendering as

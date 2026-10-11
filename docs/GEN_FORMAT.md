@@ -775,9 +775,12 @@ preset, an instrument set); a *folded* expression on a duration, which is a
 bare number and needs a unit like any other (an expression with a signal in it
 carries no unit and is not asked for one, exactly as a knob and a node are
 not); a knob that was never declared; a function that does not exist or is
-given the wrong number of arguments; a unit anywhere in the arithmetic, since
-what a unit means depends on the param it lands on (write the param a plain
-value with its unit instead).
+given the wrong number of arguments; a unit anywhere but on a duration.
+
+A duration may be scaled, as in a `.dsp`: `period = 2 * 0.5 s` is `period = 1
+s`, and `ms`, `s` and `beats` all work this way (not `b`, which only a plain
+value spells). A unit survives multiplying or dividing a number and nothing
+else, so `1 s + 500 ms` is refused rather than given a unit of its own.
 
 `%` between two numbers is `.dsp`'s modulo, `100 % 60` being 40; over a signal it
 is refused, since there is no node for it. On an instrument value it is still

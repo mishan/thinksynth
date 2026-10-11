@@ -235,7 +235,9 @@ private:
        definition for why a lookahead rather than a try-and-backtrack. */
     bool aheadIsExpression (void) const;
 
-    thExprNode *parseExpr (thcScheduler *sched);
+    /* `units', if given, receives the unit a folded number carries (`2 *
+       0.5 s'); without it a unit is refused. */
+    thExprNode *parseExpr (thcScheduler *sched, const char **units = NULL);
 
     /* The math:: nodes `e' stands for, added to `host' and named
        `<base>#1', `<base>#2'... `out' names where the result is read
