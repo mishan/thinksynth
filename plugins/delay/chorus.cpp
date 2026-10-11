@@ -115,6 +115,18 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
  * arithmetic can hold. */
 #define CHORUS_FEEDBACK_MAX 0.95f
 
+/* The LFO is exact once every CHORUS_STEP samples and a straight line
+   between: a sine is half of what a tap costs, and at the top rate and
+   44.1 kHz a line 16 samples long is off by under 1e-4 of the depth. The
+   line is carried in `state' and not restarted each window, so the
+   window's length cannot be heard. */
+#define CHORUS_STEP 16
+
+/* [0] the write head, [1] the LFO's phase in turns, [2] samples left on
+   the line, [3] the taps it was drawn for, then each tap's sine and its
+   step a sample. */
+#define CHORUS_STATE (4 + 2 * CHORUS_TAPS_MAX)
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -218,7 +230,6 @@ int module_init (thPlugin *plugin)
     plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
-    /* [0] the write head, [1] the LFO's phase in turns. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     return 0;
@@ -236,6 +247,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     unsigned int i;
     unsigned int at;
     float phase;
+    int left = 0, drawn = 0, t;
+    float lfo[CHORUS_TAPS_MAX] = {}, slope[CHORUS_TAPS_MAX] = {};
 
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_rate = mod->getArg(node, args[IN_RATE]);
@@ -254,7 +267,20 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
        event: a running sum kept wider than it is stored comes out
        different at one sample a window than at five hundred. */
     phase = (*inout_state)[1];
-    state = inout_state->allocate(2);
+
+    if (inout_state->len() >= CHORUS_STATE)
+    {
+        left = (int)(*inout_state)[2];
+        drawn = (int)(*inout_state)[3];
+
+        for (t = 0; t < CHORUS_TAPS_MAX; t++)
+        {
+            lfo[t] = (*inout_state)[4 + t];
+            slope[t] = (*inout_state)[4 + CHORUS_TAPS_MAX + t];
+        }
+    }
+
+    state = inout_state->allocate(CHORUS_STATE);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
@@ -277,7 +303,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                                           CHORUS_FEEDBACK_MAX);
         unsigned int len;
         float wet = 0;
-        int t;
 
         /* The line has to hold the furthest any tap can reach, plus the
            sample the interpolation reads beyond it and the one being
@@ -292,6 +317,29 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (at >= len)
             at = 0;
 
+        /* A change in the number of taps redraws at once, since a tap that
+           was not running has no line to be on. */
+        if (left <= 0 || taps != drawn)
+        {
+            const double ahead = (double)(rate / (float)samples) * CHORUS_STEP;
+
+            for (t = 0; t < taps; t++)
+            {
+                /* Across half the cycle -- see the head for why not all
+                   of it. One tap is a doubler, two is the sound the name
+                   is for, three is a section. */
+                const double turn = (double)phase + (double)offset +
+                                    (double)t / (2 * taps);
+
+                lfo[t] = (float)thSinTurns(turn);
+                slope[t] = (float)((thSinTurns(turn + ahead) - lfo[t]) /
+                                   CHORUS_STEP);
+            }
+
+            left = CHORUS_STEP;
+            drawn = taps;
+        }
+
         /* A knob at zero is a graph paying for nothing. The line is
            still written and the LFO still turns -- so the knob can come
            up mid-note onto a line with something in it, rather than
@@ -300,13 +348,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
            into the line is what makes the next window's comb. */
         for (t = 0; t < taps && (mix > 0 || feedback != 0); t++)
         {
-            /* Across half the cycle -- see the head for why not all of
-               it. One tap is a doubler, two is the sound the name is
-               for, three is a section. */
-            const double turn = (double)phase + (double)offset +
-                                (double)t / (2 * taps);
-            const double swing = depth * thSinTurns(turn);
-            double back = delay + swing;
+            double back = delay + (double)(depth * lfo[t]);
             unsigned int whole;
             float frac, a, b;
 
@@ -358,12 +400,25 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         at = at + 1 == len ? 0 : at + 1;
         phase += rate / (float)samples;
 
+        for (t = 0; t < taps; t++)
+            lfo[t] += slope[t];
+
+        left--;
+
         if (phase >= 1.0f || phase < 0.0f)
             phase -= floorf(phase);
     }
 
     state[0] = (float)at;
     state[1] = phase;
+    state[2] = (float)left;
+    state[3] = (float)drawn;
+
+    for (t = 0; t < CHORUS_TAPS_MAX; t++)
+    {
+        state[4 + t] = lfo[t];
+        state[4 + CHORUS_TAPS_MAX + t] = slope[t];
+    }
 
     return 0;
 }
