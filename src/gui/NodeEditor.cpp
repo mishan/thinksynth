@@ -642,6 +642,18 @@ bool NodeEditor::startWorkingCopy (const string &source)
     return copyFile(source, work_);
 }
 
+void NodeEditor::markGrown (const std::set<string> &names)
+{
+    canvas_.setMarked(names);
+    canvas_.queue_draw();
+    setStatus(names.empty()
+              ? string("Grown, with nothing added to the declared graph; "
+                       "Save writes it into the piece.")
+              : "Grown: " + std::to_string(names.size()) + " node" +
+                (names.size() == 1 ? "" : "s") + " added to the declared "
+                "graph, in green; Save writes it into the piece.");
+}
+
 bool NodeEditor::openInline (const string &name, const string &body,
                              int chan, const InlineSave &save)
 {

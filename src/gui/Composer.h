@@ -21,6 +21,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -177,6 +178,12 @@ public:
        not load an inline graph under. */
     bool inlineGraph (const std::string &name, std::string &instrument,
                       std::string &body);
+
+    /* The instrument growth or a search has put the graph loaded under
+       `name' on, that graph's text, and the nodes it has that the
+       instrument's declared graph does not. False for any other name. */
+    bool grownGraph (const std::string &name, std::string &instrument,
+                     std::string &body, std::set<std::string> &added);
 
     /* What gen::grow has made of the instrument chain `ci' plays, written
        into the piece as that instrument's `dsp { ... }' -- over a file's

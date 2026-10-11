@@ -678,6 +678,59 @@ Composer::inlineGraph (const std::string &name, std::string &instrument,
 }
 
 bool
+Composer::grownGraph (const std::string &name, std::string &instrument,
+                      std::string &body, std::set<std::string> &added)
+{
+    for (size_t i = 0; started_ && i < sched_->instruments().size(); i++)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+        std::string declared;
+
+        if (!sched_->grownText(inst.channel, body) ||
+            thcGenLoader::inlineGraphName(inst.name, body) != name)
+            continue;
+
+        instrument = inst.name;
+        added.clear();
+
+        /* By the names of its nodes, as each graph's parse has them. */
+        std::set<std::string> was;
+        const auto names = [this] (const std::string &text,
+                                   std::set<std::string> &out)
+        {
+            static unsigned int serial = 0;
+            const std::string as = "grown-view#" + std::to_string(++serial) +
+                                   ".dsp";
+            thUtil::GraphHold hold = thUtil::addGraphText(as, text);
+            thSynthTree *tree = synth_->parseTree(as);
+
+            if (tree == NULL)
+                return;
+
+            for (const auto &n : tree->nodes())
+                out.insert(n.first);
+
+            delete tree;
+        };
+
+        if (sched_->declaredText(inst.channel, declared))
+            names(declared, was);
+
+        std::set<std::string> now;
+
+        names(body, now);
+
+        for (const std::string &n : now)
+            if (!was.count(n))
+                added.insert(n);
+
+        return true;
+    }
+
+    return false;
+}
+
+bool
 Composer::keepGrown (size_t ci, std::string &why)
 {
     if (!started_ || ci >= doc_.chains.size())

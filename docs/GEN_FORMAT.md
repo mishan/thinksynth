@@ -943,6 +943,11 @@ writes that one. A stage with a `target` adds a plot below: each step's edits
 heard as dots, the one taken filled, and the graph on the channel as a line,
 nearer the target higher, with how far it is now and how far it began.
 
+The channel's node editor shows a grown graph — or a result Evolve toward put on
+the channel — with the nodes it added to the declared graph titled in green, and
+follows each step as it lands. Saving it there writes it into the piece as Keep
+does, with whatever was edited.
+
 **All three are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
 the seed, so a piece sounds the same twice; and drawn on the roll, so you can

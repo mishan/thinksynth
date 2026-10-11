@@ -966,6 +966,39 @@ int run (const string &pluginPath, const char *file)
            !std::filesystem::exists("pad#1.dsp"),
            "and writes no file under either name");
 
+        /* A node marked as grown is drawn otherwise than when it is not. */
+        NodeGraph shown = ed4->graph();
+        NodeCanvas canvas;
+        string plain;
+
+        canvas.setGraph(&shown);
+        canvas.setZoom(1.0);
+
+        for (const NodeGraph::Box &b : shown.boxes())
+            if (!b.isIoSource && !b.isIoSink && !b.isControl && !b.isExpr &&
+                !b.isProbe && b.attachedTo < 0)
+                plain = b.name;
+
+        const auto picture = [&canvas] ()
+        {
+            Cairo::RefPtr<Cairo::ImageSurface> s =
+                Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                            1000, 600);
+            Cairo::RefPtr<Cairo::Context> cr = Cairo::Context::create(s);
+
+            canvas.drawGraph(cr, 1000, 600);
+            s->flush();
+
+            return string((const char *)s->get_data(),
+                          (size_t)s->get_stride() * 600);
+        };
+        const string unmarked = picture();
+
+        canvas.setMarked({ plain });
+
+        ok(!plain.empty() && picture() != unmarked,
+           "a node marked as grown is drawn as one");
+
         w4->set_visible(false);
         delete w4;
     }

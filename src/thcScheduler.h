@@ -835,6 +835,18 @@ public:
         return true;
     }
 
+    /* The graph growth on `channel' started from, while it has grown. */
+    bool declaredText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.texts.size() < 2)
+            return false;
+
+        text = g->second.texts[0];
+        return true;
+    }
+
     /* Which instrument `channel' is holding: the last one swapped onto
        it, or the one whose declaration owns it, or empty for a channel
        this piece has no instrument on. The host asks so that a reload

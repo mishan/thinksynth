@@ -70,6 +70,7 @@
 #include "gthSignal.h"
 #include "gui/ComposerCanvasWidget.h"
 #include "gui/Composer.h"
+#include "thcGenFile.h"
 #include "gthMidiOut.h"
 #include "thcMidiFile.h"
 #include "gui/ItemBrowser.h"
@@ -2063,6 +2064,27 @@ runExportMidi (const std::string &pluginPath)
               view->rows().size() == 2 && !view->rows()[1].empty(),
               "a gen::grow stage's view lists the edit that grew, in words, "
               "in each instrument its chain reaches");
+
+        /* The node editor's question about the channel's graph: whose it
+           is, and what growth added to it. */
+        std::string grownBody, owner, shown, declared;
+        std::set<std::string> added;
+
+        const bool found = grew != NULL &&
+            win->sched_->grownText(grew->channel, grownBody) &&
+            win->sched_->declaredText(grew->channel, declared) &&
+            win->grownGraph(thcGenLoader::inlineGraphName("pad", grownBody),
+                            owner, shown, added);
+        bool addedOnly = !added.empty();
+
+        for (const std::string &n : added)
+            addedOnly = addedOnly &&
+                        grownBody.find("node " + n + " ") != std::string::npos &&
+                        declared.find("node " + n + " ") == std::string::npos;
+
+        check(found && owner == "pad" && shown == grownBody && addedOnly,
+              "...and the node editor is told whose grown graph it is and "
+              "which nodes growth added");
 
         if (view != NULL)
             view->choose(0);
