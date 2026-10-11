@@ -1937,10 +1937,31 @@ runExportMidi (const std::string &pluginPath)
               "the Composer finds the instrument an inline graph is played "
               "under, and its text");
 
+        /* What the channel's pages do when the reload rebuilds them:
+           ask, from inside that rebuild, for the graph the channel plays
+           now. */
+        bool foundDuring = false;
+        const int padChannel = pad != NULL ? pad->channel : -1;
+        sigc::connection asking =
+            gthPatchManager::instance()->signal_patches_changed().connect(
+                [&]
+                {
+                    gthPatchManager::PatchFile *p =
+                        gthPatchManager::instance()->getPatch(padChannel);
+                    std::string i, b;
+
+                    if (p != NULL && win->inlineGraph(p->doc.dsp, i, b))
+                        foundDuring = true;
+                });
+
         const bool saved =
             win->setInlineGraph("pad", body + "# edited\n", name, why);
 
         pump(10);
+        asking.disconnect();
+
+        check(foundDuring, "...and the graph is found from the channel's "
+              "new name while the reload is still putting it there");
 
         pad = win->sched_->instrument("pad");
 
@@ -1956,6 +1977,19 @@ runExportMidi (const std::string &pluginPath)
 
         if (!saved)
             printf("      %s\n", why.c_str());
+
+        /* A graph the piece would refuse is refused before it is the
+           piece's. */
+        const std::string before = readAll(win->workPath_);
+        std::string refused;
+
+        check(!win->setInlineGraph("pad", body + "node x no::such { };\n",
+                                   name, refused) &&
+              readAll(win->workPath_) == before &&
+              refused.find(win->workPath_) == std::string::npos &&
+              !refused.empty(),
+              "...and a graph the piece would not load is refused, with the "
+              "file left as it was");
 
         delete win;
 

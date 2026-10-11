@@ -654,6 +654,11 @@ bool NodeEditor::openInline (const string &name, const string &body,
 
 bool NodeEditor::open (const string &filename, int chan)
 {
+    /* Out of inline mode for any other file -- but only once it has
+       opened, or a failure would leave the inline graph with no way to be
+       saved. */
+    const InlineSave prevSave = inlineSave_;
+
     if (filename != inlineName_)
         inlineSave_ = nullptr;
 
@@ -661,6 +666,7 @@ bool NodeEditor::open (const string &filename, int chan)
        looks at the copy, so a failure to make one has to stop the open. */
     if (!startWorkingCopy(filename))
     {
+        inlineSave_ = prevSave;
         setStatus("Could not read " + filename);
         return false;
     }
@@ -675,6 +681,7 @@ bool NodeEditor::open (const string &filename, int chan)
     {
         source_ = prevSource;
         channel_ = prevChannel;
+        inlineSave_ = prevSave;
         return false;
     }
 
