@@ -856,7 +856,8 @@ Composer::startEvolve (const std::string &instrument,
 }
 
 bool
-Composer::putEvolveGraph (const std::string &graph, std::string &why)
+Composer::putEvolveGraph (const std::string &graph, bool over,
+                          std::string &why)
 {
     const thcInstrument *what = sched_->instrument(evolving_);
     std::string now;
@@ -867,8 +868,16 @@ Composer::putEvolveGraph (const std::string &graph, std::string &why)
         return false;
     }
 
-    if (!evolveGraph_.empty() && sched_->grownText(what->channel, now) &&
-        now == evolveGraph_ &&
+    const bool onTop = sched_->grownText(what->channel, now) &&
+                       now == evolveGraph_;
+
+    if (!evolveGraph_.empty() && !onTop && !over)
+    {
+        why = "the channel has changed since the last Listen";
+        return false;
+    }
+
+    if (!evolveGraph_.empty() && onTop &&
         !sched_->growInstrument(what->channel, 0, true, "", "", 0, 0, why))
         return false;
 
@@ -885,13 +894,19 @@ Composer::listenNearest (std::string &why)
 {
     std::string graph;
 
-    if (!evolve_ || evolve_->done() || !evolve_->nearest(graph))
+    if (!evolve_ || evolve_->done())
     {
         why = "no search is running";
         return false;
     }
 
-    return graph == evolveGraph_ || putEvolveGraph(graph, why);
+    if (!evolve_->nearest(graph))
+    {
+        why = "the search has found nothing yet";
+        return false;
+    }
+
+    return graph == evolveGraph_ || putEvolveGraph(graph, false, why);
 }
 
 /* The nearest the search has come, a step for each time it came nearer,
@@ -964,7 +979,7 @@ Composer::evolveResult (std::string &why)
         return false;
     }
 
-    if (!putEvolveGraph(graph, why))
+    if (!putEvolveGraph(graph, true, why))
         return false;
 
     evolvePending_ = true;
@@ -1259,14 +1274,23 @@ Composer::pollEvolve (void)
     std::string why;
     const bool ok = evolveResult(why);
 
+    /* A search that failed after a Listen left what was listened to on
+       the channel, and that is as much the search's to keep or discard. */
+    if (!ok && !evolveGraph_.empty())
+    {
+        evolvePending_ = true;
+        why += "; what was listened to is playing on " + evolving_ +
+               ": Keep or Discard";
+    }
+
     evolveState_->set_text(ok ? why + ": playing on " + evolving_ +
                                 "; Keep or Discard"
                               : why);
     evolveGo_->set_sensitive(true);
     evolveStop_->set_sensitive(false);
     evolveHear_->set_sensitive(false);
-    evolveKeep_->set_sensitive(ok);
-    evolveDrop_->set_sensitive(ok);
+    evolveKeep_->set_sensitive(evolvePending_);
+    evolveDrop_->set_sensitive(evolvePending_);
 
     return false;
 }

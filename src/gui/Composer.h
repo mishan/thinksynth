@@ -206,7 +206,8 @@ public:
 
     /* The nearest graph the running search has found, on the channel to
        be heard -- in place of the last one heard, so the channel holds one
-       graph of the search's at a time and Discard goes back past it. */
+       graph of the search's at a time and Discard goes back past it.
+       Refused once the channel has moved on from that one. */
     bool listenNearest (std::string &why);
 
     /* `body' written into that instrument's `dsp { }' and the piece
@@ -589,7 +590,11 @@ protected:
     /* How near the search has come over time, nearer higher. */
     Gtk::DrawingArea *evolvePlot_ = NULL;
 
-    bool putEvolveGraph (const std::string &graph, std::string &why);
+    /* `graph' on the channel in place of the search's last, if that is
+       still what plays; on top of whatever does if `over', and refused
+       otherwise. */
+    bool putEvolveGraph (const std::string &graph, bool over,
+                         std::string &why);
     void drawEvolve (const Cairo::RefPtr<Cairo::Context> &cr, int w, int h);
     std::string evolveWav_;
     std::vector<std::string> evolveNames_;

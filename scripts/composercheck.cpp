@@ -2152,7 +2152,7 @@ runExportMidi (const std::string &pluginPath)
 
         /* Seconds on a desktop; minutes under the sanitizers. The nearest
            so far is listened to once, as the window's Listen does. */
-        bool listened = false;
+        int listened = 0;
 
         for (int i = 0; started && i < 6000 && !win->evolveDone(); i++)
         {
@@ -2161,7 +2161,7 @@ runExportMidi (const std::string &pluginPath)
 
             std::string ignored;
 
-            listened = listened || win->listenNearest(ignored);
+            listened += win->listenNearest(ignored);
         }
 
         const bool heard = started && win->evolveResult(why);
@@ -2179,7 +2179,7 @@ runExportMidi (const std::string &pluginPath)
         std::vector<std::string> stack;
         std::vector<thcScheduler::GrowthStep> log;
 
-        check(listened && pad != NULL &&
+        check(listened > 0 && pad != NULL &&
               win->sched_->growth(pad->channel, stack, log) &&
               stack.size() == 2,
               "...and what was listened to on the way is replaced by it, "

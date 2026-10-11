@@ -957,13 +957,13 @@ recording — and how far to go: **Tune** moves its constants, a minute or two;
 is `scripts/dspmatch`'s (`src/NodeEvolve`), run on a thread of its own while the
 piece goes on playing. The window plots how near it has come as it goes, and
 **Listen** puts the nearest graph so far on the instrument's channel. What it
-finds goes on the channel to be heard, as a grown graph does, in place of
-anything listened to on the way: **Keep** writes it into the piece as the
-instrument's `dsp { ... }`, **Discard** puts back what was there. It starts from
-the graph the channel plays now, so a kept or grown graph can be evolved
-further. Each graph is heard with its instrument's values (`a = 900 ms`), as the
-piece plays it; the values themselves are the piece's, and the search leaves
-them as they are.
+finds goes on the channel to be heard, as a grown graph does, in place of what
+was listened to on the way while that is still what the channel plays: **Keep**
+writes it into the piece as the instrument's `dsp { ... }`, **Discard** puts
+back what was there. It starts from the graph the channel plays now, so a kept
+or grown graph can be evolved further. Each graph is heard with its instrument's
+values (`a = 900 ms`), as the piece plays it; the values themselves are the
+piece's, and the search leaves them as they are.
 
 A structure edit reaches **every** sink of its chain. The note/chanarg filter is
 a rule about notes and chanargs; an edit is neither, and both kinds of sink name
