@@ -31,6 +31,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "NodeMutate.h"
+#include "thSoundFile.h"
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
@@ -356,6 +357,11 @@ Composer::setEditing (bool on)
 
 Composer::~Composer (void)
 {
+    /* The search first: it reads nothing of ours, but its result would
+       be put on a scheduler that is about to go. */
+    evolvePoll_.disconnect();
+    evolve_.reset();
+    delete evolveWin_;
     drawTimer_.disconnect();
     reloadIdle_.disconnect();
     midiIdle_.disconnect();
@@ -517,6 +523,7 @@ Composer::useDocument (Document which)
     Held &was = held_[which_];
 
     forgetMix();
+    forgetEvolve();
 
     /* A reload still queued belongs to the document being put away: its
        edit is already in the work text, and what it would have said
@@ -680,13 +687,25 @@ Composer::keepGrown (size_t ci, std::string &why)
         if (!sink.instrument.empty() && sink.chanarg.empty())
             inst = sink.instrument;
 
-    const thcInstrument *declared = inst.empty() ? NULL
-                                                 : sched_->instrument(inst);
+    if (inst.empty())
+    {
+        why = "chain " + doc_.chains[ci].name + " plays no instrument";
+        return false;
+    }
+
+    return keepInstrument(inst, why);
+}
+
+bool
+Composer::keepInstrument (const std::string &inst, std::string &why)
+{
+    const thcInstrument *declared = started_ ? sched_->instrument(inst)
+                                             : NULL;
     std::string text;
 
     if (declared == NULL)
     {
-        why = "chain " + doc_.chains[ci].name + " plays no instrument";
+        why = "no instrument called " + inst;
         return false;
     }
 
@@ -696,6 +715,16 @@ Composer::keepGrown (size_t ci, std::string &why)
         return false;
     }
 
+    return keepGraph(inst, text, why);
+}
+
+bool
+Composer::keepGraph (const std::string &inst, const std::string &text,
+                     std::string &why)
+{
+    if (!started_)
+        return false;
+
     if (thcGenEdit::setInlineGraph(workPath_, inst, "\n" + text + "\n",
                                    why) != thcGenEdit::OK)
         return false;
@@ -703,6 +732,392 @@ Composer::keepGrown (size_t ci, std::string &why)
     scheduleReload(true);
 
     return true;
+}
+
+bool
+Composer::startEvolve (const std::string &instrument,
+                       const std::string &towardInstrument,
+                       const std::string &towardWav, bool grow,
+                       std::string &why)
+{
+    if (!started_ || sched_ == NULL)
+    {
+        why = "there is no piece open";
+        return false;
+    }
+
+    if (evolve_ && !evolve_->done())
+    {
+        why = "a search is already running";
+        return false;
+    }
+
+    const thcInstrument *what = sched_->instrument(instrument);
+    NodeEvolve::Job::Spec spec;
+
+    /* Refused now rather than after a search: a channel a swap has given
+       to another instrument plays that one's graph, and one played over
+       MIDI has none here to move. */
+    const auto playable = [this, &why] (const thcInstrument *inst,
+                                        const std::string &name)
+    {
+        if (inst == NULL)
+            why = "no instrument called " + name;
+        else if (sched_->holding(inst->channel) != name)
+            why = name + "'s channel is playing " +
+                  sched_->holding(inst->channel) + " after a swap; rewind "
+                  "first";
+        else if (sched_->playsOverMidi(inst->channel))
+            why = name + " plays over MIDI, and has no graph here";
+        else
+            return true;
+
+        return false;
+    };
+
+    /* From what the channel plays now, so a search can go on from one
+       that was kept or grown. */
+    if (!playable(what, instrument))
+        return false;
+
+    if (!sched_->graphText(what->channel, spec.start))
+    {
+        why = instrument + " has no graph here to evolve";
+        return false;
+    }
+
+    if (!towardWav.empty())
+        spec.targetWav = towardWav;
+    else
+    {
+        const thcInstrument *toward = sched_->instrument(towardInstrument);
+
+        if (!playable(toward, towardInstrument))
+            return false;
+
+        if (!sched_->graphText(toward->channel, spec.targetGraph))
+        {
+            why = towardInstrument + " has no graph here to move toward";
+            return false;
+        }
+    }
+
+    thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+
+    spec.pluginPath = pm ? pm->pluginPath() : std::string(PLUGIN_PATH);
+    spec.grow = grow;
+    spec.seed = sched_->masterSeed();
+
+    evolve_.reset(new NodeEvolve::Job);
+
+    if (!evolve_->start(spec, why))
+        return false;
+
+    evolving_ = instrument;
+    evolvePending_ = false;
+
+    return true;
+}
+
+bool
+Composer::evolveDone (void) const
+{
+    return evolve_ && evolve_->done();
+}
+
+bool
+Composer::evolveResult (std::string &why)
+{
+    std::string graph;
+    double distance;
+
+    if (!evolve_ || !evolve_->result(graph, distance, why))
+        return false;
+
+    const thcInstrument *what = sched_->instrument(evolving_);
+
+    if (what == NULL)
+    {
+        why = evolving_ + " is no longer in the piece";
+        return false;
+    }
+
+    if (!sched_->tryGraph(what->channel, graph, why))
+        return false;
+
+    evolveGraph_ = graph;
+    evolvePending_ = true;
+
+    char said[96];
+
+    snprintf(said, sizeof said, "%.2f dB from the target, now %.2f",
+             evolve_->started(), distance);
+    why = said;
+
+    return true;
+}
+
+void
+Composer::onEvolve (void)
+{
+    if (sched_ == NULL || !started_)
+    {
+        status_->set_text("Evolve toward: there is no piece open");
+        return;
+    }
+
+    std::vector<Glib::ustring> names;
+
+    evolveNames_.clear();
+
+    for (const thcInstrument &inst : sched_->instruments())
+        if (!inst.dsp.empty())
+        {
+            evolveNames_.push_back(inst.name);
+            names.push_back(inst.name);
+        }
+
+    if (names.empty())
+    {
+        status_->set_text("Evolve toward: the piece has no instrument with "
+                          "a graph");
+        return;
+    }
+
+    if (evolveWin_ == NULL)
+    {
+        evolveWin_ = new Gtk::Window();
+        evolveWin_->set_title("Evolve toward");
+        evolveWin_->set_hide_on_close(true);
+
+        Gtk::Grid *grid = manage(new Gtk::Grid());
+        Gtk::Box *buttons = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL,
+                                                6));
+
+        grid->set_row_spacing(6);
+        grid->set_column_spacing(8);
+        grid->set_margin(12);
+
+        evolveWhat_ = manage(new Gtk::DropDown());
+        evolveToward_ = manage(new Gtk::DropDown());
+        evolveHow_ = manage(new Gtk::DropDown(std::vector<Glib::ustring>{
+            "Tune: its constants, a minute or two",
+            "Tune and grow: its shape too, several minutes" }));
+        evolveState_ = manage(new Gtk::Label());
+        evolveGo_ = manage(new Gtk::Button("_Start", true));
+        evolveStop_ = manage(new Gtk::Button("_Cancel", true));
+        evolveKeep_ = manage(new Gtk::Button("_Keep", true));
+        evolveDrop_ = manage(new Gtk::Button("_Discard", true));
+
+        evolveState_->set_xalign(0);
+        evolveState_->set_wrap(true);
+        evolveState_->set_max_width_chars(48);
+        evolveKeep_->set_tooltip_text("Write the result into the piece as "
+                                      "the instrument's dsp { }");
+        evolveDrop_->set_tooltip_text("Put back the graph the instrument "
+                                      "had before the search");
+
+        const char *labels[] = { "Instrument", "Toward", "Search" };
+        Gtk::Widget *fields[] = { evolveWhat_, evolveToward_, evolveHow_ };
+
+        for (int r = 0; r < 3; r++)
+        {
+            Gtk::Label *l = manage(new Gtk::Label(labels[r]));
+
+            l->set_xalign(0);
+            grid->attach(*l, 0, r);
+            grid->attach(*fields[r], 1, r);
+        }
+
+        buttons->append(*evolveGo_);
+        buttons->append(*evolveStop_);
+        buttons->append(*evolveKeep_);
+        buttons->append(*evolveDrop_);
+        grid->attach(*evolveState_, 0, 3, 2, 1);
+        grid->attach(*buttons, 0, 4, 2, 1);
+        evolveWin_->set_child(*grid);
+
+        /* The last entry of Toward is a recording, chosen when it is
+           picked; backing out of the chooser picks the first again. */
+        evolveToward_->property_selected().signal_changed().connect([this]
+        {
+            if (evolveToward_->get_selected() != evolveNames_.size())
+                return;
+
+            Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(
+                "Evolve toward a recording", Gtk::FileChooser::Action::OPEN);
+
+            dialog->set_transient_for(*evolveWin_);
+            dialog->set_modal(true);
+            dialog->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+            dialog->add_button("_Choose", Gtk::ResponseType::OK);
+            dialog->signal_response().connect([this, dialog] (int response)
+            {
+                const std::string path =
+                    response == (int)Gtk::ResponseType::OK
+                    ? chosenPath(*dialog) : std::string();
+
+                closeDialog(dialog);
+                evolveWav_ = path;
+
+                if (path.empty())
+                    evolveToward_->set_selected(0);
+                else
+                    evolveState_->set_text("toward " +
+                        std::filesystem::path(path).filename().string());
+            });
+            dialog->set_visible(true);
+        });
+
+        evolveGo_->signal_clicked().connect([this]
+        {
+            evolvePoll_.disconnect();
+
+            const guint w = evolveWhat_->get_selected();
+            const guint t = evolveToward_->get_selected();
+            const bool recording = t == evolveNames_.size();
+            std::string why;
+
+            if (w >= evolveNames_.size() ||
+                (!recording && t >= evolveNames_.size()))
+                return;
+
+            if (!startEvolve(evolveNames_[w],
+                             recording ? "" : evolveNames_[t],
+                             recording ? evolveWav_ : "",
+                             evolveHow_->get_selected() == 1, why))
+            {
+                evolveState_->set_text(why);
+                return;
+            }
+
+            evolveState_->set_text("listening...");
+            evolveGo_->set_sensitive(false);
+            evolveStop_->set_sensitive(true);
+            evolveKeep_->set_sensitive(false);
+            evolveDrop_->set_sensitive(false);
+            evolvePoll_ = Glib::signal_timeout().connect(
+                sigc::mem_fun(*this, &Composer::pollEvolve), 200);
+        });
+
+        evolveStop_->signal_clicked().connect([this]
+        {
+            if (evolve_)
+                evolve_->cancel();
+        });
+
+        evolveKeep_->signal_clicked().connect([this]
+        {
+            std::string why;
+
+            evolveState_->set_text(keepGraph(evolving_, evolveGraph_, why)
+                                   ? "kept into the piece; Save to keep it"
+                                   : why);
+            evolvePending_ = false;
+            evolveKeep_->set_sensitive(false);
+            evolveDrop_->set_sensitive(false);
+        });
+
+        /* Back a step only if the channel still plays what the search
+           found: after a seek or a swap there is nothing of it to undo. */
+        evolveDrop_->signal_clicked().connect([this]
+        {
+            const thcInstrument *what = sched_->instrument(evolving_);
+            std::string why, now;
+
+            if (what == NULL || !sched_->grownText(what->channel, now) ||
+                now != evolveGraph_)
+                evolveState_->set_text("it is no longer on the channel");
+            else
+                evolveState_->set_text(
+                    sched_->growInstrument(what->channel, 0, true, "", why)
+                    ? "put back as it was" : why);
+
+            evolvePending_ = false;
+            evolveKeep_->set_sensitive(false);
+            evolveDrop_->set_sensitive(false);
+        });
+    }
+
+    std::vector<Glib::ustring> toward = names;
+
+    toward.push_back("A recording...");
+    evolveWhat_->set_model(Gtk::StringList::create(names));
+    evolveToward_->set_model(Gtk::StringList::create(toward));
+    evolveToward_->set_selected(names.size() > 1 ? 1 : 0);
+
+    const bool running = evolve_ && !evolve_->done();
+
+    evolveGo_->set_sensitive(!running);
+    evolveStop_->set_sensitive(running);
+    evolveKeep_->set_sensitive(!running && evolvePending_);
+    evolveDrop_->set_sensitive(!running && evolvePending_);
+
+    if (Gtk::Window *win = windowOf(&canvasScroll_))
+        evolveWin_->set_transient_for(*win);
+
+    evolveWin_->set_visible(true);
+}
+
+/* Five times a second while a search runs: its last line and the nearest
+   it has come, and when it ends, its result on the channel. */
+void
+Composer::forgetEvolve (void)
+{
+    if (evolve_)
+        evolve_->cancel();
+
+    evolving_.clear();
+    evolveGraph_.clear();
+    evolvePending_ = false;
+
+    if (evolveWin_ != NULL)
+    {
+        evolveKeep_->set_sensitive(false);
+        evolveDrop_->set_sensitive(false);
+    }
+}
+
+bool
+Composer::pollEvolve (void)
+{
+    if (evolveWin_ == NULL || !evolve_)
+        return false;
+
+    /* Forgotten while it ran: another piece is open, and what it found is
+       not that piece's. */
+    if (evolving_.empty() && evolveDone())
+    {
+        evolveState_->set_text("the piece it was for is closed");
+        evolveGo_->set_sensitive(true);
+        evolveStop_->set_sensitive(false);
+        return false;
+    }
+
+    if (!evolveDone())
+    {
+        const double best = evolve_->best();
+        char near[48] = "";
+
+        if (best >= 0)
+            snprintf(near, sizeof near, "  (nearest %.2f dB)", best);
+
+        evolveState_->set_text(evolve_->progress() + near);
+        return true;
+    }
+
+    std::string why;
+    const bool ok = evolveResult(why);
+
+    evolveState_->set_text(ok ? why + ": playing on " + evolving_ +
+                                "; Keep or Discard"
+                              : why);
+    evolveGo_->set_sensitive(true);
+    evolveStop_->set_sensitive(false);
+    evolveKeep_->set_sensitive(ok);
+    evolveDrop_->set_sensitive(ok);
+
+    return false;
 }
 
 bool
@@ -1795,6 +2210,7 @@ Composer::onOpenChosen (std::string path)
 
     genPath_ = path;
     forgetMix();
+    forgetEvolve();
     scheduleReload(false);
 }
 
@@ -1806,6 +2222,7 @@ Composer::onNew (void)
         {
             genPath_.clear();
             forgetMix();
+            forgetEvolve();
 
             if (!ensureWork())
                 return;
@@ -1904,6 +2321,7 @@ Composer::buildActions (void)
                                 sigc::mem_fun(*this, &Composer::onSave));
     acts->add_action("saveas", [this] { wake(); onSaveAs(); });
     acts->add_action("exportmidi", [this] { wake(); onExportMidi(); });
+    acts->add_action("evolve", [this] { wake(); onEvolve(); });
     acts->add_action("revert", [this] { wake(); onReload(); });
 
     /* Nothing to save until there is a piece; the load says whether there
@@ -1938,6 +2356,7 @@ Composer::buildActions (void)
     menu_->append("Sa_ve Piece", "composer.save");
     menu_->append("Save Piece _As...", "composer.saveas");
     menu_->append("Export _MIDI...", "composer.exportmidi");
+    menu_->append("_Evolve Toward...", "composer.evolve");
     menu_->append("Revert Pie_ce", "composer.revert");
 
     acts->add_action("collapse-chains",

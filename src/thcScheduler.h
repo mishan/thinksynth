@@ -756,6 +756,11 @@ public:
     bool growInstrument (int channel, unsigned int choice, bool shrink,
                          const std::string &kinds, std::string &why);
 
+    /* `text' on `channel' as growth would put it there, one step up the
+       same stack: heard at once, gone with a step back or a rewind, and
+       what Keep writes. What a search that finished offers to be heard. */
+    bool tryGraph (int channel, const std::string &text, std::string &why);
+
     /* What turns a graph's text into the text one edit on: `choice' among
        the edits of `kinds', judged against `base', the declared graph. A hook, as loading is, because the edits are
        the node model's (NodeMutate::grow) and a host that does not link
@@ -766,6 +771,11 @@ public:
                                 std::string &what, std::string &why)> Grower;
 
     void setGrower (const Grower &fn) { grower_ = fn; }
+
+    /* The graph on `channel' now, as text: what growth or a search put
+       there, or what the instrument declares. False for a channel that is
+       none of the piece's, or a graph that cannot be read. */
+    bool graphText (int channel, std::string &text) const;
 
     /* The graph growth has put on `channel', as text, or false while the
        channel holds what the piece declares. What Keep writes into it. */
@@ -1459,6 +1469,12 @@ private:
 
     std::map<int, Growth> grown_;
     Grower grower_;
+
+    /* growInstrument and tryGraph: one step up the channel's stack, to
+       `given' or to what the grower makes, or one back. */
+    bool stepGraph (int channel, bool shrink, const std::string *given,
+                    unsigned int choice, const std::string &kinds,
+                    std::string &why);
 
     /* `put' onto its channel and its values on it, or neither: what a swap
        and a growth step both end in. */

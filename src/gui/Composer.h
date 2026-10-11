@@ -20,6 +20,7 @@
 #define COMPOSER_H
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@
 /* By value in prevInstruments_ below, so a forward declaration will not
    do -- and it is the same header ComposerCanvas already pulls in. */
 #include "thcScheduler.h"
+#include "NodeEvolve.h"
 #include "ComposerCanvasWidget.h"
 #include "SeqView.h"
 #include "StageParamsView.h"
@@ -182,6 +184,24 @@ public:
        that plays no instrument or one that has not grown. */
     bool keepGrown (size_t ci, std::string &why);
 
+    /* Keep for `instrument' by name: what growth has put on its channel,
+       or -- keepGraph -- `text', written into the piece as its dsp { } and
+       the piece reloaded. */
+    bool keepInstrument (const std::string &instrument, std::string &why);
+    bool keepGraph (const std::string &instrument, const std::string &text,
+                    std::string &why);
+
+    /* Evolve toward: a search moving one of the piece's instruments toward
+       another's sound or a recording's, on a thread of its own, its result
+       put on the channel to be heard and then kept or discarded. Public
+       for composercheck, which drives the search without the window. */
+    bool startEvolve (const std::string &instrument,
+                      const std::string &towardInstrument,
+                      const std::string &towardWav, bool grow,
+                      std::string &why);
+    bool evolveDone (void) const;
+    bool evolveResult (std::string &why);
+
     /* `body' written into that instrument's `dsp { }' and the piece
        reloaded; `name' gets what the graph is loaded under now. */
     bool setInlineGraph (const std::string &instrument,
@@ -270,6 +290,15 @@ protected:
     void onSaveAs (void);
     void onSaveAsResponse (int response, Gtk::FileChooserDialog *dialog);
     void onExportMidi (void);
+
+    /* The Evolve toward window: built on first use, polled while a search
+       runs. */
+    void onEvolve (void);
+    bool pollEvolve (void);
+
+    /* Another piece, or none: a search for this one is cancelled and what
+       it found is no longer offered. */
+    void forgetEvolve (void);
 
     thcMidiExport::Options exportOptions (void);
 
@@ -532,6 +561,26 @@ protected:
        captured `this' and outlived it is a call into freed memory. */
     sigc::connection reloadIdle_;
     sigc::connection midiIdle_;     /* the editor rebuilt after a reroute */
+
+    /* Evolve toward. One search at a time; `evolving_' is the instrument
+       it moves, and the window's widgets are NULL until it is opened. */
+    std::unique_ptr<NodeEvolve::Job> evolve_;
+    std::string evolving_;
+    sigc::connection evolvePoll_;
+    Gtk::Window *evolveWin_ = NULL;
+    Gtk::DropDown *evolveWhat_ = NULL, *evolveToward_ = NULL,
+                  *evolveHow_ = NULL;
+    Gtk::Label *evolveState_ = NULL;
+    Gtk::Button *evolveGo_ = NULL, *evolveStop_ = NULL,
+                *evolveKeep_ = NULL, *evolveDrop_ = NULL;
+    std::string evolveWav_;
+    std::vector<std::string> evolveNames_;
+
+    /* What the last search found, while it waits on the channel to be kept
+       or discarded -- remembered here rather than read back off the
+       channel, which a seek or a swap may have changed since. */
+    std::string evolveGraph_;
+    bool evolvePending_ = false;
 
     /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
        input toggle -- the on-screen keyboard's hop into the same place. */

@@ -544,13 +544,16 @@ the same modules that modulate sound.
 >   not in every host. Finding the clipping also found a regression in 4b:
 >   a key pressed again on the new graph left the drained one holding it,
 >   fixed in #426.
-> - **4e: Keep -- LANDED -- and Evolve toward.** A grown graph reaches the
+> - **4e -- LANDED: Keep, and Evolve toward.** A grown graph reaches the
 >   piece file only when someone keeps it: the Composer's Keep on a
 >   `gen::grow` stage writes the graph on the instrument's channel into
 >   the piece as its `dsp { ... }`, over a file name if it had one, and
->   reloads. Evolve toward -- the same vocabulary searched toward an
->   instrument or a recording, dspmatch's search as an authoring action
->   -- is still to come.
+>   reloads. Evolve toward is dspmatch's search as an authoring action:
+>   the search moved to `src/NodeEvolve` behind a host that renders and
+>   scores, so dspmatch forks and prints as it did -- byte for byte --
+>   and the Composer runs it on a thread with synths of its own, a
+>   generation scored on several at once. Its result goes on the channel
+>   like a grown graph, to be heard and then kept or discarded.
 >
 > Every gate above was checked by breaking the fix and watching the gate
 > fail -- the wired-chanarg refusal, the own-channel rule, the

@@ -1874,8 +1874,50 @@ thcScheduler::putOn (const thcInstrument &put, std::string &why)
 }
 
 bool
+thcScheduler::graphText (int channel, std::string &text) const
+{
+    if (grownText(channel, text))
+        return true;
+
+    const thcInstrument *inst = instrument(holding(channel));
+
+    if (channelOf(channel) == NULL || inst == NULL || inst->dsp.empty())
+        return false;
+
+    /* The text the instrument declares, as its graph is loaded: an inline
+       graph's from the registry, a file's from the disk. */
+    if (!thUtil::findGraphText(inst->dsp, text))
+    {
+        const std::string path = thUtil::findDataFile(
+            inst->dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+        std::ifstream in((path.empty() ? inst->dsp : path).c_str(),
+                         std::ios::binary);
+
+        text.assign(std::istreambuf_iterator<char>(in),
+                    std::istreambuf_iterator<char>());
+    }
+
+    return !text.empty();
+}
+
+bool
 thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
                               const std::string &kinds, std::string &why)
+{
+    return stepGraph(channel, shrink, NULL, choice, kinds, why);
+}
+
+bool
+thcScheduler::tryGraph (int channel, const std::string &text,
+                        std::string &why)
+{
+    return stepGraph(channel, false, &text, 0, "", why);
+}
+
+bool
+thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
+                         unsigned int choice, const std::string &kinds,
+                         std::string &why)
 {
     const thcInstrument *inst = instrument(holding(channel));
 
@@ -1894,24 +1936,11 @@ thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
 
     Growth &g = grown_[channel];
 
-    /* The text the instrument declares, as its graph is loaded: an inline
-       graph's from the registry, a file's from the disk. */
     if (g.texts.empty())
     {
         std::string text;
 
-        if (!thUtil::findGraphText(inst->dsp, text))
-        {
-            const std::string path = thUtil::findDataFile(
-                inst->dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
-            std::ifstream in((path.empty() ? inst->dsp : path).c_str(),
-                             std::ios::binary);
-
-            text.assign(std::istreambuf_iterator<char>(in),
-                        std::istreambuf_iterator<char>());
-        }
-
-        if (text.empty())
+        if (!graphText(channel, text))
         {
             grown_.erase(channel);
             why = "'" + inst->dsp + "' could not be read";
@@ -1931,6 +1960,8 @@ thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
 
         text = g.texts[g.texts.size() - 2];
     }
+    else if (given != NULL)
+        text = *given;
     else if (!grower_)
     {
         why = "this host cannot grow a graph";
