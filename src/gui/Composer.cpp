@@ -641,6 +641,39 @@ Composer::setTrackInstrument (size_t ci, size_t si, const std::string &dsp,
     return true;
 }
 
+bool
+Composer::inlineGraph (const std::string &name, std::string &instrument,
+                       std::string &body)
+{
+    std::string why;
+
+    for (size_t i = 0; started_ && i < doc_.instruments.size(); i++)
+        if (doc_.instruments[i].dsp == name)
+        {
+            instrument = doc_.instruments[i].name;
+            return thcGenEdit::inlineGraph(workPath_, instrument, body,
+                                           why) == thcGenEdit::OK;
+        }
+
+    return false;
+}
+
+bool
+Composer::setInlineGraph (const std::string &instrument,
+                          const std::string &body, std::string &name,
+                          std::string &why)
+{
+    if (!started_ ||
+        thcGenEdit::setInlineGraph(workPath_, instrument, body, why) !=
+            thcGenEdit::OK)
+        return false;
+
+    name = thcGenLoader::inlineGraphName(instrument, body);
+    scheduleReload(true);
+
+    return true;
+}
+
 /* A kick, a hat, a clap ignores the note it is sent, so a ladder over one
  * is rows that all make the same sound: one row is all it has to say. A
  * graph that is played at pitch gets a ladder back if it was down to one,

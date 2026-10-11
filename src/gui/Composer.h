@@ -169,6 +169,18 @@ public:
     /* The piece's effect, written to the file; empty takes it off. */
     void setMasterEffect (const std::string &dsp);
 
+    /* The instrument whose graph is written inline in the piece and loaded
+       under `name', and that graph's text. False for a name the piece does
+       not load an inline graph under. */
+    bool inlineGraph (const std::string &name, std::string &instrument,
+                      std::string &body);
+
+    /* `body' written into that instrument's `dsp { }' and the piece
+       reloaded; `name' gets what the graph is loaded under now. */
+    bool setInlineGraph (const std::string &instrument,
+                         const std::string &body, std::string &name,
+                         std::string &why);
+
 protected:
     /* Scan <pluginroot>/composer/ exactly as NodeEditor scans visual/. */
     void loadComposers (void);

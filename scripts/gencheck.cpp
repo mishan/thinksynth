@@ -6219,6 +6219,30 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
     if (names.size() != 3)
         fail("an inline graph's names were not taken");
 
+    /* Read out and written back, as the node editor does: exactly the text
+       between the braces, and a piece that names the graph by its new text
+       afterwards. */
+    {
+        std::string why, body;
+        thcGenEdit::Doc doc;
+
+        if (thcGenEdit::inlineGraph(path, "pad", body, why) !=
+                thcGenEdit::OK ||
+            body.compare(0, amb01.size() + 1, "\n" + amb01) != 0)
+            fail("an inline graph does not read back as written: " + why);
+
+        const std::string edited = body + "# edited\n    ";
+
+        if (thcGenEdit::setInlineGraph(path, "pad", edited, why) !=
+                thcGenEdit::OK ||
+            thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+            doc.instruments.empty() ||
+            doc.instruments[0].dsp !=
+                thcGenLoader::inlineGraphName("pad", edited))
+            fail("an inline graph written back is not the piece's graph: " +
+                 why);
+    }
+
     /* Choosing a file for it replaces the whole block, braces and all. */
     {
         std::string why;

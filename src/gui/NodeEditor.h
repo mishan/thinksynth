@@ -19,6 +19,8 @@
 #ifndef NODE_EDITOR_H
 #define NODE_EDITOR_H 1
 
+#include <functional>
+
 #include "../NodeGraph.h"
 #include "../thVisual.h"
 #include "NodeCanvasWidget.h"
@@ -62,6 +64,20 @@ public:
      * The file itself is not edited. It is copied to a scratch .dsp, and that
      * is what everything here writes to -- see work_. */
     bool open (const string &filename, int chan = -1);
+
+    /* Puts an inline graph -- `dsp { ... }' inside a piece -- where its
+       text goes: `body' in, the new text out on Save, and the name the
+       graph will be loaded under back. False, with `why', for a save the
+       piece refused. */
+    typedef std::function<bool (const string &body, string &name,
+                                string &why)> InlineSave;
+
+    /* open() for a graph written inside a piece: `name' is the one it is
+       loaded under (thcGenLoader::inlineGraphName), `body' its text. Save
+       goes through `save' rather than to a file, and Save As writes a file
+       and leaves the piece alone from then on. */
+    bool openInline (const string &name, const string &body, int chan,
+                     const InlineSave &save);
 
     /* The .dsp this editor is showing: where it was opened from and where
        Save will put it back. Not the file being written to as you work. */
@@ -410,6 +426,14 @@ private:
      * copy. Save puts it back; Revert takes a fresh copy; and a read-only
      * source is now just a source that Save has to send somewhere else. */
     string work_;
+
+    /* An inline graph's text and where Save sends it; inlineSave_ is empty
+       for a file. inlineName_ is the source_ they belong to, so opening
+       anything else leaves inline mode and Revert, which reopens source_,
+       does not. */
+    string inlineName_;
+    string inlineBody_;
+    InlineSave inlineSave_;
 
     int channel_;           /* channel this file is loaded on, or -1 */
 

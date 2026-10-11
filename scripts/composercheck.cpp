@@ -1904,6 +1904,67 @@ runExportMidi (const std::string &pluginPath)
     }
 
     {
+        /* A graph written inside the piece, found from the name its channel
+           plays under and saved back as the node editor saves it: the
+           piece reloads, and the channel plays the new text under its new
+           name. */
+        std::ifstream in(thUtil::findDataFile("amb01.dsp", "dsp",
+                                              "THINK_DSP_PATH", DSP_PATH)
+                             .c_str(), std::ios::binary);
+        const std::string amb01((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
+        const std::string tmp = stagePiece(
+                "name \"inline\";\n"
+                "tempo 120;\n"
+                "instrument pad {\n    dsp {\n" + amb01 + "\n    };\n};\n"
+                "chain melody {\n"
+                "    stage seq gen::grid { steps = 4; rows = 1; "
+                "cells = \"x.x.\"; };\n"
+                "    sink { instrument = pad; };\n"
+                "};\n");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
+
+        pump(10);
+
+        const thcInstrument *pad = win->sched_->instrument("pad");
+        std::string instrument, body, name, why;
+
+        check(pad != NULL && win->inlineGraph(pad->dsp, instrument, body) &&
+              instrument == "pad" && body.find("node") != std::string::npos,
+              "the Composer finds the instrument an inline graph is played "
+              "under, and its text");
+
+        const bool saved =
+            win->setInlineGraph("pad", body + "# edited\n", name, why);
+
+        pump(10);
+
+        pad = win->sched_->instrument("pad");
+
+        gthPatchManager::PatchFile *patch =
+            pad != NULL ? gthPatchManager::instance()->getPatch(pad->channel)
+                        : NULL;
+
+        check(saved && pad != NULL && pad->dsp == name && patch != NULL &&
+              patch->doc.dsp == name &&
+              readAll(win->workPath_).find("# edited") != std::string::npos,
+              "...and a graph saved back reloads the piece onto the new "
+              "text");
+
+        if (!saved)
+            printf("      %s\n", why.c_str());
+
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    {
         /* Two chains drawing from the seed, one of them muted. */
         const std::string tmp = stagePiece(
                 "name \"wander\";\n"

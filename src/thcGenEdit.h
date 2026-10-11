@@ -279,6 +279,17 @@ public:
        Its values stay as written -- they are the channel's args, and one
        the new graph does not have is refused by the load, which names it.
        NOT_FOUND for no such instrument, or one with no `dsp' line. */
+    /* The text between the braces of `dsp { ... }' in instrument `name',
+       and the same span replaced: what the node editor reads an inline
+       graph from and saves it back to. NOT_FOUND for no such instrument,
+       or one whose graph is a file. */
+    static Result inlineGraph (const std::string &filename,
+                               const std::string &name, std::string &body,
+                               std::string &why);
+    static Result setInlineGraph (const std::string &filename,
+                                  const std::string &name,
+                                  const std::string &body, std::string &why);
+
     static Result setInstrumentDsp (const std::string &filename,
                                     const std::string &name,
                                     const std::string &dsp,

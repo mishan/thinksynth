@@ -251,9 +251,11 @@ A mistake in the graph is reported among the piece's errors, against the
 piece's own line. Plugins are looked up when the instrument is loaded, not
 while the file is read. The graph is loaded under a name made from the
 instrument and a hash of its text (`bell#1a2b3c4d.dsp`), which is what a panel
-shows for it and what changes when the graph does. It has no file, so the node
-editor does not open it and a patch cannot be saved from its channel (nor from
-a channel whose effect is written inline). An effect
+shows for it and what changes when the graph does. The node editor opens it
+from its channel's page like any graph, and Save writes it back between the
+braces and reloads the piece; Save As makes a file of it and leaves the piece
+alone. It has no file of its own, so a patch cannot be saved from its channel
+(nor from a channel whose effect is written inline). An effect
 is written inline the same way, with its graph as the block's `dsp` — see
 below.
 

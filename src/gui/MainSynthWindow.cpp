@@ -2035,10 +2035,28 @@ void MainSynthWindow::ensureEditor (int chan)
 
     string inlineGraph;
 
+    /* A graph written inside the piece the Composer has open: edited as
+       any graph is, and saved back between its braces. */
     if (thUtil::findGraphText(dspFile, inlineGraph))
     {
-        ed->setStatusPublic("This graph is written inside the piece; edit "
-                            "it in the .gen file.");
+        string instrument, body;
+
+        if (composer_ == NULL ||
+            !composer_->inlineGraph(dspFile, instrument, body))
+        {
+            ed->setStatusPublic("This graph is written inside a piece the "
+                                "Composer does not have open.");
+            return;
+        }
+
+        ed->openInline(dspFile, body, chan,
+                       [this, instrument](const string &text, string &name,
+                                          string &why)
+                       {
+                           return composer_ != NULL &&
+                                  composer_->setInlineGraph(instrument, text,
+                                                            name, why);
+                       });
         return;
     }
 

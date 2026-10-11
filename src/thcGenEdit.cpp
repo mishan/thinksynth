@@ -2320,6 +2320,67 @@ swapGraph (const std::string &filename, const std::string &name,
     return thcGenEdit::NOT_FOUND;
 }
 
+/* The `{' to the `}' of an instrument's inline graph, or NOT_FOUND. */
+static R
+findInlineGraph (const Index &ix, const std::string &name, size_t &a,
+                 size_t &b, std::string &why)
+{
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+        if (ix.instruments[i].name == name)
+        {
+            if (!ix.instruments[i].dspInline)
+                break;
+
+            a = ix.instruments[i].dspA;
+            b = ix.instruments[i].dspB;
+            return thcGenEdit::OK;
+        }
+
+    why = "no instrument called " + name + " has its graph inline";
+    return thcGenEdit::NOT_FOUND;
+}
+
+R
+thcGenEdit::inlineGraph (const std::string &filename, const std::string &name,
+                         std::string &body, std::string &why)
+{
+    std::string text;
+    Index ix;
+    size_t a = 0, b = 0;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r == OK)
+        r = findInlineGraph(ix, name, a, b, why);
+
+    if (r == OK)
+        body = text.substr(a + 1, b - 1 - (a + 1));
+
+    return r;
+}
+
+R
+thcGenEdit::setInlineGraph (const std::string &filename,
+                            const std::string &name, const std::string &body,
+                            std::string &why)
+{
+    std::string text;
+    Index ix;
+    size_t a = 0, b = 0;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r == OK)
+        r = findInlineGraph(ix, name, a, b, why);
+
+    if (r != OK)
+        return r;
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ a + 1, b - 1, body });
+
+    return finish(filename, text, edits, why);
+}
+
 R
 thcGenEdit::setInstrumentDsp (const std::string &filename,
                               const std::string &name,
