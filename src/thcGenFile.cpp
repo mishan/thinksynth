@@ -209,10 +209,9 @@ noteListToString (const std::vector<int> &notes)
  *    into the parser to be rejected further from the cause, and with the
  *    wording the hand-written scanner used: a `+' in a .gen file is a
  *    stray character, not a missing rule. `%' is on the useful side of
- *    that line, and only just: it is not arithmetic here, it is the
- *    unit suffix an instrument value needs when the chanarg it lands on
- *    was declared as a percentage. The parser refuses it everywhere
- *    else. `->' crosses the same way and for a better reason: it is the
+ *    that line: the unit suffix an instrument value needs when the
+ *    chanarg it lands on was declared as a percentage, and the modulo
+ *    .gen arithmetic shares with .dsp. `->' crosses the same way and for a better reason: it is the
  *    .dsp spelling for reading a node's output, and a .gen has nodes to
  *    read. One arrow, one meaning, both languages -- the shared lexer
  *    has always handed it back whole (longest match, so it
@@ -2555,11 +2554,12 @@ thcGenLoader::parseExpr (thcScheduler *sched)
                             byGenOff) - tokens_.begin();
 
     /* What a .gen unit means depends on the param it lands on, which a
-       folded expression no longer knows; a literal is where one goes. */
+       folded expression no longer knows: only a plain literal on a param
+       carries one. */
     if (v.units)
     {
-        error(line, std::string("'") + v.units + "' cannot be written in "
-              "arithmetic here; give the param a plain value with its unit");
+        error(line, std::string("'") + v.units + "' is not a unit this "
+              "value can take");
         return NULL;
     }
 
@@ -2591,7 +2591,7 @@ thcGenLoader::emitExpr (thcScheduler *sched, thcNodeHost *host,
         out.kind = ExprRef::KNOB;
         out.knob = sched->knob(e->name);
 
-        /* parseExprFactor has already refused an undeclared knob against the
+        /* parseExpr's knob hook has already refused an undeclared knob at the
            line it is written on, so this is the belt rather than the braces
            -- but a false with nothing on stderr is the one way a .gen can
            decline to load and not say why. */

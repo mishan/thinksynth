@@ -237,8 +237,8 @@ int main (int argc, char **argv)
      * `2 + 3 * 4' and `0 - 3 * 2' pin the precedence, which nothing used to.
      * `-1 + 2' pins where the unary minus stops. It used to sit at the top
      * of an expression and scope over everything after it -- `-(1 + 2)' --
-     * while .gen's parser bound it to its operand; it is a `factor' in both
-     * languages now, and gencheck holds the other half of this row.
+     * while .gen bound it to its operand. It is a `factor' now, and .gen
+     * reads its arithmetic with this same parser.
      */
     {
         static const struct { const char *rhs; float want; } cases[] = {

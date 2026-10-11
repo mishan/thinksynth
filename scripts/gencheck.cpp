@@ -719,7 +719,7 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
     expectReject(plugins, synth, "expr-unit",
         "chain c { stage s gen::eno_line { notes = \"A1\"; "
         "period = 2 * 3 s; }; sink { channel = 1; }; };",
-        "cannot be written in arithmetic");
+        "is not a unit this value can take");
 
     expectReject(plugins, synth, "expr-no-such-function",
         "chain c { stage s gen::eno_line { notes = \"A1\"; period = 2 s; "
@@ -839,6 +839,15 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
             }
         }
     }
+
+    /* .dsp's vocabulary is not reserved in a .gen name: a knob called `ms'
+       in arithmetic, and a stage called `nil' read through `->'. */
+    renderBody(plugins, synth, "expr-names",
+               "seed 7;\n@ms = 20;\nchain c {\n"
+               "    stage nil math::add { in0 = @ms * 1; in1 = 20; };\n"
+               "    stage src gen::eno_line { notes = \"A3\"; period = 1 s; "
+               "vel = nil->out * 1; };\n    sink { channel = 1; };\n};\n",
+               2.0);
 
     /* A chain is read in a loop but nests in the tree, which is walked by
        recursion; a generated one thousands of terms long is refused rather

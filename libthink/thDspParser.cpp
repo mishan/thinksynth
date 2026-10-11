@@ -236,9 +236,18 @@ private:
         return expected((std::string("'") + p + "'").c_str());
     }
 
+    /* In a .dsp the vocabulary is reserved everywhere. Elsewhere a name is
+       whatever the author called a knob or a stage, `ms' and `th_max'
+       included, and only a name can stand next to `@' or `->'. */
+    bool isName (const Tok &t) const
+    {
+        return t.kind == WORD ||
+               (!statements_ && t.src->kind == thLexToken::WORD);
+    }
+
     bool word (std::string &out, const char *what)
     {
-        if (peek().kind != WORD)
+        if (!isName(peek()))
             return expected(what);
 
         out = take().src->text;
@@ -795,6 +804,22 @@ Parser::factor (Value &out)
         return false;
     }
 
+    /* `osc->out': a bare one becomes an ARG_POINTER and no node, in
+       assignment(); under an operator, a leaf of the tree. */
+    if (isName(t) && isPunct(peek(1), "->"))
+    {
+        take();
+        take();
+
+        std::string arg;
+
+        if (!word(arg, "an arg name after '->'"))
+            return false;
+
+        out.expr = thExprNodeRef(t.src->text, arg);
+        return true;
+    }
+
     if (accept("("))
     {
         if (!expression(out))
@@ -858,19 +883,6 @@ Parser::factor (Value &out)
         return expected("a value");
 
     take();
-
-    /* `osc->out': a bare one becomes an ARG_POINTER and no node, in
-       assignment(); under an operator, a leaf of the tree. */
-    if (accept("->"))
-    {
-        std::string arg;
-
-        if (!word(arg, "an arg name after '->'"))
-            return false;
-
-        out.expr = thExprNodeRef(t.src->text, arg);
-        return true;
-    }
 
     if (!isPunct(peek(), "("))
     {
