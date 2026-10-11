@@ -159,7 +159,12 @@ typedef enum {
      * graph goes on as a swap does, so what is sounding finishes on the old
      * one, and a rewind puts the declared graph back. Since `choice' comes
      * from the seed and the list from the graph, a piece that grows replays
-     * exactly. Only on a channel the piece declares an instrument for. */
+     * exactly. Only on a channel the piece declares an instrument for.
+     *
+     * With a `target', the host hears up to `listen' of the edits from
+     * `choice' on against it, as it hears breed's candidates, and takes
+     * the nearest: a walk that leans. Live, the step is taken once the
+     * answers are in, not when the event is. Without an ear, the first. */
     THC_EV_GROW
 } thcEventType;
 
@@ -218,6 +223,10 @@ typedef struct {
             int          shrink;  /* nonzero: undo the last instead     */
             const char  *kinds;   /* "splice modulate voice", or NULL or
                                      empty for all; copied               */
+            const char  *target;  /* an instrument of the piece or a
+                                     sound file, or NULL or empty for
+                                     none; copied                        */
+            int          listen;  /* edits heard when there is a target  */
         } grow;
     } u;
     unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */

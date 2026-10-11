@@ -539,7 +539,8 @@ the same modules that modulate sound.
 >   over minutes, growth cannot, and the first version walked a bass into
 >   clipping in three steps; so each candidate is played once, a phrase of
 >   overlapping notes, and passed over unless it keeps the declared graph's
->   level. Listening toward a target, as breed does, is not here yet. The
+>   level. Given a target, as breed's, the host hears several of the
+>   edits that keep the level and takes the nearest, so the walk leans. The
 >   growth is a hook (`thcScheduler::setGrower`) because the node model is
 >   not in every host. Finding the clipping also found a regression in 4b:
 >   a key pressed again on the new graph left the drained one holding it,

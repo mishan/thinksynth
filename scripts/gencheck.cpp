@@ -6410,10 +6410,11 @@ grownFor (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
         sched.setAuditionSynchronous(true);
         sched.setGrower([synth] (const std::string &text,
                                  const std::string &base, unsigned int choice,
-                                 const std::string &kinds, std::string &g,
-                                 std::string &what, std::string &why)
+                                 const std::string &kinds, size_t want,
+                                 std::vector<std::string> &g,
+                                 std::string &why)
                         { return NodeMutate::grow(synth, text, base, choice,
-                                                  kinds, g, what, why); });
+                                                  kinds, want, g, why); });
 
         if (!loader.load(path, &sched))
             fail("the growing piece does not load");
@@ -6515,6 +6516,130 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
     }
     else
         fail("there was no grown graph to keep");
+}
+
+/* One growth step on bass.dsp, of second voices only, toward `target' --
+   empty for none -- hearing up to `listen', with the ear answering in the
+   tick or, as live, on a later one, and rewound while it hears if
+   `rewind'. The graph it grew to, or empty for the declared one. */
+static std::string
+grownToward (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &aim, const std::string &target,
+             int listen, bool sync, bool rewind = false)
+{
+    const std::string path = thUtil::tempFile("gencheck-toward-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "instrument aim { dsp {\n" << aim << "\n}; };\n"
+               "chain melody {\n    stage s gen::eno_line { notes = "
+               "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
+               "    sink { instrument = pad; };\n};\n"
+               "chain shape {\n    stage g gen::grow { every = 2 s; depth = 1; "
+               "shrink = 0; kinds = \"voice\"; listen = " << listen
+            << "; target = \"" << target << "\"; };\n"
+               "    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    std::string grown;
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        sched.setAuditionSynchronous(sync);
+        sched.setGrower([synth] (const std::string &text,
+                                 const std::string &base, unsigned int choice,
+                                 const std::string &kinds, size_t want,
+                                 std::vector<std::string> &g,
+                                 std::string &why)
+                        { return NodeMutate::grow(synth, text, base, choice,
+                                                  kinds, want, g, why); });
+
+        if (!loader.load(path, &sched))
+            fail("the piece growing toward a target does not load");
+        else
+        {
+            sched.start();
+
+            for (double t = 0; t < 1.9; t += 0.05)
+            {
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            /* One step over the grow at 2 s: a live ear's answers can be
+               taken no sooner than the step after. */
+            sched.stepTransportTo(2.02);
+            drainSynth();
+
+            if (rewind)
+            {
+                sched.reset();
+                sched.start();
+            }
+
+            if (!sync && sched.auditioner() != NULL)
+            {
+                sched.auditioner()->drain();
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            sched.grownText(sched.instrument("pad")->channel, grown);
+        }
+    }
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+
+    return grown;
+}
+
+/* A target one edit away is reached in one step when every edit is heard,
+   though the walk alone goes elsewhere. */
+static void
+checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
+                 thSynth *synth)
+{
+    const std::string base = slurp(thUtil::findDataFile(
+        "bass.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH));
+    std::vector<std::string> options;
+    std::string why;
+
+    if (!NodeMutate::grow(synth, base, base, 0, "voice", 16, options, why) ||
+        options.size() < 2)
+    {
+        fail("bass.dsp has too few second voices to choose among: " + why);
+        return;
+    }
+
+    const std::string wander = grownToward(plugins, synth, base, "", 16, true);
+
+    for (size_t i = 0; i < options.size(); i++)
+    {
+        if (options[i] == wander)
+            continue;
+
+        for (int sync = 0; sync < 2; sync++)
+            if (grownToward(plugins, synth, options[i], "aim", 16, sync) !=
+                options[i])
+                fail(std::string("gen::grow toward a graph one edit away did "
+                                 "not reach it, with the ear answering ") +
+                     (sync ? "in the tick" : "later"));
+
+        if (!grownToward(plugins, synth, options[i], "aim", 16, false,
+                         true).empty())
+            fail("a growth still being heard went on after a rewind");
+
+        return;
+    }
+
+    fail("gen::grow without a target grew none of the edits on offer");
 }
 
 static void
@@ -14089,6 +14214,7 @@ main (int argc, char *argv[])
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkGrow(plugins, &synth);
+    checkGrowToward(plugins, &synth);
     checkInlineGraph(plugins, &synth);
     checkOneErrorEach(plugins, &synth);
     checkColony(plugins, &synth, genFile);

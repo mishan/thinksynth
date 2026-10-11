@@ -910,6 +910,22 @@ home rather than only getting bigger. Each graph goes on as a swap does, so
 what is sounding finishes on the one it started on. A host that does not link
 the node model — the Node build — refuses growth and says so.
 
+Given a `target` — an instrument of the piece or a sound file, as `gen::breed`
+takes — the walk leans toward it: of the edits that keep the level, the host
+hears up to `listen` (4 unless set) against the target and takes the nearest.
+
+```
+    stage g gen::grow { every = 20 s; depth = 4; target = "bell"; listen = 8; };
+```
+
+Each step is still one untuned edit and a step back still the dice's, so the
+graph drifts toward the target rather than climbing to it; **Evolve toward**,
+below, is the climb. Live, the edits are heard on the ear's own thread and the
+step goes on when the answers are in, a fraction of a second later, so no note
+waits for it; offline, `genwav` hears them in the tick, and renders are
+deterministic, so a piece that leans replays as one that wanders does. Where the
+host has no ear, the first edit is taken.
+
 What grew is the performance's, not the piece's: the file never changes by
 itself, and a rewind puts the declared graph back. To keep a graph, select the
 `gen::grow` stage in the Composer and press **Keep the grown graph**, which

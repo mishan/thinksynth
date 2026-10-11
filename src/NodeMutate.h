@@ -168,13 +168,15 @@ vector<Edit> edits (const string &source, const Shape &shape,
    candidate is played on a synth of its own -- a phrase of overlapping
    notes across four octaves, so a monophonic graph slides -- and kept only
    if it comes out finite with its RMS no more than 3 dB above `base''s and
-   no more than 12 below it, and its peak no more than 3 dB above. Rendering is deterministic, so a piece that grows still
-   replays from its seed. False, with `why', for a graph that does not
-   parse or has no edit of those kinds among the sixteen it tries that
-   passes. */
+   no more than 12 below it, and its peak no more than 3 dB above.
+   `grown' gets up to `want' that pass, in the order tried, for a host
+   that listens to choose among them. Rendering is deterministic, so a
+   piece that grows still replays from its seed. False, with `why', for a
+   graph that does not parse or has no edit of those kinds among the
+   sixteen it tries that passes. */
 bool grow (thSynth *synth, const string &text, const string &base,
-           unsigned int choice, const string &kinds, string &grown,
-           string &what, string &why);
+           unsigned int choice, const string &kinds, size_t want,
+           vector<string> &grown, string &why);
 
 }
 

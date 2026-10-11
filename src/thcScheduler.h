@@ -752,9 +752,12 @@ public:
        Only on a channel the piece declares an instrument for, and only in
        a host with a grower (setGrower). The grown graph is loaded as an
        inline graph is, under a name its text decides, and goes on as a
-       swap does. False with `why' when it cannot be done. */
+       swap does. With a `target', up to `listen' edits are heard against
+       it and the nearest is taken -- on a later step if the ear answers
+       later. False with `why' when it cannot be done. */
     bool growInstrument (int channel, unsigned int choice, bool shrink,
-                         const std::string &kinds, std::string &why);
+                         const std::string &kinds, const std::string &target,
+                         int listen, std::string &why);
 
     /* `text' on `channel' as growth would put it there, one step up the
        same stack: heard at once, gone with a step back or a rewind, and
@@ -762,13 +765,16 @@ public:
     bool tryGraph (int channel, const std::string &text, std::string &why);
 
     /* What turns a graph's text into the text one edit on: `choice' among
-       the edits of `kinds', judged against `base', the declared graph. A hook, as loading is, because the edits are
-       the node model's (NodeMutate::grow) and a host that does not link
-       it -- the Node build -- has no business growing anything. */
+       the edits of `kinds', judged against `base', the declared graph, and
+       up to `want' of them for a host that listens to choose among. A
+       hook, as loading is, because the edits are the node model's
+       (NodeMutate::grow) and a host that does not link it -- the Node
+       build -- has no business growing anything. */
     typedef std::function<bool (const std::string &text,
                                 const std::string &base, unsigned int choice,
-                                const std::string &kinds, std::string &grown,
-                                std::string &what, std::string &why)> Grower;
+                                const std::string &kinds, size_t want,
+                                std::vector<std::string> &grown,
+                                std::string &why)> Grower;
 
     void setGrower (const Grower &fn) { grower_ = fn; }
 
@@ -1465,6 +1471,12 @@ private:
     {
         std::vector<std::string> texts;
         std::vector<std::shared_ptr<void> > holds;
+
+        /* The next step's edits while the ear hears them against a
+           target: their tickets, -1 once answered, and their distances. */
+        std::vector<std::string> options;
+        std::vector<int> tickets;
+        std::vector<double> distances;
     };
 
     std::map<int, Growth> grown_;
@@ -1474,7 +1486,27 @@ private:
        `given' or to what the grower makes, or one back. */
     bool stepGraph (int channel, bool shrink, const std::string *given,
                     unsigned int choice, const std::string &kinds,
+                    const std::string &target, int listen,
                     std::string &why);
+
+    /* `candidate' queued against `target' as hear() resolves it: an
+       instrument of the piece, or a sound file. */
+    int hearAgainst (const thcAuditioner::Instrument &candidate,
+                     const char *target);
+
+    /* Each of `options', a graph in `inst''s place, queued against
+       `target': a ticket each, -1 for one that cannot be heard. */
+    std::vector<int> hearAll (const thcInstrument &inst,
+                              const std::vector<std::string> &options,
+                              const std::string &target);
+
+    /* `g''s answers that are in; true once all are. */
+    bool collect (Growth &g);
+    void forgetHearing (Growth &g);
+
+    /* A channel's growth, or every channel's for -1, tickets and all. */
+    void forgetGrowth (int channel);
+    void takeHeardGrowth (void);
 
     /* `put' onto its channel and its values on it, or neither: what a swap
        and a growth step both end in. */

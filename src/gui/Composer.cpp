@@ -287,10 +287,10 @@ Composer::start (void)
     sched_ = new thcScheduler(synth_);
     sched_->setGrower(
         [this](const std::string &text, const std::string &base,
-               unsigned int choice, const std::string &kinds,
-               std::string &grown, std::string &what, std::string &why)
-        { return NodeMutate::grow(synth_, text, base, choice, kinds, grown,
-                                  what, why); });
+               unsigned int choice, const std::string &kinds, size_t want,
+               std::vector<std::string> &grown, std::string &why)
+        { return NodeMutate::grow(synth_, text, base, choice, kinds, want,
+                                  grown, why); });
     sched_->setInstrumentLoader(
         [this](const thcInstrument &inst, std::string &why)
         { return loadInstrument(inst, why); });
@@ -1034,7 +1034,8 @@ Composer::onEvolve (void)
                 evolveState_->set_text("it is no longer on the channel");
             else
                 evolveState_->set_text(
-                    sched_->growInstrument(what->channel, 0, true, "", why)
+                    sched_->growInstrument(what->channel, 0, true, "", "", 0,
+                                           why)
                     ? "put back as it was" : why);
 
             evolvePending_ = false;
