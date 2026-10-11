@@ -716,6 +716,11 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
         "prob = @nosuch * 2; }; sink { channel = 1; }; };",
         "not a declared knob");
 
+    expectReject(plugins, synth, "expr-unit",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; "
+        "period = 2 * 3 s; }; sink { channel = 1; }; };",
+        "is not a unit this value can take");
+
     expectReject(plugins, synth, "expr-no-such-function",
         "chain c { stage s gen::eno_line { notes = \"A1\"; period = 2 s; "
         "prob = wobble(0.5) * 2; }; sink { channel = 1; }; };",
@@ -778,19 +783,13 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
     /* ---- and it groups the way a .dsp groups it ------------------------ */
 
     /* The claim docs/GEN_FORMAT.md 5a makes: one language, whichever file it is
-     * written in. Two parsers say it -- thDspParser.cpp's rules and the three
-     * hand-written functions above -- so the way to hold them together is to
-     * ask both the same questions and compare the answers.
+     * written in. The parser is .dsp's, so what this checks is the hand-over:
+     * that a .gen value reaches it and comes back as the param. Each is a
+     * `vel', which is an integer a tape reports, so a wrong fold shows up as
+     * a velocity rather than as a silence.
      *
-     * exprcheck folds the same list against the .dsp grammar. Here each is a
-     * `vel', which is an integer a tape reports, so a disagreement shows up
-     * as a velocity rather than as a silence.
-     *
-     * `-60 + 100' is the row that used to differ: this parser binds a sign
-     * to its operand and the .dsp grammar scoped it over everything to the
-     * right, so the same text was 40 here and -160 there. `2 + 3 * 4' pins
-     * the precedence and `1 - 2 + 3' the grouping, to the left as in
-     * arithmetic.
+     * `-60 + 100' pins a sign bound to its operand, `2 + 3 * 4' the
+     * precedence and `1 - 2 + 3' the grouping, to the left as in arithmetic.
      */
     {
         static const struct { const char *rhs; int want; } cases[] = {
@@ -801,6 +800,7 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
             { "20 * -1 + 60",   40 },
             { "clamp(10, 40, 90)", 40 },
             { "exp2(2) * 10",   40 },
+            { "100 % 60",       40 },
         };
 
         bool bad = false;
@@ -840,17 +840,27 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* .dsp's vocabulary is not reserved in a .gen name: a knob called `ms'
+       in arithmetic, and a stage called `nil' read through `->'. */
+    renderBody(plugins, synth, "expr-names",
+               "seed 7;\n@ms = 20;\nchain c {\n"
+               "    stage nil math::add { in0 = @ms * 1; in1 = 20; };\n"
+               "    stage src gen::eno_line { notes = \"A3\"; period = 1 s; "
+               "vel = nil->out * 1; };\n    sink { channel = 1; };\n};\n",
+               2.0);
+
     /* A chain is read in a loop but nests in the tree, which is walked by
        recursion; a generated one thousands of terms long is refused rather
-       than taking the stack. */
+       than taking the stack. Over a knob, because a sum of numbers folds as
+       it is read and builds no tree at all. */
     {
-        std::string sum = "1";
+        std::string sum = "@d";
 
         for (int i = 0; i < 5000; i++)
             sum += " + 1";
 
         expectReject(plugins, synth, "expr-chain",
-                     "chain c {\n    stage src gen::eno_line { notes = "
+                     "@d = 1;\nchain c {\n    stage src gen::eno_line { notes = "
                      "\"A3\"; period = 1 s; vel = " + sum + "; };\n"
                      "    sink { channel = 1; };\n};\n",
                      "nested too deeply");
