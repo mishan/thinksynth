@@ -969,6 +969,7 @@ thcScheduler::auditionInstrument (const thcInstrument &inst,
     out.dsp = path.empty() ? inst.dsp : path;
     out.effect.clear();
     out.chanargs.clear();
+    out.graphs = inst.graphs;
 
     /* Its side, if it names one, is another channel's sound, and the
        private synth has only this one: the effect is heard on its own. */

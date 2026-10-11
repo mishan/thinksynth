@@ -45,6 +45,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -65,6 +66,10 @@ public:
         std::string dsp;
         std::string effect;
         std::vector<std::pair<std::string, float> > chanargs;
+
+        /* thcInstrument::graphs: an inline graph stays loadable until a
+           render queued for it has run. */
+        std::vector<std::shared_ptr<void> > graphs;
     };
 
     /* `pluginPath' is where the audio synth's modules came from and

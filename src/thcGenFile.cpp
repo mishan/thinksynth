@@ -340,10 +340,15 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
             break;
         }
 
+        /* `dsp {' as a statement, not a block that happens to be named
+           dsp: the word starts the statement it is in. */
         if (g.kind == Token::PUNCT && g.text == "{" &&
             (graphDepth > 0 ||
-             (!out.empty() && out.back().kind == Token::WORD &&
-              out.back().text == "dsp")))
+             (out.size() >= 2 && out.back().kind == Token::WORD &&
+              out.back().text == "dsp" &&
+              out[out.size() - 2].kind == Token::PUNCT &&
+              (out[out.size() - 2].text == ";" ||
+               out[out.size() - 2].text == "{"))))
             graphDepth++;
         else if (g.kind == Token::PUNCT && g.text == "}" && graphDepth > 0)
             graphDepth--;

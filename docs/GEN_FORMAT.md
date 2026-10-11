@@ -252,7 +252,8 @@ piece's own line. Plugins are looked up when the instrument is loaded, not
 while the file is read. The graph is loaded under a name made from the
 instrument and a hash of its text (`bell#1a2b3c4d.dsp`), which is what a panel
 shows for it and what changes when the graph does. It has no file, so the node
-editor does not open it and a patch cannot be saved from its channel. An effect
+editor does not open it and a patch cannot be saved from its channel (nor from
+a channel whose effect is written inline). An effect
 is written inline the same way, with its graph as the block's `dsp` — see
 below.
 
@@ -341,10 +342,6 @@ loaded **after** the instrument, because loading an instrument builds a new
 channel and an effect belongs to the channel it was put on — which also means
 a rewind reloads both and the delay line starts empty both times, so a replay
 is still a replay.
-
-Writing the graph out inline instead of naming it is the other half of the
-same idea and is not here. By reference alone delivers the self-contained
-file, which is what that step was for.
 
 **An effect may also hear the machine**, and that one needs no clause at all.
 An effect graph whose io node declares `live0` is handed what the host is
@@ -999,12 +996,12 @@ knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
 preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
-mastereffect: "effect" STRING effectblock? ";"           # at most one,
+mastereffect: effect                                   # at most one,
                                                        #   on the mix
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # one dsp, or a
                                                        #   midi, or both
-instrstmt   : "dsp" STRING ";"
-            | "effect" STRING effectblock? ";"          # at most one
+instrstmt   : "dsp" graph ";"
+            | effect                                   # at most one
             | "send" "=" (NUMBER | CHANARG) ";"         # fx.send, 0..1
             | "midi" STRING ";"                         # an output port
             | "midichannel" "=" NUMBER ";"              # 1-16; with midi
@@ -1014,6 +1011,12 @@ instrstmt   : "dsp" STRING ";"
             | WORD "." WORD "=" STRING ";"              # a node's text arg
             | instrval
 ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
+graph       : STRING | "{" dspstmt* "}"                # a file, or a .dsp's
+                                                       #   statements inline
+                                                       #   (DSP_FORMAT.md)
+effect      : "effect" STRING effectblock? ";"
+            | "effect" "{" effectstmt* "}" ";"         # exactly one dsp
+effectstmt  : "dsp" graph ";" | effectside | instrval
 effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs
 effectside  : "side" "=" WORD ";"                      # at most one; an
                                                        #   instrument, and

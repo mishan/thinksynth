@@ -1952,7 +1952,9 @@ void MainSynthWindow::doSavePatch (string file, int chan)
         gthPatchManager::instance()->getPatch(chan);
     string inlineGraph;
 
-    if (patch != NULL && thUtil::findGraphText(patch->doc.dsp, inlineGraph))
+    if (patch != NULL &&
+        (thUtil::findGraphText(patch->doc.dsp, inlineGraph) ||
+         thUtil::findGraphText(patch->doc.effect, inlineGraph)))
         showError(this, "This channel plays a graph written inside the "
                   "piece, which a patch file cannot name. Save the piece "
                   "instead.");
