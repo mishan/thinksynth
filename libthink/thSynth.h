@@ -45,6 +45,11 @@ public:
     }
 
     thSynthTree *loadTree(const string &filename);
+
+    /* Onto channel `channum'. Loaded over a channel that is sounding, the
+       old graph's notes finish on it -- see thMidiChan::drain -- and the
+       notes after play this one; a caller wanting a clean slate, as a
+       render that starts over does, calls removeChan first. */
     thSynthTree *loadTree(const string &filename, int channum, float amp);
     thSynthTree *loadTree(FILE *input);
 
@@ -549,6 +554,9 @@ private:
      * no side in it, so a piece that uses none sums its channels in exactly
      * the order it always did. */
     int orderChannels (int *order) const;
+    void orderFrom (int c, bool *done, bool *stacked, int *order,
+                    int &n) const;
+    int drainSideOf (const thMidiChan *chan) const;
 
     map<string, thSynthTree*> treelist_;
     map<int, string> patchlist_;
@@ -663,6 +671,11 @@ private:
         int ntaps;
         const float *side;
         int sidechannels;
+
+        /* The same for the effect of the channel being drained, if any:
+           it heard its own side, and goes on hearing it. */
+        const float *drainSide;
+        int drainSidechannels;
     };
 
     ChannelJob jobs_[TH_MIDI_CHANNELS];

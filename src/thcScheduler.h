@@ -1392,8 +1392,7 @@ private:
        has moved. A gen::swap knows only a list of names and a clock --
        it cannot see what its sink's channel is playing -- so a list
        starting with the instrument already there would rebuild the graph
-       into a copy of itself on the opening tick, cutting every sounding
-       voice for no change. This is where that is knowable. Cleared by a
+       into a copy of itself on the opening tick, for no change. This is where that is knowable. Cleared by a
        rewind, which puts every declaration back. */
     std::map<int, std::string> holding_;
 

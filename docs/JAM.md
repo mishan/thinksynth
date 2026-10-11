@@ -866,8 +866,8 @@ changed, or that is new, is re-created at the apply beat with the seed it
 would have had from the file (seeds derive from the master seed and the
 stage's position, so this is already defined). A stage that is gone is torn
 down. A changed `instrument` block goes through the existing patch-swap
-path, which cuts sounding notes on that channel, and that is documented
-behaviour rather than a bug.
+path, which lets the notes already sounding on that channel finish on the
+graph they started on.
 
 In the worklet that costs: stage teardown and creation at the apply beat,
 under a millisecond measured, so one quantum at most; and for a changed

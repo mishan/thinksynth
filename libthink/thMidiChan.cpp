@@ -16,6 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <algorithm>
+#include <cmath>
 #include "config.h"
 
 #include <stdio.h>
@@ -738,7 +740,11 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
    from the GUI thread. */
 void thMidiChan::releaseNote (int note)
 {
-    int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
+    int sustain = sustainNow();
+
+    /* A key held across a swap was pressed on the graph being drained. */
+    if (draining_ != NULL)
+        draining_->releaseNote(note);
 
     if (mono_)
     {
@@ -833,6 +839,20 @@ void thMidiChan::clearAll (RetireQueue *retire)
     /* Every key is up as far as this channel is concerned: it has no voices
        left to hand them to. */
     monoCount_ = 0;
+
+    /* Nor any graph it was letting finish. */
+    if (draining_ != NULL)
+    {
+        thRetired item;
+
+        item.kind = thRetired::CHANNEL;
+        item.channel = draining_;
+
+        if (retire == NULL || !retire->push(item))
+            delete draining_;
+
+        draining_ = NULL;
+    }
 }
 
 /* Audio thread. See the header. */
@@ -864,6 +884,9 @@ void thMidiChan::silence (int samples)
 
     if (effect_)
         effect_->fadeOut(samples);
+
+    if (draining_ != NULL)
+        draining_->silence(samples);
 }
 
 thMidiNote *thMidiChan::getNote (int note)
@@ -947,7 +970,8 @@ void thMidiChan::retempo (double bpm)
 }
 
 void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
-                          int nprobes, const float *side, int sidechannels)
+                          int nprobes, const float *side, int sidechannels,
+                          const float *drainSide, int drainSidechannels)
 {
     if (output_ == NULL || bufmix_ == NULL || bufamp_ == NULL ||
         windowlength_ <= 0)
@@ -966,7 +990,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
     thMidiNote *data;
     thArg *amp, *play;
 
-    int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
+    int sustain = sustainNow();
 
     amp = amp_;
 
@@ -1119,7 +1143,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
     if (effect_ != NULL)
     {
         /* The controller's 0..127, as the fraction a graph wants. */
-        const float pedal = argSustain_ ? (*argSustain_)[0] / 127.0f : 0;
+        const float pedal = sustainNow() / 127.0f;
 
         if (!effect_->process(output_, channels_, windowlength_, side,
                               sidechannels, pedal))
@@ -1129,6 +1153,115 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
         dirty_ = true;
     }
+
+    if (draining_ != NULL)
+        mixDraining(retire, drainSide, drainSidechannels);
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::drain (thMidiChan *old)
+{
+    draining_ = old;
+    drainQuiet_ = 0;
+    drainSilentVoices_ = 0;
+    drainWindows_ = 0;
+    drainFade_ = -1;
+    drainAmp_ = amp_ != NULL ? (*amp_)[0] : 0;
+}
+
+/* Below -100 dB, which a 16-bit render rounds to nothing. */
+static const float TH_DRAIN_QUIET = 1e-5f;
+
+/* Audio thread. See drain(). */
+void thMidiChan::mixDraining (RetireQueue *retire, const float *side,
+                              int sidechannels)
+{
+    thMidiChan *old = draining_;
+
+    old->pedalFrom_ = (float)sustainNow();
+    old->process(retire, NULL, 0, side, sidechannels);
+
+    /* Quiet for a quarter of a second once its voices are done, and it is
+       put away as it is. A tail that never gets there -- an effect making
+       sound of its own, the room through a microphone -- has ten seconds
+       after the last voice, and anything at all half a minute, and is then
+       faded rather than cut. */
+    const int quietWindows = (int)(samplerate_ / 4 / windowlength_) + 1;
+    const int tailWindows = (int)(samplerate_ * 10 / windowlength_) + 1;
+    const int maxWindows = (int)(samplerate_ * 30 / windowlength_) + 1;
+    const int fadeWindows = (int)(samplerate_ / 10 / windowlength_) + 1;
+
+    const float *in = old->output();
+    float peak = 0;
+
+    if (in != NULL && old->channels_ > 0)
+    {
+        const int oc = old->channels_;
+        const float fade0 = drainFade_ < 0 ? 1 : (float)drainFade_ / fadeWindows;
+        const float fade1 = drainFade_ < 0 ? 1
+                          : (float)std::max(drainFade_ - 1, 0) / fadeWindows;
+
+        for (int j = 0; j < windowlength_; j++)
+        {
+            /* This channel's level now against its level at the swap, so the
+               fader reaches the tail as it reaches everything else on the
+               channel; and the fade, if one is running. */
+            float g = drainAmp_ > 0 ? bufamp_[j] / drainAmp_ : 1;
+
+            g *= fade0 + (fade1 - fade0) * j / windowlength_;
+
+            /* A graph wider than this one is folded into its last output
+               rather than losing a side; a narrower one is heard in every
+               output past its own. */
+            for (int c = 0; c < channels_; c++)
+            {
+                float x;
+
+                if (c < channels_ - 1 || oc <= channels_)
+                    x = in[j * oc + std::min(c, oc - 1)];
+                else
+                {
+                    x = 0;
+
+                    for (int k = c; k < oc; k++)
+                        x += in[j * oc + k];
+
+                    x /= (float)(oc - c);
+                }
+
+                output_[j * channels_ + c] += x * g;
+                peak = std::max(peak, std::fabs(x));
+            }
+        }
+
+        dirty_ = true;
+    }
+
+    const bool voices = !old->notes_.empty() || !old->decaying_.empty() ||
+                        !old->fading_.empty() || old->draining_ != NULL;
+
+    drainQuiet_ = (!voices && peak < TH_DRAIN_QUIET) ? drainQuiet_ + 1 : 0;
+    drainSilentVoices_ = voices ? 0 : drainSilentVoices_ + 1;
+    drainWindows_++;
+
+    if (drainFade_ < 0 && (drainSilentVoices_ >= tailWindows ||
+                           drainWindows_ >= maxWindows))
+        drainFade_ = fadeWindows;
+    else if (drainFade_ > 0)
+        drainFade_--;
+
+    if (drainQuiet_ < quietWindows && drainFade_ != 0)
+        return;
+
+    thRetired item;
+
+    item.kind = thRetired::CHANNEL;
+    item.channel = old;
+
+    /* A full queue is tried again next window rather than freeing a whole
+       channel here. The fade has ended, so it is silent while it waits. */
+    if (retire != NULL && retire->push(item))
+        draining_ = NULL;
 }
 
 /* GUI thread, once, from thSynth::loadTree.
