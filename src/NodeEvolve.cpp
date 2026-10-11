@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <exception>
 #include <memory>
 
 #include "thcRandom.h"
@@ -741,18 +742,24 @@ void Job::work (const Spec &spec)
     {
         out.assign(sources.size(), DEAD);
 
-        /* Each thread takes every workers'th candidate. One that throws
-           leaves its candidates at DEAD rather than ending the program;
-           a thread that cannot be started leaves its share to this one. */
+        /* Each thread takes every workers'th candidate, until a cancel.
+           What one throws is rethrown here once all are joined, for run()
+           to report; a thread that cannot be started leaves its share to
+           this one. */
+        std::exception_ptr failed;
         const auto share = [&] (size_t w)
         {
             try
             {
-                for (size_t k = w; k < sources.size(); k += workers)
+                for (size_t k = w; k < sources.size() && !stop_; k += workers)
                     out[k] = scoreOn(w, sources[k], NULL);
             }
             catch (...)
             {
+                std::lock_guard<std::mutex> hold(lock_);
+
+                if (!failed)
+                    failed = std::current_exception();
             }
         };
 
@@ -775,6 +782,9 @@ void Job::work (const Spec &spec)
 
         for (std::thread &t : threads)
             t.join();
+
+        if (failed)
+            std::rethrow_exception(failed);
     };
     host.read = [&] (const string &source, vector<Gene> *genes, Shape *shape)
     {

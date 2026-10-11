@@ -1010,9 +1010,13 @@ Composer::onEvolve (void)
         {
             std::string why;
 
-            evolveState_->set_text(keepGraph(evolving_, evolveGraph_, why)
-                                   ? "kept into the piece; Save to keep it"
-                                   : why);
+            if (!keepGraph(evolving_, evolveGraph_, why))
+            {
+                evolveState_->set_text(why);
+                return;
+            }
+
+            evolveState_->set_text("kept into the piece; Save to keep it");
             evolvePending_ = false;
             evolveKeep_->set_sensitive(false);
             evolveDrop_->set_sensitive(false);

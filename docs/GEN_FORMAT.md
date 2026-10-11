@@ -917,23 +917,24 @@ writes it into the piece as the instrument's `dsp { ... }` — over its file nam
 if it had one — and reloads; from then on that is what the piece declares, and
 growth goes on from there.
 
-**Evolve toward** is the same vocabulary searched rather than walked. From the
-Composer's menu, pick one of the piece's instruments and what it should sound
-like — another of its instruments, or a recording — and how far to go: **Tune**
-moves its constants, a minute or two; **Tune and grow** races edits to its shape
-as well, several minutes. The search is `scripts/dspmatch`'s (`src/NodeEvolve`),
-run on a thread of its own while the piece goes on playing. What it finds goes on
-the instrument's channel to be heard, as a grown graph does: **Keep** writes it
-into the piece as the instrument's `dsp { ... }`, **Discard** puts back what was
-there. It starts from the graph the channel plays now, so a kept or grown graph
-can be evolved further. The instrument's values (`a = 900 ms`) are not part of
-the search: it hears the graph as the graph declares it.
-
 **All three are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
 the seed, so a piece sounds the same twice; and drawn on the roll, so you can
 watch one coming. A rewind puts every instrument back as the file declares it,
 because after a swap the channels no longer say what the file says.
+
+**Evolve toward** is not an event but an authoring action: the same vocabulary
+searched rather than walked. From the Composer's menu, pick one of the piece's
+instruments and what it should sound like — another of its instruments, or a
+recording — and how far to go: **Tune** moves its constants, a minute or two;
+**Tune and grow** races edits to its shape as well, several minutes. The search
+is `scripts/dspmatch`'s (`src/NodeEvolve`), run on a thread of its own while the
+piece goes on playing. What it finds goes on the instrument's channel to be
+heard, as a grown graph does: **Keep** writes it into the piece as the
+instrument's `dsp { ... }`, **Discard** puts back what was there. It starts from
+the graph the channel plays now, so a kept or grown graph can be evolved
+further. The instrument's values (`a = 900 ms`) are not part of the search: it
+hears the graph as the graph declares it.
 
 A structure edit reaches **every** sink of its chain. The note/chanarg filter is
 a rule about notes and chanargs; an edit is neither, and both kinds of sink name
