@@ -170,7 +170,9 @@ chain loop_ab3 {
   dsp statement language inside the block — can come in a second step;
   the grammar work is importing the `.dsp` rules under one root, which
   the shared lexer was built to allow. By-reference alone delivers the
-  self-contained piece.
+  self-contained piece. **Landed** as `dsp { ... }`, for an instrument's
+  graph and an effect's, read by the `.dsp` parser itself (GEN_FORMAT.md
+  §4b).
 - Loader: `thcGenLoader` grows an instrument table; on load it does what
   the patch selector does per entry. `describe`/`thvalidate --dump`
   learn the block; the MCP `render` tool's `patches:` argument becomes
@@ -543,9 +545,10 @@ needs pieces that own their instruments (1), a namespace to address them
 
 ## Hazards worth writing down before they cost a branch
 
-- **Grammar merge mechanics.** One root, two statement families. The
-  shared lexer carries it; the bison work is real but mechanical. The
-  non-mechanical part is diagnostics — an `=` where an `->` belongs must
+- **Grammar merge mechanics.** One root, two statement families. Landed
+  as one recursive-descent parser in libthink (`thDspParser.cpp`) that
+  reads `.dsp` files, `.gen` arithmetic and inline graphs; bison is gone.
+  The non-mechanical part is diagnostics — an `=` where an `->` belongs must
   say "node wiring uses ->" and vice versa, or the unified language
   costs more confusion than the split ever did.
 - **The second interpreter drifts.** Control-rate and audio-rate hosts

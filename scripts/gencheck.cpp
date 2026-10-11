@@ -716,10 +716,49 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
         "prob = @nosuch * 2; }; sink { channel = 1; }; };",
         "not a declared knob");
 
-    expectReject(plugins, synth, "expr-unit",
+    /* A unit survives scaling a number, as in a .dsp, and the duration it
+       makes is the one the plain literal makes. */
+    {
+        static const struct { const char *rhs, *plain; } cases[] = {
+            { "2 * 0.5 s",       "1 s" },
+            { "1500 ms / 3",     "500 ms" },
+            { "2 * 0.5 beats",   "1 beats" },
+        };
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        {
+            const std::string body = std::string(
+                "seed 7;\ntempo 90;\nchain c {\n    stage src gen::eno_line { "
+                "notes = \"A3\"; jitter = 0 s; prob = 1; period = ");
+            const std::string tail =
+                "; };\n    sink { channel = 1; };\n};\n";
+
+            const std::string a = renderBody(plugins, synth, "expr-unit",
+                                             body + cases[i].rhs + tail, 4.0);
+            const std::string b = renderBody(plugins, synth, "expr-unit-ref",
+                                             body + cases[i].plain + tail,
+                                             4.0);
+
+            if (a.empty() || a != b)
+                fail(std::string("`period = ") + cases[i].rhs +
+                     "' is not the same period as `" + cases[i].plain + "'");
+        }
+    }
+
+    expectReject(plugins, synth, "expr-unit-not-duration",
         "chain c { stage s gen::eno_line { notes = \"A1\"; "
-        "period = 2 * 3 s; }; sink { channel = 1; }; };",
+        "period = 1 s; vel = 2 * 3 s; }; sink { channel = 1; }; };",
+        "is not a duration");
+
+    expectReject(plugins, synth, "expr-unit-not-time",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; "
+        "period = 2 * 3 Hz; }; sink { channel = 1; }; };",
         "is not a unit this value can take");
+
+    expectReject(plugins, synth, "expr-unit-sum",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; "
+        "period = 1 s + 500 ms; }; sink { channel = 1; }; };",
+        "cannot be used in arithmetic");
 
     expectReject(plugins, synth, "expr-no-such-function",
         "chain c { stage s gen::eno_line { notes = \"A1\"; period = 2 s; "

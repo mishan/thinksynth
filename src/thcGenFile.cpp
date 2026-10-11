@@ -2713,7 +2713,7 @@ thcGenLoader::aheadIsExpression (void) const
 }
 
 thExprNode *
-thcGenLoader::parseExpr (thcScheduler *sched)
+thcGenLoader::parseExpr (thcScheduler *sched, const char **units)
 {
     /* Every .gen token starts where one of thLexString's does -- the
        adapter only ever fuses neighbors -- so the cursor maps across by
@@ -2749,10 +2749,11 @@ thcGenLoader::parseExpr (thcScheduler *sched)
     pos_ = std::lower_bound(tokens_.begin(), tokens_.end(), raw_[raw].off,
                             byGenOff) - tokens_.begin();
 
-    /* What a .gen unit means depends on the param it lands on, which a
-       folded expression no longer knows: only a plain literal on a param
-       carries one. */
-    if (v.units)
+    /* What a .gen unit means depends on the param it lands on, so only a
+       caller that knows the param may take one. */
+    if (v.units && units != NULL)
+        *units = v.units;
+    else if (v.units)
     {
         error(line, std::string("'") + v.units + "' is not a unit this "
               "value can take");
@@ -3238,6 +3239,16 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
     if (!expectPunct('='))
         return false;
 
+    /* A duration in seconds or in beats. The beats flag is stated on every
+       write, not only when it is true: a param set to "4 beats" and later
+       to "2 s" must stop tempo-scaling, and a flag only ever raised never
+       comes down. */
+    const auto setDuration = [&](double value, const std::string &unit)
+    {
+        stage->params.set(idx, unit == "ms" ? value / 1000.0 : value);
+        stage->params.setBeats(idx, unit == "beats" || unit == "b");
+    };
+
     /* Arithmetic, before anything else looks at the value.
      *
      * A lookahead rather than one parse for every shape, because a param's
@@ -3272,10 +3283,39 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
         if (!c->nodes)
             c->nodes.reset(sched->newNodeHost());
 
-        thExprNode *e = parseExpr(sched);
+        const char *units = NULL;
+        thExprNode *e = parseExpr(sched, &units);
 
         if (e == NULL)
             return false;
+
+        /* `period = 2 * 0.5 s': a unit survives only scaling a number, so
+           what came back is a number, and it is set as the same number
+           written plainly with that unit would be. */
+        if (units != NULL)
+        {
+            const double value = e->value;
+            const std::string unit = units;
+
+            thExprFree(e);
+
+            if (unit != "s" && unit != "ms" && unit != "beats")
+            {
+                error(line, "'" + unit + "' is not a unit this value can "
+                      "take");
+                return false;
+            }
+
+            if (!pi->isDuration())
+            {
+                error(line, "'" + pname.text +
+                      "' is not a duration; a unit means nothing here");
+                return false;
+            }
+
+            setDuration(value, unit);
+            return expectPunct(';');
+        }
 
         ExprRef ref;
         int serial = 0;
@@ -3357,18 +3397,7 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
                 return false;
             }
 
-            /* The beats flag is stated on every write, not only when
-               it is true: a param set to "4 beats" and later to "2 s"
-               must stop tempo-scaling, and a flag only ever raised
-               never comes down. */
-            if (unit == "s")
-                stage->params.set(idx, num.num);
-            else if (unit == "ms")
-                stage->params.set(idx, num.num / 1000.0);
-            else                                 /* beats / b */
-                stage->params.set(idx, num.num);
-
-            stage->params.setBeats(idx, unit == "beats" || unit == "b");
+            setDuration(num.num, unit);
         }
         else
         {

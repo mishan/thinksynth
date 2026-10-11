@@ -187,34 +187,6 @@ thExprOp (int op, thExprNode *a, thExprNode *b)
         return NULL;
     }
 
-    /* Folded here rather than in the grammar so that `(2 + 3) * x' is
-       `5 * x' -- the grammar can only fold what it reduces, and a constant
-       subtree under a signal one is still a constant. Division by a zero
-       constant is left standing: folding it would put an infinity in an arg
-       at parse time, where nothing reports it, rather than at the voice,
-       where the non-finite guard names the channel and the graph. */
-    if (isConst(a) && isConst(b) && !(op == '/' && b->value == 0))
-    {
-        float v = 0;
-
-        switch (op)
-        {
-        case '+': v = a->value + b->value; break;
-        case '-': v = a->value - b->value; break;
-        case '*': v = a->value * b->value; break;
-        case '/': v = a->value / b->value; break;
-        default:
-            delete a;
-            delete b;
-            return NULL;
-        }
-
-        delete a;
-        delete b;
-
-        return thExprConst(v);
-    }
-
     thExprNode *e = new thExprNode(thExprNode::OP);
 
     e->op = op;
