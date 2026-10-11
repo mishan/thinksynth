@@ -204,6 +204,11 @@ public:
     bool evolveDone (void) const;
     bool evolveResult (std::string &why);
 
+    /* The nearest graph the running search has found, on the channel to
+       be heard -- in place of the last one heard, so the channel holds one
+       graph of the search's at a time and Discard goes back past it. */
+    bool listenNearest (std::string &why);
+
     /* `body' written into that instrument's `dsp { }' and the piece
        reloaded; `name' gets what the graph is loaded under now. */
     bool setInlineGraph (const std::string &instrument,
@@ -578,13 +583,21 @@ protected:
                   *evolveHow_ = NULL;
     Gtk::Label *evolveState_ = NULL;
     Gtk::Button *evolveGo_ = NULL, *evolveStop_ = NULL,
-                *evolveKeep_ = NULL, *evolveDrop_ = NULL;
+                *evolveKeep_ = NULL, *evolveDrop_ = NULL,
+                *evolveHear_ = NULL;
+
+    /* How near the search has come over time, nearer higher. */
+    Gtk::DrawingArea *evolvePlot_ = NULL;
+
+    bool putEvolveGraph (const std::string &graph, std::string &why);
+    void drawEvolve (const Cairo::RefPtr<Cairo::Context> &cr, int w, int h);
     std::string evolveWav_;
     std::vector<std::string> evolveNames_;
 
-    /* What the last search found, while it waits on the channel to be kept
-       or discarded -- remembered here rather than read back off the
-       channel, which a seek or a swap may have changed since. */
+    /* What the last search found, or the nearest it had when listened to,
+       while it waits on the channel to be kept or discarded -- remembered
+       here rather than read back off the channel, which a seek or a swap
+       may have changed since. */
     std::string evolveGraph_;
     bool evolvePending_ = false;
 

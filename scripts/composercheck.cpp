@@ -156,6 +156,7 @@ public:
     using Composer::sched_;
     using Composer::selBox_;
     using Composer::growthViews_;
+    using Composer::evolve_;
     using Composer::editorBox_;
     using Composer::seq_;
     using Composer::dirty_;
@@ -2149,11 +2150,18 @@ runExportMidi (const std::string &pluginPath)
 
         const bool started = win->startEvolve("pad", "ref", "", false, why);
 
-        /* Seconds on a desktop; minutes under the sanitizers. */
+        /* Seconds on a desktop; minutes under the sanitizers. The nearest
+           so far is listened to once, as the window's Listen does. */
+        bool listened = false;
+
         for (int i = 0; started && i < 6000 && !win->evolveDone(); i++)
         {
             pump(1);
             g_usleep(50000);
+
+            std::string ignored;
+
+            listened = listened || win->listenNearest(ignored);
         }
 
         const bool heard = started && win->evolveResult(why);
@@ -2167,6 +2175,20 @@ runExportMidi (const std::string &pluginPath)
 
         if (!heard)
             printf("      %s\n", why.c_str());
+
+        std::vector<std::string> stack;
+        std::vector<thcScheduler::GrowthStep> log;
+
+        check(listened && pad != NULL &&
+              win->sched_->growth(pad->channel, stack, log) &&
+              stack.size() == 2,
+              "...and what was listened to on the way is replaced by it, "
+              "not stacked under it");
+
+        const auto trail = win->evolve_->trail();
+
+        check(trail.size() > 1 && trail.back().second < trail[0].second,
+              "...and its trail comes nearer than where it started");
 
         const bool kept = win->keepInstrument("pad", why);
 

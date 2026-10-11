@@ -37,6 +37,7 @@
  */
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <random>
@@ -181,6 +182,15 @@ public:
     /* How far the graph as it started was from the target, once known. */
     double started (void) const;
 
+    /* Each time the search came nearer, how many seconds in and how near;
+       the graph it started from first. */
+    vector<pair<double, double> > trail (void) const;
+
+    /* Seconds since it started, and the nearest graph so far: false for
+       none yet. */
+    double seconds (void) const;
+    bool nearest (string &graph) const;
+
     /* Once done: the graph it found and how far that is from the target,
        or false with why there is none. */
     bool result (string &graph, double &distance, string &why) const;
@@ -196,6 +206,9 @@ private:
     mutable std::mutex lock_;
     string line_, partial_;
     double best_ = -1;
+    string bestSource_;
+    vector<pair<double, double> > trail_;
+    std::chrono::steady_clock::time_point begun_;
     double started_ = -1;
     bool ok_ = false;
     string found_, why_;

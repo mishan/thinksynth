@@ -609,9 +609,32 @@ bool Job::start (const Spec &spec, string &why)
         return false;
     }
 
+    begun_ = std::chrono::steady_clock::now();
     thread_ = std::thread(&Job::run, this, spec);
 
     return true;
+}
+
+vector<pair<double, double> > Job::trail (void) const
+{
+    std::lock_guard<std::mutex> hold(lock_);
+
+    return trail_;
+}
+
+double Job::seconds (void) const
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                         begun_).count();
+}
+
+bool Job::nearest (string &graph) const
+{
+    std::lock_guard<std::mutex> hold(lock_);
+
+    graph = bestSource_;
+
+    return !graph.empty();
 }
 
 string Job::progress (void) const
@@ -791,7 +814,11 @@ void Job::work (const Spec &spec)
         std::lock_guard<std::mutex> hold(lock_);
 
         if (best_ < 0 || d.total() < best_)
+        {
             best_ = d.total();
+            bestSource_ = source;
+            trail_.push_back(std::make_pair(seconds(), best_));
+        }
 
         return d.total();
     };

@@ -849,9 +849,96 @@ Composer::startEvolve (const std::string &instrument,
         return false;
 
     evolving_ = instrument;
+    evolveGraph_.clear();
     evolvePending_ = false;
 
     return true;
+}
+
+bool
+Composer::putEvolveGraph (const std::string &graph, std::string &why)
+{
+    const thcInstrument *what = sched_->instrument(evolving_);
+    std::string now;
+
+    if (what == NULL)
+    {
+        why = evolving_ + " is no longer in the piece";
+        return false;
+    }
+
+    if (!evolveGraph_.empty() && sched_->grownText(what->channel, now) &&
+        now == evolveGraph_ &&
+        !sched_->growInstrument(what->channel, 0, true, "", "", 0, 0, why))
+        return false;
+
+    if (!sched_->tryGraph(what->channel, graph, why))
+        return false;
+
+    evolveGraph_ = graph;
+
+    return true;
+}
+
+bool
+Composer::listenNearest (std::string &why)
+{
+    std::string graph;
+
+    if (!evolve_ || evolve_->done() || !evolve_->nearest(graph))
+    {
+        why = "no search is running";
+        return false;
+    }
+
+    return graph == evolveGraph_ || putEvolveGraph(graph, why);
+}
+
+/* The nearest the search has come, a step for each time it came nearer,
+   held to now: time across, distance down from nearest at the top. */
+void
+Composer::drawEvolve (const Cairo::RefPtr<Cairo::Context> &cr, int w, int h)
+{
+    cr->set_source_rgb(0x14 / 255.0, 0x16 / 255.0, 0x1a / 255.0);
+    cr->paint();
+
+    if (!evolve_)
+        return;
+
+    const std::vector<std::pair<double, double> > trail = evolve_->trail();
+
+    if (trail.empty())
+        return;
+
+    const double end = std::max(evolve_->done() ? trail.back().first
+                                                : evolve_->seconds(), 1.0);
+    double lo = trail[0].second, hi = trail[0].second;
+
+    for (const auto &p : trail)
+    {
+        lo = std::min(lo, p.second);
+        hi = std::max(hi, p.second);
+    }
+
+    const double pad = 6, range = std::max(hi - lo, 0.5);
+    const auto x = [&] (double t) { return pad + t / end * (w - 2 * pad); };
+    const auto y = [&] (double d) { return pad + (d - lo) / range * (h - 2 * pad); };
+
+    double held = trail[0].second;
+
+    cr->move_to(x(0), y(held));
+
+    for (const auto &p : trail)
+    {
+        cr->line_to(x(p.first), y(held));
+        cr->line_to(x(p.first), y(p.second));
+        held = p.second;
+    }
+
+    cr->line_to(x(end), y(trail.back().second));
+    cr->set_source_rgb(0.35, 0.65, 1.0);
+    cr->set_line_width(1.5);
+    cr->stroke();
 }
 
 bool
@@ -877,10 +964,9 @@ Composer::evolveResult (std::string &why)
         return false;
     }
 
-    if (!sched_->tryGraph(what->channel, graph, why))
+    if (!putEvolveGraph(graph, why))
         return false;
 
-    evolveGraph_ = graph;
     evolvePending_ = true;
 
     char said[96];
@@ -943,6 +1029,15 @@ Composer::onEvolve (void)
         evolveStop_ = manage(new Gtk::Button("_Cancel", true));
         evolveKeep_ = manage(new Gtk::Button("_Keep", true));
         evolveDrop_ = manage(new Gtk::Button("_Discard", true));
+        evolveHear_ = manage(new Gtk::Button("_Listen", true));
+        evolvePlot_ = manage(new Gtk::DrawingArea());
+
+        evolveHear_->set_tooltip_text("Put the nearest graph the search has "
+                                      "found so far on the instrument's "
+                                      "channel");
+        evolvePlot_->set_content_height(90);
+        evolvePlot_->set_draw_func(sigc::mem_fun(*this,
+                                                 &Composer::drawEvolve));
 
         evolveState_->set_xalign(0);
         evolveState_->set_wrap(true);
@@ -966,10 +1061,20 @@ Composer::onEvolve (void)
 
         buttons->append(*evolveGo_);
         buttons->append(*evolveStop_);
+        buttons->append(*evolveHear_);
         buttons->append(*evolveKeep_);
         buttons->append(*evolveDrop_);
         grid->attach(*evolveState_, 0, 3, 2, 1);
-        grid->attach(*buttons, 0, 4, 2, 1);
+        grid->attach(*evolvePlot_, 0, 4, 2, 1);
+        grid->attach(*buttons, 0, 5, 2, 1);
+
+        evolveHear_->signal_clicked().connect([this]
+        {
+            std::string why;
+
+            if (!listenNearest(why))
+                evolveState_->set_text(why);
+        });
         evolveWin_->set_child(*grid);
 
         /* The last entry of Toward is a recording, chosen when it is
@@ -1029,6 +1134,7 @@ Composer::onEvolve (void)
             evolveState_->set_text("listening...");
             evolveGo_->set_sensitive(false);
             evolveStop_->set_sensitive(true);
+            evolveHear_->set_sensitive(true);
             evolveKeep_->set_sensitive(false);
             evolveDrop_->set_sensitive(false);
             evolvePoll_ = Glib::signal_timeout().connect(
@@ -1090,6 +1196,7 @@ Composer::onEvolve (void)
 
     evolveGo_->set_sensitive(!running);
     evolveStop_->set_sensitive(running);
+    evolveHear_->set_sensitive(running);
     evolveKeep_->set_sensitive(!running && evolvePending_);
     evolveDrop_->set_sensitive(!running && evolvePending_);
 
@@ -1131,8 +1238,11 @@ Composer::pollEvolve (void)
         evolveState_->set_text("the piece it was for is closed");
         evolveGo_->set_sensitive(true);
         evolveStop_->set_sensitive(false);
+        evolveHear_->set_sensitive(false);
         return false;
     }
+
+    evolvePlot_->queue_draw();
 
     if (!evolveDone())
     {
@@ -1154,6 +1264,7 @@ Composer::pollEvolve (void)
                               : why);
     evolveGo_->set_sensitive(true);
     evolveStop_->set_sensitive(false);
+    evolveHear_->set_sensitive(false);
     evolveKeep_->set_sensitive(ok);
     evolveDrop_->set_sensitive(ok);
 
