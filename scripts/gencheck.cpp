@@ -65,6 +65,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "NodeMutate.h"
 #include "thcNodeHost.h"
 #include "thcAudition.h"
 #include "libthink/thSoundFile.h"
@@ -6357,6 +6358,115 @@ checkOneErrorEach (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     std::remove(path.c_str());
+}
+
+/* The nodes on channel `ch''s graph, by name, as one string: what a test
+   compares to say two graphs are the same graph. */
+static std::string
+nodesOn (thSynth *synth, int ch)
+{
+    thMidiChan *c = synth->getChannel(ch);
+    thSynthTree *tree = c != NULL ? c->modnode() : NULL;
+    std::string out;
+
+    if (tree != NULL)
+        for (const auto &n : tree->nodes())
+            out += n.first + " ";
+
+    return out;
+}
+
+/* gen::grow, the instrument's graph walking an edit at a time and back.
+ * bass.dsp, a melody on it and a grow on its channel every two seconds, to
+ * a depth of `depth' edits; the scheduler stepped `seconds' along. Returns
+ * the nodes on the channel then, and `declared' gets them as loaded. */
+static std::string
+grownFor (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+          int depth, double seconds, std::string &declared, bool rewind)
+{
+    const std::string path = thUtil::tempFile("gencheck-grow-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "chain melody {\n    stage s gen::eno_line { notes = "
+               "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
+               "    sink { instrument = pad; };\n};\n"
+               "chain shape {\n    stage g gen::grow { every = 2 s; depth = "
+            << depth << "; shrink = 0; };\n"
+               "    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    std::string grown;
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        sched.setAuditionSynchronous(true);
+        sched.setGrower([synth] (const std::string &text,
+                                 const std::string &base, unsigned int choice,
+                                 const std::string &kinds, std::string &g,
+                                 std::string &what, std::string &why)
+                        { return NodeMutate::grow(synth, text, base, choice,
+                                                  kinds, g, what, why); });
+
+        if (!loader.load(path, &sched))
+            fail("the growing piece does not load");
+        else
+        {
+            const int ch = sched.instrument("pad")->channel;
+
+            drainSynth();
+            declared = nodesOn(synth, ch);
+            sched.start();
+
+            for (double t = 0; t < seconds; t += 0.05)
+            {
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            grown = nodesOn(synth, ch);
+
+            if (rewind)
+            {
+                sched.reset();
+                drainSynth();
+                grown = nodesOn(synth, ch);
+            }
+        }
+    }
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+
+    return grown;
+}
+
+static void
+checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
+{
+    std::string declared, again;
+
+    /* The first fire arms the clock; the second, at 2 s, grows. */
+    const std::string one = grownFor(plugins, synth, 2, 2.5, declared, false);
+
+    if (one.empty() || one == declared)
+        fail("gen::grow did not grow the graph: " + one);
+
+    if (grownFor(plugins, synth, 2, 2.5, again, false) != one)
+        fail("gen::grow does not replay: the same seed grew another graph");
+
+    /* At its depth, the next step can only go back. */
+    if (grownFor(plugins, synth, 1, 4.5, again, false) != declared)
+        fail("gen::grow at its depth did not step back to the declared graph");
+
+    if (grownFor(plugins, synth, 2, 2.5, again, true) != declared)
+        fail("a rewind did not put the declared graph back after gen::grow");
 }
 
 static void
@@ -13930,6 +14040,7 @@ main (int argc, char *argv[])
     checkKnobSink(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
+    checkGrow(plugins, &synth);
     checkInlineGraph(plugins, &synth);
     checkOneErrorEach(plugins, &synth);
     checkColony(plugins, &synth, genFile);

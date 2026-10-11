@@ -104,6 +104,7 @@
 
 #include "libthink/thDynLib.h"
 #include "thcPlugin.h"
+#include "NodeMutate.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
 #include "thcMidiExport.h"
@@ -483,6 +484,13 @@ int main (int argc, char **argv)
        graphs and their nodes have to come from somewhere. */
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thcScheduler sched(&synth);
+
+    sched.setGrower([&synth] (const std::string &text,
+                              const std::string &base, unsigned int choice,
+                              const std::string &kinds, std::string &grown,
+                              std::string &what, std::string &why)
+                    { return NodeMutate::grow(&synth, text, base, choice,
+                                              kinds, grown, what, why); });
 
     synth.setThreads(threads);
 

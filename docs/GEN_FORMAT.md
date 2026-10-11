@@ -884,7 +884,33 @@ number in the file, and a number written over it would kill that channel's
 `fmin` for the rest of the session with the slider still on screen. A module's
 `ARG_STATE` scratch is refused too, and so is an arg the module never declared.
 
-**Both are events**, and that is the whole rate limit: scheduled, so they
+**A growth** changes the graph's shape. `gen::grow` asks, every `every`, for
+one more edit to the graph on its channel or for the last one back:
+
+```
+chain shape {
+    stage g gen::grow { every = 20 s; depth = 4; shrink = 0.3;
+                        kinds = "splice modulate"; };
+    sink { instrument = pad; };
+};
+```
+
+The edits are `src/NodeMutate`'s, the ones `scripts/dspmatch` searches with: a
+filter, a saturator, a delay or a dynamics node spliced into a wire that carries
+the sound (`splice`), an envelope or an LFO on a constant (`modulate`), a second
+oscillator beside one that reads the note (`voice`). The stage sends a number
+from its seed and the host lists the edits the graph can take, so the number
+picks one and the piece replays. An edit arrives untuned, so before one goes on
+it is played on a synth of the host's own — a phrase of overlapping notes over
+four octaves — and passed over unless its level stays within 3 dB above and 12
+below the declared graph's, peak included; sixteen are tried at most. `depth`
+bounds how many edits sit on top of the declaration, and between none and
+`depth` a step goes back with chance `shrink`, so the graph wanders and comes
+home rather than only getting bigger. Each graph goes on as a swap does, so
+what is sounding finishes on the one it started on. A host that does not link
+the node model — the Node build — refuses growth and says so.
+
+**All three are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
 the seed, so a piece sounds the same twice; and drawn on the roll, so you can
 watch one coming. A rewind puts every instrument back as the file declares it,
@@ -1192,6 +1218,7 @@ reading `chain category { ... }` is a trap rather than a feature.
 | a `dsp` family stage   | a node in the chain's `thcNodeHost`, at control rate |
 | `gen::swap`            | `THC_EV_PATCH`: the sink's channel is rebuilt        |
 | `gen::reshape`         | `THC_EV_NODEARG`: a constant in that channel's graph |
+| `gen::grow`            | `THC_EV_GROW`: that channel's graph an edit on, or back |
 | param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |

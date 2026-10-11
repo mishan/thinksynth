@@ -147,7 +147,20 @@ typedef enum {
      * The edit lands on the channel's prototype tree, which the audio
      * thread never reads, so the lifecycle promise above holds here too
      * without a swap: it is the *next* voice that is built differently. */
-    THC_EV_NODEARG
+    THC_EV_NODEARG,
+
+    /* The instrument's graph grows by one edit, or goes back by one.
+     *
+     * Not an edit the plugin makes: a composer never holds a graph. The
+     * host lists every edit the graph on the channel can take -- a node
+     * spliced into a wire, a modulator on a constant, a voice beside an
+     * oscillator, of the kinds `kinds' allows -- and `choice' picks one,
+     * modulo how many there are; `shrink' undoes the last instead. The new
+     * graph goes on as a swap does, so what is sounding finishes on the old
+     * one, and a rewind puts the declared graph back. Since `choice' comes
+     * from the seed and the list from the graph, a piece that grows replays
+     * exactly. Only on a channel the piece declares an instrument for. */
+    THC_EV_GROW
 } thcEventType;
 
 /* The longest phoneme run one note carries, its ending 0 included: a
@@ -200,6 +213,12 @@ typedef struct {
             const char *arg;   /* one of that node's args; copied         */
             float       value;
         } nodearg;
+        struct {
+            unsigned int choice;  /* which edit, modulo how many        */
+            int          shrink;  /* nonzero: undo the last instead     */
+            const char  *kinds;   /* "splice modulate voice", or NULL or
+                                     empty for all; copied               */
+        } grow;
     } u;
     unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */
 } thcEvent;

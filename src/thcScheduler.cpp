@@ -23,12 +23,14 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 
 #include "think.h"
 #include "thUnits.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
+#include "thcGenFile.h"
 
 static_assert(THC_NOTE_SAY == TH_NOTE_SAY,
               "a note's say fits the voice's");
@@ -677,6 +679,7 @@ thcScheduler::clearChains (void)
     /* Structure edits belong to the piece that made them. */
     nodeArgs_.clear();
     swapped_.clear();
+    grown_.clear();
 
     /* The instrument table goes with the piece too. What is *loaded* on
        those channels does not: a patch outlives the file that asked for
@@ -1807,6 +1810,29 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
         }
     }
 
+    if (!putOn(put, why))
+        return false;
+
+    /* Whatever grew on this channel grew on the graph that is gone. */
+    grown_.erase(channel);
+
+    /* What the channel is holding now, so the next swap can tell whether
+       it has anything to do and the host can tell that the channel no
+       longer holds the graph its declaration names. */
+    holding_[channel] = name;
+
+    /* Any node-arg edits made to whatever was on this channel belonged
+       to that graph, not this one. A `filt.cutoff' that meant something
+       on the old .dsp names nothing on the new one -- or worse, names
+       something else. */
+    forgetNodeArgs(channel);
+
+    return true;
+}
+
+bool
+thcScheduler::putOn (const thcInstrument &put, std::string &why)
+{
     if (loadDsp_)
     {
         if (!loadDsp_(put, why))
@@ -1839,20 +1865,112 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
     {
         if (!unapply(put))
             why += " (and its graph could not be taken off channel " +
-                   std::to_string(channel + 1) + ")";
+                   std::to_string(put.channel + 1) + ")";
 
         return false;
     }
 
-    /* What the channel is holding now, so the next swap can tell whether
-       it has anything to do and the host can tell that the channel no
-       longer holds the graph its declaration names. */
-    holding_[channel] = name;
+    return true;
+}
 
-    /* Any node-arg edits made to whatever was on this channel belonged
-       to that graph, not this one. A `filt.cutoff' that meant something
-       on the old .dsp names nothing on the new one -- or worse, names
-       something else. */
+bool
+thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
+                              const std::string &kinds, std::string &why)
+{
+    const thcInstrument *inst = instrument(holding(channel));
+
+    if (channelOf(channel) == NULL || inst == NULL)
+    {
+        why = "channel " + std::to_string(channel + 1) + " is not one this "
+              "piece declares an instrument for";
+        return false;
+    }
+
+    if (playsOverMidi(channel) || inst->dsp.empty())
+    {
+        why = "instrument '" + inst->name + "' has no graph here to grow";
+        return false;
+    }
+
+    Growth &g = grown_[channel];
+
+    /* The text the instrument declares, as its graph is loaded: an inline
+       graph's from the registry, a file's from the disk. */
+    if (g.texts.empty())
+    {
+        std::string text;
+
+        if (!thUtil::findGraphText(inst->dsp, text))
+        {
+            const std::string path = thUtil::findDataFile(
+                inst->dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+            std::ifstream in((path.empty() ? inst->dsp : path).c_str(),
+                             std::ios::binary);
+
+            text.assign(std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>());
+        }
+
+        if (text.empty())
+        {
+            grown_.erase(channel);
+            why = "'" + inst->dsp + "' could not be read";
+            return false;
+        }
+
+        g.texts.push_back(text);
+        g.holds.push_back(std::shared_ptr<void>());
+    }
+
+    std::string text, what;
+
+    if (shrink)
+    {
+        if (g.texts.size() < 2)
+            return true;    /* the declared graph: nothing to go back on */
+
+        text = g.texts[g.texts.size() - 2];
+    }
+    else if (!grower_)
+    {
+        why = "this host cannot grow a graph";
+        return false;
+    }
+    else if (!grower_(g.texts.back(), g.texts[0], choice, kinds, text, what,
+                      why))
+        return false;
+
+    thcInstrument put = *inst;
+
+    put.channel = channel;
+
+    /* The declared graph goes back under its own name; a grown one under
+       a name its text decides, held for as long as it is on the stack. */
+    std::shared_ptr<void> hold;
+
+    if (!shrink || g.texts.size() > 2)
+    {
+        put.dsp = thcGenLoader::inlineGraphName(inst->name, text);
+        hold = thUtil::addGraphText(put.dsp, text);
+        put.graphs.push_back(hold);
+    }
+
+    swapped_.insert(channel);
+
+    if (!putOn(put, why))
+        return false;
+
+    if (shrink)
+    {
+        g.texts.pop_back();
+        g.holds.pop_back();
+    }
+    else
+    {
+        g.texts.push_back(text);
+        g.holds.push_back(hold);
+    }
+
     forgetNodeArgs(channel);
 
     return true;
@@ -3336,6 +3454,12 @@ thcScheduler::queuePending (const thcEvent &ev,
                                                      : ""));
         p.ev.u.patch.name = p.text->c_str();
     }
+    else if (ev.type == THC_EV_GROW)
+    {
+        p.text.reset(new std::string(ev.u.grow.kinds ? ev.u.grow.kinds
+                                                     : ""));
+        p.ev.u.grow.kinds = p.text->c_str();
+    }
     else if (ev.type == THC_EV_NODEARG)
     {
         p.text.reset(new std::string(ev.u.nodearg.node
@@ -3561,6 +3685,17 @@ thcScheduler::deliver (const thcEvent &ev)
                 fprintf(stderr, "thcScheduler: swap to '%s' on channel %d: "
                         "%s\n", ev.u.patch.name, ev.channel + 1,
                         why.c_str());
+            break;
+        }
+        case THC_EV_GROW:
+        {
+            std::string why;
+
+            if (!growInstrument(ev.channel, ev.u.grow.choice,
+                                ev.u.grow.shrink != 0,
+                                ev.u.grow.kinds ? ev.u.grow.kinds : "", why))
+                fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
+                        ev.channel + 1, why.c_str());
             break;
         }
         case THC_EV_NODEARG:
@@ -4000,6 +4135,7 @@ thcScheduler::reset (void)
         {
             nodeArgs_.clear();
             swapped_.clear();
+            grown_.clear();
             holding_.clear();   /* every channel says what the file says */
         }
     }
