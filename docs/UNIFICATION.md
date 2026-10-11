@@ -544,9 +544,13 @@ the same modules that modulate sound.
 >   not in every host. Finding the clipping also found a regression in 4b:
 >   a key pressed again on the new graph left the drained one holding it,
 >   fixed in #426.
-> - **4e: Keep, and Evolve toward.** A grown graph reaches the piece file
->   only when someone keeps it, as `dsp { ... }`; the same search, run
->   toward an instrument or a recording, is an authoring action.
+> - **4e: Keep -- LANDED -- and Evolve toward.** A grown graph reaches the
+>   piece file only when someone keeps it: the Composer's Keep on a
+>   `gen::grow` stage writes the graph on the instrument's channel into
+>   the piece as its `dsp { ... }`, over a file name if it had one, and
+>   reloads. Evolve toward -- the same vocabulary searched toward an
+>   instrument or a recording, dspmatch's search as an authoring action
+>   -- is still to come.
 >
 > Every gate above was checked by breaking the fix and watching the gate
 > fail -- the wired-chanarg refusal, the own-channel rule, the

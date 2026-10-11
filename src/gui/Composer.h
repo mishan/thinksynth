@@ -175,6 +175,13 @@ public:
     bool inlineGraph (const std::string &name, std::string &instrument,
                       std::string &body);
 
+    /* What gen::grow has made of the instrument chain `ci' plays, written
+       into the piece as that instrument's `dsp { ... }' -- over a file's
+       name if it had one -- and the piece reloaded, so the grown graph is
+       what the piece declares from then on. False, with `why', for a chain
+       that plays no instrument or one that has not grown. */
+    bool keepGrown (size_t ci, std::string &why);
+
     /* `body' written into that instrument's `dsp { }' and the piece
        reloaded; `name' gets what the graph is loaded under now. */
     bool setInlineGraph (const std::string &instrument,

@@ -1999,6 +1999,62 @@ runExportMidi (const std::string &pluginPath)
     }
 
     {
+        /* Keep: a growing piece stepped past a growth, and what grew
+           written into it as the instrument's dsp { }; reloaded, the
+           instrument plays the graph it was written as. */
+        const std::string tmp = stagePiece(
+                "name \"growing\";\n"
+                "seed 11;\n"
+                "instrument pad { dsp \"bass.dsp\"; };\n"
+                "chain melody {\n"
+                "    stage s gen::eno_line { notes = \"A2 C3\"; "
+                "period = 0.5 s; prob = 1; };\n"
+                "    sink { instrument = pad; };\n"
+                "};\n"
+                "chain shape {\n"
+                "    stage g gen::grow { every = 1 s; depth = 2; "
+                "shrink = 0; };\n"
+                "    sink { instrument = pad; };\n"
+                "};\n");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
+        std::string why;
+
+        pump(10);
+
+        check(!win->keepGrown(1, why),
+              "Keep refuses an instrument that has not grown");
+
+        win->sched_->start();
+
+        for (int i = 0; i < 30; i++)
+            win->sched_->stepTransport(0.05);
+
+        const bool kept = win->keepGrown(1, why);
+
+        pump(10);
+
+        const thcInstrument *pad = win->sched_->instrument("pad");
+
+        check(kept && readAll(win->workPath_).find("dsp {") !=
+                          std::string::npos &&
+              pad != NULL && pad->dsp.find('#') != std::string::npos,
+              "...and keeps what grew as the instrument's dsp { }, which "
+              "the piece then plays");
+
+        if (!kept)
+            printf("      %s\n", why.c_str());
+
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    {
         /* Two chains drawing from the seed, one of them muted. */
         const std::string tmp = stagePiece(
                 "name \"wander\";\n"

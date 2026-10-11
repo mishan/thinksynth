@@ -6382,7 +6382,8 @@ nodesOn (thSynth *synth, int ch)
  * the nodes on the channel then, and `declared' gets them as loaded. */
 static std::string
 grownFor (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
-          int depth, double seconds, std::string &declared, bool rewind)
+          int depth, double seconds, std::string &declared, bool rewind,
+          std::string *kept = NULL)
 {
     const std::string path = thUtil::tempFile("gencheck-grow-");
 
@@ -6432,6 +6433,23 @@ grownFor (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
 
             grown = nodesOn(synth, ch);
 
+            /* Kept as the Composer's Keep keeps it: the grown text written
+               over the instrument's file name, in a copy of the piece. */
+            std::string text, why;
+
+            if (kept != NULL && sched.grownText(ch, text))
+            {
+                *kept = thUtil::tempFile("gencheck-kept-");
+                std::filesystem::copy_file(
+                    path, *kept,
+                    std::filesystem::copy_options::overwrite_existing);
+
+                if (thcGenEdit::setInlineGraph(*kept, "pad", "\n" + text +
+                                               "\n", why) != thcGenEdit::OK)
+                    fail("a grown graph could not be written into the "
+                         "piece: " + why);
+            }
+
             if (rewind)
             {
                 sched.reset();
@@ -6467,6 +6485,36 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
 
     if (grownFor(plugins, synth, 2, 2.5, again, true) != declared)
         fail("a rewind did not put the declared graph back after gen::grow");
+
+    /* Kept, the piece opens on the grown graph. */
+    std::string kept;
+    const std::string grown = grownFor(plugins, synth, 2, 2.5, again, false,
+                                       &kept);
+
+    if (!kept.empty())
+    {
+        clearChannels(synth);
+
+        {
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(kept, &sched))
+                fail("a piece with its grown graph kept does not load");
+            else
+            {
+                drainSynth();
+
+                if (nodesOn(synth, sched.instrument("pad")->channel) != grown)
+                    fail("a kept graph is not the graph that grew");
+            }
+        }
+
+        clearChannels(synth);
+        std::remove(kept.c_str());
+    }
+    else
+        fail("there was no grown graph to keep");
 }
 
 static void

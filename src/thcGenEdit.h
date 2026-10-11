@@ -282,7 +282,8 @@ public:
     /* The text between the braces of `dsp { ... }' in instrument `name',
        and the same span replaced: what the node editor reads an inline
        graph from and saves it back to. NOT_FOUND for no such instrument,
-       or one whose graph is a file. */
+       or -- for inlineGraph -- one whose graph is a file; setInlineGraph
+       writes over a file's name, which is how a grown graph is kept. */
     static Result inlineGraph (const std::string &filename,
                                const std::string &name, std::string &body,
                                std::string &why);
