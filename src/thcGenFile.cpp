@@ -211,9 +211,9 @@ noteListToString (const std::vector<int> &notes)
  *    stray character, not a missing rule. `%' is on the useful side of
  *    that line: the unit suffix an instrument value needs when the
  *    chanarg it lands on was declared as a percentage, and the modulo
- *    .gen arithmetic shares with .dsp. `->' crosses the same way and for a better reason: it is the
- *    .dsp spelling for reading a node's output, and a .gen has nodes to
- *    read. One arrow, one meaning, both languages -- the shared lexer
+ *    .gen arithmetic shares with .dsp. `->' crosses the same way and for
+ *    a better reason: it is the .dsp spelling for reading a node's
+ *    output, and a .gen has nodes to read. One arrow, one meaning, both languages -- the shared lexer
  *    has always handed it back whole (longest match, so it
  *    was never `-' then `>'), and .gen simply stopped refusing it.
  *
