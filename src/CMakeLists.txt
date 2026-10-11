@@ -12,7 +12,8 @@ add_library(think_nodemodel OBJECT
     NodeGraph.cpp
     NodeEdit.cpp
     NodeLayout.cpp
-    NodeCatalog.cpp)
+    NodeCatalog.cpp
+    NodeMutate.cpp)
 
 target_include_directories(think_nodemodel PUBLIC
     "${PROJECT_SOURCE_DIR}"
