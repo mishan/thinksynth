@@ -2100,7 +2100,8 @@ runExportMidi (const std::string &pluginPath)
 
         const bool started = win->startEvolve("pad", "ref", "", false, why);
 
-        for (int i = 0; started && i < 1200 && !win->evolveDone(); i++)
+        /* Seconds on a desktop; minutes under the sanitizers. */
+        for (int i = 0; started && i < 6000 && !win->evolveDone(); i++)
         {
             pump(1);
             g_usleep(50000);
