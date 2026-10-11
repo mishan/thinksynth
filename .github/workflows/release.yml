@@ -95,7 +95,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build bison flex pkg-config \
+            build-essential cmake ninja-build flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
@@ -224,15 +224,14 @@ jobs:
           # RtAudio finds it and emits a bare -ljack; adwaita-icon-theme and
           # librsvg by name, because without librsvg there is no SVG loader
           # and the bundled Adwaita is SVG.
-          brew install cmake ninja pkg-config bison flex gtkmm4 \
+          brew install cmake ninja pkg-config flex gtkmm4 \
                        adwaita-icon-theme librsvg
 
-      # Apple ships bison 2.3 in /usr/bin and the grammar needs bison 3.
-      # Homebrew's is keg-only, so it has to be put on PATH by hand.
-      - name: Put Homebrew bison and flex first
+      # Apple ships flex 2.5.35 in /usr/bin, and Homebrew's is keg-only, so
+      # it has to be put on PATH by hand.
+      - name: Put Homebrew flex first
         run: |
-          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix flex)/bin"  >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
 
       # RelWithDebInfo is already CMakeLists.txt's default. Spelled out
       # anyway, so that a release does not quietly change if that changes.
@@ -311,7 +310,6 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
-            bison
             flex
           # gtkmm-4.0 rather than gtkmm4: the short name is a virtual package,
           # so pacman stops to ask which provider to use and CI has nobody to
