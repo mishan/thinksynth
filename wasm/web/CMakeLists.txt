@@ -190,6 +190,7 @@ add_executable(thinkweb
     "${THINK_TOP}/src/NodeEdit.cpp"
     "${THINK_TOP}/src/NodeLayout.cpp"
     "${THINK_TOP}/src/NodeCatalog.cpp"
+    "${THINK_TOP}/src/NodeMutate.cpp"
     "${THINK_TOP}/src/DspCatalog.cpp"
     "${THINK_TOP}/src/GenCatalog.cpp"
     "${THINK_TOP}/src/PanelModel.cpp"

@@ -906,9 +906,16 @@ four octaves — and passed over unless its level stays within 3 dB above and 12
 below the declared graph's, peak included; sixteen are tried at most. `depth`
 bounds how many edits sit on top of the declaration, and between none and
 `depth` a step goes back with chance `shrink`, so the graph wanders and comes
-home rather than only getting bigger. Each graph goes on as a swap does, so
-what is sounding finishes on the one it started on. A host that does not link
-the node model — the Node build — refuses growth and says so.
+home rather than only getting bigger. Each graph goes on as a swap does, so what
+is sounding finishes on the one it started on. In the browser a step's level
+check is a tenth of a second the audio thread does not have, so the page's
+mirror worker grows it and the graph changes when its answer is back, a tenth of
+a second or so after the event. A step that comes while one is still out waits
+behind it, so the steps are the same and in the same order everywhere, but in a
+room each peer's graph changes at its own moment, and one catching up takes them
+late. There is no ear there, so a `target` is ignored and the walk wanders. A
+host that does not link the node model — the Node build — refuses growth and
+says so.
 
 Given a `target` — an instrument of the piece or a sound file, as `gen::breed`
 takes — the walk leans toward it: of the edits that keep the level, the host

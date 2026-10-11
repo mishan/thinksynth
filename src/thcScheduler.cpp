@@ -1196,11 +1196,53 @@ thcScheduler::forgetHearing (Growth &g)
             auditioner_->forget(g.tickets[i]);
 #endif
 
+    doneHearing(g);
+    g.queued.clear();
+}
+
+void
+thcScheduler::doneHearing (Growth &g)
+{
     g.options.clear();
     g.optionWhats.clear();
     g.tuned.clear();
+    g.asked = 0;
     g.tickets.clear();
     g.distances.clear();
+}
+
+void
+thcScheduler::runQueued (int channel)
+{
+    for (;;)
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.queued.empty() ||
+            g->second.asked != 0 || !g->second.options.empty())
+            return;
+
+        /* Set aside around the step: a step forgets what was queued for
+           the one it replaces, and these are queued after it. */
+        std::deque<Growth::Queued> rest;
+        std::string why;
+
+        rest.swap(g->second.queued);
+
+        const Growth::Queued q = rest.front();
+
+        rest.pop_front();
+
+        if (!stepGraph(channel, q.shrink, NULL, q.choice, q.kinds, q.target,
+                       q.listen, q.tune, why))
+            fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
+                    channel + 1, why.c_str());
+
+        const auto after = grown_.find(channel);
+
+        if (after != grown_.end())
+            after->second.queued.swap(rest);
+    }
 }
 
 void
@@ -1238,6 +1280,8 @@ thcScheduler::takeHeardGrowth (void)
             !takeHeard(ready[i], grown_[ready[i]], why))
             fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
                     ready[i] + 1, why.c_str());
+
+        runQueued(ready[i]);
     }
 }
 
@@ -2129,6 +2173,13 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
         return placeStep(channel, std::string::npos, *given,
                          "what a search found", step, why);
 
+    if (!grower_ && growRequest_)
+    {
+        g->asked = ++growTicket_;
+        growRequest_(g->asked, g->texts.back(), g->texts[0], choice, kinds);
+        return true;
+    }
+
     if (!grower_)
     {
         why = "this host cannot grow a graph";
@@ -2186,9 +2237,33 @@ thcScheduler::takeHeard (int channel, Growth &g, std::string &why)
                            ? g.options[step.taken] : g.tuned[step.taken];
     const std::string what = g.optionWhats[step.taken];
 
-    forgetHearing(g);
+    doneHearing(g);
 
     return placeStep(channel, std::string::npos, text, what, step, why);
+}
+
+void
+thcScheduler::growthAnswer (unsigned int ticket, const std::string &grown,
+                            const std::string &what, const std::string &why)
+{
+    for (auto &e : grown_)
+    {
+        if (ticket == 0 || e.second.asked != ticket)
+            continue;
+
+        std::string failed = why;
+
+        e.second.asked = 0;
+
+        if (grown.empty() ||
+            !placeStep(e.first, std::string::npos, grown, what, GrowthStep(),
+                       failed))
+            fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
+                    e.first + 1, failed.c_str());
+
+        runQueued(e.first);
+        return;
+    }
 }
 
 bool
@@ -4003,6 +4078,21 @@ thcScheduler::deliver (const thcEvent &ev)
         case THC_EV_GROW:
         {
             std::string why;
+            const auto g = grown_.find(ev.channel);
+
+            /* A composer's step waits for one the ear or the mirror has
+               yet to answer, so every host takes the same steps in the
+               same order and the stage's count of them stays true. */
+            if (g != grown_.end() &&
+                (g->second.asked != 0 || !g->second.options.empty()))
+            {
+                g->second.queued.push_back({
+                    ev.u.grow.shrink != 0, ev.u.grow.choice,
+                    ev.u.grow.kinds ? ev.u.grow.kinds : "",
+                    ev.u.grow.target ? ev.u.grow.target : "",
+                    ev.u.grow.listen, ev.u.grow.tune });
+                break;
+            }
 
             if (!growInstrument(ev.channel, ev.u.grow.choice,
                                 ev.u.grow.shrink != 0,
