@@ -366,8 +366,10 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
         return false;
     }
 
-    std::string text((std::istreambuf_iterator<char>(in)),
-                     std::istreambuf_iterator<char>());
+    source_.assign(std::istreambuf_iterator<char>(in),
+                   std::istreambuf_iterator<char>());
+
+    const std::string &text = source_;
 
     std::string err;
     int errLine = 0;
@@ -1406,9 +1408,8 @@ thcGenLoader::parseSection (thcScheduler *sched)
  *    means is checked where the value lands, in
  *    thcScheduler::applyInstrument.
  *
- * Not here: the graph written out inline instead of named. By reference
- * alone delivers the self-contained file, which is what this block was
- * for; inlining is the half that wants the grammar merge.
+ * The graph may also be written inline, `dsp { ... }': see
+ * parseInlineDsp.
  */
 /* `a = 900 ms;' or `delay = @throw ms;', inside an instrument block or
  * inside the effect block within it.
@@ -1418,6 +1419,88 @@ thcGenLoader::parseSection (thcScheduler *sched)
  * two chanarg maps and thcScheduler writes both through the one call it
  * already makes. `fx.delay' is the string the engine takes.
  */
+std::string
+thcGenLoader::inlineGraphName (const std::string &piecePath,
+                               const std::string &instrument,
+                               const std::string &body)
+{
+    /* FNV-1a: the same answer on every platform and in the browser, which
+       std::hash does not promise. */
+    uint32_t h = 2166136261u;
+
+    for (size_t i = 0; i < body.size(); i++)
+        h = (h ^ (unsigned char)body[i]) * 16777619u;
+
+    char hex[9];
+
+    snprintf(hex, sizeof(hex), "%08x", (unsigned)h);
+
+    const size_t slash = piecePath.find_last_of("/\\");
+    const std::string piece = slash == std::string::npos
+                            ? piecePath : piecePath.substr(slash + 1);
+
+    return piece + "#" + instrument + "." + hex + ".dsp";
+}
+
+/* `dsp { node osc osc::simple { ... }; io out; };' -- the graph written
+ * where it is played rather than named. Checked here by .dsp's own grammar
+ * (thDspCheck), so a mistake in it is reported among the piece's errors
+ * against the piece's lines; loaded later, under inlineGraphName, by the
+ * same paths a file goes through. Plugins are looked up then, not here. */
+bool
+thcGenLoader::parseInlineDsp (const std::string &instrument, std::string &name)
+{
+    const Token open = peek();
+    const auto byOff = [](const thLexToken &t, size_t off)
+                       { return t.off < off; };
+    size_t a = std::lower_bound(raw_.begin(), raw_.end(), open.off, byOff) -
+               raw_.begin();
+    size_t b = a + 1;
+    int depth = 1;
+
+    for (; raw_[b].kind != thLexToken::END; b++)
+    {
+        if (raw_[b].kind != thLexToken::PUNCT)
+            continue;
+
+        if (raw_[b].text == "{")
+            depth++;
+        else if (raw_[b].text == "}" && --depth == 0)
+            break;
+    }
+
+    if (depth != 0)
+    {
+        error(open.line, "instrument " + instrument + ": the graph's '{' is "
+              "never closed");
+        return false;
+    }
+
+    std::vector<thLexToken> graph(raw_.begin() + a + 1, raw_.begin() + b);
+    thLexToken end = raw_[b];
+
+    end.kind = thLexToken::END;
+    graph.push_back(end);
+
+    if (!thDspCheck(graph, [this](int at, const std::string &msg)
+                           { error(at, msg); }))
+        return false;
+
+    /* Padded to the line the graph starts on, so a load that fails later
+       reports the piece's line numbers too. */
+    const std::string body = source_.substr(raw_[a].end,
+                                            raw_[b].off - raw_[a].end);
+
+    name = inlineGraphName(path_, instrument, body);
+    thUtil::addGraphText(name, std::string(open.line - 1, '\n') + body);
+
+    pos_ = std::lower_bound(tokens_.begin(), tokens_.end(), raw_[b].end,
+                            [](const Token &t, size_t off)
+                            { return t.off < off; }) - tokens_.begin();
+
+    return true;
+}
+
 bool
 thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
                                     const std::string &where,
@@ -1949,10 +2032,21 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
 
             const Token &v = peek();
 
+            if (v.kind == Token::PUNCT && v.text == "{")
+            {
+                if (!parseInlineDsp(nameTok.text, inst.dsp))
+                    return false;
+
+                if (!expectPunct(';'))
+                    return false;
+
+                continue;
+            }
+
             if (v.kind != Token::STRING)
             {
                 error(v.line, "instrument " + nameTok.text +
-                      ": dsp wants a quoted filename");
+                      ": dsp wants a quoted filename or a graph in braces");
                 return false;
             }
 

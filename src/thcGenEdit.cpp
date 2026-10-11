@@ -281,7 +281,9 @@ struct InstrumentIdx
     size_t bodyClose;
 
     std::string dsp;
-    size_t dspA, dspB;           /* the quoted file name, 0 when none  */
+    std::string dspBody;         /* between the braces of `dsp { }'    */
+    size_t dspA, dspB;           /* the quoted file name or the braced
+                                    graph, 0 when none                 */
 
     std::string midi;            /* `midi "port";', or empty           */
     int midiChannel = -1;        /* 1-16 as written, -1 when none      */
@@ -768,6 +770,37 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     in.dspA = t[j + 1].off;
                     in.dspB = t[j + 1].end;
                     j += 3;
+                    continue;
+                }
+
+                /* `dsp { ... };': the graph inline, which is .dsp's grammar
+                   and nothing this scan reads -- stepped over whole, by a
+                   count, since the graph is made of blocks. */
+                if (t[j].kind == Tok::WORD && t[j].text == "dsp" &&
+                    isPunct(t[j + 1], '{'))
+                {
+                    size_t k = j + 2;
+                    int depth = 1;
+
+                    for (; t[k].kind != Tok::END && depth > 0; k++)
+                    {
+                        if (isPunct(t[k], '{'))
+                            depth++;
+                        else if (isPunct(t[k], '}'))
+                            depth--;
+                    }
+
+                    if (depth != 0 || !isPunct(t[k], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    in.dspBody = text.substr(t[j + 1].end,
+                                             t[k - 1].off - t[j + 1].end);
+                    in.dspA = t[j + 1].off;
+                    in.dspB = t[k - 1].end;
+                    j = k + 1;
                     continue;
                 }
 
@@ -1515,7 +1548,10 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         Instrument in;
 
         in.name = ix.instruments[i].name;
-        in.dsp = ix.instruments[i].dsp;
+        in.dsp = ix.instruments[i].dspBody.empty()
+               ? ix.instruments[i].dsp
+               : thcGenLoader::inlineGraphName(filename, in.name,
+                                               ix.instruments[i].dspBody);
         in.midi = ix.instruments[i].midi;
         in.midiChannel = ix.instruments[i].midiChannel;
 

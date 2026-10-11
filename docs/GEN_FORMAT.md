@@ -231,6 +231,30 @@ band.
 happens to take a string. An instrument must be declared before it is
 referenced, like a scale or a preset.
 
+**The graph may be written inline.** Braces instead of a file name, and inside
+them a `.dsp`'s statements, read by the `.dsp` parser itself:
+
+```
+instrument bell {
+    dsp {
+        node ionode { out0 = o->out; channels = 1; play = env->play; };
+        io ionode;
+        node o osc::simple { freq = ionode->note; waveform = 0; };
+        node env env::adsr { a = 5 ms; d = 800 ms; s = 0; r = 300 ms;
+                             trigger = ionode->trigger; };
+    };
+    amp = -6 dB;
+};
+```
+
+A mistake in the graph is reported among the piece's errors, against the
+piece's own line. Plugins are looked up when the instrument is loaded, not
+while the file is read. The graph is loaded under a name made from the piece,
+the instrument and a hash of its text (`weather.gen#bell.1a2b3c4d.dsp`), which
+is what a panel shows for it and what changes when the graph does. Node arrays
+(`node tone[2] ...`) are not available inline yet. An instrument's `effect`
+still names a file.
+
 **An instrument may carry an effect.**
 
 ```

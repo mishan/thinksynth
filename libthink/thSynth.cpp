@@ -1170,6 +1170,18 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
 
 thSynthTree * thSynth::loadTree (const string &filename)
 {
+    string graph;
+
+    if (thUtil::findGraphText(filename, graph))
+    {
+        std::lock_guard<std::mutex> lock(synthMutex_);
+
+        thSynthTree *raw = NULL;
+        int parseResult = thParseDspText(this, graph, &raw);
+
+        return finishParse(filename, raw, parseResult, true);
+    }
+
     std::error_code ec;
 
     if (!std::filesystem::exists(filename, ec))
@@ -1223,6 +1235,16 @@ thSynthTree * thSynth::loadTree (const string &filename)
 
 thSynthTree * thSynth::parseTree (const string &filename)
 {
+    string graph;
+
+    if (thUtil::findGraphText(filename, graph))
+    {
+        thSynthTree *raw = NULL;
+        int parseResult = thParseDspText(this, graph, &raw);
+
+        return finishParse(filename, raw, parseResult, false);
+    }
+
     std::error_code ec;
 
     if (!std::filesystem::exists(filename, ec) ||
@@ -1525,6 +1547,11 @@ thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
        found: a sample pack installed since the last load is read now,
        rather than the silence cached for it then. */
     thUtil::dataFilesChanged();
+
+    string graph;
+
+    if (text == NULL && thUtil::findGraphText(filename, graph))
+        text = &graph;
 
     if (text != NULL)
     {
@@ -1854,6 +1881,10 @@ thSynthTree *thSynth::parseEffect (const string &filename, const string *text)
 {
     thSynthTree *raw = NULL;
     int parseResult;
+    string graph;
+
+    if (text == NULL && thUtil::findGraphText(filename, graph))
+        text = &graph;
 
     if (text != NULL)
     {

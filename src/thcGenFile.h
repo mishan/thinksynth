@@ -124,6 +124,15 @@ public:
        them. Empty for a value off the MIDI range. */
     static std::string noteName (int midi);
 
+    /* The name an instrument's inline graph -- `dsp { ... }' -- is loaded
+       under (thUtil::addGraphText): the piece, the instrument and a hash of
+       `body', the text between the braces. A graph whose text changes gets
+       a new name, which is what tells everything that compares instruments
+       by their dsp that this one is not the graph it was. */
+    static std::string inlineGraphName (const std::string &piecePath,
+                                        const std::string &instrument,
+                                        const std::string &body);
+
     /* The lexical layer in .gen's shape: `out' gets an END-terminated
        token stream with byte spans. False on a lexical error, with `err'
        and `errLine' saying what and where. thcGenEdit shares this, which
@@ -150,6 +159,7 @@ private:
     bool parseScale (void);
     bool parsePreset (void);
     bool parseInstrument (thcScheduler *sched);
+    bool parseInlineDsp (const std::string &instrument, std::string &name);
     bool parseInstrumentMidi (thcInstrument &inst, const std::string &where,
                               const Token &key);
 
@@ -282,6 +292,7 @@ private:
     std::vector<thLexToken> raw_;   /* the same file, unfused, for parseExpr */
     size_t             pos_;
     std::string        path_;
+    std::string        source_;     /* the file's bytes, which tokens span */
 
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;

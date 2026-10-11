@@ -6096,6 +6096,91 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
  * 5. The refusals -- an instrument nobody declared, an arg no node has,
  *    a node arg that is wired rather than constant.
  */
+/* `dsp { ... }': a graph written inside the piece rather than named. The
+ * graph is amb01.dsp's own text, so whether it reached the channel is a
+ * question with an answer -- amb01 declares `fmin' -- and the instrument's
+ * value on it says the block's values were applied to the inline graph. */
+static void
+checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
+                  thSynth *synth)
+{
+    const std::string amb01 = slurp(thUtil::findDataFile(
+        "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH));
+
+    if (amb01.empty())
+    {
+        fail("inline graph: amb01.dsp is not to be found");
+        return;
+    }
+
+    const std::string path = thUtil::tempFile("gencheck-inline-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "seed 7;\ninstrument pad {\n    dsp {\n" << amb01
+            << "\n    };\n    fmin = 0.06;\n};\nchain c {\n"
+               "    stage s gen::eno_line { notes = \"A3\"; period = 1 s; };\n"
+               "    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a piece with its graph inline does not load");
+        }
+        else
+        {
+            drainSynth();
+
+            const thcInstrument *pad = sched.instrument("pad");
+            thArg *fmin = pad != NULL ? synth->getChanArg(pad->channel, "fmin")
+                                      : NULL;
+
+            if (fmin == NULL || fabs((*fmin)[0] - 0.06) > 1e-5)
+                fail("an inline graph is not on its channel with its values");
+
+            thcGenEdit::Doc doc;
+            std::string why;
+
+            if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+                doc.instruments.empty() || pad == NULL ||
+                doc.instruments[0].dsp != pad->dsp)
+                fail("describe and the loader name an inline graph "
+                     "differently: " + why);
+        }
+    }
+
+    /* Choosing a file for it replaces the whole block, braces and all. */
+    {
+        std::string why;
+        thcGenEdit::Doc doc;
+
+        if (thcGenEdit::setInstrumentDsp(path, "pad", "amb01.dsp", why) !=
+                thcGenEdit::OK ||
+            thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+            doc.instruments.empty() || doc.instruments[0].dsp != "amb01.dsp")
+            fail("an inline graph cannot be swapped for a file: " + why);
+    }
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+
+    /* A mistake in the graph is the piece's, on the piece's line. */
+    expectReject(plugins, synth, "inline-graph-error",
+                 "instrument pad {\n    dsp {\n        node o osc::simple "
+                 "{ amp = 5 ms + 1; };\n    };\n};\n",
+                 ":3: 'ms' cannot be used in arithmetic");
+}
+
 static void
 checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
                      thSynth *synth, const std::string &genFile)
@@ -13667,6 +13752,7 @@ main (int argc, char *argv[])
     checkKnobSink(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
+    checkInlineGraph(plugins, &synth);
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkThrow(plugins, &synth);

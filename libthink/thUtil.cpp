@@ -275,6 +275,11 @@ string thUtil::findDataFile (const string &name, const string &subdir,
     if (name.empty())
         return "";
 
+    string graph;
+
+    if (findGraphText(name, graph))
+        return name;
+
     std::error_code ec;
 
     /* An absolute path means what it says, found or not: reporting "cannot
@@ -571,6 +576,19 @@ EmbeddedFiles &embedded (void)
     return e;
 }
 
+struct GraphTexts
+{
+    std::mutex lock;
+    std::map<std::string, std::string> texts;
+};
+
+GraphTexts &graphTexts (void)
+{
+    static GraphTexts g;
+
+    return g;
+}
+
 } /* namespace */
 
 void thUtil::addEmbeddedFile (const string &name, const unsigned char *data,
@@ -580,6 +598,28 @@ void thUtil::addEmbeddedFile (const string &name, const unsigned char *data,
     std::lock_guard<std::mutex> hold(e.lock);
 
     e.files[name] = std::make_pair(data, size);
+}
+
+void thUtil::addGraphText (const string &name, const string &text)
+{
+    GraphTexts &g = graphTexts();
+    std::lock_guard<std::mutex> hold(g.lock);
+
+    g.texts[name] = text;
+}
+
+bool thUtil::findGraphText (const string &name, string &text)
+{
+    GraphTexts &g = graphTexts();
+    std::lock_guard<std::mutex> hold(g.lock);
+    const auto i = g.texts.find(name);
+
+    if (i == g.texts.end())
+        return false;
+
+    text = i->second;
+
+    return true;
 }
 
 bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,

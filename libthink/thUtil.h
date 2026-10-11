@@ -148,6 +148,13 @@ public:
     static bool findEmbeddedFile (const string &name,
                                   const unsigned char *&data, size_t &size);
 
+    /* A graph carried as text by another file -- `dsp { ... }' inside a
+     * .gen instrument -- under a name findDataFile hands back as it is and
+     * every thSynth load reads instead of the disk. Copied; a second text
+     * under one name replaces the first. Process-wide and thread-safe. */
+    static void addGraphText (const string &name, const string &text);
+    static bool findGraphText (const string &name, string &text);
+
     /* A count a host bumps after putting new files where findDataFile
      * looks -- a sample pack downloaded while the synth runs. A reader that
      * cached "not found" retries when the count has moved on. */
