@@ -2055,6 +2055,88 @@ runExportMidi (const std::string &pluginPath)
     }
 
     {
+        /* Evolve toward: one instrument tuned toward another's sound on a
+           thread of its own, the result heard on its channel, and kept.
+           The two are the same enveloped sine with a different sustain,
+           which a tune can find in seconds. */
+        auto graphWith = [] (const char *sustain)
+        {
+            return std::string(
+                "node ionode { channels = 1; out0 = vca->out; "
+                "play = env->play; };\n"
+                "io ionode;\n"
+                "node freq misc::midi2freq { note = ionode->note; };\n"
+                "node osc osc::simple { freq = freq->out; "
+                "amp = ionode->velocity; };\n"
+                "node env env::adsr { a = 5 ms; d = 200 ms; s = ") +
+                sustain + "; r = 100 ms; trigger = ionode->trigger; };\n"
+                "node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n";
+        };
+        const std::string tmp = stagePiece(
+                "name \"evolving\";\n"
+                "instrument pad {\n    dsp {\n" + graphWith("0.05") +
+                "    };\n};\n"
+                "instrument ref {\n    dsp {\n" + graphWith("0.7") +
+                "    };\n};\n"
+                "chain melody {\n"
+                "    stage s gen::eno_line { notes = \"A3\"; "
+                "period = 1 s; prob = 1; };\n"
+                "    sink { instrument = pad; };\n"
+                "};\n");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
+        std::string why, before, after;
+
+        pump(10);
+        win->activate_action("composer.evolve");
+        pump(5);
+
+        const thcInstrument *pad = win->sched_->instrument("pad");
+
+        if (pad != NULL)
+            win->sched_->graphText(pad->channel, before);
+
+        const bool started = win->startEvolve("pad", "ref", "", false, why);
+
+        /* Seconds on a desktop; minutes under the sanitizers. */
+        for (int i = 0; started && i < 6000 && !win->evolveDone(); i++)
+        {
+            pump(1);
+            g_usleep(50000);
+        }
+
+        const bool heard = started && win->evolveResult(why);
+
+        if (pad != NULL)
+            win->sched_->graphText(pad->channel, after);
+
+        check(heard && after != before && !after.empty(),
+              "Evolve toward tunes one instrument toward another and puts "
+              "the result on its channel");
+
+        if (!heard)
+            printf("      %s\n", why.c_str());
+
+        const bool kept = win->keepInstrument("pad", why);
+
+        pump(10);
+
+        const std::string text = readAll(win->workPath_);
+
+        check(kept && text.find("s = 0.05;") == std::string::npos &&
+              win->sched_->instrument("pad") != NULL,
+              "...and Keep writes it into the piece, which loads");
+
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    {
         /* Two chains drawing from the seed, one of them muted. */
         const std::string tmp = stagePiece(
                 "name \"wander\";\n"

@@ -110,7 +110,9 @@ function(think_harness name)
     target_link_libraries(${name} PRIVATE PkgConfig::CAIROMM)
   endif()
 
-  if(H_THREADS)
+  # $<TARGET_OBJECTS:> carries no link requirements, and the node model
+  # starts threads.
+  if(H_THREADS OR H_NODEMODEL)
     find_package(Threads REQUIRED)
     target_link_libraries(${name} PRIVATE Threads::Threads)
   endif()
