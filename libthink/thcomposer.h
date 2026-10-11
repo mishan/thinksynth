@@ -179,8 +179,11 @@ typedef enum {
  * `reserved', so sizeof(thcEvent) and every offset stay where they are, and
  * it means at 0 what an event without it always meant -- since a plugin
  * built before it zero-fills it, and passes on whatever it was handed. The
- * union is full: a note's new field goes in `reserved' too, not in `note'.
- * Only a field that cannot be given a 0 that means "as before" is a bump. */
+ * union is full for `note', its largest arm: a note's new field goes in
+ * `reserved' too. Any other arm grows in place, into bytes of the union
+ * that the same zero-fill covers -- `note' is its first member, so `= {}'
+ * zeroes them all. Only a field that cannot be given a 0 that means "as
+ * before" is a bump. */
 #define THC_EVENT_RESERVED 64
 
 typedef struct {

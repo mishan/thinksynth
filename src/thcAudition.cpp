@@ -14,6 +14,7 @@
 
 #include "thcAudition.h"
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -345,7 +346,7 @@ thcAuditioner::judge (const Job &job)
     if (job.tune > 0 && tuner_ && thUtil::findGraphText(job.candidate.dsp,
                                                         text))
     {
-        static unsigned int serial = 0;
+        static std::atomic<unsigned int> serial { 0 };
         Instrument tried = job.candidate;
 
         if (synth_ == NULL)
