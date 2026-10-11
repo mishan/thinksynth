@@ -33,7 +33,6 @@ include(FetchContent)
 add_compile_options(-fwasm-exceptions)
 add_link_options(-fwasm-exceptions)
 
-find_package(BISON 3.0 REQUIRED)
 find_package(FLEX REQUIRED)
 
 # ---------------------------------------------------------------------------

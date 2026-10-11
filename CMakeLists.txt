@@ -135,7 +135,6 @@ endif()
 # Dependencies
 # ---------------------------------------------------------------------------
 
-find_package(BISON 3.0 REQUIRED)
 find_package(FLEX REQUIRED)
 
 find_package(PkgConfig REQUIRED)

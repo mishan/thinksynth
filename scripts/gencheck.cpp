@@ -778,7 +778,7 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
     /* ---- and it groups the way a .dsp groups it ------------------------ */
 
     /* The claim docs/GEN_FORMAT.md 5a makes: one language, whichever file it is
-     * written in. Two parsers say it -- thinklang.yy's rules and the three
+     * written in. Two parsers say it -- thDspParser.cpp's rules and the three
      * hand-written functions above -- so the way to hold them together is to
      * ask both the same questions and compare the answers.
      *

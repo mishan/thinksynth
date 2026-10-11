@@ -1,48 +1,9 @@
 # libthink -- the synth engine, the arg system, MIDI, and the DSP-language
 # parser.
 
-# bison_target/flex_target replace the whole build.mk dance, including the
-# `--defines=' fix and the .SECONDARY that stopped make deleting the generated
-# sources on every build. Generated output goes to the build tree, so the
-# source tree stays clean -- nothing writes libthink/thinklang.{cpp,h} or
-# thinklex.cpp there any more.
-
-bison_target(ThinkParser
-             thinklang.yy
-             "${CMAKE_CURRENT_BINARY_DIR}/thinklang.cpp"
-             DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklang.h")
-
-# Two warnings the compiler has about lines bison wrote. Neither can be
-# answered from thinklang.yy and the file is regenerated on every build, so
-# they are turned off for the generated source -- scoped to that one file on
-# purpose, so the hand-written sources still get both.
-#
-#   -Wunused-but-set-variable  yyparse declares `yynerrs' and counts errors
-#       into it; with the default `parse.error simple' nothing reads it.
-#   -Wfree-nonheap-object      the cleanup path is `if (yyss != yyssa)
-#       YYSTACK_FREE (yyss);' -- the guard is exactly what stops the stack
-#       array being freed, and at -O0 gcc cannot see through it. Only shows
-#       up in an unoptimised build, which is why it is easy to miss.
-set(THINK_PARSER_NOWARN)
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  list(APPEND THINK_PARSER_NOWARN -Wno-unused-but-set-variable)
-endif()
-
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  list(APPEND THINK_PARSER_NOWARN -Wno-free-nonheap-object)
-endif()
-
-if(THINK_PARSER_NOWARN)
-  set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/thinklang.cpp"
-      PROPERTIES COMPILE_OPTIONS "${THINK_PARSER_NOWARN}")
-endif()
-
-# No add_flex_bison_dependency any more: the lexer stopped including the
-# grammar's token header when it stopped being one grammar's lexer. It
-# produces thLexToken (thLexer.h) for both .dsp and .gen, and thinklang.yy
-# maps those onto its own tokens -- so the dependency now runs the other way,
-# and cmake works that out from the ordinary source list.
+# The lexer produces thLexToken (thLexer.h) for both .dsp and .gen, into the
+# build tree so the source tree stays clean; thDspParser.cpp maps its tokens
+# onto .dsp's own vocabulary.
 flex_target(ThinkLexer
             thinklex.ll
             "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp"
@@ -51,6 +12,7 @@ flex_target(ThinkLexer
 set(THINK_SOURCES
     thArg.cpp
     thArrays.cpp
+    thDspParser.cpp
     thExpr.cpp
     thChanEffect.cpp
     thMidiChan.cpp
@@ -64,7 +26,6 @@ set(THINK_SOURCES
     thSoundFile.cpp
     thSynth.cpp
     thUtil.cpp
-    ${BISON_ThinkParser_OUTPUTS}
     ${FLEX_ThinkLexer_OUTPUTS})
 
 # How a plugin is found and opened: dlopen here, a table the build generated
@@ -83,7 +44,7 @@ add_library(think_objects OBJECT ${THINK_SOURCES})
 
 target_include_directories(think_objects PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_BINARY_DIR}")   # generated thinklang.h, via parser.h
+    "${CMAKE_CURRENT_BINARY_DIR}")
 
 target_link_libraries(think_objects PUBLIC PkgConfig::SIGC)
 
@@ -156,13 +117,10 @@ if(THINK_BUILD_STATIC_LIB)
   install(TARGETS think_static ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 endif()
 
-# parser.h includes thinklang.h, so an installed libthink needs the generated
-# header too -- but it now lives in the build tree. The glob has to exclude
-# the generated names explicitly, or a tree that still has an autotools build
-# lying around installs those stale copies instead.
+# The glob has to exclude the generated names explicitly, or a tree that
+# still has an autotools build lying around installs those stale copies.
 file(GLOB THINK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
 list(FILTER THINK_HEADERS EXCLUDE REGEX "/(thinklang|thinklex)\\.h$")
 
 install(FILES ${THINK_HEADERS}
-              "${CMAKE_CURRENT_BINARY_DIR}/thinklang.h"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libthink")
