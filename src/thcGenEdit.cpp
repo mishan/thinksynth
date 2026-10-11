@@ -281,7 +281,8 @@ struct InstrumentIdx
     size_t bodyClose;
 
     std::string dsp;
-    std::string dspBody;         /* between the braces of `dsp { }'    */
+    bool dspInline = false;      /* `dsp { }' rather than a file name  */
+    std::string dspBody;         /* between its braces                 */
     size_t dspA, dspB;           /* the quoted file name or the braced
                                     graph, 0 when none                 */
 
@@ -796,6 +797,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                         break;
                     }
 
+                    in.dspInline = true;
                     in.dspBody = text.substr(t[j + 1].end,
                                              t[k - 1].off - t[j + 1].end);
                     in.dspA = t[j + 1].off;
@@ -1548,10 +1550,10 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         Instrument in;
 
         in.name = ix.instruments[i].name;
-        in.dsp = ix.instruments[i].dspBody.empty()
-               ? ix.instruments[i].dsp
-               : thcGenLoader::inlineGraphName(filename, in.name,
-                                               ix.instruments[i].dspBody);
+        in.dsp = ix.instruments[i].dspInline
+               ? thcGenLoader::inlineGraphName(in.name,
+                                               ix.instruments[i].dspBody)
+               : ix.instruments[i].dsp;
         in.midi = ix.instruments[i].midi;
         in.midiChannel = ix.instruments[i].midiChannel;
 

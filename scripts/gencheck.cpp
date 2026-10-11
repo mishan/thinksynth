@@ -6156,6 +6156,23 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                 doc.instruments[0].dsp != pad->dsp)
                 fail("describe and the loader name an inline graph "
                      "differently: " + why);
+
+            /* Nor by the file it was read from: an edit is reloaded from a
+               copy, and a new name there would rebuild an unchanged graph,
+               cutting whatever it was playing. */
+            const std::string copy = thUtil::tempFile("gencheck-inline-copy-");
+            thcGenEdit::Doc copied;
+
+            std::filesystem::copy_file(
+                path, copy, std::filesystem::copy_options::overwrite_existing);
+
+            if (thcGenEdit::describe(copy, copied, why) != thcGenEdit::OK ||
+                copied.instruments.empty() || pad == NULL ||
+                copied.instruments[0].dsp != pad->dsp)
+                fail("an inline graph is named after the file it was read "
+                     "from: " + why);
+
+            std::remove(copy.c_str());
         }
     }
 

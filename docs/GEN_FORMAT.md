@@ -249,11 +249,12 @@ instrument bell {
 
 A mistake in the graph is reported among the piece's errors, against the
 piece's own line. Plugins are looked up when the instrument is loaded, not
-while the file is read. The graph is loaded under a name made from the piece,
-the instrument and a hash of its text (`weather.gen#bell.1a2b3c4d.dsp`), which
-is what a panel shows for it and what changes when the graph does. Node arrays
-(`node tone[2] ...`) are not available inline yet. An instrument's `effect`
-still names a file.
+while the file is read. The graph is loaded under a name made from the
+instrument and a hash of its text (`bell#1a2b3c4d.dsp`), which is what a panel
+shows for it and what changes when the graph does. It has no file, so the node
+editor does not open it and a patch cannot be saved from its channel. Node
+arrays (`node tone[2] ...`) are not available inline yet. An instrument's
+`effect` still names a file.
 
 **An instrument may carry an effect.**
 

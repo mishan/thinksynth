@@ -1948,7 +1948,15 @@ void MainSynthWindow::onSavePatchAsResponse (int response,
  * page. */
 void MainSynthWindow::doSavePatch (string file, int chan)
 {
-    if (!gthPatchManager::instance()->savePatch(file, chan))
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+    string inlineGraph;
+
+    if (patch != NULL && thUtil::findGraphText(patch->doc.dsp, inlineGraph))
+        showError(this, "This channel plays a graph written inside the "
+                  "piece, which a patch file cannot name. Save the piece "
+                  "instead.");
+    else if (!gthPatchManager::instance()->savePatch(file, chan))
         showError(this, "Could not write " + file);
 }
 
@@ -2020,6 +2028,15 @@ void MainSynthWindow::ensureEditor (int chan)
     {
         ed->setStatusPublic("This patch has no DSP file yet. Choose one in "
                             "Patch params, or use New to start one.");
+        return;
+    }
+
+    string inlineGraph;
+
+    if (thUtil::findGraphText(dspFile, inlineGraph))
+    {
+        ed->setStatusPublic("This graph is written inside the piece; edit "
+                            "it in the .gen file.");
         return;
     }
 

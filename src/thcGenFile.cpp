@@ -330,6 +330,10 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
         else
         {
             err = std::string("stray character '") + t.text[0] + "'";
+
+            /* The one a .dsp pasted into `dsp { }' brings with it. */
+            if (t.text[0] == '[' || t.text[0] == ']')
+                err += "; node arrays are not available in a .gen";
             errLine = t.line;
             ok = false;
             break;
@@ -1420,8 +1424,7 @@ thcGenLoader::parseSection (thcScheduler *sched)
  * already makes. `fx.delay' is the string the engine takes.
  */
 std::string
-thcGenLoader::inlineGraphName (const std::string &piecePath,
-                               const std::string &instrument,
+thcGenLoader::inlineGraphName (const std::string &instrument,
                                const std::string &body)
 {
     /* FNV-1a: the same answer on every platform and in the browser, which
@@ -1435,11 +1438,7 @@ thcGenLoader::inlineGraphName (const std::string &piecePath,
 
     snprintf(hex, sizeof(hex), "%08x", (unsigned)h);
 
-    const size_t slash = piecePath.find_last_of("/\\");
-    const std::string piece = slash == std::string::npos
-                            ? piecePath : piecePath.substr(slash + 1);
-
-    return piece + "#" + instrument + "." + hex + ".dsp";
+    return instrument + "#" + hex + ".dsp";
 }
 
 /* `dsp { node osc osc::simple { ... }; io out; };' -- the graph written
@@ -1491,7 +1490,7 @@ thcGenLoader::parseInlineDsp (const std::string &instrument, std::string &name)
     const std::string body = source_.substr(raw_[a].end,
                                             raw_[b].off - raw_[a].end);
 
-    name = inlineGraphName(path_, instrument, body);
+    name = inlineGraphName(instrument, body);
     thUtil::addGraphText(name, std::string(open.line - 1, '\n') + body);
 
     pos_ = std::lower_bound(tokens_.begin(), tokens_.end(), raw_[b].end,

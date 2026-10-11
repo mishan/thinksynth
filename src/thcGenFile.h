@@ -125,12 +125,12 @@ public:
     static std::string noteName (int midi);
 
     /* The name an instrument's inline graph -- `dsp { ... }' -- is loaded
-       under (thUtil::addGraphText): the piece, the instrument and a hash of
-       `body', the text between the braces. A graph whose text changes gets
-       a new name, which is what tells everything that compares instruments
-       by their dsp that this one is not the graph it was. */
-    static std::string inlineGraphName (const std::string &piecePath,
-                                        const std::string &instrument,
+       under (thUtil::addGraphText): the instrument and a hash of `body', the
+       text between the braces. A graph whose text changes gets a new name,
+       which is what tells everything that compares instruments by their dsp
+       that this one is not the graph it was. Not the piece's path, which
+       differs between a piece and the edited copy it is reloaded from. */
+    static std::string inlineGraphName (const std::string &instrument,
                                         const std::string &body);
 
     /* The lexical layer in .gen's shape: `out' gets an END-terminated

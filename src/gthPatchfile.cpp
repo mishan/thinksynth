@@ -353,8 +353,11 @@ bool gthPatchManager::parse (const string &filename, int chan)
 bool gthPatchManager::savePatch (const string &filename, int chan)
 {
     PatchFile *patch = patches_.get(chan);
+    string inlineGraph;
 
-    if (patch == NULL)
+    /* A graph written inside a piece has a name only for as long as the
+       piece is loaded, and a .patch naming it would not open again. */
+    if (patch == NULL || thUtil::findGraphText(patch->doc.dsp, inlineGraph))
         return false;
 
     /* What the file will say: the patch's own record of what it is, and the
