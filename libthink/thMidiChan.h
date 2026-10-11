@@ -123,7 +123,8 @@ public:
        see. */
     void process (RetireQueue *retire, thProbe *const *probes = NULL,
                   int nprobes = 0, const float *side = NULL,
-                  int sidechannels = 0);
+                  int sidechannels = 0, const float *drainSide = NULL,
+                  int drainSidechannels = 0);
 
     /* Audio thread, from SET_CHANNEL: `old' is the channel this one replaces,
        still holding the voices it was playing. They finish on the graph
@@ -133,8 +134,12 @@ public:
        quiet for a while (an echo's tail is part of the sound), it is
        retired. A channel `old' was itself draining goes on draining inside
        it. */
-    void drain (thMidiChan *old) { draining_ = old; drainQuiet_ = 0;
-                                   drainWindows_ = 0; }
+    void drain (thMidiChan *old);
+
+    /* The channel drain() was handed, while it is still sounding. Its
+       effect's side is the synth's to find, as this channel's is: that is
+       what `drainSide' to process() is. */
+    thMidiChan *draining (void) const { return draining_; }
 
     /* Where process() retires to when it runs beside other channels, which
        share no queue: thSynth hands this on to its own after the window. */
@@ -440,9 +445,24 @@ private:
     void mixDraining (RetireQueue *retire, const float *side,
                       int sidechannels);
 
+    /* The pedal: this channel's own, or -- while it is being drained -- the
+       value its successor hands it each window, since the pedal belongs to
+       whatever is on the channel now. */
+    int sustainNow (void) const
+    {
+        if (pedalFrom_ >= 0)
+            return (int)pedalFrom_;
+
+        return argSustain_ ? (int)(*argSustain_)[0] : 0;
+    }
+
     thMidiChan *draining_ = NULL;
     int drainQuiet_ = 0;        /* windows in a row it has been silent    */
+    int drainSilentVoices_ = 0; /* windows in a row it has had no voices  */
     int drainWindows_ = 0;      /* windows since the swap                 */
+    int drainFade_ = -1;        /* windows of fade left, or -1 for none   */
+    float drainAmp_ = 0;        /* this channel's amp at the swap         */
+    float pedalFrom_ = -1;      /* see sustainNow()                       */
 };
 
 #endif /* TH_MIDICHAN_H */

@@ -1407,32 +1407,41 @@ int main (int argc, char **argv)
     if (writeFile(file, graph("", "freq->out", "")) &&
         writeFile(octave, graph("", "freq->out * 2", "")))
     {
-        Session s(pluginPath);
-
-        if (!s.load(file))
-            fail("swap: the graph loads", "");
-        else
+        /* On one thread and on several: a drained channel renders inside
+           its successor, on whichever thread that lands. */
+        for (int threads : { 0, 4 })
         {
+            const string on = threads ? " (4 threads)" : "";
+            Session s(pluginPath);
+
+            s.synth.setThreads(threads);
+
+            if (!s.load(file))
+            {
+                fail("swap: the graph loads" + on, "");
+                continue;
+            }
+
             s.synth.addNote(0, 60, 100);
 
             const double held = rms(s.settled(16));
 
             if (s.synth.loadTree(octave, 0, 100) == NULL)
-                fail("swap: the second graph loads", "");
+                fail("swap: the second graph loads" + on, "");
 
             vector<float> after = s.settled(16);
 
             okOrFail(near(rms(after), held, 0.05) &&
                      near(pitch(after, rate), C4, 0.02),
                      "swap: a note held across it goes on sounding, on the "
-                     "graph it started on",
+                     "graph it started on" + on,
                      num(rms(after)) + " against " + num(held) + ", " +
                      num(pitch(after, rate)) + " Hz");
 
             s.synth.delNote(0, 60);
 
             okOrFail(rms(s.settled(40)) < held * 0.01,
-                     "swap: and its note-off still reaches it",
+                     "swap: and its note-off still reaches it" + on,
                      num(rms(s.settled(4))));
 
             s.synth.addNote(0, 60, 100);
@@ -1440,13 +1449,39 @@ int main (int argc, char **argv)
             vector<float> fresh = s.settled(16);
 
             okOrFail(near(pitch(fresh, rate), C5, 0.02),
-                     "swap: a note after it plays the new graph",
+                     "swap: a note after it plays the new graph" + on,
                      num(pitch(fresh, rate)) + " Hz");
 
             s.synth.removeChan(0);
 
             okOrFail(rms(s.settled(4)) == 0,
-                     "swap: taking the channel away still cuts it", "");
+                     "swap: taking the channel away still cuts it" + on, "");
+        }
+
+        /* The pedal is the channel's, whatever graph is on it: a note held
+           by it across a swap comes up when it does. */
+        Session s(pluginPath);
+
+        if (s.load(file))
+        {
+            s.synth.addNote(0, 60, 100);
+            s.settled(8);
+            s.pedal(127);
+            s.synth.delNote(0, 60);
+
+            if (s.synth.loadTree(octave, 0, 100) == NULL)
+                fail("swap: the second graph loads under the pedal", "");
+
+            const double pedalled = rms(s.settled(16));
+
+            s.pedal(0);
+
+            const double lifted = rms(s.settled(40));
+
+            okOrFail(pedalled > 0.1 && lifted < pedalled * 0.01,
+                     "swap: a note the pedal holds across it is let go "
+                     "when the pedal comes up",
+                     num(pedalled) + " then " + num(lifted));
         }
     }
 

@@ -110,6 +110,10 @@ static string readFile (const char *file)
 
 static bool loadInstrument (thSynth &synth, const char *file, int chan)
 {
+    /* A clean slate for the second pass: loading over the first pass's
+       channel would let its tail go on into this one. */
+    synth.removeChan(chan);
+
     if (fromText)
         return synth.loadTreeText(file, readFile(file), chan, 100) != NULL;
 

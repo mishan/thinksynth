@@ -1657,6 +1657,17 @@ thSynthTree *thSynth::placeChannel (const string &filename, thSynthTree *raw,
 
     newchan->setSharesState(sharesSynthState(tree));
 
+    /* The pedal is the channel's, not the graph's: a foot that is down when
+       the graph is replaced is still down, and the notes it holds on the
+       old graph come up when it does. Before publishing, so the audio
+       thread never sees the new channel with it up. */
+    thMidiChan *before = guiChannels_[channum];
+    thArg *pedalWas = before ? before->getArg("SusPedal") : NULL;
+    thArg *pedal = newchan->getArg("SusPedal");
+
+    if (pedalWas != NULL && pedal != NULL)
+        pedal->setValue((*pedalWas)[0]);
+
     /* Base name rather than path: the log line has to answer "which
        instrument", and a full path is the same answer at greater length. */
     newchan->describe(channum,
@@ -1843,41 +1854,48 @@ bool thSynth::sideWouldCycle (int channum, int sideChan) const
 int thSynth::orderChannels (int *order) const
 {
     bool done[TH_MIDI_CHANNELS], stacked[TH_MIDI_CHANNELS];
-    int stack[TH_MIDI_CHANNELS];
     int n = 0;
 
     for (int i = 0; i < midiChannelCnt_; i++)
         done[i] = stacked[i] = false;
 
     for (int i = 0; i < midiChannelCnt_; i++)
-    {
-        int top = 0;
-        int at = i;
-
-        while (at >= 0 && at < midiChannelCnt_ && !done[at] && !stacked[at])
-        {
-            thMidiChan *chan = midiChannels_[at];
-            thChanEffect *fx = chan ? chan->effect() : NULL;
-
-            stacked[at] = true;
-            stack[top++] = at;
-
-            at = fx ? fx->sideChan() : -1;
-        }
-
-        /* Deepest first: the last one pushed is the end of the chain, which
-           is the channel nobody is waiting on. */
-        while (top > 0)
-        {
-            const int c = stack[--top];
-
-            done[c] = true;
-            stacked[c] = false;
-            order[n++] = c;
-        }
-    }
+        orderFrom(i, done, stacked, order, n);
 
     return n;
+}
+
+/* Depth first over what channel `c' waits on -- its effect's side, and the
+   side of the effect of the channel it is draining -- so it comes after the
+   channels it hears. A ring (a side on itself, two effects keyed on each
+   other) is broken where it closes. Recursion at most TH_MIDI_CHANNELS
+   deep, and nothing allocated: this runs every window. */
+void thSynth::orderFrom (int c, bool *done, bool *stacked, int *order,
+                         int &n) const
+{
+    if (c < 0 || c >= midiChannelCnt_ || done[c] || stacked[c])
+        return;
+
+    const thMidiChan *chan = midiChannels_[c];
+    const thChanEffect *fx = chan ? chan->effect() : NULL;
+
+    stacked[c] = true;
+    orderFrom(fx ? fx->sideChan() : -1, done, stacked, order, n);
+    orderFrom(drainSideOf(chan), done, stacked, order, n);
+    stacked[c] = false;
+
+    done[c] = true;
+    order[n++] = c;
+}
+
+/* The side of the effect on the channel `chan' is draining, or -1. */
+int thSynth::drainSideOf (const thMidiChan *chan) const
+{
+    const thMidiChan *old = chan ? chan->draining() : NULL;
+    const thChanEffect *fx = old ? old->effect() : NULL;
+    const int side = fx ? fx->sideChan() : -1;
+
+    return (side >= 0 && side < midiChannelCnt_) ? side : -1;
 }
 
 /* GUI thread, with synthMutex_ held. The half of loading an effect that is
@@ -2272,6 +2290,11 @@ int thSynth::buildLanes (const int *order, int norder)
 
         if (side >= 0 && side < midiChannelCnt_ && midiChannels_[side])
             root[find(i)] = find(side);
+
+        const int drainside = drainSideOf(chan);
+
+        if (drainside >= 0 && midiChannels_[drainside])
+            root[find(i)] = find(drainside);
     }
 
     for (int o = 0; o < norder; o++)
@@ -2327,7 +2350,8 @@ void thSynth::renderChannel (int i,
                                             : Clock::time_point();
 
     midiChannels_[i]->process(retire, job.taps, job.ntaps, job.side,
-                              job.sidechannels);
+                              job.sidechannels, job.drainSide,
+                              job.drainSidechannels);
 
     if (profiling_)
         profile_[i] = std::chrono::duration<double>(Clock::now() - t0)
@@ -2398,6 +2422,8 @@ void thSynth::process (void)
         job.ntaps = 0;
         job.side = NULL;
         job.sidechannels = 0;
+        job.drainSide = NULL;
+        job.drainSidechannels = 0;
         chan = midiChannels_[i];
 
         if (chan == NULL)
@@ -2433,6 +2459,14 @@ void thSynth::process (void)
             job.side = midiChannels_[sidechan]->output();
             job.sidechannels = midiChannels_[sidechan]->numChannels();
         }
+
+        const int drainside = drainSideOf(chan);
+
+        if (drainside >= 0 && midiChannels_[drainside] != NULL)
+        {
+            job.drainSide = midiChannels_[drainside]->output();
+            job.drainSidechannels = midiChannels_[drainside]->numChannels();
+        }
     }
 
     if (renderPool_ == NULL)
@@ -2454,9 +2488,15 @@ void thSynth::process (void)
 
             thRetired item;
 
+            /* A queue too full to take it is a free here, as SET_CHANNEL's
+               own fallback is: a channel retired by the one draining it
+               crosses this loop as well as notes do. */
             while (chan->retiring()->pop(item))
                 if (!retired_.push(item))
+                {
                     delete item.note;
+                    delete item.channel;
+                }
         }
     }
 

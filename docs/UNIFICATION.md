@@ -514,10 +514,12 @@ the same modules that modulate sound.
 > - **4b -- LANDED: a swap lets what is sounding finish.** The voices live
 >   in the channel, so replacing the channel was what cut them. The new
 >   channel now holds the one it replaced, renders it after its own window
->   and adds it in, forwards note-offs to it, and retires it once it has
->   no voices and has been quiet for a quarter of a second (half a minute
->   at most, for an effect that feeds back forever). Removing a channel
->   still cuts it. `voicecheck`'s swap cases are the gate.
+>   and adds it in, forwards note-offs and the pedal to it, and retires it
+>   once it has no voices and has been quiet for a quarter of a second. A
+>   tail that never goes quiet is faded out ten seconds after the last
+>   voice, and anything half a minute after the swap. Removing a channel
+>   still cuts it, which is how a render that starts over gets a clean
+>   slate. `voicecheck`'s swap cases are the gate.
 > - **4c: a mutation library.** `scripts/dspmatch`'s edit vocabulary --
 >   tune, choice genes, splice a pool node into a wire, modulate, parallel
 >   voice, remove -- over graph text, seeded, with `NodeGraph::canConnect`

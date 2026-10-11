@@ -319,6 +319,11 @@ bool renderNote (thSynth &synth, const string &dspPath,
     if (plugins != NULL)
         plugins->resetPlugins();
 
+    /* Taken away first, which cuts: a graph loaded over a sounding channel
+       lets the old one finish, and the last render's tail is not this
+       one's. */
+    synth.removeChan(0);
+
     thSynthTree *tree = synth.loadTree(dspPath, 0, 100);
 
     if (tree == NULL)
