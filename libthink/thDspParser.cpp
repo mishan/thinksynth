@@ -134,11 +134,13 @@ classify (const std::vector<thLexToken> &tokens, size_t i, bool statements)
 class Parser
 {
 public:
-    /* A whole .dsp into `tree'. */
+    /* A whole .dsp into `tree'. With no synth, plugins are not looked up. */
     Parser (thSynth *synth, thSynthTree *tree,
-            const std::vector<thLexToken> &tokens)
+            const std::vector<thLexToken> &tokens,
+            const thDspErrorFn &error = thDspErrorFn())
         : synth_(synth), tree_(tree), node_(new thNode("newnode", NULL)),
-          tokens_(tokens), statements_(true), pos_(0), depth_(0) { }
+          tokens_(tokens), statements_(true), error_(error), pos_(0),
+          depth_(0) { }
 
     /* Expressions only, from `pos', for another language. */
     Parser (const std::vector<thLexToken> &tokens, size_t pos,
@@ -212,7 +214,9 @@ private:
     bool expected (const char *what)
     {
         const Tok t = peek();
-        std::string found = t.kind == END ? "the end of the file"
+        std::string found = t.kind == END && t.src->text.empty()
+                          ? "the end of the file"
+                          : t.kind == END ? "'" + t.src->text + "'"
                           : t.kind == STRING ? "\"" + t.src->text + "\""
                           : "'" + t.src->text + "'";
 
@@ -423,7 +427,7 @@ Parser::nodeStatement (void)
        an error inside a node is reported before a plugin that is missing. */
     thPlugin *plug = NULL;
 
-    if (!plugName.empty())
+    if (!plugName.empty() && synth_ != NULL)
     {
         plug = synth_->getPluginManager()->getOrLoadPlugin(plugName);
 
@@ -1118,6 +1122,25 @@ parseLexed (thSynth *synth, std::vector<thLexToken> &tokens, bool lexed,
 }
 
 } /* namespace */
+
+bool thDspCheck (const std::vector<thLexToken> &tokens,
+                 const thDspErrorFn &error)
+{
+    std::vector<thLexToken> expanded(tokens);
+    std::string why;
+    int line = 0;
+
+    if (!thExpandArrays(expanded, why, line))
+    {
+        error(line, why);
+        return false;
+    }
+
+    thSynthTree tree("inline", NULL);
+    Parser parser(NULL, &tree, expanded, error);
+
+    return parser.statements();
+}
 
 bool thDspExpression (const std::vector<thLexToken> &tokens, size_t &pos,
                       const thDspErrorFn &error,

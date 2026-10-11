@@ -969,6 +969,7 @@ thcScheduler::auditionInstrument (const thcInstrument &inst,
     out.dsp = path.empty() ? inst.dsp : path;
     out.effect.clear();
     out.chanargs.clear();
+    out.graphs = inst.graphs;
 
     /* Its side, if it names one, is another channel's sound, and the
        private synth has only this one: the effect is heard on its own. */
@@ -1595,12 +1596,14 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
 void
 thcScheduler::setMasterEffect (const std::string &dsp,
-                               const std::vector<thcInstrumentArg> &args)
+                               const std::vector<thcInstrumentArg> &args,
+                               const std::vector<std::shared_ptr<void>> &graphs)
 {
     master_ = thcInstrument();
     master_.name = "the mix";
     master_.effect = dsp;
     master_.args = args;
+    master_.graphs = graphs;
     master_.channel = -1;
 }
 

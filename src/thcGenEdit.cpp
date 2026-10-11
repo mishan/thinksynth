@@ -281,7 +281,10 @@ struct InstrumentIdx
     size_t bodyClose;
 
     std::string dsp;
-    size_t dspA, dspB;           /* the quoted file name, 0 when none  */
+    bool dspInline = false;      /* `dsp { }' rather than a file name  */
+    std::string dspBody;         /* between its braces                 */
+    size_t dspA, dspB;           /* the quoted file name or the braced
+                                    graph, 0 when none                 */
 
     std::string midi;            /* `midi "port";', or empty           */
     int midiChannel = -1;        /* 1-16 as written, -1 when none      */
@@ -745,6 +748,46 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             continue;
         }
 
+        /* `effect { dsp ...; ... };': the graph is the block's `dsp', named
+           as the loader names it when it is written inline. */
+        if (kw == "effect" && isPunct(t[i + 1], '{'))
+        {
+            const size_t j = skipStmt(t, i);
+            int depth = 0;
+
+            for (size_t k = i + 1; k < j; k++)
+            {
+                if (isPunct(t[k], '{'))
+                    depth++;
+                else if (isPunct(t[k], '}'))
+                    depth--;
+                else if (depth == 1 && t[k].kind == Tok::WORD &&
+                         t[k].text == "dsp" && t[k + 1].kind == Tok::STRING)
+                    ix.masterEffect = t[k + 1].text;
+                else if (depth == 1 && t[k].kind == Tok::WORD &&
+                         t[k].text == "dsp" && isPunct(t[k + 1], '{'))
+                {
+                    size_t e = k + 2;
+
+                    for (int d = 1; t[e].kind != Tok::END && d > 0; e++)
+                    {
+                        if (isPunct(t[e], '{'))
+                            d++;
+                        else if (isPunct(t[e], '}'))
+                            d--;
+                    }
+
+                    ix.masterEffect = thcGenLoader::inlineGraphName("mix",
+                        text.substr(t[k + 1].end, t[e - 1].off - t[k + 1].end));
+                }
+            }
+
+            ix.masterA = t[i].off;
+            ix.masterB = t[j - 1].end;
+            i = j;
+            continue;
+        }
+
         /* instrument <name> { dsp "<file>"; <arg> = <value>; ... }; */
         if (kw == "instrument" && t[i + 1].kind == Tok::WORD &&
             isPunct(t[i + 2], '{'))
@@ -768,6 +811,38 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     in.dspA = t[j + 1].off;
                     in.dspB = t[j + 1].end;
                     j += 3;
+                    continue;
+                }
+
+                /* `dsp { ... };': the graph inline, which is .dsp's grammar
+                   and nothing this scan reads -- stepped over whole, by a
+                   count, since the graph is made of blocks. */
+                if (t[j].kind == Tok::WORD && t[j].text == "dsp" &&
+                    isPunct(t[j + 1], '{'))
+                {
+                    size_t k = j + 2;
+                    int depth = 1;
+
+                    for (; t[k].kind != Tok::END && depth > 0; k++)
+                    {
+                        if (isPunct(t[k], '{'))
+                            depth++;
+                        else if (isPunct(t[k], '}'))
+                            depth--;
+                    }
+
+                    if (depth != 0 || !isPunct(t[k], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    in.dspInline = true;
+                    in.dspBody = text.substr(t[j + 1].end,
+                                             t[k - 1].off - t[j + 1].end);
+                    in.dspA = t[j + 1].off;
+                    in.dspB = t[k - 1].end;
+                    j = k + 1;
                     continue;
                 }
 
@@ -863,9 +938,9 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                  * statement the scan does not recognize may hold braces of
                  * its own. */
                 if (t[j].kind == Tok::WORD && t[j].text == "effect" &&
-                    t[j + 1].kind == Tok::STRING)
+                    (t[j + 1].kind == Tok::STRING || isPunct(t[j + 1], '{')))
                 {
-                    size_t k = j + 2;
+                    size_t k = t[j + 1].kind == Tok::STRING ? j + 2 : j + 1;
 
                     if (isPunct(t[k], '{'))
                     {
@@ -1515,7 +1590,10 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         Instrument in;
 
         in.name = ix.instruments[i].name;
-        in.dsp = ix.instruments[i].dsp;
+        in.dsp = ix.instruments[i].dspInline
+               ? thcGenLoader::inlineGraphName(in.name,
+                                               ix.instruments[i].dspBody)
+               : ix.instruments[i].dsp;
         in.midi = ix.instruments[i].midi;
         in.midiChannel = ix.instruments[i].midiChannel;
 

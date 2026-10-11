@@ -231,6 +231,32 @@ band.
 happens to take a string. An instrument must be declared before it is
 referenced, like a scale or a preset.
 
+**The graph may be written inline.** Braces instead of a file name, and inside
+them a `.dsp`'s statements, read by the `.dsp` parser itself:
+
+```
+instrument bell {
+    dsp {
+        node ionode { out0 = o->out; channels = 1; play = env->play; };
+        io ionode;
+        node o osc::simple { freq = ionode->note; waveform = 0; };
+        node env env::adsr { a = 5 ms; d = 800 ms; s = 0; r = 300 ms;
+                             trigger = ionode->trigger; };
+    };
+    amp = -6 dB;
+};
+```
+
+A mistake in the graph is reported among the piece's errors, against the
+piece's own line. Plugins are looked up when the instrument is loaded, not
+while the file is read. The graph is loaded under a name made from the
+instrument and a hash of its text (`bell#1a2b3c4d.dsp`), which is what a panel
+shows for it and what changes when the graph does. It has no file, so the node
+editor does not open it and a patch cannot be saved from its channel (nor from
+a channel whose effect is written inline). An effect
+is written inline the same way, with its graph as the block's `dsp` — see
+below.
+
 **An instrument may carry an effect.**
 
 ```
@@ -252,6 +278,23 @@ comes out *after* the key came up, and an echo inside an instrument cannot do
 it, because the ring it keeps lives in the voice and the voice is gone.
 DSP_FORMAT.md's "An effect graph" says what such a file looks like — an
 ordinary `.dsp` whose io node declares `in0`.
+
+The braces after the file name hold the effect's values, so a graph written
+inline needs the other shape, the instrument block's own: `dsp` inside the
+braces, then the values. `dsp "fx/echo.dsp";` works there too, and so does
+either form for the master effect below.
+
+```
+    effect {
+        dsp {
+            @gain = 0.5;
+            node ionode { channels = 1; in0 = 0; out0 = g->out; };
+            node g math::mul { in0 = ionode->in0; in1 = @gain; };
+            io ionode;
+        };
+        gain = 0.8;
+    };
+```
 
 Its values are the effect's own chanargs, and they are kept apart from the
 instrument's: `@a` on an instrument and `@a` on its effect are two different
@@ -299,10 +342,6 @@ loaded **after** the instrument, because loading an instrument builds a new
 channel and an effect belongs to the channel it was put on — which also means
 a rewind reloads both and the delay line starts empty both times, so a replay
 is still a replay.
-
-Writing the graph out inline instead of naming it is the other half of the
-same idea and is not here. By reference alone delivers the self-contained
-file, which is what that step was for.
 
 **An effect may also hear the machine**, and that one needs no clause at all.
 An effect graph whose io node declares `live0` is handed what the host is
@@ -957,12 +996,12 @@ knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
 preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
-mastereffect: "effect" STRING effectblock? ";"           # at most one,
+mastereffect: effect                                   # at most one,
                                                        #   on the mix
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # one dsp, or a
                                                        #   midi, or both
-instrstmt   : "dsp" STRING ";"
-            | "effect" STRING effectblock? ";"          # at most one
+instrstmt   : "dsp" graph ";"
+            | effect                                   # at most one
             | "send" "=" (NUMBER | CHANARG) ";"         # fx.send, 0..1
             | "midi" STRING ";"                         # an output port
             | "midichannel" "=" NUMBER ";"              # 1-16; with midi
@@ -972,6 +1011,12 @@ instrstmt   : "dsp" STRING ";"
             | WORD "." WORD "=" STRING ";"              # a node's text arg
             | instrval
 ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
+graph       : STRING | "{" dspstmt* "}"                # a file, or a .dsp's
+                                                       #   statements inline
+                                                       #   (DSP_FORMAT.md)
+effect      : "effect" STRING effectblock? ";"
+            | "effect" "{" effectstmt* "}" ";"         # exactly one dsp
+effectstmt  : "dsp" graph ";" | effectside | instrval
 effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs
 effectside  : "side" "=" WORD ";"                      # at most one; an
                                                        #   instrument, and

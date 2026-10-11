@@ -275,6 +275,11 @@ string thUtil::findDataFile (const string &name, const string &subdir,
     if (name.empty())
         return "";
 
+    string graph;
+
+    if (findGraphText(name, graph))
+        return name;
+
     std::error_code ec;
 
     /* An absolute path means what it says, found or not: reporting "cannot
@@ -571,6 +576,21 @@ EmbeddedFiles &embedded (void)
     return e;
 }
 
+struct GraphTexts
+{
+    std::mutex lock;
+    std::map<std::string, std::pair<std::string, int> > texts;  /* holds */
+};
+
+/* Never destroyed: a hold may be released by a static's destructor after
+   this one's would have run. */
+GraphTexts &graphTexts (void)
+{
+    static GraphTexts *g = new GraphTexts;
+
+    return *g;
+}
+
 } /* namespace */
 
 void thUtil::addEmbeddedFile (const string &name, const unsigned char *data,
@@ -580,6 +600,47 @@ void thUtil::addEmbeddedFile (const string &name, const unsigned char *data,
     std::lock_guard<std::mutex> hold(e.lock);
 
     e.files[name] = std::make_pair(data, size);
+}
+
+thUtil::GraphHold thUtil::addGraphText (const string &name,
+                                        const string &text)
+{
+    GraphTexts &g = graphTexts();
+
+    {
+        std::lock_guard<std::mutex> hold(g.lock);
+        std::pair<std::string, int> &entry = g.texts[name];
+
+        entry.first = text;
+        entry.second++;
+    }
+
+    return GraphHold(new string(name), [](void *p)
+    {
+        string *held = (string *)p;
+        GraphTexts &texts = graphTexts();
+        std::lock_guard<std::mutex> hold(texts.lock);
+        const auto i = texts.texts.find(*held);
+
+        if (i != texts.texts.end() && --i->second.second == 0)
+            texts.texts.erase(i);
+
+        delete held;
+    });
+}
+
+bool thUtil::findGraphText (const string &name, string &text)
+{
+    GraphTexts &g = graphTexts();
+    std::lock_guard<std::mutex> hold(g.lock);
+    const auto i = g.texts.find(name);
+
+    if (i == g.texts.end())
+        return false;
+
+    text = i->second.first;
+
+    return true;
 }
 
 bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,
