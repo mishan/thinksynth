@@ -747,6 +747,26 @@ public:
     bool swapInstrument (int channel, const std::string &name,
                          std::string &why);
 
+    /* THC_EV_GROW: the graph on `channel' one edit on, the edit `choice'
+       picks among those of `kinds' -- or, with `shrink', one edit back.
+       Only on a channel the piece declares an instrument for, and only in
+       a host with a grower (setGrower). The grown graph is loaded as an
+       inline graph is, under a name its text decides, and goes on as a
+       swap does. False with `why' when it cannot be done. */
+    bool growInstrument (int channel, unsigned int choice, bool shrink,
+                         const std::string &kinds, std::string &why);
+
+    /* What turns a graph's text into the text one edit on: `choice' among
+       the edits of `kinds', judged against `base', the declared graph. A hook, as loading is, because the edits are
+       the node model's (NodeMutate::grow) and a host that does not link
+       it -- the Node build -- has no business growing anything. */
+    typedef std::function<bool (const std::string &text,
+                                const std::string &base, unsigned int choice,
+                                const std::string &kinds, std::string &grown,
+                                std::string &what, std::string &why)> Grower;
+
+    void setGrower (const Grower &fn) { grower_ = fn; }
+
     /* Which instrument `channel' is holding: the last one swapped onto
        it, or the one whose declaration owns it, or empty for a channel
        this piece has no instrument on. The host asks so that a reload
@@ -1413,6 +1433,23 @@ private:
        checked: a refusal partway leaves the channel changed, and that
        is exactly when a rewind has the most to put back. */
     std::set<int> swapped_;
+
+    /* Each grown channel's graphs, the declared one's text first and the
+       one on the channel last, with the holds that keep the grown ones
+       loadable. A shrink goes back one; a swap, a rewind or another piece
+       forgets the lot. */
+    struct Growth
+    {
+        std::vector<std::string> texts;
+        std::vector<std::shared_ptr<void> > holds;
+    };
+
+    std::map<int, Growth> grown_;
+    Grower grower_;
+
+    /* `put' onto its channel and its values on it, or neither: what a swap
+       and a growth step both end in. */
+    bool putOn (const thcInstrument &put, std::string &why);
 
     void forgetNodeArgs (int channel);
 

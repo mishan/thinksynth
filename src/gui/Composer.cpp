@@ -30,6 +30,7 @@
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
+#include "NodeMutate.h"
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
@@ -283,6 +284,12 @@ Composer::start (void)
     started_ = true;
 
     sched_ = new thcScheduler(synth_);
+    sched_->setGrower(
+        [this](const std::string &text, const std::string &base,
+               unsigned int choice, const std::string &kinds,
+               std::string &grown, std::string &what, std::string &why)
+        { return NodeMutate::grow(synth_, text, base, choice, kinds, grown,
+                                  what, why); });
     sched_->setInstrumentLoader(
         [this](const thcInstrument &inst, std::string &why)
         { return loadInstrument(inst, why); });

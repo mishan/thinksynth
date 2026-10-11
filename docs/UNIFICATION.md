@@ -522,17 +522,28 @@ the same modules that modulate sound.
 >   voice, and anything half a minute after the swap. Removing a channel
 >   still cuts it, which is how a render that starts over gets a clean
 >   slate. `voicecheck`'s swap cases are the gate.
-> - **4c: a mutation library.** `scripts/dspmatch`'s edit vocabulary --
->   tune, choice genes, splice a pool node into a wire, modulate, parallel
->   voice, remove -- over graph text, seeded, with `NodeGraph::canConnect`
->   for legality. dspmatch becomes a thin tool over it, and its ablation
->   tests the gate.
-> - **4d: `gen::grow`.** A stage that reshapes a declared instrument's
->   graph on a slow clock, emitting the new graph's text; the host
->   registers it and swaps, which 4b makes musical. It may listen toward a
->   target as `gen::breed` does. Replay from the seed, a rewind back to
->   the declaration, and consent as breed's: the stage names the edits it
->   may make, and tuning stays inside declared ranges.
+> - **4c -- LANDED: a mutation library.** `src/NodeMutate` holds what
+>   `scripts/dspmatch` searched with: genes and their coordinates, the
+>   splice pool, and the three edits -- a pool node spliced into a wire, a
+>   modulator on a constant, a voice beside an oscillator -- with every
+>   candidate edit enumerated in a fixed order. Legality is dspmatch's own
+>   rule (only a wire carrying a signal takes a splice). dspmatch is the
+>   search over the library, its output unchanged; `mutatecheck` is the
+>   gate.
+> - **4d -- LANDED: `gen::grow`.** `THC_EV_GROW` carries a number from the
+>   seed and the kinds of edit allowed; the host keeps each channel's grown
+>   graphs as a stack, lists the edits the top one can take, registers the
+>   picked one as an inline graph and swaps to it, or pops one for a step
+>   back -- which is the remove that live growth needed, without an edit
+>   that takes a node out of an arbitrary graph. What dspmatch judges by ear
+>   over minutes, growth cannot, and the first version walked a bass into
+>   clipping in three steps; so each candidate is played once, a phrase of
+>   overlapping notes, and passed over unless it keeps the declared graph's
+>   level. Listening toward a target, as breed does, is not here yet. The
+>   growth is a hook (`thcScheduler::setGrower`) because the node model is
+>   not in every host. Finding the clipping also found a regression in 4b:
+>   a key pressed again on the new graph left the drained one holding it,
+>   fixed in #426.
 > - **4e: Keep, and Evolve toward.** A grown graph reaches the piece file
 >   only when someone keeps it, as `dsp { ... }`; the same search, run
 >   toward an instrument or a recording, is an authoring action.

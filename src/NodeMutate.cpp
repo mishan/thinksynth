@@ -25,6 +25,7 @@
 #include <map>
 
 #include "think.h"
+#include "thSoundFile.h"
 
 #include "NodeCatalog.h"
 #include "NodeEdit.h"
@@ -716,7 +717,7 @@ vector<Edit> edits (const string &source, const Shape &shape,
     for (size_t w = 0; w < shape.wires.size(); w++)
         for (size_t p = 0; p < pool.size(); p++)
         {
-            Edit e = { "", source };
+            Edit e = { "splice", "", source };
             string name;
 
             if (!splice(e.source, shape, shape.wires[w], pool[p], name))
@@ -754,7 +755,7 @@ vector<Edit> edits (const string &source, const Shape &shape,
             for (int kind = 0; kind < 2; kind++)
                 for (size_t v = 0; v <= values; v++)
                 {
-                    Edit e = { "", source };
+                    Edit e = { "modulate", "", source };
                     Shape scratch = shape;
                     bool ok = true;
 
@@ -804,7 +805,7 @@ vector<Edit> edits (const string &source, const Shape &shape,
         for (size_t v = 0; v < pitches.size(); v++)
             for (int kind = 0; kind < 2; kind++)
             {
-                Edit e = { "", source };
+                Edit e = { "voice", "", source };
                 Shape scratch = shape;
 
                 if (addVoice(e.source, scratch, shape.wires[w], pitches[v],
@@ -816,6 +817,158 @@ vector<Edit> edits (const string &source, const Shape &shape,
         *voices = (int)pitches.size();
 
     return out;
+}
+
+/* How loud `text' is on `synth': the RMS and the peak of a phrase that
+   plays it the way a piece does -- a note in each of four octaves, C2 to
+   C5, each pressed before the last is let go, so a monophonic graph slides
+   and a polyphonic one stacks, and then a release. A filter that rings at
+   the bottom of the range, or a slide that kicks one, is in the measure.
+   False for a graph that does not load or goes non-finite. */
+static bool level (thSynth &synth, const string &text, double &rms,
+                   double &peak)
+{
+    static unsigned int serial = 0;
+    const string name = "grow-level#" + std::to_string(++serial) + ".dsp";
+    thUtil::GraphHold hold = thUtil::addGraphText(name, text);
+
+    /* A clean slate: the last candidate's tail is not this one's. */
+    synth.removeChan(0);
+
+    if (synth.loadTree(name, 0, 100) == NULL)
+        return false;
+
+    const int step = thsound::HOLD_WINDOWS / 2;
+    const int windows = 4 * step + thsound::HOLD_WINDOWS +
+                        thsound::TAIL_WINDOWS;
+    const int len = synth.getWindowlen();
+    double sum = 0;
+    long count = 0;
+
+    peak = 0;
+
+    for (int w = 0; w < windows; w++)
+    {
+        if (w % step == 0 && w / step < 4)
+        {
+            synth.addNote(0, 36 + 12 * (w / step), 100);
+
+            if (w > 0)
+                synth.delNote(0, 36 + 12 * (w / step - 1));
+        }
+
+        if (w == 4 * step + thsound::HOLD_WINDOWS / 2)
+            synth.delNote(0, 72);
+
+        synth.process();
+
+        const float *out = synth.getOutput();
+        const int samples = len * synth.audioChannelCount();
+
+        for (int i = 0; i < samples; i++)
+        {
+            if (!std::isfinite(out[i]))
+                return false;
+
+            sum += (double)out[i] * out[i];
+            peak = std::max(peak, (double)std::fabs(out[i]));
+        }
+
+        count += samples;
+    }
+
+    synth.removeChan(0);
+
+    rms = count ? sqrt(sum / count) : 0;
+
+    return rms > 0;
+}
+
+bool grow (thSynth *synth, const string &text, const string &base,
+           unsigned int choice, const string &kinds, string &grown,
+           string &what, string &why)
+{
+    if (synth == NULL)
+    {
+        why = "no synth to parse the graph with";
+        return false;
+    }
+
+    /* Parsed through the registry an inline graph uses, so nothing is
+       written anywhere to be read back. */
+    static unsigned int serial = 0;
+    const string name = "grow#" + std::to_string(++serial) + ".dsp";
+    thSynthTree *tree;
+
+    {
+        thUtil::GraphHold hold = thUtil::addGraphText(name, text);
+
+        tree = synth->parseTree(name);
+    }
+
+    if (tree == NULL)
+    {
+        why = "the graph does not parse";
+        return false;
+    }
+
+    vector<Gene> genes;
+    Shape shape;
+    vector<Splice> pool;
+
+    read(tree, text, &genes, &shape);
+    delete tree;
+
+    buildPool(synth->getPluginManager(), pool);
+
+    const vector<Edit> all = edits(text, shape, genes, pool);
+    vector<const Edit *> allowed;
+
+    /* A kind as a word of `kinds', not as a substring of it. */
+    string words = " " + kinds + " ";
+
+    std::replace(words.begin(), words.end(), ',', ' ');
+
+    for (size_t e = 0; e < all.size(); e++)
+        if (kinds.empty() || words.find(" " + all[e].kind + " ") != string::npos)
+            allowed.push_back(&all[e]);
+
+    if (allowed.empty())
+    {
+        why = "no edit of the kinds allowed fits this graph";
+        return false;
+    }
+
+    /* A synth of its own, so the one playing is not touched. */
+    thSynth ear(synth->getPluginManager()->pluginPath(),
+                TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    double wantRms, wantPeak;
+
+    if (!level(ear, base, wantRms, wantPeak))
+    {
+        why = "the declared graph makes no sound to measure against";
+        return false;
+    }
+
+    /* Sixteen tries at most: each is a render, and a host may be asking
+       from the thread that draws its window. */
+    for (size_t k = 0; k < allowed.size() && k < 16; k++)
+    {
+        const Edit &pick = *allowed[(choice + k) % allowed.size()];
+        double rms, peak;
+
+        /* +3 dB and -12 dB on the RMS, and +3 dB on the peak. */
+        if (level(ear, pick.source, rms, peak) && rms <= wantRms * 1.4125 &&
+            rms >= wantRms * 0.2512 && peak <= wantPeak * 1.4125)
+        {
+            grown = pick.source;
+            what = pick.what;
+            return true;
+        }
+    }
+
+    why = "the edits tried all move the level too far";
+    return false;
 }
 
 }

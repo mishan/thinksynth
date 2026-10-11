@@ -47,6 +47,7 @@ using std::vector;
 
 class thPlugin;
 class thPluginManager;
+class thSynth;
 class thSynthTree;
 
 namespace NodeMutate {
@@ -107,8 +108,10 @@ struct Splice {
     vector<pair<string, double> > initial;
 };
 
-/* One candidate: what was done, in words, and the text it was done to. */
+/* One candidate: which kind of edit -- "splice", "modulate" or "voice" --
+   what was done, in words, and the text it was done to. */
 struct Edit {
+    string kind;
     string what;
     string source;
 };
@@ -154,6 +157,24 @@ vector<const Gene *> selectorsOf (const vector<Gene> &genes,
 vector<Edit> edits (const string &source, const Shape &shape,
                     const vector<Gene> &genes, const vector<Splice> &pool,
                     int *voices = NULL);
+
+/* One step of growth, for a host: `text' parsed on `synth', its edits of
+   the kinds `kinds' names (space- or comma-separated; empty for all), and
+   the one `choice' picks, modulo how many there are -- or the first after
+   it that keeps the level near `base', the graph the instrument declares.
+   An edit arrives untuned, with whatever gain or resonance its plugin's
+   defaults give it; a search judges it by ear, and growth that nobody
+   judges would walk an instrument into clipping in a few steps. So each
+   candidate is played on a synth of its own -- a phrase of overlapping
+   notes across four octaves, so a monophonic graph slides -- and kept only
+   if it comes out finite with its RMS no more than 3 dB above `base''s and
+   no more than 12 below it, and its peak no more than 3 dB above. Rendering is deterministic, so a piece that grows still
+   replays from its seed. False, with `why', for a graph that does not
+   parse or has no edit of those kinds among the sixteen it tries that
+   passes. */
+bool grow (thSynth *synth, const string &text, const string &base,
+           unsigned int choice, const string &kinds, string &grown,
+           string &what, string &why);
 
 }
 

@@ -343,7 +343,7 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # and the window brings one up the way the Patch Selector does. Linking it is
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
-think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
+think_harness(composercheck NODEMODEL COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
               PATCH GENCATALOG PANEL STAGEPANEL
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
@@ -498,7 +498,7 @@ think_harness(dspcatalog DSPCATALOG)
 # parser, and the replay-determinism contract -- same file, same seed, same
 # delivered event stream, byte for byte. Headless: the scheduler is driven
 # through its virtual clock, no Glib loop and no audio.
-think_harness(gencheck COMPOSERHOST GENCATALOG)
+think_harness(gencheck COMPOSERHOST GENCATALOG NODEMODEL)
 
 # A piece's text replaced while it plays: two peers stepped differently, the
 # same edits at the same transport times, one tape; the chains no edit touched
@@ -509,7 +509,7 @@ think_harness(editcheck COMPOSERHOST)
 # rendering a window after every step and the windows written out as a WAV,
 # the delivered events as a tape. For hearing a .gen without the window and
 # for reading a level off a new instrument block. Not a test.
-think_harness(genwav COMPOSERHOST)
+think_harness(genwav COMPOSERHOST NODEMODEL)
 
 # scripts/Loudness.h, which genwav --levels reports with, against what
 # BS.1770 says a known signal measures.
