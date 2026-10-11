@@ -82,7 +82,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build bison flex pkg-config \
+            build-essential cmake ninja-build flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
@@ -194,7 +194,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build bison flex pkg-config \
+            build-essential cmake ninja-build flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
@@ -315,7 +315,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build bison flex pkg-config \
+            build-essential cmake ninja-build flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
@@ -409,7 +409,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build bison flex pkg-config \
+            build-essential cmake ninja-build flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev
 
@@ -1159,20 +1159,18 @@ jobs:
           # left to come in behind gtkmm. The first CI run to reach -G said
           # "svg absent", which means no librsvg: without it the bundled
           # Adwaita is a directory of SVGs nothing can read.
-          brew install cmake ninja pkg-config bison flex gtkmm4 \
+          brew install cmake ninja pkg-config flex gtkmm4 \
                        adwaita-icon-theme librsvg
 
-      # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
-      # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
-      # put on PATH explicitly. This catches everyone exactly once.
-      - name: Put Homebrew bison and flex first
+      # Apple ships flex 2.5.35 in /usr/bin, and Homebrew's is keg-only, so
+      # it has to be put on PATH explicitly. This catches everyone exactly
+      # once.
+      - name: Put Homebrew flex first
         run: |
-          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix flex)/bin"  >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
 
       - name: Check tool versions
         run: |
-          bison --version | head -1
           flex --version
           # The two that skewed apart and took the job with them. Printed
           # here so that the next time Homebrew moves one of them without
@@ -1249,10 +1247,9 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          # bison and flex come from the msys repo; everything else is the
-          # ucrt64 toolchain.
+          # flex comes from the msys repo; everything else is the ucrt64
+          # toolchain.
           install: >-
-            bison
             flex
           #
           # adwaita-icon-theme and librsvg named explicitly, for the reason

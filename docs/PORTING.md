@@ -154,9 +154,9 @@ not hide the other two.
 
 | Job | Runner | Toolchain | Deps |
 |---|---|---|---|
-| `linux` | `ubuntu-latest` | GCC | apt: `build-essential cmake ninja-build bison flex pkg-config libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev libjack-jackd2-dev adwaita-icon-theme librsvg2-common xvfb` |
-| `macos` | `macos-14` (arm64) | Clang | brew: `cmake ninja pkg-config bison flex gtkmm4 adwaita-icon-theme librsvg` — **bison and flex on `PATH` first** |
-| `windows` | `windows-latest` | MinGW-w64 UCRT64 | `msys2/setup-msys2@v2` — msys: `bison flex`; pacboy: `toolchain cmake ninja pkgconf gtkmm-4.0 adwaita-icon-theme librsvg` |
+| `linux` | `ubuntu-latest` | GCC | apt: `build-essential cmake ninja-build flex pkg-config libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev libjack-jackd2-dev adwaita-icon-theme librsvg2-common xvfb` |
+| `macos` | `macos-14` (arm64) | Clang | brew: `cmake ninja pkg-config flex gtkmm4 adwaita-icon-theme librsvg` — **flex on `PATH` first** |
+| `windows` | `windows-latest` | MinGW-w64 UCRT64 | `msys2/setup-msys2@v2` — msys: `flex`; pacboy: `toolchain cmake ninja pkgconf gtkmm-4.0 adwaita-icon-theme librsvg` |
 | `asan` | `ubuntu-latest` | GCC + ASan/UBSan | as `linux` |
 
 Three things about that table are load-bearing and were each learned the hard
