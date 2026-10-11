@@ -86,7 +86,11 @@ int main (int argc, char **argv)
 
     text << in.rdbuf();
 
-    const string bass = text.str();
+    /* With the line endings it was written with, which a Windows checkout
+       may have changed: the drive is taken out below by its text. */
+    string bass = text.str();
+
+    bass.erase(std::remove(bass.begin(), bass.end(), '\r'), bass.end());
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thSynthTree *tree = bass.empty() ? NULL : parse(synth, bass);
 
