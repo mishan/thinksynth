@@ -56,7 +56,7 @@ ctest --test-dir build
 On Debian or Ubuntu:
 
 ```sh
-sudo apt install build-essential cmake ninja-build bison flex pkg-config \
+sudo apt install build-essential cmake ninja-build flex pkg-config \
     libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev
 ```
 
@@ -293,7 +293,7 @@ On Debian or Ubuntu this asks for rather less than the desktop build does —
 no gtkmm, no cairo, no pkg-config:
 
 ```sh
-sudo apt install git cmake ninja-build bison flex python3 curl xz-utils
+sudo apt install git cmake ninja-build flex python3 curl xz-utils
 ```
 
 Then build the site and serve it. Both pages' code editors, and the room

@@ -204,10 +204,14 @@ private:
                           : t.kind == STRING ? "\"" + t.src->text + "\""
                           : "'" + t.src->text + "'";
 
-        /* Past the last token, the line that is missing something is the
-           last one with anything on it. */
-        error(t.kind == END && pos_ > 0 ? toks_[pos_ - 1] : t,
-              std::string("expected ") + what + ", found " + found);
+        /* What is missing belongs to the line before whatever was found
+           instead: a `;' forgotten on line 2 is not line 5's mistake, nor
+           the end of the file's. */
+        const Tok &at = pos_ > 0 && (t.kind == END ||
+                                     t.src->line > toks_[pos_ - 1].src->line)
+                      ? toks_[pos_ - 1] : t;
+
+        error(at, std::string("expected ") + what + ", found " + found);
         return false;
     }
 
