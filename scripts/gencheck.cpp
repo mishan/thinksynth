@@ -6671,6 +6671,20 @@ checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
             fail("a growth still being heard outlived a swap to a MIDI "
                  "instrument");
 
+        /* One edit heard is still heard, so a host has its distance. */
+        grownToward(plugins, synth, options[i], "aim", 1, true, HEARD_OUT,
+                    [&] (thcScheduler &sched, int ch)
+        {
+            std::vector<std::string> stack;
+            std::vector<thcScheduler::GrowthStep> log;
+
+            if (!sched.growth(ch, stack, log) || log.size() != 1 ||
+                log[0].heard.size() != 1 || std::isnan(log[0].distance) ||
+                std::isnan(log[0].from))
+                fail("a growth toward a target hearing one edit is not "
+                     "logged as heard");
+        });
+
         /* What a host is told: the edit in words, each heard, and the
            graph on the channel nearer than the one it grew from. Then
            back to the declared graph, which is logged too. */

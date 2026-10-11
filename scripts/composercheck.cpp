@@ -155,7 +155,7 @@ public:
     using Composer::roll_;
     using Composer::sched_;
     using Composer::selBox_;
-    using Composer::growthView_;
+    using Composer::growthViews_;
     using Composer::editorBox_;
     using Composer::seq_;
     using Composer::dirty_;
@@ -2007,6 +2007,7 @@ runExportMidi (const std::string &pluginPath)
                 "name \"growing\";\n"
                 "seed 11;\n"
                 "instrument pad { dsp \"bass.dsp\"; };\n"
+                "instrument low { dsp \"bass.dsp\"; };\n"
                 "chain melody {\n"
                 "    stage s gen::eno_line { notes = \"A2 C3\"; "
                 "period = 0.5 s; prob = 1; };\n"
@@ -2016,6 +2017,7 @@ runExportMidi (const std::string &pluginPath)
                 "    stage g gen::grow { every = 1 s; depth = 2; "
                 "shrink = 0; };\n"
                 "    sink { instrument = pad; };\n"
+                "    sink { instrument = low; chanarg = \"glide\"; };\n"
                 "};\n");
 
         thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
@@ -2033,8 +2035,14 @@ runExportMidi (const std::string &pluginPath)
         for (int i = 0; i < 30; i++)
             win->sched_->stepTransport(0.05);
 
-        /* The grow stage, selected, lists what grew; its first row puts
-           the declared graph back. */
+        /* Held while the window is pumped, or its own clock -- seconds of
+           it under the sanitizers -- grows the graph on past what is
+           checked. */
+        win->sched_->stop();
+
+        /* The grow stage, selected, lists what grew in each instrument
+           its chain reaches, a chanarg sink's too; a first row puts that
+           one's declared graph back. */
         ComposerCanvas::Selection sel;
 
         sel.kind = ComposerCanvas::Selection::STAGE;
@@ -2044,13 +2052,16 @@ runExportMidi (const std::string &pluginPath)
         win->canvas_->select(sel);
         pump(4);
 
-        GrowthView *view = win->growthView_;
+        GrowthView *view = win->growthViews_.empty() ? NULL
+                                                     : win->growthViews_[0];
         const thcInstrument *grew = win->sched_->instrument("pad");
         std::string text;
 
-        check(view != NULL && view->rows().size() == 2 &&
-              !view->rows()[1].empty(),
-              "a gen::grow stage's view lists the edit that grew, in words");
+        check(win->growthViews_.size() == 2 &&
+              win->growthViews_[1]->rows().size() == 2 &&
+              view->rows().size() == 2 && !view->rows()[1].empty(),
+              "a gen::grow stage's view lists the edit that grew, in words, "
+              "in each instrument its chain reaches");
 
         if (view != NULL)
             view->choose(0);
@@ -2059,6 +2070,8 @@ runExportMidi (const std::string &pluginPath)
               !win->sched_->grownText(grew->channel, text) &&
               view->rows().size() == 1,
               "...and its first row puts the declared graph back");
+
+        win->sched_->start();
 
         for (int i = 0; i < 20; i++)
             win->sched_->stepTransport(0.05);
@@ -2069,9 +2082,12 @@ runExportMidi (const std::string &pluginPath)
 
         const thcInstrument *pad = win->sched_->instrument("pad");
 
+        const thcInstrument *low = win->sched_->instrument("low");
+
         check(kept && readAll(win->workPath_).find("dsp {") !=
                           std::string::npos &&
-              pad != NULL && pad->dsp.find('#') != std::string::npos,
+              pad != NULL && pad->dsp.find('#') != std::string::npos &&
+              low != NULL && low->dsp.find('#') != std::string::npos,
               "...and keeps what grew as the instrument's dsp { }, which "
               "the piece then plays");
 

@@ -934,7 +934,7 @@ if it had one — and reloads; from then on that is what the piece declares, and
 growth goes on from there.
 
 Selected, the stage also lists the edits on the declared graph in words, the one
-playing last; choosing a row puts that graph back on the channel, and Keep then
+playing last, for each instrument its chain's sinks reach; choosing a row puts that graph back on the channel, and Keep then
 writes that one. A stage with a `target` adds a plot below: each step's edits
 heard as dots, the one taken filled, and the graph on the channel as a line,
 nearer the target higher, with how far it is now and how far it began.

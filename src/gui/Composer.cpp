@@ -682,28 +682,43 @@ Composer::keepGrown (size_t ci, std::string &why)
     if (!started_ || ci >= doc_.chains.size())
         return false;
 
-    const std::string inst = playedBy(ci);
+    const std::vector<std::string> insts = playedBy(ci);
+    bool kept = false;
 
-    if (inst.empty())
+    if (insts.empty())
     {
         why = "chain " + doc_.chains[ci].name + " plays no instrument";
         return false;
     }
 
-    return keepInstrument(inst, why);
+    /* Each the chain grew, the error the last of them gave if none did. */
+    for (const std::string &inst : insts)
+    {
+        std::string failed;
+
+        if (keepInstrument(inst, failed))
+            kept = true;
+        else
+            why = failed;
+    }
+
+    return kept;
 }
 
-/* The instrument chain `ci' plays, or empty. */
-std::string
+/* The instruments chain `ci''s sinks reach, notes or chanargs: where a
+   structure edit it makes goes. */
+std::vector<std::string>
 Composer::playedBy (size_t ci) const
 {
-    std::string inst;
+    std::vector<std::string> insts;
 
     for (const thcGenEdit::Sink &sink : doc_.chains[ci].sinks)
-        if (!sink.instrument.empty() && sink.chanarg.empty())
-            inst = sink.instrument;
+        if (!sink.instrument.empty() &&
+            std::find(insts.begin(), insts.end(), sink.instrument) ==
+                insts.end())
+            insts.push_back(sink.instrument);
 
-    return inst;
+    return insts;
 }
 
 bool
@@ -2415,8 +2430,8 @@ Composer::onDrawTimer (void)
     if (seqShown_)
         seq_.tick();
 
-    if (growthView_ != NULL)
-        growthView_->tick();
+    for (GrowthView *view : growthViews_)
+        view->tick();
 
     /* The transport can stop without anyone pressing Pause: a piece
        whose arrangement ends (`section end;') stops itself when its last
@@ -3232,7 +3247,7 @@ Composer::rebuildEditor (void)
        dereferenced the null and took the program with it. A pointer
        cleared here has to be one the loop below actually destroys. */
     selBox_ = NULL;
-    growthView_ = NULL;
+    growthViews_.clear();
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);
@@ -3270,7 +3285,7 @@ Composer::rebuildSelection (void)
     if (selBox_ == NULL)
         return;
 
-    growthView_ = NULL;
+    growthViews_.clear();
 
     while (Gtk::Widget *child = selBox_->get_first_child())
         selBox_->remove(*child);
@@ -4453,14 +4468,24 @@ Composer::buildStageSelection (size_t ci, size_t si)
 
         selBox_->append(*keep);
 
-        const thcInstrument *inst = sched_->instrument(playedBy(ci));
+        const std::vector<std::string> insts = playedBy(ci);
 
-        if (inst != NULL)
+        for (const std::string &name : insts)
         {
-            growthView_ = Gtk::make_managed<GrowthView>(sched_, inst->channel);
-            growthView_->say = [this] (const std::string &s)
-            { status_->set_text(s); };
-            selBox_->append(*growthView_);
+            const thcInstrument *inst = sched_->instrument(name);
+
+            if (inst == NULL)
+                continue;
+
+            if (insts.size() > 1)
+                selBox_->append(*Gtk::make_managed<Gtk::Label>(name));
+
+            GrowthView *view = Gtk::make_managed<GrowthView>(sched_,
+                                                             inst->channel);
+
+            view->say = [this] (const std::string &s) { status_->set_text(s); };
+            selBox_->append(*view);
+            growthViews_.push_back(view);
         }
     }
 

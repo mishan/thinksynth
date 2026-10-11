@@ -730,7 +730,7 @@ public:
        have to agree about which events are which. */
     static bool isStructureEdit (thcEventType t)
     {
-        return t == THC_EV_PATCH || t == THC_EV_NODEARG;
+        return t == THC_EV_PATCH || t == THC_EV_NODEARG || t == THC_EV_GROW;
     }
 
     /* ---- structure edits ----

@@ -2118,7 +2118,7 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
                  options, whats, why))
         return false;
 
-    if (target.empty() || options.size() < 2)
+    if (target.empty())
         return placeStep(channel, std::string::npos, options[0], whats[0],
                          step, why);
 
