@@ -514,6 +514,7 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     scales_.clear();
     presets_.clear();
     instruments_.clear();
+    failedInstruments_.clear();
     instrumentLines_.clear();
     claimedChannels_.clear();
     pendingSinks_.clear();
@@ -541,9 +542,20 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     if (!lex(path, tokens_))
         return false;
 
+    /* From the start of the statement that failed, not from where it
+       failed: a mistake inside an instrument's braces would otherwise skip
+       to the next `;' in them and read the rest of the block as statements
+       of its own, each one another error. */
     while (peek().kind != Token::END)
+    {
+        const size_t start = pos_;
+
         if (!parseStatement(sched))
+        {
+            pos_ = start;
             skipStatement();
+        }
+    }
 
     /* Channels, then the instruments themselves -- in that order and
        both after the parse, because an instrument cannot know its
@@ -895,7 +907,17 @@ thcGenLoader::parseStatement (thcScheduler *sched)
     if (t.text == "instrument")
     {
         take();
-        return parseInstrument(sched);
+
+        /* Declared, if not loadable: a sink naming it has nothing to add
+           to the error the declaration already made. */
+        const std::string name = peek().kind == Token::WORD ? peek().text
+                                                             : "";
+
+        if (parseInstrument(sched))
+            return true;
+
+        failedInstruments_.insert(name);
+        return false;
     }
 
     if (t.text == "effect")
@@ -2294,6 +2316,7 @@ thcGenLoader::parseChain (thcScheduler *sched)
 
     size_t chain = sched->addChain(nameTok.text);
     bool sawSink = false;
+    bool itemFailed = false;    /* a stage or sink refused, and said why */
     bool sawGenerator = false;
     bool sawInput = false;
     bool sawStart = false;
@@ -2434,8 +2457,15 @@ thcGenLoader::parseChain (thcScheduler *sched)
                 return false;
             }
 
+            const size_t stageAt = pos_;
+
             if (!parseStageBlock(sched, chain, nameTok.text))
+            {
                 ok = false;
+                itemFailed = true;
+                pos_ = stageAt;
+                skipStatement();
+            }
             else
             {
                 thcChain *c = sched->chain(chain);
@@ -2454,8 +2484,17 @@ thcGenLoader::parseChain (thcScheduler *sched)
         {
             take();
 
+            /* Past the whole of a sink that failed, as load() is past the
+               whole of a statement. */
+            const size_t sinkAt = pos_;
+
             if (!parseSinkBlock(sched, chain))
+            {
                 ok = false;
+                itemFailed = true;
+                pos_ = sinkAt;
+                skipStatement();
+            }
             else
                 sawSink = true;
             continue;
@@ -2469,7 +2508,9 @@ thcGenLoader::parseChain (thcScheduler *sched)
     if (!expectPunct(';'))
         ok = false;
 
-    if (!sawSink)
+    /* What a chain lacks is not worth saying when the stage or sink that
+       would have supplied it has already said why it is not there. */
+    if (!sawSink && !itemFailed)
     {
         error(nameTok.line, "chain " + nameTok.text + " has no sink");
         ok = false;
@@ -2491,7 +2532,7 @@ thcGenLoader::parseChain (thcScheduler *sched)
                 break;
             }
 
-    if (!sawGenerator && !sawInput)
+    if (!sawGenerator && !sawInput && !itemFailed)
     {
         error(nameTok.line, "chain " + nameTok.text +
               " has no generator stage and no 'input midi' -- "
@@ -2504,7 +2545,7 @@ thcGenLoader::parseChain (thcScheduler *sched)
        arrives when it arrives. Refused rather than ignored, because a
        line that silently does nothing is the kind a piece is then
        written around. */
-    if (sawStart && !sawGenerator)
+    if (sawStart && !sawGenerator && !itemFailed)
     {
         error(nameTok.line, "chain " + nameTok.text +
               " sets start but has no generator stage -- a start holds "
@@ -3482,8 +3523,9 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
 
                 if (instruments_.find(one) == instruments_.end())
                 {
-                    error(str.line, "no instrument called '" + one +
-                          "' has been declared");
+                    if (!failedInstruments_.count(one))
+                        error(str.line, "no instrument called '" + one +
+                              "' has been declared");
                     return false;
                 }
 
@@ -3602,8 +3644,9 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
         {
             if (instruments_.find(ref.text) == instruments_.end())
             {
-                error(ref.line, "no instrument called '" + ref.text +
-                      "' has been declared");
+                if (!failedInstruments_.count(ref.text))
+                    error(ref.line, "no instrument called '" + ref.text +
+                          "' has been declared");
                 return false;
             }
 
@@ -3721,8 +3764,9 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
             if (instruments_.find(ref.text) == instruments_.end())
             {
-                error(ref.line, "no instrument called '" + ref.text +
-                      "' has been declared");
+                if (!failedInstruments_.count(ref.text))
+                    error(ref.line, "no instrument called '" + ref.text +
+                          "' has been declared");
                 return false;
             }
 
