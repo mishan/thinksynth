@@ -886,7 +886,7 @@ static bool level (thSynth &synth, const string &text, double &rms,
 
 bool grow (thSynth *synth, const string &text, const string &base,
            unsigned int choice, const string &kinds, size_t want,
-           vector<string> &grown, string &why)
+           vector<string> &grown, vector<string> &what, string &why)
 {
     if (synth == NULL)
     {
@@ -953,6 +953,7 @@ bool grow (thSynth *synth, const string &text, const string &base,
     /* Sixteen tries at most: each is a render, and a host may be asking
        from the thread that draws its window. */
     grown.clear();
+    what.clear();
 
     for (size_t k = 0; k < allowed.size() && k < 16 && grown.size() < want;
          k++)
@@ -963,7 +964,10 @@ bool grow (thSynth *synth, const string &text, const string &base,
         /* +3 dB and -12 dB on the RMS, and +3 dB on the peak. */
         if (level(ear, pick.source, rms, peak) && rms <= wantRms * 1.4125 &&
             rms >= wantRms * 0.2512 && peak <= wantPeak * 1.4125)
+        {
             grown.push_back(pick.source);
+            what.push_back(pick.what);
+        }
     }
 
     if (!grown.empty())

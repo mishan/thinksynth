@@ -155,6 +155,7 @@ public:
     using Composer::roll_;
     using Composer::sched_;
     using Composer::selBox_;
+    using Composer::growthView_;
     using Composer::editorBox_;
     using Composer::seq_;
     using Composer::dirty_;
@@ -2030,6 +2031,36 @@ runExportMidi (const std::string &pluginPath)
         win->sched_->start();
 
         for (int i = 0; i < 30; i++)
+            win->sched_->stepTransport(0.05);
+
+        /* The grow stage, selected, lists what grew; its first row puts
+           the declared graph back. */
+        ComposerCanvas::Selection sel;
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = 1;
+        sel.index = 0;
+        win->setEditing(true);
+        win->canvas_->select(sel);
+        pump(4);
+
+        GrowthView *view = win->growthView_;
+        const thcInstrument *grew = win->sched_->instrument("pad");
+        std::string text;
+
+        check(view != NULL && view->rows().size() == 2 &&
+              !view->rows()[1].empty(),
+              "a gen::grow stage's view lists the edit that grew, in words");
+
+        if (view != NULL)
+            view->choose(0);
+
+        check(view != NULL && grew != NULL &&
+              !win->sched_->grownText(grew->channel, text) &&
+              view->rows().size() == 1,
+              "...and its first row puts the declared graph back");
+
+        for (int i = 0; i < 20; i++)
             win->sched_->stepTransport(0.05);
 
         const bool kept = win->keepGrown(1, why);

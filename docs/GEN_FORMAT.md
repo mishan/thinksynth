@@ -933,6 +933,12 @@ writes it into the piece as the instrument's `dsp { ... }` — over its file nam
 if it had one — and reloads; from then on that is what the piece declares, and
 growth goes on from there.
 
+Selected, the stage also lists the edits on the declared graph in words, the one
+playing last; choosing a row puts that graph back on the channel, and Keep then
+writes that one. A stage with a `target` adds a plot below: each step's edits
+heard as dots, the one taken filled, and the graph on the channel as a line,
+nearer the target higher, with how far it is now and how far it began.
+
 **All three are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
 the seed, so a piece sounds the same twice; and drawn on the roll, so you can

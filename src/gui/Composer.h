@@ -33,6 +33,7 @@
 #include "thcScheduler.h"
 #include "NodeEvolve.h"
 #include "ComposerCanvasWidget.h"
+#include "GrowthView.h"
 #include "SeqView.h"
 #include "StageParamsView.h"
 
@@ -188,6 +189,7 @@ public:
        or -- keepGraph -- `text', written into the piece as its dsp { } and
        the piece reloaded. */
     bool keepInstrument (const std::string &instrument, std::string &why);
+    std::string playedBy (size_t ci) const;
     bool keepGraph (const std::string &instrument, const std::string &text,
                     std::string &why);
 
@@ -540,6 +542,9 @@ protected:
     /* The selection's home inside selOuter_, refilled in place when the
        canvas selection changes. */
     Gtk::Box *selBox_;
+
+    /* The selected gen::grow stage's view, while it is in selBox_. */
+    GrowthView *growthView_ = NULL;
 
     /* The node canvas; inline composer_draw replaced the old draw
        strip. */

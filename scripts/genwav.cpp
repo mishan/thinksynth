@@ -489,9 +489,10 @@ int main (int argc, char **argv)
                               const std::string &base, unsigned int choice,
                               const std::string &kinds, size_t want,
                               std::vector<std::string> &grown,
+                              std::vector<std::string> &w,
                               std::string &why)
                     { return NodeMutate::grow(&synth, text, base, choice,
-                                              kinds, want, grown, why); });
+                                              kinds, want, grown, w, why); });
 
     synth.setThreads(threads);
 

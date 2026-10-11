@@ -6412,9 +6412,10 @@ grownFor (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
                                  const std::string &base, unsigned int choice,
                                  const std::string &kinds, size_t want,
                                  std::vector<std::string> &g,
+                                 std::vector<std::string> &w,
                                  std::string &why)
                         { return NodeMutate::grow(synth, text, base, choice,
-                                                  kinds, want, g, why); });
+                                                  kinds, want, g, w, why); });
 
         if (!loader.load(path, &sched))
             fail("the growing piece does not load");
@@ -6525,11 +6526,13 @@ enum Interrupt { HEARD_OUT, REWOUND, TO_MIDI };
    empty for none -- hearing up to `listen', with the ear answering in the
    tick or, as live, on a later one, and `interrupt' while it hears. The
    graph it grew to, or empty for the declared one; after TO_MIDI, "kept"
-   if the ear's answers were still collected for it. */
+   if the ear's answers were still collected for it. `then', if given,
+   sees the scheduler before it goes. */
 static std::string
 grownToward (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &aim, const std::string &target,
-             int listen, bool sync, Interrupt interrupt = HEARD_OUT)
+             int listen, bool sync, Interrupt interrupt = HEARD_OUT,
+             const std::function<void (thcScheduler &, int)> &then = NULL)
 {
     const std::string path = thUtil::tempFile("gencheck-toward-");
 
@@ -6561,9 +6564,10 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                                  const std::string &base, unsigned int choice,
                                  const std::string &kinds, size_t want,
                                  std::vector<std::string> &g,
+                                 std::vector<std::string> &w,
                                  std::string &why)
                         { return NodeMutate::grow(synth, text, base, choice,
-                                                  kinds, want, g, why); });
+                                                  kinds, want, g, w, why); });
 
         if (!loader.load(path, &sched))
             fail("the piece growing toward a target does not load");
@@ -6609,6 +6613,9 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                       ? "kept" : "";
             else
                 sched.grownText(ch, grown);
+
+            if (then)
+                then(sched, ch);
         }
     }
 
@@ -6630,10 +6637,11 @@ checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
                                           DSP_PATH).c_str(), std::ios::binary);
     const std::string base((std::istreambuf_iterator<char>(in)),
                            std::istreambuf_iterator<char>());
-    std::vector<std::string> options;
+    std::vector<std::string> options, whats;
     std::string why;
 
-    if (!NodeMutate::grow(synth, base, base, 0, "voice", 16, options, why) ||
+    if (!NodeMutate::grow(synth, base, base, 0, "voice", 16, options, whats,
+                          why) ||
         options.size() < 2)
     {
         fail("bass.dsp has too few second voices to choose among: " + why);
@@ -6662,6 +6670,29 @@ checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
                          TO_MIDI).empty())
             fail("a growth still being heard outlived a swap to a MIDI "
                  "instrument");
+
+        /* What a host is told: the edit in words, each heard, and the
+           graph on the channel nearer than the one it grew from. Then
+           back to the declared graph, which is logged too. */
+        grownToward(plugins, synth, options[i], "aim", 16, true, HEARD_OUT,
+                    [&] (thcScheduler &sched, int ch)
+        {
+            std::vector<std::string> stack;
+            std::vector<thcScheduler::GrowthStep> log;
+            std::string text, why;
+
+            if (!sched.growth(ch, stack, log) || stack.size() != 2 ||
+                stack[1] != whats[i] || log.size() != 1 ||
+                log[0].heard.size() < 2 || log[0].taken < 0 ||
+                !(log[0].distance < log[0].from) ||
+                log[0].distance != log[0].heard[log[0].taken])
+                fail("a growth toward a target is not logged as heard");
+
+            if (!sched.growBackTo(ch, 0, why) || sched.grownText(ch, text) ||
+                !sched.growth(ch, stack, log) || stack.size() != 1 ||
+                log.size() != 2 || log[1].depth != 0 || !log[1].what.empty())
+                fail("going back to the declared graph did not: " + why);
+        });
 
         return;
     }

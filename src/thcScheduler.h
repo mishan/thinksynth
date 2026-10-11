@@ -19,6 +19,7 @@
 #ifndef THCSCHEDULER_H
 #define THCSCHEDULER_H
 
+#include <cmath>
 #include <deque>
 #include <functional>
 #include <map>
@@ -766,17 +767,49 @@ public:
 
     /* What turns a graph's text into the text one edit on: `choice' among
        the edits of `kinds', judged against `base', the declared graph, and
-       up to `want' of them for a host that listens to choose among. A
-       hook, as loading is, because the edits are the node model's
-       (NodeMutate::grow) and a host that does not link it -- the Node
-       build -- has no business growing anything. */
+       up to `want' of them for a host that listens to choose among, each
+       with what it did in words. A hook, as loading is, because the edits
+       are the node model's (NodeMutate::grow) and a host that does not
+       link it -- the Node build -- has no business growing anything. */
     typedef std::function<bool (const std::string &text,
                                 const std::string &base, unsigned int choice,
                                 const std::string &kinds, size_t want,
                                 std::vector<std::string> &grown,
+                                std::vector<std::string> &what,
                                 std::string &why)> Grower;
 
     void setGrower (const Grower &fn) { grower_ = fn; }
+
+    /* One change growth made to a channel, for a host to show. */
+    struct GrowthStep
+    {
+        double at = 0;              /* transport seconds                */
+        size_t depth = 0;           /* edits on the declared graph after */
+        std::string what;           /* the edit, in words; empty for a
+                                       step back                        */
+
+        /* Distances to the target in dB, NaN where none was heard: the
+           graph on the channel after, the one it grew from, and each
+           edit heard, of which `taken' went on (-1 without a target). */
+        double distance = NAN;
+        double from = NAN;
+        std::vector<double> heard;
+        int taken = -1;
+    };
+
+    /* The edits on `channel' in words, the declared graph's "" first, and
+       every change since the piece loaded or rewound. False for a
+       channel that has not grown. */
+    bool growth (int channel, std::vector<std::string> &stack,
+                 std::vector<GrowthStep> &log) const;
+
+    /* Moves whenever any channel's growth does, for a host to poll. */
+    unsigned int growthSerial (void) const { return growthSerial_; }
+
+    /* Back to `depth' edits on the declared graph, as steps back would
+       go; the stack above it is gone. A growing stage goes on from there,
+       counting the edits it asked for rather than these. */
+    bool growBackTo (int channel, size_t depth, std::string &why);
 
     /* The graph on `channel' now, as text: what growth or a search put
        there, or what the instrument declares. False for a channel that is
@@ -1472,9 +1505,18 @@ private:
         std::vector<std::string> texts;
         std::vector<std::shared_ptr<void> > holds;
 
+        /* Beside each text: the edit that made it, in words, and how far
+           it was heard from a target, or NaN. */
+        std::vector<std::string> whats;
+        std::vector<double> levels;
+
+        std::vector<GrowthStep> log;
+
         /* The next step's edits while the ear hears them against a
-           target: their tickets, -1 once answered, and their distances. */
+           target: their tickets, -1 once answered, and their distances,
+           with the graph on the channel heard last. */
         std::vector<std::string> options;
+        std::vector<std::string> optionWhats;
         std::vector<int> tickets;
         std::vector<double> distances;
     };
@@ -1493,6 +1535,22 @@ private:
        instrument of the piece, or a sound file. */
     int hearAgainst (const thcAuditioner::Instrument &candidate,
                      const char *target);
+
+    /* The channel's stack, started from what it plays if it has none;
+       NULL with `why' for a channel nothing can grow on. */
+    Growth *growthOf (int channel, std::string &why);
+
+    /* The nearest of `g''s heard edits, onto the channel. */
+    bool takeHeard (int channel, Growth &g, std::string &why);
+
+    /* The stack's one change: back to the level `backTo', or with
+       std::string::npos, `grown' pushed on top, made by `what'. Logged
+       as `step'. */
+    bool placeStep (int channel, size_t backTo, const std::string &grown,
+                    const std::string &what, GrowthStep step,
+                    std::string &why);
+
+    unsigned int growthSerial_ = 0;
 
     /* Each of `options', a graph in `inst''s place, queued against
        `target': a ticket each, -1 for one that cannot be heard. */
