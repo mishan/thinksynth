@@ -658,6 +658,22 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
 
     int id = midinote->id();
 
+    /* A key pressed again on this graph is a key let go of on the one being
+       drained. A sequencer that presses a held key again sends one note-off,
+       for the last press, so the old graph's copy of the key would
+       otherwise wait for an off that only comes when the new graph's does
+       -- and, re-pressed again before then, never. */
+    if (draining_ != NULL)
+    {
+        draining_->releaseNote(id);
+
+        /* And a monophonic instrument sounds one key: the new graph's takes
+           the old one's place, as it would have taken over the voice had
+           the graph not changed. */
+        if (mono_)
+            draining_->releaseHeld();
+    }
+
     if (mono_)
     {
         thMidiNote *voice = monoVoice();
@@ -853,6 +869,22 @@ void thMidiChan::clearAll (RetireQueue *retire)
 
         draining_ = NULL;
     }
+}
+
+/* Audio thread. Every key this channel holds, released as its note-off
+   would release it. */
+void thMidiChan::releaseHeld (void)
+{
+    std::vector<int> keys;
+
+    for (int i = 0; i < monoCount_; i++)
+        keys.push_back((int)monoStack_[i]);
+
+    for (NoteMap::const_iterator i = notes_.begin(); i != notes_.end(); ++i)
+        keys.push_back(i->first);
+
+    for (size_t k = 0; k < keys.size(); k++)
+        releaseNote(keys[k]);
 }
 
 /* Audio thread. See the header. */

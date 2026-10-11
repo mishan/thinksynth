@@ -134,6 +134,9 @@ public:
        quiet for a while (an echo's tail is part of the sound), it is
        retired. A channel `old' was itself draining goes on draining inside
        it. */
+    /* Audio thread: every key down on this channel let go of. */
+    void releaseHeld (void);
+
     void drain (thMidiChan *old);
 
     /* The channel drain() was handed, while it is still sounding. Its
