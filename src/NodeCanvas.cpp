@@ -45,7 +45,7 @@
 #define COL_PORT_IN   0.60, 0.75, 0.55
 #define COL_PORT_OUT  0.80, 0.72, 0.50
 #define COL_SELECT    0.95, 0.85, 0.45
-#define COL_GROWN_HEAD 0.22, 0.48, 0.32
+#define COL_GROWN_HEAD 0.18, 0.40, 0.26
 #define COL_ATTACH    0.27, 0.25, 0.33
 #define COL_CUT       0.90, 0.42, 0.38
 #define COL_CTL_HEAD  0.34, 0.30, 0.44

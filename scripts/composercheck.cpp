@@ -2117,6 +2117,27 @@ runExportMidi (const std::string &pluginPath)
         if (!kept)
             printf("      %s\n", why.c_str());
 
+        /* Swapped onto another instrument's channel and grown there, the
+           graph is that instrument's to show and to save into. */
+        bool swappedGrown = false;
+
+        if (pad != NULL && win->sched_->swapInstrument(pad->channel, "low",
+                                                       why) &&
+            win->sched_->growInstrument(pad->channel, 7, false, "", "", 0, 0,
+                                        why))
+        {
+            std::string body, owner, shown;
+            std::set<std::string> added;
+
+            swappedGrown = win->sched_->grownText(pad->channel, body) &&
+                win->grownGraph(thcGenLoader::inlineGraphName("low", body),
+                                owner, shown, added) &&
+                owner == "low";
+        }
+
+        check(swappedGrown, "...and a graph grown after a swap is the "
+                            "swapped-in instrument's");
+
         delete win;
 
         std::error_code ec;

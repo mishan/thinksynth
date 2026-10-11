@@ -686,11 +686,15 @@ Composer::grownGraph (const std::string &name, std::string &instrument,
         const thcInstrument &inst = sched_->instruments()[i];
         std::string declared;
 
+        /* What grew is the instrument the channel holds, which after a
+           swap is not the one that owns it. */
+        const std::string held = sched_->holding(inst.channel);
+
         if (!sched_->grownText(inst.channel, body) ||
-            thcGenLoader::inlineGraphName(inst.name, body) != name)
+            thcGenLoader::inlineGraphName(held, body) != name)
             continue;
 
-        instrument = inst.name;
+        instrument = held;
         added.clear();
 
         /* By the names of its nodes, as each graph's parse has them. */

@@ -2047,16 +2047,15 @@ void MainSynthWindow::ensureEditor (int chan)
         if (composer_ != NULL &&
             composer_->grownGraph(dspFile, instrument, body, added))
         {
-            ed->openInline(dspFile, body, chan,
-                           [this, instrument](const string &text,
-                                              string &name, string &why)
-                           {
-                               return composer_ != NULL &&
-                                      composer_->setInlineGraph(instrument,
-                                                                text, name,
-                                                                why);
-                           });
-            ed->markGrown(added);
+            if (ed->openInline(dspFile, body, chan,
+                               [this, instrument](const string &text,
+                                                  string &name, string &why)
+                               {
+                                   return composer_ != NULL &&
+                                          composer_->setInlineGraph(
+                                              instrument, text, name, why);
+                               }))
+                ed->markGrown(added);
             return;
         }
 
