@@ -16,6 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <algorithm>
+#include <cmath>
 #include "config.h"
 
 #include <stdio.h>
@@ -740,6 +742,10 @@ void thMidiChan::releaseNote (int note)
 {
     int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
 
+    /* A key held across a swap was pressed on the graph being drained. */
+    if (draining_ != NULL)
+        draining_->releaseNote(note);
+
     if (mono_)
     {
         /* The stack is the keys that are down, and it is the only thing that
@@ -833,6 +839,20 @@ void thMidiChan::clearAll (RetireQueue *retire)
     /* Every key is up as far as this channel is concerned: it has no voices
        left to hand them to. */
     monoCount_ = 0;
+
+    /* Nor any graph it was letting finish. */
+    if (draining_ != NULL)
+    {
+        thRetired item;
+
+        item.kind = thRetired::CHANNEL;
+        item.channel = draining_;
+
+        if (retire == NULL || !retire->push(item))
+            delete draining_;
+
+        draining_ = NULL;
+    }
 }
 
 /* Audio thread. See the header. */
@@ -864,6 +884,9 @@ void thMidiChan::silence (int samples)
 
     if (effect_)
         effect_->fadeOut(samples);
+
+    if (draining_ != NULL)
+        draining_->silence(samples);
 }
 
 thMidiNote *thMidiChan::getNote (int note)
@@ -1129,6 +1152,70 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
         dirty_ = true;
     }
+
+    if (draining_ != NULL)
+        mixDraining(retire, side, sidechannels);
+}
+
+/* Below -100 dB, which a 16-bit render rounds to nothing. */
+static const float TH_DRAIN_QUIET = 1e-5f;
+
+/* Audio thread. See drain(). */
+void thMidiChan::mixDraining (RetireQueue *retire, const float *side,
+                              int sidechannels)
+{
+    thMidiChan *old = draining_;
+
+    /* The pedal is this channel's now; voices held by it on the old graph
+       come up when it does. */
+    if (argSustain_ != NULL && old->argSustain_ != NULL)
+        old->argSustain_->setValue((*argSustain_)[0]);
+
+    old->process(retire, NULL, 0, side, sidechannels);
+
+    const float *in = old->output();
+    float peak = 0;
+
+    if (in != NULL && old->windowlength_ == windowlength_ &&
+        old->channels_ > 0)
+    {
+        /* A mono graph replaced by a stereo one is heard in both. */
+        for (int j = 0; j < windowlength_; j++)
+            for (int c = 0; c < channels_; c++)
+            {
+                const float x =
+                    in[j * old->channels_ + std::min(c, old->channels_ - 1)];
+
+                output_[j * channels_ + c] += x;
+                peak = std::max(peak, std::fabs(x));
+            }
+
+        dirty_ = true;
+    }
+
+    const bool voices = !old->notes_.empty() || !old->decaying_.empty() ||
+                        !old->fading_.empty() || old->draining_ != NULL;
+
+    drainQuiet_ = (!voices && peak < TH_DRAIN_QUIET) ? drainQuiet_ + 1 : 0;
+    drainWindows_++;
+
+    /* Quiet for a quarter of a second, or draining for half a minute: an
+       effect feeding back on itself would otherwise never stop. */
+    const int quietWindows = (int)(samplerate_ / 4 / windowlength_) + 1;
+    const int maxWindows = (int)(samplerate_ * 30 / windowlength_) + 1;
+
+    if (drainQuiet_ < quietWindows && drainWindows_ < maxWindows)
+        return;
+
+    thRetired item;
+
+    item.kind = thRetired::CHANNEL;
+    item.channel = old;
+
+    /* A full queue is tried again next window rather than freeing a whole
+       channel here. */
+    if (retire != NULL && retire->push(item))
+        draining_ = NULL;
 }
 
 /* GUI thread, once, from thSynth::loadTree.

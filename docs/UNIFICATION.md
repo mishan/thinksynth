@@ -508,6 +508,31 @@ the same modules that modulate sound.
 > What is proven here is the thing they were waiting on: an edit can be
 > scheduled, delivered, drawn, replayed and refused.
 >
+> **The rest, in order.** Decided once inline graphs (`dsp { ... }`) gave a
+> graph a serialisable, diffable form inside the piece:
+>
+> - **4b -- LANDED: a swap lets what is sounding finish.** The voices live
+>   in the channel, so replacing the channel was what cut them. The new
+>   channel now holds the one it replaced, renders it after its own window
+>   and adds it in, forwards note-offs to it, and retires it once it has
+>   no voices and has been quiet for a quarter of a second (half a minute
+>   at most, for an effect that feeds back forever). Removing a channel
+>   still cuts it. `voicecheck`'s swap cases are the gate.
+> - **4c: a mutation library.** `scripts/dspmatch`'s edit vocabulary --
+>   tune, choice genes, splice a pool node into a wire, modulate, parallel
+>   voice, remove -- over graph text, seeded, with `NodeGraph::canConnect`
+>   for legality. dspmatch becomes a thin tool over it, and its ablation
+>   tests the gate.
+> - **4d: `gen::grow`.** A stage that reshapes a declared instrument's
+>   graph on a slow clock, emitting the new graph's text; the host
+>   registers it and swaps, which 4b makes musical. It may listen toward a
+>   target as `gen::breed` does. Replay from the seed, a rewind back to
+>   the declaration, and consent as breed's: the stage names the edits it
+>   may make, and tuning stays inside declared ranges.
+> - **4e: Keep, and Evolve toward.** A grown graph reaches the piece file
+>   only when someone keeps it, as `dsp { ... }`; the same search, run
+>   toward an instrument or a recording, is an authoring action.
+>
 > Every gate above was checked by breaking the fix and watching the gate
 > fail -- the wired-chanarg refusal, the own-channel rule, the
 > already-there no-op (which asserts the prototype tree is the *same

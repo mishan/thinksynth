@@ -841,14 +841,13 @@ chain sensitivity {
 ```
 
 **A swap** rebuilds the sink's channel around a different instrument. It goes
-through the same patch-load path a person clicking in the Patch Selector uses —
-which means it **cuts whatever is sounding**: the channel is replaced at a
-window boundary and the old graph's voices stop there, with no release. (What
-that path has always promised is that the outgoing channel is not freed under
-the audio thread. That is a promise about lifetimes, and this section claimed
-the other one for a while by confusing the two.) Write swaps on a clock
-measured in tens of seconds, or onto a channel that is resting; `THC_EV_NODEARG`
-is the edit that leaves sounding voices alone. `instruments` is resolved at the
+through the same patch-load path a person clicking in the Patch Selector uses,
+and that path **lets what is sounding finish**: the notes already playing go on
+on the graph they started on, a note-off still reaches them, and the old graph
+is put away once they have ended and its effect's tail has died down. Notes
+after the swap play the new graph. Each graph pays for its own voices while the
+two overlap, so a swap on every beat of a dense part is a CPU cost worth
+noticing. `instruments` is resolved at the
 file boundary exactly as a scale and a preset are: a bare name for one, a quoted
 comma-separated list for several, and every name checked before the piece
 loads.

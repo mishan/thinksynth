@@ -1398,6 +1398,59 @@ int main (int argc, char **argv)
         }
     }
 
+    /* swap: loading a graph onto a channel that is sounding replaces the
+       graph for the notes to come and lets the ones already playing finish
+       on the graph they started on. The new graph is the old one an octave
+       up, so which graph a note is on is a pitch. */
+    const string octave = scratchPath("voicecheck-octave.dsp");
+
+    if (writeFile(file, graph("", "freq->out", "")) &&
+        writeFile(octave, graph("", "freq->out * 2", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("swap: the graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 100);
+
+            const double held = rms(s.settled(16));
+
+            if (s.synth.loadTree(octave, 0, 100) == NULL)
+                fail("swap: the second graph loads", "");
+
+            vector<float> after = s.settled(16);
+
+            okOrFail(near(rms(after), held, 0.05) &&
+                     near(pitch(after, rate), C4, 0.02),
+                     "swap: a note held across it goes on sounding, on the "
+                     "graph it started on",
+                     num(rms(after)) + " against " + num(held) + ", " +
+                     num(pitch(after, rate)) + " Hz");
+
+            s.synth.delNote(0, 60);
+
+            okOrFail(rms(s.settled(40)) < held * 0.01,
+                     "swap: and its note-off still reaches it",
+                     num(rms(s.settled(4))));
+
+            s.synth.addNote(0, 60, 100);
+
+            vector<float> fresh = s.settled(16);
+
+            okOrFail(near(pitch(fresh, rate), C5, 0.02),
+                     "swap: a note after it plays the new graph",
+                     num(pitch(fresh, rate)) + " Hz");
+
+            s.synth.removeChan(0);
+
+            okOrFail(rms(s.settled(4)) == 0,
+                     "swap: taking the channel away still cuts it", "");
+        }
+    }
+
+    remove(octave.c_str());
     remove(file.c_str());
 
     printf("\n%d failure(s)\n", failed);

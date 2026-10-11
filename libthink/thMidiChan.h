@@ -125,6 +125,17 @@ public:
                   int nprobes = 0, const float *side = NULL,
                   int sidechannels = 0);
 
+    /* Audio thread, from SET_CHANNEL: `old' is the channel this one replaces,
+       still holding the voices it was playing. They finish on the graph
+       they started on -- process() renders `old' after this channel's own
+       window and adds its output in -- and a note-off reaches them as well
+       as this channel's. When `old' has no voices and its output has been
+       quiet for a while (an echo's tail is part of the sound), it is
+       retired. A channel `old' was itself draining goes on draining inside
+       it. */
+    void drain (thMidiChan *old) { draining_ = old; drainQuiet_ = 0;
+                                   drainWindows_ = 0; }
+
     /* Where process() retires to when it runs beside other channels, which
        share no queue: thSynth hands this on to its own after the window. */
     RetireQueue *retiring (void) { return &retiring_; }
@@ -132,7 +143,13 @@ public:
     /* Whether the graph has a plugin that keeps one table for the whole
        synth (thSynth.cpp, sharesSynthState), so that this channel renders
        in turn with every other that has one. Set before it is published. */
-    bool sharesState (void) const { return sharesState_; }
+    bool sharesState (void) const
+    {
+        return sharesState_ ||
+               (draining_ != NULL &&
+                (draining_->sharesState() ||
+                 (draining_->effect_ && draining_->effect_->sharesState())));
+    }
     void setSharesState (bool shares) { sharesState_ = shares; }
 
     /* ---- either, with care ---- */
@@ -418,6 +435,14 @@ private:
 
     RetireQueue retiring_;
     bool sharesState_ = false;
+
+    /* See drain(). */
+    void mixDraining (RetireQueue *retire, const float *side,
+                      int sidechannels);
+
+    thMidiChan *draining_ = NULL;
+    int drainQuiet_ = 0;        /* windows in a row it has been silent    */
+    int drainWindows_ = 0;      /* windows since the swap                 */
 };
 
 #endif /* TH_MIDICHAN_H */

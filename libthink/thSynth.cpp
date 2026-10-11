@@ -707,6 +707,16 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         case thSynthCommand::SET_CHANNEL:
             midiChannels_[cmd.chan] = cmd.channel;
 
+            /* Replaced rather than removed: the outgoing channel's voices
+               finish on the graph they started on, inside the new channel,
+               which retires it when they have. Removing a channel still cuts
+               it, as it always has. */
+            if (chan && cmd.channel)
+            {
+                cmd.channel->drain(chan);
+                break;
+            }
+
             /* Nothing to do about probes here. A probe on this channel was
                resolved against the outgoing thMidiChan's serial, which the new
                one does not share, so process() stops accumulating it of its

@@ -50,9 +50,9 @@ class thcPlugin;
  *     meaning is not is the one case the rule must not guess at.
  *   - A knob whose declaration is unchanged keeps the value it has been
  *     moved to; one whose declaration changed takes the new text's.
- *   - An instrument whose declaration or files changed is loaded again,
- *     which cuts what is sounding on its channel. One that did not is left
- *     alone.
+ *   - An instrument whose declaration or files changed is loaded again;
+ *     what is sounding on its channel finishes on the graph it started
+ *     on. One that did not is left alone.
  *   - What was already composed is not taken back: notes queued for later,
  *     and the offs of notes sounding, are delivered as they would have been.
  *     A note held for a release by a chain that lost a stage ends at the
