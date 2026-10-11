@@ -129,10 +129,13 @@ public:
        and `errLine' saying what and where. thcGenEdit shares this, which
        is what keeps "the editor and the loader read the same language"
        true by construction; thLexString does the scanning under it,
-       which is what keeps that language the same one .dsp is written in. */
+       which is what keeps that language the same one .dsp is written in.
+       `raw', if given, gets thLexString's own stream, which is what .dsp's
+       expression reader walks. */
     static bool tokenize (const std::string &text,
                           std::vector<thcGenToken> &out,
-                          std::string &err, int &errLine);
+                          std::string &err, int &errLine,
+                          std::vector<thLexToken> *raw = NULL);
 
 private:
     typedef thcGenToken Token;
@@ -206,9 +209,8 @@ private:
      * an author would otherwise have written by hand, three lines at a
      * time.
      *
-     * Grouping is .dsp's, `-' and `/' to the left, because one language
-     * should not read two ways depending on which file it is in. See
-     * thDspParser.cpp.
+     * Read by .dsp's own expression rules (thDspParser.h), so one
+     * language cannot read two ways depending on which file it is in.
      *
      * NULL having reported, on a syntax error. A caller that is not sure
      * whether it is looking at an expression at all calls parseExpr()
@@ -220,8 +222,6 @@ private:
     bool aheadIsExpression (void) const;
 
     thExprNode *parseExpr (thcScheduler *sched);
-    thExprNode *parseExprTerm (thcScheduler *sched);
-    thExprNode *parseExprFactor (thcScheduler *sched);
 
     /* The math:: nodes `e' stands for, added to `host' and named
        `<base>#1', `<base>#2'... `out' names where the result is read
@@ -279,15 +279,9 @@ private:
     const std::map<std::string, thcPlugin *> &plugins_;
 
     std::vector<Token> tokens_;
+    std::vector<thLexToken> raw_;   /* the same file, unfused, for parseExpr */
     size_t             pos_;
     std::string        path_;
-
-    /* How deep the three parseExpr functions are, and the most they will go.
-       `a + a + a + ...' recurses once per operator, so a long enough one
-       overflows the stack rather than saying anything. No authored file is
-       within two orders of magnitude of the limit; it is here so a generated
-       or corrupted one gets a message instead of a signal. */
-    int exprDepth_;
 
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;

@@ -34,6 +34,7 @@
 
 #include "think.h"
 #include "parser.h"
+#include "thDspParser.h"
 #include "thUnits.h"
 #include "thArrays.h"
 
@@ -58,21 +59,14 @@ struct Tok
     const thLexToken  *src;
 };
 
-/* A value as the expression rules pass it up: a number with the unit it
-   was written in, or a tree once a leaf is a signal. The unit is the
-   author's and is folded at load time by thSynthTree::foldUnits, which
-   knows the rate. */
-struct Value
-{
-    float        num;
-    const char  *units;
-    thExprNode  *expr;
+/* The unit is the author's, and is folded at load time by
+   thSynthTree::foldUnits, which knows the rate. */
+typedef thDspValue Value;
 
-    Value (void) : num(0), units(NULL), expr(NULL) { }
-};
-
+/* `statements' says whether .dsp's statement keywords are reserved, which
+   they are only in a .dsp. */
 Tok
-classify (const std::vector<thLexToken> &tokens, size_t i)
+classify (const std::vector<thLexToken> &tokens, size_t i, bool statements)
 {
     const thLexToken &t = tokens[i];
     Tok k = { PUNCT, 0, NULL, &t };
@@ -119,14 +113,14 @@ classify (const std::vector<thLexToken> &tokens, size_t i)
        the two languages differ here. */
     k.kind = WORD;
 
-    if      (w == "nil")         k.kind = NIL;
-    else if (w == "node")        k.kind = NODE;
-    else if (w == "io")          k.kind = IO;
-    else if (w == "name")        k.kind = NAME;
-    else if (w == "description") k.kind = DESC;
-    else if (w == "category")    k.kind = CAT;
-    else if (w == "author")      k.kind = AUTHOR;
-    else if (w == "ms")          k.kind = MS;
+    if      (w == "nil")                       k.kind = NIL;
+    else if (w == "ms")                        k.kind = MS;
+    else if (statements && w == "node")        k.kind = NODE;
+    else if (statements && w == "io")          k.kind = IO;
+    else if (statements && w == "name")        k.kind = NAME;
+    else if (statements && w == "description") k.kind = DESC;
+    else if (statements && w == "category")    k.kind = CAT;
+    else if (statements && w == "author")      k.kind = AUTHOR;
     /* The other units are words only straight after a number, so `s' is
        still the sustain every envelope has, and `beats' a name a node may
        take. */
@@ -140,36 +134,50 @@ classify (const std::vector<thLexToken> &tokens, size_t i)
 class Parser
 {
 public:
+    /* A whole .dsp into `tree'. */
     Parser (thSynth *synth, thSynthTree *tree,
             const std::vector<thLexToken> &tokens)
         : synth_(synth), tree_(tree), node_(new thNode("newnode", NULL)),
-          pos_(0), depth_(0)
-    {
-        for (size_t i = 0; i < tokens.size(); i++)
-            toks_.push_back(classify(tokens, i));
-    }
+          tokens_(tokens), statements_(true), pos_(0), depth_(0) { }
+
+    /* Expressions only, from `pos', for another language. */
+    Parser (const std::vector<thLexToken> &tokens, size_t pos,
+            const thDspErrorFn &error, const thDspControlFn &control)
+        : synth_(NULL), tree_(NULL), node_(NULL), tokens_(tokens),
+          statements_(false), error_(error), control_(control), pos_(pos),
+          depth_(0) { }
 
     ~Parser (void) { delete node_; }
 
     bool statements (void);
+    bool expression (Value &out);
+
+    size_t pos (void) const { return pos_; }
 
 private:
-    thSynth            *synth_;
-    thSynthTree        *tree_;
-    thNode             *node_;      /* the node whose body is being read  */
-    std::vector<Tok>    toks_;
-    size_t              pos_;
-    int                 depth_;     /* factor nesting, against the stack  */
+    thSynth                        *synth_;
+    thSynthTree                    *tree_;
+    thNode                         *node_;  /* the node whose body is read */
+    const std::vector<thLexToken>  &tokens_;
+    bool                            statements_;
+    thDspErrorFn                    error_;
+    thDspControlFn                  control_;
+    size_t                          pos_;
+    int                             depth_; /* factor nesting, for the stack */
 
-    const Tok &peek (size_t ahead = 0) const
+    /* Classified as it is looked at rather than up front: another language
+       hands over one expression at a time from a file it has lexed once. */
+    Tok peek (size_t ahead = 0) const
     {
         size_t i = pos_ + ahead;
-        return toks_[i < toks_.size() ? i : toks_.size() - 1];
+
+        return classify(tokens_, i < tokens_.size() ? i : tokens_.size() - 1,
+                        statements_);
     }
 
-    const Tok &take (void)
+    Tok take (void)
     {
-        const Tok &t = toks_[pos_];
+        const Tok t = peek();
 
         if (t.kind != END)
             pos_++;
@@ -193,13 +201,17 @@ private:
 
     void error (const Tok &at, const std::string &msg) const
     {
-        fprintf(stderr, "line %d: error: %s\n", at.src->line, msg.c_str());
+        if (error_)
+            error_(at.src->line, msg);
+        else
+            fprintf(stderr, "line %d: error: %s\n", at.src->line,
+                    msg.c_str());
     }
 
     /* `expected X', naming what was there instead. */
     bool expected (const char *what)
     {
-        const Tok &t = peek();
+        const Tok t = peek();
         std::string found = t.kind == END ? "the end of the file"
                           : t.kind == STRING ? "\"" + t.src->text + "\""
                           : "'" + t.src->text + "'";
@@ -207,9 +219,10 @@ private:
         /* What is missing belongs to the line before whatever was found
            instead: a `;' forgotten on line 2 is not line 5's mistake, nor
            the end of the file's. */
-        const Tok &at = pos_ > 0 && (t.kind == END ||
-                                     t.src->line > toks_[pos_ - 1].src->line)
-                      ? toks_[pos_ - 1] : t;
+        const Tok at = pos_ > 0 &&
+                       (t.kind == END ||
+                        t.src->line > tokens_[pos_ - 1].line)
+                     ? classify(tokens_, pos_ - 1, statements_) : t;
 
         error(at, std::string("expected ") + what + ", found " + found);
         return false;
@@ -237,7 +250,6 @@ private:
     bool control (void);
     bool assignment (void);
 
-    bool expression (Value &out);
     bool term (Value &out);
     bool unitFactor (Value &out);
     bool factor (Value &out);
@@ -276,7 +288,7 @@ Parser::statements (void)
 bool
 Parser::statement (void)
 {
-    const Tok &t = peek();
+    const Tok t = peek();
 
     switch (t.kind)
     {
@@ -371,7 +383,7 @@ Parser::nodeStatement (void)
 
     /* `osc::simple' is the plugin at `osc/simple'. */
     std::string plugName;
-    const Tok &plugAt = peek();
+    const Tok plugAt = peek();
 
     if (plugAt.kind == WORD)
     {
@@ -436,7 +448,7 @@ Parser::control (void)
 
     if (accept("="))
     {
-        const Tok &at = peek();
+        const Tok at = peek();
         Value v;
 
         if (!expression(v))
@@ -507,7 +519,7 @@ Parser::control (void)
         return true;
     }
 
-    const Tok &at = peek();
+    const Tok at = peek();
     Value v;
 
     if (!expression(v))
@@ -654,7 +666,7 @@ Parser::expression (Value &out)
 
     while (isPunct(peek(), "+") || isPunct(peek(), "-"))
     {
-        const Tok &op = take();
+        const Tok op = take();
         Value right;
 
         if (!term(right))
@@ -681,7 +693,7 @@ Parser::term (Value &out)
 
     while (isPunct(peek(), "*") || isPunct(peek(), "/"))
     {
-        const Tok &op = take();
+        const Tok op = take();
         Value right;
 
         if (!unitFactor(right))
@@ -707,7 +719,7 @@ Parser::unitFactor (Value &out)
     if (!factor(out))
         return false;
 
-    const Tok &t = peek();
+    const Tok t = peek();
     const char *units;
 
     if (isPunct(t, "%"))
@@ -773,7 +785,7 @@ Parser::factor (Value &out)
         ~Depth (void) { n--; }
     } depth(depth_);
 
-    const Tok &t = peek();
+    const Tok t = peek();
 
     out = Value();
 
@@ -833,6 +845,9 @@ Parser::factor (Value &out)
         std::string name;
 
         if (!word(name, "a control name after '@'"))
+            return false;
+
+        if (control_ && !control_(t.src->line, name))
             return false;
 
         out.expr = thExprChanRef(name);
@@ -1091,6 +1106,23 @@ parseLexed (thSynth *synth, std::vector<thLexToken> &tokens, bool lexed,
 }
 
 } /* namespace */
+
+bool thDspExpression (const std::vector<thLexToken> &tokens, size_t &pos,
+                      const thDspErrorFn &error,
+                      const thDspControlFn &control, thDspValue &out)
+{
+    Parser parser(tokens, pos, error, control);
+
+    /* A failed rule has freed what it held without clearing it. */
+    if (!parser.expression(out))
+    {
+        out = thDspValue();
+        return false;
+    }
+
+    pos = parser.pos();
+    return true;
+}
 
 int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
 {

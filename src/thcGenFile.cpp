@@ -14,6 +14,7 @@
 
 #include "config.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,7 @@
 #include <sstream>
 
 #include "think.h"
+#include "thDspParser.h"
 #include "thLexer.h"
 #include "thUnits.h"
 
@@ -30,7 +32,7 @@
 #include "thcNodeHost.h"
 
 thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
-    : plugins_(plugins), pos_(0), exprDepth_(0), meter_(4),
+    : plugins_(plugins), pos_(0), meter_(4),
       sawSection_(false), sawBarStart_(false), sawSectionEnd_(false),
       hasSeed_(false), seed_(0)
 {
@@ -237,7 +239,8 @@ endsAValue (const std::vector<thcGenToken> &out)
 
 bool
 thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
-                        std::string &err, int &errLine)
+                        std::string &err, int &errLine,
+                        std::vector<thLexToken> *rawOut)
 {
     /* A public tokenizer owns its output: a caller reusing one vector
        across files must not get the previous file's tail. */
@@ -344,6 +347,9 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
     end.off  = end.end = text.size();
     out.push_back(end);
 
+    if (rawOut)
+        rawOut->swap(raw);
+
     return ok;
 }
 
@@ -367,7 +373,7 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
     std::string err;
     int errLine = 0;
 
-    if (!tokenize(text, out, err, errLine))
+    if (!tokenize(text, out, err, errLine, &raw_))
     {
         error(errLine, err);
         return false;
@@ -2449,16 +2455,9 @@ thcGenLoader::parseChain (thcScheduler *sched)
  */
 /* ---- arithmetic over signals -------------------------------------------
  *
- * See the declarations in thcGenFile.h. The shape of these three functions
- * is thDspParser.cpp's, rule for rule, so that `a - b - c' and `a / b / c'
- * group the same way in both languages -- to the left, as in arithmetic.
- * One language should not read two ways depending on which file it is in.
- *
- * It did once. `-60 + 100' was 40 here and -160 there, because .dsp put its
- * unary minus at the top of an expression where it scoped over everything to
- * the right, and parseExprFactor binds it to its operand. thDspParser.cpp binds
- * it the same way now and the two agree; exprcheck and gencheck fold the
- * same list of expressions so that they go on agreeing.
+ * See the declarations in thcGenFile.h. The grammar is .dsp's own
+ * (thDspParser.h): this decides where an expression is, and builds what it
+ * reads.
  */
 
 /* True if the value about to be read has an operator in it.
@@ -2510,280 +2509,61 @@ thcGenLoader::aheadIsExpression (void) const
         if (depth == 0 && (t.text == ";" || t.text == "}"))
             break;
 
-        if (t.text == "+" || t.text == "-" || t.text == "*" || t.text == "/")
+        if (t.text == "+" || t.text == "-" || t.text == "*" || t.text == "/" ||
+            t.text == "%")
             return true;
     }
 
     return false;
 }
 
-/* The expression parser's depth, put back on every path out of a frame.
-   See exprDepth_ in the header. */
-namespace {
-    struct ExprDepth
-    {
-        int &n;
-
-        ExprDepth (int &counter) : n(counter) { n++; }
-        ~ExprDepth (void) { n--; }
-    };
-
-    /* A chain of `+' and `-', or of `*' and `/', is parsed in a loop but
-       nests in the tree as deeply as the recursion it replaced, so each
-       operator counts as a frame until the chain ends. */
-    struct ChainDepth
-    {
-        int &n;
-        int  k;
-
-        ChainDepth (int &counter) : n(counter), k(0) {}
-        void more (void) { n++; k++; }
-        ~ChainDepth (void) { n -= k; }
-    };
-}
-
-static const int TOO_DEEP = 200;
-
-static bool
-isOp (const thcGenToken &t, char c)
-{
-    return t.kind == thcGenToken::PUNCT && t.text.size() == 1 &&
-           t.text[0] == c;
-}
-
-thExprNode *
-thcGenLoader::parseExprFactor (thcScheduler *sched)
-{
-    ExprDepth depth(exprDepth_);
-
-    if (exprDepth_ > TOO_DEEP)
-    {
-        error(peek().line, "this expression is nested too deeply");
-        return NULL;
-    }
-
-    const Token &t = peek();
-
-    if (isOp(t, '('))
-    {
-        take();
-
-        thExprNode *inner = parseExpr(sched);
-
-        if (inner == NULL)
-            return NULL;
-
-        if (!isOp(peek(), ')'))
-        {
-            error(peek().line, "expected ')'");
-            thExprFree(inner);
-            return NULL;
-        }
-
-        take();
-
-        return inner;
-    }
-
-    if (isOp(t, '-'))
-    {
-        /* `- x' is `x * -1', the node that already exists. Reached only
-           where the tokenizer left the `-' standing -- a `-' glued to a
-           number is part of it. */
-        take();
-
-        thExprNode *inner = parseExprFactor(sched);
-
-        if (inner == NULL)
-            return NULL;
-
-        return thExprOp('*', inner, thExprConst(-1));
-    }
-
-    if (t.kind == Token::NUMBER)
-        return thExprConst((float)take().num);
-
-    if (t.kind == Token::KNOB)
-    {
-        Token k = take();
-
-        /* Checked here rather than at the desugar so the error names the
-           line the knob is written on. */
-        if (sched->knob(k.text) == NULL)
-        {
-            error(k.line, "'@" + k.text + "' is not a declared knob");
-            return NULL;
-        }
-
-        knobsRead_.push_back(std::make_pair(k.text, stageReading_));
-        return thExprChanRef(k.text);
-    }
-
-    if (t.kind == Token::WORD)
-    {
-        Token w = take();
-
-        if (isOp(peek(), '('))
-        {
-            /* `exp2(@cents / 1200)'. The arity is the function's; a call
-               written with the wrong number of arguments is reported by
-               thExprCall against the name rather than as a stray comma. */
-            take();
-
-            std::vector<thExprNode *> kids;
-            bool bad = false;
-
-            if (!isOp(peek(), ')'))
-                for (;;)
-                {
-                    thExprNode *arg = parseExpr(sched);
-
-                    if (arg == NULL)
-                    { bad = true; break; }
-
-                    kids.push_back(arg);
-
-                    if (!isOp(peek(), ','))
-                        break;
-
-                    take();
-                }
-
-            if (!bad && !isOp(peek(), ')'))
-            {
-                error(peek().line, "expected ')' after " + w.text + "(");
-                bad = true;
-            }
-
-            if (bad)
-            {
-                for (size_t i = 0; i < kids.size(); i++)
-                    thExprFree(kids[i]);
-
-                return NULL;
-            }
-
-            take();
-
-            std::string why;
-            thExprNode *call = thExprCall(w.text, kids, why);
-
-            if (call == NULL)
-                error(w.line, why);
-
-            return call;
-        }
-
-        if (!(peek().kind == Token::PUNCT && peek().text == "->"))
-        {
-            error(w.line, "'" + w.text + "' is not a value here; reading a "
-                  "node is spelled '" + w.text + "->out'");
-            return NULL;
-        }
-
-        take();
-
-        if (peek().kind != Token::WORD)
-        {
-            error(peek().line, "expected an arg name after '" + w.text +
-                  "->'");
-            return NULL;
-        }
-
-        Token a = take();
-
-        return thExprNodeRef(w.text, a.text);
-    }
-
-    error(t.line, "expected a number, a knob or a node's output");
-
-    return NULL;
-}
-
-thExprNode *
-thcGenLoader::parseExprTerm (thcScheduler *sched)
-{
-    ExprDepth depth(exprDepth_);
-
-    if (exprDepth_ > TOO_DEEP)
-    {
-        error(peek().line, "this expression is nested too deeply");
-        return NULL;
-    }
-
-    thExprNode *left = parseExprFactor(sched);
-
-    if (left == NULL)
-        return NULL;
-
-    ChainDepth chain(exprDepth_);
-
-    while (isOp(peek(), '*') || isOp(peek(), '/'))
-    {
-        chain.more();
-        if (exprDepth_ > TOO_DEEP)
-        {
-            error(peek().line, "this expression is nested too deeply");
-            thExprFree(left);
-            return NULL;
-        }
-
-        const Token op = take();
-        thExprNode *right = parseExprFactor(sched);
-
-        if (right == NULL)
-        {
-            thExprFree(left);
-            return NULL;
-        }
-
-        left = thExprOp(op.text[0], left, right);
-    }
-
-    return left;
-}
-
 thExprNode *
 thcGenLoader::parseExpr (thcScheduler *sched)
 {
-    ExprDepth depth(exprDepth_);
+    /* Every .gen token starts where one of thLexString's does -- the
+       adapter only ever fuses neighbors -- so the cursor maps across by
+       offset, and back again at the token the expression stopped before. */
+    const auto byOff = [](const thLexToken &t, size_t off)
+                       { return t.off < off; };
+    size_t raw = std::lower_bound(raw_.begin(), raw_.end(), peek().off,
+                                  byOff) - raw_.begin();
 
-    if (exprDepth_ > TOO_DEEP)
+    const int line = peek().line;
+    thDspValue v;
+
+    const bool ok = thDspExpression(raw_, raw,
+        [this](int at, const std::string &msg) { error(at, msg); },
+        [this, sched](int at, const std::string &name)
+        {
+            if (sched->knob(name) == NULL)
+            {
+                error(at, "'@" + name + "' is not a declared knob");
+                return false;
+            }
+
+            knobsRead_.push_back(std::make_pair(name, stageReading_));
+            return true;
+        },
+        v);
+
+    if (!ok)
+        return NULL;
+
+    const auto byGenOff = [](const Token &t, size_t off)
+                          { return t.off < off; };
+    pos_ = std::lower_bound(tokens_.begin(), tokens_.end(), raw_[raw].off,
+                            byGenOff) - tokens_.begin();
+
+    /* What a .gen unit means depends on the param it lands on, which a
+       folded expression no longer knows; a literal is where one goes. */
+    if (v.units)
     {
-        error(peek().line, "this expression is nested too deeply");
+        error(line, std::string("'") + v.units + "' cannot be written in "
+              "arithmetic here; give the param a plain value with its unit");
         return NULL;
     }
 
-    thExprNode *left = parseExprTerm(sched);
-
-    if (left == NULL)
-        return NULL;
-
-    ChainDepth chain(exprDepth_);
-
-    while (isOp(peek(), '+') || isOp(peek(), '-'))
-    {
-        chain.more();
-        if (exprDepth_ > TOO_DEEP)
-        {
-            error(peek().line, "this expression is nested too deeply");
-            thExprFree(left);
-            return NULL;
-        }
-
-        const Token op = take();
-        thExprNode *right = parseExprTerm(sched);
-
-        if (right == NULL)
-        {
-            thExprFree(left);
-            return NULL;
-        }
-
-        left = thExprOp(op.text[0], left, right);
-    }
-
-    return left;
+    return v.expr ? v.expr : thExprConst(v.num);
 }
 
 bool

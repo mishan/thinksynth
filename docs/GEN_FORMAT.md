@@ -723,9 +723,8 @@ nodes are these gets a host on demand. `+ - * /`, parentheses, and the six
 functions `.dsp` has (`pow`, `exp2`, `abs`, `min`, `max`, `clamp`). Grouping is
 `.dsp`'s — `*` and `/` tighter than `+` and `-`, all four grouping to the
 left, a unary minus bound to its operand — because one language should not read two
-ways depending on which file it is in. Two parsers say so, `thDspParser.cpp` and
-the three functions in `thcGenFile.cpp`, so `exprcheck` and `gencheck` fold the
-same list of expressions and compare the answers.
+ways depending on which file it is in. It is read by `.dsp`'s own parser
+(`libthink/thDspParser.cpp`), so the two cannot disagree.
 
 A leaf is a number, a node's output, or a piece knob (`@depth`) — the same knob
 a stage param binds and an instrument chanarg reads, one world further out. An
@@ -737,10 +736,13 @@ preset, an instrument set); a *folded* expression on a duration, which is a
 bare number and needs a unit like any other (an expression with a signal in it
 carries no unit and is not asked for one, exactly as a knob and a node are
 not); a knob that was never declared; a function that does not exist or is
-given the wrong number of arguments.
+given the wrong number of arguments; a unit anywhere in the arithmetic, since
+what a unit means depends on the param it lands on (write the param a plain
+value with its unit instead).
 
-`%` is not an operator here. It stays the percentage suffix an instrument value
-needs, and `.gen` has no modulo.
+`%` between two numbers is `.dsp`'s modulo, `100 % 60` being 40; over a signal it
+is refused, since there is no node for it. On an instrument value it is still
+the percentage suffix.
 
 Which params the expression path reaches is decided by a lookahead
 (`aheadIsExpression`): a value with an operator, a call or a parenthesis in it
