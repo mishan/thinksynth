@@ -1126,8 +1126,18 @@ parseLexed (thSynth *synth, std::vector<thLexToken> &tokens, bool lexed,
 bool thDspCheck (const std::vector<thLexToken> &tokens,
                  const thDspErrorFn &error)
 {
+    std::vector<thLexToken> expanded(tokens);
+    std::string why;
+    int line = 0;
+
+    if (!thExpandArrays(expanded, why, line))
+    {
+        error(line, why);
+        return false;
+    }
+
     thSynthTree tree("inline", NULL);
-    Parser parser(NULL, &tree, tokens, error);
+    Parser parser(NULL, &tree, expanded, error);
 
     return parser.statements();
 }

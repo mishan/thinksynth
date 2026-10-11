@@ -159,7 +159,10 @@ private:
     bool parseScale (void);
     bool parsePreset (void);
     bool parseInstrument (thcScheduler *sched);
-    bool parseInlineDsp (const std::string &instrument, std::string &name);
+    /* Into inst.dsp, or inst.effect if `effect'; `label' names the graph
+       and the instrument in messages. */
+    bool parseInlineDsp (const std::string &label, thcInstrument &inst,
+                         bool effect = false);
     bool parseInstrumentMidi (thcInstrument &inst, const std::string &where,
                               const Token &key);
 

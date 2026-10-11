@@ -64,7 +64,7 @@ THINK_API bool thDspExpression (const std::vector<thLexToken> &tokens,
  * between the braces of `dsp { ... }' in a .gen -- checked against .dsp's
  * grammar without loading anything: every refusal the parse makes is
  * reported through `error', against the lines the tokens carry, and a
- * plugin is not looked up. Arrays are not expanded. An END token with text
+ * plugin is not looked up. An END token with text
  * is reported as that text -- the `}' a block ends at. */
 THINK_API bool thDspCheck (const std::vector<thLexToken> &tokens,
                            const thDspErrorFn &error);

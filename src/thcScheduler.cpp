@@ -1595,12 +1595,14 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
 void
 thcScheduler::setMasterEffect (const std::string &dsp,
-                               const std::vector<thcInstrumentArg> &args)
+                               const std::vector<thcInstrumentArg> &args,
+                               const std::vector<std::shared_ptr<void>> &graphs)
 {
     master_ = thcInstrument();
     master_.name = "the mix";
     master_.effect = dsp;
     master_.args = args;
+    master_.graphs = graphs;
     master_.channel = -1;
 }
 

@@ -252,9 +252,9 @@ piece's own line. Plugins are looked up when the instrument is loaded, not
 while the file is read. The graph is loaded under a name made from the
 instrument and a hash of its text (`bell#1a2b3c4d.dsp`), which is what a panel
 shows for it and what changes when the graph does. It has no file, so the node
-editor does not open it and a patch cannot be saved from its channel. Node
-arrays (`node tone[2] ...`) are not available inline yet. An instrument's
-`effect` still names a file.
+editor does not open it and a patch cannot be saved from its channel. An effect
+is written inline the same way, with its graph as the block's `dsp` — see
+below.
 
 **An instrument may carry an effect.**
 
@@ -277,6 +277,23 @@ comes out *after* the key came up, and an echo inside an instrument cannot do
 it, because the ring it keeps lives in the voice and the voice is gone.
 DSP_FORMAT.md's "An effect graph" says what such a file looks like — an
 ordinary `.dsp` whose io node declares `in0`.
+
+The braces after the file name hold the effect's values, so a graph written
+inline needs the other shape, the instrument block's own: `dsp` inside the
+braces, then the values. `dsp "fx/echo.dsp";` works there too, and so does
+either form for the master effect below.
+
+```
+    effect {
+        dsp {
+            @gain = 0.5;
+            node ionode { channels = 1; in0 = 0; out0 = g->out; };
+            node g math::mul { in0 = ionode->in0; in1 = @gain; };
+            io ionode;
+        };
+        gain = 0.8;
+    };
+```
 
 Its values are the effect's own chanargs, and they are kept apart from the
 instrument's: `@a` on an instrument and `@a` on its effect are two different

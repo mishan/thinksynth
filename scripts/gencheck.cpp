@@ -6099,7 +6099,9 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
 /* `dsp { ... }': a graph written inside the piece rather than named. The
  * graph is amb01.dsp's own text, so whether it reached the channel is a
  * question with an answer -- amb01 declares `fmin' -- and the instrument's
- * value on it says the block's values were applied to the inline graph. */
+ * value on it says the block's values were applied to the inline graph.
+ * The effects, the instrument's and the mix's, are fx/tape.dsp, which is
+ * written with node arrays. */
 static void
 checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                   thSynth *synth)
@@ -6107,9 +6109,12 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
     const std::string amb01 = slurp(thUtil::findDataFile(
         "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH));
 
-    if (amb01.empty())
+    const std::string tape = slurp(thUtil::findDataFile(
+        "fx/tape.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH));
+
+    if (amb01.empty() || tape.empty())
     {
-        fail("inline graph: amb01.dsp is not to be found");
+        fail("inline graph: amb01.dsp or fx/tape.dsp is not to be found");
         return;
     }
 
@@ -6119,12 +6124,17 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
         std::ofstream out(path.c_str(), std::ios::trunc);
 
         out << "seed 7;\ninstrument pad {\n    dsp {\n" << amb01
-            << "\n    };\n    fmin = 0.06;\n};\nchain c {\n"
+            << "\n    };\n    fmin = 0.06;\n    effect {\n        dsp {\n"
+            << tape << "\n        };\n        feedback = 0.3;\n    };\n};\n"
+               "effect {\n    dsp {\n" << tape << "\n    };\n    wow = 2;\n};\n"
+               "chain c {\n"
                "    stage s gen::eno_line { notes = \"A3\"; period = 1 s; };\n"
                "    sink { instrument = pad; };\n};\n";
     }
 
     clearChannels(synth);
+
+    std::vector<std::string> names;
 
     {
         thcScheduler sched(synth);
@@ -6148,12 +6158,28 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
             if (fmin == NULL || fabs((*fmin)[0] - 0.06) > 1e-5)
                 fail("an inline graph is not on its channel with its values");
 
+            thArg *feedback = pad != NULL
+                ? synth->getChanArg(pad->channel, "fx.feedback") : NULL;
+            thArg *wow = synth->getMasterArg("wow");
+
+            if (feedback == NULL || fabs((*feedback)[0] - 0.3) > 1e-5)
+                fail("an inline effect is not on its channel with its values");
+
+            if (wow == NULL || fabs((*wow)[0] - 2) > 1e-5)
+                fail("an inline master effect is not on the mix with its "
+                     "values");
+
+            if (pad != NULL)
+                names = { pad->dsp, pad->effect,
+                          sched.masterEffect().effect };
+
             thcGenEdit::Doc doc;
             std::string why;
 
             if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
                 doc.instruments.empty() || pad == NULL ||
-                doc.instruments[0].dsp != pad->dsp)
+                doc.instruments[0].dsp != pad->dsp ||
+                doc.masterEffect != sched.masterEffect().effect)
                 fail("describe and the loader name an inline graph "
                      "differently: " + why);
 
@@ -6175,6 +6201,23 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
             std::remove(copy.c_str());
         }
     }
+
+    synth->removeMasterEffect();
+    drainSynth();
+
+    /* Registered while something plays it, and no longer: a session that
+       edits a graph a hundred times keeps one text, not a hundred. */
+    for (const std::string &name : names)
+    {
+        std::string text;
+
+        if (thUtil::findGraphText(name, text))
+            fail("'" + name + "' is still registered after its piece is "
+                 "gone");
+    }
+
+    if (names.size() != 3)
+        fail("an inline graph's names were not taken");
 
     /* Choosing a file for it replaces the whole block, braces and all. */
     {

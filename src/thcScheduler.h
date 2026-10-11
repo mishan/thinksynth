@@ -326,6 +326,11 @@ struct thcInstrument
     std::string name;
     std::string dsp;
 
+    /* What keeps `dsp' and `effect' loadable when either is a graph written
+       inside the piece (thUtil::addGraphText): copied with the instrument,
+       and the text is gone with the last copy. */
+    std::vector<std::shared_ptr<void>> graphs;
+
     /* The graph that runs on this channel's summed voices, or empty. Not the
      * one that makes the notes: the one a delay throw needs, which outlives
      * the note that fed it -- see docs/DSP_FORMAT.md's "An effect graph".
@@ -937,7 +942,9 @@ public:
      * a headless render wants and what the app does correctly by accident:
      * there is no patch tab for the mix to disagree with. */
     void setMasterEffect (const std::string &dsp,
-                          const std::vector<thcInstrumentArg> &args);
+                          const std::vector<thcInstrumentArg> &args,
+                          const std::vector<std::shared_ptr<void>> &graphs =
+                              std::vector<std::shared_ptr<void>>());
 
     const thcInstrument &masterEffect (void) const { return master_; }
 

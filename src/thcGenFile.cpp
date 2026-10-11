@@ -252,6 +252,7 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
     thLexString(text, raw);
 
     bool ok = true;
+    int graphDepth = 0;     /* inside `dsp { }', where .dsp's tokens are */
 
     /* raw always ends with an END token, so raw[i + 1] below is in range
        for every i this loop looks at a real token at. */
@@ -327,17 +328,25 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
             ok = false;
             break;
         }
+        /* A node array, inside a graph written into the piece and nowhere
+           else. */
+        else if ((t.text == "[" || t.text == "]") && graphDepth > 0)
+            g.kind = Token::PUNCT;
         else
         {
             err = std::string("stray character '") + t.text[0] + "'";
-
-            /* The one a .dsp pasted into `dsp { }' brings with it. */
-            if (t.text[0] == '[' || t.text[0] == ']')
-                err += "; node arrays are not available in a .gen";
             errLine = t.line;
             ok = false;
             break;
         }
+
+        if (g.kind == Token::PUNCT && g.text == "{" &&
+            (graphDepth > 0 ||
+             (!out.empty() && out.back().kind == Token::WORD &&
+              out.back().text == "dsp")))
+            graphDepth++;
+        else if (g.kind == Token::PUNCT && g.text == "}" && graphDepth > 0)
+            graphDepth--;
 
         out.push_back(g);
     }
@@ -1447,7 +1456,8 @@ thcGenLoader::inlineGraphName (const std::string &instrument,
  * against the piece's lines; loaded later, under inlineGraphName, by the
  * same paths a file goes through. Plugins are looked up then, not here. */
 bool
-thcGenLoader::parseInlineDsp (const std::string &instrument, std::string &name)
+thcGenLoader::parseInlineDsp (const std::string &label, thcInstrument &inst,
+                              bool effect)
 {
     const Token open = peek();
     const auto byOff = [](const thLexToken &t, size_t off)
@@ -1470,8 +1480,7 @@ thcGenLoader::parseInlineDsp (const std::string &instrument, std::string &name)
 
     if (depth != 0)
     {
-        error(open.line, "instrument " + instrument + ": the graph's '{' is "
-              "never closed");
+        error(open.line, label + ": the graph's '{' is never closed");
         return false;
     }
 
@@ -1490,8 +1499,11 @@ thcGenLoader::parseInlineDsp (const std::string &instrument, std::string &name)
     const std::string body = source_.substr(raw_[a].end,
                                             raw_[b].off - raw_[a].end);
 
-    name = inlineGraphName(instrument, body);
-    thUtil::addGraphText(name, std::string(open.line - 1, '\n') + body);
+    std::string &name = effect ? inst.effect : inst.dsp;
+
+    name = inlineGraphName(label, body);
+    inst.graphs.push_back(
+        thUtil::addGraphText(name, std::string(open.line - 1, '\n') + body));
 
     pos_ = std::lower_bound(tokens_.begin(), tokens_.end(), raw_[b].end,
                             [](const Token &t, size_t off)
@@ -1664,23 +1676,32 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
         return false;
     }
 
-    const Token &v = peek();
+    /* `effect { dsp { ... }; delay = 375 ms; };' -- the instrument block's
+       own shape, which is what gives the graph somewhere to be written
+       inline: in `effect "x.dsp" { }' the braces already hold the values. */
+    const bool block = peek().kind == Token::PUNCT && peek().text == "{";
 
-    if (v.kind != Token::STRING)
+    if (!block)
     {
-        error(v.line, where + ": effect wants a quoted filename");
-        return false;
+        const Token &v = peek();
+
+        if (v.kind != Token::STRING)
+        {
+            error(v.line, where + ": effect wants a quoted filename or a "
+                  "block with a dsp in it");
+            return false;
+        }
+
+        Token file = take();
+
+        if (file.text.empty())
+        {
+            error(file.line, where + ": effect wants a filename");
+            return false;
+        }
+
+        inst.effect = file.text;
     }
-
-    Token file = take();
-
-    if (file.text.empty())
-    {
-        error(file.line, where + ": effect wants a filename");
-        return false;
-    }
-
-    inst.effect = file.text;
 
     if (peek().kind == Token::PUNCT && peek().text[0] == '{')
     {
@@ -1711,6 +1732,36 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
 
             Token inner = take();
 
+            if (block && inner.text == "dsp")
+            {
+                if (!inst.effect.empty())
+                {
+                    error(inner.line, where + " names two effect graphs");
+                    return false;
+                }
+
+                if (peek().kind == Token::PUNCT && peek().text == "{")
+                {
+                    if (!parseInlineDsp(prefix.empty() ? "mix"
+                                                       : inst.name + ".fx",
+                                        inst, true))
+                        return false;
+                }
+                else if (peek().kind == Token::STRING && !peek().text.empty())
+                    inst.effect = take().text;
+                else
+                {
+                    error(peek().line, where + ": dsp wants a quoted "
+                          "filename or a graph in braces");
+                    return false;
+                }
+
+                if (!expectPunct(';'))
+                    return false;
+
+                continue;
+            }
+
             /* A keyword inside the block, for the reason `dsp' and `effect'
                are keywords outside it: what it names is another instrument
                rather than a number, and an effect that declared a chanarg
@@ -1726,6 +1777,12 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
             if (!parseInstrumentValue(sched, inst, where, inner, prefix))
                 return false;
         }
+    }
+
+    if (block && inst.effect.empty())
+    {
+        error(key.line, where + ": the effect names no dsp");
+        return false;
     }
 
     return expectPunct(';');
@@ -2033,7 +2090,7 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
 
             if (v.kind == Token::PUNCT && v.text == "{")
             {
-                if (!parseInlineDsp(nameTok.text, inst.dsp))
+                if (!parseInlineDsp(nameTok.text, inst))
                     return false;
 
                 if (!expectPunct(';'))
@@ -2201,7 +2258,7 @@ thcGenLoader::parseMasterEffect (thcScheduler *sched, const Token &key)
                                false))
         return false;
 
-    sched->setMasterEffect(master.effect, master.args);
+    sched->setMasterEffect(master.effect, master.args, master.graphs);
 
     return true;
 }

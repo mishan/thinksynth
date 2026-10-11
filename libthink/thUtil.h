@@ -23,6 +23,7 @@
 
 using namespace std;
 
+#include <memory>
 #include <string>
 
 class THINK_API thUtil {
@@ -151,8 +152,14 @@ public:
     /* A graph carried as text by another file -- `dsp { ... }' inside a
      * .gen instrument -- under a name findDataFile hands back as it is and
      * every thSynth load reads instead of the disk. Copied; a second text
-     * under one name replaces the first. Process-wide and thread-safe. */
-    static void addGraphText (const string &name, const string &text);
+     * under one name replaces the first. Process-wide and thread-safe.
+     *
+     * Registered for as long as a copy of the hold handed back lives, so
+     * whoever keeps the name keeps the hold beside it, and a graph nothing
+     * plays any more is gone with the last of them. */
+    typedef std::shared_ptr<void> GraphHold;
+
+    static GraphHold addGraphText (const string &name, const string &text);
     static bool findGraphText (const string &name, string &text);
 
     /* A count a host bumps after putting new files where findDataFile
