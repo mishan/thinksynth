@@ -598,6 +598,9 @@ bool NodeEditor::sourceWritable (void) const
     if (source_.empty())
         return false;
 
+    if (inlineSave_)
+        return true;
+
     return access(source_.c_str(), W_OK) == 0;
 }
 
@@ -628,15 +631,42 @@ bool NodeEditor::startWorkingCopy (const string &source)
             return false;
     }
 
+    if (inlineSave_)
+    {
+        std::ofstream out(work_.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << inlineBody_;
+        return out.good();
+    }
+
     return copyFile(source, work_);
+}
+
+bool NodeEditor::openInline (const string &name, const string &body,
+                             int chan, const InlineSave &save)
+{
+    inlineName_ = name;
+    inlineBody_ = body;
+    inlineSave_ = save;
+
+    return open(name, chan);
 }
 
 bool NodeEditor::open (const string &filename, int chan)
 {
+    /* Out of inline mode for any other file -- but only once it has
+       opened, or a failure would leave the inline graph with no way to be
+       saved. */
+    const InlineSave prevSave = inlineSave_;
+
+    if (filename != inlineName_)
+        inlineSave_ = nullptr;
+
     /* Take the copy before anything else: from here on the window only ever
        looks at the copy, so a failure to make one has to stop the open. */
     if (!startWorkingCopy(filename))
     {
+        inlineSave_ = prevSave;
         setStatus("Could not read " + filename);
         return false;
     }
@@ -651,6 +681,7 @@ bool NodeEditor::open (const string &filename, int chan)
     {
         source_ = prevSource;
         channel_ = prevChannel;
+        inlineSave_ = prevSave;
         return false;
     }
 
@@ -940,6 +971,27 @@ void NodeEditor::onSave (void)
        That offer used to be a question asked here and answered before this
        line finished. A GTK4 chooser is answered later, so the rest of the
        save is handed over as something to do afterwards. */
+    if (inlineSave_)
+    {
+        std::ifstream in(work_.c_str(), std::ios::binary);
+        const string body((std::istreambuf_iterator<char>(in)),
+                          std::istreambuf_iterator<char>());
+        string name;
+
+        if (!inlineSave_(body, name, why))
+        {
+            showError(topLevel(), "Could not save into the piece.", why);
+            setStatus("Not saved: " + why);
+            return;
+        }
+
+        inlineBody_ = body;
+        inlineName_ = source_ = name;
+
+        finishSave(n, c, w);
+        return;
+    }
+
     if (!sourceWritable() || !copyFile(work_, source_))
     {
         saveAsDialog(sigc::bind(sigc::mem_fun(*this, &NodeEditor::finishSave),
@@ -1790,8 +1842,10 @@ void NodeEditor::saveAsConfirmed (string path, sigc::slot<void ()> done,
     }
 
     /* Adopting the new path matters: after saving a read-only patch somewhere
-       of your own, the next Save should go there without asking again. */
+       of your own, the next Save should go there without asking again. An
+       inline graph saved to a file is that file's from here on. */
     source_ = path;
+    inlineSave_ = nullptr;
 
     done();
 }

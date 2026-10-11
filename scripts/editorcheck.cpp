@@ -52,6 +52,7 @@
 #include <string.h>
 
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <vector>
@@ -136,6 +137,7 @@ public:
     using NodeEditor::showPanels;
     using NodeEditor::paletteShown;
     using NodeEditor::paramsShown;
+    using NodeEditor::onSave;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -919,6 +921,53 @@ int run (const string &pluginPath, const char *file)
         delete w3;
 
         ::remove(copy.c_str());
+    }
+
+    /* A graph written inside a piece: opened from its text, and saved back
+       through the piece rather than to a file -- there is none, and the
+       name it is loaded under is not a path anything may be written to. */
+    {
+        string body;
+
+        {
+            ifstream in(file, std::ios::binary);
+
+            body.assign((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+        }
+
+        string saved;
+        TestEditor *ed4 = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w4 = new Gtk::Window();
+
+        w4->set_child(*ed4);
+        w4->set_default_size(1000, 600);
+        w4->present();
+
+        pump(0.2);
+
+        ok(ed4->openInline("pad#0.dsp", body, -1,
+                           [&saved](const string &text, string &name, string &)
+                           {
+                               saved = text;
+                               name = "pad#1.dsp";
+                               return true;
+                           }),
+           "an editor opens a graph from the text of a piece");
+        ok(ed4->armProbe(node, arg, visual), "and arms a probe on it");
+
+        ed4->onSave();
+
+        ok(saved.find("@probe") != string::npos,
+           "Save hands the piece the edited text");
+        ok(ed4->sourceFile() == "pad#1.dsp",
+           "and the editor takes the name the graph is loaded under now");
+        ok(!std::filesystem::exists("pad#0.dsp") &&
+           !std::filesystem::exists("pad#1.dsp"),
+           "and writes no file under either name");
+
+        w4->set_visible(false);
+        delete w4;
     }
 
     /* And disarming really lets go of all three. */

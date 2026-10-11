@@ -1904,6 +1904,101 @@ runExportMidi (const std::string &pluginPath)
     }
 
     {
+        /* A graph written inside the piece, found from the name its channel
+           plays under and saved back as the node editor saves it: the
+           piece reloads, and the channel plays the new text under its new
+           name. */
+        std::ifstream in(thUtil::findDataFile("amb01.dsp", "dsp",
+                                              "THINK_DSP_PATH", DSP_PATH)
+                             .c_str(), std::ios::binary);
+        const std::string amb01((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
+        const std::string tmp = stagePiece(
+                "name \"inline\";\n"
+                "tempo 120;\n"
+                "instrument pad {\n    dsp {\n" + amb01 + "\n    };\n};\n"
+                "chain melody {\n"
+                "    stage seq gen::grid { steps = 4; rows = 1; "
+                "cells = \"x.x.\"; };\n"
+                "    sink { instrument = pad; };\n"
+                "};\n");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
+
+        pump(10);
+
+        const thcInstrument *pad = win->sched_->instrument("pad");
+        std::string instrument, body, name, why;
+
+        check(pad != NULL && win->inlineGraph(pad->dsp, instrument, body) &&
+              instrument == "pad" && body.find("node") != std::string::npos,
+              "the Composer finds the instrument an inline graph is played "
+              "under, and its text");
+
+        /* What the channel's pages do when the reload rebuilds them:
+           ask, from inside that rebuild, for the graph the channel plays
+           now. */
+        bool foundDuring = false;
+        const int padChannel = pad != NULL ? pad->channel : -1;
+        sigc::connection asking =
+            gthPatchManager::instance()->signal_patches_changed().connect(
+                [&]
+                {
+                    gthPatchManager::PatchFile *p =
+                        gthPatchManager::instance()->getPatch(padChannel);
+                    std::string i, b;
+
+                    if (p != NULL && win->inlineGraph(p->doc.dsp, i, b))
+                        foundDuring = true;
+                });
+
+        const bool saved =
+            win->setInlineGraph("pad", body + "# edited\n", name, why);
+
+        pump(10);
+        asking.disconnect();
+
+        check(foundDuring, "...and the graph is found from the channel's "
+              "new name while the reload is still putting it there");
+
+        pad = win->sched_->instrument("pad");
+
+        gthPatchManager::PatchFile *patch =
+            pad != NULL ? gthPatchManager::instance()->getPatch(pad->channel)
+                        : NULL;
+
+        check(saved && pad != NULL && pad->dsp == name && patch != NULL &&
+              patch->doc.dsp == name &&
+              readAll(win->workPath_).find("# edited") != std::string::npos,
+              "...and a graph saved back reloads the piece onto the new "
+              "text");
+
+        if (!saved)
+            printf("      %s\n", why.c_str());
+
+        /* A graph the piece would refuse is refused before it is the
+           piece's. */
+        const std::string before = readAll(win->workPath_);
+        std::string refused;
+
+        check(!win->setInlineGraph("pad", body + "node x no::such { };\n",
+                                   name, refused) &&
+              readAll(win->workPath_) == before &&
+              refused.find(win->workPath_) == std::string::npos &&
+              !refused.empty(),
+              "...and a graph the piece would not load is refused, with the "
+              "file left as it was");
+
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    {
         /* Two chains drawing from the seed, one of them muted. */
         const std::string tmp = stagePiece(
                 "name \"wander\";\n"

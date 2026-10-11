@@ -641,6 +641,74 @@ Composer::setTrackInstrument (size_t ci, size_t si, const std::string &dsp,
     return true;
 }
 
+bool
+Composer::inlineGraph (const std::string &name, std::string &instrument,
+                       std::string &body)
+{
+    std::string why;
+
+    /* The scheduler's, not doc_'s: a reload puts the new graph on its
+       channel, and the channel's pages ask for it, before doc_ is read
+       again. */
+    for (size_t i = 0; started_ && i < sched_->instruments().size(); i++)
+        if (sched_->instruments()[i].dsp == name)
+        {
+            instrument = sched_->instruments()[i].name;
+            return thcGenEdit::inlineGraph(workPath_, instrument, body,
+                                           why) == thcGenEdit::OK;
+        }
+
+    return false;
+}
+
+bool
+Composer::setInlineGraph (const std::string &instrument,
+                          const std::string &body, std::string &name,
+                          std::string &why)
+{
+    const std::string before = readText(workPath_);
+
+    if (!started_ ||
+        thcGenEdit::setInlineGraph(workPath_, instrument, body, why) !=
+            thcGenEdit::OK)
+        return false;
+
+    /* Loaded once on a silent synth of its own before the piece takes it:
+       the reload that follows is deferred, and a graph it refuses -- one
+       missing a control the instrument block sets -- would by then be in
+       the piece with Save already reported. */
+    {
+        thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+        thSynth check(pm ? pm->pluginPath() : std::string(PLUGIN_PATH),
+                      TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thcScheduler sched(&check);
+        thcGenLoader loader(composers_);
+
+        check.setSilent(true);
+
+        if (!loader.load(workPath_, &sched))
+        {
+            why = loader.errors().empty() ? "the piece would not load"
+                                          : loader.errors()[0];
+
+            for (size_t at; (at = why.find(workPath_)) != std::string::npos; )
+                why.replace(at, workPath_.size(),
+                            genPath_.empty() ? "the piece" : genPath_);
+
+            std::ofstream out(workPath_.c_str(),
+                              std::ios::trunc | std::ios::binary);
+
+            out << before;
+            return false;
+        }
+    }
+
+    name = thcGenLoader::inlineGraphName(instrument, body);
+    scheduleReload(true);
+
+    return true;
+}
+
 /* A kick, a hat, a clap ignores the note it is sent, so a ladder over one
  * is rows that all make the same sound: one row is all it has to say. A
  * graph that is played at pitch gets a ladder back if it was down to one,
