@@ -6518,14 +6518,18 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         fail("there was no grown graph to keep");
 }
 
+/* What happens to a growth while it is being heard. */
+enum Interrupt { HEARD_OUT, REWOUND, TO_MIDI };
+
 /* One growth step on bass.dsp, of second voices only, toward `target' --
    empty for none -- hearing up to `listen', with the ear answering in the
-   tick or, as live, on a later one, and rewound while it hears if
-   `rewind'. The graph it grew to, or empty for the declared one. */
+   tick or, as live, on a later one, and `interrupt' while it hears. The
+   graph it grew to, or empty for the declared one; after TO_MIDI, "kept"
+   if the ear's answers were still collected for it. */
 static std::string
 grownToward (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &aim, const std::string &target,
-             int listen, bool sync, bool rewind = false)
+             int listen, bool sync, Interrupt interrupt = HEARD_OUT)
 {
     const std::string path = thUtil::tempFile("gencheck-toward-");
 
@@ -6534,6 +6538,7 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
 
         out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
                "instrument aim { dsp {\n" << aim << "\n}; };\n"
+               "instrument ext { midi \"nowhere\"; midichannel = 1; };\n"
                "chain melody {\n    stage s gen::eno_line { notes = "
                "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
                "    sink { instrument = pad; };\n};\n"
@@ -6577,11 +6582,19 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
             sched.stepTransportTo(2.02);
             drainSynth();
 
-            if (rewind)
+            const int ch = sched.instrument("pad")->channel;
+            std::string why;
+
+            if (interrupt == REWOUND)
             {
                 sched.reset();
                 sched.start();
             }
+            else if (interrupt == TO_MIDI)
+                sched.swapInstrument(ch, "ext", why);
+
+            const int answered = sched.auditioner() != NULL
+                               ? sched.auditioner()->answered() : 0;
 
             if (!sync && sched.auditioner() != NULL)
             {
@@ -6590,7 +6603,12 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                 drainSynth();
             }
 
-            sched.grownText(sched.instrument("pad")->channel, grown);
+            if (interrupt == TO_MIDI)
+                grown = sched.auditioner() != NULL &&
+                        sched.auditioner()->answered() > answered
+                      ? "kept" : "";
+            else
+                sched.grownText(ch, grown);
         }
     }
 
@@ -6637,8 +6655,13 @@ checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
                      (sync ? "in the tick" : "later"));
 
         if (!grownToward(plugins, synth, options[i], "aim", 16, false,
-                         true).empty())
+                         REWOUND).empty())
             fail("a growth still being heard went on after a rewind");
+
+        if (!grownToward(plugins, synth, options[i], "aim", 16, false,
+                         TO_MIDI).empty())
+            fail("a growth still being heard outlived a swap to a MIDI "
+                 "instrument");
 
         return;
     }

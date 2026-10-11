@@ -40,6 +40,7 @@
  * with breed, the step lands on the tick its answers come in.
  */
 
+#include <algorithm>
 #include <random>
 
 #include "thcomposer.h"
@@ -119,7 +120,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         return next;
     }
 
-    const int depth = (int)p->get(p->ctx, paramIndex[P_DEPTH]);
+    const int depth = (int)std::min(std::max(p->get(p->ctx,
+                                                    paramIndex[P_DEPTH]),
+                                             1.0), 16.0);
     const double shrink = p->get(p->ctx, paramIndex[P_SHRINK]);
 
     /* Drawn whether or not it is used, so changing `shrink' moves which
@@ -137,7 +140,11 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     ev.u.grow.shrink = st->depth >= depth || (st->depth > 0 && back);
     ev.u.grow.kinds = p->get_string(p->ctx, paramIndex[P_KINDS]);
     ev.u.grow.target = p->get_string(p->ctx, paramIndex[P_TARGET]);
-    ev.u.grow.listen = (int)p->get(p->ctx, paramIndex[P_LISTEN]);
+    /* Clamped before it is an int: a piece's value is not held to the
+       declared range, and a huge double has no int to be. */
+    ev.u.grow.listen = (int)std::min(std::max(p->get(p->ctx,
+                                                     paramIndex[P_LISTEN]),
+                                              1.0), 16.0);
 
     st->depth += ev.u.grow.shrink ? -1 : 1;
 

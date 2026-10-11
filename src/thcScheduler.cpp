@@ -1920,6 +1920,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
             overMidi_[channel] = true;
             holding_[channel] = name;
             forgetNodeArgs(channel);
+            forgetGrowth(channel);
             return true;
         }
 
@@ -1937,6 +1938,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
 
             holding_[channel] = name;
             forgetNodeArgs(channel);
+            forgetGrowth(channel);
             return true;
         }
     }
