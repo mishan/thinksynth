@@ -2842,6 +2842,46 @@ try
         await ctx.close();
     }
 
+    /* gen::grow on the page: the worklet asks, the mirror worker grows,
+       and the graph that sounds is the grown one. */
+    {
+        const GROW_PIECE =
+            'name "growing";\nseed 11;\n' +
+            'instrument pad { dsp {\n' +
+            'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+            'io ionode;\n' +
+            'node freq misc::midi2freq { note = ionode->note; };\n' +
+            'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+            'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+            '    trigger = ionode->trigger; };\n' +
+            'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n' +
+            '}; };\n' +
+            'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+            '    prob = 1; }; sink { instrument = pad; }; };\n' +
+            'chain g { stage s gen::grow { every = 1 s; depth = 2; shrink = 0; };\n' +
+            '    sink { instrument = pad; }; };\n';
+
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, GROW_PIECE);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#play');
+
+        const grown = await until(
+            () => page.evaluate(() => window.solo.grownText('pad')),
+            (t) => t !== '');
+
+        await page.click('#stop');
+
+        check(grown.includes('ionode') && grown !== GROW_PIECE,
+              'gen::grow grows the graph the worklet plays, grown by the ' +
+              'mirror worker');
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
