@@ -3587,6 +3587,10 @@ thcScheduler::setMasterSeed (unsigned seed)
     masterSeed_ = seed;
 }
 
+/* The most transport one timer tick moves, against the 20 ms it is
+   meant to. */
+static const double MAX_TIMER_STEP_S = 0.25;
+
 /* Integrate time rather than derive it, so pause and tempo changes are
  * both trivially correct: seconds and beats just stop or change slope. */
 bool
@@ -3594,8 +3598,13 @@ thcScheduler::timerCallback (void)
 {
     gint64 mono = g_get_monotonic_time();
 
+    /* A main loop that stalled -- a reload, a dialog, a sanitizer -- is
+       waited out rather than made up for. Composing the seconds it missed
+       in one step plays them all at once, and a piece whose steps cost
+       more than the time they cover never catches up again. */
     if (running_)
-        stepTransportAt((mono - lastMono_) / 1e6, mono);
+        stepTransportAt(std::min((mono - lastMono_) / 1e6, MAX_TIMER_STEP_S),
+                        mono);
     else
         sendDueNoteOffs(transportNow_);   /* offs drain even when paused */
 
