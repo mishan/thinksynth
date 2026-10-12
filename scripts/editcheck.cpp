@@ -1131,6 +1131,25 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
           head + "@w = 0.25;\n" + writer,
           "# a comment\n" + head + "@w = 0.25;\n" + writer, 1.01,
           [](Peer &p) { p.sched.knob("w")->setValue(0.9f); }, homeIs(0.25f) },
+        { "a chain's new seed builds its stages again, and only its",
+          head + smallChain("a", 1, "    seed 7;\n") + smallChain("b", 2, ""),
+          head + smallChain("a", 1, "    seed 8;\n") + smallChain("b", 2, ""),
+          1.01, nullptr,
+          [](Peer &p)
+          {
+              /* A stage built by the edit has not played yet. */
+              auto played = [&p](size_t c)
+              {
+                  return p.sched.chain(c)->stages[0]->lastOut >= 0;
+              };
+
+              if (played(0))
+                  return std::string("the reseeded chain kept its stage");
+
+              return played(1) ? std::string()
+                               : std::string("the other chain was built "
+                                             "again");
+          } },
         { "a changed tempo line changes the tempo", head + late,
           "tempo 90;\n" + head.substr(head.find('\n') + 1) + late, 1.01,
           nullptr,

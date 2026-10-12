@@ -2320,6 +2320,8 @@ thcGenLoader::parseChain (thcScheduler *sched)
     bool sawGenerator = false;
     bool sawInput = false;
     bool sawStart = false;
+    bool sawSeed = false;
+    bool sawStage = false;
     bool ok = true;
 
     stageReading_.clear();
@@ -2345,7 +2347,7 @@ thcGenLoader::parseChain (thcScheduler *sched)
         if (t.kind != Token::WORD)
         {
             error(t.line, "chain " + nameTok.text +
-                  ": expected start, input, stage or sink");
+                  ": expected start, seed, input, stage or sink");
             return false;
         }
 
@@ -2421,6 +2423,43 @@ thcGenLoader::parseChain (thcScheduler *sched)
             continue;
         }
 
+        if (t.text == "seed")
+        {
+            take();
+
+            /* Its stages are seeded as they are added (setChainSeed). */
+            if (sawStage || sawSink)
+            {
+                error(t.line, "chain " + nameTok.text +
+                      ": seed must come before its stages");
+                return false;
+            }
+
+            if (sawSeed)
+            {
+                error(t.line, "chain " + nameTok.text + " sets seed twice");
+                return false;
+            }
+
+            const Token &n = peek();
+
+            if (n.kind != Token::NUMBER || n.num < 0 ||
+                n.num > 4294967295.0 || n.num != std::floor(n.num))
+            {
+                error(n.line, "chain " + nameTok.text +
+                      ": seed is a whole number, 0 to 4294967295");
+                return false;
+            }
+
+            sched->setChainSeed(chain, (unsigned)take().num);
+            sawSeed = true;
+
+            if (!expectPunct(';'))
+                return false;
+
+            continue;
+        }
+
         if (t.text == "input")
         {
             take();
@@ -2446,6 +2485,7 @@ thcGenLoader::parseChain (thcScheduler *sched)
         if (t.text == "stage")
         {
             take();
+            sawStage = true;
 
             /* Textual order IS execution order, and sinks end a chain;
                a stage after a sink would execute somewhere the file

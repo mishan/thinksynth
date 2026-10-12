@@ -43,7 +43,8 @@ static bool
 sameChain (const thcGenEdit::Chain &a, const thcGenEdit::Chain &b)
 {
     if (a.name != b.name || a.startText != b.startText ||
-        a.inputMidi != b.inputMidi || a.stages.size() != b.stages.size() ||
+        a.inputMidi != b.inputMidi || a.hasSeed != b.hasSeed ||
+        a.seed != b.seed || a.stages.size() != b.stages.size() ||
         a.sinks.size() != b.sinks.size())
         return false;
 
@@ -142,6 +143,10 @@ thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
 
             if (sameChain(oc, nc))
                 plan.keepChains.insert(nc.name);
+
+            /* Another take: every stage built again from the new seed. */
+            if (oc.hasSeed != nc.hasSeed || oc.seed != nc.seed)
+                break;
 
             for (size_t s = 0; s < nc.stages.size(); s++)
             {

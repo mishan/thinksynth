@@ -561,6 +561,8 @@ struct thcChain
     bool         inputMidi;  /* fed by live MIDI on the sink channel     */
     double       start;      /* first generator wake, seconds or beats  */
     bool         startBeats;
+    bool         seeded;     /* its own seed rather than the master's   */
+    unsigned     seed;
 
     /* unique_ptr for the address stability thcParamStore::params()
        documents, not for shared ownership. */
@@ -640,6 +642,11 @@ public:
     void      setChainInput (size_t chain, bool midi);
     /* May be set while loading the chain, before transport starts. */
     void      setChainStart (size_t chain, double at, bool beats);
+
+    /* Seeds the chain's stages from `seed' instead of the master seed:
+       the same seed is the same take whatever the piece's seed is and
+       wherever the chain sits. Only before its first stage is added. */
+    void      setChainSeed (size_t chain, unsigned seed);
     void      clearChains (void);
 
     /* ---- piece knobs ----
