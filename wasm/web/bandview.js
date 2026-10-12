@@ -741,6 +741,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         menu.className = 'sound';
         menu.title = 'What plays it';
+        menu.setAttribute('aria-label',
+                          `What plays ${p.name.replace(/_/g, ' ')}`);
 
         for (const g of [...sounds()].sort((a, b) => rank(a) - rank(b)))
         {
@@ -781,7 +783,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         const live = st.resting;
         const resting = live || (sc !== null && levelIn(sc, p) === 0);
         const where = sc === null ? '' : ` in ${sc.name}`;
-        const b = button(resting ? 'Play' : 'Rest', resting
+        const b = button('Rest', resting
             ? `Bring it back in${where}` : `Leave it out${where}`, () =>
         {
             if (live || sc === null)
@@ -804,6 +806,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         });
 
         b.classList.add('rest');
+        b.setAttribute('aria-pressed', String(resting));
         return b;
     }
 
@@ -827,7 +830,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
             b.className = 'scene';
             b.classList.toggle('on', sc !== null && sc.index === i);
-            b.append(Object.assign(document.createElement('small'),
+
+            if (sc !== null && sc.index === i)
+                b.setAttribute('aria-current', 'true');
+
+            b.append(' ', Object.assign(document.createElement('small'),
                 { textContent: b.title }));
             return b;
         });
@@ -900,8 +907,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         const who = document.createElement('div');
 
         el.className = `player ${p.role}`;
-        el.classList.toggle('resting', st.resting);
+        el.classList.toggle('resting', st.resting ||
+                                       levelIn(scene(), p) === 0);
         el.dataset.chain = p.name;
+        el.setAttribute('role', 'group');
+        el.setAttribute('aria-label', p.name.replace(/_/g, ' '));
 
         who.className = 'who';
         who.innerHTML = '<span class="role"></span><b></b>' +
@@ -919,6 +929,9 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             octs.append(button('▲', 'An octave up', () => octave(p, 1)),
                         button('▼', 'An octave down',
                                () => octave(p, -1)));
+
+        for (const b of octs.children)
+            b.setAttribute('aria-label', b.title);
 
         const moves = document.createElement('div');
         const takes = document.createElement('div');
@@ -953,7 +966,9 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         takes.className = 'takes';
         takes.title = 'Takes so far: click one to go back to it';
-        (p.seeded === 'vary' ? st.takes : []).forEach((taken, i) =>
+        /* One take is no choice to offer. */
+        (p.seeded === 'vary' && st.takes.length > 1 ? st.takes : [])
+            .forEach((taken, i) =>
         {
             const t = button(String(i + 1), i === 0 ? 'As it was'
                                                     : `Take ${i + 1}`,
@@ -967,6 +982,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             });
 
             t.classList.toggle('on', i === st.take);
+            t.setAttribute('aria-label', t.title);
+            t.setAttribute('aria-pressed', String(i === st.take));
             takes.append(t);
         });
 
@@ -1157,7 +1174,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         drawnFrom = from;
         $('bandhint').textContent = players.length === 0
             ? 'This piece has no players: nothing in it plays notes.'
-            : 'Drag a pad: across is calm to busy, up is steady to ' +
+            : 'Press Play to hear the band. Drag a pad, or use the arrow ' +
+              'keys on it: across is calm to busy, up is steady to ' +
               'wandering. Vary is another take; Keep makes the take notes.';
     }
 
