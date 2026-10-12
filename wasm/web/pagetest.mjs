@@ -3604,6 +3604,82 @@ try
               'as it is now');
     }
 
+    /* Scenes: a piece's sections as buttons, the one playing lit and one
+       chosen played from; a rest in a scene written into it; + Scene
+       copying the scene, and a scene renamed, resized and taken out. */
+    {
+        const text = () => page.evaluate(() => window.solo.genText());
+        const scenes = () => page.$$eval('#bandscenes .scene:not(.add)',
+            (b) => b.map((e) => (e.classList.contains('on') ? '*' : '') +
+                                e.firstChild.textContent).join(' '));
+        const block = (t, name) =>
+        {
+            const at = t.indexOf(`section ${name} `);
+
+            return at < 0 ? '' : t.slice(at, t.indexOf('};', at));
+        };
+
+        await page.selectOption('#mode', 'band');
+        await page.selectOption('#piece', 'mirrorball.gen');
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#play');
+        const lit = await until(scenes, (s) => s.startsWith('*intro'));
+
+        /* Full, which is long enough that a slow machine still rests the
+           guitar inside it. */
+        await page.click('#bandscenes .scene:has-text("full")');
+        const jumped = await until(scenes, (s) => s.includes('*full'));
+
+        await page.click('.player[data-chain="guitar"] .moves ' +
+                         'button:has-text("Rest")');
+        const rested = await until(text,
+            (t) => /guitar\s*=\s*0;/.test(block(t, 'full')));
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        check(lit.startsWith('*intro') && jumped.includes('*full') &&
+              /guitar\s*=\s*0;/.test(block(rested, 'full')) &&
+              !/guitar\s*=\s*0;/.test(block(rested, 'groove')),
+              `scenes are the piece's sections, the one playing lit: ${lit}; ` +
+              'a scene chosen is played from, and a rest is written into it');
+
+        page.once('dialog', (d) => d.accept());
+        await page.click('#bandnew');
+        await until(text, (t) => t.startsWith('name "A new band"'));
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#bandscenes .scene.add');
+        await until(text, (t) => /section scene 8 bars/.test(t));
+        await page.click('.player[data-chain="kick"] .moves ' +
+                         'button:has-text("Rest")');
+        await until(text, (t) => /kick = 0;/.test(block(t, 'scene')));
+        await page.click('#bandscenes .scene.add');
+        const copied = await until(text, (t) => /section scene2/.test(t));
+
+        page.once('dialog', (d) => d.accept('chorus'));
+        await page.click('#bandscenes button:has-text("Rename")');
+        await until(text, (t) => /section chorus/.test(t));
+        await page.selectOption('#bandscenes select', '4');
+        const sized = await until(text,
+            (t) => /section chorus 4 bars/.test(t));
+
+        await page.click('#bandscenes button[aria-label^="Take chorus"]');
+        const out = await until(text, (t) => !/section chorus/.test(t));
+
+        check(/kick = 0;/.test(block(copied, 'scene2')) &&
+              /section chorus 4 bars/.test(sized) &&
+              !/section chorus/.test(out) && /section scene /.test(out),
+              '...+ Scene copies the scene, which can be renamed, resized ' +
+              'and taken out');
+
+        await page.click('.player[data-chain="kick"] .out');
+        const gone = await until(text, (t) => !/kick/.test(t));
+
+        check(!/kick/.test(gone) && /section scene /.test(gone),
+              '...and a player resting in a scene can be taken out of ' +
+              'the band');
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

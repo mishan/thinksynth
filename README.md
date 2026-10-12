@@ -334,8 +334,11 @@ drawing as it is; ▲ and ▼ move it an octave. A card shows the player's own
 picture: a grid to click notes into, a Life board to paint on. **Vary** is
 another take of what it plays, from where the piece is, and the numbered
 takes go back to one; **Keep** turns the take into notes, and **Rest** leaves
-it out while it plays. All but Rest are written into the `.gen`, which
-**Undo**, **Save** and **Open** treat as a document.
+it out while it plays. **Key** is a root and a mood every player but the
+drums moves to. A piece's sections are its **scenes**: one chosen is played
+from, a Rest is written into the scene playing, and **+ Scene** copies a scene
+to change. All of it but a Rest in a piece with no scenes is written into the
+`.gen`, which **Undo**, **Save** and **Open** treat as a document.
 
 Under the roll is a line for each channel the piece touches. A piece that
 carries its own instruments has aimed them itself and says so. One whose

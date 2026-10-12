@@ -1568,3 +1568,13 @@ body.tiled .panelrows
 .player .out { position: absolute; top: 0.2rem; right: 0.3rem;
                padding: 0 0.4rem; border: 0; background: none;
                color: var(--dim); font-size: 1rem; }
+
+/* The band's scenes: the piece's sections, the one playing lit. */
+.bandscenes { gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap;
+              align-items: stretch; }
+.bandscenes .scene { display: flex; flex-direction: column;
+                     align-items: flex-start; min-width: 5rem;
+                     padding: 0.2rem 0.6rem; border-radius: 6px; }
+.bandscenes .scene small { color: var(--dim); font-size: 0.7rem; }
+.bandscenes .scene.on { outline: 2px solid var(--held); }
+.bandscenes .scene.add { justify-content: center; color: var(--dim); }

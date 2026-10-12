@@ -3635,6 +3635,68 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_chains_json (void)
     return o.c_str();
 }
 
+/* The piece's sections as written: [{ name, length, unit, before,
+ * beatsBefore, levels: { chain: level } }], the length in `unit' (beats or
+ * s, bars being beats) and where each starts as the seconds and the beats
+ * of the sections before it, so a page finds the start at whatever tempo
+ * the transport has. What the band's scenes are drawn from. Numbers as
+ * %.17g, so a length copied is the length. */
+static std::string sectionsJson_;
+
+static std::string
+exact (double v)
+{
+    char buf[32];
+
+    snprintf(buf, sizeof(buf), "%.17g", v);
+    return buf;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
+{
+    if (sched_ == NULL)
+        return "[]";
+
+    sectionsJson_ = "[";
+
+    double seconds = 0, beats = 0;
+    const auto &all = sched_->sections();
+
+    for (size_t i = 0; i < all.size(); i++)
+    {
+        const thcSection &s = all[i];
+
+        sectionsJson_ += i == 0 ? "{\"name\":" : ",{\"name\":";
+        jsonString(sectionsJson_, s.name);
+        sectionsJson_ += ",\"length\":" + exact(s.length) +
+                         ",\"unit\":\"" + (s.beats ? "beats" : "s") +
+                         "\",\"before\":" + exact(seconds) +
+                         ",\"beatsBefore\":" + exact(beats) +
+                         ",\"levels\":{";
+
+        for (size_t k = 0; k < s.levels.size(); k++)
+        {
+            if (k > 0)
+                sectionsJson_ += ",";
+
+            jsonString(sectionsJson_, s.levels[k].first);
+            sectionsJson_ += ":" + exact(s.levels[k].second);
+        }
+
+        sectionsJson_ += "}}";
+        (s.beats ? beats : seconds) += s.length;
+    }
+
+    sectionsJson_ += "]";
+    return sectionsJson_.c_str();
+}
+
+/* The section the transport is in, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_section_now (void)
+{
+    return sched_ == NULL ? -1 : sched_->sectionAt(sched_->now());
+}
+
 /* The piece's scales as its text writes them: [{ name, notes }], the
    notes without their quotes. What the band reads its key from. */
 static std::string scalesJson_;
@@ -6196,6 +6258,11 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   uninstrument NAME        -- unless a chain still plays it
  *   param       CHAIN STAGE ROW VALUE   -- STAGE in the document's order
  *   scale       NAME NOTES   -- set, or added when there is none
+ *   section     NAME LENGTH AFTER [chain=level ...]   -- AFTER may be ""
+ *   unsection   NAME
+ *   resection   NAME NEWNAME
+ *   sectionlength NAME LENGTH
+ *   level       SECTION CHAIN LEVEL   -- 1 takes the chain out of it
  *
  * Values as the file would write them. "" when one was refused. */
 /* Why the last tw_gen_ops wrote nothing. */
@@ -6275,6 +6342,29 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                     if (r == thcGenEdit::NOT_FOUND)
                         r = thcGenEdit::addScale(path, f[1], f[2], why);
                 }
+                else if (f[0] == "section" && f.size() >= 3)
+                {
+                    /* An empty AFTER that ends its line is no field at
+                       all to getline. */
+                    std::vector<std::pair<std::string, double> > levels;
+
+                    for (const auto &v : values(f, 4))
+                        levels.push_back(std::make_pair(
+                            v.first, atof(v.second.c_str())));
+
+                    r = thcGenEdit::addSection(path, f[1], f[2],
+                                               f.size() > 3 ? f[3] : "",
+                                               levels, why);
+                }
+                else if (f[0] == "unsection" && f.size() >= 2)
+                    r = thcGenEdit::removeSection(path, f[1], why);
+                else if (f[0] == "resection" && f.size() >= 3)
+                    r = thcGenEdit::renameSection(path, f[1], f[2], why);
+                else if (f[0] == "sectionlength" && f.size() >= 3)
+                    r = thcGenEdit::setSectionLength(path, f[1], f[2], why);
+                else if (f[0] == "level" && f.size() >= 4)
+                    r = thcGenEdit::setSectionLevel(path, f[1], f[2],
+                                                    atof(f[3].c_str()), why);
                 else if (f[0] == "uninstrument" && f.size() >= 2)
                 {
                     r = thcGenEdit::removeInstrument(path, f[1], why);

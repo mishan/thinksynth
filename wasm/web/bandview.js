@@ -380,8 +380,44 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
    an instrument on another graph, and `newBand' starts a band over. */
 export function createBand ({ piece, params, vary, keep, rest, say,
                               touch, toMirror, onGesture, edit, sounds,
-                              sound, newBand })
+                              sound, newBand, seek, level, clock })
 {
+    /* The scene being played, while the piece plays, and the one last
+       chosen, while it does not: the one a Rest is written into. */
+    let playing = -1;
+    let running = false;
+    let chosen = 0;
+
+    const sectionsOf = () => piece()?.sections ?? [];
+
+    function scene ()
+    {
+        const all = sectionsOf();
+
+        if (all.length === 0)
+            return null;
+
+        const i = running && playing >= 0 ? playing
+                                          : Math.min(chosen, all.length - 1);
+
+        return { index: i, ...all[i] };
+    }
+
+    /* A player's level in the scene, 1 where the scene does not name it. */
+    const levelIn = (sc, p) => sc?.levels?.[p.name] ?? 1;
+
+    /* Where a scene starts and how long it is, at the tempo the transport
+       has now: a length in beats is seconds only at a tempo. */
+    const startOf = (s) => s.before + s.beatsBefore * 60 / clock().tempo;
+    const barsOf = (s) => (s.unit === 'beats' ? s.length / clock().meter
+                                              : 0);
+    const sizeOf = (s) => (s.unit === 'beats'
+        ? `${+barsOf(s).toFixed(2)} bars` : `${+s.length.toFixed(1)} s`);
+
+    /* A scene's index now, by its name: an edit since a button was drawn
+       may have moved it. */
+    const indexOf = (name) => sectionsOf().findIndex((s) => s.name === name);
+
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
        the takes so far; whether it rests. */
@@ -735,6 +771,128 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         return menu;
     }
 
+    /* In a piece with scenes, a rest is the player's level in the scene
+       and is written into it, and Play puts back the level it had; without,
+       it is the live mute. A live mute from before there were scenes shows
+       as resting, and Play lifts it. */
+    function restButton (p, st)
+    {
+        const sc = scene();
+        const live = st.resting;
+        const resting = live || (sc !== null && levelIn(sc, p) === 0);
+        const where = sc === null ? '' : ` in ${sc.name}`;
+        const b = button(resting ? 'Play' : 'Rest', resting
+            ? `Bring it back in${where}` : `Leave it out${where}`, () =>
+        {
+            if (live || sc === null)
+            {
+                st.resting = !st.resting;
+                rest(p, st.resting);
+                draw();
+                return;
+            }
+
+            const at = indexOf(sc.name);
+            const was = levelIn(sc, p);
+
+            st.levels ??= {};
+
+            if (!resting)
+                st.levels[sc.name] = was;
+
+            level(at, p.index, resting ? st.levels[sc.name] ?? 1 : 0);
+        });
+
+        b.classList.add('rest');
+        return b;
+    }
+
+    /* The scenes: the piece's sections, a button each, the one being
+       played or chosen lit; chosen, the transport goes to it. + Scene
+       copies the scene after it. The one lit can be named, sized and
+       taken out. */
+    function scenes ()
+    {
+        const box = $('bandscenes');
+        const all = sectionsOf();
+        const sc = scene();
+        const row = all.map((s, i) =>
+        {
+            const b = button(s.name, sizeOf(s), () =>
+                {
+                    chosen = i;
+                    seek(startOf(s));
+                    draw();
+                });
+
+            b.className = 'scene';
+            b.classList.toggle('on', sc !== null && sc.index === i);
+            b.append(Object.assign(document.createElement('small'),
+                { textContent: b.title }));
+            return b;
+        });
+        const add = button('+ Scene', sc === null
+            ? 'A first scene: the band as it is'
+            : `Another scene after ${sc.name}, as ${sc.name} is`, () =>
+        {
+            const taken = new Set(all.map((s) => s.name));
+            const length = sc === null ? '8 bars' : `${sc.length} ${sc.unit}`;
+            const levels = Object.entries(sc?.levels ?? {})
+                .map(([c, l]) => `${c}=${l}`);
+
+            chosen = sc === null ? 0 : indexOf(sc.name) + 1;
+            edit([['section', freeName('scene', taken), length,
+                   sc?.name ?? '', ...levels]]);
+        });
+
+        add.className = 'scene add';
+        box.replaceChildren(...row, add);
+
+        if (sc === null)
+            return;
+
+        const size = document.createElement('select');
+
+        size.title = `How long ${sc.name} lasts`;
+        size.setAttribute('aria-label', size.title);
+
+        for (const bars of [1, 2, 4, 8, 16, 32])
+            size.append(new Option(`${bars} bars`, String(bars)));
+
+        const listed = [...size.options].some((o) =>
+            Number(o.value) === barsOf(sc));
+
+        if (!listed)
+            size.prepend(new Option(sizeOf(sc), ''));
+
+        size.value = listed ? String(barsOf(sc)) : '';
+        /* The scene as it is when used, which an edit since this was
+           drawn -- a rename -- may have changed. */
+        const now = () => scene()?.name ?? sc.name;
+
+        size.addEventListener('change', () =>
+        {
+            if (size.value !== '')
+                edit([['sectionlength', now(), `${size.value} bars`]]);
+        });
+
+        const name = button('Rename', `Call ${sc.name} something else`,
+                            () =>
+        {
+            const was = now();
+            const to = prompt(`A name for ${was}:`, was)?.trim()
+                .replace(/\s+/g, '_');
+
+            if (to && to !== was)
+                edit([['resection', was, to]]);
+        });
+        const out = button('×', `Take ${sc.name} out of the song`, () =>
+            edit([['unsection', now()]]));
+
+        out.setAttribute('aria-label', out.title);
+        box.append(size, name, out);
+    }
+
     function card (p)
     {
         const st = stateOf(p);
@@ -791,13 +949,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         moves.append(
             button('Keep', 'Keep what it just played as notes you can ' +
                            'edit', () => keep(p)),
-            button(st.resting ? 'Play' : 'Rest', st.resting
-                ? 'Bring it back in' : 'Leave it out', () =>
-            {
-                st.resting = !st.resting;
-                rest(p, st.resting);
-                draw();
-            }));
+            restButton(p, st));
 
         takes.className = 'takes';
         takes.title = 'Takes so far: click one to go back to it';
@@ -820,7 +972,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         const out = button('×', `Take ${p.name.replace(/_/g, ' ')} out of ` +
                                 'the band', () =>
-            edit(removeOps(p.name, p.instrument)));
+            edit(removeOps(p.name, p.instrument, sectionsOf())));
 
         out.className = 'out';
         out.setAttribute('aria-label', out.title);
@@ -948,6 +1100,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             if (restNext.delete(p.name))
                 stateOf(p).resting = true;
 
+        scenes();
+
         /* Again after every load or edit: a load makes the chains anew. */
         for (const p of players)
             if (stateOf(p).resting)
@@ -967,8 +1121,17 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
             return [p.name, p.index, st.shape, p.role, p.sound, p.dsp,
                     p.idea, st.takes, st.take, st.resting, p.seeded,
+                    levelIn(scene(), p),
                     p.picture?.live, p.picture?.params];
         }));
+
+        /* A scene moved on with every level as it was: the cards stay,
+           and only their Rest buttons say which scene they are for. */
+        if (from === drawnFrom && list.childElementCount > 0)
+            for (const p of players)
+                list.querySelector(
+                    `.player[data-chain="${CSS.escape(p.name)}"] .rest`)
+                    ?.replaceWith(restButton(p, stateOf(p)));
 
         if (from !== drawnFrom || list.childElementCount === 0)
         {
@@ -1016,6 +1179,23 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         draw,
 
         restOnLoad: (name) => restNext.add(name),
+
+        /* The section the transport is in, from each tape: the cards and
+           the scenes drawn again when it moves on. */
+        at (section, isRunning)
+        {
+            if (section === playing && isRunning === running)
+                return;
+
+            playing = section;
+            running = isRunning;
+
+            if (running && playing >= 0)
+                chosen = playing;
+
+            if ($('bandscenes').offsetParent !== null)
+                draw();
+        },
 
         /* The bar above the cards: New, and the gallery of ideas. */
         bar ()
