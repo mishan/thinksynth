@@ -12662,6 +12662,11 @@ checkSectionWrites (const std::map<std::string, thcPlugin *> &plugins,
           thcGenEdit::addSection(path, "intro", "4 bars", "", {}, why) },
         { "a rename onto another section",
           thcGenEdit::renameSection(path, "chorus", "intro", why) },
+        { "a length the lexer reads as no number",
+          thcGenEdit::setSectionLength(path, "chorus", ".5 bars", why) },
+        { "a chain given two levels",
+          thcGenEdit::addSection(path, "twice", "4 bars", "",
+                                 { { "a", 0 }, { "a", 0.5 } }, why) },
     };
 
     for (const auto &c : refused)
@@ -12677,6 +12682,41 @@ checkSectionWrites (const std::map<std::string, thcPlugin *> &plugins,
         fail("the last section out left its end behind");
 
     loads("every section taken out");
+
+    /* Where a section goes in pieces laid out otherwise: below a meter
+       the chains come before, beside an end sharing its line, and after
+       a section whose line ends in a comment, which stays with it. */
+    const std::string chainA =
+        "chain a {\n  stage src gen::euclid { steps = 4; fills = 2; "
+        "notes = \"C4\"; period = 0.25 s; };\n  sink { channel = 1; };\n};\n";
+    const struct { const char *what, *before, *after, *want; } placed[] = {
+        { "below a meter after the chains",
+          "", "meter 3;\n", "meter 3;\nsection new 4 bars { };" },
+        { "beside an end sharing a line",
+          "section a 4 bars { }; section end;\n", "",
+          "section a 4 bars { }; section new 4 bars { }; section end;" },
+        { "after a section and its comment",
+          "section a 4 bars { };  # the quiet start\n", "",
+          "# the quiet start\nsection new 4 bars { };" },
+    };
+
+    for (const auto &c : placed)
+    {
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\n" << c.before << chainA << c.after;
+        }
+
+        if (thcGenEdit::addSection(path, "new", "4 bars", "", {}, why) !=
+                thcGenEdit::OK ||
+            slurp(path).find(c.want) == std::string::npos)
+            fail(std::string("a section ") + c.what + " went elsewhere: " +
+                 slurp(path));
+
+        loads(c.what);
+    }
+
     std::filesystem::remove(path);
 }
 

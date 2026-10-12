@@ -405,8 +405,10 @@ struct Index
     std::vector<SectionIdx>    sections;
     std::vector<ChainIdx>      chains;
 
-    /* `section end;', or npos for a piece whose sections cycle. */
+    /* `section end;', or npos for a piece whose sections cycle; and where
+       `meter' ends, or npos. */
     size_t sectionEndA, sectionEndB;
+    size_t meterB;
 
     /* The piece's own `effect "<file>" ...;', whole statement. */
     std::string masterEffect;
@@ -509,6 +511,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.firstChainOff = std::string::npos;
     ix.masterA = ix.masterB = 0;
     ix.sectionEndA = ix.sectionEndB = std::string::npos;
+    ix.meterB = std::string::npos;
 
     size_t i = 0;
 
@@ -593,10 +596,10 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             continue;
         }
 
-        /* `meter' is indexed for one thing only: it is a header
-           statement, so what gets inserted after the header goes after
-           it rather than between it and the tempo above it. Nothing
-           edits it -- the arrangement is written by hand. */
+        /* `meter' is a header statement, so what gets inserted after the
+           header goes after it rather than between it and the tempo above
+           it; and it must come before the first section, which is where
+           a first section is written. */
         if ((kw == "seed" || kw == "tempo" || kw == "meter") &&
             t[i + 1].kind == Tok::NUMBER && isPunct(t[i + 2], ';'))
         {
@@ -613,6 +616,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                 ix.seed = m;
             else if (kw == "tempo")
                 ix.tempo = m;
+            else
+                ix.meterB = m.stmtB;
 
             ix.headerEnd = m.stmtB;
             i += 3;
@@ -697,7 +702,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
         }
 
         /* section <name> <n> <unit> { <chain> = <level>; ... };  and
-           section end; -- indexed for its chain names. */
+           section end; -- indexed for its name, its length and its chain
+           names, and the end for where a last section goes. */
         if (kw == "section" && t[i + 1].kind == Tok::WORD &&
             t[i + 1].text == "end" && isPunct(t[i + 2], ';'))
         {
@@ -3442,12 +3448,13 @@ validSectionLength (const std::string &text, std::string &why)
     size_t i = 0;
     bool digit = false;
 
+    /* A digit before any point: the lexer reads `.5' as no number. */
     while (i < text.size() && isdigit((unsigned char)text[i]))
         i++, digit = true;
 
-    if (i < text.size() && text[i] == '.')
+    if (digit && i < text.size() && text[i] == '.')
         for (i++; i < text.size() && isdigit((unsigned char)text[i]); i++)
-            digit = true;
+            ;
 
     const size_t end = i;
 
@@ -3514,9 +3521,17 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
 
     std::string stmt = "section " + name + " " + length + " {";
 
-    for (const auto &l : levels)
+    for (size_t i = 0; i < levels.size(); i++)
     {
+        const auto &l = levels[i];
         std::string num;
+
+        for (size_t k = 0; k < i; k++)
+            if (levels[k].first == l.first)
+            {
+                why = "chain " + l.first + " is given two levels";
+                return REFUSED;
+            }
 
         if (findChain(ix, l.first) == NULL)
         {
@@ -3538,6 +3553,35 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
 
     size_t at;
 
+    /* After a statement: on the next line, past a comment at the end of
+       its own, or straight after it when another statement shares it. */
+    auto behind = [&text, &stmt] (size_t b)
+    {
+        size_t k = b;
+
+        while (k < text.size() && (text[k] == ' ' || text[k] == '\t' ||
+                                   text[k] == '\r'))
+            k++;
+
+        if (k < text.size() && text[k] == '#')
+            k = text.find('\n', k);
+
+        if (k == std::string::npos || k >= text.size())
+        {
+            stmt = "\n" + stmt;
+            return text.size();
+        }
+
+        if (text[k] != '\n')
+        {
+            stmt = "\n" + stmt;
+            return b;
+        }
+
+        stmt += "\n";
+        return k + 1;
+    };
+
     if (!after.empty())
     {
         const SectionIdx *se = findSection(ix, after);
@@ -3548,19 +3592,29 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
             return NOT_FOUND;
         }
 
-        at = se->stmtB;
-        stmt = "\n" + stmt;
+        at = behind(se->stmtB);
     }
     else if (ix.sectionEndA != std::string::npos)
     {
+        /* Above the end, on a line of its own unless the end shares one. */
         at = lineStartOf(text, ix.sectionEndA);
-        stmt += "\n";
+
+        const bool shared =
+            text.find_first_not_of(" \t", at) < ix.sectionEndA;
+
+        if (shared)
+            at = ix.sectionEndA;
+
+        stmt += shared ? " " : "\n";
     }
     else if (!ix.sections.empty())
-    {
-        at = ix.sections.back().stmtB;
-        stmt = "\n" + stmt;
-    }
+        at = behind(ix.sections.back().stmtB);
+    else if (ix.meterB != std::string::npos &&
+             (ix.firstChainOff == std::string::npos ||
+              ix.meterB > ix.firstChainOff))
+        /* Below a meter the chains come before: the loader wants meter
+           above every section. */
+        at = behind(ix.meterB);
     else if (ix.firstChainOff != std::string::npos)
     {
         at = lineStartOf(text, ix.firstChainOff);
