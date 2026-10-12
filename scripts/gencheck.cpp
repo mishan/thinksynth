@@ -12507,11 +12507,15 @@ checkInstrumentEdits (const std::map<std::string, thcPlugin *> &plugins,
 
     if (thcGenEdit::addInstrument(path, "lead", "organ0.dsp", level, why) !=
             thcGenEdit::OK ||
-        thcGenEdit::addInstrument(path, "pad", "amb01.dsp", {}, why) !=
+        thcGenEdit::addInstrument(path, "pad", "amb01.dsp",
+                                  { { "send", "" } }, why) !=
             thcGenEdit::OK ||
         names() != "lead=organ0.dsp pad=amb01.dsp ")
         fail("the editor would not add two instruments in order: " + why +
              " " + names());
+
+    if (slurp(path).find("instrument lead") > slurp(path).find("chain a"))
+        fail("the first instrument was written below the chains");
 
     loads("adding instruments");
 
@@ -12530,6 +12534,38 @@ checkInstrumentEdits (const std::map<std::string, thcPlugin *> &plugins,
     if (thcGenEdit::removeInstrument(path, "lead", why) !=
         thcGenEdit::REFUSED)
         fail("an instrument a chain plays was taken out");
+
+    /* Named elsewhere than a sink: another's effect keyed by it, a swap
+       stage's list. Either taken out is a file that does not load. */
+    const std::string named = slurp(path);
+    const struct { const char *what, *add; } elsewhere[] = {
+        { "an effect's side chain",
+          "instrument duck { dsp \"amb01.dsp\"; effect \"fx/vocoder.dsp\" "
+          "{ side = pad; }; };\n" },
+        { "a swap stage's list",
+          "chain swapper {\n  stage m gen::swap { instruments = "
+          "\"lead, pad\"; };\n  sink { channel = 2; };\n};\n" },
+    };
+
+    for (const auto &e : elsewhere)
+    {
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << named << e.add;
+        }
+
+        if (thcGenEdit::removeInstrument(path, "pad", why) !=
+            thcGenEdit::REFUSED)
+            fail(std::string("an instrument named by ") + e.what +
+                 " was taken out");
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << named;
+    }
 
     if (thcGenEdit::removeChain(path, "tune", why) != thcGenEdit::OK ||
         thcGenEdit::removeInstrument(path, "lead", why) != thcGenEdit::OK ||
