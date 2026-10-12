@@ -982,6 +982,14 @@ or grown graph can be evolved further. Each graph is heard with its instrument's
 values (`a = 900 ms`), as the piece plays it; the values themselves are the
 piece's, and the search leaves them as they are.
 
+On the page it is under Piece source. The browser gives a module no threads, so
+a search runs in a worker of its own, on one synth, and the page runs a few at
+once on seeds of their own — two cores spare, four at most — and keeps the best
+of them: a tune takes longer than the application's, and Cancel ends the workers
+and keeps the nearest found. Listen, the result, Keep and Discard work as they
+do in the application, on the solo page only, since a room has no command to put
+a graph on a channel.
+
 A structure edit reaches **every** sink of its chain. The note/chanarg filter is
 a rule about notes and chanargs; an edit is neither, and both kinds of sink name
 the channel it needs — so fan-out means what fan-out means everywhere else.

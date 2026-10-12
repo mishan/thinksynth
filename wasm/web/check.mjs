@@ -690,6 +690,54 @@ for (const name of names)
                              'instance, a growth reaches what it aims at\n');
 }
 
+/* Evolve toward in the browser module: where a search starts, from what
+ * the instance plays, and the search itself on one synth -- as each of the
+ * page's evolve workers runs one -- coming nearer than it started, and
+ * saying so on the way. */
+{
+    const graphWith = (s) =>
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        `node env env::adsr { a = 5 ms; d = 200 ms; s = ${s}; r = 100 ms;\n` +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const said = { started: null, nearer: 0 };
+
+    M._tw_create(RATE, 256, 128);
+    M.ccall('tw_piece_load', 'number', ['string', 'number'],
+            [`instrument pad { dsp {\n${graphWith('0.05')}}; };\n` +
+             `instrument ref { dsp {\n${graphWith('0.7')}}; };\n`, 1]);
+    M.onEvolve = (kind, value) =>
+    {
+        if (kind === 1)
+            said.started = value;
+        else if (kind === 2)
+            said.nearer++;
+    };
+
+    const spec = JSON.parse(M.ccall('tw_evolve_spec', 'string',
+                                    ['string', 'string'], ['pad', 'ref']));
+    const r = spec.why !== '' ? { ok: false, why: spec.why }
+        : JSON.parse(M.ccall('tw_evolve', 'string',
+            ['string', 'string', 'string', 'string', 'string', 'number',
+             'number', 'number'],
+            [spec.start, spec.startArgs, spec.target, spec.targetArgs, '', 0,
+             1, 20]));
+
+    if (!r.ok)
+        fail(`evolve: the search failed: ${r.why}`);
+    else if (!(r.distance < said.started) || said.nearer < 2 ||
+             !r.found.includes('node env'))
+        fail(`evolve: ${said.started} dB to ${r.distance} dB, ` +
+             `${said.nearer} times nearer on the way`);
+    else
+        process.stdout.write('ok    evolve         a search in the module ' +
+                             'comes nearer, and says so on the way\n');
+}
+
 /* The pitch wheel: a chain's `bend' mapping goes as 14-bit pitch bend,
  * and a stop puts a bent wheel back to center -- after the flush record, so
  * the page's flush, which drops what is queued, does not drop it. */

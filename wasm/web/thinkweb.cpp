@@ -2763,6 +2763,42 @@ EMSCRIPTEN_KEEPALIVE void tw_ear_answer (int ticket, int ok, double distance,
     sched_->earAnswer(ticket, ok != 0, distance, tuned ? tuned : "");
 }
 
+/* Values as a request carries them, a name and a number a line, and
+   back. */
+static std::vector<std::pair<std::string, float> >
+argsOf (const char *args)
+{
+    std::vector<std::pair<std::string, float> > out;
+    std::istringstream lines(args ? args : "");
+    std::string line;
+
+    while (std::getline(lines, line))
+    {
+        const std::string::size_type tab = line.find('\t');
+
+        if (tab != std::string::npos)
+            out.push_back(std::make_pair(line.substr(0, tab),
+                                         (float)atof(line.c_str() + tab + 1)));
+    }
+
+    return out;
+}
+
+static std::string
+argText (const std::vector<std::pair<std::string, float> > &args)
+{
+    std::string out;
+    char value[32];
+
+    for (size_t i = 0; i < args.size(); i++)
+    {
+        snprintf(value, sizeof value, "%.9g", (double)args[i].second);
+        out += args[i].first + "\t" + value + "\n";
+    }
+
+    return out;
+}
+
 static std::map<std::string, thUtil::GraphHold> earTexts_;
 
 /* A graph text a request named, kept under that name for the requests
@@ -2793,17 +2829,7 @@ earInstrument (const char *dsp, const char *effect, const char *args,
         out.effect = effect;
     }
 
-    std::istringstream lines(args ? args : "");
-    std::string line;
-
-    while (std::getline(lines, line))
-    {
-        const std::string::size_type tab = line.find('\t');
-
-        if (tab != std::string::npos)
-            out.chanargs.push_back(std::make_pair(
-                line.substr(0, tab), (float)atof(line.c_str() + tab + 1)));
-    }
+    out.chanargs = argsOf(args);
 
     return true;
 }
@@ -2847,6 +2873,158 @@ EMSCRIPTEN_KEEPALIVE const char *tw_hear (const char *dsp, const char *effect,
     earJson_ += "}";
 
     return earJson_.c_str();
+}
+
+/* Evolve toward (src/NodeEvolve.h). A search is minutes of renders, so it
+ * runs in a worker of the page's own, one per seed (evolve.js), each
+ * tw_evolve to the end or until the page ends the worker -- which is how
+ * one is cancelled, a worker in a loop having no ear for a message. What
+ * it says on the way goes out through Module.onEvolve: a piece of its
+ * commentary, where it began, and each graph nearer than any before. */
+EM_JS(void, twEvolveSay, (int kind, double value, const char *text), {
+    if (Module.onEvolve)
+        Module.onEvolve(kind, value, UTF8ToString(text));
+});
+
+static std::string evolveJson_;
+
+/* One instrument as a search hears it, as this realm plays it: the graph
+   on its channel and its values. False, with `why', for one with none. */
+static bool
+evolveSide (const char *name, std::string &graph, std::string &args,
+            std::string &why)
+{
+    const thcInstrument *inst = sched_->instrument(name ? name : "");
+    thcAuditioner::Instrument values;
+
+    if (inst == NULL)
+        why = std::string("no instrument called ") + (name ? name : "");
+    else if (sched_->holding(inst->channel) != name)
+        why = std::string(name) + "'s channel is playing " +
+              sched_->holding(inst->channel) + " after a swap; rewind first";
+    else if (sched_->playsOverMidi(inst->channel))
+        why = std::string(name) + " plays over MIDI, and has no graph here";
+    else if (!sched_->graphText(inst->channel, graph))
+        why = std::string(name) + " has no graph here";
+    else
+    {
+        if (sched_->auditionInstrument(*inst, values))
+            args = argText(values.chanargs);
+
+        return true;
+    }
+
+    return false;
+}
+
+/* Where a search of `instrument' toward `toward' -- another instrument, or
+   "" for a recording -- starts: {"start", "startArgs", "target",
+   "targetArgs", "why"}, "why" empty when it can. */
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve_spec (const char *instrument,
+                                                 const char *toward)
+{
+    std::string start, startArgs, target, targetArgs, why;
+
+    if (evolveSide(instrument, start, startArgs, why) && toward != NULL &&
+        *toward != '\0')
+        evolveSide(toward, target, targetArgs, why);
+
+    evolveJson_ = "{\"start\":";
+    jsonString(evolveJson_, start);
+    evolveJson_ += ",\"startArgs\":";
+    jsonString(evolveJson_, startArgs);
+    evolveJson_ += ",\"target\":";
+    jsonString(evolveJson_, target);
+    evolveJson_ += ",\"targetArgs\":";
+    jsonString(evolveJson_, targetArgs);
+    evolveJson_ += ",\"why\":";
+    jsonString(evolveJson_, why);
+    evolveJson_ += "}";
+
+    return evolveJson_.c_str();
+}
+
+/* One search, here, to its end: {"ok", "found", "distance", "why"}.
+   `wav' is a sound file's path in this realm, or "" for `target'. */
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
+                                            const char *startArgs,
+                                            const char *target,
+                                            const char *targetArgs,
+                                            const char *wav, int grow,
+                                            unsigned int seed,
+                                            int generations)
+{
+    NodeEvolve::Spec spec;
+    NodeEvolve::Report report;
+
+    spec.pluginPath = "";
+    spec.rate = rate_;
+    spec.start = start ? start : "";
+    spec.startArgs = argsOf(startArgs);
+    spec.targetGraph = target ? target : "";
+    spec.targetArgs = argsOf(targetArgs);
+    spec.targetWav = wav ? wav : "";
+    spec.grow = grow != 0;
+    spec.seed = seed;
+
+    if (generations > 0)
+        spec.generations = generations;
+
+    report.say = [] (const std::string &text)
+                 { twEvolveSay(0, 0, text.c_str()); };
+    report.started = [] (double d) { twEvolveSay(1, d, ""); };
+    report.nearer = [] (double d, const std::string &graph)
+                    { twEvolveSay(2, d, graph.c_str()); };
+
+    const NodeEvolve::Outcome o = NodeEvolve::evolve(spec, 1, report);
+    char number[40];
+
+    snprintf(number, sizeof number, "%.9g", o.distance);
+    evolveJson_ = std::string("{\"ok\":") + (o.ok ? "true" : "false") +
+                  ",\"distance\":" + number + ",\"found\":";
+    jsonString(evolveJson_, o.found);
+    evolveJson_ += ",\"why\":";
+    jsonString(evolveJson_, o.why);
+    evolveJson_ += "}";
+
+    return evolveJson_.c_str();
+}
+
+/* A search's graph on `instrument''s channel to be heard, in place of
+   `over' -- the one it put there last -- while that is still what plays,
+   and otherwise on top of whatever does, or with `strict' not at all; or,
+   with `graph' empty, `over' taken off again if it still plays. For both
+   realms, which grow alike: the page's Listen (strict), a result, and
+   Discard. "" when done, or why not. */
+EMSCRIPTEN_KEEPALIVE const char *tw_try_graph (const char *instrument,
+                                               const char *graph,
+                                               const char *over, int strict)
+{
+    const thcInstrument *inst = sched_->instrument(instrument ? instrument
+                                                              : "");
+    std::string now;
+
+    evolveJson_.clear();
+
+    if (inst == NULL)
+        return "no such instrument";
+
+    const bool onTop = over != NULL && *over != '\0' &&
+                       sched_->grownText(inst->channel, now) && now == over;
+
+    if (strict && over != NULL && *over != '\0' && !onTop)
+        return "the channel has changed since the last Listen";
+
+    if (onTop)
+        sched_->growInstrument(inst->channel, 0, true, "", "", 0, 0,
+                               evolveJson_);
+
+    if (graph != NULL && *graph != '\0')
+        sched_->tryGraph(inst->channel, graph, evolveJson_);
+    else if (!onTop)
+        evolveJson_ = "it is no longer on the channel";
+
+    return evolveJson_.c_str();
 }
 
 /* What each channel was given, and whether it has been edited since.

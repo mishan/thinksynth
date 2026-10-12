@@ -415,6 +415,30 @@ class ThinkProcessor extends AudioWorkletProcessor
         /* A chain frozen into a text given: what this instance heard it
          * play, as a new chain beside it (thcFreeze.h). "" and a reason
          * when there was nothing to freeze. */
+        /* Where a search starts, as this realm plays it. */
+        if (m.type === 'evolvespec')
+        {
+            this.port.postMessage({
+                type: 'evolvespec', id: m.id,
+                ...JSON.parse(this.M.ccall('tw_evolve_spec', 'string',
+                                           ['string', 'string'],
+                                           [m.instrument, m.toward])),
+            });
+            return;
+        }
+
+        /* A search's graph on a channel, the mirror taking it too. */
+        if (m.type === 'trygraph')
+        {
+            this.port.postMessage({
+                type: 'trygraph', id: m.id,
+                why: this.M.ccall('tw_try_graph', 'string',
+                                  ['string', 'string', 'string', 'number'],
+                                  [m.instrument, m.graph, m.over, m.strict]),
+            });
+            return;
+        }
+
         /* An instrument's graph written into a text given as its
            `dsp { }': the composer view's Keep. */
         if (m.type === 'geninline')

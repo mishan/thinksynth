@@ -374,6 +374,8 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'gens':
             case 'growntext':
             case 'geninline':
+            case 'evolvespec':
+            case 'trygraph':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -672,6 +674,65 @@ export async function createSynth (ctx, { windowlen = 128,
         /* Channel `channel' back to `depth' edits on its declared graph,
            in both realms. */
         growBack: (channel, depth) => post({ type: 'growback', channel, depth }),
+
+        /* Where a search of `instrument' toward `toward' -- an instrument,
+           or '' for a recording -- starts, as the worklet plays it
+           (thinkweb.cpp, tw_evolve_spec). */
+        evolveSpec: (instrument, toward) =>
+            new Promise((resolve) =>
+            {
+                const id = nextId++;
+
+                waiting.set(id, resolve);
+                node.port.postMessage({ type: 'evolvespec', id, instrument,
+                                        toward });
+            }),
+
+        /* Evolve toward: `islands' searches of `spec', a worker each
+           (evolve.js) on seeds from `seed', each saying what it finds to
+           onEvent(island, message) and ending itself when it is done.
+           cancel() ends those still going. */
+        evolve: (spec, { seed, islands, sound }, onEvent) =>
+        {
+            const workers = [];
+
+            for (let i = 0; i < islands; i++)
+            {
+                const w = new Worker(new URL('evolve.js', import.meta.url),
+                                     { type: 'module' });
+                const copy = bytes.slice(0);
+
+                w.onmessage = (e) =>
+                {
+                    if (e.data.type === 'done')
+                        w.terminate();
+
+                    onEvent(i, e.data);
+                };
+                w.onerror = (e) =>
+                {
+                    w.terminate();
+                    onEvent(i, { type: 'done', ok: false,
+                                 why: e.message ?? 'the search failed' });
+                };
+                /* The sound files too: an instrument that plays one --
+                   a kit, a pack -- sounds of nothing without it. */
+                w.postMessage({ bytes: copy, windowlen: info.windowlen,
+                                sampleRate: info.sampleRate, spec,
+                                seed: seed + i, sound,
+                                sounds: [...sounds] }, [copy]);
+                workers.push(w);
+            }
+
+            return { cancel: () => workers.forEach((w) => w.terminate()) };
+        },
+
+        /* A search's graph on `instrument''s channel in place of `over',
+           in both realms (thinkweb.cpp, tw_try_graph); `graph' '' takes
+           `over' off. Resolves to the worklet's why, '' when done. */
+        tryGraph: (instrument, graph, over, strict) =>
+            ask({ type: 'trygraph', instrument, graph, over,
+                  strict: strict ? 1 : 0 }).then((m) => m.why),
 
         /* One chain's level in one section, in `text'. Resolves to
            { text }, "" when the writer refused. */
