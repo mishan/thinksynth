@@ -293,6 +293,19 @@ public:
                                   const std::string &name,
                                   const std::string &body, std::string &why);
 
+    /* An instrument playing graph `dsp' with `values' as its file would
+       write them, and one taken out again -- refused while a sink plays
+       it. */
+    static Result addInstrument (const std::string &filename,
+                                 const std::string &name,
+                                 const std::string &dsp,
+                                 const std::vector<std::pair<std::string,
+                                     std::string> > &values,
+                                 std::string &why);
+    static Result removeInstrument (const std::string &filename,
+                                    const std::string &name,
+                                    std::string &why);
+
     static Result setInstrumentDsp (const std::string &filename,
                                     const std::string &name,
                                     const std::string &dsp,

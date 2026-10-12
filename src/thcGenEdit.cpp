@@ -300,6 +300,9 @@ struct InstrumentIdx
        already has hold of the arg a sink is being pointed at. Keyed with
        the prefix, because that is the name the sink is written with. */
     std::vector<std::pair<std::string, std::string> > effectKnobs;
+
+    /* The instruments its effect's `side = <instrument>;' names. */
+    std::vector<std::string> sides;
 };
 
 struct MetaIdx
@@ -956,6 +959,12 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                                 depth++;
                             else if (isPunct(t[k], '}'))
                                 depth--;
+                            else if (depth == 1 && k + 2 < t.size() &&
+                                     t[k].kind == Tok::WORD &&
+                                     t[k].text == "side" &&
+                                     isPunct(t[k + 1], '=') &&
+                                     t[k + 2].kind == Tok::WORD)
+                                in.sides.push_back(t[k + 2].text);
                             else if (depth == 1 && k + 2 < t.size() &&
                                      t[k].kind == Tok::WORD &&
                                      isPunct(t[k + 1], '=') &&
@@ -3129,6 +3138,186 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
     std::vector<Edit> edits;
 
     edits.push_back({ text.size(), text.size(), block.str() });
+
+    return finish(filename, text, edits, why);
+}
+
+/* `instrument name { dsp "file"; value = ...; };' after the piece's last
+ * instrument, or above its first chain when it has none -- where a reader
+ * looks for what the chains play.
+ */
+R
+thcGenEdit::addInstrument (const std::string &filename,
+                           const std::string &name, const std::string &dsp,
+                           const std::vector<std::pair<std::string,
+                               std::string> > &values,
+                           std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (dsp.empty() || dsp.find_first_of("\"\n") != std::string::npos)
+    {
+        why = "'" + dsp + "' is not a graph's file name";
+        return REFUSED;
+    }
+
+    if (!validParams(values, why))
+        return UNWRITABLE;
+
+    /* The words an instrument block reads as its own statements. */
+    static const char *const keywords[] = {
+        "dsp", "midi", "midichannel", "midiprogram", "effect", "cc", "bend",
+        NULL };
+
+    for (const auto &v : values)
+        for (int i = 0; keywords[i] != NULL; i++)
+            if (v.first == keywords[i])
+            {
+                why = "'" + v.first + "' is not a value an instrument sets";
+                return REFUSED;
+            }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    for (const InstrumentIdx &in : ix.instruments)
+        if (in.name == name)
+        {
+            why = "there is already an instrument called " + name;
+            return REFUSED;
+        }
+
+    std::string stmt = "instrument " + name + " { dsp \"" + dsp + "\";";
+
+    /* An empty value is a placeholder, as addChain's callers pass. */
+    for (const auto &v : values)
+        if (!v.second.empty())
+            stmt += " " + v.first + " = " + v.second + ";";
+
+    stmt += " };";
+
+    std::vector<Edit> edits;
+
+    if (!ix.instruments.empty())
+    {
+        /* After its line, so a comment at the end of it stays its. */
+        size_t at = text.find('\n', ix.instruments.back().stmtB);
+
+        if (at == std::string::npos)
+            edits.push_back({ text.size(), text.size(), "\n" + stmt });
+        else
+            edits.push_back({ at + 1, at + 1, stmt + "\n" });
+    }
+    else
+    {
+        size_t at = ix.firstChainOff;
+
+        if (at == std::string::npos)
+        {
+            if (!text.empty() && text[text.size() - 1] != '\n')
+                text += "\n";
+
+            at = text.size();
+        }
+        else
+            at = lineStartOf(text, at);
+
+        edits.push_back({ at, at, stmt + "\n\n" });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* Refused while anything names it -- a sink, another's effect's side
+   chain, a swap stage's list -- since the file would then not load. A
+   stage param names it as the bare word or in a quoted list, and is
+   counted as the loader would refuse it, over-reporting rather than not. */
+R
+thcGenEdit::removeInstrument (const std::string &filename,
+                              const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const InstrumentIdx *found = NULL;
+
+    for (const InstrumentIdx &in : ix.instruments)
+        if (in.name == name)
+            found = &in;
+
+    if (found == NULL)
+    {
+        why = "no instrument called " + name;
+        return NOT_FOUND;
+    }
+
+    for (const ChainIdx &c : ix.chains)
+        for (const SinkIdx &k : c.sinks)
+            if (k.instrument == name)
+            {
+                why = "chain " + c.name + " plays " + name +
+                      "; take it out first";
+                return REFUSED;
+            }
+
+    for (const InstrumentIdx &in : ix.instruments)
+        for (const std::string &side : in.sides)
+            if (side == name)
+            {
+                why = in.name + "'s effect is keyed by " + name +
+                      "; take that out first";
+                return REFUSED;
+            }
+
+    auto names = [&name] (const std::string &v)
+    {
+        if (v == name)
+            return true;
+
+        if (v.size() < 2 || v[0] != '"')
+            return false;
+
+        std::string word;
+
+        for (char ch : v.substr(1, v.size() - 2) + ",")
+            if (ch == ',' || ch == ' ' || ch == '\t')
+            {
+                if (word == name)
+                    return true;
+
+                word.clear();
+            }
+            else
+                word += ch;
+
+        return false;
+    };
+
+    for (const ChainIdx &c : ix.chains)
+        for (const StageIdx &st : c.stages)
+            for (const PIdx &p : st.params)
+                if (names(p.valueText))
+                {
+                    why = "chain " + c.name + "'s stage " + st.name +
+                          " names " + name + "; take it out first";
+                    return REFUSED;
+                }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, found->stmtA, found->stmtB));
 
     return finish(filename, text, edits, why);
 }
