@@ -972,7 +972,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         const out = button('×', `Take ${p.name.replace(/_/g, ' ')} out of ` +
                                 'the band', () =>
-            edit(removeOps(p.name, p.instrument)));
+            edit(removeOps(p.name, p.instrument, sectionsOf())));
 
         out.className = 'out';
         out.setAttribute('aria-label', out.title);

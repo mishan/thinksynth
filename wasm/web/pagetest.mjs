@@ -3671,6 +3671,13 @@ try
               !/section chorus/.test(out) && /section scene /.test(out),
               '...+ Scene copies the scene, which can be renamed, resized ' +
               'and taken out');
+
+        await page.click('.player[data-chain="kick"] .out');
+        const gone = await until(text, (t) => !/kick/.test(t));
+
+        check(!/kick/.test(gone) && /section scene /.test(gone),
+              '...and a player resting in a scene can be taken out of ' +
+              'the band');
     }
 
     for (const e of errors)

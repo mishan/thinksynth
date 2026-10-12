@@ -6262,6 +6262,7 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   unsection   NAME
  *   resection   NAME NEWNAME
  *   sectionlength NAME LENGTH
+ *   level       SECTION CHAIN LEVEL   -- 1 takes the chain out of it
  *
  * Values as the file would write them. "" when one was refused. */
 /* Why the last tw_gen_ops wrote nothing. */
@@ -6361,6 +6362,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                     r = thcGenEdit::renameSection(path, f[1], f[2], why);
                 else if (f[0] == "sectionlength" && f.size() >= 3)
                     r = thcGenEdit::setSectionLength(path, f[1], f[2], why);
+                else if (f[0] == "level" && f.size() >= 4)
+                    r = thcGenEdit::setSectionLevel(path, f[1], f[2],
+                                                    atof(f[3].c_str()), why);
                 else if (f[0] == "uninstrument" && f.size() >= 2)
                 {
                     r = thcGenEdit::removeInstrument(path, f[1], why);

@@ -180,11 +180,13 @@ export function addOps (idea, name)
     ];
 }
 
-/* The edits that take a player out: its chain, and its instrument unless
-   another chain still plays it. */
-export function removeOps (chain, instrument)
+/* The edits that take a player out: its level in each scene that names
+   it, its chain, and its instrument unless another chain still plays it. */
+export function removeOps (chain, instrument, sections = [])
 {
-    return [['unchain', chain],
+    return [...sections.filter((s) => s.levels?.[chain] !== undefined)
+                .map((s) => ['level', s.name, chain, '1']),
+            ['unchain', chain],
             ...(instrument ? [['uninstrument', instrument]] : [])];
 }
 
