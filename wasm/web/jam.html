@@ -14,7 +14,7 @@
      panes do not get. -->
 <header id="roomhead" class="row">
   <h1>thinksynth <span id="roomname" class="dim">&mdash; a room</span></h1>
-  <p id="status"></p>
+  <p id="status" role="status"></p>
   <!-- What the piece says about itself, cut to what fits; the whole of
        it is the title. -->
   <p id="about"></p>
@@ -50,6 +50,7 @@
 
 <!-- Who and where. The room's name is the URL's, and so is the piece a
      new room is seeded with (?room=x&piece=ebb.gen). -->
+<main>
 <section id="joinrow">
   <p>A room is a piece played together: everyone in it hears the same
     music, plays into it from a seat, and edits the same text.</p>
@@ -269,7 +270,7 @@
   <details id="chat" open
            data-pane data-pane-min="240">
     <summary>Chat</summary>
-    <ul id="chatfeed"></ul>
+    <ul id="chatfeed" aria-live="polite" aria-label="Chat"></ul>
     <form id="chatform" class="row">
       <input id="chatinput" type="text" maxlength="500" autocomplete="off"
              aria-label="Say something to the room">
@@ -286,7 +287,9 @@
 <div id="composerparams" class="popover" hidden></div>
 <div id="nodemenu" class="popover" hidden></div>
 
-<dialog id="accountdialog" aria-label="Account"></dialog>
+</main>
+
+<dialog id="accountdialog" aria-labelledby="accounttitle"></dialog>
 
 <script type="module" src="jam.js"></script>
 </body>

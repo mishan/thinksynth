@@ -67,6 +67,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { chromium } from 'playwright';
 
+import { axeFindings } from './a11y.mjs';
 import { serve } from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -119,7 +120,7 @@ const browser = await chromium.launch(
 
 try
 {
-    const page = await browser.newPage();
+    const page = await (await browser.newContext()).newPage();
 
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) =>
@@ -284,6 +285,12 @@ try
     check(!(await page.isDisabled('#mic')) &&
           !(await page.isDisabled('#midi')),
           'the microphone is offered once there is a synth');
+
+    /* Evolve is the composer's, which is being rebuilt. */
+    const axe = await axeFindings(page, ['#evolve']);
+
+    check(axe.length === 0, 'axe finds nothing wrong with the started page' +
+          axe.map((f) => `\n      ${f}`).join(''));
 
     /* ---- the sequencer, in the document ---- */
 

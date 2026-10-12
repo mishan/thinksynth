@@ -20,7 +20,7 @@
      the status sits beside the controls rather than over them, and why
      Start goes once there is a synth to have started. It is what a
      Gtk::HeaderBar is on the desktop. -->
-<div class="row" id="chrome">
+<header class="row" id="chrome">
   <!-- A phone's menu: what the header and the row of closed panes over
        the layout would take height for, a tap away (the dialog below).
        Shown only on a phone (main.js). -->
@@ -132,8 +132,10 @@
     <input id="openfile" type="file" accept=".gen,text/plain" hidden>
   </span>
 
-  <span id="status">Press Start, then play.</span>
-</div>
+  <span id="status" role="status">Press Start, then play.</span>
+</header>
+
+<main>
 
 <!-- What the piece says about itself, when it is a piece that is playing
      and it says anything. Out of the piece section and into a line of its
@@ -174,7 +176,8 @@
      the wheel changes how much time is on screen. -->
 <div id="roll" class="canvasview rollview" data-pane-off
      data-pane data-pane-title="Piano roll" data-pane-min="320">
-  <canvas id="rollcanvas" tabindex="0"></canvas>
+  <canvas id="rollcanvas" tabindex="0" role="img"
+          aria-label="Piano roll: the notes played, and those to come"></canvas>
 </div>
 
 <!-- The piece as tracks: one row per gen::grid, each one that plugin's
@@ -311,7 +314,8 @@
     uses only the shipped patches. Play a patch, or a piece with
     instruments of its own, to edit one here.</p>
   <div id="nodescroll" class="canvasview">
-    <canvas id="nodecanvas" tabindex="0"></canvas>
+    <canvas id="nodecanvas" tabindex="0" role="img"
+            aria-label="The graph, as nodes and wires"></canvas>
   </div>
   <div id="nodeparams"></div>
 </details>
@@ -348,7 +352,7 @@
          status beside the button cannot move it. -->
     <div id="midiclock"></div>
   </div>
-  <svg id="keys" role="application" aria-label="Keyboard"></svg>
+  <svg id="keys" role="group" aria-label="Keyboard"></svg>
   <p class="hint">
     Touch or click the keys. From a computer keyboard,
     <kbd>Z</kbd>&ndash;<kbd>/</kbd> is an octave and a bit from C with the
@@ -365,7 +369,7 @@
 <details id="patchsource"
          data-pane data-pane-min="320">
   <summary>Patch source (.dsp)</summary>
-  <source-box id="dsp" syntax="dsp"></source-box>
+  <source-box id="dsp" syntax="dsp" label="Patch source"></source-box>
   <div class="row">
     <button id="load" disabled>Load edits</button>
     <span class="hint">Plays the .dsp in the box above.</span>
@@ -393,7 +397,7 @@
   <div class="row">
     <label>Toward <select id="growtoward" disabled></select></label>
     <input id="growsound" type="file" accept=".wav,audio/wav" hidden>
-    <select id="growhow" disabled>
+    <select id="growhow" disabled aria-label="Search">
       <option value="0">Tune: its constants</option>
       <option value="1">Tune and grow: its shape too</option>
     </select>
@@ -406,14 +410,14 @@
     <button id="growkeep" disabled
             title="Download the graph chosen as a .dsp file">Keep</button>
   </div>
-  <canvas id="growplot" width="320" height="80" hidden></canvas>
-  <div id="growstate" class="hint"></div>
+  <canvas id="growplot" width="320" height="80" hidden aria-hidden="true"></canvas>
+  <div id="growstate" class="hint" role="status"></div>
 </section>
 
 <details id="piecesource" data-pane-off
          data-pane data-pane-min="320">
   <summary>Piece source (.gen)</summary>
-  <source-box id="gen" syntax="gen"></source-box>
+  <source-box id="gen" syntax="gen" label="Piece source"></source-box>
   <div class="row">
     <button id="loadpiece" disabled>Load edits</button>
     <span class="hint">Loads the .gen in the box above.</span>
@@ -485,6 +489,8 @@
      port offers: placed in page coordinates beside whatever asked for
      them, so where they sit in the document says nothing -- except that
      being after every pane is what keeps them over one. -->
+</main>
+
 <div id="composerparams" class="popover" hidden></div>
 <div id="nodemenu" class="popover" hidden></div>
 

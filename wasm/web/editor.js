@@ -106,6 +106,8 @@ export class Editor
                 languageFor(name) ?? [],
                 pageLook,
                 keymap.of([...yUndoManagerKeymap, indentWithTab]),
+                EditorView.contentAttributes.of({ 'aria-label': name,
+                                                  tabindex: '0' }),
                 yCollab(text, this.awareness, { undoManager: undo }),
             ],
         });

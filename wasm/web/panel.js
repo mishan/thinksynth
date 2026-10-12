@@ -496,6 +496,7 @@ function makeUnit (row, onEdit)
     const select = document.createElement('select');
 
     select.className = 'panelunit';
+    select.ariaLabel = `${row.label} unit`;
 
     for (const unit of row.unitChoices)
         select.append(new Option(unit, unit));
@@ -527,6 +528,7 @@ function makeBind (row, panel, onEdit)
     const select = document.createElement('select');
 
     select.className = 'panelbind';
+    select.ariaLabel = `${row.label} knob`;
     select.append(new Option('(value)', '@'));
 
     for (const knob of panel.knobs)
@@ -538,6 +540,10 @@ function makeBind (row, panel, onEdit)
 
     return select;
 }
+
+/* For the ids that tie a row's label to its controls: there is more than
+   one panel on a page. */
+let labels = 0;
 
 function makeRow (row, panel, onEdit, bound, onCommit)
 {
@@ -576,6 +582,17 @@ function makeRow (row, panel, onEdit, bound, onCommit)
        is edited somewhere a stream of values would be too many writes. */
     emit.commit = (text) => onCommit?.(row.id, text);
     const control = (CONTROLS[row.kind] ?? makeReadonly)(row, emit, bound);
+
+    /* The label names every field of the control (a slider is a range and
+       a box), and the row's description reaches them as well as the row. */
+    label.id = `panellabel${++labels}`;
+
+    for (const field of [control, ...control.querySelectorAll('*')])
+        if (field.matches('input, select, textarea'))
+        {
+            field.setAttribute('aria-labelledby', label.id);
+            field.title = line.title;
+        }
 
     /* The menus that are about the value rather than being it, after the
      * control, because they qualify what is already there -- "4000,

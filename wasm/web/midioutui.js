@@ -211,6 +211,7 @@ export class MidiOutControls
         pick.className = 'midiroute';
         pick.dataset.pattern = inst.midi;
         pick.title = `Where ${inst.name} plays in this browser.`;
+        pick.ariaLabel = `${inst.name} plays on`;
         pick.append(new Option(`Match "${inst.midi}"`, ''));
 
         for (const name of ports)

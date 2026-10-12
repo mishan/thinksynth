@@ -112,7 +112,11 @@ export class SourceBox extends HTMLElement
                 keymap.of(searchKeymap),
                 EditorView.contentAttributes.of({
                     spellcheck: 'false', autocorrect: 'off',
-                    autocapitalize: 'off' }),
+                    autocapitalize: 'off',
+                    'aria-label': this.getAttribute('label') ?? '',
+                    /* Focusable already, being editable; said, so that a
+                       checker sees the scroller around it can be reached. */
+                    tabindex: '0' }),
                 EditorView.updateListener.of((u) =>
                 {
                     if (u.docChanged && !u.transactions.every(

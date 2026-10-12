@@ -129,6 +129,10 @@ body
 
 h1 { font-size: 1.6em; margin: 0 0 0.4em; }
 
+/* A landmark for a screen reader to jump to, and no box: tiled, the layout
+   is a flex child of <body> and has to stay one. */
+main { display: contents; }
+
 pre, source-box .cm-editor
 {
     font: 13px/1.35 ui-monospace, monospace;
@@ -891,7 +895,7 @@ body:has(#joinrow:not([hidden])) #roomhead
 
 #accountdialog::backdrop { background: rgb(0 0 0 / 0.45); }
 #accountdialog .accounthead { display: flex; justify-content: space-between; }
-#accountdialog .accounttitle { font-weight: bold; font-size: 1.2em; }
+#accountdialog .accounttitle { font-size: 1.2em; margin: 0; }
 #accountclose
 {
     background: none;
