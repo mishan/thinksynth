@@ -2625,6 +2625,93 @@ EMSCRIPTEN_KEEPALIVE const char *tw_grown_text (const char *instrument)
     return growJson_.c_str();
 }
 
+/* What growth has made of each channel chain `chain''s sinks reach, for
+   the composer view: [{instrument, channel, stack, log}], `stack' the
+   edits on the declared graph in words with its "" first, `log' every
+   change (thcScheduler::GrowthStep). A channel that has not grown has an
+   empty stack. */
+static std::string growthJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_growth_json (int chain)
+{
+    growthJson_ = "[";
+
+    thcChain *c = chain >= 0 ? sched_->chain((size_t)chain) : NULL;
+    std::vector<int> seen;
+    const auto number = [] (double v)
+    {
+        char out[32];
+
+        if (!std::isfinite(v))
+            return std::string("null");
+
+        snprintf(out, sizeof out, "%.6g", v);
+        return std::string(out);
+    };
+
+    for (size_t i = 0; c != NULL && i < c->sinks.size(); i++)
+    {
+        const int ch = c->sinks[i].channel;
+
+        if (c->sinks[i].isKnob() ||
+            std::find(seen.begin(), seen.end(), ch) != seen.end())
+            continue;
+
+        std::vector<std::string> stack;
+        std::vector<thcScheduler::GrowthStep> log;
+
+        seen.push_back(ch);
+        sched_->growth(ch, stack, log);
+
+        growthJson_ += seen.size() > 1 ? ",{\"instrument\":" : "{\"instrument\":";
+        jsonString(growthJson_, sched_->holding(ch));
+        growthJson_ += ",\"channel\":" + std::to_string(ch) + ",\"stack\":[";
+
+        for (size_t k = 0; k < stack.size(); k++)
+        {
+            growthJson_ += k ? "," : "";
+            jsonString(growthJson_, stack[k]);
+        }
+
+        growthJson_ += "],\"log\":[";
+
+        for (size_t k = 0; k < log.size(); k++)
+        {
+            const thcScheduler::GrowthStep &s = log[k];
+
+            growthJson_ += std::string(k ? "," : "") + "{\"at\":" +
+                           number(s.at) + ",\"depth\":" +
+                           std::to_string(s.depth) + ",\"distance\":" +
+                           number(s.distance) + ",\"from\":" +
+                           number(s.from) + ",\"taken\":" +
+                           std::to_string(s.taken) + ",\"heard\":[";
+
+            for (size_t h = 0; h < s.heard.size(); h++)
+                growthJson_ += (h ? "," : "") + number(s.heard[h]);
+
+            growthJson_ += "]}";
+        }
+
+        growthJson_ += "]}";
+    }
+
+    growthJson_ += "]";
+
+    return growthJson_.c_str();
+}
+
+/* Channel `channel' back to `depth' edits on its declared graph: the
+   composer view's choice of a row. "" when done, or why not. */
+EMSCRIPTEN_KEEPALIVE const char *tw_grow_back (int channel, int depth)
+{
+    growthJson_.clear();
+
+    if (depth < 0 || !sched_->growBackTo(channel, (size_t)depth, growthJson_))
+        growthJson_ = growthJson_.empty() ? "no such step" : growthJson_;
+
+    return growthJson_.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_grow_answer (unsigned int ticket,
                                           const char *grown, const char *what,
                                           const char *why)
@@ -5806,6 +5893,36 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument (const char *text,
 EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument_why (void)
 {
     return pickWhy_.c_str();
+}
+
+/* Instrument `name''s graph written into `text' as its `dsp { body }' --
+   over a file name if it had one -- as the Composer's Keep writes a grown
+   graph. "" when refused; tw_gen_set_inline_why says why. */
+static std::string inlineWhy_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_inline (const char *text,
+                                                    const char *name,
+                                                    const char *body)
+{
+    inlineWhy_.clear();
+
+    if (text == NULL || name == NULL || body == NULL)
+        return "";
+
+    return spliceText(text, name,
+        [&](const std::string &path, std::string &why)
+        {
+            const thcGenEdit::Result r = thcGenEdit::setInlineGraph(
+                path, name, "\n" + std::string(body) + "\n", why);
+
+            inlineWhy_ = why;
+            return r;
+        });
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_inline_why (void)
+{
+    return inlineWhy_.c_str();
 }
 
 static Scheduled inputOf (double at, int chain, int stage, int kind,

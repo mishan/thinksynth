@@ -318,6 +318,7 @@ function sendGestures ()
 
     const chain = M._tw_canvas_params_chain();
     const stage = M._tw_canvas_params_stage();
+    const panel = panelOf(chain, stage);
 
     post({
         type: 'params',
@@ -326,7 +327,8 @@ function sendGestures ()
         ...namesOf(chain, stage),
         at: { x: M._tw_canvas_params_x(), y: M._tw_canvas_params_y(),
               w: M._tw_canvas_params_w(), h: M._tw_canvas_params_h() },
-        panel: panelOf(chain, stage),
+        panel,
+        growth: growthOf(chain, panel),
     });
 }
 
@@ -349,6 +351,14 @@ function panelOf (chain, stage)
         return null;
 
     return M.UTF8ToString(M._tw_panel_json());
+}
+
+/* What a gen::grow stage's chain has grown, beside its panel
+   (thinkweb.cpp, tw_growth_json); null for any other stage. */
+function growthOf (chain, panel)
+{
+    return panel !== null && JSON.parse(panel).subtitle === 'gen::grow'
+        ? M.UTF8ToString(M._tw_growth_json(chain)) : null;
 }
 
 /* The three tables a draw leaves behind -- the ops, the strings they
@@ -671,10 +681,14 @@ function receive (m)
            compares the shape and redraws only when the rows themselves
            have changed. */
         case 'panel':
+        {
+            const panel = panelOf(m.chain, m.stage);
+
             post({ type: 'panel', chain: m.chain, stage: m.stage,
-                   ...namesOf(m.chain, m.stage),
-                   panel: panelOf(m.chain, m.stage) });
+                   ...namesOf(m.chain, m.stage), panel,
+                   growth: growthOf(m.chain, panel) });
             break;
+        }
 
         /* The piece composed offline into a .mid (tw_export_midi): here,
            where the composers and instruments are and nothing is

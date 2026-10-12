@@ -373,6 +373,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'dsps':
             case 'gens':
             case 'growntext':
+            case 'geninline':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -662,6 +663,15 @@ export async function createSynth (ctx, { windowlen = 128,
            in the last `bars' bars. Resolves to { text, why }. */
         genFreeze: (text, chain, bars) =>
             ask({ type: 'genfreeze', text, chain, bars }),
+
+        /* Instrument `instrument''s graph written into `text' as its
+           `dsp { body }'. Resolves to { text, why }, text "" refused. */
+        genSetInline: (text, instrument, body) =>
+            ask({ type: 'geninline', text, instrument, body }),
+
+        /* Channel `channel' back to `depth' edits on its declared graph,
+           in both realms. */
+        growBack: (channel, depth) => post({ type: 'growback', channel, depth }),
 
         /* One chain's level in one section, in `text'. Resolves to
            { text }, "" when the writer refused. */

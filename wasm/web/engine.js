@@ -94,6 +94,20 @@ export function apply (M, m, host = NOWHERE)
             }
             return true;
 
+        /* A channel back to some edits on its declared graph: the
+           composer view's choice of a grown stage's row, for both
+           realms, which grow alike. */
+        case 'growback':
+        {
+            const why = M.ccall('tw_grow_back', 'string',
+                                ['number', 'number'], [m.channel, m.depth]);
+
+            if (why !== '')
+                log(why);
+
+            return true;
+        }
+
         case 'patch':
             /* A whole .patch, as text. The module reads it and puts it on
                the channel -- the graph it names, its side, its effect and

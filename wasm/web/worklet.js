@@ -415,6 +415,22 @@ class ThinkProcessor extends AudioWorkletProcessor
         /* A chain frozen into a text given: what this instance heard it
          * play, as a new chain beside it (thcFreeze.h). "" and a reason
          * when there was nothing to freeze. */
+        /* An instrument's graph written into a text given as its
+           `dsp { }': the composer view's Keep. */
+        if (m.type === 'geninline')
+        {
+            const text = this.M.ccall('tw_gen_set_inline', 'string',
+                                      ['string', 'string', 'string'],
+                                      [m.text, m.instrument, m.body]);
+
+            this.port.postMessage({
+                type: 'geninline', id: m.id, text,
+                why: this.M.ccall('tw_gen_set_inline_why', 'string'),
+            });
+
+            return;
+        }
+
         if (m.type === 'genfreeze')
         {
             const text = this.M.ccall('tw_gen_freeze', 'string',

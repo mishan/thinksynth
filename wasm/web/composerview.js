@@ -42,7 +42,7 @@ import { showPanel } from './panel.js';
 export function createComposerView ({ root = document, toMirror,
                                       onGesture, onParamEdit, onMix,
                                       onKnob, onMove, onSection, onFreeze,
-                                      onSeek,
+                                      onSeek, onGrowBack, onKeep,
                                       keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
@@ -403,11 +403,175 @@ export function createComposerView ({ root = document, toMirror,
        showPanel handed back for putting a value into one of them. */
     let params = null;
 
+    /* What a gen::grow stage's chain has grown (thinkweb.cpp,
+     * tw_growth_json), under its rows: for each instrument the chain
+     * reaches, the edits on its declared graph in words, the one playing
+     * last; with a target, how far each graph was heard from it over time;
+     * and Keep, which writes the graph playing into the piece. A row goes
+     * back to that graph where the page can say so to both realms
+     * (onGrowBack); the room's page has no such command, and its rows are
+     * only read. Drawn the way the desktop's GrowthView is. */
+    const drawGrowth = (box, growth) =>
+    {
+        box.replaceChildren();
+
+        for (const g of growth)
+        {
+            const head = document.createElement('div');
+
+            head.className = 'paramwhat';
+            head.textContent = g.stack.length < 2
+                ? `${g.instrument}: playing the declared graph`
+                : `${g.instrument}: edits on the declared graph`;
+            box.append(head);
+
+            g.stack.forEach((what, depth) =>
+            {
+                if (g.stack.length < 2)
+                    return;
+
+                const playing = depth === g.stack.length - 1;
+                const row = document.createElement(
+                    playing || !onGrowBack ? 'div' : 'button');
+
+                row.className = playing ? 'growthrow playing' : 'growthrow';
+                row.textContent = (depth === 0 ? 'the declared graph'
+                                               : `${depth}. ${what}`) +
+                                  (playing ? '  (playing)' : '');
+
+                if (row.tagName === 'BUTTON')
+                    row.addEventListener('click',
+                                         () => onGrowBack(g.channel, depth));
+
+                box.append(row);
+            });
+
+            const near = g.log.filter((s) => s.distance !== null ||
+                                             s.from !== null);
+
+            if (near.length > 0)
+            {
+                const first = near[0].from ?? near[0].distance;
+                const now = g.log[g.log.length - 1].distance;
+                const db = (d) => d === null ? 'not heard'
+                                             : `${Math.round(d)} dB`;
+                const said = document.createElement('div');
+
+                said.className = 'paramwhat';
+                said.textContent = `From the target: ${db(now)} now, ` +
+                                   `${db(first)} at first; nearer is higher.`;
+                box.append(growthPlot(g.log), said);
+            }
+
+            if (g.stack.length > 1 && onKeep)
+            {
+                const keep = document.createElement('button');
+
+                keep.textContent = `Keep ${g.instrument}'s grown graph`;
+                keep.title = 'Write the graph playing into the piece, as ' +
+                             'its dsp { }';
+                keep.addEventListener('click', () => onKeep(g.instrument));
+                box.append(keep);
+            }
+        }
+    };
+
+    /* Time across, distance down from nearest at the top: the edits heard
+       at each step as rings, the one taken filled, and the graph playing
+       as a line. */
+    const growthPlot = (log) =>
+    {
+        const canvas = document.createElement('canvas');
+        const w = 240, h = 70, pad = 6;
+        const cx = canvas.getContext('2d');
+        let t0 = Infinity, t1 = -Infinity, lo = Infinity, hi = -Infinity;
+        const take = (t, d) =>
+        {
+            if (d === null)
+                return;
+
+            t0 = Math.min(t0, t);
+            t1 = Math.max(t1, t);
+            lo = Math.min(lo, d);
+            hi = Math.max(hi, d);
+        };
+
+        canvas.width = w;
+        canvas.height = h;
+        canvas.className = 'growthplot';
+        cx.fillStyle = '#14161a';
+        cx.fillRect(0, 0, w, h);
+
+        for (const s of log)
+        {
+            take(s.at, s.distance);
+            take(s.at, s.from);
+            s.heard.forEach((d) => take(s.at, d));
+        }
+
+        const span = Math.max(t1 - t0, 1), range = Math.max(hi - lo, 0.5);
+        const x = (t) => pad + (t - t0) / span * (w - 2 * pad);
+        const y = (d) => pad + (d - lo) / range * (h - 2 * pad);
+
+        for (const s of log)
+            s.heard.forEach((d, i) =>
+            {
+                if (d === null)
+                    return;
+
+                cx.beginPath();
+                cx.arc(x(s.at), y(d), i === s.taken ? 3.5 : 2.5, 0, 2 * Math.PI);
+
+                if (i === s.taken)
+                {
+                    cx.fillStyle = '#59a6ff';
+                    cx.fill();
+                }
+                else
+                {
+                    cx.strokeStyle = 'rgba(204, 204, 204, 0.5)';
+                    cx.stroke();
+                }
+            });
+
+        cx.beginPath();
+
+        /* Where each step started, then where it went; a graph nobody
+           heard is a gap, not a guess. */
+        let down = false;
+        const to = (t, d) =>
+        {
+            if (down)
+                cx.lineTo(x(t), y(d));
+            else
+                cx.moveTo(x(t), y(d));
+
+            down = true;
+        };
+
+        for (const s of log)
+        {
+            if (s.from !== null)
+                to(s.at, s.from);
+
+            if (s.distance !== null)
+                to(s.at, s.distance);
+            else
+                down = false;
+        }
+
+        cx.strokeStyle = '#e6e6e6';
+        cx.lineWidth = 1.5;
+        cx.stroke();
+
+        return canvas;
+    };
+
     /* The rows into the popover, replacing whatever was there. `panel' is
        null for a stage with nothing to show -- a dsp node run at control
        rate, a plugin that did not load -- which is said rather than left as
        an empty popover somebody presses twice. */
-    const draw = (panel) =>
+    const draw = (panel, growth) =>
     {
         const box = $('composerparams');
         const title = document.createElement('div');
@@ -450,6 +614,17 @@ export function createComposerView ({ root = document, toMirror,
          * the edit somebody had just typed went nowhere. */
         const about = params;
 
+        /* Its own box too, for the same reason, and redrawn on its own
+           when what grew changes. */
+        const grown = document.createElement('div');
+
+        box.append(grown);
+        params.grown = grown;
+        params.growth = growth ?? null;
+
+        if (growth)
+            drawGrowth(grown, JSON.parse(growth));
+
         params.panel = panel;
         params.setValue = showPanel(
             body, panel,
@@ -466,7 +641,7 @@ export function createComposerView ({ root = document, toMirror,
                    stageName: m.stageName,
                    panel: null, setValue: () => {} };
 
-        draw(m.panel === null ? null : JSON.parse(m.panel));
+        draw(m.panel === null ? null : JSON.parse(m.panel), m.growth);
 
         /* Beside the box, in the page's own coordinates: the canvas said
            where in its own pixels and the element says where it is. Held
@@ -581,8 +756,14 @@ export function createComposerView ({ root = document, toMirror,
            more. Where the popover is pointing has not changed with them. */
         if (params.panel === null || panel.shape !== params.panel.shape)
         {
-            draw(panel);
+            draw(panel, m.growth);
             return;
+        }
+
+        if ((m.growth ?? null) !== params.growth)
+        {
+            params.growth = m.growth ?? null;
+            drawGrowth(params.grown, m.growth ? JSON.parse(m.growth) : []);
         }
 
         for (const row of panel.rows)

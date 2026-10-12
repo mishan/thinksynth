@@ -1356,6 +1356,55 @@ async function freezeChain (chain, chainName)
         synth.transport('start');
 }
 
+/* What growth has made of `instrument', kept: the worklet's grown graph,
+ * the one that sounds, written into the box as the instrument's `dsp { }'
+ * and the piece loaded again -- playing again if it was. On freezeChain's
+ * terms about text that was never loaded. */
+async function keepGrown (instrument)
+{
+    if (synth === null)
+        return;
+
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before keeping a grown graph.', true);
+        return;
+    }
+
+    const wasRunning = lastTape?.running === true;
+    const body = await synth.grownText(instrument);
+
+    if (body === '')
+    {
+        status(`${instrument} has not grown.`, true);
+        return;
+    }
+
+    const { text, why } = await synth.genSetInline(was, instrument, body);
+
+    if (text === '')
+    {
+        status(`Could not keep ${instrument}'s graph: ${why}.`, true);
+        return;
+    }
+
+    if ($('gen').value !== was || loadedText !== was || loading > 0)
+    {
+        status('The piece changed while the graph was being kept; try it ' +
+               'again.', true);
+        return;
+    }
+
+    $('gen').value = text;
+    await loadPiece();
+
+    if (wasRunning && piece !== null)
+        synth.transport('start');
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -2821,6 +2870,8 @@ function showComposer (on)
             synth?.section({ at: -1, section, chain, level }),
 
         onFreeze: freezeChain,
+        onGrowBack: (channel, depth) => synth?.growBack(channel, depth),
+        onKeep: keepGrown,
 
         /* A section's block: the transport there, in the next window. */
         onSeek: (at) => synth?.transport('seek', at),
