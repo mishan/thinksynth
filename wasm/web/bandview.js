@@ -372,13 +372,15 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
 /* The pane. `piece' is a getter for the page's; `params' sends param
    edits, `vary' sets a chain's seed (null: the piece's) and resolves to
    whether it went in, `keep' freezes a chain, `rest' mutes one, `say'
-   tells the page's status, `touch' adds stages behind a chain (TOUCH)
+   tells the page's status of a trouble and `tell' of what was done,
+   `touch' adds stages behind a chain (TOUCH)
    and resolves to whether they went in; `toMirror' asks the mirror to
    draw a stage and `onGesture' sends a pointer on a picture, as the
-   sequencer's do; `edit' makes several edits as one (tw_gen_ops),
-   `sounds' is the graphs by category (the page's catalog), `sound' puts
-   an instrument on another graph, and `newBand' starts a band over. */
-export function createBand ({ piece, params, vary, keep, rest, say,
+   sequencer's do; `edit' makes several edits as one (tw_gen_ops) and
+   `sound' puts an instrument on another graph, each resolving to whether
+   it went in; `sounds' is the graphs by category (the page's catalog),
+   and `newBand' starts a band over. */
+export function createBand ({ piece, params, vary, keep, rest, say, tell,
                               touch, toMirror, onGesture, edit, sounds,
                               sound, newBand, seek, level, clock })
 {
@@ -417,6 +419,12 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     /* A scene's index now, by its name: an edit since a button was drawn
        may have moved it. */
     const indexOf = (name) => sectionsOf().findIndex((s) => s.name === name);
+
+    const nameOf = (p) => p.name.replace(/_/g, ' ');
+
+    /* The control to have the keys after the next draw, by its `f': a
+       player just added, before it has a card. */
+    let focusNext = null;
 
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
@@ -577,10 +585,14 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         const dot = document.createElement('span');
 
         box.className = 'bandpad';
-        box.title = 'Across: calm to busy. Up: steady to wandering.';
+        box.dataset.f = `${p.name}:pad`;
+        box.title = 'Across, or Left and Right: calm to busy. Up, or Up ' +
+                    'and Down: steady to wandering. Home: the middle.';
         box.setAttribute('role', 'slider');
-        box.setAttribute('aria-label', `${p.name}: calm to busy, steady to ` +
-                                       'wandering');
+        box.setAttribute('aria-valuemin', '0');
+        box.setAttribute('aria-valuemax', '10');
+        box.setAttribute('aria-label', `${nameOf(p)}: calm to busy, steady ` +
+                                       'to wandering');
         dot.className = 'bandpaddot';
         box.append(dot);
 
@@ -598,9 +610,12 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         {
             dot.style.left = `${st.x * 100}%`;
             dot.style.top = `${(1 - st.y) * 100}%`;
+            /* A slider has one value: across, the one an arrow along it
+               moves; the text says both. */
+            box.setAttribute('aria-valuenow', String(Math.round(st.x * 10)));
             box.setAttribute('aria-valuetext',
-                             `busy ${st.x.toFixed(1)}, wandering ` +
-                             st.y.toFixed(1));
+                             `busy ${Math.round(st.x * 10)} of 10, ` +
+                             `wandering ${Math.round(st.y * 10)} of 10`);
         };
 
         /* Not before what the pad moves is in the piece. */
@@ -642,9 +657,10 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                1 - (e.clientY - r.top) / r.height);
         };
 
-        /* The arrows, a tenth at a time. */
+        /* The arrows, a tenth at a time; Home, back to as written. */
         const KEYS = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0],
-                       ArrowDown: [0, -0.1], ArrowUp: [0, 0.1] };
+                       ArrowDown: [0, -0.1], ArrowUp: [0, 0.1],
+                       Home: null };
 
         box.tabIndex = 0;
         box.addEventListener('keydown', (e) =>
@@ -657,7 +673,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             e.preventDefault();
             e.stopPropagation();
             st.refused = false;
-            to(st.x + k[0], st.y + k[1]);
+
+            if (k === null)
+                to(0.5, 0.5);
+            else
+                to(st.x + k[0], st.y + k[1]);
         });
 
         box.addEventListener('pointerdown', (e) =>
@@ -684,9 +704,15 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         return box;
     }
 
-    function button (text, title, on)
+    /* `f' names the control, for its focus to come back to it when it is
+       drawn again (draw): a player's under its chain's name, the scenes'
+       under an `@', which no name has. */
+    function button (text, title, on, f)
     {
         const b = document.createElement('button');
+
+        if (f !== undefined)
+            b.dataset.f = f;
 
         b.textContent = text;
         b.title = title;
@@ -714,10 +740,13 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             }
 
         if (edits.length === 0)
-            say(`${p.name.replace(/_/g, ' ')} plays a scale by its name, ` +
+            say(`${nameOf(p)} plays a scale by its name, ` +
                 'or would leave the keyboard; its octave stays.');
         else
+        {
             params(p, edits);
+            tell(`${nameOf(p)} an octave ${by > 0 ? 'up' : 'down'}`);
+        }
     }
 
     /* What plays the player, as a menu of the graphs its role is offered
@@ -740,9 +769,9 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             ? wanted.indexOf(g.name) : wanted.length;
 
         menu.className = 'sound';
+        menu.dataset.f = `${p.name}:sound`;
         menu.title = 'What plays it';
-        menu.setAttribute('aria-label',
-                          `What plays ${p.name.replace(/_/g, ' ')}`);
+        menu.setAttribute('aria-label', `What plays ${nameOf(p)}`);
 
         for (const g of [...sounds()].sort((a, b) => rank(a) - rank(b)))
         {
@@ -766,9 +795,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         menu.addEventListener('change', () =>
         {
             const dsp = menu.value;
+            const name = menu.selectedOptions[0]?.text ?? dsp;
 
             menu.value = p.dsp;
-            sound(p, dsp);
+            sound(p, dsp).then((went) =>
+                went && tell(`${nameOf(p)} plays ${name}`));
         });
         return menu;
     }
@@ -786,6 +817,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         const b = button('Rest', resting
             ? `Bring it back in${where}` : `Leave it out${where}`, () =>
         {
+            tell(`${nameOf(p)} ${resting ? 'plays' : 'rests'}${where}`);
+
             if (live || sc === null)
             {
                 st.resting = !st.resting;
@@ -803,7 +836,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                 st.levels[sc.name] = was;
 
             level(at, p.index, resting ? st.levels[sc.name] ?? 1 : 0);
-        });
+        }, `${p.name}:rest`);
 
         b.classList.add('rest');
         b.setAttribute('aria-pressed', String(resting));
@@ -826,7 +859,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                     chosen = i;
                     seek(startOf(s));
                     draw();
-                });
+                }, `@scene=${s.name}`);
 
             b.className = 'scene';
             b.classList.toggle('on', sc !== null && sc.index === i);
@@ -847,10 +880,12 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             const levels = Object.entries(sc?.levels ?? {})
                 .map(([c, l]) => `${c}=${l}`);
 
+            const name = freeName('scene', taken);
+
             chosen = sc === null ? 0 : indexOf(sc.name) + 1;
-            edit([['section', freeName('scene', taken), length,
-                   sc?.name ?? '', ...levels]]);
-        });
+            edit([['section', name, length, sc?.name ?? '', ...levels]])
+                .then((went) => went && tell(`A scene called ${name}`));
+        }, '@add');
 
         add.className = 'scene add';
         box.replaceChildren(...row, add);
@@ -860,6 +895,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         const size = document.createElement('select');
 
+        size.dataset.f = '@size';
         size.title = `How long ${sc.name} lasts`;
         size.setAttribute('aria-label', size.title);
 
@@ -879,8 +915,12 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         size.addEventListener('change', () =>
         {
+            const name = now();
+
             if (size.value !== '')
-                edit([['sectionlength', now(), `${size.value} bars`]]);
+                edit([['sectionlength', name, `${size.value} bars`]])
+                    .then((went) => went &&
+                          tell(`${name} lasts ${size.value} bars`));
         });
 
         const name = button('Rename', `Call ${sc.name} something else`,
@@ -892,9 +932,14 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
             if (to && to !== was)
                 edit([['resection', was, to]]);
-        });
+        }, '@rename');
         const out = button('×', `Take ${sc.name} out of the song`, () =>
-            edit([['unsection', now()]]));
+        {
+            const name = now();
+
+            edit([['unsection', name]]).then((went) =>
+                went && tell(`${name} is out of the song`));
+        }, '@out');
 
         out.setAttribute('aria-label', out.title);
         box.append(size, name, out);
@@ -911,13 +956,13 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                                        levelIn(scene(), p) === 0);
         el.dataset.chain = p.name;
         el.setAttribute('role', 'group');
-        el.setAttribute('aria-label', p.name.replace(/_/g, ' '));
+        el.setAttribute('aria-label', nameOf(p));
 
         who.className = 'who';
         who.innerHTML = '<span class="role"></span><b></b>' +
                         '<span class="sound"></span><span class="idea"></span>';
         who.querySelector('.role').textContent = p.role;
-        who.querySelector('b').textContent = p.name.replace(/_/g, ' ');
+        who.querySelector('b').textContent = nameOf(p);
         who.querySelector('.sound').replaceWith(soundMenu(p));
         who.querySelector('.idea').textContent = p.idea;
 
@@ -926,9 +971,10 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         octs.className = 'octave';
 
         if (p.role !== 'drums')
-            octs.append(button('▲', 'An octave up', () => octave(p, 1)),
+            octs.append(button('▲', 'An octave up', () => octave(p, 1),
+                               `${p.name}:up`),
                         button('▼', 'An octave down',
-                               () => octave(p, -1)));
+                               () => octave(p, -1), `${p.name}:down`));
 
         for (const b of octs.children)
             b.setAttribute('aria-label', b.title);
@@ -951,17 +997,19 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                 st.takes = st.takes.slice(0, st.take + 1);
                 st.takes.push(next);
                 st.take = st.takes.length - 1;
+                tell(`${nameOf(p)}: take ${st.takes.length}`);
                 draw();
-            }));
+            }, `${p.name}:vary`));
         else if (p.seeded === 'restart')
             moves.append(button('Restart', 'The board as it is written, ' +
                                            'from here on',
                                 () => vary(p, p.seed === null ? seed()
-                                                              : null)));
+                                                              : null),
+                                `${p.name}:restart`));
 
         moves.append(
             button('Keep', 'Keep what it just played as notes you can ' +
-                           'edit', () => keep(p)),
+                           'edit', () => keep(p), `${p.name}:keep`),
             restButton(p, st));
 
         takes.className = 'takes';
@@ -978,8 +1026,9 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                     return;
 
                 st.take = i;
+                tell(`${nameOf(p)}: ${t.title.toLowerCase()}`);
                 draw();
-            });
+            }, `${p.name}:take${i}`);
 
             t.classList.toggle('on', i === st.take);
             t.setAttribute('aria-label', t.title);
@@ -987,9 +1036,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             takes.append(t);
         });
 
-        const out = button('×', `Take ${p.name.replace(/_/g, ' ')} out of ` +
-                                'the band', () =>
-            edit(removeOps(p.name, p.instrument, sectionsOf())));
+        const out = button('×', `Take ${nameOf(p)} out of the band`,
+            () => edit(removeOps(p.name, p.instrument, sectionsOf()))
+                .then((went) => went &&
+                      tell(`${nameOf(p)} is out of the band`)),
+            `${p.name}:out`);
 
         out.className = 'out';
         out.setAttribute('aria-label', out.title);
@@ -1050,8 +1101,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             const head = document.createElement('span');
 
             row.className = `ideas ${role}`;
+            row.setAttribute('role', 'group');
+            row.setAttribute('aria-label', role);
             head.className = 'role';
             head.textContent = role;
+            head.setAttribute('aria-hidden', 'true');
             row.append(head, ...ideas.map((idea) =>
             {
                 const b = button(idea.name, idea.say, () =>
@@ -1084,10 +1138,24 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                                 Object.entries(params).map(([k, v]) =>
                                     [k, inKey(v, key)]))]) };
 
+                    const name = freeName(idea.call, taken);
+
                     g.hidden = true;
+                    $('bandadd').setAttribute('aria-expanded', 'false');
+                    focusNext = `${name}:pad`;
                     edit([...(key.written ? [] : [['scale', 'key',
                                                     keyNotes(key)]]),
-                          ...addOps(tuned, freeName(idea.call, taken))]);
+                          ...addOps(tuned, name)]).then((went) =>
+                    {
+                        if (went)
+                            tell(`${name.replace(/_/g, ' ')} joins the ` +
+                                 'band');
+                        else
+                        {
+                            focusNext = null;
+                            $('bandadd').focus();
+                        }
+                    });
                 });
 
                 b.dataset.idea = idea.name;
@@ -1098,7 +1166,65 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         }));
     }
 
+    /* The control that has the keys, by its `f', and the card it is on. */
+    function focused ()
+    {
+        const e = document.activeElement;
+
+        if (e?.dataset?.f === undefined || !$('bandview').contains(e))
+            return null;
+
+        return { f: e.dataset.f,
+                 at: [...$('players').children].indexOf(e.closest('.player'))
+        };
+    }
+
+    /* The keys back where they were once the cards and scenes are drawn
+       anew: on the same control, or -- it gone with its player or scene --
+       on the next card's pad, the scene now chosen, or Add. */
+    function refocus (was)
+    {
+        const find = (f) => $('bandview').querySelector(
+            `[data-f="${CSS.escape(f)}"]`);
+
+        if (focusNext !== null && find(focusNext) !== null)
+        {
+            find(focusNext).focus();
+            focusNext = null;
+            return;
+        }
+
+        /* A piece reloading has no cards yet: the draw after it does. */
+        if (was === null || piece() === null ||
+            document.activeElement?.isConnected &&
+            document.activeElement !== document.body)
+            return;
+
+        /* Not the next scene's ×, one Enter from taking that out too. */
+        const cards = $('players').children;
+        const card = cards[Math.min(was.at, cards.length - 1)];
+        const e = (was.f === '@out' ? null : find(was.f)) ??
+            (was.f.startsWith('@')
+                ? $('bandscenes').querySelector('.scene.on, .scene.add')
+                : card?.querySelector('.bandpad') ?? $('bandadd'));
+
+        e?.focus();
+    }
+
+    /* What had the keys when a draw took its control away and none came
+       back: a piece reloading draws no cards in between. */
+    let lost = null;
+
     function draw ()
+    {
+        const was = focused() ?? lost;
+
+        drawNow();
+        refocus(was);
+        lost = document.activeElement === document.body ? was : null;
+    }
+
+    function drawNow ()
     {
         const now = piece();
         const list = $('players');
@@ -1152,23 +1278,12 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         if (from !== drawnFrom || list.childElementCount === 0)
         {
-            /* A pad that had the keys has them again on its new card. */
-            const keys = document.activeElement?.classList
-                .contains('bandpad')
-                ? document.activeElement.closest('.player')?.dataset.chain
-                : undefined;
-
             for (const pic of pictures)
                 pic.drop();
 
             pictures = [];
             held = 0;
             list.replaceChildren(...players.map(card));
-
-            if (keys !== undefined)
-                list.querySelector(
-                    `.player[data-chain="${CSS.escape(keys)}"] .bandpad`)
-                    ?.focus();
         }
 
         drawnFrom = from;
@@ -1211,8 +1326,13 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             if (running && playing >= 0)
                 chosen = playing;
 
-            if ($('bandscenes').offsetParent !== null)
-                draw();
+            if ($('bandscenes').offsetParent === null)
+                return;
+
+            if (running && sectionsOf()[playing] !== undefined)
+                tell(`Playing ${sectionsOf()[playing].name}`);
+
+            draw();
         },
 
         /* The bar above the cards: New, and the gallery of ideas. */
@@ -1225,15 +1345,35 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             $('bandroot').addEventListener('change', chooseKey);
             $('bandmood').addEventListener('change', chooseKey);
             $('bandnew').addEventListener('click', () => newBand());
+            /* A click elsewhere puts the keys where it meant them. */
+            document.addEventListener('pointerdown', () => { lost = null; },
+                                      true);
+            $('bandadd').setAttribute('aria-expanded', 'false');
+            $('bandadd').setAttribute('aria-controls', 'bandgallery');
             $('bandadd').addEventListener('click', () =>
             {
                 const g = $('bandgallery');
 
                 g.hidden = !g.hidden;
+                $('bandadd').setAttribute('aria-expanded', String(!g.hidden));
 
                 if (!g.hidden)
                     gallery();
             });
+            const shut = (e) =>
+            {
+                if (e.key !== 'Escape' || $('bandgallery').hidden)
+                    return;
+
+                /* The page's Escape would take the keys off Add too. */
+                e.preventDefault();
+                $('bandgallery').hidden = true;
+                $('bandadd').setAttribute('aria-expanded', 'false');
+                $('bandadd').focus();
+            };
+
+            $('bandadd').addEventListener('keydown', shut);
+            $('bandgallery').addEventListener('keydown', shut);
         },
 
         /* Another document, whatever the menu says: every player anew. */
