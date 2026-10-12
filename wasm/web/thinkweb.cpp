@@ -168,9 +168,9 @@ enum CmdType
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
    four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
-   TW_SOLO, TW_SECTION and TW_KNOBWRITE have entry points of their own and
-   never arrive as an op from there. TW_SEEK is a solo page's, framed; a
-   room's seek is a begin from a time (tw_begin). */
+   TW_SOLO, TW_SECTION, TW_KNOBWRITE, TW_GROWBACK and TW_TRYGRAPH have entry
+   points of their own and never arrive as an op from there. TW_SEEK is a
+   solo page's, framed; a room's seek is a begin from a time (tw_begin). */
 enum TransportOp
 {
     TW_START,
@@ -190,6 +190,8 @@ enum TransportOp
     TW_EDIT,
     TW_NOTE,
     TW_PICK,
+    TW_GROWBACK,
+    TW_TRYGRAPH,
 };
 
 struct Command
@@ -265,8 +267,10 @@ struct Scheduled
        TW_KNOB: `row' is the knob's name, when the command named one.
        TW_EDIT: `text' is the piece's new text; `files' below are the other
        files it changed. TW_PICK: `row' is an instrument and `text' the
-       graph it is to play. */
-    std::string row, text;
+       graph it is to play. TW_TRYGRAPH: `row' is an instrument, `text' a
+       graph for its channel, `over' what it replaces and `on' strict
+       (tw_try_graph). */
+    std::string row, text, over;
 
     /* TW_EDIT: the other files it carries, as name and text, written only
        once its text has loaded (applyEdit). */
@@ -279,7 +283,11 @@ struct Scheduled
        after it would otherwise reach a neighbor. */
     std::string chainName, stageName;
 
-    int    channel, note;       /* TW_NOTE                             */
+    /* TW_TRYGRAPH: the name its outcome is reported under (tw_tried_json). */
+    std::string tag;
+
+    int    channel, note;       /* TW_NOTE; TW_GROWBACK's channel, with
+                                   its depth in `note'                  */
     bool   on, heard;           /* TW_NOTE                             */
 
     /* The order among commands stamped for one time: lower first, and
@@ -941,6 +949,8 @@ captureEdits (const Scheduled &c, thcStage *st)
 
 void applyEdit (const Scheduled &c);
 void applyPick (const Scheduled &c);
+void applyGrowBack (const Scheduled &c);
+void applyTryGraph (const Scheduled &c);
 
 /* Does a chain take `input midi' on this channel? */
 bool listensOn (int channel)
@@ -1019,7 +1029,7 @@ void applyScheduled (const Scheduled &given)
         switch (c.op)
         {
             case TW_MUTE: case TW_SOLO: case TW_SECTION: case TW_KNOBWRITE:
-            case TW_PARAM: case TW_INPUT:
+            case TW_PARAM: case TW_INPUT: case TW_GROWBACK:
                 return;
         }
 
@@ -1195,6 +1205,14 @@ void applyScheduled (const Scheduled &given)
 
         case TW_PICK:
             applyPick(c);
+            break;
+
+        case TW_GROWBACK:
+            applyGrowBack(c);
+            break;
+
+        case TW_TRYGRAPH:
+            applyTryGraph(c);
             break;
 
         case TW_NOTE:
@@ -2447,6 +2465,60 @@ void applyPick (const Scheduled &c)
     applyEdit(e);
 }
 
+/* What each TW_TRYGRAPH came to, by tag, until the worklet tells its page
+   (tw_tried_json). Held to the last few: the mirror applies the same and
+   is never asked. */
+std::deque<std::pair<std::string, std::string> > tried_;
+
+void applyGrowBack (const Scheduled &c)
+{
+    std::string why;
+
+    if (c.note < 0 || !sched_->growBackTo(c.channel, (size_t)c.note, why))
+        fprintf(stderr, "growth: %s\n", why.empty() ? "no such step"
+                                                    : why.c_str());
+}
+
+/* A search's graph on an instrument's channel to be heard, in place of
+   `over' -- the one it put there last -- while that is still what plays,
+   and otherwise on top of whatever does, or with `strict' not at all; or,
+   with no graph, `over' taken off again if it still plays. Applied at its
+   time in every realm, so each puts it on the same channel as it stands
+   then. */
+void applyTryGraph (const Scheduled &c)
+{
+    const thcInstrument *inst = sched_->instrument(c.row);
+    std::string now, why;
+
+    if (inst == NULL)
+        why = "no such instrument";
+    else
+    {
+        const bool onTop = !c.over.empty() &&
+                           sched_->grownText(inst->channel, now) &&
+                           now == c.over;
+
+        if (c.on && !c.over.empty() && !onTop)
+            why = "the channel has changed since the last Listen";
+        else
+        {
+            if (onTop)
+                sched_->growInstrument(inst->channel, 0, true, "", "", 0, 0,
+                                       why);
+
+            if (!c.text.empty())
+                sched_->tryGraph(inst->channel, c.text, why);
+            else if (!onTop)
+                why = "it is no longer on the channel";
+        }
+    }
+
+    tried_.push_back(std::make_pair(c.tag, why));
+
+    if (tried_.size() > 32)
+        tried_.pop_front();
+}
+
 } /* namespace */
 
 extern "C" {
@@ -2700,16 +2772,18 @@ EMSCRIPTEN_KEEPALIVE const char *tw_growth_json (int chain)
     return growthJson_.c_str();
 }
 
-/* Channel `channel' back to `depth' edits on its declared graph: the
-   composer view's choice of a row. "" when done, or why not. */
-EMSCRIPTEN_KEEPALIVE const char *tw_grow_back (int channel, int depth)
+/* Channel `channel' back to `depth' edits on its declared graph, at a
+   transport time: the composer view's choice of a row. */
+EMSCRIPTEN_KEEPALIVE void tw_grow_back (double at, int channel, int depth)
 {
-    growthJson_.clear();
+    Scheduled c = {};
 
-    if (depth < 0 || !sched_->growBackTo(channel, (size_t)depth, growthJson_))
-        growthJson_ = growthJson_.empty() ? "no such step" : growthJson_;
+    c.at = at;
+    c.op = TW_GROWBACK;
+    c.channel = channel;
+    c.note = depth;
 
-    return growthJson_.c_str();
+    schedule(c);
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_grow_answer (unsigned int ticket,
@@ -2990,41 +3064,51 @@ EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
     return evolveJson_.c_str();
 }
 
-/* A search's graph on `instrument''s channel to be heard, in place of
-   `over' -- the one it put there last -- while that is still what plays,
-   and otherwise on top of whatever does, or with `strict' not at all; or,
-   with `graph' empty, `over' taken off again if it still plays. For both
-   realms, which grow alike: the page's Listen (strict), a result, and
-   Discard. "" when done, or why not. */
-EMSCRIPTEN_KEEPALIVE const char *tw_try_graph (const char *instrument,
-                                               const char *graph,
-                                               const char *over, int strict)
+/* A search's graph on `instrument''s channel, at a transport time
+   (applyTryGraph): the page's Listen (strict), a result, and Discard (no
+   graph). Its outcome is reported under the tag tw_command_tag set. */
+EMSCRIPTEN_KEEPALIVE void tw_try_graph (double at, const char *instrument,
+                                        const char *graph, const char *over,
+                                        int strict)
 {
-    const thcInstrument *inst = sched_->instrument(instrument ? instrument
-                                                              : "");
-    std::string now;
+    Scheduled c = {};
 
-    evolveJson_.clear();
+    c.at = at;
+    c.op = TW_TRYGRAPH;
+    c.row = instrument ? instrument : "";
+    c.text = graph ? graph : "";
+    c.over = over ? over : "";
+    c.on = strict != 0;
+    c.tag = nextTag_;
+    nextTag_.clear();
 
-    if (inst == NULL)
-        return "no such instrument";
+    schedule(c);
+}
 
-    const bool onTop = over != NULL && *over != '\0' &&
-                       sched_->grownText(inst->channel, now) && now == over;
+/* The searches' graphs applied since the last call, and what each came
+   to: [{"tag", "why"}], "why" empty when it is on its channel. */
+EMSCRIPTEN_KEEPALIVE const char *tw_tried_json (void)
+{
+    evolveJson_ = "[";
 
-    if (strict && over != NULL && *over != '\0' && !onTop)
-        return "the channel has changed since the last Listen";
+    for (size_t k = 0; k < tried_.size(); k++)
+    {
+        evolveJson_ += k ? ",{\"tag\":" : "{\"tag\":";
+        jsonString(evolveJson_, tried_[k].first);
+        evolveJson_ += ",\"why\":";
+        jsonString(evolveJson_, tried_[k].second);
+        evolveJson_ += "}";
+    }
 
-    if (onTop)
-        sched_->growInstrument(inst->channel, 0, true, "", "", 0, 0,
-                               evolveJson_);
-
-    if (graph != NULL && *graph != '\0')
-        sched_->tryGraph(inst->channel, graph, evolveJson_);
-    else if (!onTop)
-        evolveJson_ = "it is no longer on the channel";
+    evolveJson_ += "]";
+    tried_.clear();
 
     return evolveJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_tried_count (void)
+{
+    return (int)tried_.size();
 }
 
 /* What each channel was given, and whether it has been edited since.

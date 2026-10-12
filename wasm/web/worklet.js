@@ -427,18 +427,6 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
-        /* A search's graph on a channel, the mirror taking it too. */
-        if (m.type === 'trygraph')
-        {
-            this.port.postMessage({
-                type: 'trygraph', id: m.id,
-                why: this.M.ccall('tw_try_graph', 'string',
-                                  ['string', 'string', 'string', 'number'],
-                                  [m.instrument, m.graph, m.over, m.strict]),
-            });
-            return;
-        }
-
         /* An instrument's graph written into a text given as its
            `dsp { }': the composer view's Keep. */
         if (m.type === 'geninline')
@@ -841,6 +829,14 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.drainProbes();
         this.postParamEdits();
         this.postMidi();
+
+        /* What the searches' graphs applied in this quantum came to, for
+           the page that put each there (thinkweb.cpp, tw_tried_json). */
+        if (this.M._tw_tried_count() > 0)
+            this.port.postMessage({
+                type: 'tried',
+                tried: JSON.parse(this.M.ccall('tw_tried_json', 'string')),
+            });
 
         /* An edit applied in this quantum: what the piece is now -- its
            knobs, its instruments, the channels it listens on -- and what

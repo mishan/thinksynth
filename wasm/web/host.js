@@ -148,6 +148,7 @@ export async function createSynth (ctx, { windowlen = 128,
     /* Replies by id: a load says whether it parsed, a ping that everything
        sent before it has been handled. */
     const waiting = new Map();
+    const tried = new Map();        /* tag -> resolve, see tried()        */
     let nextId = 0;
     let ready, failed;
     const isReady = new Promise((resolve, reject) =>
@@ -350,6 +351,13 @@ export async function createSynth (ctx, { windowlen = 128,
                 waiting.get(m.id)?.(m.ok);
                 waiting.delete(m.id);
                 break;
+            case 'tried':
+                for (const { tag, why } of m.tried)
+                {
+                    tried.get(tag)?.(why);
+                    tried.delete(tag);
+                }
+                break;
             case 'patched':
             case 'probed':
                 waiting.get(m.id)?.(m);
@@ -375,7 +383,6 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'growntext':
             case 'geninline':
             case 'evolvespec':
-            case 'trygraph':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -672,8 +679,9 @@ export async function createSynth (ctx, { windowlen = 128,
             ask({ type: 'geninline', text, instrument, body }),
 
         /* Channel `channel' back to `depth' edits on its declared graph,
-           in both realms. */
-        growBack: (channel, depth) => post({ type: 'growback', channel, depth }),
+           at a transport time or -1 for the next window, in both realms. */
+        growBack: ({ at = -1, channel, depth, rev }) =>
+            post({ type: 'growback', at, channel, depth, rev }),
 
         /* Where a search of `instrument' toward `toward' -- an instrument,
            or '' for a recording -- starts, as the worklet plays it
@@ -728,11 +736,31 @@ export async function createSynth (ctx, { windowlen = 128,
         },
 
         /* A search's graph on `instrument''s channel in place of `over',
-           in both realms (thinkweb.cpp, tw_try_graph); `graph' '' takes
-           `over' off. Resolves to the worklet's why, '' when done. */
-        tryGraph: (instrument, graph, over, strict) =>
-            ask({ type: 'trygraph', instrument, graph, over,
-                  strict: strict ? 1 : 0 }).then((m) => m.why),
+           at a transport time or -1 for the next window, in both realms
+           (thinkweb.cpp, tw_try_graph); `graph' '' takes `over' off.
+           What it came to goes to tried(tag). */
+        tryGraph: ({ at = -1, instrument, graph, over, strict, tag }) =>
+            post({ type: 'trygraph', at, instrument, graph, over, strict,
+                   tag }),
+
+        /* What the tryGraph tagged `tag' came to once the worklet applied
+           it: '' when it is on its channel, or why not. A load can drop a
+           command still waiting for its time, so this does not wait for
+           ever. */
+        tried: (tag, timeoutMs = 5000) => new Promise((resolve) =>
+        {
+            const timer = setTimeout(() =>
+            {
+                tried.delete(tag);
+                resolve('the synth did not say what became of it');
+            }, timeoutMs);
+
+            tried.set(tag, (why) =>
+            {
+                clearTimeout(timer);
+                resolve(why);
+            });
+        }),
 
         /* One chain's level in one section, in `text'. Resolves to
            { text }, "" when the writer refused. */

@@ -768,6 +768,142 @@ async function pickTogether (pages)
                `${firstDifference(want, tapes[0])}`);
 }
 
+/* A piece that grows, in a room: pad grows on both pages alike, and a row
+ * of A's grow stage's popover puts the declared graph back on both. Then A
+ * tunes pad toward ref's sound in its own workers, and what it finds is
+ * heard on both pages and kept into the document. */
+async function growTogether (pages)
+{
+    const [A, B] = pages;
+    const graphWith = (s) =>
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        `node env env::adsr { a = 5 ms; d = 200 ms; s = ${s}; r = 100 ms;\n` +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+    const PIECE =
+        'name "growing";\nseed 11;\n' +
+        `instrument pad { dsp {\n${graphWith('0.05')}}; };\n` +
+        `instrument ref { dsp {\n${graphWith('0.7')}}; };\n` +
+        'chain m { stage s gen::eno_line { notes = "A3 C4";\n' +
+        '    period = 0.5 s; prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::grow { every = 1 s; depth = 2;\n' +
+        '    shrink = 0; }; sink { instrument = pad; }; };\n';
+    const grownOn = (page) =>
+        page.evaluate(() => window.jam.grownText('pad'));
+    const both = async (want) =>
+    {
+        for (let k = 0; k < 100; k++)
+        {
+            const [a, b] = [await grownOn(A.page), await grownOn(B.page)];
+
+            if (a === b && want(a))
+                return a;
+
+            await new Promise((r) => setTimeout(r, 200));
+        }
+
+        return null;
+    };
+
+    await enter(pages, 'jamgrow', FREE_PIECE);
+
+    const name = await A.page.evaluate(() => window.jam.piece());
+
+    /* Applied while stopped: a Play from the top. */
+    await A.page.evaluate(([n, t]) =>
+    {
+        window.jam.setFile(n, t);
+        window.jam.apply();
+    }, [name, PIECE]);
+    await A.page.waitForFunction(
+        () => window.jam.grownText('pad').then((t) => t !== ''), null,
+        { timeout: 20000, polling: 200 }).catch(() => {});
+    await A.page.evaluate(() => window.jam.stop());
+
+    if (await both((t) => t !== '') !== null)
+        ok('pad grows alike on both pages');
+    else
+        fail('pad did not grow alike on both pages');
+
+    await A.page.locator('#composerscroll').scrollIntoViewIfNeeded();
+
+    const handle = await A.page.evaluate(() => window.jam.handleOf(1, 0));
+    const box = await A.page.$eval('#composer', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+
+    await A.page.mouse.click(box.x + handle.x, box.y + handle.y);
+    await A.page.waitForSelector('#composerparams button.growthrow',
+                                 { timeout: 15000 }).catch(() => {});
+    await A.page.click('#composerparams button.growthrow',
+                       { timeout: 5000 }).catch(() => {});
+
+    if (await both((t) => t === '') !== null)
+        ok(`${A.label}'s first growth row puts the declared graph back on ` +
+           'both pages');
+    else
+        fail(`${A.label}'s growth row did not reach both pages`);
+
+    await A.page.keyboard.press('Escape');
+
+    /* Evolve: cancelled once it has come nearer than where it began, which
+       puts the nearest it found on the channel. */
+    const nearest = () => A.page.evaluate(() =>
+        Number(/nearest (\S+) dB/.exec(
+            document.getElementById('evolvestate').textContent)?.[1]));
+
+    await A.page.evaluate(() =>
+    {
+        const set = (id, v) =>
+        {
+            document.getElementById(id).value = v;
+            document.getElementById(id).dispatchEvent(new Event('change'));
+        };
+
+        set('evolvewhat', 'pad');
+        set('evolvetoward', 'ref');
+        document.getElementById('evolvego').click();
+    });
+
+    let first = NaN;
+
+    for (let k = 0; k < 600 && !(await nearest() < first); k++)
+    {
+        first = Number.isNaN(first) ? await nearest() : first;
+        await new Promise((r) => setTimeout(r, 200));
+    }
+
+    await A.page.evaluate(() => document.getElementById('evolvestop').click());
+
+    const put = await both((t) => t !== '' && !t.includes('s = 0.05;'));
+
+    if (put !== null)
+        ok('what Evolve found is heard on both pages');
+    else
+        fail('what Evolve found is not on both pages: ' +
+             await A.page.textContent('#evolvestate'));
+
+    await A.page.waitForFunction(
+        () => !document.getElementById('evolvekeep').disabled, null,
+        { timeout: 10000 }).catch(() => {});
+    await A.page.evaluate(() => document.getElementById('evolvekeep').click());
+
+    const kept = await B.page.waitForFunction(
+        (n) => !window.jam.file(n).includes('s = 0.05;'), name,
+        { timeout: 10000 }).then(() => true, () => false);
+
+    if (kept)
+        ok(`${A.label}'s Keep writes it into the room's document`);
+    else
+        fail(`${A.label}'s Keep did not reach ${B.label}'s document`);
+}
+
 /* A pick that would leave a piece that does not load: acetate.gen rides
  * its bass's `cutoff' from a chain, and dxbell.dsp declares none. Refused
  * on the page that picked, with the reason, and nothing changes: not the
@@ -3186,6 +3322,10 @@ try
 
     await pickTogether(pages);
     await pickRefused(pages);
+
+    /* ---- and grows an instrument, and evolves one ---- */
+
+    await growTogether(pages);
 
     /* ---- and switches the piece, or pastes another ---- */
 

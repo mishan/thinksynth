@@ -579,13 +579,6 @@ function receive (m)
             break;
         }
 
-        /* A search's graph on a channel, as the worklet takes it. */
-        case 'trygraph':
-            M.ccall('tw_try_graph', 'string',
-                    ['string', 'string', 'string', 'number'],
-                    [m.instrument, m.graph, m.over, m.strict]);
-            break;
-
         /* What the ear worker heard for this instance's scheduler. */
         case 'heard':
             M.ccall('tw_ear_answer', null,

@@ -53,6 +53,7 @@ import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf, hasSeen,
     from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
+import { createEvolve } from './evolveui.js';
 import { createNodeView } from './nodeview.js';
 import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
@@ -828,6 +829,7 @@ async function loadFromDoc (seed = -1, from = doc)
 
     await drawKnobs();
     showSeats();
+    evolve.show();
     showMidiOut();
     showNodeChannel();
     enable();
@@ -946,20 +948,9 @@ async function freezeChain (chain, chainName)
 
 /* A grow stage's Keep: the graph this peer's worklet grew -- every peer's
  * grew alike -- written into the document as the instrument's `dsp { }',
- * on freezeChain's terms. Going back a step is not offered in a room: a
- * room has no command for it, and every peer has to take it. */
+ * on freezeChain's terms. */
 async function keepGrown (instrument)
 {
-    const name = pieceName(doc);
-    const was = name === null ? null : readFile(doc, name);
-
-    if (was === null || was !== loadedGen)
-    {
-        log('the piece has changed since it was loaded; Apply it before ' +
-            'keeping a grown graph');
-        return;
-    }
-
     const body = await synth.grownText(instrument);
 
     if (body === '')
@@ -968,18 +959,35 @@ async function keepGrown (instrument)
         return;
     }
 
+    await keepGraph(instrument, body);
+}
+
+/* `body' written into the document as `instrument''s `dsp { }', and
+   applied if the room is playing. False, said, if it could not be. */
+async function keepGraph (instrument, body)
+{
+    const name = pieceName(doc);
+    const was = name === null ? null : readFile(doc, name);
+
+    if (was === null || was !== loadedGen)
+    {
+        log('the piece has changed since it was loaded; Apply it before ' +
+            'keeping a graph');
+        return false;
+    }
+
     const { text, why } = await synth.genSetInline(was, instrument, body);
 
     if (text === '')
     {
         log(`could not keep ${instrument}'s graph: ${why}`);
-        return;
+        return false;
     }
 
     if (readFile(doc, name) !== was)
     {
         log('the piece changed while the graph was being kept');
-        return;
+        return false;
     }
 
     spliceFile(doc, name, text);
@@ -988,7 +996,29 @@ async function keepGrown (instrument)
         await applyEdit();
     else
         log(`${instrument}'s graph kept; Play applies it`);
+
+    return true;
 }
+
+/* Evolve toward (evolveui.js): the search this peer's, what it finds a
+   room's command, heard on every peer at its time. */
+const evolve = createEvolve({
+    synth: () => synth,
+    piece: () => piece,
+    loading: () => false,
+    put: (instrument, graph, over, strict) =>
+    {
+        if (room.roleOf() === 'spectator')
+            return Promise.resolve('a spectator cannot change the sound');
+
+        const cmd = maker.tryGraph(instrument, graph, over, strict);
+        const done = synth.tried(commandTag(cmd));
+
+        send(cmd);
+        return done;
+    },
+    keep: keepGraph,
+});
 
 /* ---- transport ---- */
 
@@ -1960,6 +1990,10 @@ function showComposer (on)
         onMove: moveStage,
         onFreeze: freezeChain,
         onKeep: keepGrown,
+
+        /* A grown stage's row: the room's command, so every peer's channel
+           goes back at the same time. */
+        onGrowBack: (channel, depth) => send(maker.growBack(channel, depth)),
 
         /* A section's block: the room's transport there -- a start from
            that time (seekTo). */
@@ -3029,8 +3063,10 @@ function init ()
         seat: (seat) => room.claim(seat),
         seatNow: () => room.seat,
 
-        /* The piece's instruments as the worklet has them. */
+        /* The piece's instruments as the worklet has them, and what
+           growth or a search has put on one's channel. */
         instruments: () => piece?.instruments ?? [],
+        grownText: (instrument) => synth.grownText(instrument),
         tape: () => tapeText,
 
         /* The panes this page has and the layout they are in, for

@@ -46,6 +46,8 @@
  *   mute       { at, chain, on }
  *   solo       { at, chain, on }
  *   section    { at, section, chain, level }
+ *   growback   { at, channel, depth }
+ *   trygraph   { at, instrument, graph, over, strict }
  *   note       { at, seat, note, velocity, mode, heard }
  *   noteoff    { at, seat, note, mode }        mode: direct | quantised |
  *                                              ahead
@@ -72,7 +74,7 @@ export const commandTag = (cmd) => `${cmd.from}:${cmd.seq}`;
    made against the piece as the maker saw it, and dropped where an edit
    has applied since (thinkweb.cpp, Scheduled's `rev'). */
 const BY_INDEX = new Set(['knobwrite', 'input', 'param', 'mute', 'solo',
-                          'section']);
+                          'section', 'growback']);
 
 /* Makes commands for one peer: numbered, stamped, and from it. */
 export class Maker
@@ -169,6 +171,24 @@ export class Maker
     pick (at, name, dsp)
     {
         return { ...this.make('pick', { name, dsp }, 0), at };
+    }
+
+    /* A channel back to `depth' edits on its declared graph: a grown
+       stage's row, chosen. With a knob's lead: it is heard, and changes
+       nothing anybody has to wait a bar for. */
+    growBack (channel, depth)
+    {
+        return this.make('growback', { channel, depth }, this.knobLead);
+    }
+
+    /* A search's graph on `instrument''s channel in place of `over', the
+       one this peer put there last; `graph' '' takes `over' off (host.js,
+       tryGraph). Its outcome comes back to the maker under the command's
+       tag (commandTag). */
+    tryGraph (instrument, graph, over, strict)
+    {
+        return this.make('trygraph', { instrument, graph, over, strict },
+                         this.knobLead);
     }
 
     /* A gesture on a stage's picture: which stage, what kind of gesture,
@@ -569,6 +589,14 @@ function applyNow (cmd, { synth, listens, self = null })
 
         case 'pick':
             synth.pick(cmd.at, cmd.name, cmd.dsp, tieOf(cmd));
+            break;
+
+        case 'growback':
+            synth.growBack(cmd);
+            break;
+
+        case 'trygraph':
+            synth.tryGraph({ ...cmd, tag: commandTag(cmd) });
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.
