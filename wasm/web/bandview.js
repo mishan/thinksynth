@@ -72,8 +72,9 @@ export const RECIPES = {
         busy: { fills: whole((b, t, p) => toward(1, b, p.steps ?? b, t)) } },
     'gen::lsystem': {
         busy: { step: faster },
-        wander: { depth: whole((b, t) => Math.max(1, toward(b - 1, b, b + 1,
-                                                            t))) } },
+        wander: { depth: whole((b, t) => Math.max(Math.min(b, 1),
+                                                  toward(b - 1, b, b + 1,
+                                                         t))) } },
     'gen::eno_line': {
         busy: { period: faster, prob: (b, t) => toward(b / 3, b, 1, t) },
         wander: { jitter: (b, t, p) =>
@@ -83,7 +84,7 @@ export const RECIPES = {
         wander: { wander: more(0.6) } },
     'gen::markov': {
         busy: { period: faster },
-        wander: { order: whole((b, t) => toward(Math.min(b + 1, 4), b, 1,
+        wander: { order: whole((b, t) => toward(2, Math.min(b, 2), 1,
                                                 t)) } },
     'gen::arp': {
         busy: { period: faster },
@@ -116,11 +117,13 @@ const IDEAS = {
     'gen::ca': 'a cellular pattern', 'gen::evolve': 'an evolving phrase',
 };
 
+/* By whole words of a chain's, instrument's and graph's names; chords
+   before bass, so a `pad_low' is a pad. */
 const ROLES = [
-    ['drums', /kick|snare|hat|clap|tom|drum|perc|rim|cymbal|ride|crash|tamb|shaker|conga|bongo|cowbell/],
-    ['bass', /bass|sub\b|low/],
-    ['chords', /chord|pad|string|organ|choir|comp/],
-    ['texture', /air|texture|drone|ambient|noise|wash|cloud|swoop|fx|atmo/],
+    ['drums', /^(kick|snare|hats?|clap|toms?|drums?|perc\w*|rim|cymbal|ride|crash|tamb\w*|shaker|conga|bongo|cowbell|kit)$/],
+    ['chords', /^(chords?|pads?|strings?|organ|choir|comp|section)$/],
+    ['bass', /^(\w*bass|sub)$/],
+    ['texture', /^(air|texture|drones?|ambient|noise|wash|cloud|swoop|fx|atmo\w*)$/],
 ];
 
 /* `0.25 beats' as 0.25 and ` beats'; anything that is not a number --
@@ -140,8 +143,9 @@ function spell (num, unit, integer)
     return text + unit;
 }
 
-/* Every note name in a quoted list moved `by' octaves; null when one would
-   leave 0..8, or there is no quoted list. */
+/* Every note name in a quoted list moved `by' octaves, unquoted -- what a
+   param edit is written as; null when one would leave 0..8, or there is
+   no quoted list (a scale's name, say). */
 export function shiftOctave (valueText, by)
 {
     if (!/^"[^"]*"$/.test(valueText.trim()))
@@ -158,7 +162,7 @@ export function shiftOctave (valueText, by)
         return n + to;
     });
 
-    return out && text !== valueText ? text : null;
+    return out && text !== valueText ? text.trim().slice(1, -1) : null;
 }
 
 /* The players in a piece (worklet.js, piece: `chains' and `instruments'):
@@ -181,8 +185,10 @@ export function playersOf (piece)
         const dsp = dspOf.get(sink.instrument) ?? '';
         const gens = c.stages.filter((s) => s.category === 'gen');
         const plugins = c.stages.map((s) => `${s.category}::${s.plugin}`);
-        const words = `${c.name} ${sound} ${dsp}`.toLowerCase();
-        let role = ROLES.find(([, re]) => re.test(words))?.[0];
+        const words = `${c.name} ${sound} ${dsp}`.toLowerCase()
+            .split(/[^a-z]+/);
+        let role = ROLES.find(([, re]) => words.some((w) => re.test(w)))
+            ?.[0];
 
         if (role === undefined)
             role = plugins.some((p) => /progression|harmonize/.test(p))
@@ -234,7 +240,10 @@ export function padEdits (stages, x, y)
                 const text = spell(Math.max(0, f(n.num, t, nums)), n.unit,
                                    f.whole === true);
 
-                edits.push({ stage: s.live, stageName: s.name, row, text });
+                /* As written stays as written, not respelled. */
+                if (numberOf(text)?.num !== n.num)
+                    edits.push({ stage: s.live, stageName: s.name, row,
+                                 text });
             }
     }
 
@@ -260,7 +269,7 @@ export function axesOf (stages)
 /* The pane. `synth' and `piece' are getters for the page's; `params'
    sends param edits, `vary' sets a chain's seed (null: the piece's),
    `keep' freezes a chain, `rest' mutes one. */
-export function createBand ({ piece, params, vary, keep, rest })
+export function createBand ({ piece, params, vary, keep, rest, say })
 {
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
@@ -277,12 +286,17 @@ export function createBand ({ piece, params, vary, keep, rest })
 
     const PAD_EVERY_MS = 80;
 
+    /* Another chain under the same name -- another piece, stages added
+       or taken out -- is another player. */
+    const shapeOf = (p) => JSON.stringify(p.stages.map((s) =>
+        [s.plugin, s.name, s.live]));
+
     function stateOf (p)
     {
-        if (!state.has(p.name))
-            state.set(p.name, { base: p.stages, x: 0.5, y: 0.5, octave: 0,
-                                takes: [p.seed], take: 0, resting: false,
-                                sent: 0, timer: null });
+        if (state.get(p.name)?.shape !== shapeOf(p))
+            state.set(p.name, { shape: shapeOf(p), base: p.stages, x: 0.5,
+                                y: 0.5, takes: [p.seed], take: 0,
+                                resting: false, sent: 0, timer: null });
 
         return state.get(p.name);
     }
@@ -316,6 +330,9 @@ export function createBand ({ piece, params, vary, keep, rest })
         {
             dot.style.left = `${st.x * 100}%`;
             dot.style.top = `${(1 - st.y) * 100}%`;
+            box.setAttribute('aria-valuetext',
+                             `busy ${st.x.toFixed(1)}, wandering ` +
+                             st.y.toFixed(1));
         };
 
         const send = () =>
@@ -326,19 +343,41 @@ export function createBand ({ piece, params, vary, keep, rest })
                                axes.wander ? st.y : 0.5));
         };
 
-        const move = (e) =>
+        const to = (x, y) =>
         {
-            const r = box.getBoundingClientRect();
-
-            st.x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-            st.y = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) /
-                                           r.height));
+            st.x = Math.min(1, Math.max(0, x));
+            st.y = Math.min(1, Math.max(0, y));
             place();
 
             if (st.timer === null)
                 st.timer = setTimeout(send, Math.max(0, PAD_EVERY_MS -
                     (performance.now() - st.sent)));
         };
+
+        const move = (e) =>
+        {
+            const r = box.getBoundingClientRect();
+
+            to((e.clientX - r.left) / r.width,
+               1 - (e.clientY - r.top) / r.height);
+        };
+
+        /* The arrows, a tenth at a time. */
+        const KEYS = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0],
+                       ArrowDown: [0, -0.1], ArrowUp: [0, 0.1] };
+
+        box.tabIndex = 0;
+        box.addEventListener('keydown', (e) =>
+        {
+            const k = KEYS[e.key];
+
+            if (k === undefined)
+                return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            to(st.x + k[0], st.y + k[1]);
+        });
 
         box.addEventListener('pointerdown', (e) =>
         {
@@ -365,13 +404,14 @@ export function createBand ({ piece, params, vary, keep, rest })
         return b;
     }
 
-    /* From the stages as the band last wrote them, since the piece's
-       description is not read again after a param edit. */
-    function octave (p, st, by)
+    /* From the stages as the piece has them now (piece().chains, read
+       again after every param edit). */
+    function octave (p, by)
     {
         const edits = [];
+        const now = piece()?.chains?.[p.index]?.stages ?? p.stages;
 
-        for (const s of st.base)
+        for (const s of now)
             for (const row of ['notes', 'fill'])
             {
                 const q = s.params.find((v) => v.name === row);
@@ -379,19 +419,15 @@ export function createBand ({ piece, params, vary, keep, rest })
                     ? null : shiftOctave(q.valueText, by);
 
                 if (text !== null)
-                {
                     edits.push({ stage: s.live, stageName: s.name, row,
                                  text });
-                    q.valueText = text;
-                }
             }
 
         if (edits.length === 0)
-            return false;
-
-        st.octave += by;
-        params(p, edits);
-        return true;
+            say(`${p.name.replace(/_/g, ' ')} plays a scale by its name, ` +
+                'or would leave the keyboard; its octave stays.');
+        else
+            params(p, edits);
     }
 
     function card (p)
@@ -419,23 +455,25 @@ export function createBand ({ piece, params, vary, keep, rest })
         octs.className = 'octave';
 
         if (p.role !== 'drums')
-            octs.append(button('▲', 'An octave up', () => octave(p, st, 1)),
+            octs.append(button('▲', 'An octave up', () => octave(p, 1)),
                         button('▼', 'An octave down',
-                               () => octave(p, st, -1)));
+                               () => octave(p, -1)));
 
         const moves = document.createElement('div');
         const takes = document.createElement('div');
 
         moves.className = 'moves';
         moves.append(
-            button('Vary', 'Another take, from here on', () =>
+            button('Vary', 'Another take, from here on', async () =>
             {
                 const seed = Math.floor(Math.random() * 0x100000000);
+
+                if (!(await vary(p, seed)))
+                    return;
 
                 st.takes = st.takes.slice(0, st.take + 1);
                 st.takes.push(seed);
                 st.take = st.takes.length - 1;
-                vary(p, seed);
                 draw();
             }),
             button('Keep', 'Keep what it just played as notes you can ' +
@@ -453,10 +491,13 @@ export function createBand ({ piece, params, vary, keep, rest })
         st.takes.forEach((seed, i) =>
         {
             const t = button(String(i + 1), i === 0 ? 'As it was'
-                                                    : `Take ${i + 1}`, () =>
+                                                    : `Take ${i + 1}`,
+                             async () =>
             {
+                if (!(await vary(p, seed)))
+                    return;
+
                 st.take = i;
-                vary(p, seed);
                 draw();
             });
 
@@ -489,8 +530,8 @@ export function createBand ({ piece, params, vary, keep, rest })
         {
             const st = stateOf(p);
 
-            return [p.name, p.role, p.sound, p.idea, st.takes, st.take,
-                    st.resting];
+            return [p.name, p.index, st.shape, p.role, p.sound, p.idea,
+                    st.takes, st.take, st.resting];
         }));
 
         if (from !== drawnFrom || list.childElementCount === 0)
@@ -526,6 +567,9 @@ export function createBand ({ piece, params, vary, keep, rest })
         draw,
 
         restOnLoad: (name) => restNext.add(name),
+
+        /* Another document, whatever the menu says: every player anew. */
+        forget: () => state.clear(),
 
         /* Where a player's pad is, for a harness. */
         padOf: (name) => state.get(name) ?? null,

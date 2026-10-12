@@ -358,6 +358,19 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The chains as the text now says them, after param edits the
+         * piece description was not read again for (bandview.js). */
+        if (m.type === 'chains')
+        {
+            this.port.postMessage({
+                type: 'chains', id: m.id,
+                chains: JSON.parse(this.M.UTF8ToString(
+                    this.M._tw_piece_chains_json())),
+            });
+
+            return;
+        }
+
         /* A chain's own seed set, or taken out, in a text given: another
          * take of a band's player (bandview.js). "" when refused. */
         if (m.type === 'genseed')

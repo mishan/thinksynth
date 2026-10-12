@@ -379,6 +379,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'settempo':
             case 'genparam':
             case 'genseed':
+            case 'chains':
             case 'genmove':
             case 'gensection':
             case 'geninstrument':
@@ -661,6 +662,10 @@ export async function createSynth (ctx, { windowlen = 128,
         genSetParam: (text, { chainName, docStage, param, valueText }) =>
             ask({ type: 'genparam', text, chain: chainName, stage: docStage,
                   param, valueText }),
+
+        /* The piece's chains as its text says them now. Resolves to
+           { chains }. */
+        pieceChains: () => ask({ type: 'chains' }),
 
         /* Chain `chainName' given its own seed in `text', or the piece's
            back when `seed' is null. Resolves to { text }, "" when the

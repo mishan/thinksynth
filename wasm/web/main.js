@@ -1378,6 +1378,7 @@ async function openFile (file)
 
     mine.textContent = file.name;
     $('piece').value = '';
+    band.forget();
     forgetHistory();
     $('gen').value = text;
     await loadPiece();
@@ -1545,6 +1546,14 @@ function paramsEdited ({ piece: text, edits })
     $('gen').value = text;
     setLoaded(text, (edits ?? []).map((e) =>
         `${e.chainName}/${e.docStage}/${e.row}`).join(' '));
+
+    /* What the band reads a player's notes from, as they are now. */
+    if (mode() === 'band')
+        synth.pieceChains().then(({ chains }) =>
+        {
+            if (piece !== null && loadedText === text)
+                piece.chains = chains;
+        });
 }
 
 /* A stage box dropped elsewhere in its chain on the canvas: the box's text
@@ -1665,8 +1674,11 @@ async function freezeChain (chain, chainName)
         return;
     }
 
-    composer?.muteOnLoad(chainName);
-    band.restOnLoad(chainName);
+    /* The band rests the original itself, and brings it back too. */
+    if (mode() === 'band')
+        band.restOnLoad(chainName);
+    else
+        composer?.muteOnLoad(chainName);
     $('gen').value = text;
     await loadPiece();
 
@@ -1687,6 +1699,7 @@ const band = createBand({
                            row: e.row, text: e.text, chainName: p.name,
                            stageName: e.stageName });
     },
+    /* Resolves to whether the take went in. */
     vary: async (p, seed) =>
     {
         const was = $('gen').value;
@@ -1695,7 +1708,7 @@ const band = createBand({
         {
             status('The text has changes that are not loaded; load them ' +
                    'before another take.', true);
-            return;
+            return false;
         }
 
         const { text } = await synth.genSetChainSeed(was, p.name, seed);
@@ -1703,13 +1716,14 @@ const band = createBand({
         if (text === '' || $('gen').value !== was)
         {
             status(`Could not give ${p.name} another take.`, true);
-            return;
+            return false;
         }
 
-        await applyText(text);
+        return applyText(text);
     },
     keep: (p) => freezeChain(p.index, p.name),
     rest: (p, on) => synth?.mute({ at: -1, chain: p.index, on }),
+    say: (text) => status(text, true),
 });
 
 /* Evolve toward (evolveui.js). What it finds goes on the channel at the
@@ -2099,6 +2113,7 @@ async function pickPiece ()
     composer?.forgetMix();
 
     $('piece').querySelector('option[data-opened]')?.remove();
+    band.forget();
 
     const run = (async () =>
     {
@@ -3600,7 +3615,7 @@ window.solo = {
    one selector for both sent a piece's keys to the sequence's channel 5,
    which Ebb has nothing on. Whatever somebody picks in a mode is what
    that mode comes back to. */
-const keyChans = { seq: SEQ_KEYS, piece: 0 };
+const keyChans = { seq: SEQ_KEYS, piece: 0, band: 0 };
 let keysMode = null;
 
 function keysFor (which)
