@@ -952,8 +952,8 @@ that graph back on the channel, and Keep then writes that one. A stage with a
 `target` adds a plot below: each step's edits heard as dots, the one taken
 filled, and the graph on the channel as a line, nearer the target higher, with
 how far it is now and how far it began. On the page the same is in the stage's
-params popover, Keep included; going back to a row is the solo page's only,
-since a room has no command for it.
+params popover, Keep included; in a room, going back to a row is a command every
+peer applies at the same time.
 
 The channel's node editor shows a grown graph — or a result Evolve toward put on
 the channel — with the nodes it added to the declared graph titled in green, and
@@ -987,8 +987,9 @@ a search runs in a worker of its own, on one synth, and the page runs a few at
 once on seeds of their own — two cores spare, four at most — and keeps the best
 of them: a tune takes longer than the application's, and Cancel ends the workers
 and keeps the nearest found. Listen, the result, Keep and Discard work as they
-do in the application, on the solo page only, since a room has no command to put
-a graph on a channel.
+do in the application. In a room the search runs in the browser of whoever
+started it, what it puts on the channel is a command every peer hears at the same
+time, and Keep writes it into the room's document.
 
 A structure edit reaches **every** sink of its chain. The note/chanarg filter is
 a rule about notes and chanargs; an edit is neither, and both kinds of sink name
