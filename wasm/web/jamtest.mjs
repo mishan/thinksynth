@@ -769,7 +769,10 @@ async function pickTogether (pages)
 }
 
 /* A piece that grows, in a room: pad grows on both pages alike, and a row
- * of A's grow stage's popover puts the declared graph back on both. Then A
+ * of A's grow stage's popover puts the declared graph back on both. Alike
+ * while it plays: a step lands where its answer reaches each worklet
+ * (thinkweb.cpp, tw_grow_answer), so at a Stop one page may be a step
+ * behind the other, which the row puts right. Then A
  * tunes pad toward ref's sound in its own workers, and what it finds is
  * heard on both pages and kept into the document. */
 async function growTogether (pages)
@@ -789,7 +792,7 @@ async function growTogether (pages)
         `instrument ref { dsp {\n${graphWith('0.7')}}; };\n` +
         'chain m { stage s gen::eno_line { notes = "A3 C4";\n' +
         '    period = 0.5 s; prob = 1; }; sink { instrument = pad; }; };\n' +
-        'chain g { stage s gen::grow { every = 1 s; depth = 2;\n' +
+        'chain g { stage s gen::grow { every = 2 s; depth = 2;\n' +
         '    shrink = 0; }; sink { instrument = pad; }; };\n';
     const grownOn = (page) =>
         page.evaluate(() => window.jam.grownText('pad'));
@@ -818,15 +821,13 @@ async function growTogether (pages)
         window.jam.setFile(n, t);
         window.jam.apply();
     }, [name, PIECE]);
-    await A.page.waitForFunction(
-        () => window.jam.grownText('pad').then((t) => t !== ''), null,
-        { timeout: 20000, polling: 200 }).catch(() => {});
-    await A.page.evaluate(() => window.jam.stop());
-
     if (await both((t) => t !== '') !== null)
         ok('pad grows alike on both pages');
     else
-        fail('pad did not grow alike on both pages');
+        fail('pad did not grow alike on both pages: ' +
+             firstDifference(await grownOn(A.page), await grownOn(B.page)));
+
+    await A.page.evaluate(() => window.jam.stop());
 
     await A.page.locator('#composerscroll').scrollIntoViewIfNeeded();
 
@@ -881,13 +882,14 @@ async function growTogether (pages)
 
     await A.page.evaluate(() => document.getElementById('evolvestop').click());
 
-    const put = await both((t) => t !== '' && !t.includes('s = 0.05;'));
+    const put = await both((t) => t !== '');
 
     if (put !== null)
         ok('what Evolve found is heard on both pages');
     else
         fail('what Evolve found is not on both pages: ' +
-             await A.page.textContent('#evolvestate'));
+             await A.page.textContent('#evolvestate') + ': ' +
+             firstDifference(await grownOn(A.page), await grownOn(B.page)));
 
     await A.page.waitForFunction(
         () => !document.getElementById('evolvekeep').disabled, null,

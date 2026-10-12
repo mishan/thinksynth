@@ -192,33 +192,38 @@
       <button id="apply" disabled>Apply</button>
     </div>
     <div id="editor"></div>
-    <!-- Evolve toward, as the solo page has it: the search in this
-         browser's workers, what it finds heard on every peer and then kept
-         into the document or discarded. -->
-  <fieldset id="evolve">
-    <legend>Evolve toward</legend>
-    <div class="row">
-      <label>Instrument <select id="evolvewhat" disabled></select></label>
-      <label>toward <select id="evolvetoward" disabled></select></label>
-      <input id="evolvesound" type="file" accept=".wav,audio/wav" hidden>
-      <select id="evolvehow" disabled>
-        <option value="0">Tune: its constants</option>
-        <option value="1">Tune and grow: its shape too</option>
-      </select>
-    </div>
-    <div class="row">
-      <button id="evolvego" disabled>Start</button>
-      <button id="evolvestop" disabled>Cancel</button>
-      <button id="evolvehear" disabled
-              title="Put the nearest graph found so far on the instrument's channel">Listen</button>
-      <button id="evolvekeep" disabled
-              title="Write the result into the piece as the instrument's dsp { }">Keep</button>
-      <button id="evolvedrop" disabled
-              title="Put back the graph the instrument had before the search">Discard</button>
-    </div>
-    <canvas id="evolveplot" width="320" height="80" hidden></canvas>
-    <div id="evolvestate" class="hint"></div>
-  </fieldset>
+  </details>
+
+  <!-- Evolve toward, as the solo page has it: the search in this
+       browser's workers, what it finds heard on every peer and then kept
+       into the document or discarded. -->
+  <details id="evolvebox"
+           data-pane data-pane-title="Evolve toward" data-pane-min="320">
+    <summary>Evolve toward</summary>
+    <fieldset id="evolve">
+      <legend>Evolve toward</legend>
+      <div class="row">
+        <label>Instrument <select id="evolvewhat" disabled></select></label>
+        <label>toward <select id="evolvetoward" disabled></select></label>
+        <input id="evolvesound" type="file" accept=".wav,audio/wav" hidden>
+        <select id="evolvehow" disabled>
+          <option value="0">Tune: its constants</option>
+          <option value="1">Tune and grow: its shape too</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="evolvego" disabled>Start</button>
+        <button id="evolvestop" disabled>Cancel</button>
+        <button id="evolvehear" disabled
+                title="Put the nearest graph found so far on the instrument's channel">Listen</button>
+        <button id="evolvekeep" disabled
+                title="Write the result into the piece as the instrument's dsp { }">Keep</button>
+        <button id="evolvedrop" disabled
+                title="Put back the graph the instrument had before the search">Discard</button>
+      </div>
+      <canvas id="evolveplot" width="320" height="80" hidden></canvas>
+      <div id="evolvestate" class="hint"></div>
+    </fieldset>
   </details>
 
   <!-- The .dsp canvas, over the document: the desktop's node editor, with

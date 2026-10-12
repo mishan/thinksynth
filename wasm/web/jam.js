@@ -164,7 +164,7 @@ let nodes = null;
  * things and catalogcheck.mjs holds them to it.
  */
 const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
-               'documentbox', 'nodeview', 'detail', 'chat'];
+               'documentbox', 'nodeview', 'evolvebox', 'detail', 'chat'];
 
 /* Where they go, the first time somebody opens a room in a window with
  * room to tile. Data, and this page's: panes.js knows how to divide a
