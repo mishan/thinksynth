@@ -1473,10 +1473,13 @@ body.tiled .panelrows
 
 /* The band (bandview.js): a card per player, colored by its role. */
 #players { display: grid; gap: 0.5rem;
-           grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); }
+           grid-template-columns:
+               repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); }
 .player
 {
     --role: var(--dim);
+    /* The role's color as text, far enough from the card's to read. */
+    --role-text: color-mix(in srgb, var(--role) 55%, var(--fg));
     display: grid;
     grid-template-columns: 8rem auto 1fr;
     grid-template-areas: "who who who" "pad octave moves" "pad octave takes";
@@ -1493,12 +1496,16 @@ body.tiled .panelrows
 .player.chords  { --role: #8f6fd6; }
 .player.melody  { --role: #2fae7a; }
 .player.texture { --role: #d98a3d; }
-.player.resting { opacity: 0.5; }
+/* Its controls kept readable: only what it plays is dimmed. */
+.player.resting .bandpad { opacity: 0.4; }
+.player.resting .bandpic { filter: grayscale(1) brightness(0.6); }
+.player .rest[aria-pressed="true"] { background: var(--fg);
+                                     color: var(--bg); }
 .player .who { grid-area: who; display: flex; flex-wrap: wrap;
                align-items: baseline; gap: 0 0.5rem; }
 .player .who b { font-size: 1.05rem; }
 .player .role, .player .sound, .player .idea { font-size: 0.8rem; }
-.player .role { color: var(--role); text-transform: uppercase;
+.player .role { color: var(--role-text); text-transform: uppercase;
                 letter-spacing: 0.05em; }
 .player .sound, .player .idea { color: var(--dim); }
 .player .octave { grid-area: octave; display: flex; flex-direction: column;
@@ -1507,14 +1514,16 @@ body.tiled .panelrows
                  gap: 0.3rem; }
 .player .takes { grid-area: takes; display: flex; gap: 0.2rem;
                  flex-wrap: wrap; }
-.player .takes button { min-width: 1.8rem; padding: 0 0.3rem; }
-.player .takes button.on { border-color: var(--role); color: var(--role);
+.player .takes button { min-width: 1.8rem; min-height: 24px;
+                        padding: 0 0.3rem; }
+.player .takes button.on { border-color: var(--role);
+                           color: var(--role-text);
                            font-weight: bold; }
 
 /* The player's own picture, as its plugin draws it: a grid to click, a
    board to paint. */
 .player .bandpic { grid-column: 1 / -1; display: block; width: 100%;
-                   border-radius: 4px; }
+                   border-radius: 4px; background: #14161a; }
 .player .bandpic.control { touch-action: none; }
 
 /* The pad: across calm to busy, up steady to wandering. */
@@ -1532,7 +1541,7 @@ body.tiled .panelrows
 .bandpad i
 {
     position: absolute;
-    font-size: 0.6rem;
+    font-size: 0.75rem;
     font-style: normal;
     color: var(--dim);
     pointer-events: none;
@@ -1566,6 +1575,7 @@ body.tiled .panelrows
 .player { position: relative; }
 .player select.sound { max-width: 12rem; font-size: 0.8rem; }
 .player .out { position: absolute; top: 0.2rem; right: 0.3rem;
+               min-width: 24px; min-height: 24px;
                padding: 0 0.4rem; border: 0; background: none;
                color: var(--dim); font-size: 1rem; }
 
@@ -1576,5 +1586,9 @@ body.tiled .panelrows
                      align-items: flex-start; min-width: 5rem;
                      padding: 0.2rem 0.6rem; border-radius: 6px; }
 .bandscenes .scene small { color: var(--dim); font-size: 0.7rem; }
-.bandscenes .scene.on { outline: 2px solid var(--held); }
+/* Darker than --held, for white to read on it in both themes. */
+.bandscenes .scene.on { --on: color-mix(in srgb, var(--held) 85%, #000);
+                        background: var(--on); border-color: var(--on);
+                        color: #fff; }
+.bandscenes .scene.on small { color: inherit; }
 .bandscenes .scene.add { justify-content: center; color: var(--dim); }
