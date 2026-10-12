@@ -243,9 +243,7 @@ target_link_options(thinkweb PRIVATE
 # suspend one on a promise (JSPI): the search waits on the page's listener
 # workers for each generation's scores (thinkweb.cpp, twScoreAll; evolve.js).
 # Its own module, so that the one every page plays through needs nothing a
-# browser without JSPI lacks; and not kept for offline use, which every
-# browser would download and only some can run -- offline, a search runs
-# the way it does without JSPI (host.js, evolve).
+# browser without JSPI lacks.
 add_executable(thinkevolve thinkweb.cpp)
 target_compile_definitions(thinkevolve PRIVATE TW_SCORE_ELSEWHERE)
 target_include_directories(thinkevolve PRIVATE ${THINKWEB_INCLUDES})
@@ -529,17 +527,20 @@ set(PRECACHE_FILES ${SITE_OUTPUTS})
 list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/thinkweb.js"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+    "${PROJECT_BINARY_DIR}/thinkevolve.js"
+    "${PROJECT_BINARY_DIR}/thinkevolve.wasm"
     "${PROJECT_BINARY_DIR}/dsp/index.json"
     "${PROJECT_BINARY_DIR}/gen/index.json"
     "${PROJECT_BINARY_DIR}/patches/index.json")
 list(JOIN PRECACHE_FILES "\n" precache_list)
 
-# What sw.js is rebuilt on is the same list less the .wasm, which the link
-# writes beside thinkweb.js without Ninja knowing it has a rule: named
-# here, a fresh tree stops with "no known rule to make it". thinkweb.js is
-# written by the same link, so depending on it covers both.
+# What sw.js is rebuilt on is the same list less the .wasm files, which
+# each link writes beside its .js without Ninja knowing it has a rule:
+# named here, a fresh tree stops with "no known rule to make it". The .js
+# is written by the same link, so depending on it covers both.
 set(PRECACHE_DEPENDS ${PRECACHE_FILES})
-list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm")
+list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+                                   "${PROJECT_BINARY_DIR}/thinkevolve.wasm")
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
      CONTENT "${precache_list}\n")
 
@@ -548,7 +549,7 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
             "${PROJECT_BINARY_DIR}"
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${PROJECT_BINARY_DIR}/precache.list"
-    DEPENDS ${PRECACHE_DEPENDS} thinkweb
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
             "${PROJECT_BINARY_DIR}/precache.list"
