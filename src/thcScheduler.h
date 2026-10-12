@@ -1592,10 +1592,10 @@ private:
            taken in order once it is in. */
         struct Queued
         {
-            bool shrink;
-            unsigned int choice;
+            bool shrink = false;
+            unsigned int choice = 0;
             std::string kinds, target;
-            int listen, tune, depth;
+            int listen = 0, tune = 0, depth = 0;
 
             /* Or a node-arg edit, for the graph the step makes: taken on
                it, as a host that grew at once took it. */
