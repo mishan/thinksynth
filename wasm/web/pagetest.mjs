@@ -3542,6 +3542,32 @@ try
               'New band asks before putting a changed piece away, and is ' +
               `a beat, a bass and keys: ${band}`);
 
+        /* The band's key: read back from its `key' scale, and a new one
+           moves every player but the drums there, step for step. */
+        const keyShown = await page.evaluate(() =>
+            `${document.getElementById('bandroot').selectedOptions[0].text} ` +
+            document.getElementById('bandmood').value);
+
+        await page.selectOption('#bandroot', { label: 'C' });
+        await until(text, (t) => /scale key "C3/.test(t));
+        await page.selectOption('#bandmood', 'bright');
+        const inC = await until(text,
+            (t) => /scale key "C3 D3 E3 F3 G3 A3 B3"/.test(t));
+
+        check(keyShown === 'A dark' &&
+              inC.includes('notes = "C4 E4 F4 G4 B4 C5 E5"') &&
+              inC.includes('notes = "C2 C2 G2"') &&
+              inC.includes('notes = "C2";') && inC.includes('notes = "D2";'),
+              `...its key reads ${keyShown}, and C bright moves the keys ` +
+              'and the bass there and leaves the drums');
+
+        await page.click('#bandadd');
+        await page.click('#bandgallery button[data-idea="Slow changes"]');
+        const chords = await until(text, (t) => /chain chords/.test(t));
+
+        check(/chain chords \{[^]*scale = key;/.test(chords),
+              '...and a chord player added names the key');
+
         await page.click('#bandadd');
         await page.click('#bandgallery button[data-idea="Game of Life"]');
         const added = await until(cards, (c) => c.includes('air:texture'));

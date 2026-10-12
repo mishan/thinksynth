@@ -3635,6 +3635,27 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_chains_json (void)
     return o.c_str();
 }
 
+/* The piece's scales as its text writes them: [{ name, notes }], the
+   notes without their quotes. What the band reads its key from. */
+static std::string scalesJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_scales_json (void)
+{
+    scalesJson_ = "[";
+
+    for (size_t i = 0; i < canvasDoc_.scales.size(); i++)
+    {
+        scalesJson_ += i == 0 ? "{\"name\":" : ",{\"name\":";
+        jsonString(scalesJson_, canvasDoc_.scales[i].name);
+        scalesJson_ += ",\"notes\":";
+        jsonString(scalesJson_, canvasDoc_.scales[i].notes);
+        scalesJson_ += "}";
+    }
+
+    scalesJson_ += "]";
+    return scalesJson_.c_str();
+}
+
 /* What the transport is running at, in beats per minute. The piece's own
    `tempo' after a load, and whatever a tempo command has since made it. */
 EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
@@ -6173,6 +6194,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   stage       CHAIN STAGE CATEGORY PLUGIN [k=v ...]
  *   unchain     NAME
  *   uninstrument NAME        -- unless a chain still plays it
+ *   param       CHAIN STAGE ROW VALUE   -- STAGE in the document's order
+ *   scale       NAME NOTES   -- set, or added when there is none
  *
  * Values as the file would write them. "" when one was refused. */
 /* Why the last tw_gen_ops wrote nothing. */
@@ -6242,6 +6265,16 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                                              values(f, 5), why);
                 else if (f[0] == "unchain" && f.size() >= 2)
                     r = thcGenEdit::removeChain(path, f[1], why);
+                else if (f[0] == "param" && f.size() >= 5)
+                    r = thcGenEdit::setParam(path, f[1], atoi(f[2].c_str()),
+                                             f[3], f[4], why);
+                else if (f[0] == "scale" && f.size() >= 3)
+                {
+                    r = thcGenEdit::setScale(path, f[1], f[2], why);
+
+                    if (r == thcGenEdit::NOT_FOUND)
+                        r = thcGenEdit::addScale(path, f[1], f[2], why);
+                }
                 else if (f[0] == "uninstrument" && f.size() >= 2)
                 {
                     r = thcGenEdit::removeInstrument(path, f[1], why);

@@ -14,8 +14,9 @@
 
 /* What a band's player can be started from: per role, an idea -- a chain
  * with the stages that make it that idea -- and the sound it is first
- * heard on. Everything here is in A minor, the key a new band is in until
- * it has a key of its own to follow.
+ * heard on. Its notes are written in A minor, where a band starts
+ * (bandkey.js, START), and moved to the band's key when it is added; a
+ * chord player names the band's `key' scale and follows it.
  *
  * An idea becomes edits of the piece's text (thinkweb.cpp, tw_gen_ops):
  * an instrument, and a chain playing it.
@@ -29,7 +30,6 @@ const KEY = {
     bass: '"A1 C2 D2 E2 G2"',
     mid: '"A3 C4 D4 E4 G4 A4 C5"',
     high: '"A4 C5 D5 E5 G5 A5 C6 D6"',
-    scale: '"A3 B3 C4 D4 E4 F4 G4"',
 };
 
 export const IDEAS = {
@@ -86,19 +86,19 @@ export const IDEAS = {
     chords: [
         { call: 'chords', name: 'Slow changes',
           say: 'a chord every two bars', sound: 'strings.dsp', amp: '20',
-          stages: [['gen', 'progression', { scale: KEY.scale,
+          stages: [['gen', 'progression', { scale: 'key',
                                             every: '8 beats',
                                             hold: '7.8 beats', vel: '72',
                                             phrase: '4' }],
-                   ['xform', 'harmonize', { scale: KEY.scale,
+                   ['xform', 'harmonize', { scale: 'key',
                                             voices: '3', step: '2' }]] },
         { call: 'chords', name: 'Pulsing chords',
           say: 'a chord on every other beat', sound: 'juno.dsp', amp: '20',
-          stages: [['gen', 'progression', { scale: KEY.scale,
+          stages: [['gen', 'progression', { scale: 'key',
                                             every: '2 beats',
                                             hold: '1.5 beats', vel: '72',
                                             phrase: '4' }],
-                   ['xform', 'harmonize', { scale: KEY.scale,
+                   ['xform', 'harmonize', { scale: 'key',
                                             voices: '3', step: '2' }]] },
     ],
     melody: [
@@ -190,7 +190,8 @@ export function removeOps (chain, instrument)
 
 /* What a new band starts as: a beat, a bass and keys. */
 export const NEW_BAND = {
-    text: 'name "A new band";\ntempo 100;\n',
+    text: 'name "A new band";\ntempo 100;\n' +
+          'scale key "A3 B3 C4 D4 E4 F4 G4";\n',
     ideas: [['drums', 'Four on the floor'], ['drums', 'Backbeat'],
             ['drums', 'Eighth hats'], ['bass', 'Root pulse'],
             ['melody', 'Tape loops']],
