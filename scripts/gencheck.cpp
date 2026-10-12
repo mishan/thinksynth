@@ -12467,6 +12467,79 @@ checkChainSeed (const std::map<std::string, thcPlugin *> &plugins,
                  "  seed 3;\n};\n", "seed after sink");
 }
 
+/* Instruments written by the editor: one added above the chains of a piece
+ * that had none, a second after it, a chain playing it, and each step a
+ * file that loads -- taking one out refused while a chain plays it.
+ */
+static void
+checkInstrumentEdits (const std::map<std::string, thcPlugin *> &plugins,
+                      thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-instruments-");
+    std::string why;
+    auto loads = [&](const char *what)
+    {
+        if (renderBody(plugins, synth, "instruments", slurp(path), 1).empty())
+            fail(std::string("after ") + what + " the piece did not play");
+    };
+    auto names = [&](void)
+    {
+        thcGenEdit::Doc d;
+        std::string w, out;
+
+        if (thcGenEdit::describe(path, d, w) == thcGenEdit::OK)
+            for (const auto &in : d.instruments)
+                out += in.name + "=" + in.dsp + " ";
+
+        return out;
+    };
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "tempo 120;\nchain a {\n  stage src gen::euclid { steps = 4; "
+               "fills = 2; notes = \"C4\"; period = 0.25 s; };\n"
+               "  sink { channel = 1; };\n};\n";
+    }
+
+    const std::vector<std::pair<std::string, std::string> > level = {
+        { "amp", "20" } };
+
+    if (thcGenEdit::addInstrument(path, "lead", "organ0.dsp", level, why) !=
+            thcGenEdit::OK ||
+        thcGenEdit::addInstrument(path, "pad", "amb01.dsp", {}, why) !=
+            thcGenEdit::OK ||
+        names() != "lead=organ0.dsp pad=amb01.dsp ")
+        fail("the editor would not add two instruments in order: " + why +
+             " " + names());
+
+    loads("adding instruments");
+
+    if (thcGenEdit::addInstrument(path, "lead", "amb01.dsp", {}, why) !=
+        thcGenEdit::REFUSED)
+        fail("the editor added a second instrument called lead");
+
+    if (thcGenEdit::addChain(path, "tune", 0, "lead", "src", "gen", "euclid",
+                             { { "steps", "4" }, { "fills", "1" },
+                               { "notes", "\"E4\"" } }, why) !=
+        thcGenEdit::OK)
+        fail("a chain could not be added on the new instrument: " + why);
+
+    loads("a chain on it");
+
+    if (thcGenEdit::removeInstrument(path, "lead", why) !=
+        thcGenEdit::REFUSED)
+        fail("an instrument a chain plays was taken out");
+
+    if (thcGenEdit::removeChain(path, "tune", why) != thcGenEdit::OK ||
+        thcGenEdit::removeInstrument(path, "lead", why) != thcGenEdit::OK ||
+        names() != "pad=amb01.dsp ")
+        fail("the editor would not take an instrument out: " + why);
+
+    loads("taking it out");
+    std::filesystem::remove(path);
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -14722,6 +14795,7 @@ main (int argc, char *argv[])
         checkProbes(plugins, &synth);
         checkChainStart(plugins, &synth);
         checkChainSeed(plugins, &synth);
+        checkInstrumentEdits(plugins, &synth);
         checkRun(plugins, &synth);
         checkVariation(plugins, &synth);
         checkCloud(plugins, &synth);

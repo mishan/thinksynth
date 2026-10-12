@@ -3133,6 +3133,122 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
     return finish(filename, text, edits, why);
 }
 
+/* `instrument name { dsp "file"; value = ...; };' after the piece's last
+ * instrument, or above its first chain when it has none -- where a reader
+ * looks for what the chains play.
+ */
+R
+thcGenEdit::addInstrument (const std::string &filename,
+                           const std::string &name, const std::string &dsp,
+                           const std::vector<std::pair<std::string,
+                               std::string> > &values,
+                           std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (dsp.empty() || dsp.find_first_of("\"\\\n") != std::string::npos)
+    {
+        why = "'" + dsp + "' is not a graph's file name";
+        return UNWRITABLE;
+    }
+
+    if (!validParams(values, why))
+        return UNWRITABLE;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    for (const InstrumentIdx &in : ix.instruments)
+        if (in.name == name)
+        {
+            why = "there is already an instrument called " + name;
+            return REFUSED;
+        }
+
+    std::string stmt = "instrument " + name + " { dsp \"" + dsp + "\";";
+
+    for (const auto &v : values)
+        stmt += " " + v.first + " = " + v.second + ";";
+
+    stmt += " };";
+
+    std::vector<Edit> edits;
+
+    if (!ix.instruments.empty())
+    {
+        const size_t at = ix.instruments.back().stmtB;
+
+        edits.push_back({ at, at, "\n" + stmt });
+    }
+    else
+    {
+        size_t at = ix.firstChainOff;
+
+        if (at == std::string::npos)
+        {
+            if (!text.empty() && text[text.size() - 1] != '\n')
+                text += "\n";
+
+            at = text.size();
+        }
+        else
+            at = lineStartOf(text, at);
+
+        edits.push_back({ at, at, stmt + "\n\n" });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* Refused while a sink plays it: a sink naming an instrument that is not
+   there is a file that does not load. */
+R
+thcGenEdit::removeInstrument (const std::string &filename,
+                              const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const InstrumentIdx *found = NULL;
+
+    for (const InstrumentIdx &in : ix.instruments)
+        if (in.name == name)
+            found = &in;
+
+    if (found == NULL)
+    {
+        why = "no instrument called " + name;
+        return NOT_FOUND;
+    }
+
+    for (const ChainIdx &c : ix.chains)
+        for (const SinkIdx &k : c.sinks)
+            if (k.instrument == name)
+            {
+                why = "chain " + c.name + " plays " + name +
+                      "; take it out first";
+                return REFUSED;
+            }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, found->stmtA, found->stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
 R
 thcGenEdit::removeChain (const std::string &filename, const std::string &name,
                          std::string &why)
