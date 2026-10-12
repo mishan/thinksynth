@@ -1866,8 +1866,10 @@ try
            loads; then taken back while it plays, as an edit, which does
            not start the piece again from the top. */
         {
+            /* What the menu shows is what the piece playing says. */
             const has = (fx) => page.waitForFunction(
-                (f) => window.solo.genText().includes(f), fx,
+                (f) => document.getElementById('pieceeffect').value === f &&
+                       window.solo.genText().includes(`"${f}"`), fx,
                 { timeout: 30000 }).then(() => true, () => false);
             const clock = () => page.$eval('#clock', (c) =>
             {
@@ -1889,6 +1891,9 @@ try
 
             await page.click('#undo');
             const live = await has('fx/glue.dsp');
+
+            /* Long enough for a load's rewind to have shown on the clock. */
+            await page.waitForTimeout(1000);
             const after = await clock();
 
             await page.click('#stop');
@@ -1926,18 +1931,17 @@ try
             await page.setInputFiles('#openfile', {
                 name: 'mine.gen', mimeType: 'text/plain',
                 buffer: Buffer.from(mine) });
-            await page.waitForFunction(
-                (t) => window.solo.genText() === t, mine, { timeout: 30000 })
-                .catch(() => {});
             await page.evaluate(() => window.solo.settled());
 
             const opened = await page.evaluate(() => window.solo.genText());
             const shown = await page.$eval('#piece', (m) =>
                 m.selectedOptions[0]?.textContent);
+            const fresh = await page.$eval('#undo', (b) => b.disabled);
 
-            check(saved === text && opened === mine && shown === 'mine.gen',
+            check(saved === text && opened === mine && shown === 'mine.gen' &&
+                  fresh,
                   'Save downloads the piece\'s text and Open loads a file ' +
-                  `as the piece: menu says ${shown}`);
+                  `as the piece, with nothing to undo: menu says ${shown}`);
 
             await page.selectOption('#piece', was);
             await page.evaluate(() => window.solo.settled());

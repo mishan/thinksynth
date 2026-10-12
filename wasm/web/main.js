@@ -1116,8 +1116,8 @@ let loadedText = '';
 const UNDO_KEEP = 200;
 const UNDO_JOIN_MS = 1000;
 
-const histories = { seq: { past: [], future: [], at: 0 },
-                    piece: { past: [], future: [], at: 0 } };
+const histories = { seq: { past: [], future: [], at: 0, join: null },
+                    piece: { past: [], future: [], at: 0, join: null } };
 let undoing = false;
 
 function history ()
@@ -1125,9 +1125,9 @@ function history ()
     return histories[textMode] ?? null;
 }
 
-/* What the piece is now, and the one before it unless `join' says this
-   continues the edit that made that one. */
-function setLoaded (text, join = false)
+/* What the piece is now, and the one before it unless this continues the
+   edit that made that one: the same `join', a second or less later. */
+function setLoaded (text, join = null)
 {
     loadedText = text;
 
@@ -1138,12 +1138,14 @@ function setLoaded (text, join = false)
 
     const now = performance.now();
 
-    if (join && now - h.at < UNDO_JOIN_MS && h.past.length > 1)
+    if (join !== null && join === h.join && now - h.at < UNDO_JOIN_MS &&
+        h.past.length > 1)
         h.past[h.past.length - 1] = text;
     else
         h.past.push(text);
 
-    h.at = join ? now : 0;
+    h.at = now;
+    h.join = join;
     h.past.splice(0, h.past.length - UNDO_KEEP);
     h.future = [];
     showUndo();
@@ -1155,7 +1157,7 @@ function forgetHistory ()
     const h = history();
 
     if (h !== null)
-        Object.assign(h, { past: [], future: [], at: 0 });
+        Object.assign(h, { past: [], future: [], at: 0, join: null });
 
     showUndo();
 }
@@ -1173,21 +1175,28 @@ async function undo (back)
 {
     const h = history();
 
-    if (h === null || loading > 0 ||
+    if (h === null || playsPatch() || undoing || loading > 0 ||
         (back ? h.past.length < 2 : h.future.length === 0))
         return;
 
-    if (back)
-        h.future.push(h.past.pop());
-    else
-        h.past.push(h.future.pop());
+    /* What was typed and never loaded is in no list, and would be lost. */
+    if ($('gen').value !== loadedText)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before undoing.', true);
+        return;
+    }
 
-    h.at = 0;
+    const step = (from, to) => to.push(from.pop());
+
+    step(back ? h.past : h.future, back ? h.future : h.past);
+    h.join = null;
     undoing = true;
 
     try
     {
-        await applyText(h.past.at(-1));
+        if (!(await applyText(h.past.at(-1))))
+            step(back ? h.future : h.past, back ? h.past : h.future);
     }
     finally
     {
@@ -1203,8 +1212,20 @@ async function undo (back)
  * step is not a restart from the top. Stopped, as a load.
  */
 let editTie = 0;
-const editsWaiting = new Map();      /* tie -> { text, resolve } */
+const editsWaiting = new Map();      /* tie -> { text, was, resolve } */
+let editing = Promise.resolve(true); /* the latest, for settled() */
 
+/* Every edit still waiting, given up: a load replaces the piece it was
+   for, and the module drops what it had queued with it (tw_piece_load). */
+function dropEdits ()
+{
+    for (const e of editsWaiting.values())
+        e.resolve(false);
+
+    editsWaiting.clear();
+}
+
+/* Resolves to whether the text went in. */
 async function applyText (text)
 {
     $('gen').value = text;
@@ -1212,20 +1233,29 @@ async function applyText (text)
     if (lastTape?.running !== true || piece === null || loading > 0)
     {
         await loadPiece();
-        return;
+        return piece !== null;
     }
 
     const tie = ++editTie;
-    const done = new Promise((resolve) =>
-        editsWaiting.set(tie, { text, resolve }));
+    const was = loadedText;
 
+    /* The piece's from now, so that a control writing into it meanwhile
+       writes into this text; put back if the edit is refused. */
+    loadedText = text;
+    editing = new Promise((resolve) =>
+        editsWaiting.set(tie, { text, was, resolve }));
     synth.edit(-1, text, {}, tie);
-    await done;
+
+    return editing;
 }
 
-/* An edit has gone in, or been refused: the piece is what it now says. */
-function edited (m)
+/* An edit has gone in, or been refused: the piece is what it now says.
+   Not while a load is replacing it -- this would be about the old one. */
+async function edited (m)
 {
+    if (loading > 0)
+        return;
+
     for (const { tie, went } of m.results ?? [])
     {
         const e = editsWaiting.get(tie);
@@ -1237,19 +1267,35 @@ function edited (m)
 
         if (went)
             setLoaded(e.text);
+        else
+        {
+            loadedText = e.was;
 
-        e.resolve();
+            if ($('gen').value === e.text)
+                $('gen').value = e.was;
+
+            status('That edit did not go in; the piece is as it was.', true);
+        }
+
+        e.resolve(went);
     }
 
     if (m.errors.length > 0)
     {
-        status('That edit did not go in whole; see below.', true);
         m.errors.forEach(log);
         seeBelow();
     }
 
     piece = m;
-    followPiece();
+
+    /* A sink the edit added may name a channel nothing is on yet. */
+    const aiming = await patch.aim(
+        synth, m.sinks, mode() === 'seq'
+            ? new Map([...sequenceVoices(), ...aimed]) : aimed);
+
+    placed = aiming.placed;
+    aiming.failed.forEach(log);
+    await followPiece();
 }
 
 /* ---- the file ---- */
@@ -1268,16 +1314,19 @@ function savePiece ()
 }
 
 /* A .gen from disk, as a piece: the piece menu says which file it was
-   until another is chosen. */
-async function openPiece ()
+   until another is chosen. A choice in flight, as pickPiece's is. */
+function openPiece ()
 {
     const file = $('openfile').files[0];
 
     $('openfile').value = '';
 
-    if (file === undefined)
-        return;
+    if (file !== undefined)
+        picking = openFile(file).catch(() => {});
+}
 
+async function openFile (file)
+{
     const text = await file.text();
 
     if (mode() !== 'piece')
@@ -1456,13 +1505,14 @@ async function setTempo ()
  * copy of the piece: into the box as well, which is what a Load, a mode
  * switch and a Save read. On the tempo's terms -- only while the box still
  * holds what was loaded, or the edit is live and the text is theirs. */
-function paramsEdited ({ piece: text })
+function paramsEdited ({ piece: text, edits })
 {
     if (text === '' || $('gen').value !== loadedText)
         return;
 
     $('gen').value = text;
-    setLoaded(text, true);
+    setLoaded(text, (edits ?? []).map((e) =>
+        `${e.chainName}/${e.docStage}/${e.row}`).join(' '));
 }
 
 /* A stage box dropped elsewhere in its chain on the canvas: the box's text
@@ -1691,6 +1741,7 @@ async function loadPiece ()
     /* What the box held when this load took it. A tempo change writes the
        statement back into the text, and it may only do that to a document
        nobody has since typed into -- see showTempo. */
+    dropEdits();
     setLoaded($('gen').value);
 
     /* The mirror answers the load before the aiming is done, and the
@@ -3395,15 +3446,18 @@ window.solo = {
        worklet and land after the load that quiet tracks is finished. */
     settled: async () =>
     {
-        for (let was = null, drew = null, chose = null;
-             was !== quiet || drew !== drawn || chose !== picking; )
+        for (let was = null, drew = null, chose = null, ed = null;
+             was !== quiet || drew !== drawn || chose !== picking ||
+             ed !== editing; )
         {
             was = quiet;
             drew = drawn;
             chose = picking;
+            ed = editing;
 
             await picking;
             await quiet;
+            await editing;
             await drawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
         }
