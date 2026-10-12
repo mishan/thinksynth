@@ -333,8 +333,8 @@ endif()
 # Flatpak module, a packager's build) and otherwise it is fetched at a pinned
 # commit and built static into the program, the same as RtAudio: nothing new
 # to bundle on macOS or Windows and nothing missing from the Linux tarball.
-set(THINK_MULLION_VERSION 0.1.0)
-set(THINK_MULLION_VERSION_TAG 1349279d9f259235bc66847024b81b1c97e28ce9) # v0.1.0
+set(THINK_MULLION_VERSION 0.3.0)
+set(THINK_MULLION_VERSION_TAG c7e2991d4af32b8870e85f916a0fcc6ed64ec5d1) # v0.3.0
 
 option(THINK_FETCH_MULLION "Always build mullion-gtk from source" OFF)
 
