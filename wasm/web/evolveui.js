@@ -33,6 +33,46 @@
 
 const $ = (id) => document.getElementById(id);
 
+/* How near a search has come, over its seconds so far: a step line,
+   nearer higher. `run' is { trail: [[seconds, distance]], done, began }. */
+export function drawTrail (canvas, run)
+{
+    const trail = run?.trail ?? [];
+    const cx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height, pad = 6;
+
+    canvas.hidden = trail.length === 0;
+    cx.fillStyle = '#14161a';
+    cx.fillRect(0, 0, w, h);
+
+    if (trail.length === 0)
+        return;
+
+    const end = Math.max(run.done ? trail[trail.length - 1][0]
+                         : (performance.now() - run.began) / 1000, 1);
+    const ds = trail.map((p) => p[1]);
+    const lo = Math.min(...ds);
+    const range = Math.max(Math.max(...ds) - lo, 0.5);
+    const x = (t) => pad + t / end * (w - 2 * pad);
+    const y = (d) => pad + (d - lo) / range * (h - 2 * pad);
+    let held = trail[0][1];
+
+    cx.beginPath();
+    cx.moveTo(x(0), y(held));
+
+    for (const [t, d] of trail)
+    {
+        cx.lineTo(x(t), y(held));
+        cx.lineTo(x(t), y(d));
+        held = d;
+    }
+
+    cx.lineTo(x(end), y(held));
+    cx.strokeStyle = '#59a6ff';
+    cx.lineWidth = 1.5;
+    cx.stroke();
+}
+
 export function createEvolve ({ synth, piece, loading, put, keep,
                                 mayChange = () => true })
 {
@@ -103,45 +143,7 @@ export function createEvolve ({ synth, piece, loading, put, keep,
         buttons();
     }
 
-    function draw ()
-    {
-        const canvas = $('evolveplot');
-        const trail = evolving?.trail ?? [];
-        const cx = canvas.getContext('2d');
-        const w = canvas.width, h = canvas.height, pad = 6;
-
-        canvas.hidden = trail.length === 0;
-        cx.fillStyle = '#14161a';
-        cx.fillRect(0, 0, w, h);
-
-        if (trail.length === 0)
-            return;
-
-        const end = Math.max(evolving.done ? trail[trail.length - 1][0]
-                             : (performance.now() - evolving.began) / 1000,
-                             1);
-        const ds = trail.map((p) => p[1]);
-        const lo = Math.min(...ds);
-        const range = Math.max(Math.max(...ds) - lo, 0.5);
-        const x = (t) => pad + t / end * (w - 2 * pad);
-        const y = (d) => pad + (d - lo) / range * (h - 2 * pad);
-        let held = trail[0][1];
-
-        cx.beginPath();
-        cx.moveTo(x(0), y(held));
-
-        for (const [t, d] of trail)
-        {
-            cx.lineTo(x(t), y(held));
-            cx.lineTo(x(t), y(d));
-            held = d;
-        }
-
-        cx.lineTo(x(end), y(held));
-        cx.strokeStyle = '#59a6ff';
-        cx.lineWidth = 1.5;
-        cx.stroke();
-    }
+    const draw = () => drawTrail($('evolveplot'), evolving);
 
     /* `found' on the instrument's channel, in place of what this search
        put there last; `strict', as Listen is, refused once the channel has

@@ -151,6 +151,7 @@ export async function createSynth (ctx, { windowlen = 128,
        sent before it has been handled. */
     const waiting = new Map();
     const tried = new Map();        /* tag -> resolve, see tried()        */
+    const growing = new Map();      /* id -> resolve, see grow()          */
     let nextId = 0;
     let ready, failed;
     const isReady = new Promise((resolve, reject) =>
@@ -288,6 +289,11 @@ export async function createSynth (ctx, { windowlen = 128,
         {
             if (e.data.type === 'grown')
                 node.port.postMessage(e.data);
+            else if (e.data.type === 'grownnow')
+            {
+                growing.get(e.data.id)?.(e.data);
+                growing.delete(e.data.id);
+            }
             else if (e.data.type === 'hear')
                 hear('mirror', e.data.ask);
             else
@@ -684,6 +690,30 @@ export async function createSynth (ctx, { windowlen = 128,
            at a transport time or -1 for the next window, in both realms. */
         growBack: ({ at = -1, channel, depth, rev }) =>
             post({ type: 'growback', at, channel, depth, rev }),
+
+        /* Up to `want' edits of `text', the graph `base' was before any,
+           of the kinds `kinds' names, picked by `choice' (NodeMutate::grow):
+           made in the mirror, which composes and has time for it. Resolves
+           to { grown, what, why }, `grown' and `what' as lists. */
+        grow: (text, base, choice, kinds, want = 1) =>
+            new Promise((resolve) =>
+            {
+                const split = (s) => (s === '' ? [] : s.split('\x1e'));
+
+                if (mirror === null)
+                {
+                    resolve({ grown: [], what: [], why: 'nothing to grow in' });
+                    return;
+                }
+
+                const id = nextId++;
+
+                growing.set(id, (m) => resolve({ grown: split(m.grown),
+                                                 what: split(m.what),
+                                                 why: m.why }));
+                mirror.postMessage({ type: 'grownow', id, text, base, choice,
+                                     kinds, want });
+            }),
 
         /* Where a search of `instrument' toward `toward' -- an instrument,
            or '' for a recording -- starts, as the worklet plays it

@@ -579,6 +579,28 @@ function receive (m)
             break;
         }
 
+        /* One for the page itself: an edit of a patch, asked for by hand
+           (growui.js). */
+        case 'grownow':
+        {
+            let r;
+
+            /* Answered whatever happens: the page waits on it. */
+            try
+            {
+                r = JSON.parse(M.ccall('tw_grow', 'string',
+                    ['string', 'string', 'number', 'string', 'number'],
+                    [m.text, m.base, m.choice, m.kinds, m.want]));
+            }
+            catch (e)
+            {
+                r = { grown: '', what: '', why: String(e) };
+            }
+
+            postMessage({ type: 'grownnow', id: m.id, ...r });
+            break;
+        }
+
         /* What the ear worker heard for this instance's scheduler. */
         case 'heard':
             M.ccall('tw_ear_answer', null,

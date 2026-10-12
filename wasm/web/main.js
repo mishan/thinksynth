@@ -64,6 +64,7 @@
 
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
+import { createGrow } from './growui.js';
 import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { micAvailable, openMic } from './mic.js';
@@ -134,10 +135,10 @@ const VELOCITY = 100;
  */
 const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
                'paramview', 'nodeview', 'keyboard', 'patchsource',
-               'piecesource', 'detail', 'packs'];
+               'growview', 'piecesource', 'detail', 'packs'];
 
 /* Which of them belong to which mode. Everything not named here is in
-   all three -- the keys, the parameters, the graph, the numbers.
+   all of them -- the keys, the parameters, the graph, the numbers.
 
    A sequence is a piece the page wrote, so its panes are a subset of the
    piece's: the tracks, the roll, the channels they are heard on, and the
@@ -148,11 +149,12 @@ const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
                      'channelbox', 'piecesource'];
 const SEQ_PANES = ['roll', 'seqview', 'channelbox', 'piecesource'];
 const PATCH_PANES = ['patchsource'];
+const GROW_PANES = ['patchsource', 'growview'];
 
-/* What each mode makes unavailable: every pane of the other two that is
-   not also one of its own. */
+/* What each mode makes unavailable: every pane of the others that is not
+   also one of its own. */
 const modePanes = {
-    seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES,
+    seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES, grow: GROW_PANES,
 };
 
 /* Where they go, the first time somebody opens this page in a window
@@ -177,6 +179,19 @@ const PATCH_LAYOUT = {
         { dir: 'col', size: [0.44, 0.38, 0.18], kids: [
             { tabs: ['paramview'] },
             { tabs: ['patchsource'] },
+            { tabs: ['detail'] }] }],
+};
+
+/* A patch growing opens on its list beside the keys, with its graph over
+   them: what it is now, how it got there, and something to play it on. */
+const GROW_LAYOUT = {
+    dir: 'row', size: [0.58, 0.42], kids: [
+        { dir: 'col', size: [0.64, 0.36], kids: [
+            { tabs: ['nodeview'] },
+            { tabs: ['keyboard'] }] },
+        { dir: 'col', size: [0.5, 0.3, 0.2], kids: [
+            { tabs: ['growview'] },
+            { tabs: ['paramview', 'patchsource'] },
             { tabs: ['detail'] }] }],
 };
 
@@ -247,6 +262,10 @@ const phoneLayouts = (keys = keysShare()) => ({
         { tabs: ['paramview', 'nodeview'] },
         { tabs: ['keyboard'] }] },
 
+    grow: { dir: 'col', size: [1 - keys, keys], kids: [
+        { tabs: ['growview', 'paramview', 'nodeview'] },
+        { tabs: ['keyboard'] }] },
+
     /* The tracks are what the sequence is for; the keys are a tab. */
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
 
@@ -263,6 +282,7 @@ const SIDEWAYS = '(max-height: 30em)';
 
 const SIDEWAYS_LAYOUTS = {
     patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
+    grow: { tabs: ['growview', 'keyboard', 'paramview', 'nodeview'] },
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
     piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'channelbox',
                     'paramview'] },
@@ -283,7 +303,7 @@ function tile (phone, forced)
     /* The mode's own panes up before the tiler reads the markup, or a
        leaf of tabs opens on the first pane that was: the keys, ahead of
        a sequence's tracks on a phone. panesFor keeps it so after. */
-    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+    for (const id of new Set(Object.values(modePanes).flat()))
         $(id).toggleAttribute('data-pane-off', !mine.has(id));
 
     panes = createPanes({
@@ -292,8 +312,8 @@ function tile (phone, forced)
              : phone ? 'thinksynth:panes:touch' : 'thinksynth:panes:solo',
         layouts: sideways ? SIDEWAYS_LAYOUTS
                : phone ? phoneLayouts()
-               : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
-                   seq: SEQ_LAYOUT },
+               : { patch: PATCH_LAYOUT, grow: GROW_LAYOUT,
+                   piece: PIECE_LAYOUT, seq: SEQ_LAYOUT },
 
         /* A way back to the mode's layout that needs no Alt 0: a phone
            has no keys to press it with, and on a desktop it is a chord
@@ -534,6 +554,13 @@ function mode ()
     return $('mode').value;
 }
 
+/* A patch on its own channel, growing or not: everything patch mode does,
+   a growing patch does too. */
+function playsPatch ()
+{
+    return mode() === 'patch' || mode() === 'grow';
+}
+
 /* What the piece says about itself: shown when a piece is what is
    playing and it says anything at all.
  *
@@ -556,7 +583,7 @@ function keyChannel ()
    choosing one is about that rather than about which it is. */
 function composing ()
 {
-    return mode() !== 'patch';
+    return !playsPatch();
 }
 
 /* ---- what is sounding ---- */
@@ -808,7 +835,7 @@ const LIVE = /\bionode->live\d/;
    the other two the ones the page aimed and the ones the piece names. */
 async function textsInPlay ()
 {
-    if (mode() === 'patch')
+    if (playsPatch())
         return [$('dsp').value];
 
     const names = new Set();
@@ -1015,6 +1042,9 @@ async function loadPatch ()
     status(ok ? `Loaded ${$('patch').value}. Play.`
               : 'That .dsp did not parse; see below.', !ok);
 
+    if (ok && mode() === 'grow')
+        grow.loaded($('dsp').value);
+
     showLiveIn();
 
     if (!ok)
@@ -1032,6 +1062,7 @@ async function pickPatch ()
         $('dsp').value =
             await (await fetch(`dsp/${$('patch').value}`)).text();
 
+        grow.reset($('dsp').value);
         showNodes();
 
         /* Before Start too: a pack can be downloaded ahead of playing. */
@@ -1044,6 +1075,24 @@ async function pickPatch ()
 
     await run;
 }
+
+/* A patch, growing (growui.js). The row chosen is the patch source's
+   text, loaded as the box's Load edits loads it. */
+const grow = createGrow({
+    synth: () => synth,
+    name: () => $('patch').value,
+    setGraph: async (text) =>
+    {
+        $('dsp').value = text;
+        await loadPatch();
+        nodeFileChanged($('patch').value);
+    },
+    hear: (text) => quietly(() => synth.load(text)),
+    targets: () => playableDsps(),
+    targetText: async (name) =>
+        dspTexts[name] ?? (await fetch(`dsp/${name}`)).text(),
+    status,
+});
 
 /* ---- the tempo ---- */
 
@@ -2169,7 +2218,7 @@ let params = null;
  * just aimed a .patch at channel 4 is the person who wants its cutoff. */
 function paramChannels ()
 {
-    return mode() === 'patch' ? [PATCH_CHANNEL] : touched();
+    return playsPatch() ? [PATCH_CHANNEL] : touched();
 }
 
 /* The channel selector, kept to what is there, keeping its choice if that
@@ -2596,6 +2645,7 @@ async function start ()
     $('load').disabled = false;
     $('loadpiece').disabled = false;
     $('exportmidi').disabled = false;
+    grow.buttons();
 
     /* What the shipped patches are presets over, on its way. Not awaited:
        nothing on screen is waiting for it, and the panel that offers them
@@ -2615,7 +2665,7 @@ async function start ()
 
     if (mode() === 'seq')
         await loadSequence();
-    else if (mode() === 'patch')
+    else if (playsPatch())
         await loadPatch();
     else
         await loadPieceMode();
@@ -2769,7 +2819,7 @@ function nodeFileChanged (name)
 const nodeFiles = {
     names: () =>
     {
-        if (mode() === 'patch')
+        if (playsPatch())
             return $('patch').value === '' ? [] : [$('patch').value];
 
         /* The .dsp each of the piece's instruments plays: what there is
@@ -2779,12 +2829,12 @@ const nodeFiles = {
             .filter((n) => n !== '' && dspTexts[n] !== undefined))];
     },
 
-    read: (name) => (mode() === 'patch' ? $('dsp').value
+    read: (name) => (playsPatch() ? $('dsp').value
                                         : dspTexts[name] ?? ''),
 
     write: (name, next) =>
     {
-        if (mode() === 'patch')
+        if (playsPatch())
         {
             /* Assigning to .value fires nothing, so the `input' listener
                below -- the only thing watching in patch mode -- never
@@ -2818,7 +2868,7 @@ const nodeFiles = {
 
         who.add(onChange);
 
-        if (mode() === 'patch')
+        if (playsPatch())
             $('dsp').addEventListener('input', onChange);
 
         return () =>
@@ -2834,7 +2884,7 @@ const nodeFiles = {
    piece says. */
 function nodeChannel ()
 {
-    if (mode() === 'patch')
+    if (playsPatch())
         return PATCH_CHANNEL;
 
     return piece?.instruments?.find(
@@ -3243,7 +3293,7 @@ function panesFor (which)
 {
     const mine = new Set(modePanes[which] ?? []);
 
-    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+    for (const id of new Set(Object.values(modePanes).flat()))
         panes.available(id, mine.has(id));
 
     panes.mode(which);
@@ -3263,13 +3313,20 @@ async function pickMode ()
     /* The chrome each mode has: what to play, and the transport. What
        the piece section used to wrap are panes of their own now, and
        panesFor's. */
-    $('patchmode').hidden = which !== 'patch';
+    $('patchmode').hidden = !playsPatch();
     $('piecemode').hidden = which !== 'piece';
-    $('transport').hidden = which === 'patch';
+    $('transport').hidden = playsPatch();
     showAbout();
 
     panesFor(which);
     showLiveIn();
+
+    /* The list outlives a visit to another mode, and its search does not:
+       what a search finds goes onto the patch's channel. */
+    if (which !== 'grow')
+        grow.stop();
+    else if (!grow.started())
+        grow.reset($('dsp').value);
 
     if (synth === null)
         return;
@@ -3457,6 +3514,7 @@ async function init ()
        quantum on a desktop, which is a whole one on a phone. */
     fill($('patch'), playableDsps(), 'ladder.dsp');
     fill($('piece'), gens, 'ebb.gen');
+    grow.fill();
 
     [$('dsp').value, $('gen').value] = await Promise.all([
         fetch(`dsp/${$('patch').value}`).then((r) => r.text()),
@@ -3624,7 +3682,7 @@ async function init ()
 
     /* And the mode the select is showing, applied to what has just been
        built. The markup cannot be the answer: it is one arrangement and
-       there are three modes, and the page opens on whichever one the
+       there are four modes, and the page opens on whichever one the
        select says -- so the chrome and the panes are put right here,
        once, by the same function that puts them right on every change.
        With no synth yet it does nothing else. */

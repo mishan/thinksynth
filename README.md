@@ -313,6 +313,13 @@ keyboard: `Z` to `/` is an octave and a bit from C, `Q` to `P` the octave
 above, and `-` and `=` move both, as do the arrows beside the keys. Open
 **Patch source** to edit the `.dsp`, and **Load** to hear the change.
 
+*A patch, growing* changes a patch for you. **Grow** makes one random edit
+to its graph — a node spliced into a wire, an LFO on a constant, a second
+voice — and **Evolve** searches for the graph nearest another patch's sound or
+a recording's. Each graph lands in a list, and the keys play whichever row
+you pick, so any two can be compared by ear; **Hear target** plays what it
+is evolving toward. **Keep** downloads the chosen graph as a `.dsp`.
+
 Switch **Play** to *a piece* for the other half: pick one of the shipped
 `.gen` files, **Load**, **Play**. The sliders are whatever knobs the piece
 declared and move it as it runs; the roll is what the scheduler has

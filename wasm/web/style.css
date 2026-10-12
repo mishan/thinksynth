@@ -1190,6 +1190,12 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
 }
 
 #composerparams .growthrow.playing { font-weight: bold; }
+
+/* A patch growing (growui.js): the same rows, each a graph to go back to,
+   the one chosen marked. */
+.growlist { padding-left: 1.6rem; margin: 0.3rem 0; }
+.growlist button { width: 100%; text-align: left; font-size: 0.85rem; }
+.growlist .chosen button { font-weight: bold; }
 #composerparams .growthplot { display: block; margin: 0.3rem 0; }
 
 /* What a parameter is when it is not a number to type in: an output the
