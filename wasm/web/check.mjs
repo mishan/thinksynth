@@ -527,8 +527,8 @@ for (const name of names)
         {
             const a = JSON.parse(ask);
             const r = JSON.parse(M.ccall('tw_grow', 'string',
-                ['string', 'string', 'number', 'string'],
-                [a.text, a.base, a.choice, a.kinds]));
+                ['string', 'string', 'number', 'string', 'number'],
+                [a.text, a.base, a.choice, a.kinds, a.want]));
 
             M.ccall('tw_grow_answer', null,
                     ['number', 'string', 'string', 'string'],
@@ -585,6 +585,109 @@ for (const name of names)
         process.stdout.write('ok    grow           grown in place, asked of ' +
                              'a worker, or answered late: the same graph; ' +
                              'and spliced\n');
+}
+
+/* The ear in the browser: three instances as the page has them -- the
+ * worklet's, which asks to grow and to hear; the mirror's, which grows;
+ * and the ear worker's, which hears -- carried between by hand. A growth
+ * toward a graph one edit away, every edit heard, reaches it. */
+{
+    const body =
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+    const piece = (aim, target) =>
+        'seed 11;\n' +
+        `instrument pad { dsp {\n${body}}; };\n` +
+        `instrument aim { dsp {\n${aim}}; };\n` +
+        'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+        '    prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::grow { every = 1 s; depth = 1; shrink = 0;\n' +
+        `    kinds = "voice"; listen = 16; tune = 0; target = "${target}"; };\n` +
+        '    sink { instrument = pad; }; };\n';
+    const make = async (grow, ear) =>
+    {
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+        M._tw_create(RATE, 256, 128);
+        M._tw_grow_mode(grow);
+        M._tw_ear_mode(ear);
+
+        return M;
+    };
+    const mirror = await make(1, 2);
+    const ear = await make(0, 1);
+    let base = null;
+
+    const grown = async (text) =>
+    {
+        const W = await make(2, 2);
+        const next = (f) => W.UTF8ToString(W[f]());
+
+        W.ccall('tw_piece_load', 'number', ['string', 'number'], [text, 1]);
+        W._tw_transport(0, 0, 0);       /* TW_START */
+
+        /* Past the step at 1 s, short of the one back at 2 s. */
+        for (let done = 0; done < RATE * 1.5; done += 128)
+        {
+            W._tw_render(128);
+
+            for (let ask; (ask = next('_tw_grow_next')); )
+            {
+                const a = JSON.parse(ask);
+                const r = JSON.parse(mirror.ccall('tw_grow', 'string',
+                    ['string', 'string', 'number', 'string', 'number'],
+                    [a.text, a.base, a.choice, a.kinds, a.want]));
+
+                base ??= a.base;
+                W.ccall('tw_grow_answer', null,
+                        ['number', 'string', 'string', 'string'],
+                        [a.ticket, r.grown, r.what, r.why]);
+            }
+
+            for (let ask; (ask = next('_tw_ear_next')); )
+            {
+                const a = JSON.parse(ask);
+
+                for (const [id, text] of Object.entries(a.texts))
+                    ear.ccall('tw_ear_text', null, ['string', 'string'],
+                              [id, text]);
+
+                const r = JSON.parse(ear.ccall('tw_hear', 'string',
+                    ['string', 'string', 'string', 'string', 'string',
+                     'string', 'string', 'string', 'number', 'string'],
+                    [a.dsp, a.effect, a.args, a.key, a.tdsp ?? '',
+                     a.teffect ?? '', a.targs ?? '', a.file ?? '', a.tune,
+                     a.from]));
+
+                W.ccall('tw_ear_answer', null,
+                        ['number', 'number', 'number', 'string'],
+                        [a.ticket, r.ok ? 1 : 0, r.distance, r.tuned]);
+            }
+        }
+
+        return W.ccall('tw_grown_text', 'string', ['string'], ['pad']);
+    };
+
+    /* Where the walk alone goes, and the edits it could have taken. */
+    const wander = await grown(piece(body, ''));
+    const options = base === null ? [] : JSON.parse(mirror.ccall('tw_grow',
+        'string', ['string', 'string', 'number', 'string', 'number'],
+        [base, base, 0, 'voice', 16])).grown.split('\x1e');
+    const aim = options.find((o) => o !== wander);
+
+    if (aim === undefined)
+        fail('ear: no second voice to aim at');
+    else if (await grown(piece(aim, 'aim')) !== aim)
+        fail('ear: a growth heard through the ear worker did not reach the ' +
+             'graph it was aimed at');
+    else
+        process.stdout.write('ok    ear            heard in another ' +
+                             'instance, a growth reaches what it aims at\n');
 }
 
 /* The pitch wheel: a chain's `bend' mapping goes as 14-bit pitch bend,

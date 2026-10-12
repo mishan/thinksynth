@@ -99,6 +99,10 @@ async function start ({ bytes, windowlen, sampleRate })
        grows its own, and the worklet's too (case 'growask' below). */
     M._tw_grow_mode(1);
 
+    /* And hears through the page's ear worker, as the worklet does: a
+       render here would hold up what this draws. */
+    M._tw_ear_mode(2);
+
     /* Before anything is loaded: it is a kind of synth and not a mode a
        running one flips (thSynth::setSilent). */
     M._tw_silent();
@@ -557,13 +561,20 @@ function receive (m)
             const a = JSON.parse(m.ask);
             const r = JSON.parse(M.ccall('tw_grow', 'string',
                                          ['string', 'string', 'number',
-                                          'string'],
+                                          'string', 'number'],
                                          [a.text, a.base, a.choice,
-                                          a.kinds]));
+                                          a.kinds, a.want]));
 
             postMessage({ type: 'grown', ticket: a.ticket, ...r });
             break;
         }
+
+        /* What the ear worker heard for this instance's scheduler. */
+        case 'heard':
+            M.ccall('tw_ear_answer', null,
+                    ['number', 'number', 'number', 'string'],
+                    [m.ticket, m.ok ? 1 : 0, m.distance, m.tuned]);
+            break;
 
         /* This instance's frames are the worklet's from here on
            (thinkweb.cpp, tw_align). */
@@ -961,4 +972,11 @@ function postTape ()
     events = [];
 }
 
-onmessage = (e) => receive(e.data);
+/* After each message, what this instance's scheduler asked to hear. */
+onmessage = (e) =>
+{
+    receive(e.data);
+
+    for (let ask; M !== null && (ask = M.UTF8ToString(M._tw_ear_next())); )
+        postMessage({ type: 'hear', ask });
+};

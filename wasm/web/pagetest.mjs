@@ -63,7 +63,7 @@ import './headless.mjs';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { chromium } from 'playwright';
 
@@ -2880,6 +2880,88 @@ try
         check(grown.includes('ionode') && grown !== GROW_PIECE,
               'gen::grow grows the graph the worklet plays, grown by the ' +
               'mirror worker');
+    }
+
+    /* The ear on the page: a growth toward a graph one edit away, every
+       edit heard by the page's ear worker, reaches it -- where the walk
+       alone, worked out here in the module at the page's rate, goes
+       elsewhere. */
+    {
+        const body =
+            'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+            'io ionode;\n' +
+            'node freq misc::midi2freq { note = ionode->note; };\n' +
+            'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+            'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+            '    trigger = ionode->trigger; };\n' +
+            'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+        const piece = (aim, target) =>
+            'name "listening";\nseed 11;\n' +
+            `instrument pad { dsp {\n${body}}; };\n` +
+            `instrument aim { dsp {\n${aim}}; };\n` +
+            'chain m { stage s gen::eno_line { notes = "A3 C4";\n' +
+            '    period = 0.5 s; prob = 1; }; sink { instrument = pad; }; };\n' +
+            'chain g { stage s gen::grow { every = 1 s; depth = 1;\n' +
+            '    shrink = 0; kinds = "voice"; listen = 16; tune = 0;\n' +
+            `    target = "${target}"; }; sink { instrument = pad; }; };\n`;
+        const rate = (await page.evaluate(() => window.solo.transport()))
+            ?.rate || 48000;
+        const { default: createThinkWeb } = await import(
+            pathToFileURL(path.join(build, 'thinkweb.js')).href);
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+        let base = null;
+
+        M._tw_create(rate, 256, 128);
+        M._tw_grow_mode(2);
+        M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                [piece(body, ''), 1]);
+        M._tw_transport(0, 0, 0);       /* TW_START */
+
+        const grow = (a) => JSON.parse(M.ccall('tw_grow', 'string',
+            ['string', 'string', 'number', 'string', 'number'],
+            [a.text, a.base, a.choice, a.kinds, a.want]));
+
+        for (let done = 0; done < rate * 1.5; done += 128)
+        {
+            M._tw_render(128);
+
+            for (let ask; (ask = M.UTF8ToString(M._tw_grow_next())); )
+            {
+                const a = JSON.parse(ask);
+                const r = grow(a);
+
+                base ??= a.base;
+                M.ccall('tw_grow_answer', null,
+                        ['number', 'string', 'string', 'string'],
+                        [a.ticket, r.grown, r.what, r.why]);
+            }
+        }
+
+        const wander = M.ccall('tw_grown_text', 'string', ['string'],
+                               ['pad']);
+        const aim = base === null ? undefined
+            : grow({ text: base, base, choice: 0, kinds: 'voice', want: 16 })
+                .grown.split('\x1e').find((o) => o !== wander);
+
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, piece(aim ?? body, 'aim'));
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#play');
+
+        const reached = await until(
+            () => page.evaluate(() => window.solo.grownText('pad')),
+            (t) => t !== '');
+
+        await page.click('#stop');
+
+        check(aim !== undefined && reached === aim,
+              'gen::grow toward a target hears its edits in the page\'s ' +
+              'ear worker, and reaches the one aimed at' +
+              (reached === aim ? '' : reached === wander ? ': it wandered'
+                                                         : ': it did not'));
     }
 
     for (const e of errors)

@@ -31,6 +31,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "JsonOut.h"
 
 static_assert(THC_NOTE_SAY == TH_NOTE_SAY,
               "a note's say fits the voice's");
@@ -410,11 +411,8 @@ thcScheduler::~thcScheduler (void)
     flushNoteOffs();
     clearChains();
 
-#ifndef __EMSCRIPTEN__
-    /* Not compiled into the worklet build, where none is ever made. */
     if (ownsAuditioner_)
         delete auditioner_;
-#endif
     auditioner_ = NULL;
 
     /* One last go, since after this there is nobody left to try. If the
@@ -572,12 +570,12 @@ thcScheduler::addStage (size_t chain, thcPlugin *plugin, bool asGenerator)
     thcStage *s = c.stages.back().get();
 
     /* The ear, offered before the instance exists so that a module may
-       read it whenever it likes. Absent where nothing can render off
-       the tick's thread: the browser's worklet has no thread to give,
-       and a scheduler with no synth has nothing to render with. */
+       read it whenever it likes: an auditioner here, or the host's to ask
+       (setEarRequest). Absent where there is neither -- a scheduler with
+       no synth has nothing to render with. */
     ensureAuditioner();
 
-    if (auditioner_ != NULL)
+    if (hasEar())
     {
         s->sched = this;
         s->chain = chain;
@@ -901,15 +899,19 @@ thcScheduler::newNodeHost (void)
 void
 thcScheduler::ensureAuditioner (void)
 {
-#ifndef __EMSCRIPTEN__
-    if (auditioner_ == NULL && synth_ != NULL &&
+    if (auditioner_ == NULL && localEar_ && synth_ != NULL &&
         synth_->getPluginManager() != NULL)
     {
         auditioner_ = new thcAuditioner(synth_->getPluginManager()->pluginPath(),
                                         (double)synth_->getSampleRate());
         auditioner_->setTuner(tuner_);
-    }
+
+#ifdef __EMSCRIPTEN__
+        /* No threads in the browser: the worker this runs in is the
+           thread renders take. */
+        auditioner_->setSynchronous(true);
 #endif
+    }
 }
 
 void
@@ -917,10 +919,8 @@ thcScheduler::setTuner (const thcAuditioner::Tuner &fn)
 {
     tuner_ = fn;
 
-#ifndef __EMSCRIPTEN__
     if (auditioner_ != NULL)
         auditioner_->setTuner(fn);
-#endif
 }
 
 void
@@ -940,6 +940,191 @@ thcScheduler::setAuditionSynchronous (bool on)
 #endif
 }
 
+/* ---- the ear, here or the host's ---------------------------------------- */
+
+/* A graph's text, from the registry an inline or grown graph is in or the
+   file a path names; empty for none. */
+static std::string
+graphTextOf (const std::string &name)
+{
+    std::string text;
+
+    if (name.empty() || thUtil::findGraphText(name, text))
+        return text;
+
+    std::ifstream in(name.c_str(), std::ios::binary);
+
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
+
+/* Values as the ear's host carries them: a name and a number a line. */
+static std::string
+argLines (const std::vector<std::pair<std::string, float> > &args)
+{
+    std::string out;
+    char value[32];
+
+    for (size_t i = 0; i < args.size(); i++)
+    {
+        snprintf(value, sizeof value, "%.9g", (double)args[i].second);
+        out += args[i].first + "\t" + value + "\n";
+    }
+
+    return out;
+}
+
+/* The name a graph goes by to the host's ear: its text's, so that one
+   sent once is named after that and not sent again. A registry name's text
+   never changes, so it is remembered; a file's may, and is read each time. */
+std::string
+thcScheduler::earGraph (const std::string &name, std::string &texts)
+{
+    if (name.empty())
+        return name;
+
+    const auto known = earIds_.find(name);
+
+    if (known != earIds_.end())
+        return known->second;
+
+    std::string text;
+    const bool registered = thUtil::findGraphText(name, text);
+
+    if (!registered)
+        text = graphTextOf(name);
+
+    const std::string id = thcGenLoader::inlineGraphName("ear", text);
+
+    if (registered)
+        earIds_[name] = id;
+
+    if (earSent_.insert(id).second)
+    {
+        texts += texts.empty() ? "" : ",";
+        jsonString(texts, id);
+        texts += ":";
+        jsonString(texts, text);
+    }
+
+    return id;
+}
+
+int
+thcScheduler::earHear (const thcAuditioner::Instrument &candidate,
+                       const std::string &targetKey,
+                       const thcAuditioner::Instrument *targetInstrument,
+                       const std::string &targetFile, int tune,
+                       const std::string &from)
+{
+    if (auditioner_ != NULL)
+        return auditioner_->hear(candidate, targetKey, targetInstrument,
+                                 targetFile, tune, from);
+
+    if (!earRequest_)
+        return -1;
+
+    /* Graphs by the name their text gives them, each text carried the
+       first time only: an inline or grown graph is in this realm's
+       registry and nowhere else, and a population asks about the same one
+       a generation through. */
+    const int ticket = ++earTicket_;
+    std::string texts;
+    std::string ask = "{\"ticket\":" + std::to_string(ticket) +
+                      ",\"tune\":" + std::to_string(tune);
+    const auto field = [&ask] (const char *name, const std::string &value)
+    {
+        ask += std::string(",\"") + name + "\":";
+        jsonString(ask, value);
+    };
+
+    field("dsp", earGraph(candidate.dsp, texts));
+    field("effect", earGraph(candidate.effect, texts));
+    field("args", argLines(candidate.chanargs));
+    field("key", targetKey);
+
+    if (!from.empty())
+    {
+        thUtil::GraphHold hold;
+        const std::string name = thcGenLoader::inlineGraphName("from", from);
+
+        hold = thUtil::addGraphText(name, from);
+        field("from", earGraph(name, texts));
+    }
+    else
+        field("from", "");
+
+    if (targetInstrument != NULL)
+    {
+        field("tdsp", earGraph(targetInstrument->dsp, texts));
+        field("teffect", earGraph(targetInstrument->effect, texts));
+        field("targs", argLines(targetInstrument->chanargs));
+    }
+    else
+        field("file", targetFile);
+
+    ask += ",\"texts\":{" + texts + "}}";
+    earAnswers_[ticket] = EarAnswer();
+    earRequest_(ticket, ask);
+
+    return ticket;
+}
+
+int
+thcScheduler::earHeard (int ticket, double *distance, std::string *tuned)
+{
+    if (auditioner_ != NULL)
+        return auditioner_->heard(ticket, distance, tuned);
+
+    const auto a = earAnswers_.find(ticket);
+
+    if (a == earAnswers_.end())
+        return -1;
+
+    if (!a->second.in)
+        return 0;
+
+    const EarAnswer answer = a->second;
+
+    earAnswers_.erase(a);
+
+    if (tuned)
+        *tuned = answer.tuned;
+
+    if (!answer.ok)
+        return -1;
+
+    if (distance)
+        *distance = answer.distance;
+
+    return 1;
+}
+
+void
+thcScheduler::earForget (int ticket)
+{
+    if (auditioner_ != NULL)
+        auditioner_->forget(ticket);
+    else
+        earAnswers_.erase(ticket);
+}
+
+void
+thcScheduler::earAnswer (int ticket, bool ok, double distance,
+                         const std::string &tuned)
+{
+    const auto a = earAnswers_.find(ticket);
+
+    /* One forgotten while it was out is dropped here. */
+    if (a == earAnswers_.end())
+        return;
+
+    a->second.in = true;
+    a->second.ok = ok;
+    a->second.distance = distance;
+    a->second.tuned = tuned;
+}
+
 int
 thcScheduler::cbHear (void *ctx, const char *target,
                       const char *const *names, const double *values, int n)
@@ -952,30 +1137,21 @@ thcScheduler::cbHear (void *ctx, const char *target,
 int
 thcScheduler::cbHeard (void *ctx, int ticket, double *distance)
 {
-#ifdef __EMSCRIPTEN__
-    return -1;
-#else
     thcStage *s = static_cast<thcStage *>(ctx);
 
-    if (s == NULL || s->sched == NULL || s->sched->auditioner_ == NULL)
+    if (s == NULL || s->sched == NULL)
         return -1;
 
-    return s->sched->auditioner_->heard(ticket, distance);
-#endif
+    return s->sched->earHeard(ticket, distance, NULL);
 }
 
 void
 thcScheduler::cbForget (void *ctx, int ticket)
 {
-#ifndef __EMSCRIPTEN__
     thcStage *s = static_cast<thcStage *>(ctx);
 
-    if (s != NULL && s->sched != NULL && s->sched->auditioner_ != NULL)
-        s->sched->auditioner_->forget(ticket);
-#else
-    (void)ctx;
-    (void)ticket;
-#endif
+    if (s != NULL && s->sched != NULL)
+        s->sched->earForget(ticket);
 }
 
 bool
@@ -1034,11 +1210,7 @@ int
 thcScheduler::hear (thcStage *stage, const char *target,
                     const char *const *names, const double *values, int n)
 {
-#ifdef __EMSCRIPTEN__
-    /* No thcAudition.cpp in the worklet build, and no ear offered. */
-    return -1;
-#else
-    if (auditioner_ == NULL || target == NULL || *target == '\0' ||
+    if (!hasEar() || target == NULL || *target == '\0' ||
         stage->chain >= chains_.size())
         return -1;
 
@@ -1086,7 +1258,6 @@ thcScheduler::hear (thcStage *stage, const char *target,
         }
 
     return hearAgainst(candidate, target);
-#endif
 }
 
 int
@@ -1094,9 +1265,6 @@ thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
                            const char *target, int tune,
                            const std::string &from)
 {
-#ifdef __EMSCRIPTEN__
-    return -1;
-#else
     const thcInstrument *other = instrument(target);
     thcAuditioner::Instrument targetInstrument;
 
@@ -1105,8 +1273,8 @@ thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
         if (!auditionInstrument(*other, targetInstrument))
             return -1;
 
-        return auditioner_->hear(candidate, "instrument:" + other->name,
-                                 &targetInstrument, "", tune, from);
+        return earHear(candidate, "instrument:" + other->name,
+                       &targetInstrument, "", tune, from);
     }
 
     std::string file = target;
@@ -1123,9 +1291,7 @@ thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
         file = found;
     }
 
-    return auditioner_->hear(candidate, "file:" + file, NULL, file, tune,
-                             from);
-#endif
+    return earHear(candidate, "file:" + file, NULL, file, tune, from);
 }
 
 std::vector<int>
@@ -1136,10 +1302,9 @@ thcScheduler::hearAll (const thcInstrument &inst,
 {
     std::vector<int> tickets(options.size(), -1);
 
-#ifndef __EMSCRIPTEN__
     ensureAuditioner();
 
-    for (size_t i = 0; auditioner_ != NULL && i < options.size(); i++)
+    for (size_t i = 0; hasEar() && i < options.size(); i++)
     {
         thcInstrument as = inst;
         thcAuditioner::Instrument candidate;
@@ -1151,13 +1316,6 @@ thcScheduler::hearAll (const thcInstrument &inst,
             tickets[i] = hearAgainst(candidate, target.c_str(),
                                      i < tuned ? tune : 0, from);
     }
-#else
-    (void)inst;
-    (void)target;
-    (void)tuned;
-    (void)tune;
-    (void)from;
-#endif
 
     return tickets;
 }
@@ -1167,22 +1325,22 @@ thcScheduler::collect (Growth &g)
 {
     bool all = true;
 
-#ifndef __EMSCRIPTEN__
+    /* A ticket is -1 once collected, or for an edit that could not be
+       heard at all; either way its distance is already what it will be. */
     for (size_t i = 0; i < g.tickets.size(); i++)
     {
         double d;
-        const int r = g.tickets[i] < 0 || auditioner_ == NULL ? -1 :
-                      auditioner_->heard(g.tickets[i], &d, &g.tuned[i]);
+        const int r = g.tickets[i] < 0 ? -2 :
+                      earHeard(g.tickets[i], &d, &g.tuned[i]);
 
         if (r == 0)
             all = false;
-        else
+        else if (r != -2)
         {
             g.distances[i] = r == 1 ? d : HUGE_VAL;
             g.tickets[i] = -1;
         }
     }
-#endif
 
     return all;
 }
@@ -1190,11 +1348,9 @@ thcScheduler::collect (Growth &g)
 void
 thcScheduler::forgetHearing (Growth &g)
 {
-#ifndef __EMSCRIPTEN__
     for (size_t i = 0; i < g.tickets.size(); i++)
-        if (g.tickets[i] >= 0 && auditioner_ != NULL)
-            auditioner_->forget(g.tickets[i]);
-#endif
+        if (g.tickets[i] >= 0)
+            earForget(g.tickets[i]);
 
     doneHearing(g);
     g.queued.clear();
@@ -2173,10 +2329,15 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
         return placeStep(channel, std::string::npos, *given,
                          "what a search found", step, why);
 
+    const size_t want = target.empty() ? 1 : (size_t)std::max(listen, 1);
+
     if (!grower_ && growRequest_)
     {
         g->asked = ++growTicket_;
-        growRequest_(g->asked, g->texts.back(), g->texts[0], choice, kinds);
+        g->askTarget = target;
+        g->askTune = tune;
+        growRequest_(g->asked, g->texts.back(), g->texts[0], choice, kinds,
+                     want);
         return true;
     }
 
@@ -2186,35 +2347,44 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
         return false;
     }
 
-    if (!grower_(g->texts.back(), g->texts[0], choice, kinds,
-                 target.empty() ? 1 : (size_t)std::max(listen, 1),
-                 options, whats, why))
+    if (!grower_(g->texts.back(), g->texts[0], choice, kinds, want, options,
+                 whats, why))
         return false;
 
+    return chooseAmong(channel, *g, options, whats, target, tune, why);
+}
+
+bool
+thcScheduler::chooseAmong (int channel, Growth &g,
+                           const std::vector<std::string> &options,
+                           const std::vector<std::string> &whats,
+                           const std::string &target, int tune,
+                           std::string &why)
+{
     if (target.empty())
         return placeStep(channel, std::string::npos, options[0], whats[0],
-                         step, why);
+                         GrowthStep(), why);
 
     /* The graph on the channel is heard too, last, so a host can show
        where the step started from as well as where it went. */
     std::vector<std::string> heard = options;
 
-    heard.push_back(g->texts.back());
+    heard.push_back(g.texts.back());
 
-    g->options = options;
-    g->optionWhats = whats;
-    g->tuned.assign(heard.size(), std::string());
-    g->tickets = hearAll(*instrument(holding(channel)), heard, target,
-                         options.size(), tune, g->texts.back());
-    g->distances.assign(heard.size(), HUGE_VAL);
+    g.options = options;
+    g.optionWhats = whats;
+    g.tuned.assign(heard.size(), std::string());
+    g.tickets = hearAll(*instrument(holding(channel)), heard, target,
+                        options.size(), tune, g.texts.back());
+    g.distances.assign(heard.size(), HUGE_VAL);
 
     /* Answered later on a live host, so the step is taken then and the
        notes due meanwhile are not held up; answered by now on one that
        renders in the tick. */
-    if (!auditionSync_ || !collect(*g))
+    if (!auditionSync_ || !collect(g))
         return true;
 
-    return takeHeard(channel, *g, why);
+    return takeHeard(channel, g, why);
 }
 
 bool
@@ -2243,8 +2413,10 @@ thcScheduler::takeHeard (int channel, Growth &g, std::string &why)
 }
 
 void
-thcScheduler::growthAnswer (unsigned int ticket, const std::string &grown,
-                            const std::string &what, const std::string &why)
+thcScheduler::growthAnswer (unsigned int ticket,
+                            const std::vector<std::string> &grown,
+                            const std::vector<std::string> &what,
+                            const std::string &why)
 {
     for (auto &e : grown_)
     {
@@ -2255,9 +2427,9 @@ thcScheduler::growthAnswer (unsigned int ticket, const std::string &grown,
 
         e.second.asked = 0;
 
-        if (grown.empty() ||
-            !placeStep(e.first, std::string::npos, grown, what, GrowthStep(),
-                       failed))
+        if (grown.empty() || what.size() != grown.size() ||
+            !chooseAmong(e.first, e.second, grown, what, e.second.askTarget,
+                         e.second.askTune, failed))
             fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
                     e.first + 1, failed.c_str());
 
@@ -2671,6 +2843,7 @@ thcScheduler::prepareEdit (thcScheduler &next,
 
     next.auditioner_ = auditioner_;
     next.ownsAuditioner_ = auditioner_ == NULL;
+    next.earRequest_ = earRequest_;
 
     if (controlSynth_ != NULL)
     {

@@ -187,6 +187,9 @@ class ThinkProcessor extends AudioWorkletProcessor
            (thinkweb.cpp, tw_grow_mode). */
         M._tw_grow_mode(2);
 
+        /* Hearing too: asked of the page's ear worker (ear.js). */
+        M._tw_ear_mode(2);
+
         /* Asked for once, and once is enough: it is an address inside the
            wasm memory, and growing that appends pages rather than moving
            what is already there. What does change on a grow is the JS view,
@@ -256,6 +259,16 @@ class ThinkProcessor extends AudioWorkletProcessor
                 text: this.M.ccall('tw_grown_text', 'string', ['string'],
                                    [m.instrument]),
             });
+            return;
+        }
+
+        /* What the ear worker heard for one of this scheduler's
+           requests. */
+        if (m.type === 'heard')
+        {
+            this.M.ccall('tw_ear_answer', null,
+                         ['number', 'number', 'number', 'string'],
+                         [m.ticket, m.ok ? 1 : 0, m.distance, m.tuned]);
             return;
         }
 
@@ -760,6 +773,9 @@ class ThinkProcessor extends AudioWorkletProcessor
            memory that grows for one detaches `heap'. */
         for (let ask; (ask = this.M.UTF8ToString(this.M._tw_grow_next())); )
             this.port.postMessage({ type: 'grow', ask });
+
+        for (let ask; (ask = this.M.UTF8ToString(this.M._tw_ear_next())); )
+            this.port.postMessage({ type: 'hear', ask });
 
         /* A rewind or a load inside the batch: what is held so far is
            the old run's, and goes out under the old run's epoch before

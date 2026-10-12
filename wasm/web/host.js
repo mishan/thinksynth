@@ -163,11 +163,133 @@ export async function createSynth (ctx, { windowlen = 128,
         ? new Worker(new URL('mirror.js', import.meta.url), { type: 'module' })
         : null;
 
-    /* A growth the mirror made for the worklet goes straight back to it;
-       everything else the mirror says is the caller's. */
+    /* The ear worker (ear.js), made the first time either realm asks to
+       hear: one that never listens never has it. It needs the module's
+       bytes and the sound files, so both are kept for it.
+
+       The worklet and the mirror ask the same questions -- both run the
+       piece -- so a question asked while the same one is out, or soon
+       after it was answered, is not asked again: every render once. A
+       question is its request less the asker's ticket and the texts that
+       came with it. If the ear fails, every question is answered failed,
+       as one it could not hear: a stage then goes on without it. */
+    let ear = null;
+    let earStart = null;
+    let earDead = false;
+    let earId = 0;
+    const sounds = new Map();
+    const asking = new Map();       /* id -> { key, waiters }            */
+    const outFor = new Map();       /* key -> id                         */
+    const answers = new Map();      /* key -> answer, the latest few     */
+    const ANSWERS_KEPT = 256;
+    const reply = (waiters, r) =>
+    {
+        for (const w of waiters)
+            (w.to === 'mirror' ? mirror : node.port)?.postMessage(
+                { type: 'heard', ticket: w.ticket, ok: r.ok,
+                  distance: r.distance, tuned: r.tuned });
+    };
+    const failEar = (text) =>
+    {
+        earDead = true;
+        onLog(text);
+
+        for (const { waiters } of asking.values())
+            reply(waiters, { ok: false, distance: 0, tuned: '' });
+
+        asking.clear();
+        outFor.clear();
+    };
+    const hear = (to, ask) =>
+    {
+        const a = JSON.parse(ask);
+        const waiter = { to, ticket: a.ticket };
+
+        if (ear === null && earStart !== null && !earDead)
+        {
+            ear = new Worker(new URL('ear.js', import.meta.url),
+                             { type: 'module' });
+            ear.onmessage = (e) =>
+            {
+                const m = e.data;
+
+                if (m.type === 'heard')
+                {
+                    const out = asking.get(m.id);
+
+                    if (out === undefined)
+                        return;
+
+                    asking.delete(m.id);
+                    outFor.delete(out.key);
+                    answers.set(out.key, m);
+
+                    if (answers.size > ANSWERS_KEPT)
+                        answers.delete(answers.keys().next().value);
+
+                    reply(out.waiters, m);
+                }
+                else if (m.type === 'failed')
+                    failEar(m.text);
+                else if (m.type === 'log')
+                    onLog(m.text);
+            };
+            ear.onerror = (e) => failEar(`ear: ${e.message ?? 'failed'}`);
+            ear.postMessage(earStart());
+
+            for (const [name, bytes] of sounds)
+                ear.postMessage({ type: 'sample', name, bytes });
+        }
+
+        if (ear === null || earDead)
+        {
+            reply([waiter], { ok: false, distance: 0, tuned: '' });
+            return;
+        }
+
+        if (Object.keys(a.texts).length > 0)
+            ear.postMessage({ type: 'texts', texts: a.texts });
+
+        delete a.ticket;
+        delete a.texts;
+
+        const key = JSON.stringify(a);
+        const known = answers.get(key);
+
+        if (known !== undefined)
+        {
+            reply([waiter], known);
+            return;
+        }
+
+        const out = outFor.get(key);
+
+        if (out !== undefined)
+        {
+            asking.get(out).waiters.push(waiter);
+            return;
+        }
+
+        const id = earId++;
+
+        asking.set(id, { key, waiters: [waiter] });
+        outFor.set(key, id);
+        ear.postMessage({ type: 'hear', id, ask: a });
+    };
+
+    /* A growth the mirror made for the worklet goes straight back to it,
+       and what it asks to hear to the ear; everything else the mirror
+       says is the caller's. */
     if (mirror !== null)
-        mirror.onmessage = (e) => e.data.type === 'grown'
-            ? node.port.postMessage(e.data) : onMirror(e.data);
+        mirror.onmessage = (e) =>
+        {
+            if (e.data.type === 'grown')
+                node.port.postMessage(e.data);
+            else if (e.data.type === 'hear')
+                hear('mirror', e.data.ask);
+            else
+                onMirror(e.data);
+        };
 
     /* What the worklet's process() calls have cost, summed since the
        start: a batch is 16 calls, too few to have a p99 of its own. And
@@ -209,6 +331,9 @@ export async function createSynth (ctx, { windowlen = 128,
                tw_grow_mode). With no mirror, nothing grows. */
             case 'grow':
                 mirror?.postMessage({ type: 'growask', ask: m.ask });
+                break;
+            case 'hear':
+                hear('worklet', m.ask);
                 break;
             case 'log':
                 onLog(m.text);
@@ -312,6 +437,14 @@ export async function createSynth (ctx, { windowlen = 128,
 
     const info = await isReady;
 
+    earStart = () =>
+    {
+        const forEar = bytes.slice(0);
+
+        return { type: 'start', bytes: forEar, windowlen: info.windowlen,
+                 sampleRate: info.sampleRate };
+    };
+
     /* The mirror's own copy of the bytes, and the two numbers the synth
        it makes has to agree with this one about. */
     if (mirror !== null)
@@ -371,7 +504,14 @@ export async function createSynth (ctx, { windowlen = 128,
            for, which is `samples/kick909.wav' -- the index.json entry,
            since that is the path and not the basename. Bytes, because it
            is not text. */
-        sample: (name, bytes) => post({ type: 'sample', name, bytes }),
+        sample: (name, bytes) =>
+        {
+            /* A target may be this file, heard before it was written over. */
+            answers.clear();
+            sounds.set(name, bytes);
+            ear?.postMessage({ type: 'sample', name, bytes });
+            post({ type: 'sample', name, bytes });
+        },
 
         /* A whole .patch, as text: the module reads it and puts it on the
            channel, in the order the format requires. Resolves to

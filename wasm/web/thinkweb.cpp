@@ -66,6 +66,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <sstream>
 #include <deque>
 #include <functional>
 #include <map>
@@ -107,7 +108,9 @@
 #include "PatchFile.h"
 #include "PatchSet.h"
 #include "KnobPanel.h"
+#include "NodeEvolve.h"
 #include "NodeMutate.h"
+#include "thcAudition.h"
 #include "NodePanel.h"
 #include "StagePanel.h"
 #include "twnode.h"
@@ -2502,7 +2505,8 @@ EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
  * the mirror, a worker, which grows it with tw_grow and sends the answer
  * back to tw_grow_answer. The mirror grows its own in place (mode 1).
  * Renders are deterministic, so both arrive at the same graph; the
- * worklet a few quanta later. */
+ * worklet a few quanta later. Several edits cross where a step listens,
+ * '\x1e' between them, a byte no graph has. */
 static std::deque<std::string> growAsks_;
 static std::string growJson_;
 
@@ -2521,10 +2525,11 @@ EMSCRIPTEN_KEEPALIVE void tw_grow_mode (int mode)
                                    const std::string &text,
                                    const std::string &base,
                                    unsigned int choice,
-                                   const std::string &kinds)
+                                   const std::string &kinds, size_t want)
         {
             std::string ask = "{\"ticket\":" + std::to_string(ticket) +
                               ",\"choice\":" + std::to_string(choice) +
+                              ",\"want\":" + std::to_string(want) +
                               ",\"text\":";
 
             jsonString(ask, text);
@@ -2551,21 +2556,54 @@ EMSCRIPTEN_KEEPALIVE const char *tw_grow_next (void)
     return growJson_.c_str();
 }
 
-/* One request grown here: {"grown":..., "what":..., "why":...}, with
-   "grown" empty if nothing would do. */
+static std::string
+joined (const std::vector<std::string> &parts)
+{
+    std::string out;
+
+    for (size_t i = 0; i < parts.size(); i++)
+        out += (i ? "\x1e" : "") + parts[i];
+
+    return out;
+}
+
+static std::vector<std::string>
+split (const char *s)
+{
+    std::vector<std::string> out;
+    std::string part;
+
+    for (; s != NULL && *s; s++)
+        if (*s == '\x1e')
+        {
+            out.push_back(part);
+            part.clear();
+        }
+        else
+            part += *s;
+
+    if (s != NULL && (!part.empty() || !out.empty()))
+        out.push_back(part);
+
+    return out;
+}
+
+/* One request grown here: {"grown":..., "what":..., "why":...}, up to
+   `want' edits joined, "grown" empty if nothing would do. */
 EMSCRIPTEN_KEEPALIVE const char *tw_grow (const char *text, const char *base,
                                           unsigned int choice,
-                                          const char *kinds)
+                                          const char *kinds, int want)
 {
     std::vector<std::string> grown, what;
     std::string why;
 
-    NodeMutate::grow(synth_, text, base, choice, kinds, 1, grown, what, why);
+    NodeMutate::grow(synth_, text, base, choice, kinds,
+                     (size_t)std::max(want, 1), grown, what, why);
 
     growJson_ = "{\"grown\":";
-    jsonString(growJson_, grown.empty() ? std::string() : grown[0]);
+    jsonString(growJson_, joined(grown));
     growJson_ += ",\"what\":";
-    jsonString(growJson_, what.empty() ? std::string() : what[0]);
+    jsonString(growJson_, joined(what));
     growJson_ += ",\"why\":";
     jsonString(growJson_, why);
     growJson_ += "}";
@@ -2591,7 +2629,137 @@ EMSCRIPTEN_KEEPALIVE void tw_grow_answer (unsigned int ticket,
                                           const char *grown, const char *what,
                                           const char *why)
 {
-    sched_->growthAnswer(ticket, grown, what, why);
+    sched_->growthAnswer(ticket, split(grown), split(what), why);
+}
+
+/* The ear (gen::breed's `target', gen::grow's). A render is tens of
+ * milliseconds and a tuned edit seconds, so neither the worklet nor the
+ * mirror -- which draws -- makes them: each asks (mode 2), the page carries
+ * the request to a worker of its own, which renders and measures with
+ * tw_hear (mode 1) and sends back what it heard to tw_ear_answer. A
+ * request names its graphs by their texts' hashes and carries a text the
+ * first time it names it, which tw_ear_text keeps here: an inline or grown
+ * graph is in the asking realm's registry and nowhere else. */
+static std::deque<std::string> earAsks_;
+static std::string earJson_;
+
+EMSCRIPTEN_KEEPALIVE void tw_ear_mode (int mode)
+{
+    if (mode == 1)
+    {
+        sched_->setLocalEar(true);
+        sched_->setTuner(NodeEvolve::tuneAdded);
+        sched_->setAuditionSynchronous(true);
+    }
+    else if (mode == 2)
+        sched_->setEarRequest([] (int, const std::string &ask)
+                              { earAsks_.push_back(ask); });
+}
+
+/* The next request this realm's scheduler has made, as JSON, or "". */
+EMSCRIPTEN_KEEPALIVE const char *tw_ear_next (void)
+{
+    earJson_.clear();
+
+    if (!earAsks_.empty())
+    {
+        earJson_ = earAsks_.front();
+        earAsks_.pop_front();
+    }
+
+    return earJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_ear_answer (int ticket, int ok, double distance,
+                                         const char *tuned)
+{
+    sched_->earAnswer(ticket, ok != 0, distance, tuned ? tuned : "");
+}
+
+static std::map<std::string, thUtil::GraphHold> earTexts_;
+
+/* A graph text a request named, kept under that name for the requests
+   after it. */
+EMSCRIPTEN_KEEPALIVE void tw_ear_text (const char *id, const char *text)
+{
+    if (id != NULL && text != NULL && !earTexts_.count(id))
+        earTexts_[id] = thUtil::addGraphText(id, text);
+}
+
+/* An instrument as graph names a request gave and values. */
+static bool
+earInstrument (const char *dsp, const char *effect, const char *args,
+               thcAuditioner::Instrument &out)
+{
+    std::string text;
+
+    if (dsp == NULL || !thUtil::findGraphText(dsp, text))
+        return false;
+
+    out.dsp = dsp;
+
+    if (effect != NULL && *effect != '\0')
+    {
+        if (!thUtil::findGraphText(effect, text))
+            return false;
+
+        out.effect = effect;
+    }
+
+    std::istringstream lines(args ? args : "");
+    std::string line;
+
+    while (std::getline(lines, line))
+    {
+        const std::string::size_type tab = line.find('\t');
+
+        if (tab != std::string::npos)
+            out.chanargs.push_back(std::make_pair(
+                line.substr(0, tab), (float)atof(line.c_str() + tab + 1)));
+    }
+
+    return true;
+}
+
+/* One request heard here: {"ok":..., "distance":..., "tuned":...}. */
+EMSCRIPTEN_KEEPALIVE const char *tw_hear (const char *dsp, const char *effect,
+                                          const char *args, const char *key,
+                                          const char *tdsp,
+                                          const char *teffect,
+                                          const char *targs, const char *file,
+                                          int tune, const char *from)
+{
+    thcAuditioner *ear = sched_->auditioner();
+    thcAuditioner::Instrument candidate, target;
+    const bool isFile = tdsp == NULL || *tdsp == '\0';
+    double distance = 0;
+    std::string tuned;
+    int r = -1;
+
+    std::string base;
+
+    if (from != NULL && *from != '\0')
+        thUtil::findGraphText(from, base);
+
+    if (ear != NULL && earInstrument(dsp, effect, args, candidate) &&
+        (isFile || earInstrument(tdsp, teffect, targs, target)))
+    {
+        const int ticket = ear->hear(candidate, key, isFile ? NULL : &target,
+                                     isFile ? (file ? file : "") : "", tune,
+                                     base);
+
+        r = ticket < 0 ? -1 : ear->heard(ticket, &distance, &tuned);
+    }
+
+    char number[40];
+
+    snprintf(number, sizeof number, "%.9g", r == 1 ? distance : 0.0);
+    earJson_ = std::string("{\"ok\":") + (r == 1 ? "true" : "false") +
+               ",\"distance\":" + number + ",\"tuned\":";
+    jsonString(earJson_, tuned);
+    earJson_ += "}";
+
+    return earJson_.c_str();
 }
 
 /* What each channel was given, and whether it has been edited since.
@@ -2807,6 +2975,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     delivery_.disconnect();
     pending_.clear();
     growAsks_.clear();      /* the old piece's: their answers would be dropped */
+    earAsks_.clear();
 
     /* A speed change still in the queue is not a command about this
        piece: it is what the listener asked the clock to do, and the clock
