@@ -439,6 +439,8 @@ thcScheduler::addChain (const std::string &name)
     chains_.back().inputMidi = false;
     chains_.back().start = 0;
     chains_.back().startBeats = false;
+    chains_.back().seeded = false;
+    chains_.back().seed = 0;
 
     return chains_.size() - 1;
 }
@@ -492,6 +494,16 @@ thcScheduler::setChainInput (size_t chain, bool midi)
 }
 
 void
+thcScheduler::setChainSeed (size_t chain, unsigned seed)
+{
+    if (chain < chains_.size() && chains_[chain].stages.empty())
+    {
+        chains_[chain].seeded = true;
+        chains_[chain].seed = seed;
+    }
+}
+
+void
 thcScheduler::setChainStart (size_t chain, double at, bool beats)
 {
     if (chain < chains_.size())
@@ -534,9 +546,17 @@ thcScheduler::chainStartTime (const thcChain &chain) const
 unsigned
 thcScheduler::stageSeed (size_t chain, size_t stage) const
 {
-    unsigned h = masterSeed_;
+    const thcChain &c = chains_[chain];
+    unsigned h = c.seeded ? c.seed : masterSeed_;
 
-    h ^= (unsigned)(chain + 1) * 2654435761u;
+    /* A seeded chain is told apart by its name rather than its place, so
+       its take does not change when chains are added or moved above it,
+       and two chains given one seed do not play in lockstep. */
+    if (c.seeded)
+        for (char ch : c.name)
+            h = (h ^ (unsigned char)ch) * 16777619u;
+    else
+        h ^= (unsigned)(chain + 1) * 2654435761u;
     h ^= (unsigned)(stage + 1) * 0x9e3779b9u + (h << 6) + (h >> 2);
 
     return h;

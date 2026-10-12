@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -380,6 +381,9 @@ struct ChainIdx
     size_t bodyClose;            /* the chain's '}'                      */
     bool   inputMidi;
     size_t inputA, inputB;
+    bool     hasSeed;
+    unsigned seed;
+    size_t   seedA, seedB;
     std::vector<StageIdx> stages;
     std::vector<SinkIdx>  sinks;
 };
@@ -1042,6 +1046,9 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             c.inputMidi = false;
             c.inputA = c.inputB = 0;
             c.startA = c.startB = 0;
+            c.hasSeed = false;
+            c.seed = 0;
+            c.seedA = c.seedB = 0;
 
             if (ix.firstChainOff == std::string::npos)
                 ix.firstChainOff = c.stmtA;
@@ -1059,6 +1066,21 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     c.startA = t[j].off;
                     c.startB = t[j + 4].end;
                     j += 5;
+                    continue;
+                }
+
+                /* Only a seed the loader would take: anything else is the
+                   loader's to refuse, and not a number to fold. */
+                if (t[j].kind == Tok::WORD && t[j].text == "seed" &&
+                    t[j + 1].kind == Tok::NUMBER && isPunct(t[j + 2], ';') &&
+                    t[j + 1].num >= 0 && t[j + 1].num <= 4294967295.0 &&
+                    t[j + 1].num == std::floor(t[j + 1].num))
+                {
+                    c.hasSeed = true;
+                    c.seed = (unsigned)t[j + 1].num;
+                    c.seedA = t[j].off;
+                    c.seedB = t[j + 2].end;
+                    j += 3;
                     continue;
                 }
 
@@ -1617,6 +1639,8 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         out.name = c.name;
         out.startText = c.startText;
         out.inputMidi = c.inputMidi;
+        out.hasSeed = c.hasSeed;
+        out.seed = c.seed;
 
         for (size_t si = 0; si < c.stages.size(); si++)
         {
@@ -3384,6 +3408,42 @@ thcGenEdit::setChainInput (const std::string &filename,
         edits.push_back(insertInBody(text, *c, "input midi;"));
     else if (!midi && c->inputMidi)
         edits.push_back(eraseStmt(text, c->inputA, c->inputB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setChainSeed (const std::string &filename,
+                          const std::string &chain, bool pin, unsigned seed,
+                          std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    const std::string stmt = "seed " + std::to_string(seed) + ";";
+    std::vector<Edit> edits;
+
+    if (!pin)
+    {
+        if (c->hasSeed)
+            edits.push_back(eraseStmt(text, c->seedA, c->seedB));
+    }
+    else if (c->hasSeed)
+        edits.push_back({ c->seedA, c->seedB, stmt });
+    else
+        edits.push_back(insertInBody(text, *c, stmt));
 
     return finish(filename, text, edits, why);
 }

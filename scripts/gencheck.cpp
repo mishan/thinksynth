@@ -12348,6 +12348,125 @@ checkProbes (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* A chain's own seed is its take: what it plays depends on that seed and
+ * nothing else -- not the piece's seed, not the chains above it -- and
+ * another seed is another take. Two chains of sixteenth notes, each
+ * through a coin toss; channel 1 is the seeded one, channel 2 the other.
+ */
+static void
+checkChainSeed (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    auto chain = [](const std::string &name, int channel,
+                    const std::string &seed)
+    {
+        return "chain " + name + " {\n" + seed +
+               "  stage src gen::euclid { steps = 1; fills = 1; "
+               "notes = \"C4\"; period = 0.125 s; hold = 0.05 s; };\n"
+               "  stage c xform::chance { prob = 0.5; };\n"
+               "  sink { channel = " + std::to_string(channel) + "; };\n};\n";
+    };
+    auto piece = [&](unsigned master, unsigned take, bool above)
+    {
+        return "seed " + std::to_string(master) + ";\n" +
+               (above ? chain("above", 3, "") : "") +
+               chain("a", 1, "  seed " + std::to_string(take) + ";\n") +
+               chain("b", 2, "");
+    };
+    auto on = [](const std::string &tape, int channel)
+    {
+        std::string out;
+
+        for (const Heard &h : notesOf(tape))
+            if (h.channel == channel)
+                out += std::to_string(h.at) + " ";
+
+        return out;
+    };
+
+    const std::string base = renderBody(plugins, synth, "chain-seed",
+                                        piece(1, 7, false), 8);
+    const struct
+    {
+        const char *what;
+        std::string body;
+        bool sameTake, sameOther;
+    } cases[] = {
+        { "another piece seed", piece(2, 7, false), true, false },
+        { "a chain added above it", piece(1, 7, true), true, false },
+        { "another take", piece(1, 8, false), false, true },
+    };
+
+    if (on(base, 0).empty())
+    {
+        fail("a seeded chain played nothing");
+        return;
+    }
+
+    for (const auto &c : cases)
+    {
+        const std::string tape = renderBody(plugins, synth, "chain-seed",
+                                            c.body, 8);
+
+        if ((on(tape, 0) == on(base, 0)) != c.sameTake)
+            fail(std::string("a seeded chain under ") + c.what +
+                 (c.sameTake ? " played another take"
+                             : " played the same take"));
+
+        if ((on(tape, 1) == on(base, 1)) != c.sameOther)
+            fail(std::string("an unseeded chain under ") + c.what +
+                 (c.sameOther ? " changed" : " did not change"));
+    }
+
+    /* The writer: a take given to a chain that had none, which goes above
+       its stages where the loader wants it, then another, then none. */
+    const std::string path = thUtil::tempFile("gencheck-chain-seed-");
+    std::string why;
+    auto seedOf = [&](void)
+    {
+        thcGenEdit::Doc d;
+        std::string w;
+
+        return thcGenEdit::describe(path, d, w) == thcGenEdit::OK &&
+               d.chains.size() == 2 && d.chains[1].hasSeed
+                   ? (long)d.chains[1].seed : -1L;
+    };
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << piece(1, 7, false);
+    }
+
+    if (thcGenEdit::setChainSeed(path, "b", true, 9, why) != thcGenEdit::OK ||
+        seedOf() != 9)
+        fail("the writer would not give a chain a seed: " + why);
+
+    if (renderBody(plugins, synth, "chain-seed", slurp(path), 1).empty())
+        fail("the piece the seed writer left did not play");
+
+    if (thcGenEdit::setChainSeed(path, "b", true, 10, why) !=
+            thcGenEdit::OK || seedOf() != 10)
+        fail("the writer would not change a chain's seed: " + why);
+
+    if (thcGenEdit::setChainSeed(path, "b", false, 0, why) !=
+            thcGenEdit::OK || seedOf() != -1)
+        fail("the writer would not take a chain's seed out: " + why);
+
+    std::filesystem::remove(path);
+
+    const std::string late =
+        "chain a {\n  stage src gen::euclid { steps = 1; fills = 1; "
+        "notes = \"C4\"; period = 1 s; hold = 0.1 s; };\n  seed 3;\n"
+        "  sink { channel = 1; };\n};\n";
+
+    expectReject(plugins, synth, "chain-seed-late", late,
+                 "seed must come before its stages");
+    expectReject(plugins, synth, "chain-seed-sink",
+                 "chain a {\n  input midi;\n  sink { channel = 1; };\n"
+                 "  seed 3;\n};\n", "seed after sink");
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -14602,6 +14721,7 @@ main (int argc, char *argv[])
         checkSeek(plugins, &synth);
         checkProbes(plugins, &synth);
         checkChainStart(plugins, &synth);
+        checkChainSeed(plugins, &synth);
         checkRun(plugins, &synth);
         checkVariation(plugins, &synth);
         checkCloud(plugins, &synth);

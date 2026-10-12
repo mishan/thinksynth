@@ -1106,6 +1106,251 @@ const grow = createGrow({
  * the pair of answers that loses nobody's work. */
 let loadedText = '';
 
+/* ---- undo ----
+ *
+ * Every text the piece has been, a list per mode for the text each mode
+ * keeps (holdText): what a load took, what a control wrote into it. A run
+ * of param edits close together -- a slider dragged, a pad moved -- is one
+ * step rather than a step per position it passed through.
+ */
+const UNDO_KEEP = 200;
+const UNDO_JOIN_MS = 1000;
+
+const histories = { seq: { past: [], future: [], at: 0, join: null },
+                    piece: { past: [], future: [], at: 0, join: null } };
+let undoing = false;
+
+function history ()
+{
+    return histories[textMode] ?? null;
+}
+
+/* What the piece is now, and the one before it unless this continues the
+   edit that made that one: the same `join', a second or less later. */
+function setLoaded (text, join = null)
+{
+    loadedText = text;
+
+    const h = history();
+
+    if (h === null || undoing || h.past.at(-1) === text)
+        return;
+
+    const now = performance.now();
+
+    if (join !== null && join === h.join && now - h.at < UNDO_JOIN_MS &&
+        h.past.length > 1)
+        h.past[h.past.length - 1] = text;
+    else
+        h.past.push(text);
+
+    h.at = now;
+    h.join = join;
+    h.past.splice(0, h.past.length - UNDO_KEEP);
+    h.future = [];
+    showUndo();
+}
+
+/* Another document: nothing before it to go back to. */
+function forgetHistory ()
+{
+    const h = history();
+
+    if (h !== null)
+        Object.assign(h, { past: [], future: [], at: 0, join: null });
+
+    showUndo();
+}
+
+function showUndo ()
+{
+    const h = history();
+
+    $('undo').disabled = synth === null || h === null || h.past.length < 2;
+    $('redo').disabled = synth === null || h === null ||
+                         h.future.length === 0;
+}
+
+async function undo (back)
+{
+    const h = history();
+
+    if (h === null || playsPatch() || undoing || loading > 0 ||
+        (back ? h.past.length < 2 : h.future.length === 0))
+        return;
+
+    /* What was typed and never loaded is in no list, and would be lost. */
+    if ($('gen').value !== loadedText)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before undoing.', true);
+        return;
+    }
+
+    const step = (from, to) => to.push(from.pop());
+
+    step(back ? h.past : h.future, back ? h.future : h.past);
+    h.join = null;
+    undoing = true;
+
+    try
+    {
+        if (!(await applyText(h.past.at(-1))))
+            step(back ? h.future : h.past, back ? h.past : h.future);
+    }
+    finally
+    {
+        undoing = false;
+        showUndo();
+    }
+}
+
+/* ---- a text, made the piece ----
+ *
+ * While it plays, as an edit at the next window: what did not change goes
+ * on playing where it is (thcGenDiff), so moving a stage or going back a
+ * step is not a restart from the top. Stopped, as a load.
+ */
+let editTie = 0;
+const editsWaiting = new Map();      /* tie -> { text, was, resolve } */
+let editing = Promise.resolve(true); /* the latest, for settled() */
+
+/* Every edit still waiting, given up: a load replaces the piece it was
+   for, and the module drops what it had queued with it (tw_piece_load). */
+function dropEdits ()
+{
+    for (const e of editsWaiting.values())
+        e.resolve(false);
+
+    editsWaiting.clear();
+}
+
+/* Resolves to whether the text went in. */
+async function applyText (text)
+{
+    $('gen').value = text;
+
+    if (lastTape?.running !== true || piece === null || loading > 0)
+    {
+        await loadPiece();
+        return piece !== null;
+    }
+
+    const tie = ++editTie;
+    const was = loadedText;
+
+    /* The piece's from now, so that a control writing into it meanwhile
+       writes into this text; put back if the edit is refused. */
+    loadedText = text;
+    editing = new Promise((resolve) =>
+        editsWaiting.set(tie, { text, was, resolve }));
+    synth.edit(-1, text, {}, tie);
+
+    return editing;
+}
+
+/* An edit has gone in, or been refused: the piece is what it now says.
+   Not while a load is replacing it -- this would be about the old one. */
+async function edited (m)
+{
+    if (loading > 0)
+        return;
+
+    for (const { tie, went } of m.results ?? [])
+    {
+        const e = editsWaiting.get(tie);
+
+        if (e === undefined)
+            continue;
+
+        editsWaiting.delete(tie);
+
+        if (went)
+            setLoaded(e.text);
+        else
+        {
+            loadedText = e.was;
+
+            if ($('gen').value === e.text)
+                $('gen').value = e.was;
+
+            status('That edit did not go in; the piece is as it was.', true);
+        }
+
+        e.resolve(went);
+    }
+
+    if (m.errors.length > 0)
+    {
+        m.errors.forEach(log);
+        seeBelow();
+    }
+
+    piece = m;
+
+    /* A sink the edit added may name a channel nothing is on yet. */
+    const aiming = await patch.aim(
+        synth, m.sinks, mode() === 'seq'
+            ? new Map([...sequenceVoices(), ...aimed]) : aimed);
+
+    placed = aiming.placed;
+    aiming.failed.forEach(log);
+    await followPiece();
+}
+
+/* ---- the file ---- */
+
+function savePiece ()
+{
+    const name = (piece?.name || (mode() === 'seq' ? 'sequence' : 'piece'))
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const a = document.createElement('a');
+
+    a.href = URL.createObjectURL(new Blob([$('gen').value],
+                                          { type: 'text/plain' }));
+    a.download = `${name || 'piece'}.gen`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+/* A .gen from disk, as a piece: the piece menu says which file it was
+   until another is chosen. A choice in flight, as pickPiece's is. */
+function openPiece ()
+{
+    const file = $('openfile').files[0];
+
+    $('openfile').value = '';
+
+    if (file !== undefined)
+        picking = openFile(file).catch(() => {});
+}
+
+async function openFile (file)
+{
+    const text = await file.text();
+
+    if (mode() !== 'piece')
+    {
+        $('mode').value = 'piece';
+        await pickMode();
+    }
+
+    let mine = $('piece').querySelector('option[data-opened]');
+
+    if (mine === null)
+    {
+        mine = new Option('', '');
+        mine.dataset.opened = '';
+        $('piece').prepend(mine);
+    }
+
+    mine.textContent = file.name;
+    $('piece').value = '';
+    forgetHistory();
+    $('gen').value = text;
+    await loadPiece();
+}
+
 /* The control, put where the piece that is playing leaves it.
  *
  * Offered only where it means something. The tempo scales beat-valued
@@ -1253,25 +1498,25 @@ async function setTempo ()
         return;
 
     $('gen').value = text;
-    loadedText = text;
+    setLoaded(text);
 }
 
 /* A stage's params, set from the popover and written into the worklet's
  * copy of the piece: into the box as well, which is what a Load, a mode
  * switch and a Save read. On the tempo's terms -- only while the box still
  * holds what was loaded, or the edit is live and the text is theirs. */
-function paramsEdited ({ piece: text })
+function paramsEdited ({ piece: text, edits })
 {
     if (text === '' || $('gen').value !== loadedText)
         return;
 
     $('gen').value = text;
-    loadedText = text;
+    setLoaded(text, (edits ?? []).map((e) =>
+        `${e.chainName}/${e.docStage}/${e.row}`).join(' '));
 }
 
 /* A stage box dropped elsewhere in its chain on the canvas: the box's text
- * spliced by the module and loaded again, playing from the top if it was
- * playing -- a structural edit rewinds, as it does on the desktop. Refused
+ * spliced by the module and made the piece (applyText). Refused
  * while the box holds text that was never loaded: the canvas draws the
  * loaded piece, and its numbering need not be the box's. */
 async function moveStage (chainName, from, to)
@@ -1290,7 +1535,6 @@ async function moveStage (chainName, from, to)
         return;
     }
 
-    const wasRunning = lastTape?.running === true;
     const { text } = await synth.genMoveStage(was, chainName, from, to);
 
     if (text === '')
@@ -1309,11 +1553,7 @@ async function moveStage (chainName, from, to)
         return;
     }
 
-    $('gen').value = text;
-    await loadPiece();
-
-    if (wasRunning && piece !== null)
-        synth.transport('start');
+    await applyText(text);
 }
 
 /* The loaded piece's `effect' statement as the menu shows it, read the way
@@ -1346,7 +1586,6 @@ async function choosePieceEffect ()
         return;
     }
 
-    const wasRunning = lastTape?.running === true;
     const { text } = await synth.genSetEffect(was, $('pieceeffect').value);
 
     if (text === '' || $('gen').value !== was || loadedText !== was ||
@@ -1357,11 +1596,7 @@ async function choosePieceEffect ()
         return;
     }
 
-    $('gen').value = text;
-    await loadPiece();
-
-    if (wasRunning && piece !== null)
-        synth.transport('start');
+    await applyText(text);
 }
 
 /* A chain's F on the canvas: what it just played, as a new chain with a
@@ -1506,7 +1741,8 @@ async function loadPiece ()
     /* What the box held when this load took it. A tempo change writes the
        statement back into the text, and it may only do that to a document
        nobody has since typed into -- see showTempo. */
-    loadedText = $('gen').value;
+    dropEdits();
+    setLoaded($('gen').value);
 
     /* The mirror answers the load before the aiming is done, and the
        sequencer's height measurements arrive while `placed' still holds
@@ -1537,10 +1773,6 @@ async function loadPiece ()
 
     piece = it.errors.length === 0 ? it : null;
     placed = aiming.placed;
-    showLiveIn();
-    showPieceEffect();
-    evolve.show();
-    fitTracks();
 
     if (piece === null)
     {
@@ -1557,6 +1789,17 @@ async function loadPiece ()
     }
     else
         status(`Loaded ${piece.name || $('piece').value}. Press Play.`);
+
+    await followPiece();
+}
+
+/* Everything that shows what the piece is, after a load or an edit. */
+async function followPiece ()
+{
+    showLiveIn();
+    showPieceEffect();
+    evolve.show();
+    fitTracks();
 
     $('about').textContent = piece === null ? '' : piece.description;
     showAbout();
@@ -1759,6 +2002,8 @@ function holdText (which)
 
     if (modeText[which] !== null)
         $('gen').value = modeText[which];
+
+    showUndo();
 }
 
 /* The piece mode, entered: its own text back in the box, then loaded. */
@@ -1779,10 +2024,13 @@ async function pickPiece ()
 {
     composer?.forgetMix();
 
+    $('piece').querySelector('option[data-opened]')?.remove();
+
     const run = (async () =>
     {
         $('gen').value =
             await (await fetch(`gen/${$('piece').value}`)).text();
+        forgetHistory();
 
         await loadPiece();
         showLiveIn();
@@ -2459,6 +2707,7 @@ async function start ()
                                              nodes?.feed(m.probes);
                                          },
                                          onParamEdits: paramsEdited,
+                                         onEdited: edited,
                                          onMidi: (msgs) => midiOutUI.take(msgs),
                                          onMidiState: (list) =>
                                              midiOutUI.state(list),
@@ -2644,6 +2893,8 @@ async function start ()
     delete document.body.dataset.unstarted;
     $('load').disabled = false;
     $('loadpiece').disabled = false;
+    $('openpiece').disabled = false;
+    showUndo();
     $('exportmidi').disabled = false;
     grow.buttons();
 
@@ -3195,15 +3446,18 @@ window.solo = {
        worklet and land after the load that quiet tracks is finished. */
     settled: async () =>
     {
-        for (let was = null, drew = null, chose = null;
-             was !== quiet || drew !== drawn || chose !== picking; )
+        for (let was = null, drew = null, chose = null, ed = null;
+             was !== quiet || drew !== drawn || chose !== picking ||
+             ed !== editing; )
         {
             was = quiet;
             drew = drawn;
             chose = picking;
+            ed = editing;
 
             await picking;
             await quiet;
+            await editing;
             await drawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
         }
@@ -3316,6 +3570,7 @@ async function pickMode ()
     $('patchmode').hidden = !playsPatch();
     $('piecemode').hidden = which !== 'piece';
     $('transport').hidden = playsPatch();
+    $('document').hidden = playsPatch();
     showAbout();
 
     panesFor(which);
@@ -3583,6 +3838,11 @@ async function init ()
     $('patch').addEventListener('change', pickPatch);
 
     $('loadpiece').addEventListener('click', loadPiece);
+    $('undo').addEventListener('click', () => undo(true));
+    $('redo').addEventListener('click', () => undo(false));
+    $('savepiece').addEventListener('click', savePiece);
+    $('openpiece').addEventListener('click', () => $('openfile').click());
+    $('openfile').addEventListener('change', openPiece);
     $('exportmidi').addEventListener('click', exportMidi);
     $('pieceeffect').addEventListener('change', choosePieceEffect);
     $('piece').addEventListener('change', pickPiece);
@@ -3628,7 +3888,19 @@ async function init ()
     $('down').addEventListener('click', () => keys.shift(-1));
     $('up').addEventListener('click', () => keys.shift(1));
 
-    window.addEventListener('keydown', (e) => keys.keyDown(e));
+    window.addEventListener('keydown', (e) =>
+    {
+        /* Undo and redo of the piece, except where a box has its own. */
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' &&
+            !e.target.closest?.('input, textarea, source-box, [contenteditable]'))
+        {
+            e.preventDefault();
+            undo(!e.shiftKey);
+            return;
+        }
+
+        keys.keyDown(e);
+    });
     window.addEventListener('keyup', (e) => keys.keyUp(e));
     window.addEventListener('blur', releaseKeys);
 

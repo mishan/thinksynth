@@ -114,6 +114,8 @@ public:
         std::string name;
         std::string startText;  /* empty when the chain starts at zero */
         bool inputMidi;
+        bool hasSeed = false;   /* `seed N;': its own, not the piece's */
+        unsigned seed = 0;
         std::vector<Stage> stages;
         std::vector<Sink> sinks;
     };
@@ -395,6 +397,11 @@ public:
                                  const std::string &chain,
                                  const std::string &start,
                                  std::string &why);
+
+    /* `seed N;' in the chain, or the line taken out when !pin. */
+    static Result setChainSeed (const std::string &filename,
+                                const std::string &chain, bool pin,
+                                unsigned seed, std::string &why);
 
     /* ---- the arrangement ---------------------------------------------- */
 
