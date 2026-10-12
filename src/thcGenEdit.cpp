@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -368,6 +369,8 @@ struct SectionRefIdx
 struct SectionIdx
 {
     std::string name;
+    size_t nameA, nameB;
+    size_t lenA, lenB;           /* `16 bars'                            */
     size_t stmtA, stmtB;
     size_t bodyClose;            /* the block's '}'                      */
     std::vector<SectionRefIdx> refs;
@@ -401,6 +404,9 @@ struct Index
     std::vector<InstrumentIdx> instruments;
     std::vector<SectionIdx>    sections;
     std::vector<ChainIdx>      chains;
+
+    /* `section end;', or npos for a piece whose sections cycle. */
+    size_t sectionEndA, sectionEndB;
 
     /* The piece's own `effect "<file>" ...;', whole statement. */
     std::string masterEffect;
@@ -502,6 +508,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.firstInstrumentOff = std::string::npos;
     ix.firstChainOff = std::string::npos;
     ix.masterA = ix.masterB = 0;
+    ix.sectionEndA = ix.sectionEndB = std::string::npos;
 
     size_t i = 0;
 
@@ -691,11 +698,22 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
         /* section <name> <n> <unit> { <chain> = <level>; ... };  and
            section end; -- indexed for its chain names. */
+        if (kw == "section" && t[i + 1].kind == Tok::WORD &&
+            t[i + 1].text == "end" && isPunct(t[i + 2], ';'))
+        {
+            ix.sectionEndA = t[i].off;
+            ix.sectionEndB = t[i + 2].end;
+            i += 3;
+            continue;
+        }
+
         if (kw == "section" && t[i + 1].kind == Tok::WORD)
         {
             SectionIdx se;
 
             se.name = t[i + 1].text;
+            se.nameA = t[i + 1].off;
+            se.nameB = t[i + 1].end;
             se.stmtA = t[i].off;
 
             size_t j = i + 2;
@@ -705,6 +723,8 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
             if (shaped)
             {
+                se.lenA = t[j].off;
+                se.lenB = t[j + 1].end;
                 j += 3;
 
                 while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
@@ -3412,6 +3432,256 @@ thcGenEdit::renameChain (const std::string &filename,
 }
 
 /* ---- the arrangement ------------------------------------------------ */
+
+/* `16 bars', `8 beats', `4 b' or `30 s': the lengths a section takes,
+   checked here as setChainStart checks a start, since a file this writes
+   that the loader refuses is a broken piece. */
+static bool
+validSectionLength (const std::string &text, std::string &why)
+{
+    size_t i = 0;
+    bool digit = false;
+
+    while (i < text.size() && isdigit((unsigned char)text[i]))
+        i++, digit = true;
+
+    if (i < text.size() && text[i] == '.')
+        for (i++; i < text.size() && isdigit((unsigned char)text[i]); i++)
+            digit = true;
+
+    const size_t end = i;
+
+    while (i < text.size() && text[i] == ' ')
+        i++;
+
+    const std::string unit = text.substr(i);
+
+    if (!digit || i == end || (unit != "bars" && unit != "beats" &&
+                               unit != "b" && unit != "s") ||
+        std::atof(text.c_str()) <= 0)
+    {
+        why = "a section's length is a number and bars, beats or s, not '" +
+              text + "'";
+        return false;
+    }
+
+    return true;
+}
+
+static SectionIdx *
+findSection (Index &ix, const std::string &name)
+{
+    for (SectionIdx &se : ix.sections)
+        if (se.name == name)
+            return &se;
+
+    return NULL;
+}
+
+/* A section `name' of `length', after section `after' -- or, for "", last,
+ * above a `section end;' -- naming each chain in `levels' at its level:
+ * what a scene copied from another is. A piece with no sections gets its
+ * first above its chains, where the loader wants them.
+ */
+R
+thcGenEdit::addSection (const std::string &filename, const std::string &name,
+                        const std::string &length, const std::string &after,
+                        const std::vector<std::pair<std::string,
+                            double> > &levels,
+                        std::string &why)
+{
+    if (!validName(name) || name == "end")
+    {
+        why = "'" + name + "' is not a name a section can have";
+        return REFUSED;
+    }
+
+    if (!validSectionLength(length, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findSection(ix, name) != NULL)
+    {
+        why = "there is already a section called " + name;
+        return REFUSED;
+    }
+
+    std::string stmt = "section " + name + " " + length + " {";
+
+    for (const auto &l : levels)
+    {
+        std::string num;
+
+        if (findChain(ix, l.first) == NULL)
+        {
+            why = "no chain called " + l.first;
+            return NOT_FOUND;
+        }
+
+        if (!(l.second >= 0) || !format(l.second, num))
+        {
+            why = "that level cannot be written";
+            return UNWRITABLE;
+        }
+
+        if (l.second != 1)
+            stmt += " " + l.first + " = " + num + ";";
+    }
+
+    stmt += " };";
+
+    size_t at;
+
+    if (!after.empty())
+    {
+        const SectionIdx *se = findSection(ix, after);
+
+        if (se == NULL)
+        {
+            why = "no section called " + after;
+            return NOT_FOUND;
+        }
+
+        at = se->stmtB;
+        stmt = "\n" + stmt;
+    }
+    else if (ix.sectionEndA != std::string::npos)
+    {
+        at = lineStartOf(text, ix.sectionEndA);
+        stmt += "\n";
+    }
+    else if (!ix.sections.empty())
+    {
+        at = ix.sections.back().stmtB;
+        stmt = "\n" + stmt;
+    }
+    else if (ix.firstChainOff != std::string::npos)
+    {
+        at = lineStartOf(text, ix.firstChainOff);
+        stmt += "\n\n";
+    }
+    else
+    {
+        if (!text.empty() && text[text.size() - 1] != '\n')
+            text += "\n";
+
+        at = text.size();
+        stmt += "\n";
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at, stmt });
+
+    return finish(filename, text, edits, why);
+}
+
+/* The last one taken out takes `section end;' with it: a piece with no
+   sections plays as written, which an end with nothing before it would
+   stop at once. */
+R
+thcGenEdit::removeSection (const std::string &filename,
+                           const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, se->stmtA, se->stmtB));
+
+    if (ix.sections.size() == 1 && ix.sectionEndA != std::string::npos)
+        edits.push_back(eraseStmt(text, ix.sectionEndA, ix.sectionEndB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::renameSection (const std::string &filename,
+                           const std::string &oldName,
+                           const std::string &newName, std::string &why)
+{
+    if (!validName(newName) || newName == "end")
+    {
+        why = "'" + newName + "' is not a name a section can have";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, oldName);
+
+    if (se == NULL)
+    {
+        why = "no section called " + oldName;
+        return NOT_FOUND;
+    }
+
+    if (newName != oldName && findSection(ix, newName) != NULL)
+    {
+        why = "there is already a section called " + newName;
+        return REFUSED;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ se->nameA, se->nameB, newName });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSectionLength (const std::string &filename,
+                              const std::string &name,
+                              const std::string &length, std::string &why)
+{
+    if (!validSectionLength(length, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ se->lenA, se->lenB, length });
+
+    return finish(filename, text, edits, why);
+}
 
 R
 thcGenEdit::setSectionLevel (const std::string &filename,
