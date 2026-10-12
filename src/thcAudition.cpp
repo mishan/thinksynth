@@ -150,6 +150,14 @@ thcAuditioner::drain (void)
     });
 }
 
+bool
+thcAuditioner::idle (void)
+{
+    std::lock_guard<std::mutex> hold(lock_);
+
+    return queue_.empty() && busy_ < 0;
+}
+
 void
 thcAuditioner::run (void)
 {

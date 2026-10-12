@@ -117,6 +117,9 @@ public:
     /* Blocks until every queued job has an answer. */
     void drain (void);
 
+    /* Whether every queued job has one now. */
+    bool idle (void);
+
     /* Answers that have been collected, for a harness to count. */
     int answered (void) const { return answered_; }
 

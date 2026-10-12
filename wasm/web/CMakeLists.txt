@@ -191,6 +191,7 @@ add_executable(thinkweb
     "${THINK_TOP}/src/NodeLayout.cpp"
     "${THINK_TOP}/src/NodeCatalog.cpp"
     "${THINK_TOP}/src/NodeMutate.cpp"
+    "${THINK_TOP}/src/NodeEvolve.cpp"
     "${THINK_TOP}/src/DspCatalog.cpp"
     "${THINK_TOP}/src/GenCatalog.cpp"
     "${THINK_TOP}/src/PanelModel.cpp"
@@ -242,7 +243,7 @@ target_link_options(thinkweb PRIVATE
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js midi.js midiout.js midioutui.js clock.js
-                mirror.js
+                mirror.js ear.js
                 canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
                 layouts.js packs.js manifest.json)

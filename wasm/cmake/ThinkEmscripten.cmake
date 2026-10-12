@@ -146,6 +146,7 @@ set(THINK_PKG_LIB_DIR "${CMAKE_INSTALL_LIBDIR}")
 set(THINK_COMPOSERHOST_SOURCES
     "${THINK_TOP}/src/thcPlugin.cpp"
     "${THINK_TOP}/src/thcScheduler.cpp"
+    "${THINK_TOP}/src/thcAudition.cpp"
     "${THINK_TOP}/src/thcNodeHost.cpp"
     "${THINK_TOP}/src/thcGenFile.cpp"
     "${THINK_TOP}/src/thcGenEdit.cpp"

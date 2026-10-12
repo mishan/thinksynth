@@ -785,17 +785,41 @@ public:
        thread this runs on -- the browser's audio worklet, whose quantum is
        a few milliseconds and a growth step's level check a tenth of a
        second. Asked with a ticket, `text' the graph on the channel, and
-       answered through growthAnswer. Used where there is no grower. */
+       answered through growthAnswer: up to `want' edits, as a Grower makes
+       them. Used where there is no grower. */
     typedef std::function<void (unsigned int ticket, const std::string &text,
                                 const std::string &base, unsigned int choice,
-                                const std::string &kinds)> GrowRequest;
+                                const std::string &kinds, size_t want)>
+        GrowRequest;
 
     void setGrowRequest (const GrowRequest &fn) { growRequest_ = fn; }
 
-    /* What the grower made for `ticket': on the channel, unless something
-       has moved its stack since it was asked; `why' if it made nothing. */
-    void growthAnswer (unsigned int ticket, const std::string &grown,
-                       const std::string &what, const std::string &why);
+    /* What the grower made for `ticket': taken as a Grower's edits are --
+       heard against the step's target if it has one -- unless something
+       has moved the channel's stack since it was asked; `why' if it made
+       nothing. */
+    void growthAnswer (unsigned int ticket,
+                       const std::vector<std::string> &grown,
+                       const std::vector<std::string> &what,
+                       const std::string &why);
+
+    /* An ear that answers later, the host's, for one with no auditioner
+       here: the browser's worklet and mirror, whose renders a worker of
+       the page's makes. Asked with a ticket and the request as JSON --
+       the candidate's and the target's graph texts and values, or the
+       target's sound file, and how much to tune -- and answered through
+       earAnswer. Used where there is no auditioner. */
+    typedef std::function<void (int ticket, const std::string &ask)>
+        EarRequest;
+
+    void setEarRequest (const EarRequest &fn) { earRequest_ = fn; }
+    void earAnswer (int ticket, bool ok, double distance,
+                    const std::string &tuned);
+
+    /* Whether this makes an auditioner of its own: off for a browser
+       realm that asks the page instead, which is all of them but the
+       ear's worker. */
+    void setLocalEar (bool on) { localEar_ = on; }
 
     /* What tunes each edit a growth toward a target hears, before it is
        judged: NodeEvolve::tuneAdded, for a host that links the node model.
@@ -1555,8 +1579,11 @@ private:
         std::vector<int> tickets;
         std::vector<double> distances;
 
-        /* The GrowRequest ticket this channel waits on, or 0. */
+        /* The GrowRequest ticket this channel waits on, or 0, and the
+           target and tuning its answer is to be heard with. */
         unsigned int asked = 0;
+        std::string askTarget;
+        int askTune = 0;
 
         /* Composer steps that came while an answer was awaited, to be
            taken in order once it is in. */
@@ -1593,6 +1620,13 @@ private:
     /* The channel's stack, started from what it plays if it has none;
        NULL with `why' for a channel nothing can grow on. */
     Growth *growthOf (int channel, std::string &why);
+
+    /* `options' a grower made, onto the channel: the first, or with a
+       target the nearest as heard, now or once the answers are in. */
+    bool chooseAmong (int channel, Growth &g,
+                      const std::vector<std::string> &options,
+                      const std::vector<std::string> &whats,
+                      const std::string &target, int tune, std::string &why);
 
     /* The nearest of `g''s heard edits, onto the channel. */
     bool takeHeard (int channel, Growth &g, std::string &why);
@@ -1802,6 +1836,42 @@ private:
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
+
+#ifdef __EMSCRIPTEN__
+    bool localEar_ = false;
+#else
+    bool localEar_ = true;
+#endif
+
+    /* The host's ear, and its answers by ticket, `in' once answered. */
+    struct EarAnswer
+    {
+        bool in = false;
+        bool ok = false;
+        double distance = 0;
+        std::string tuned;
+    };
+
+    EarRequest earRequest_;
+    std::map<int, EarAnswer> earAnswers_;
+    int earTicket_ = 0;
+
+    /* The names graphs have gone to the ear by, and those whose text has
+       gone with them already. */
+    std::map<std::string, std::string> earIds_;
+    std::set<std::string> earSent_;
+    std::string earGraph (const std::string &name, std::string &texts);
+
+    bool hasEar (void) const { return auditioner_ != NULL || earRequest_; }
+
+    /* thcAuditioner's three, to the auditioner here or the host's ear. */
+    int earHear (const thcAuditioner::Instrument &candidate,
+                 const std::string &targetKey,
+                 const thcAuditioner::Instrument *targetInstrument,
+                 const std::string &targetFile, int tune,
+                 const std::string &from);
+    int earHeard (int ticket, double *distance, std::string *tuned);
+    void earForget (int ticket);
 
     /* While a knob sink's value is being set: its time, which is when a
        sleeper it wakes is woken. The step's end would make that wake a

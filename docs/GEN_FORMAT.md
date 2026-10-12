@@ -523,7 +523,9 @@ hands over names and numbers and gets a number back (`thcAudition` in
 live it happens on a worker thread and a generation is bred the cycle after it
 was played; `genwav` and `gencheck` have the host answer inside the tick, and
 that is the host on which a piece that listens replays exactly. In the
-browser there is no ear, and a `target` is ignored.
+browser the page hears in a worker of its own, which the worklet and the
+mirror both ask, and the answers come back as they do live — so a seek there,
+which cannot wait for them, lands on what a play-through with a slow ear would.
 
 ### Instruments played over MIDI
 
@@ -913,9 +915,9 @@ mirror worker grows it and the graph changes when its answer is back, a tenth of
 a second or so after the event. A step that comes while one is still out waits
 behind it, so the steps are the same and in the same order everywhere, but in a
 room each peer's graph changes at its own moment, and one catching up takes them
-late. There is no ear there, so a `target` is ignored and the walk wanders. A
-host that does not link the node model — the Node build — refuses growth and
-says so.
+late. With a `target`, the edits are heard, and tuned, in the page's ear
+worker, as `gen::breed`'s candidates are. A host that does not link the node
+model — the Node build — refuses growth and says so.
 
 Given a `target` — an instrument of the piece or a sound file, as `gen::breed`
 takes — the walk leans toward it: of the edits that keep the level, the host

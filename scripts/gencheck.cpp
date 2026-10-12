@@ -6604,10 +6604,18 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
             const int answered = sched.auditioner() != NULL
                                ? sched.auditioner()->answered() : 0;
 
-            if (!sync && sched.auditioner() != NULL)
+            /* As live: the ear's answers taken tick by tick as its worker
+               has them, on steps that move the transport nowhere. */
+            for (int i = 0; !sync && sched.auditioner() != NULL &&
+                            i < 2000 && !sched.auditioner()->idle(); i++)
             {
-                sched.auditioner()->drain();
-                sched.stepTransport(0.05);
+                sched.stepTransport(0);
+                g_usleep(5000);
+            }
+
+            if (!sync)
+            {
+                sched.stepTransport(0);
                 drainSynth();
             }
 
