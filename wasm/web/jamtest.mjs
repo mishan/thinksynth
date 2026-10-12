@@ -1659,6 +1659,48 @@ async function playTogether (pages)
     }
 }
 
+/*
+ * The peer list is redrawn on every ping. The owner's button for the
+ * other peer, tabbed to, keeps the focus through two of them.
+ */
+async function peerFocusKept (pages)
+{
+    for (const { label, page } of pages)
+    {
+        const kept = await page.evaluate(async () =>
+        {
+            const b = document.querySelector('#peers button');
+
+            if (b === null)
+                return null;
+
+            let redraws = 0;
+            const seen = new MutationObserver(() => { redraws++; });
+
+            seen.observe(document.getElementById('peers'),
+                         { childList: true, subtree: true });
+            b.focus();
+            await new Promise((r) => setTimeout(r, 2500));
+            seen.disconnect();
+
+            return { redraws, focused: document.activeElement === b };
+        });
+
+        if (kept === null)
+            continue;
+
+        if (kept.redraws > 0 && kept.focused)
+            ok(`${label}'s peer button keeps the focus across pings`);
+        else
+            fail(`${label}'s peer button: ${kept.redraws} redraws, ` +
+                 `focused ${kept.focused}`);
+
+        return;
+    }
+
+    fail('no page has a button in its peer list');
+}
+
 /* A room on cloud.gen, whose cloud.dsp plays two of dsp/samples/ through
    osc::sample. A wav the page did not hand over is a line in the log and
    a voice that plays nothing. */
@@ -3310,6 +3352,7 @@ try
     /* ---- and sees the other seat's keys ---- */
 
     await keysSeen(pages);
+    await peerFocusKept(pages);
 
     /* ---- and plays recordings ---- */
 
