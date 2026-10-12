@@ -29,6 +29,9 @@
  * goes. A chain with nothing on an axis shows the axis as not there.
  */
 
+import { replay } from './replay.js';
+import { gestureOn } from './seqview.js';
+
 const $ = (id) => document.getElementById(id);
 
 /* Below the middle toward `lo', above it toward `hi'. */
@@ -117,6 +120,59 @@ const IDEAS = {
     'gen::ca': 'a cellular pattern', 'gen::evolve': 'an evolving phrase',
 };
 
+/* What a player's card shows of it: the first stage that draws, one that
+   takes a pointer before one that does not, and a board before the grid
+   that seeds it -- a grid is a sequencer track on the card, a Life board
+   one to paint on. */
+const PICTURES = ['life', 'ca', 'grid', 'euclid', 'accent', 'evolve',
+                  'lsystem', 'markov', 'morph', 'breed'];
+
+/* The plugins that draw from the seed, whose takes another seed changes.
+   Life and CA only when they scatter: a drawn board plays the same way
+   every time, and another seed only starts it over. */
+const RANDOM = new Set(['arp', 'cloud', 'humanize', 'chance', 'evolve',
+                        'stutter', 'eno_line', 'markov', 'walk', 'swap',
+                        'progression', 'ratchet', 'vary', 'breed', 'run',
+                        'grow']);
+
+function scatters (s)
+{
+    const v = s.params.find((p) => p.name === 'scatter');
+
+    return (numberOf(v?.valueText ?? '0')?.num ?? 0) > 0;
+}
+
+/* What another seed does to a player: 'vary' another take, 'restart' the
+   same board from the top, or nothing. */
+export function seededAs (stages)
+{
+    if (stages.some((s) => RANDOM.has(s.plugin) ||
+                           ((s.plugin === 'life' || s.plugin === 'ca') &&
+                            scatters(s))))
+        return 'vary';
+
+    return stages.some((s) => s.plugin === 'life' || s.plugin === 'ca')
+        ? 'restart' : null;
+}
+
+/* How tall a picture is drawn at `w' CSS pixels wide: a grid's rows big
+   enough to hit, a board's cells square, a ring room to be a ring. */
+function pictureHeight (s, w)
+{
+    const n = (row, or) => numberOf(s.params.find((p) => p.name === row)
+                                     ?.valueText ?? '')?.num ?? or;
+
+    switch (s.plugin)
+    {
+        case 'grid': return Math.min(160, Math.max(26, n('rows', 1) * 16));
+        case 'life':
+            return Math.round(Math.max(40, Math.min(16, w / n('width', 16)) *
+                                           n('height', 8)));
+        case 'euclid': return 90;
+        default: return 64;
+    }
+}
+
 /* By whole words of a chain's, instrument's and graph's names; chords
    before bass, so a `pad_low' is a pad. */
 const ROLES = [
@@ -200,8 +256,12 @@ export function playersOf (piece)
             ? (c.input ? 'what you play' : 'what comes in')
             : IDEAS[`gen::${gens[0].plugin}`] ?? gens[0].plugin;
 
+        const picture = PICTURES.map((n) => c.stages.find(
+            (s) => s.plugin === n && s.live >= 0)).find(Boolean) ?? null;
+
         return [{ index, name: c.name, role, sound, idea, stages: c.stages,
-                  seed: c.hasSeed ? c.seed : null }];
+                  seed: c.hasSeed ? c.seed : null, picture,
+                  seeded: seededAs(c.stages) }];
     });
 }
 
@@ -266,10 +326,13 @@ export function axesOf (stages)
     return has;
 }
 
-/* The pane. `synth' and `piece' are getters for the page's; `params'
-   sends param edits, `vary' sets a chain's seed (null: the piece's),
-   `keep' freezes a chain, `rest' mutes one. */
-export function createBand ({ piece, params, vary, keep, rest, say })
+/* The pane. `piece' is a getter for the page's; `params' sends param
+   edits, `vary' sets a chain's seed (null: the piece's) and resolves to
+   whether it went in, `keep' freezes a chain, `rest' mutes one, `say'
+   tells the page's status; `toMirror' asks the mirror to draw a stage and
+   `onGesture' sends a pointer on a picture, as the sequencer's do. */
+export function createBand ({ piece, params, vary, keep, rest, say,
+                              toMirror, onGesture })
 {
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
@@ -283,6 +346,67 @@ export function createBand ({ piece, params, vary, keep, rest, say })
     /* What the cards were drawn from: drawn again only when that changes,
        so a pad being dragged is not taken out from under the pointer. */
     let drawnFrom = '';
+
+    /* The pictures on the cards, each drawn by the mirror one frame at a
+       time: { chain, stage, canvas, ctx, w, h, dpr, asked, drop }. */
+    let pictures = [];
+    let visible = false;
+    let frameId = null;
+
+    function picture (p)
+    {
+        const s = p.picture;
+        const canvas = document.createElement('canvas');
+        const pic = { chain: p.index, stage: s.live, canvas,
+                      ctx: canvas.getContext('2d'), w: 0, h: 0, dpr: 0,
+                      height: (w) => pictureHeight(s, w), asked: false };
+
+        canvas.className = 'bandpic';
+        canvas.style.height = `${pic.height(320)}px`;
+        pic.drop = gestureOn(canvas, (kind, where, button) =>
+            onGesture({ chain: p.index, stage: s.live, chainName: p.name,
+                        stageName: s.name, kind, ...where, w: pic.w,
+                        h: pic.h, button }));
+        pictures.push(pic);
+        return canvas;
+    }
+
+    /* Each picture asked for again once the last one is back, at the
+       card's width: the element is the draw's size, so the pointer's
+       coordinates are the picture's. */
+    function frame ()
+    {
+        frameId = null;
+
+        if (!visible)
+            return;
+
+        const dpr = globalThis.devicePixelRatio || 1;
+
+        for (const pic of pictures)
+        {
+            if (pic.asked)
+                continue;
+
+            const w = Math.max(1, Math.round(pic.canvas.clientWidth));
+
+            if (w !== pic.w || dpr !== pic.dpr)
+            {
+                pic.w = w;
+                pic.h = pic.height(w);
+                pic.dpr = dpr;
+                pic.canvas.style.height = `${pic.h}px`;
+                pic.canvas.width = Math.round(w * dpr);
+                pic.canvas.height = Math.round(pic.h * dpr);
+            }
+
+            pic.asked = true;
+            toMirror({ type: 'stagedraw', chain: pic.chain,
+                       stage: pic.stage, w: pic.w, h: pic.h, dpr });
+        }
+
+        frameId = requestAnimationFrame(frame);
+    }
 
     const PAD_EVERY_MS = 80;
 
@@ -461,21 +585,30 @@ export function createBand ({ piece, params, vary, keep, rest, say })
 
         const moves = document.createElement('div');
         const takes = document.createElement('div');
+        const seed = () => Math.floor(Math.random() * 0x100000000);
 
         moves.className = 'moves';
-        moves.append(
-            button('Vary', 'Another take, from here on', async () =>
-            {
-                const seed = Math.floor(Math.random() * 0x100000000);
 
-                if (!(await vary(p, seed)))
+        if (p.seeded === 'vary')
+            moves.append(button('Vary', 'Another take, from here on',
+                                async () =>
+            {
+                const next = seed();
+
+                if (!(await vary(p, next)))
                     return;
 
                 st.takes = st.takes.slice(0, st.take + 1);
-                st.takes.push(seed);
+                st.takes.push(next);
                 st.take = st.takes.length - 1;
                 draw();
-            }),
+            }));
+        else if (p.seeded === 'restart')
+            moves.append(button('Restart', 'The board as it is written, ' +
+                                           'from here on',
+                                () => vary(p, seed())));
+
+        moves.append(
             button('Keep', 'Keep what it just played as notes you can ' +
                            'edit', () => keep(p)),
             button(st.resting ? 'Play' : 'Rest', st.resting
@@ -488,13 +621,13 @@ export function createBand ({ piece, params, vary, keep, rest, say })
 
         takes.className = 'takes';
         takes.title = 'Takes so far: click one to go back to it';
-        st.takes.forEach((seed, i) =>
+        (p.seeded === 'vary' ? st.takes : []).forEach((taken, i) =>
         {
             const t = button(String(i + 1), i === 0 ? 'As it was'
                                                     : `Take ${i + 1}`,
                              async () =>
             {
-                if (!(await vary(p, seed)))
+                if (!(await vary(p, taken)))
                     return;
 
                 st.take = i;
@@ -506,6 +639,10 @@ export function createBand ({ piece, params, vary, keep, rest, say })
         });
 
         el.append(who, pad(p, st, axes), octs, moves, takes);
+
+        if (p.picture !== null)
+            el.append(picture(p));
+
         return el;
     }
 
@@ -531,11 +668,18 @@ export function createBand ({ piece, params, vary, keep, rest, say })
             const st = stateOf(p);
 
             return [p.name, p.index, st.shape, p.role, p.sound, p.idea,
-                    st.takes, st.take, st.resting];
+                    st.takes, st.take, st.resting, p.seeded,
+                    p.picture?.live];
         }));
 
         if (from !== drawnFrom || list.childElementCount === 0)
+        {
+            for (const pic of pictures)
+                pic.drop();
+
+            pictures = [];
             list.replaceChildren(...players.map(card));
+        }
 
         drawnFrom = from;
 
@@ -551,7 +695,7 @@ export function createBand ({ piece, params, vary, keep, rest, say })
 
     return {
         /* A piece to show: another one starts the band afresh. */
-        show (name)
+        follow (name)
         {
             if (name !== shown)
             {
@@ -570,6 +714,44 @@ export function createBand ({ piece, params, vary, keep, rest, say })
 
         /* Another document, whatever the menu says: every player anew. */
         forget: () => state.clear(),
+
+        /* Asking for pictures only while somebody can see them. */
+        show (on)
+        {
+            visible = on;
+
+            if (on && frameId === null)
+                frameId = requestAnimationFrame(frame);
+            else if (!on && frameId !== null)
+            {
+                cancelAnimationFrame(frameId);
+                frameId = null;
+
+                for (const pic of pictures)
+                    pic.asked = false;
+            }
+        },
+
+        /* A picture the mirror drew; false for anything else. */
+        fromMirror (m)
+        {
+            if (m.type !== 'stagedraw')
+                return false;
+
+            const pic = pictures.find((q) => q.asked && q.chain === m.chain &&
+                                             q.stage === m.stage);
+
+            if (pic === undefined)
+                return false;
+
+            pic.asked = false;
+
+            if (m.ops !== null && m.w === pic.w && m.h === pic.h)
+                replay(pic.ctx, m.ops, m.strings, m.surfaces,
+                       { width: m.w, height: m.h, dpr: pic.dpr });
+
+            return true;
+        },
 
         /* Where a player's pad is, for a harness. */
         padOf: (name) => state.get(name) ?? null,

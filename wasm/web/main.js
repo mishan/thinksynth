@@ -361,8 +361,13 @@ function tile (phone, forced)
                 showComposer(on && mode() === 'piece');
             else if (id === 'seqview')
                 showSeq(on && composing());
-            else if (id === 'bandview' && on)
-                band.draw();
+            else if (id === 'bandview')
+            {
+                band.show(on && mode() === 'band');
+
+                if (on)
+                    band.draw();
+            }
             else if (id === 'roll')
                 showRoll(on && composing());
             else if (id === 'nodeview')
@@ -1724,6 +1729,8 @@ const band = createBand({
     keep: (p) => freezeChain(p.index, p.name),
     rest: (p, on) => synth?.mute({ at: -1, chain: p.index, on }),
     say: (text) => status(text, true),
+    toMirror: (m) => synth?.toMirror(m),
+    onGesture: (g) => synth?.input({ ...g, at: -1 }),
 });
 
 /* Evolve toward (evolveui.js). What it finds goes on the channel at the
@@ -1882,7 +1889,7 @@ async function loadPiece ()
 async function followPiece ()
 {
     if (mode() === 'band')
-        band.show($('piece').selectedOptions[0]?.textContent ?? '');
+        band.follow($('piece').selectedOptions[0]?.textContent ?? '');
 
     showLiveIn();
     showPieceEffect();
@@ -3045,6 +3052,9 @@ async function start ()
    log. */
 function fromMirror (m)
 {
+    if (band.fromMirror(m))
+        return;
+
     if (seq !== null && seq.fromMirror(m))
         return;
 
@@ -3677,6 +3687,7 @@ async function pickMode ()
         return;
 
     showComposer(panes.visible('composerview') && which === 'piece');
+    band.show(panes.visible('bandview') && which === 'band');
     showSeq(panes.visible('seqview') && composing());
     showRoll(panes.visible('roll') && composing());
     showNodes();

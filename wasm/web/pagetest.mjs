@@ -3311,19 +3311,15 @@ try
         await page.mouse.up();
 
         const busy = await until(kickOf, (t) => /fills = 4;/.test(t));
-
-        await card.locator('button', { hasText: 'Vary' }).click();
-
-        const varied = await until(kickOf, (t) => /seed \d+;/.test(t));
-        const others = await page.evaluate(() =>
-            (window.solo.genText().match(/^\s*seed \d+;/gm) ?? []).length);
-
-        await card.locator('.takes button', { hasText: '1' }).click();
-
-        const back = await until(kickOf, (t) => !/seed \d+;/.test(t));
+        const kickVaries = await card.locator('button',
+                                              { hasText: 'Vary' }).count();
 
         await page.click('#stop');
         await page.evaluate(() => window.solo.settled());
+
+        check(/fills = 4;/.test(busy) && kickVaries === 0,
+              '...the kick\'s pad at busy fills its ring, and a ring with ' +
+              `nothing random in it offers no Vary: ${/fills = \d+/.exec(busy)}`);
 
         /* The bell an octave up: its note list respelled, as the panel
            writes a list. */
@@ -3337,14 +3333,43 @@ try
 
         check(/notes = "C6 Eb6 G6 Bb6";/.test(up),
               '...and the bell\'s ▲ moves its notes up an octave');
+    }
 
-        check(/fills = 4;/.test(busy) && /seed \d+;/.test(varied) &&
-              others === 1 && !/seed/.test(back),
-              '...the kick\'s pad at busy fills its ring, Vary gives it a ' +
-              'take of its own and its first take puts the piece\'s back: ' +
-              JSON.stringify({ busy: /fills = \d+/.exec(busy)?.[0],
-                               varied: /seed \d+/.test(varied), others,
-                               back: /seed/.test(back) }));
+    /* Vary on a player with chance in it: ebb's tape loops get a seed of
+       their own while the piece plays, and the first take takes it out. */
+    {
+        await page.selectOption('#piece', 'ebb.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const card = page.locator('.player[data-chain="cloud_low"]');
+        const chainOf = () => page.evaluate(() =>
+        {
+            const t = window.solo.genText();
+            const at = t.indexOf('chain cloud_low');
+
+            return t.slice(at, t.indexOf('chain', at + 5));
+        });
+
+        await page.click('#play');
+        await card.locator('button', { hasText: 'Vary' }).click();
+
+        const varied = await until(chainOf, (t) => /seed \d+;/.test(t));
+        const seeds = await page.evaluate(() =>
+            (window.solo.genText().match(/^[ \t]+seed \d+;/gm) ?? []).length);
+
+        await card.locator('.takes button', { hasText: '1' }).click();
+
+        const back = await until(chainOf, (t) => !/seed \d+;/.test(t));
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        check(/seed \d+;/.test(varied) && seeds === 1 && !/seed/.test(back),
+              '...Vary gives a player a take of its own while it plays, ' +
+              'and its first take puts the piece\'s back: ' +
+              JSON.stringify({ varied: /seed \d+/.exec(varied)?.[0] ?? null,
+                               seeds, back: /seed \d+/.exec(back)?.[0] ??
+                                            null }));
     }
 
     /* A pad moved only across leaves what is up the pad as written: an

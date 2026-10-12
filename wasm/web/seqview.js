@@ -52,6 +52,108 @@ const ROW = 18;
 const MIN_H = 26;
 const MAX_H = 240;
 
+/* thcInputType. */
+const PRESS = 0, DRAG = 1, RELEASE = 2;
+
+/* Where the pointer is in the picture's own coordinates, which are the
+   canvas's CSS pixels: the element is exactly as big as the draw it was
+   given, so there is no arithmetic here at all. */
+const at = (canvas, e) =>
+{
+    const rect = canvas.getBoundingClientRect();
+
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+};
+
+/* A stage's picture on `canvas', as a control: each press, drag and
+ * release handed to `send(kind, where, button)'. Returns what ends a
+ * gesture in progress, for a rebuild that takes the canvas out from under
+ * a drag -- and the capture with it, told to the document rather than
+ * here.
+ *
+ * The pointer whose press this canvas took, and the button it came down
+ * with, are held between a press and its release.
+ *
+ * Only a drag belonging to that pointer is an edit. "A button is down
+ * somewhere" was the test before and it is not the same thing: a drag
+ * begun on the track above, or anywhere on the page outside one, goes on
+ * reporting moves while it crosses this canvas, and every one of them
+ * painted. The composer canvas has always gated its drags this way -- it
+ * feeds the plugin between a press it took and the release that ends it,
+ * and nothing in between that it did not start -- and a gesture is a
+ * command that travels, so the gate belongs on the sender.
+ *
+ * The button is the press's rather than whichever one the move reports,
+ * for the reason ComposerCanvas gives: a release naming a different button
+ * than its press is a pair no plugin can match up. A move reports none at
+ * all.
+ */
+export function gestureOn (canvas, send)
+{
+    let held = null;
+    let button = 1;
+    let where = { x: 0, y: 0 };
+
+    const tell = (kind, e) =>
+    {
+        if (e !== undefined)
+            where = at(canvas, e);
+
+        send(kind, where, button);
+    };
+
+    canvas.addEventListener('pointerdown', (e) =>
+    {
+        held = e.pointerId;
+        button = e.button + 1;
+
+        canvas.setPointerCapture(e.pointerId);
+        tell(PRESS, e);
+        e.preventDefault();
+    });
+
+    canvas.addEventListener('pointermove', (e) =>
+    {
+        if (e.pointerId === held)
+            tell(DRAG, e);
+    });
+
+    const ended = (e) =>
+    {
+        if (e.pointerId !== held)
+            return;
+
+        held = null;
+
+        if (canvas.hasPointerCapture(e.pointerId))
+            canvas.releasePointerCapture(e.pointerId);
+
+        tell(RELEASE, e);
+    };
+
+    canvas.addEventListener('pointerup', ended);
+
+    /* A gesture the browser took away -- a capture lost, a touch
+       cancelled, a scroll the page decided it was after all. It still has
+       to end, or the plugin is left holding a drag that the next press
+       arrives in the middle of. */
+    canvas.addEventListener('pointercancel', ended);
+    canvas.addEventListener('lostpointercapture', ended);
+
+    /* The secondary button erases, so the menu that would otherwise open
+       over the picture has to not. */
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    return () =>
+    {
+        if (held === null)
+            return;
+
+        held = null;
+        tell(RELEASE);
+    };
+}
+
 export function createSeqView ({ root = document, toMirror, onGesture,
                                  describeChannel = () => '',
                                  chooserFor = () => null,
@@ -218,113 +320,18 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     /* ---- the pointer ---- */
 
-    /* Where the pointer is in the picture's own coordinates, which are
-       the canvas's CSS pixels: the element is exactly as big as the draw
-       it was given, so there is no arithmetic here at all. */
-    const at = (canvas, e) =>
-    {
-        const rect = canvas.getBoundingClientRect();
-
-        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    };
-
-    /* thcInputType. */
-    const PRESS = 0, DRAG = 1, RELEASE = 2;
-
+    /* By name as well as by index, for a room: an edit stamped before the
+       gesture may have moved the stage (namedStage). */
     const listen = (track) =>
     {
-        const canvas = track.canvas;
-
-        /* The pointer whose press this track took, and the button it
-         * came down with. Null between gestures.
-         *
-         * Only a drag belonging to that pointer is an edit. "A button is
-         * down somewhere" was the test before and it is not the same
-         * thing: a drag begun on the track above, or anywhere on the
-         * page outside one, goes on reporting moves while it crosses
-         * this canvas, and every one of them painted. The composer
-         * canvas has always gated its drags this way -- it feeds the
-         * plugin between a press it took and the release that ends it,
-         * and nothing in between that it did not start -- and a gesture
-         * is a command that travels, so the gate belongs on the sender.
-         *
-         * The button is the press's rather than whichever one the move
-         * reports, for the reason ComposerCanvas gives: a release naming
-         * a different button than its press is a pair no plugin can
-         * match up. A move reports none at all.
-         */
-        let held = null;
-        let button = 1;
-        let where = { x: 0, y: 0 };
-
-        /* By name as well as by index, for a room: an edit stamped
-           before the gesture may have moved the stage (namedStage). */
-        const send = (kind, e) =>
-        {
-            if (e !== undefined)
-                where = at(canvas, e);
-
+        track.drop = gestureOn(track.canvas, (kind, where, button) =>
             onGesture({
                 chain: track.chain, stage: track.stage,
                 chainName: track.name, stageName: track.label, kind,
                 ...where,
                 w: track.w, h: track.h,
                 button,
-            });
-        };
-
-        canvas.addEventListener('pointerdown', (e) =>
-        {
-            held = e.pointerId;
-            button = e.button + 1;
-
-            canvas.setPointerCapture(e.pointerId);
-            send(PRESS, e);
-            e.preventDefault();
-        });
-
-        canvas.addEventListener('pointermove', (e) =>
-        {
-            if (e.pointerId === held)
-                send(DRAG, e);
-        });
-
-        const ended = (e) =>
-        {
-            if (e.pointerId !== held)
-                return;
-
-            held = null;
-
-            if (canvas.hasPointerCapture(e.pointerId))
-                canvas.releasePointerCapture(e.pointerId);
-
-            send(RELEASE, e);
-        };
-
-        canvas.addEventListener('pointerup', ended);
-
-        /* A gesture the browser took away -- a capture lost, a touch
-           cancelled, a scroll the page decided it was after all. It
-           still has to end, or the plugin is left holding a drag that
-           the next press arrives in the middle of. */
-        canvas.addEventListener('pointercancel', ended);
-        canvas.addEventListener('lostpointercapture', ended);
-
-        /* A rebuild takes the canvas out from under a drag, and the
-           capture with it -- told to the document rather than here. */
-        track.drop = () =>
-        {
-            if (held === null)
-                return;
-
-            held = null;
-            send(RELEASE);
-        };
-
-        /* The secondary button erases, so the menu that would otherwise
-           open over the track has to not. */
-        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+            }));
     };
 
     /* ---- frames ---- */
