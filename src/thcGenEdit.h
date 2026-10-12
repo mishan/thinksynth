@@ -418,6 +418,27 @@ public:
 
     /* ---- the arrangement ---------------------------------------------- */
 
+    /* A section of `length' (`16 bars', `8 beats', `30 s') after section
+       `after', or last for "", with the chains in `levels' at theirs; one
+       taken out, renamed, or made another length. */
+    static Result addSection (const std::string &filename,
+                              const std::string &name,
+                              const std::string &length,
+                              const std::string &after,
+                              const std::vector<std::pair<std::string,
+                                  double> > &levels,
+                              std::string &why);
+    static Result removeSection (const std::string &filename,
+                                 const std::string &name, std::string &why);
+    static Result renameSection (const std::string &filename,
+                                 const std::string &oldName,
+                                 const std::string &newName,
+                                 std::string &why);
+    static Result setSectionLength (const std::string &filename,
+                                    const std::string &name,
+                                    const std::string &length,
+                                    std::string &why);
+
     /* A chain's level in one section: 0 mutes it, 1 is as written --
        which removes the chain from the section, since a section that
        does not name a chain plays it as written -- and anything else

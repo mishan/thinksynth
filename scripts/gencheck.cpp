@@ -12576,6 +12576,150 @@ checkInstrumentEdits (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(path);
 }
 
+/* Sections written by the editor: the first above the chains, one after
+ * it copying a level, one above `section end;', renamed and resized, the
+ * lengths and names the loader would refuse refused, and the last taken
+ * out taking the end with it -- the file loading at each step.
+ */
+static void
+checkSectionWrites (const std::map<std::string, thcPlugin *> &plugins,
+                    thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-sections-");
+    std::string why;
+    auto loads = [&](const char *what)
+    {
+        if (renderBody(plugins, synth, "sections", slurp(path), 1).empty())
+            fail(std::string("after ") + what + " the piece did not play");
+    };
+    auto order = [&](void)
+    {
+        std::string out;
+
+        for (const std::string &l : sectionLines(slurp(path)))
+            out += l.substr(0, l.find_first_of(" ", 8)) + "|";
+
+        return out;
+    };
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "tempo 120;\nchain a {\n  stage src gen::euclid { steps = 4; "
+               "fills = 2; notes = \"C4\"; period = 0.25 s; };\n"
+               "  sink { channel = 1; };\n};\n";
+    }
+
+    if (thcGenEdit::addSection(path, "intro", "8 bars", "", {}, why) !=
+            thcGenEdit::OK ||
+        slurp(path).find("section intro") > slurp(path).find("chain a"))
+        fail("the first section was not written above the chains: " + why);
+
+    loads("a first section");
+
+    if (thcGenEdit::addSection(path, "verse", "16 bars", "intro",
+                               { { "a", 0.5 } }, why) != thcGenEdit::OK ||
+        slurp(path).find("section verse 16 bars { a = 0.5; };") ==
+            std::string::npos)
+        fail("a section copying a level was not written: " + why);
+
+    {
+        std::string text = slurp(path);
+        const size_t at = text.find("chain a");
+
+        text.insert(at, "section end;\n\n");
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << text;
+    }
+
+    if (thcGenEdit::addSection(path, "outro", "4 beats", "", {}, why) !=
+            thcGenEdit::OK ||
+        order() != "section intro|section verse|section outro|section end;|")
+        fail("a last section was not written above the end: " + order());
+
+    loads("a section above the end");
+
+    if (thcGenEdit::renameSection(path, "verse", "chorus", why) !=
+            thcGenEdit::OK ||
+        thcGenEdit::setSectionLength(path, "chorus", "2 s", why) !=
+            thcGenEdit::OK ||
+        slurp(path).find("section chorus 2 s {") == std::string::npos)
+        fail("a section was not renamed and resized: " + why);
+
+    loads("a rename and a new length");
+
+    const struct { const char *what; thcGenEdit::Result r; } refused[] = {
+        { "a length with no unit",
+          thcGenEdit::setSectionLength(path, "chorus", "4", why) },
+        { "a length of nothing",
+          thcGenEdit::setSectionLength(path, "chorus", "0 bars", why) },
+        { "a length in ms",
+          thcGenEdit::setSectionLength(path, "chorus", "40 ms", why) },
+        { "a section called end",
+          thcGenEdit::addSection(path, "end", "4 bars", "", {}, why) },
+        { "a second section called intro",
+          thcGenEdit::addSection(path, "intro", "4 bars", "", {}, why) },
+        { "a rename onto another section",
+          thcGenEdit::renameSection(path, "chorus", "intro", why) },
+        { "a length the lexer reads as no number",
+          thcGenEdit::setSectionLength(path, "chorus", ".5 bars", why) },
+        { "a chain given two levels",
+          thcGenEdit::addSection(path, "twice", "4 bars", "",
+                                 { { "a", 0 }, { "a", 0.5 } }, why) },
+    };
+
+    for (const auto &c : refused)
+        if (c.r != thcGenEdit::REFUSED)
+            fail(std::string("the editor wrote ") + c.what);
+
+    for (const char *name : { "intro", "chorus", "outro" })
+        if (thcGenEdit::removeSection(path, name, why) != thcGenEdit::OK)
+            fail(std::string("section ") + name + " was not taken out: " +
+                 why);
+
+    if (slurp(path).find("section") != std::string::npos)
+        fail("the last section out left its end behind");
+
+    loads("every section taken out");
+
+    /* Where a section goes in pieces laid out otherwise: below a meter
+       the chains come before, beside an end sharing its line, and after
+       a section whose line ends in a comment, which stays with it. */
+    const std::string chainA =
+        "chain a {\n  stage src gen::euclid { steps = 4; fills = 2; "
+        "notes = \"C4\"; period = 0.25 s; };\n  sink { channel = 1; };\n};\n";
+    const struct { const char *what, *before, *after, *want; } placed[] = {
+        { "below a meter after the chains",
+          "", "meter 3;\n", "meter 3;\nsection new 4 bars { };" },
+        { "beside an end sharing a line",
+          "section a 4 bars { }; section end;\n", "",
+          "section a 4 bars { }; section new 4 bars { }; section end;" },
+        { "after a section and its comment",
+          "section a 4 bars { };  # the quiet start\n", "",
+          "# the quiet start\nsection new 4 bars { };" },
+    };
+
+    for (const auto &c : placed)
+    {
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\n" << c.before << chainA << c.after;
+        }
+
+        if (thcGenEdit::addSection(path, "new", "4 bars", "", {}, why) !=
+                thcGenEdit::OK ||
+            slurp(path).find(c.want) == std::string::npos)
+            fail(std::string("a section ") + c.what + " went elsewhere: " +
+                 slurp(path));
+
+        loads(c.what);
+    }
+
+    std::filesystem::remove(path);
+}
+
 static void
 checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -14832,6 +14976,7 @@ main (int argc, char *argv[])
         checkChainStart(plugins, &synth);
         checkChainSeed(plugins, &synth);
         checkInstrumentEdits(plugins, &synth);
+        checkSectionWrites(plugins, &synth);
         checkRun(plugins, &synth);
         checkVariation(plugins, &synth);
         checkCloud(plugins, &synth);
