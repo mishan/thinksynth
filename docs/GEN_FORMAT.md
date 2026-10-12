@@ -988,10 +988,10 @@ two cores spare, four at most — each scoring candidates on a synth of its own;
 the search waits on them with its module suspended, which takes JSPI (Chrome and
 Firefox have it). In a browser without it the page runs that many searches
 instead, on seeds of their own, and keeps the best: a tune takes longer there.
-Cancel ends the workers and keeps the nearest found. Listen, the result, Keep and Discard work as they
-do in the application. In a room the search runs in the browser of whoever
-started it, what it puts on the channel is a command every peer hears at the same
-time, and Keep writes it into the room's document.
+Cancel ends the workers and keeps the nearest found. Listen, the result, Keep
+and Discard work as they do in the application. In a room the search runs in the
+browser of whoever started it, what it puts on the channel is a command every
+peer hears at the same time, and Keep writes it into the room's document.
 
 A structure edit reaches **every** sink of its chain. The note/chanarg filter is
 a rule about notes and chanargs; an edit is neither, and both kinds of sink name

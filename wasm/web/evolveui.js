@@ -243,8 +243,9 @@ export function createEvolve ({ synth, piece, loading, put, keep,
         run.cancel = cancel;
         run.searches = searches;
 
-        /* Cancelled while the workers were being made. */
-        if (run.done)
+        /* Cancelled, or let go of by a load, while the workers were being
+           made. */
+        if (run.done || evolving !== run)
             cancel();
     }
 
