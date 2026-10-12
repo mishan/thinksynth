@@ -31,6 +31,8 @@
  * tightly rather than rewriting it.
  */
 
+import { IDEAS as GALLERY, SOUNDS, addOps, freeName, removeOps }
+    from './bandideas.js';
 import { replay } from './replay.js';
 import { gestureOn } from './seqview.js';
 
@@ -193,6 +195,7 @@ const ROLES = [
     ['drums', /^(kick|snare|hats?|clap|toms?|drums?|perc\w*|rim|cymbal|ride|crash|tamb\w*|shaker|conga|bongo|cowbell|kit)$/],
     ['chords', /^(chords?|pads?|strings?|organ|choir|comp|section)$/],
     ['bass', /^(\w*bass|sub)$/],
+    ['melody', /^(keys|lead|melody|piano|rhodes|epiano|bells?|tune|hook)$/],
     ['texture', /^(air|texture|drones?|ambient|noise|wash|cloud|swoop|fx|atmo\w*)$/],
 ];
 
@@ -255,10 +258,12 @@ export function playersOf (piece)
         const dsp = dspOf.get(sink.instrument) ?? '';
         const gens = c.stages.filter((s) => s.category === 'gen');
         const plugins = c.stages.map((s) => `${s.category}::${s.plugin}`);
-        const words = `${c.name} ${sound} ${dsp}`.toLowerCase()
-            .split(/[^a-z]+/);
-        let role = ROLES.find(([, re]) => words.some((w) => re.test(w)))
-            ?.[0];
+        /* The chain's own name first: a graph says what kind of sound it
+           is, and the name what the player is for. */
+        const words = (t) => t.toLowerCase().split(/[^a-z]+/);
+        const named = (t) => ROLES.find(([, re]) =>
+            words(t).some((w) => re.test(w)))?.[0];
+        let role = named(c.name) ?? named(`${sound} ${dsp}`);
 
         if (role === undefined)
             role = plugins.some((p) => /progression|harmonize/.test(p))
@@ -275,7 +280,8 @@ export function playersOf (piece)
 
         return [{ index, name: c.name, role, sound, idea, stages: c.stages,
                   seed: c.hasSeed ? c.seed : null, picture,
-                  seeded: seededAs(c.stages) }];
+                  seeded: seededAs(c.stages), instrument: sink.instrument,
+                  dsp }];
     });
 }
 
@@ -368,9 +374,12 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
    tells the page's status, `touch' adds stages behind a chain (TOUCH)
    and resolves to whether they went in; `toMirror' asks the mirror to
    draw a stage and `onGesture' sends a pointer on a picture, as the
-   sequencer's do. */
+   sequencer's do; `edit' makes several edits as one (tw_gen_ops),
+   `sounds' is the graphs by category (the page's catalog), `sound' puts
+   an instrument on another graph, and `newBand' starts a band over. */
 export function createBand ({ piece, params, vary, keep, rest, say,
-                              touch, toMirror, onGesture })
+                              touch, toMirror, onGesture, edit, sounds,
+                              sound, newBand })
 {
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
@@ -664,6 +673,57 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             params(p, edits);
     }
 
+    /* What plays the player, as a menu of the graphs its role is offered
+       from -- or, for a chain on a channel the piece does not fill, the
+       channel, which is not the band's to change. */
+    function soundMenu (p)
+    {
+        if (p.instrument === '')
+        {
+            const span = document.createElement('span');
+
+            span.className = 'sound';
+            span.textContent = p.sound;
+            return span;
+        }
+
+        const menu = document.createElement('select');
+        const wanted = SOUNDS[p.role] ?? [];
+        const rank = (g) => wanted.includes(g.name)
+            ? wanted.indexOf(g.name) : wanted.length;
+
+        menu.className = 'sound';
+        menu.title = 'What plays it';
+
+        for (const g of [...sounds()].sort((a, b) => rank(a) - rank(b)))
+        {
+            if (!wanted.includes(g.name) &&
+                !g.entries.some((e) => e.file === p.dsp))
+                continue;
+
+            const og = document.createElement('optgroup');
+
+            og.label = g.name;
+            og.append(...g.entries.map((e) => new Option(e.name, e.file)));
+            menu.append(og);
+        }
+
+        if (![...menu.options].some((o) => o.value === p.dsp))
+            menu.prepend(new Option(p.dsp || p.sound, p.dsp));
+
+        /* Back to what plays it until the piece says otherwise: a card is
+           drawn again when its graph changes, and a refusal leaves it. */
+        menu.value = p.dsp;
+        menu.addEventListener('change', () =>
+        {
+            const dsp = menu.value;
+
+            menu.value = p.dsp;
+            sound(p, dsp);
+        });
+        return menu;
+    }
+
     function card (p)
     {
         const st = stateOf(p);
@@ -679,8 +739,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                         '<span class="sound"></span><span class="idea"></span>';
         who.querySelector('.role').textContent = p.role;
         who.querySelector('b').textContent = p.name.replace(/_/g, ' ');
-        who.querySelector('.sound').textContent =
-            p.sound === p.name ? '' : p.sound;
+        who.querySelector('.sound').replaceWith(soundMenu(p));
         who.querySelector('.idea').textContent = p.idea;
 
         const octs = document.createElement('div');
@@ -748,12 +807,66 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             takes.append(t);
         });
 
-        el.append(who, pad(p, st), octs, moves, takes);
+        const out = button('×', `Take ${p.name.replace(/_/g, ' ')} out of ` +
+                                'the band', () =>
+            edit(removeOps(p.name, p.instrument)));
+
+        out.className = 'out';
+        out.setAttribute('aria-label', out.title);
+        el.append(who, out, pad(p, st), octs, moves, takes);
 
         if (p.picture !== null)
             el.append(picture(p));
 
         return el;
+    }
+
+    /* An idea for each role, a button each: chosen, it is a player of
+       its own, on its own instrument. */
+    function gallery ()
+    {
+        const g = $('bandgallery');
+
+        g.replaceChildren(...Object.entries(GALLERY).map(([role, ideas]) =>
+        {
+            const row = document.createElement('div');
+            const head = document.createElement('span');
+
+            row.className = `ideas ${role}`;
+            head.className = 'role';
+            head.textContent = role;
+            row.append(head, ...ideas.map((idea) =>
+            {
+                const b = button(idea.name, idea.say, () =>
+                {
+                    const now = piece();
+
+                    /* A player is an instrument, and an instrument a
+                       channel: there are sixteen, less those the piece's
+                       chains play on by number. */
+                    if (new Set([...(now?.instruments ?? [])
+                                     .map((i) => i.channel),
+                                 ...(now?.sinks ?? [])]).size >= 16)
+                    {
+                        say('The band is full: sixteen players, one for ' +
+                            'each channel. Take one out to add another.');
+                        return;
+                    }
+
+                    const taken = new Set([
+                        ...(now?.chains ?? []).map((c) => c.name),
+                        ...(now?.instruments ?? []).map((i) => i.name)]);
+
+                    g.hidden = true;
+                    edit(addOps(idea, freeName(idea.call, taken)));
+                });
+
+                b.dataset.idea = idea.name;
+                return b;
+            }));
+
+            return row;
+        }));
     }
 
     function draw ()
@@ -790,8 +903,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         {
             const st = stateOf(p);
 
-            return [p.name, p.index, st.shape, p.role, p.sound, p.idea,
-                    st.takes, st.take, st.resting, p.seeded,
+            return [p.name, p.index, st.shape, p.role, p.sound, p.dsp,
+                    p.idea, st.takes, st.take, st.resting, p.seeded,
                     p.picture?.live, p.picture?.params];
         }));
 
@@ -841,6 +954,21 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         draw,
 
         restOnLoad: (name) => restNext.add(name),
+
+        /* The bar above the cards: New, and the gallery of ideas. */
+        bar ()
+        {
+            $('bandnew').addEventListener('click', () => newBand());
+            $('bandadd').addEventListener('click', () =>
+            {
+                const g = $('bandgallery');
+
+                g.hidden = !g.hidden;
+
+                if (!g.hidden)
+                    gallery();
+            });
+        },
 
         /* Another document, whatever the menu says: every player anew. */
         forget: () => state.clear(),

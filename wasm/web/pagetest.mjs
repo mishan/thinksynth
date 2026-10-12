@@ -3507,6 +3507,70 @@ try
               '...and a pad moved across leaves a depth-0 lsystem at 0');
     }
 
+    /* A band from nothing: New writes a beat, a bass and keys; the
+       gallery adds a player on an instrument of its own; a card's menu
+       puts it on another graph and its × takes it out, instrument and
+       all; and the piece is kept for the next session as it changes. */
+    {
+        const text = () => page.evaluate(() => window.solo.genText());
+        const cards = () => page.$$eval('.player', (p) =>
+            p.map((e) => `${e.dataset.chain}:${e.className.split(' ')[1]}`)
+                .join(' '));
+
+        await page.selectOption('#mode', 'band');
+
+        /* The piece before it was changed, so New asks first. */
+        let asked = false;
+
+        page.once('dialog', (d) =>
+        {
+            asked = true;
+            d.accept();
+        });
+        await page.click('#bandnew');
+        const band = await until(cards, (c) => c.startsWith('kick:drums'));
+
+        check(asked && band === 'kick:drums snare:drums hats:drums ' +
+                         'bass:bass keys:melody',
+              'New band asks before putting a changed piece away, and is ' +
+              `a beat, a bass and keys: ${band}`);
+
+        await page.click('#bandadd');
+        await page.click('#bandgallery button[data-idea="Game of Life"]');
+        const added = await until(cards, (c) => c.includes('air:texture'));
+        const withAir = await text();
+
+        check(added.includes('air:texture') &&
+              /instrument air \{ dsp "bowl\.dsp"/.test(withAir) &&
+              /chain air \{[^]*gen::life/.test(withAir),
+              '...the gallery adds a player on an instrument of its own');
+
+        await page.selectOption('.player[data-chain="bass"] select.sound',
+                                'fmbass.dsp');
+        const resounded = await until(text,
+            (t) => /instrument bass \{ dsp "fmbass\.dsp"/.test(t));
+
+        check(/instrument bass \{ dsp "fmbass\.dsp"/.test(resounded),
+              '...a card\'s menu puts its player on another graph');
+
+        await page.click('.player[data-chain="air"] .out');
+        const gone = await until(text, (t) => !/chain air/.test(t));
+
+        check(!/chain air|instrument air/.test(gone),
+              '...and its × takes the player out, instrument and all');
+
+        await page.click('#undo');
+        const back = await until(text, (t) => /chain air/.test(t));
+        /* Written a second after the last change. */
+        const kept = await until(() => page.evaluate(() =>
+            JSON.parse(localStorage.getItem('thinksynth:piece'))?.text),
+            (t) => t === back);
+
+        check(/chain air/.test(back) && kept === back,
+              '...which Undo puts back, and the session keeps the piece ' +
+              'as it is now');
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

@@ -1539,3 +1539,19 @@ body.tiled .panelrows
     pointer-events: none;
 }
 
+
+/* The band's bar, its gallery of ideas, and a card's sound and its way
+   out. */
+.bandbar { margin-bottom: 0.5rem; }
+#bandgallery { display: grid; gap: 0.4rem; margin-bottom: 0.6rem;
+               padding: 0.5rem; border: 1px solid var(--line);
+               border-radius: 8px; background: var(--panel); }
+#bandgallery .ideas { display: flex; flex-wrap: wrap; gap: 0.3rem;
+                      align-items: center; }
+#bandgallery .role { min-width: 4.5rem; font-size: 0.8rem;
+                     text-transform: uppercase; color: var(--dim); }
+.player { position: relative; }
+.player select.sound { max-width: 12rem; font-size: 0.8rem; }
+.player .out { position: absolute; top: 0.2rem; right: 0.3rem;
+               padding: 0 0.4rem; border: 0; background: none;
+               color: var(--dim); font-size: 1rem; }
