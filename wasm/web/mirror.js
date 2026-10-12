@@ -579,12 +579,27 @@ function receive (m)
             break;
         }
 
-        /* A search's graph on a channel, as the worklet takes it. */
-        case 'trygraph':
-            M.ccall('tw_try_graph', 'string',
-                    ['string', 'string', 'string', 'number'],
-                    [m.instrument, m.graph, m.over, m.strict]);
+        /* One for the page itself: an edit of a patch, asked for by hand
+           (growui.js). */
+        case 'grownow':
+        {
+            let r;
+
+            /* Answered whatever happens: the page waits on it. */
+            try
+            {
+                r = JSON.parse(M.ccall('tw_grow', 'string',
+                    ['string', 'string', 'number', 'string', 'number'],
+                    [m.text, m.base, m.choice, m.kinds, m.want]));
+            }
+            catch (e)
+            {
+                r = { grown: '', what: '', why: String(e) };
+            }
+
+            postMessage({ type: 'grownnow', id: m.id, ...r });
             break;
+        }
 
         /* What the ear worker heard for this instance's scheduler. */
         case 'heard':

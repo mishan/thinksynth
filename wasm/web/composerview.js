@@ -408,9 +408,8 @@ export function createComposerView ({ root = document, toMirror,
      * reaches, the edits on its declared graph in words, the one playing
      * last; with a target, how far each graph was heard from it over time;
      * and Keep, which writes the graph playing into the piece. A row goes
-     * back to that graph where the page can say so to both realms
-     * (onGrowBack); the room's page has no such command, and its rows are
-     * only read. Drawn the way the desktop's GrowthView is. */
+     * back to that graph (onGrowBack), a command like any other. Drawn the
+     * way the desktop's GrowthView is. */
     const drawGrowth = (box, growth) =>
     {
         box.replaceChildren();

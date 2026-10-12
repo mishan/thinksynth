@@ -63,6 +63,8 @@
  */
 
 import { createComposerView } from './composerview.js';
+import { createEvolve } from './evolveui.js';
+import { createGrow } from './growui.js';
 import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { micAvailable, openMic } from './mic.js';
@@ -133,10 +135,10 @@ const VELOCITY = 100;
  */
 const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
                'paramview', 'nodeview', 'keyboard', 'patchsource',
-               'piecesource', 'detail', 'packs'];
+               'growview', 'piecesource', 'detail', 'packs'];
 
 /* Which of them belong to which mode. Everything not named here is in
-   all three -- the keys, the parameters, the graph, the numbers.
+   all of them -- the keys, the parameters, the graph, the numbers.
 
    A sequence is a piece the page wrote, so its panes are a subset of the
    piece's: the tracks, the roll, the channels they are heard on, and the
@@ -147,11 +149,12 @@ const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
                      'channelbox', 'piecesource'];
 const SEQ_PANES = ['roll', 'seqview', 'channelbox', 'piecesource'];
 const PATCH_PANES = ['patchsource'];
+const GROW_PANES = ['patchsource', 'growview'];
 
-/* What each mode makes unavailable: every pane of the other two that is
-   not also one of its own. */
+/* What each mode makes unavailable: every pane of the others that is not
+   also one of its own. */
 const modePanes = {
-    seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES,
+    seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES, grow: GROW_PANES,
 };
 
 /* Where they go, the first time somebody opens this page in a window
@@ -176,6 +179,19 @@ const PATCH_LAYOUT = {
         { dir: 'col', size: [0.44, 0.38, 0.18], kids: [
             { tabs: ['paramview'] },
             { tabs: ['patchsource'] },
+            { tabs: ['detail'] }] }],
+};
+
+/* A patch growing opens on its list beside the keys, with its graph over
+   them: what it is now, how it got there, and something to play it on. */
+const GROW_LAYOUT = {
+    dir: 'row', size: [0.58, 0.42], kids: [
+        { dir: 'col', size: [0.64, 0.36], kids: [
+            { tabs: ['nodeview'] },
+            { tabs: ['keyboard'] }] },
+        { dir: 'col', size: [0.5, 0.3, 0.2], kids: [
+            { tabs: ['growview'] },
+            { tabs: ['paramview', 'patchsource'] },
             { tabs: ['detail'] }] }],
 };
 
@@ -246,6 +262,10 @@ const phoneLayouts = (keys = keysShare()) => ({
         { tabs: ['paramview', 'nodeview'] },
         { tabs: ['keyboard'] }] },
 
+    grow: { dir: 'col', size: [1 - keys, keys], kids: [
+        { tabs: ['growview', 'paramview', 'nodeview'] },
+        { tabs: ['keyboard'] }] },
+
     /* The tracks are what the sequence is for; the keys are a tab. */
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
 
@@ -262,6 +282,7 @@ const SIDEWAYS = '(max-height: 30em)';
 
 const SIDEWAYS_LAYOUTS = {
     patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
+    grow: { tabs: ['growview', 'keyboard', 'paramview', 'nodeview'] },
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
     piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'channelbox',
                     'paramview'] },
@@ -282,7 +303,7 @@ function tile (phone, forced)
     /* The mode's own panes up before the tiler reads the markup, or a
        leaf of tabs opens on the first pane that was: the keys, ahead of
        a sequence's tracks on a phone. panesFor keeps it so after. */
-    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+    for (const id of new Set(Object.values(modePanes).flat()))
         $(id).toggleAttribute('data-pane-off', !mine.has(id));
 
     panes = createPanes({
@@ -291,8 +312,8 @@ function tile (phone, forced)
              : phone ? 'thinksynth:panes:touch' : 'thinksynth:panes:solo',
         layouts: sideways ? SIDEWAYS_LAYOUTS
                : phone ? phoneLayouts()
-               : { patch: PATCH_LAYOUT, piece: PIECE_LAYOUT,
-                   seq: SEQ_LAYOUT },
+               : { patch: PATCH_LAYOUT, grow: GROW_LAYOUT,
+                   piece: PIECE_LAYOUT, seq: SEQ_LAYOUT },
 
         /* A way back to the mode's layout that needs no Alt 0: a phone
            has no keys to press it with, and on a desktop it is a chord
@@ -533,6 +554,13 @@ function mode ()
     return $('mode').value;
 }
 
+/* A patch on its own channel, growing or not: everything patch mode does,
+   a growing patch does too. */
+function playsPatch ()
+{
+    return mode() === 'patch' || mode() === 'grow';
+}
+
 /* What the piece says about itself: shown when a piece is what is
    playing and it says anything at all.
  *
@@ -555,7 +583,7 @@ function keyChannel ()
    choosing one is about that rather than about which it is. */
 function composing ()
 {
-    return mode() !== 'patch';
+    return !playsPatch();
 }
 
 /* ---- what is sounding ---- */
@@ -807,7 +835,7 @@ const LIVE = /\bionode->live\d/;
    the other two the ones the page aimed and the ones the piece names. */
 async function textsInPlay ()
 {
-    if (mode() === 'patch')
+    if (playsPatch())
         return [$('dsp').value];
 
     const names = new Set();
@@ -1014,6 +1042,9 @@ async function loadPatch ()
     status(ok ? `Loaded ${$('patch').value}. Play.`
               : 'That .dsp did not parse; see below.', !ok);
 
+    if (ok && mode() === 'grow')
+        grow.loaded($('dsp').value);
+
     showLiveIn();
 
     if (!ok)
@@ -1031,6 +1062,7 @@ async function pickPatch ()
         $('dsp').value =
             await (await fetch(`dsp/${$('patch').value}`)).text();
 
+        grow.reset($('dsp').value);
         showNodes();
 
         /* Before Start too: a pack can be downloaded ahead of playing. */
@@ -1043,6 +1075,24 @@ async function pickPatch ()
 
     await run;
 }
+
+/* A patch, growing (growui.js). The row chosen is the patch source's
+   text, loaded as the box's Load edits loads it. */
+const grow = createGrow({
+    synth: () => synth,
+    name: () => $('patch').value,
+    setGraph: async (text) =>
+    {
+        $('dsp').value = text;
+        await loadPatch();
+        nodeFileChanged($('patch').value);
+    },
+    hear: (text) => quietly(() => synth.load(text)),
+    targets: () => playableDsps(),
+    targetText: async (name) =>
+        dspTexts[name] ?? (await fetch(`dsp/${name}`)).text(),
+    status,
+});
 
 /* ---- the tempo ---- */
 
@@ -1356,308 +1406,23 @@ async function freezeChain (chain, chainName)
         synth.transport('start');
 }
 
-/* ---- Evolve toward ----
- *
- * The desktop's Evolve window, on the page's terms: a search a worker each
- * (host.js, evolve.js) on seeds of their own -- one or a few, as the
- * machine has cores to spare -- the best of them kept as they go: the
- * nearest graph for Listen, the trail for the plot, and at the end the
- * nearest result. Cancel ends the workers and keeps the nearest found.
- * What goes on the channel goes to both realms, in place of what this
- * search put there last (thinkweb.cpp, tw_try_graph); Keep writes it into
- * the piece as Keep does on a grow stage, and Discard takes it off.
- * Solo only: a room has no command for a graph on a channel.
- */
-let evolving = null;
-let evolveGraph = '';
-let evolveFor = '';
-let evolvePiece = null;
-let evolveSound = null;
+/* Evolve toward (evolveui.js). What it finds goes on the channel at the
+   next window, by the same command a room sends. */
+let triedCount = 0;
 
-/* Graphs go on the channel one at a time: each says what it replaces,
-   which is what the one before it put there. */
-let evolvePut = Promise.resolve();
-
-function evolveButtons ()
-{
-    const running = evolving !== null && !evolving.done;
-
-    $('evolvego').disabled = running || piece === null;
-    $('evolvestop').disabled = !running;
-    $('evolvehear').disabled = !running;
-    $('evolvekeep').disabled = running || evolveGraph === '';
-    $('evolvedrop').disabled = running || evolveGraph === '';
-}
-
-/* The piece's instruments to choose among, and what a load leaves of a
-   search. A load puts the declared graphs back, so nothing of it is on
-   a channel; a search goes on through a reload of the same piece -- a
-   stage moved, an effect chosen -- and ends with another. */
-function showEvolve ()
-{
-    const names = (piece?.instruments ?? []).map((i) => i.name);
-    const fill = (select, extra) =>
+const evolve = createEvolve({
+    synth: () => synth,
+    piece: () => piece,
+    loading: () => loading > 0,
+    put: (instrument, graph, over, strict) =>
     {
-        const was = select.value;
+        const tag = `solo:${triedCount++}`;
+        const done = synth.tried(tag);
 
-        select.replaceChildren(...[...names, ...extra].map((n) =>
-        {
-            const o = document.createElement('option');
-
-            o.textContent = n;
-            return o;
-        }));
-
-        if ([...names, ...extra].includes(was))
-            select.value = was;
-    };
-
-    if (evolving !== null &&
-        (piece?.name !== evolvePiece || !names.includes(evolveFor)))
-    {
-        evolving.cancel();
-        evolving = null;
-        $('evolvestate').textContent = '';
-    }
-
-    evolveGraph = '';
-    fill($('evolvewhat'), []);
-    fill($('evolvetoward'), ['A recording...']);
-
-    if ($('evolvetoward').value === $('evolvewhat').value && names.length > 1)
-        $('evolvetoward').selectedIndex = 1;
-
-    for (const id of ['evolvewhat', 'evolvetoward', 'evolvehow'])
-        $(id).disabled = piece === null;
-
-    evolveButtons();
-}
-
-function drawEvolve ()
-{
-    const canvas = $('evolveplot');
-    const trail = evolving?.trail ?? [];
-    const cx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height, pad = 6;
-
-    canvas.hidden = trail.length === 0;
-    cx.fillStyle = '#14161a';
-    cx.fillRect(0, 0, w, h);
-
-    if (trail.length === 0)
-        return;
-
-    const end = Math.max(evolving.done ? trail[trail.length - 1][0]
-                         : (performance.now() - evolving.began) / 1000, 1);
-    const ds = trail.map((p) => p[1]);
-    const lo = Math.min(...ds), range = Math.max(Math.max(...ds) - lo, 0.5);
-    const x = (t) => pad + t / end * (w - 2 * pad);
-    const y = (d) => pad + (d - lo) / range * (h - 2 * pad);
-    let held = trail[0][1];
-
-    cx.beginPath();
-    cx.moveTo(x(0), y(held));
-
-    for (const [t, d] of trail)
-    {
-        cx.lineTo(x(t), y(held));
-        cx.lineTo(x(t), y(d));
-        held = d;
-    }
-
-    cx.lineTo(x(end), y(held));
-    cx.strokeStyle = '#59a6ff';
-    cx.lineWidth = 1.5;
-    cx.stroke();
-}
-
-/* `graph' on the instrument's channel, in place of what this search put
-   there last; `strict', as Listen is, refused once the channel has moved
-   on from that. */
-function putEvolved (graph, strict)
-{
-    const put = evolvePut.then(async () =>
-    {
-        const why = await synth.tryGraph(evolveFor, graph, evolveGraph,
-                                         strict);
-
-        if (why === '')
-            evolveGraph = graph;
-
-        return why;
-    });
-
-    evolvePut = put.catch(() => {});
-
-    return put;
-}
-
-async function startEvolve ()
-{
-    if (evolving !== null && !evolving.done)
-        return;
-
-    const what = $('evolvewhat').value;
-    const toward = $('evolvetoward').value;
-    const recording = toward === 'A recording...';
-
-    if (recording && evolveSound === null)
-    {
-        $('evolvesound').click();
-        return;
-    }
-
-    $('evolvego').disabled = true;
-
-    const spec = await synth.evolveSpec(what, recording ? '' : toward);
-
-    if (spec.why !== '')
-    {
-        $('evolvestate').textContent = spec.why;
-        evolveButtons();
-        return;
-    }
-
-    spec.grow = $('evolvehow').value === '1';
-
-    const islands = Math.max(1, Math.min(4,
-        (navigator.hardwareConcurrency ?? 2) - 2));
-    const run = { trail: [], best: Infinity, nearest: '', started: null,
-                  done: false, ended: 0, islands, result: null,
-                  began: performance.now(), cancel: () => {} };
-
-    evolving = run;
-    evolveFor = what;
-    evolvePiece = piece?.name ?? null;
-    evolveGraph = '';
-    $('evolvestate').textContent = 'listening...';
-
-    run.cancel = synth.evolve(spec, {
-        seed: piece?.seed ?? 1, islands,
-        sound: recording ? evolveSound : null,
-    }, (island, m) =>
-    {
-        if (evolving !== run)
-            return;
-
-        if (m.type === 'started')
-            run.started ??= m.distance;
-        else if (m.type === 'nearer' && m.distance < run.best)
-        {
-            run.best = m.distance;
-            run.nearest = m.graph;
-            run.trail.push([m.seconds, m.distance]);
-            $('evolvestate').textContent =
-                `nearest ${m.distance.toFixed(2)} dB`;
-        }
-        else if (m.type === 'done')
-        {
-            if (m.ok && (run.result === null ||
-                         m.distance < run.result.distance))
-                run.result = m;
-
-            if (++run.ended === islands)
-                endEvolve(run, run.result?.why ?? m.why);
-        }
-
-        drawEvolve();
-    }).cancel;
-
-    evolveButtons();
-}
-
-/* A search over, all its islands in or cancelled: the nearest it found on
-   the channel, to be kept or discarded. */
-async function endEvolve (run, why)
-{
-    if (run.done)
-        return;
-
-    run.done = true;
-
-    /* The nearest any island came: a finished island's result, or what
-       one still going had found when it was cancelled. */
-    const finished = run.result !== null && run.result.distance <= run.best;
-    const found = finished ? run.result.found : run.nearest;
-    const near = finished ? run.result.distance : run.best;
-
-    if (found === '')
-    {
-        $('evolvestate').textContent = why || 'the search found nothing';
-        evolveButtons();
-        return;
-    }
-
-    /* Onto the piece it was for, once a load under way has finished --
-       and not onto another one that load brought. */
-    while (loading > 0)
-        await new Promise((r) => setTimeout(r, 100));
-
-    if (evolving !== run)
-        return;
-
-    const failed = await putEvolved(found, false);
-
-    $('evolvestate').textContent = failed !== '' ? failed
-        : `${run.started?.toFixed(2) ?? '?'} dB from the target, now ` +
-          `${near.toFixed(2)}: playing on ${evolveFor}; Keep or Discard`;
-    evolveButtons();
-    drawEvolve();
-}
-
-$('evolvego').addEventListener('click', () =>
-{
-    startEvolve().catch((e) => log(e.message));
-});
-$('evolvestop').addEventListener('click', () =>
-{
-    if (evolving === null || evolving.done)
-        return;
-
-    evolving.cancel();
-    endEvolve(evolving, 'stopped');
-});
-$('evolvehear').addEventListener('click', async () =>
-{
-    if (evolving?.nearest)
-    {
-        const why = await putEvolved(evolving.nearest, true);
-
-        if (why !== '')
-            $('evolvestate').textContent = why;
-    }
-});
-$('evolvekeep').addEventListener('click', async () =>
-{
-    /* Left to keep or discard if the keeping is refused. */
-    if (await keepGraph(evolveFor, evolveGraph))
-    {
-        evolveGraph = '';
-        evolveButtons();
-    }
-});
-$('evolvedrop').addEventListener('click', async () =>
-{
-    const why = await synth.tryGraph(evolveFor, '', evolveGraph, false);
-
-    evolveGraph = '';
-    $('evolvestate').textContent = why === '' ? 'put back as it was' : why;
-    evolveButtons();
-});
-$('evolvetoward').addEventListener('change', () =>
-{
-    if ($('evolvetoward').value === 'A recording...')
-        $('evolvesound').click();
-});
-$('evolvesound').addEventListener('change', async () =>
-{
-    const file = $('evolvesound').files[0];
-
-    evolveSound = file === undefined ? null
-        : { name: `evolve/${file.name}`,
-            bytes: new Uint8Array(await file.arrayBuffer()) };
-    $('evolvestate').textContent = evolveSound === null ? ''
-        : `toward ${file.name}`;
+        synth.tryGraph({ instrument, graph, over, strict, tag });
+        return done;
+    },
+    keep: (instrument, graph) => keepGraph(instrument, graph),
 });
 
 /* What growth has made of `instrument', kept: the worklet's grown graph,
@@ -1774,7 +1539,7 @@ async function loadPiece ()
     placed = aiming.placed;
     showLiveIn();
     showPieceEffect();
-    showEvolve();
+    evolve.show();
     fitTracks();
 
     if (piece === null)
@@ -2453,7 +2218,7 @@ let params = null;
  * just aimed a .patch at channel 4 is the person who wants its cutoff. */
 function paramChannels ()
 {
-    return mode() === 'patch' ? [PATCH_CHANNEL] : touched();
+    return playsPatch() ? [PATCH_CHANNEL] : touched();
 }
 
 /* The channel selector, kept to what is there, keeping its choice if that
@@ -2880,6 +2645,7 @@ async function start ()
     $('load').disabled = false;
     $('loadpiece').disabled = false;
     $('exportmidi').disabled = false;
+    grow.buttons();
 
     /* What the shipped patches are presets over, on its way. Not awaited:
        nothing on screen is waiting for it, and the panel that offers them
@@ -2899,7 +2665,7 @@ async function start ()
 
     if (mode() === 'seq')
         await loadSequence();
-    else if (mode() === 'patch')
+    else if (playsPatch())
         await loadPatch();
     else
         await loadPieceMode();
@@ -3053,7 +2819,7 @@ function nodeFileChanged (name)
 const nodeFiles = {
     names: () =>
     {
-        if (mode() === 'patch')
+        if (playsPatch())
             return $('patch').value === '' ? [] : [$('patch').value];
 
         /* The .dsp each of the piece's instruments plays: what there is
@@ -3063,12 +2829,12 @@ const nodeFiles = {
             .filter((n) => n !== '' && dspTexts[n] !== undefined))];
     },
 
-    read: (name) => (mode() === 'patch' ? $('dsp').value
+    read: (name) => (playsPatch() ? $('dsp').value
                                         : dspTexts[name] ?? ''),
 
     write: (name, next) =>
     {
-        if (mode() === 'patch')
+        if (playsPatch())
         {
             /* Assigning to .value fires nothing, so the `input' listener
                below -- the only thing watching in patch mode -- never
@@ -3102,7 +2868,7 @@ const nodeFiles = {
 
         who.add(onChange);
 
-        if (mode() === 'patch')
+        if (playsPatch())
             $('dsp').addEventListener('input', onChange);
 
         return () =>
@@ -3118,7 +2884,7 @@ const nodeFiles = {
    piece says. */
 function nodeChannel ()
 {
-    if (mode() === 'patch')
+    if (playsPatch())
         return PATCH_CHANNEL;
 
     return piece?.instruments?.find(
@@ -3187,7 +2953,7 @@ function showComposer (on)
             synth?.section({ at: -1, section, chain, level }),
 
         onFreeze: freezeChain,
-        onGrowBack: (channel, depth) => synth?.growBack(channel, depth),
+        onGrowBack: (channel, depth) => synth?.growBack({ channel, depth }),
         onKeep: keepGrown,
 
         /* A section's block: the transport there, in the next window. */
@@ -3527,7 +3293,7 @@ function panesFor (which)
 {
     const mine = new Set(modePanes[which] ?? []);
 
-    for (const id of new Set([...SEQ_PANES, ...PIECE_PANES, ...PATCH_PANES]))
+    for (const id of new Set(Object.values(modePanes).flat()))
         panes.available(id, mine.has(id));
 
     panes.mode(which);
@@ -3547,13 +3313,20 @@ async function pickMode ()
     /* The chrome each mode has: what to play, and the transport. What
        the piece section used to wrap are panes of their own now, and
        panesFor's. */
-    $('patchmode').hidden = which !== 'patch';
+    $('patchmode').hidden = !playsPatch();
     $('piecemode').hidden = which !== 'piece';
-    $('transport').hidden = which === 'patch';
+    $('transport').hidden = playsPatch();
     showAbout();
 
     panesFor(which);
     showLiveIn();
+
+    /* The list outlives a visit to another mode, and its search does not:
+       what a search finds goes onto the patch's channel. */
+    if (which !== 'grow')
+        grow.stop();
+    else if (!grow.started())
+        grow.reset($('dsp').value);
 
     if (synth === null)
         return;
@@ -3741,6 +3514,7 @@ async function init ()
        quantum on a desktop, which is a whole one on a phone. */
     fill($('patch'), playableDsps(), 'ladder.dsp');
     fill($('piece'), gens, 'ebb.gen');
+    grow.fill();
 
     [$('dsp').value, $('gen').value] = await Promise.all([
         fetch(`dsp/${$('patch').value}`).then((r) => r.text()),
@@ -3908,7 +3682,7 @@ async function init ()
 
     /* And the mode the select is showing, applied to what has just been
        built. The markup cannot be the answer: it is one arrangement and
-       there are three modes, and the page opens on whichever one the
+       there are four modes, and the page opens on whichever one the
        select says -- so the chrome and the panes are put right here,
        once, by the same function that puts them right on every change.
        With no synth yet it does nothing else. */

@@ -53,6 +53,7 @@ import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf, hasSeen,
     from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
+import { createEvolve } from './evolveui.js';
 import { createNodeView } from './nodeview.js';
 import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
@@ -163,7 +164,7 @@ let nodes = null;
  * things and catalogcheck.mjs holds them to it.
  */
 const PANES = ['roll', 'knobs', 'composerview', 'seqview', 'keyboard',
-               'documentbox', 'nodeview', 'detail', 'chat'];
+               'documentbox', 'nodeview', 'evolvebox', 'detail', 'chat'];
 
 /* Where they go, the first time somebody opens a room in a window with
  * room to tile. Data, and this page's: panes.js knows how to divide a
@@ -738,12 +739,30 @@ function joinRun ({ unlessSeen = null } = {})
     return done;
 }
 
+/* Loads under way, which a search's result waits out (evolveui.js). */
+let loads = 0;
+
 /* The piece from the document into the worklet, and what the page shows
    of it: the knobs, the seats, the channels it listens on. `seed' is
    the master seed, or -1 to draw one. `from' is the document to read, the
    room's own unless a late joiner is loading the revision a run started
    from. */
+
 async function loadFromDoc (seed = -1, from = doc)
+{
+    loads++;
+
+    try
+    {
+        return await loadPieceFromDoc(seed, from);
+    }
+    finally
+    {
+        loads--;
+    }
+}
+
+async function loadPieceFromDoc (seed, from)
 {
     const gen = pieceText(from);
 
@@ -828,6 +847,7 @@ async function loadFromDoc (seed = -1, from = doc)
 
     await drawKnobs();
     showSeats();
+    evolve.show();
     showMidiOut();
     showNodeChannel();
     enable();
@@ -946,20 +966,9 @@ async function freezeChain (chain, chainName)
 
 /* A grow stage's Keep: the graph this peer's worklet grew -- every peer's
  * grew alike -- written into the document as the instrument's `dsp { }',
- * on freezeChain's terms. Going back a step is not offered in a room: a
- * room has no command for it, and every peer has to take it. */
+ * on freezeChain's terms. */
 async function keepGrown (instrument)
 {
-    const name = pieceName(doc);
-    const was = name === null ? null : readFile(doc, name);
-
-    if (was === null || was !== loadedGen)
-    {
-        log('the piece has changed since it was loaded; Apply it before ' +
-            'keeping a grown graph');
-        return;
-    }
-
     const body = await synth.grownText(instrument);
 
     if (body === '')
@@ -968,18 +977,35 @@ async function keepGrown (instrument)
         return;
     }
 
+    await keepGraph(instrument, body);
+}
+
+/* `body' written into the document as `instrument''s `dsp { }', and
+   applied if the room is playing. False, said, if it could not be. */
+async function keepGraph (instrument, body)
+{
+    const name = pieceName(doc);
+    const was = name === null ? null : readFile(doc, name);
+
+    if (was === null || was !== loadedGen)
+    {
+        log('the piece has changed since it was loaded; Apply it before ' +
+            'keeping a graph');
+        return false;
+    }
+
     const { text, why } = await synth.genSetInline(was, instrument, body);
 
     if (text === '')
     {
         log(`could not keep ${instrument}'s graph: ${why}`);
-        return;
+        return false;
     }
 
     if (readFile(doc, name) !== was)
     {
         log('the piece changed while the graph was being kept');
-        return;
+        return false;
     }
 
     spliceFile(doc, name, text);
@@ -988,7 +1014,28 @@ async function keepGrown (instrument)
         await applyEdit();
     else
         log(`${instrument}'s graph kept; Play applies it`);
+
+    return true;
 }
+
+/* Evolve toward (evolveui.js): the search this peer's, what it finds a
+   room's command, heard on every peer at its time. */
+const evolve = createEvolve({
+    synth: () => synth,
+    piece: () => piece,
+    loading: () => loads > 0,
+    mayChange: () => room.roleOf() !== 'spectator',
+
+    /* Waited on from when it reaches the synth: a Play still loading
+       holds the commands behind it. */
+    put: (instrument, graph, over, strict) =>
+    {
+        const cmd = maker.tryGraph(instrument, graph, over, strict);
+
+        return send(cmd).then(() => synth.tried(commandTag(cmd)));
+    },
+    keep: keepGraph,
+});
 
 /* ---- transport ---- */
 
@@ -1696,6 +1743,7 @@ function enable ()
     $('stop').disabled = synth === null || !playing;
     $('tempo').disabled = !ready;
     $('export').disabled = synth === null;
+    evolve.buttons();
 }
 
 /* ---- the tape ---- */
@@ -1960,6 +2008,10 @@ function showComposer (on)
         onMove: moveStage,
         onFreeze: freezeChain,
         onKeep: keepGrown,
+
+        /* A grown stage's row: the room's command, so every peer's channel
+           goes back at the same time. */
+        onGrowBack: (channel, depth) => send(maker.growBack(channel, depth)),
 
         /* A section's block: the room's transport there -- a start from
            that time (seekTo). */
@@ -3029,8 +3081,10 @@ function init ()
         seat: (seat) => room.claim(seat),
         seatNow: () => room.seat,
 
-        /* The piece's instruments as the worklet has them. */
+        /* The piece's instruments as the worklet has them, and what
+           growth or a search has put on one's channel. */
         instruments: () => piece?.instruments ?? [],
+        grownText: (instrument) => synth.grownText(instrument),
         tape: () => tapeText,
 
         /* The panes this page has and the layout they are in, for

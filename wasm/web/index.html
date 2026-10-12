@@ -48,6 +48,7 @@
   <label><span class="say">Play</span> <select id="mode">
     <option value="seq">a sequence</option>
     <option value="patch">a patch</option>
+    <option value="grow">a patch, growing</option>
     <option value="piece">a piece</option>
   </select></label>
 
@@ -352,6 +353,43 @@
     <label class="numbered"><input type="checkbox"> Line numbers</label>
   </div>
 </details>
+
+<!-- A patch, growing: one edit at a time, or a search toward another
+     patch's sound or a recording's, every graph on the way kept in a list
+     to go back to and the keys always playing the one chosen (growui.js).
+     What the list's chosen graph is, is the patch source's text. -->
+<section id="growview" data-pane-off
+         data-pane data-pane-title="Grow" data-pane-min="300">
+  <div class="row">
+    <button id="growstep" disabled
+            title="One random edit to the graph playing">Grow</button>
+    <label><input type="checkbox" name="growkind" value="splice" checked>
+      splice</label>
+    <label><input type="checkbox" name="growkind" value="modulate" checked>
+      modulate</label>
+    <label><input type="checkbox" name="growkind" value="voice" checked>
+      voice</label>
+  </div>
+  <ol id="growlist" class="growlist"></ol>
+  <div class="row">
+    <label>Toward <select id="growtoward" disabled></select></label>
+    <input id="growsound" type="file" accept=".wav,audio/wav" hidden>
+    <select id="growhow" disabled>
+      <option value="0">Tune: its constants</option>
+      <option value="1">Tune and grow: its shape too</option>
+    </select>
+  </div>
+  <div class="row">
+    <button id="growgo" disabled>Evolve</button>
+    <button id="growstop" disabled>Cancel</button>
+    <button id="growtarget" disabled aria-pressed="false"
+            title="Play the target instead of the graph chosen, until pressed again">Hear target</button>
+    <button id="growkeep" disabled
+            title="Download the graph chosen as a .dsp file">Keep</button>
+  </div>
+  <canvas id="growplot" width="320" height="80" hidden></canvas>
+  <div id="growstate" class="hint"></div>
+</section>
 
 <details id="piecesource" data-pane-off
          data-pane data-pane-min="320">

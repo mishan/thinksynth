@@ -52,26 +52,28 @@
  * commands with the same stamps (docs/JAM.md).
  */
 
-let fetched = null;
+/* Each module's bytes, by file, fetched once. */
+const fetched = new Map();
 
-function wasmBytes ()
+function wasmBytes (name = 'thinkweb.wasm')
 {
-    fetched ??= fetch(new URL('thinkweb.wasm', import.meta.url))
-        .then((r) =>
-        {
-            if (!r.ok)
-                throw new Error(`thinkweb.wasm: ${r.status} ${r.statusText}`);
+    if (!fetched.has(name))
+        fetched.set(name, fetch(new URL(name, import.meta.url))
+            .then((r) =>
+            {
+                if (!r.ok)
+                    throw new Error(`${name}: ${r.status} ${r.statusText}`);
 
-            return r.arrayBuffer();
-        })
-        .catch((e) =>
-        {
-            /* Not kept: Start after a failed fetch fetches again. */
-            fetched = null;
-            throw e;
-        });
+                return r.arrayBuffer();
+            })
+            .catch((e) =>
+            {
+                /* Not kept: Start after a failed fetch fetches again. */
+                fetched.delete(name);
+                throw e;
+            }));
 
-    return fetched;
+    return fetched.get(name);
 }
 
 /* The tape batches the load's recent figures are summed over: 64 is
@@ -148,6 +150,8 @@ export async function createSynth (ctx, { windowlen = 128,
     /* Replies by id: a load says whether it parsed, a ping that everything
        sent before it has been handled. */
     const waiting = new Map();
+    const tried = new Map();        /* tag -> resolve, see tried()        */
+    const growing = new Map();      /* id -> resolve, see grow()          */
     let nextId = 0;
     let ready, failed;
     const isReady = new Promise((resolve, reject) =>
@@ -285,6 +289,11 @@ export async function createSynth (ctx, { windowlen = 128,
         {
             if (e.data.type === 'grown')
                 node.port.postMessage(e.data);
+            else if (e.data.type === 'grownnow')
+            {
+                growing.get(e.data.id)?.(e.data);
+                growing.delete(e.data.id);
+            }
             else if (e.data.type === 'hear')
                 hear('mirror', e.data.ask);
             else
@@ -350,6 +359,13 @@ export async function createSynth (ctx, { windowlen = 128,
                 waiting.get(m.id)?.(m.ok);
                 waiting.delete(m.id);
                 break;
+            case 'tried':
+                for (const { tag, why } of m.tried)
+                {
+                    tried.get(tag)?.(why);
+                    tried.delete(tag);
+                }
+                break;
             case 'patched':
             case 'probed':
                 waiting.get(m.id)?.(m);
@@ -375,7 +391,6 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'growntext':
             case 'geninline':
             case 'evolvespec':
-            case 'trygraph':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -672,8 +687,33 @@ export async function createSynth (ctx, { windowlen = 128,
             ask({ type: 'geninline', text, instrument, body }),
 
         /* Channel `channel' back to `depth' edits on its declared graph,
-           in both realms. */
-        growBack: (channel, depth) => post({ type: 'growback', channel, depth }),
+           at a transport time or -1 for the next window, in both realms. */
+        growBack: ({ at = -1, channel, depth, rev }) =>
+            post({ type: 'growback', at, channel, depth, rev }),
+
+        /* Up to `want' edits of `text', the graph `base' was before any,
+           of the kinds `kinds' names, picked by `choice' (NodeMutate::grow):
+           made in the mirror, which composes and has time for it. Resolves
+           to { grown, what, why }, `grown' and `what' as lists. */
+        grow: (text, base, choice, kinds, want = 1) =>
+            new Promise((resolve) =>
+            {
+                const split = (s) => (s === '' ? [] : s.split('\x1e'));
+
+                if (mirror === null)
+                {
+                    resolve({ grown: [], what: [], why: 'nothing to grow in' });
+                    return;
+                }
+
+                const id = nextId++;
+
+                growing.set(id, (m) => resolve({ grown: split(m.grown),
+                                                 what: split(m.what),
+                                                 why: m.why }));
+                mirror.postMessage({ type: 'grownow', id, text, base, choice,
+                                     kinds, want });
+            }),
 
         /* Where a search of `instrument' toward `toward' -- an instrument,
            or '' for a recording -- starts, as the worklet plays it
@@ -688,51 +728,119 @@ export async function createSynth (ctx, { windowlen = 128,
                                         toward });
             }),
 
-        /* Evolve toward: `islands' searches of `spec', a worker each
-           (evolve.js) on seeds from `seed', each saying what it finds to
-           onEvent(island, message) and ending itself when it is done.
-           cancel() ends those still going. */
-        evolve: (spec, { seed, islands, sound }, onEvent) =>
+        /* Evolve toward on `workers' of the machine's cores (evolve.js).
+           Where the browser can suspend a module on a promise (JSPI), one
+           search whose generations `workers' listeners score; elsewhere
+           `workers' searches on seeds from `seed', of which the caller
+           keeps the best. Each says what it finds to onEvent(search,
+           message) and ends itself when it is done. Resolves to
+           { cancel, searches }: cancel() ends whatever is still going, and
+           `searches' is how many will say they are done. */
+        evolve: async (spec, { seed, workers, sound }, onEvent) =>
         {
-            const workers = [];
-
-            for (let i = 0; i < islands; i++)
+            const started = [];
+            const cancel = () => started.forEach((w) => w.terminate());
+            const spawn = (message, transfer, onMessage, onError) =>
             {
                 const w = new Worker(new URL('evolve.js', import.meta.url),
                                      { type: 'module' });
-                const copy = bytes.slice(0);
 
-                w.onmessage = (e) =>
-                {
-                    if (e.data.type === 'done')
-                        w.terminate();
-
-                    onEvent(i, e.data);
-                };
+                w.onmessage = onMessage;
                 w.onerror = (e) =>
                 {
                     w.terminate();
-                    onEvent(i, { type: 'done', ok: false,
-                                 why: e.message ?? 'the search failed' });
+                    onError(e.message ?? 'the search failed');
                 };
                 /* The sound files too: an instrument that plays one --
                    a kit, a pack -- sounds of nothing without it. */
-                w.postMessage({ bytes: copy, windowlen: info.windowlen,
-                                sampleRate: info.sampleRate, spec,
-                                seed: seed + i, sound,
-                                sounds: [...sounds] }, [copy]);
-                workers.push(w);
+                w.postMessage({ windowlen: info.windowlen,
+                                sampleRate: info.sampleRate, spec, sound,
+                                sounds: [...sounds], ...message }, transfer);
+                started.push(w);
+            };
+
+            const shared = typeof WebAssembly.Suspending === 'function'
+                ? await wasmBytes('thinkevolve.wasm').catch(() => null)
+                : null;
+
+            if (shared !== null)
+            {
+                let ended = false;
+                const done = (m) =>
+                {
+                    if (ended)
+                        return;
+
+                    ended = true;
+                    cancel();
+                    onEvent(0, m);
+                };
+                const failed = (why) =>
+                    done({ type: 'done', ok: false, why });
+                const ears = [];
+
+                for (let i = 0; i < workers; i++)
+                {
+                    const { port1, port2 } = new MessageChannel();
+                    const copy = bytes.slice(0);
+
+                    spawn({ bytes: copy, port: port2 }, [copy, port2],
+                          () => {}, failed);
+                    ears.push(port1);
+                }
+
+                const copy = shared.slice(0);
+
+                spawn({ bytes: copy, seed, ears }, [copy, ...ears],
+                      (e) => (e.data.type === 'done' ? done(e.data)
+                                                     : onEvent(0, e.data)),
+                      failed);
+
+                return { cancel, searches: 1 };
             }
 
-            return { cancel: () => workers.forEach((w) => w.terminate()) };
+            for (let i = 0; i < workers; i++)
+            {
+                const copy = bytes.slice(0);
+
+                spawn({ bytes: copy, seed: seed + i }, [copy], (e) =>
+                {
+                    if (e.data.type === 'done')
+                        started[i].terminate();
+
+                    onEvent(i, e.data);
+                }, (why) => onEvent(i, { type: 'done', ok: false, why }));
+            }
+
+            return { cancel, searches: workers };
         },
 
         /* A search's graph on `instrument''s channel in place of `over',
-           in both realms (thinkweb.cpp, tw_try_graph); `graph' '' takes
-           `over' off. Resolves to the worklet's why, '' when done. */
-        tryGraph: (instrument, graph, over, strict) =>
-            ask({ type: 'trygraph', instrument, graph, over,
-                  strict: strict ? 1 : 0 }).then((m) => m.why),
+           at a transport time or -1 for the next window, in both realms
+           (thinkweb.cpp, tw_try_graph); `graph' '' takes `over' off.
+           What it came to goes to tried(tag). */
+        tryGraph: ({ at = -1, instrument, graph, over, strict, tag }) =>
+            post({ type: 'trygraph', at, instrument, graph, over, strict,
+                   tag }),
+
+        /* What the tryGraph tagged `tag' came to once the worklet applied
+           it: '' when it is on its channel, or why not. A load can drop a
+           command still waiting for its time, so this does not wait for
+           ever. */
+        tried: (tag, timeoutMs = 5000) => new Promise((resolve) =>
+        {
+            const timer = setTimeout(() =>
+            {
+                tried.delete(tag);
+                resolve('the synth did not say what became of it');
+            }, timeoutMs);
+
+            tried.set(tag, (why) =>
+            {
+                clearTimeout(timer);
+                resolve(why);
+            });
+        }),
 
         /* One chain's level in one section, in `text'. Resolves to
            { text }, "" when the writer refused. */

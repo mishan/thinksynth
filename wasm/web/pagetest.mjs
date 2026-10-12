@@ -3076,6 +3076,11 @@ try
         await page.evaluate(() => window.solo.settled());
         await page.selectOption('#evolvewhat', 'pad');
         await page.selectOption('#evolvetoward', 'ref');
+
+        const fetched = [];
+        const asked = (r) => fetched.push(r.url());
+
+        page.on('request', asked);
         await page.click('#evolvego');
 
         const ended = await page.waitForFunction(
@@ -3087,10 +3092,13 @@ try
         const playing = await page.evaluate(
             () => window.solo.grownText('pad'));
 
+        page.off('request', asked);
         check(ended && playing.includes('node env') &&
               !playing.includes('s = 0.05; r'),
               `Evolve toward tunes an instrument in the page's workers and ` +
               `puts the result on its channel: ${state}`);
+        check(fetched.some((u) => u.endsWith('/thinkevolve.wasm')),
+              '...as one search its workers score, Chromium having JSPI');
 
         await page.click('#evolvekeep');
 
@@ -3100,6 +3108,86 @@ try
 
         check(!kept.includes('s = 0.05; r') && kept.includes('instrument ref'),
               '...and Keep writes it into the piece');
+    }
+
+    /* A patch, growing: Grow adds an edit as a row and plays it, the first
+       row puts the patch back, a search toward another patch adds what it
+       found, the target can be heard in its place and back, and Keep
+       downloads the row chosen. */
+    {
+        const rows = () => page.$$eval('#growlist button',
+                                       (b) => b.map((e) => e.textContent));
+        const box = () => page.evaluate(
+            () => document.getElementById('dsp').value);
+
+        await page.selectOption('#mode', 'grow');
+        await page.selectOption('#patch', 'ladder.dsp');
+        await page.evaluate(() => window.solo.settled());
+        await until(rows, (r) => r.length === 1 && r[0] === 'ladder.dsp');
+
+        const picked = await box();
+
+        await page.click('#growstep');
+
+        const grown = await until(rows, (r) => r.length === 2);
+        const edited = await box();
+
+        check(grown.length === 2 && grown[0] === 'ladder.dsp' &&
+              edited !== picked && /Loaded/.test(
+                  await page.textContent('#status')),
+              `Grow adds an edit as a row and plays it: ${grown.join(' | ')}`);
+
+        await page.click('#growlist li:first-child button');
+        check(await until(box, (t) => t === picked) === picked,
+              '...and the first row puts the patch back');
+
+        await page.selectOption('#growtoward', 'pluck.dsp');
+        await page.click('#growgo');
+
+        /* Stopped once it has come nearer than where it began, which is
+           the first `nearest' it says. */
+        const nearest = () => page.evaluate(() => Number(/nearest (\S+)/.exec(
+            document.getElementById('growstate').textContent)?.[1]));
+        await page.waitForFunction(() => /nearest/.test(
+            document.getElementById('growstate').textContent), null,
+            { timeout: 60000 }).catch(() => {});
+
+        const began = await nearest();
+
+        await page.waitForFunction((b) => Number(/nearest (\S+)/.exec(
+            document.getElementById('growstate').textContent)?.[1]) < b ||
+            document.getElementById('growstop').disabled,
+            began, { timeout: 120000 }).catch(() => {});
+        await page.evaluate(() => document.getElementById('growstop').click());
+
+        const found = await until(rows, (r) => r.length === 2 &&
+                                  r[1].startsWith('toward pluck.dsp'));
+
+        check(found[1]?.startsWith('toward pluck.dsp') &&
+              await box() !== picked,
+              `...a search toward another patch adds what it found: ` +
+              `${found[1]}`);
+
+        const chosen = await box();
+
+        await page.click('#growtarget');
+
+        const pressed = await page.getAttribute('#growtarget',
+                                                'aria-pressed');
+
+        await page.click('#growtarget');
+        check(pressed === 'true' &&
+              await page.getAttribute('#growtarget', 'aria-pressed') ===
+                  'false' && await box() === chosen &&
+              (await rows()).length === 2,
+              '...the target is heard in its place and then the row again');
+
+        const [download] = await Promise.all([
+            page.waitForEvent('download', { timeout: 10000 }),
+            page.click('#growkeep')]);
+
+        check(download.suggestedFilename() === 'ladder-grown.dsp',
+              `...and Keep downloads it: ${download.suggestedFilename()}`);
     }
 
     for (const e of errors)

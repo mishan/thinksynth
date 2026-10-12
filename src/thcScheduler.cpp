@@ -1389,7 +1389,15 @@ thcScheduler::runQueued (int channel)
 
         rest.pop_front();
 
-        if (q.nodeArg)
+        if (q.back >= 0)
+        {
+            if (!growBackTo(channel, (size_t)q.back, why))
+                fprintf(stderr, "thcScheduler: growth on channel %d: %s\n",
+                        channel + 1, why.c_str());
+        }
+        else if (q.put)
+            putGraph(channel, q.graph, q.over, q.strict, q.done);
+        else if (q.nodeArg)
         {
             if (!setNodeArg(channel, q.node, q.arg, q.value, why))
                 fprintf(stderr, "thcScheduler: %s.%s on channel %d: %s\n",
@@ -2463,6 +2471,15 @@ thcScheduler::growBackTo (int channel, size_t depth, std::string &why)
     if (g == NULL)
         return false;
 
+    if (g->asked != 0 || !g->options.empty())
+    {
+        Growth::Queued q;
+
+        q.back = (int)depth;
+        g->queued.push_back(q);
+        return true;
+    }
+
     if (depth + 1 >= g->texts.size())
     {
         why = "the channel is not that many edits on";
@@ -2472,6 +2489,48 @@ thcScheduler::growBackTo (int channel, size_t depth, std::string &why)
     forgetHearing(*g);
 
     return placeStep(channel, depth, "", "", GrowthStep(), why);
+}
+
+void
+thcScheduler::putGraph (int channel, const std::string &graph,
+                        const std::string &over, bool strict,
+                        const PutDone &done)
+{
+    const auto g = grown_.find(channel);
+
+    if (g != grown_.end() &&
+        (g->second.asked != 0 || !g->second.options.empty()))
+    {
+        Growth::Queued q;
+
+        q.put = true;
+        q.graph = graph;
+        q.over = over;
+        q.strict = strict;
+        q.done = done;
+        g->second.queued.push_back(q);
+        return;
+    }
+
+    std::string now, why;
+    const bool onTop = !over.empty() && grownText(channel, now) &&
+                       now == over;
+
+    if (strict && !over.empty() && !onTop)
+        why = "the channel has changed since the last Listen";
+    else
+    {
+        if (onTop)
+            growInstrument(channel, 0, true, "", "", 0, 0, why);
+
+        if (!graph.empty())
+            tryGraph(channel, graph, why);
+        else if (!onTop)
+            why = "it is no longer on the channel";
+    }
+
+    if (done)
+        done(why);
 }
 
 bool

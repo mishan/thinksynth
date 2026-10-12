@@ -94,19 +94,22 @@ export function apply (M, m, host = NOWHERE)
             }
             return true;
 
-        /* A channel back to some edits on its declared graph: the
-           composer view's choice of a grown stage's row, for both
-           realms, which grow alike. */
+        /* A channel back to some edits on its declared graph, at a
+           transport time: the composer view's choice of a grown stage's
+           row, for every realm, which grow alike. */
         case 'growback':
-        {
-            const why = M.ccall('tw_grow_back', 'string',
-                                ['number', 'number'], [m.channel, m.depth]);
-
-            if (why !== '')
-                log(why);
-
+            M._tw_grow_back(m.at ?? -1, m.channel, m.depth);
             return true;
-        }
+
+        /* A search's graph on a channel, at a transport time, its outcome
+           reported under `tag' (thinkweb.cpp, tw_try_graph). */
+        case 'trygraph':
+            M.ccall('tw_command_tag', null, ['string'], [m.tag ?? '']);
+            M.ccall('tw_try_graph', null,
+                    ['number', 'string', 'string', 'string', 'number'],
+                    [m.at ?? -1, m.instrument, m.graph, m.over,
+                     m.strict ? 1 : 0]);
+            return true;
 
         case 'patch':
             /* A whole .patch, as text. The module reads it and puts it on
