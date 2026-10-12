@@ -3650,9 +3650,13 @@ try
         await page.evaluate(() => window.solo.settled());
         await page.click('#bandscenes .scene.add');
         await until(text, (t) => /section scene 8 bars/.test(t));
-        await page.click('.player[data-chain="kick"] .moves ' +
-                         'button:has-text("Rest")');
+        const focus = () => page.evaluate(() =>
+            document.activeElement.dataset.f);
+
+        await page.focus('.player[data-chain="kick"] .rest');
+        await page.keyboard.press('Enter');
         await until(text, (t) => /kick = 0;/.test(block(t, 'scene')));
+        const kept = await focus();
         await page.click('#bandscenes .scene.add');
         const copied = await until(text, (t) => /section scene2/.test(t));
 
@@ -3672,12 +3676,17 @@ try
               '...+ Scene copies the scene, which can be renamed, resized ' +
               'and taken out');
 
-        await page.click('.player[data-chain="kick"] .out');
+        await page.focus('.player[data-chain="kick"] .out');
+        await page.keyboard.press('Enter');
         const gone = await until(text, (t) => !/kick/.test(t));
+        const next = await focus();
 
         check(!/kick/.test(gone) && /section scene /.test(gone),
               '...and a player resting in a scene can be taken out of ' +
               'the band');
+        check(kept === 'kick:rest' && next === 'snare:pad',
+              '...the keys staying on Rest as the cards are drawn again, ' +
+              `and going to the next card's pad: ${kept}, ${next}`);
     }
 
     for (const e of errors)

@@ -1846,6 +1846,7 @@ const band = createBand({
     keep: (p) => freezeChain(p.index, p.name),
     rest: (p, on) => synth?.mute({ at: -1, chain: p.index, on }),
     say: (text) => status(text, true),
+    tell: (text) => status(text),
 
     /* Resolves to whether the stages went in. */
     touch: async (p, adds) =>
@@ -1891,7 +1892,7 @@ const band = createBand({
         {
             status('The text has changes that are not loaded; load them ' +
                    'first.', true);
-            return;
+            return false;
         }
 
         const { text, why } = await synth.genOps(was, ops);
@@ -1900,10 +1901,10 @@ const band = createBand({
         {
             status('The band could not make that change: ' +
                    `${why || 'the piece changed meanwhile'}.`, true);
-            return;
+            return false;
         }
 
-        await applyText(text);
+        return applyText(text);
     },
 
     sounds: () => dspGroups,
@@ -1929,10 +1930,11 @@ const band = createBand({
 
             if (r.text !== '' && $('gen').value === was &&
                 await applyText(r.text))
-                return;
+                return true;
         }
 
         status(`Could not put ${p.name} on ${dsp}: ${why}.`, true);
+        return false;
     },
 
     /* A beat, a bass and keys, as the gallery would add them. */
