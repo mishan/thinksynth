@@ -1356,6 +1356,371 @@ async function freezeChain (chain, chainName)
         synth.transport('start');
 }
 
+/* ---- Evolve toward ----
+ *
+ * The desktop's Evolve window, on the page's terms: a search a worker each
+ * (host.js, evolve.js) on seeds of their own -- one or a few, as the
+ * machine has cores to spare -- the best of them kept as they go: the
+ * nearest graph for Listen, the trail for the plot, and at the end the
+ * nearest result. Cancel ends the workers and keeps the nearest found.
+ * What goes on the channel goes to both realms, in place of what this
+ * search put there last (thinkweb.cpp, tw_try_graph); Keep writes it into
+ * the piece as Keep does on a grow stage, and Discard takes it off.
+ * Solo only: a room has no command for a graph on a channel.
+ */
+let evolving = null;
+let evolveGraph = '';
+let evolveFor = '';
+let evolvePiece = null;
+let evolveSound = null;
+
+/* Graphs go on the channel one at a time: each says what it replaces,
+   which is what the one before it put there. */
+let evolvePut = Promise.resolve();
+
+function evolveButtons ()
+{
+    const running = evolving !== null && !evolving.done;
+
+    $('evolvego').disabled = running || piece === null;
+    $('evolvestop').disabled = !running;
+    $('evolvehear').disabled = !running;
+    $('evolvekeep').disabled = running || evolveGraph === '';
+    $('evolvedrop').disabled = running || evolveGraph === '';
+}
+
+/* The piece's instruments to choose among, and what a load leaves of a
+   search. A load puts the declared graphs back, so nothing of it is on
+   a channel; a search goes on through a reload of the same piece -- a
+   stage moved, an effect chosen -- and ends with another. */
+function showEvolve ()
+{
+    const names = (piece?.instruments ?? []).map((i) => i.name);
+    const fill = (select, extra) =>
+    {
+        const was = select.value;
+
+        select.replaceChildren(...[...names, ...extra].map((n) =>
+        {
+            const o = document.createElement('option');
+
+            o.textContent = n;
+            return o;
+        }));
+
+        if ([...names, ...extra].includes(was))
+            select.value = was;
+    };
+
+    if (evolving !== null &&
+        (piece?.name !== evolvePiece || !names.includes(evolveFor)))
+    {
+        evolving.cancel();
+        evolving = null;
+        $('evolvestate').textContent = '';
+    }
+
+    evolveGraph = '';
+    fill($('evolvewhat'), []);
+    fill($('evolvetoward'), ['A recording...']);
+
+    if ($('evolvetoward').value === $('evolvewhat').value && names.length > 1)
+        $('evolvetoward').selectedIndex = 1;
+
+    for (const id of ['evolvewhat', 'evolvetoward', 'evolvehow'])
+        $(id).disabled = piece === null;
+
+    evolveButtons();
+}
+
+function drawEvolve ()
+{
+    const canvas = $('evolveplot');
+    const trail = evolving?.trail ?? [];
+    const cx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height, pad = 6;
+
+    canvas.hidden = trail.length === 0;
+    cx.fillStyle = '#14161a';
+    cx.fillRect(0, 0, w, h);
+
+    if (trail.length === 0)
+        return;
+
+    const end = Math.max(evolving.done ? trail[trail.length - 1][0]
+                         : (performance.now() - evolving.began) / 1000, 1);
+    const ds = trail.map((p) => p[1]);
+    const lo = Math.min(...ds), range = Math.max(Math.max(...ds) - lo, 0.5);
+    const x = (t) => pad + t / end * (w - 2 * pad);
+    const y = (d) => pad + (d - lo) / range * (h - 2 * pad);
+    let held = trail[0][1];
+
+    cx.beginPath();
+    cx.moveTo(x(0), y(held));
+
+    for (const [t, d] of trail)
+    {
+        cx.lineTo(x(t), y(held));
+        cx.lineTo(x(t), y(d));
+        held = d;
+    }
+
+    cx.lineTo(x(end), y(held));
+    cx.strokeStyle = '#59a6ff';
+    cx.lineWidth = 1.5;
+    cx.stroke();
+}
+
+/* `graph' on the instrument's channel, in place of what this search put
+   there last; `strict', as Listen is, refused once the channel has moved
+   on from that. */
+function putEvolved (graph, strict)
+{
+    const put = evolvePut.then(async () =>
+    {
+        const why = await synth.tryGraph(evolveFor, graph, evolveGraph,
+                                         strict);
+
+        if (why === '')
+            evolveGraph = graph;
+
+        return why;
+    });
+
+    evolvePut = put.catch(() => {});
+
+    return put;
+}
+
+async function startEvolve ()
+{
+    if (evolving !== null && !evolving.done)
+        return;
+
+    const what = $('evolvewhat').value;
+    const toward = $('evolvetoward').value;
+    const recording = toward === 'A recording...';
+
+    if (recording && evolveSound === null)
+    {
+        $('evolvesound').click();
+        return;
+    }
+
+    $('evolvego').disabled = true;
+
+    const spec = await synth.evolveSpec(what, recording ? '' : toward);
+
+    if (spec.why !== '')
+    {
+        $('evolvestate').textContent = spec.why;
+        evolveButtons();
+        return;
+    }
+
+    spec.grow = $('evolvehow').value === '1';
+
+    const islands = Math.max(1, Math.min(4,
+        (navigator.hardwareConcurrency ?? 2) - 2));
+    const run = { trail: [], best: Infinity, nearest: '', started: null,
+                  done: false, ended: 0, islands, result: null,
+                  began: performance.now(), cancel: () => {} };
+
+    evolving = run;
+    evolveFor = what;
+    evolvePiece = piece?.name ?? null;
+    evolveGraph = '';
+    $('evolvestate').textContent = 'listening...';
+
+    run.cancel = synth.evolve(spec, {
+        seed: piece?.seed ?? 1, islands,
+        sound: recording ? evolveSound : null,
+    }, (island, m) =>
+    {
+        if (evolving !== run)
+            return;
+
+        if (m.type === 'started')
+            run.started ??= m.distance;
+        else if (m.type === 'nearer' && m.distance < run.best)
+        {
+            run.best = m.distance;
+            run.nearest = m.graph;
+            run.trail.push([m.seconds, m.distance]);
+            $('evolvestate').textContent =
+                `nearest ${m.distance.toFixed(2)} dB`;
+        }
+        else if (m.type === 'done')
+        {
+            if (m.ok && (run.result === null ||
+                         m.distance < run.result.distance))
+                run.result = m;
+
+            if (++run.ended === islands)
+                endEvolve(run, run.result?.why ?? m.why);
+        }
+
+        drawEvolve();
+    }).cancel;
+
+    evolveButtons();
+}
+
+/* A search over, all its islands in or cancelled: the nearest it found on
+   the channel, to be kept or discarded. */
+async function endEvolve (run, why)
+{
+    if (run.done)
+        return;
+
+    run.done = true;
+
+    /* The nearest any island came: a finished island's result, or what
+       one still going had found when it was cancelled. */
+    const finished = run.result !== null && run.result.distance <= run.best;
+    const found = finished ? run.result.found : run.nearest;
+    const near = finished ? run.result.distance : run.best;
+
+    if (found === '')
+    {
+        $('evolvestate').textContent = why || 'the search found nothing';
+        evolveButtons();
+        return;
+    }
+
+    /* Onto the piece it was for, once a load under way has finished --
+       and not onto another one that load brought. */
+    while (loading > 0)
+        await new Promise((r) => setTimeout(r, 100));
+
+    if (evolving !== run)
+        return;
+
+    const failed = await putEvolved(found, false);
+
+    $('evolvestate').textContent = failed !== '' ? failed
+        : `${run.started?.toFixed(2) ?? '?'} dB from the target, now ` +
+          `${near.toFixed(2)}: playing on ${evolveFor}; Keep or Discard`;
+    evolveButtons();
+    drawEvolve();
+}
+
+$('evolvego').addEventListener('click', () =>
+{
+    startEvolve().catch((e) => log(e.message));
+});
+$('evolvestop').addEventListener('click', () =>
+{
+    if (evolving === null || evolving.done)
+        return;
+
+    evolving.cancel();
+    endEvolve(evolving, 'stopped');
+});
+$('evolvehear').addEventListener('click', async () =>
+{
+    if (evolving?.nearest)
+    {
+        const why = await putEvolved(evolving.nearest, true);
+
+        if (why !== '')
+            $('evolvestate').textContent = why;
+    }
+});
+$('evolvekeep').addEventListener('click', async () =>
+{
+    /* Left to keep or discard if the keeping is refused. */
+    if (await keepGraph(evolveFor, evolveGraph))
+    {
+        evolveGraph = '';
+        evolveButtons();
+    }
+});
+$('evolvedrop').addEventListener('click', async () =>
+{
+    const why = await synth.tryGraph(evolveFor, '', evolveGraph, false);
+
+    evolveGraph = '';
+    $('evolvestate').textContent = why === '' ? 'put back as it was' : why;
+    evolveButtons();
+});
+$('evolvetoward').addEventListener('change', () =>
+{
+    if ($('evolvetoward').value === 'A recording...')
+        $('evolvesound').click();
+});
+$('evolvesound').addEventListener('change', async () =>
+{
+    const file = $('evolvesound').files[0];
+
+    evolveSound = file === undefined ? null
+        : { name: `evolve/${file.name}`,
+            bytes: new Uint8Array(await file.arrayBuffer()) };
+    $('evolvestate').textContent = evolveSound === null ? ''
+        : `toward ${file.name}`;
+});
+
+/* What growth has made of `instrument', kept: the worklet's grown graph,
+ * the one that sounds, written into the box as the instrument's `dsp { }'
+ * and the piece loaded again -- playing again if it was. On freezeChain's
+ * terms about text that was never loaded. */
+async function keepGrown (instrument)
+{
+    if (synth === null)
+        return;
+
+    const body = await synth.grownText(instrument);
+
+    if (body === '')
+    {
+        status(`${instrument} has not grown.`, true);
+        return;
+    }
+
+    await keepGraph(instrument, body);
+}
+
+/* `body' written into the box as `instrument''s `dsp { }', and the piece
+   loaded again -- playing again if it was. False, said, if it could not be. */
+async function keepGraph (instrument, body)
+{
+    if (synth === null)
+        return false;
+
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before keeping a grown graph.', true);
+        return false;
+    }
+
+    const wasRunning = lastTape?.running === true;
+    const { text, why } = await synth.genSetInline(was, instrument, body);
+
+    if (text === '')
+    {
+        status(`Could not keep ${instrument}'s graph: ${why}.`, true);
+        return false;
+    }
+
+    if ($('gen').value !== was || loadedText !== was || loading > 0)
+    {
+        status('The piece changed while the graph was being kept; try it ' +
+               'again.', true);
+        return false;
+    }
+
+    $('gen').value = text;
+    await loadPiece();
+
+    if (wasRunning && piece !== null)
+        synth.transport('start');
+
+    return true;
+}
+
 /* ---- the piece ---- */
 
 /* The piece, and then the aiming.
@@ -1409,6 +1774,7 @@ async function loadPiece ()
     placed = aiming.placed;
     showLiveIn();
     showPieceEffect();
+    showEvolve();
     fitTracks();
 
     if (piece === null)
@@ -2821,6 +3187,8 @@ function showComposer (on)
             synth?.section({ at: -1, section, chain, level }),
 
         onFreeze: freezeChain,
+        onGrowBack: (channel, depth) => synth?.growBack(channel, depth),
+        onKeep: keepGrown,
 
         /* A section's block: the transport there, in the next window. */
         onSeek: (at) => synth?.transport('seek', at),

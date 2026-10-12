@@ -944,6 +944,52 @@ async function freezeChain (chain, chainName)
         log(`${chainName} frozen; Play applies it`);
 }
 
+/* A grow stage's Keep: the graph this peer's worklet grew -- every peer's
+ * grew alike -- written into the document as the instrument's `dsp { }',
+ * on freezeChain's terms. Going back a step is not offered in a room: a
+ * room has no command for it, and every peer has to take it. */
+async function keepGrown (instrument)
+{
+    const name = pieceName(doc);
+    const was = name === null ? null : readFile(doc, name);
+
+    if (was === null || was !== loadedGen)
+    {
+        log('the piece has changed since it was loaded; Apply it before ' +
+            'keeping a grown graph');
+        return;
+    }
+
+    const body = await synth.grownText(instrument);
+
+    if (body === '')
+    {
+        log(`${instrument} has not grown`);
+        return;
+    }
+
+    const { text, why } = await synth.genSetInline(was, instrument, body);
+
+    if (text === '')
+    {
+        log(`could not keep ${instrument}'s graph: ${why}`);
+        return;
+    }
+
+    if (readFile(doc, name) !== was)
+    {
+        log('the piece changed while the graph was being kept');
+        return;
+    }
+
+    spliceFile(doc, name, text);
+
+    if (transport?.running)
+        await applyEdit();
+    else
+        log(`${instrument}'s graph kept; Play applies it`);
+}
+
 /* ---- transport ---- */
 
 /* Apply: the document as it stands, into the piece that is playing, at the
@@ -1913,6 +1959,7 @@ function showComposer (on)
 
         onMove: moveStage,
         onFreeze: freezeChain,
+        onKeep: keepGrown,
 
         /* A section's block: the room's transport there -- a start from
            that time (seekTo). */

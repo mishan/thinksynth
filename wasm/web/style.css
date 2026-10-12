@@ -1180,6 +1180,18 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
    them off. */
 #composerparams { max-width: 32rem; }
 
+/* A grow stage's edits, under its rows: the one playing marked, the rest
+   pressed to go back to. */
+#composerparams .growthrow {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-size: 0.85rem;
+}
+
+#composerparams .growthrow.playing { font-weight: bold; }
+#composerparams .growthplot { display: block; margin: 0.3rem 0; }
+
 /* What a parameter is when it is not a number to type in: an output the
    plugin writes, or a value something else drives. */
 .paramwhat {

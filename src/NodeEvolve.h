@@ -134,33 +134,60 @@ string tuneAdded (thSynth &synth, const string &from, const string &text,
 int grow (const Host &host, const vector<Splice> &pool, const string &start,
           unsigned int seed, int generations, int rounds, string &found);
 
+/* What a search is of: a graph, what it should sound like, and how far to
+   go. */
+struct Spec {
+    string pluginPath;
+    string start;           /* the graph to move, as text            */
+
+    /* What it moves toward: a graph's sound, or a recording's -- a WAV
+       file, read where the search runs -- whichever is not empty. */
+    string targetGraph;
+    string targetWav;
+
+    /* The values an instrument sets on each graph, in the engine's
+       terms at `rate' -- a time folded to samples is folded at one --
+       so the search hears what the piece plays. */
+    vector<pair<string, float> > startArgs, targetArgs;
+    double rate = TH_DEFAULT_SAMPLES;
+
+    bool grow = false;      /* the graph's shape too, not only its
+                               constants                              */
+    unsigned int seed = 1;
+    int generations = 60;   /* of the closing tune                   */
+    int rounds = 2;         /* of edits raced, when growing          */
+};
+
+/* What a search says as it goes, to whatever runs it. Each may be empty. */
+struct Report {
+    std::function<bool ()> stop;                 /* asked between candidates */
+    std::function<void (const string &text)> say;    /* the commentary  */
+    std::function<void (double distance)> started;   /* where it began  */
+
+    /* Each time a candidate comes nearer than any before it. From any of
+       the threads a generation is scored on. */
+    std::function<void (double distance, const string &graph)> nearer;
+};
+
+struct Outcome {
+    bool ok = false;
+    string found;
+    double distance = 0;
+    string why;
+};
+
+/* One search on the calling thread, a generation scored on `workers'
+   synths at once -- the first here, the rest on threads of their own. One
+   worker starts no thread, for a host that has none: the browser. */
+Outcome evolve (const Spec &spec, size_t workers, const Report &report);
+
 /* One search, run on a thread of its own, for a host that has a window to
  * keep drawing: Evolve toward, in the Composer. A generation is scored on
  * several synths at once, one per thread -- up to eight, a core spare --
  * so a tune is a minute or two and a grow is several. */
 class Job {
 public:
-    struct Spec {
-        string pluginPath;
-        string start;           /* the graph to move, as text            */
-
-        /* What it moves toward: a graph's sound, or a recording's -- a WAV
-           file, read on the job's thread -- whichever is not empty. */
-        string targetGraph;
-        string targetWav;
-
-        /* The values an instrument sets on each graph, in the engine's
-           terms at `rate' -- a time folded to samples is folded at one --
-           so the search hears what the piece plays. */
-        vector<pair<string, float> > startArgs, targetArgs;
-        double rate = TH_DEFAULT_SAMPLES;
-
-        bool grow = false;      /* the graph's shape too, not only its
-                                   constants                              */
-        unsigned int seed = 1;
-        int generations = 60;   /* of the closing tune                   */
-        int rounds = 2;         /* of edits raced, when growing          */
-    };
+    typedef NodeEvolve::Spec Spec;
 
     Job (void) {}
     ~Job (void);

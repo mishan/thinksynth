@@ -2964,6 +2964,144 @@ try
                                                          : ': it did not'));
     }
 
+    /* A grow stage's popover: the edits grown, a row to go back to the
+       declared graph, and Keep, which writes the graph playing into the
+       piece. */
+    {
+        const body =
+            'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+            'io ionode;\n' +
+            'node freq misc::midi2freq { note = ionode->note; };\n' +
+            'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+            'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+            '    trigger = ionode->trigger; };\n' +
+            'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+        const PIECE =
+            'name "kept";\nseed 11;\n' +
+            `instrument pad { dsp {\n${body}}; };\n` +
+            'chain m { stage s gen::eno_line { notes = "A3 C4";\n' +
+            '    period = 0.5 s; prob = 1; }; sink { instrument = pad; }; };\n' +
+            'chain g { stage s gen::grow { every = 1 s; depth = 2;\n' +
+            '    shrink = 0; }; sink { instrument = pad; }; };\n';
+        const grownText = () =>
+            page.evaluate(() => window.solo.grownText('pad'));
+        const grow = async () =>
+        {
+            await page.click('#play');
+
+            const grown = await until(grownText, (t) => t !== '');
+
+            await page.click('#stop');
+
+            return grown;
+        };
+        const popover = async () =>
+        {
+            const handle = await page.evaluate(
+                () => window.solo.handleOf(1, 0));
+            const at = await scroller();
+
+            await page.mouse.click(at.x + handle.x, at.y + handle.y);
+            await page.waitForFunction(
+                () => !document.getElementById('composerparams').hidden &&
+                      document.querySelector('#composerparams .growthrow'),
+                null, { timeout: 15000 }).catch(() => {});
+        };
+
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, PIECE);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+        await grow();
+        await popover();
+
+        const rows = await page.$$eval('#composerparams .growthrow',
+                                       (r) => r.map((e) => e.textContent));
+
+        check(rows.length >= 2 && rows[0] === 'the declared graph' &&
+              rows[rows.length - 1].endsWith('(playing)'),
+              `a grow stage's popover lists what grew: ${rows.join(' | ')}`);
+
+        await page.click('#composerparams button.growthrow');
+
+        check(await until(grownText, (t) => t === '') === '',
+              '...and its first row puts the declared graph back');
+
+        await page.keyboard.press('Escape');
+
+        const grown = await grow();
+        const added = [...grown.matchAll(/node (\w+) /g)]
+            .map((n) => n[1]).filter((n) => !body.includes(`node ${n} `));
+
+        await popover();
+        await page.click('#composerparams button:has-text("Keep")');
+
+        const kept = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => added.length > 0 && t.includes(`node ${added[0]} `));
+
+        check(added.length > 0 && kept.includes(`node ${added[0]} `) &&
+              await grownText() === '',
+              '...and Keep writes the grown graph into the piece, which ' +
+              'then plays it as declared');
+    }
+
+    /* Evolve toward on the page: one instrument tuned toward another's
+       sound in the page's evolve workers, the result heard on its
+       channel, and kept into the piece. The two differ only in their
+       sustain, which a tune finds. */
+    {
+        const graphWith = (s) =>
+            'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+            'io ionode;\n' +
+            'node freq misc::midi2freq { note = ionode->note; };\n' +
+            'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+            `node env env::adsr { a = 5 ms; d = 200 ms; s = ${s}; r = 100 ms;\n` +
+            '    trigger = ionode->trigger; };\n' +
+            'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+        const PIECE =
+            'name "evolving";\n' +
+            `instrument pad { dsp {\n${graphWith('0.05')}}; };\n` +
+            `instrument ref { dsp {\n${graphWith('0.7')}}; };\n` +
+            'chain m { stage s gen::eno_line { notes = "A3"; period = 1 s;\n' +
+            '    prob = 1; }; sink { instrument = pad; }; };\n';
+
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, PIECE);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+        await page.selectOption('#evolvewhat', 'pad');
+        await page.selectOption('#evolvetoward', 'ref');
+        await page.click('#evolvego');
+
+        const ended = await page.waitForFunction(
+            () => !document.getElementById('evolvekeep').disabled ||
+                  /found nothing|failed|could not/.test(
+                      document.getElementById('evolvestate').textContent),
+            null, { timeout: 300000 }).then(() => true, () => false);
+        const state = await page.textContent('#evolvestate');
+        const playing = await page.evaluate(
+            () => window.solo.grownText('pad'));
+
+        check(ended && playing.includes('node env') &&
+              !playing.includes('s = 0.05; r'),
+              `Evolve toward tunes an instrument in the page's workers and ` +
+              `puts the result on its channel: ${state}`);
+
+        await page.click('#evolvekeep');
+
+        const kept = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => !t.includes('s = 0.05; r'));
+
+        check(!kept.includes('s = 0.05; r') && kept.includes('instrument ref'),
+              '...and Keep writes it into the piece');
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

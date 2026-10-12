@@ -695,14 +695,11 @@ void Job::run (Spec spec)
     }
 }
 
-void Job::work (const Spec &spec)
+Outcome evolve (const Spec &spec, size_t workers, const Report &report)
 {
     /* A synth and an extractor for each of the threads a generation is
        scored on. Two synths share nothing: even the plugins that keep a
        table for a whole synth keep one per synth. */
-    const unsigned int cores = std::thread::hardware_concurrency();
-    const size_t workers = std::max(1u, std::min(8u, cores > 1 ? cores - 1
-                                                               : 1u));
     vector<std::unique_ptr<thSynth> > synths;
     vector<std::unique_ptr<thsound::Extractor> > exs;
 
@@ -719,17 +716,16 @@ void Job::work (const Spec &spec)
     thsound::Features target;
     std::atomic<unsigned int> serial { 0 };
 
-    const auto finish = [this] (bool ok, const string &found, double d,
-                                const string &why)
+    const auto stopped = [&report] { return report.stop && report.stop(); };
+    const auto failed = [] (const string &why)
     {
-        std::lock_guard<std::mutex> hold(lock_);
+        Outcome o;
 
-        ok_ = ok;
-        found_ = found;
-        distance_ = d;
-        why_ = why;
-        done_ = true;
+        o.why = why;
+        return o;
     };
+    std::mutex lock;
+    double best = -1;
 
     /* The note a recording sounds, where it has one; middle C otherwise.
        Read before anything is rendered, since the render is at that note. */
@@ -739,8 +735,7 @@ void Job::work (const Spec &spec)
     if (!spec.targetWav.empty() &&
         !thsound::readWav(spec.targetWav, recording, unread, spec.rate))
     {
-        finish(false, "", 0, unread);
-        return;
+        return failed(unread);
     }
 
     const int detected = recording.empty()
@@ -767,8 +762,7 @@ void Job::work (const Spec &spec)
 
     if (!render(synth, spec.start, spec.startArgs, mono))
     {
-        finish(false, "", 0, "the graph to evolve does not load");
-        return;
+        return failed("the graph to evolve does not load");
     }
 
     vector<float> heard = recording;
@@ -778,8 +772,7 @@ void Job::work (const Spec &spec)
     if (!spec.targetGraph.empty() &&
         !render(synth, spec.targetGraph, spec.targetArgs, heard))
     {
-        finish(false, "", 0, "the target graph does not load");
-        return;
+        return failed("the target graph does not load");
     }
 
     heard.resize(mono.size(), 0.0f);
@@ -787,9 +780,8 @@ void Job::work (const Spec &spec)
 
     if (!target.usable())
     {
-        finish(false, "", 0, string("the target is ") +
-               thsound::verdictName(target.verdict));
-        return;
+        return failed(string("the target is ") +
+                      thsound::verdictName(target.verdict));
     }
 
     const auto scoreOn = [&] (size_t w, const string &source,
@@ -811,13 +803,14 @@ void Job::work (const Spec &spec)
         if (parts != NULL)
             *parts = d;
 
-        std::lock_guard<std::mutex> hold(lock_);
+        std::lock_guard<std::mutex> hold(lock);
 
-        if (best_ < 0 || d.total() < best_)
+        if (best < 0 || d.total() < best)
         {
-            best_ = d.total();
-            bestSource_ = source;
-            trail_.push_back(std::make_pair(seconds(), best_));
+            best = d.total();
+
+            if (report.nearer)
+                report.nearer(best, source);
         }
 
         return d.total();
@@ -838,20 +831,21 @@ void Job::work (const Spec &spec)
            What one throws is rethrown here once all are joined, for run()
            to report; a thread that cannot be started leaves its share to
            this one. */
-        std::exception_ptr failed;
+        std::exception_ptr thrown;
         const auto share = [&] (size_t w)
         {
             try
             {
-                for (size_t k = w; k < sources.size() && !stop_; k += workers)
+                for (size_t k = w; k < sources.size() && !stopped();
+                     k += workers)
                     out[k] = scoreOn(w, sources[k], NULL);
             }
             catch (...)
             {
-                std::lock_guard<std::mutex> hold(lock_);
+                std::lock_guard<std::mutex> hold(lock);
 
-                if (!failed)
-                    failed = std::current_exception();
+                if (!thrown)
+                    thrown = std::current_exception();
             }
         };
 
@@ -875,8 +869,8 @@ void Job::work (const Spec &spec)
         for (std::thread &t : threads)
             t.join();
 
-        if (failed)
-            std::rethrow_exception(failed);
+        if (thrown)
+            std::rethrow_exception(thrown);
     };
     host.read = [&] (const string &source, vector<Gene> *genes, Shape *shape)
     {
@@ -892,7 +886,66 @@ void Job::work (const Spec &spec)
 
         return true;
     };
-    host.say = [this] (const string &text)
+    host.say = report.say;
+    host.stop = stopped;
+
+    {
+        const double d0 = host.score(spec.start, NULL);
+
+        if (report.started)
+            report.started(d0);
+    }
+
+    string found;
+    double d = DEAD;
+
+    if (spec.grow)
+    {
+        vector<Splice> pool;
+
+        buildPool(synth.getPluginManager(), pool);
+
+        if (NodeEvolve::grow(host, pool, spec.start, spec.seed,
+                             spec.generations, spec.rounds, found) != 0)
+        {
+            return failed("the graph has nothing to evolve");
+        }
+
+        d = host.score(found, NULL);
+    }
+    else
+    {
+        Candidate c;
+        vector<double> at;
+
+        if (!candidate(host, spec.start, "", c))
+        {
+            return failed("the graph has nothing to tune");
+        }
+
+        d = searchAll(host, c.source, c.genes, c.at, spec.seed,
+                      spec.generations, found, at);
+    }
+
+    Outcome o;
+
+    o.ok = true;
+    o.found = found;
+    o.distance = d;
+    o.why = stopped() ? "stopped" : "";
+
+    return o;
+}
+
+void Job::work (const Spec &spec)
+{
+    const unsigned int cores = std::thread::hardware_concurrency();
+    const size_t workers = std::max(1u, std::min(8u, cores > 1 ? cores - 1
+                                                               : 1u));
+    Report report;
+
+    report.stop = [this] { return stop_.load(); };
+    report.say = [this] (const string &text)
     {
         std::lock_guard<std::mutex> hold(lock_);
 
@@ -915,49 +968,29 @@ void Job::work (const Spec &spec)
 
         partial_.erase(0, nl + 1);
     };
-    host.stop = [this] { return stop_.load(); };
-
+    report.started = [this] (double d)
     {
-        const double d0 = host.score(spec.start, NULL);
         std::lock_guard<std::mutex> hold(lock_);
 
-        started_ = d0;
-    }
-
-    string found;
-    double d = DEAD;
-
-    if (spec.grow)
+        started_ = d;
+    };
+    report.nearer = [this] (double d, const string &graph)
     {
-        vector<Splice> pool;
+        std::lock_guard<std::mutex> hold(lock_);
 
-        buildPool(synth.getPluginManager(), pool);
+        best_ = d;
+        bestSource_ = graph;
+        trail_.push_back(std::make_pair(seconds(), d));
+    };
 
-        if (NodeEvolve::grow(host, pool, spec.start, spec.seed,
-                             spec.generations, spec.rounds, found) != 0)
-        {
-            finish(false, "", 0, "the graph has nothing to evolve");
-            return;
-        }
+    const Outcome o = evolve(spec, workers, report);
+    std::lock_guard<std::mutex> hold(lock_);
 
-        d = host.score(found, NULL);
-    }
-    else
-    {
-        Candidate c;
-        vector<double> at;
-
-        if (!candidate(host, spec.start, "", c))
-        {
-            finish(false, "", 0, "the graph has nothing to tune");
-            return;
-        }
-
-        d = searchAll(host, c.source, c.genes, c.at, spec.seed,
-                      spec.generations, found, at);
-    }
-
-    finish(true, found, d, stop_ ? "stopped" : "");
+    ok_ = o.ok;
+    found_ = o.found;
+    distance_ = o.distance;
+    why_ = o.why;
+    done_ = true;
 }
 
 }

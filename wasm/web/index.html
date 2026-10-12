@@ -377,6 +377,34 @@
              value="120"> s</label>
     <span id="exportstatus" class="hint"></span>
   </div>
+  <!-- Evolve toward: one of the piece's instruments searched toward
+       another's sound or a recording's, in workers of the page's own
+       (evolve.js), what it finds heard on its channel and then kept into
+       the piece or discarded. -->
+  <fieldset id="evolve">
+    <legend>Evolve toward</legend>
+    <div class="row">
+      <label>Instrument <select id="evolvewhat" disabled></select></label>
+      <label>toward <select id="evolvetoward" disabled></select></label>
+      <input id="evolvesound" type="file" accept=".wav,audio/wav" hidden>
+      <select id="evolvehow" disabled>
+        <option value="0">Tune: its constants</option>
+        <option value="1">Tune and grow: its shape too</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="evolvego" disabled>Start</button>
+      <button id="evolvestop" disabled>Cancel</button>
+      <button id="evolvehear" disabled
+              title="Put the nearest graph found so far on the instrument's channel">Listen</button>
+      <button id="evolvekeep" disabled
+              title="Write the result into the piece as the instrument's dsp { }">Keep</button>
+      <button id="evolvedrop" disabled
+              title="Put back the graph the instrument had before the search">Discard</button>
+    </div>
+    <canvas id="evolveplot" width="320" height="80" hidden></canvas>
+    <div id="evolvestate" class="hint"></div>
+  </fieldset>
 </details>
 
 <!-- Recorded instruments, downloaded when asked and kept (packs.js). -->
