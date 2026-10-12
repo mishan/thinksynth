@@ -1729,6 +1729,34 @@ const band = createBand({
     keep: (p) => freezeChain(p.index, p.name),
     rest: (p, on) => synth?.mute({ at: -1, chain: p.index, on }),
     say: (text) => status(text, true),
+
+    /* Resolves to whether the stages went in. */
+    touch: async (p, adds) =>
+    {
+        const was = $('gen').value;
+        let text = was;
+
+        if (synth === null || was !== loadedText || loading > 0)
+        {
+            status('The text has changes that are not loaded; load them ' +
+                   'before moving a pad.', true);
+            return false;
+        }
+
+        for (const a of adds)
+        {
+            ({ text } = await synth.genAddStage(text, p.name, a.name, 'xform',
+                                                a.plugin, a.params));
+
+            if (text === '')
+            {
+                status(`Could not give ${p.name} a pad to move.`, true);
+                return false;
+            }
+        }
+
+        return $('gen').value === was && applyText(text);
+    },
     toMirror: (m) => synth?.toMirror(m),
     onGesture: (g) => synth?.input({ ...g, at: -1 }),
 });

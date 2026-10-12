@@ -338,13 +338,35 @@ export function axesOf (stages)
     return has;
 }
 
+/* What the band puts behind a player whose pad has nothing to move on an
+ * axis -- a drawn grid, a plain ring -- so that the pad plays what is
+ * written rather than rewriting it: across, notes dropped toward calm and
+ * rolled toward busy; up, the line loosened. At the middle of the pad each
+ * passes every note as it came. A drum is loosened in time and touch only,
+ * since a note moved in pitch is another drum.
+ */
+const TOUCH = {
+    busy: () => [
+        { name: 'thin', plugin: 'chance', params: { prob: '1' } },
+        { name: 'rolls', plugin: 'ratchet', params: { prob: '0' } }],
+    wander: (drums) => drums
+        ? [{ name: 'loose', plugin: 'humanize',
+             params: { time: '0', vel: '0' } }]
+        : [{ name: 'loose', plugin: 'vary',
+             params: { rest: '0', leap: '0', push: '0', double: '0' } }],
+};
+
+const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
+    [s.plugin, s.name, s.live]));
+
 /* The pane. `piece' is a getter for the page's; `params' sends param
    edits, `vary' sets a chain's seed (null: the piece's) and resolves to
    whether it went in, `keep' freezes a chain, `rest' mutes one, `say'
-   tells the page's status; `toMirror' asks the mirror to draw a stage and
+   tells the page's status, `touch' adds stages behind a chain (TOUCH)
+   and resolves to whether they went in; `toMirror' asks the mirror to draw a stage and
    `onGesture' sends a pointer on a picture, as the sequencer's do. */
 export function createBand ({ piece, params, vary, keep, rest, say,
-                              toMirror, onGesture })
+                              touch, toMirror, onGesture })
 {
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
@@ -358,6 +380,10 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     /* What the cards were drawn from: drawn again only when that changes,
        so a pad being dragged is not taken out from under the pointer. */
     let drawnFrom = '';
+
+    /* How many pads are held, and whether a draw waits for them. */
+    let held = 0;
+    let drawLater = false;
 
     /* The pictures on the cards, each drawn by the mirror one frame at a
        time: { chain, stage, canvas, ctx, w, h, dpr, asked, drop }. */
@@ -442,8 +468,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
     /* Another chain under the same name -- another piece, stages added
        or taken out -- is another player. */
-    const shapeOf = (p) => JSON.stringify(p.stages.map((s) =>
-        [s.plugin, s.name, s.live]));
+    const shapeOf = (p) => shapeOfStages(p.stages);
 
     function stateOf (p)
     {
@@ -455,14 +480,50 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         return state.get(p.name);
     }
 
-    function pad (p, st, axes)
+    /* The stages TOUCH adds for the axes `p' has nothing on, written in,
+     * and taken into the player's state at once as the places they will
+     * have -- after its others -- so the card is not drawn again under a
+     * drag when the piece comes back with them. Resolves when they are in,
+     * or have been refused and taken out of the state again.
+     */
+    function ready (p, st)
+    {
+        const has = axesOf(st.base);
+        const adds = [...(has.busy ? [] : TOUCH.busy()),
+                      ...(has.wander ? [] : TOUCH.wander(p.role ===
+                                                         'drums'))];
+
+        if (adds.length === 0)
+            return Promise.resolve();
+
+        const taken = new Set(st.base.map((s) => s.name));
+
+        for (const a of adds)
+            for (let n = 2; taken.has(a.name); n++)
+                a.name = a.name.replace(/\d*$/, String(n));
+
+        let live = st.base.filter((s) => s.live >= 0).length;
+        const was = { base: st.base, shape: st.shape };
+
+        st.base = [...st.base, ...adds.map((a) => ({
+            name: a.name, category: 'xform', plugin: a.plugin, live: live++,
+            params: Object.entries(a.params).map(([name, valueText]) =>
+                ({ name, valueText })) }))];
+        st.shape = shapeOfStages(st.base);
+
+        return touch(p, adds).then((went) =>
+        {
+            if (!went)
+                Object.assign(st, was);
+        });
+    }
+
+    function pad (p, st)
     {
         const box = document.createElement('div');
         const dot = document.createElement('span');
 
         box.className = 'bandpad';
-        box.classList.toggle('nobusy', !axes.busy);
-        box.classList.toggle('nowander', !axes.wander);
         box.title = 'Across: calm to busy. Up: steady to wandering.';
         box.setAttribute('role', 'slider');
         box.setAttribute('aria-label', `${p.name}: calm to busy, steady to ` +
@@ -489,12 +550,14 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                              st.y.toFixed(1));
         };
 
-        const send = () =>
+        /* Not before what the pad moves is in the piece. */
+        const send = async () =>
         {
+            st.readying ??= ready(p, st);
+            await st.readying;
             st.timer = null;
             st.sent = performance.now();
-            params(p, padEdits(st.base, axes.busy ? st.x : 0.5,
-                               axes.wander ? st.y : 0.5));
+            params(p, padEdits(st.base, st.x, st.y));
         };
 
         const to = (x, y) =>
@@ -536,12 +599,20 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         box.addEventListener('pointerdown', (e) =>
         {
             box.setPointerCapture(e.pointerId);
+            held++;
             move(e);
         });
         box.addEventListener('pointermove', (e) =>
         {
             if (box.hasPointerCapture(e.pointerId))
                 move(e);
+        });
+        box.addEventListener('lostpointercapture', () =>
+        {
+            held--;
+
+            if (held === 0 && drawLater)
+                draw();
         });
 
         place();
@@ -587,7 +658,6 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     function card (p)
     {
         const st = stateOf(p);
-        const axes = axesOf(st.base);
         const el = document.createElement('div');
         const who = document.createElement('div');
 
@@ -669,7 +739,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             takes.append(t);
         });
 
-        el.append(who, pad(p, st, axes), octs, moves, takes);
+        el.append(who, pad(p, st), octs, moves, takes);
 
         if (p.picture !== null)
             el.append(picture(p));
@@ -681,6 +751,14 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     {
         const now = piece();
         const list = $('players');
+
+        /* Not under a pad being dragged: what the drag itself changed --
+           the stages behind a player, a Vary they make worth offering --
+           is drawn when it is let go. */
+        drawLater = held > 0;
+
+        if (drawLater)
+            return;
 
         if (now === null)
         {

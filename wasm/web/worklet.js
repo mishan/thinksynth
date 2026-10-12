@@ -371,6 +371,23 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* A stage added behind a chain's others, in a text given: what
+         * the band puts behind a player for its pad (bandview.js). ""
+         * when refused. */
+        if (m.type === 'genaddstage')
+        {
+            this.port.postMessage({
+                type: 'genaddstage', id: m.id,
+                text: this.M.ccall('tw_gen_add_stage', 'string',
+                                   ['string', 'string', 'string', 'string',
+                                    'string', 'string'],
+                                   [m.text, m.chain, m.stage, m.category,
+                                    m.plugin, m.params]),
+            });
+
+            return;
+        }
+
         /* A chain's own seed set, or taken out, in a text given: another
          * take of a band's player (bandview.js). "" when refused. */
         if (m.type === 'genseed')

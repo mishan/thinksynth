@@ -3416,6 +3416,47 @@ try
               `cells: ${was} -> ${now}`);
     }
 
+    /* A drawn player's pad plays the drawing: its first touch puts a
+       chance, a ratchet and a vary behind the grid, and the pad moves
+       those, leaving the cells as drawn. */
+    {
+        await page.selectOption('#piece', 'scratch.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const chainOf = () => page.evaluate(() =>
+        {
+            const t = window.solo.genText();
+            const at = t.indexOf('chain keys');
+
+            return t.slice(at, t.indexOf('};\n};', at));
+        });
+        const cells = /cells *= *"[^"]*"/.exec(await chainOf())?.[0];
+        const pad = page.locator('.player[data-chain="keys"] .bandpad');
+
+        await page.click('#play');
+        await pad.scrollIntoViewIfNeeded();
+        const at = await pad.boundingBox();
+
+        await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(at.x + at.width - 2, at.y + 2, { steps: 6 });
+        await page.mouse.up();
+
+        const keys = await until(chainOf, (t) =>
+            /xform::ratchet[^}]*prob = 0\.[1-9]/.test(t) &&
+            /xform::vary[^}]*leap = 0\.[1-9]/.test(t));
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        check(/stage thin xform::chance/.test(keys) &&
+              /xform::ratchet[^}]*prob = 0\.[1-9]/.test(keys) &&
+              /xform::vary[^}]*leap = 0\.[1-9]/.test(keys) &&
+              keys.includes(cells),
+              '...a drawn player\'s pad puts a chance, a ratchet and a ' +
+              'vary behind its grid and moves them, the cells as drawn');
+    }
+
     /* A pad moved only across leaves what is up the pad as written: an
        lsystem at depth 0 -- a sequencer -- stays one. */
     {

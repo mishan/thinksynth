@@ -6163,6 +6163,41 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
         });
 }
 
+/* A stage added to chain `chain' in `text', after its others: `params'
+ * one `name=value' a line, each value as the file would write it. What
+ * the band adds behind a player for its pad to move (bandview.js). ""
+ * when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_add_stage (const char *text,
+                                                   const char *chain,
+                                                   const char *stage,
+                                                   const char *category,
+                                                   const char *plugin,
+                                                   const char *params)
+{
+    if (text == NULL || chain == NULL || stage == NULL ||
+        category == NULL || plugin == NULL || params == NULL)
+        return "";
+
+    std::vector<std::pair<std::string, std::string> > values;
+    std::istringstream lines(params);
+
+    for (std::string line; std::getline(lines, line); )
+    {
+        const size_t eq = line.find('=');
+
+        if (eq != std::string::npos)
+            values.push_back(std::make_pair(line.substr(0, eq),
+                                            line.substr(eq + 1)));
+    }
+
+    return spliceText(text, stage,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::addStage(path, chain, stage, category,
+                                        plugin, values, why);
+        });
+}
+
 /* Chain `chain' given seed `seed' in `text', or its seed taken out when
  * !pin: another take (bandview.js). "" when the writer refused. */
 EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_chain_seed (const char *text,

@@ -328,7 +328,10 @@ chains the piece routed `input midi` to.
 
 *A band* plays the same piece as its players — a card for each chain that
 plays notes, named for its role. Drag a player's pad across from calm to busy
-and up from steady to wandering; ▲ and ▼ move it an octave. **Vary** is
+and up from steady to wandering — on a drawn pattern, the pad drops notes
+toward calm, rolls them toward busy and loosens the line upward, leaving the
+drawing as it is; ▲ and ▼ move it an octave. A card shows the player's own
+picture: a grid to click notes into, a Life board to paint on. **Vary** is
 another take of what it plays, from where the piece is, and the numbered
 takes go back to one; **Keep** turns the take into notes, and **Rest** leaves
 it out while it plays. All but Rest are written into the `.gen`, which
