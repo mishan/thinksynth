@@ -29,7 +29,10 @@
  * A walk, not a climb: up to `depth' edits on top of what the piece
  * declares, and between the two a step back with chance `shrink'. A graph
  * that only ever grew would only ever get bigger and busier; one that can
- * go back wanders, and comes home.
+ * go back wanders, and comes home. How deep the graph is, is the host's to
+ * count -- a step back from a window, or a step that came to nothing, is
+ * in its stack and would not be in a count kept here -- so what goes is
+ * `depth' and the dice's wish, and the host holds the one to the other.
  *
  * Given a `target' -- an instrument of the piece or a sound file, as
  * breed's -- the walk leans: the host hears `listen' of the edits that
@@ -86,9 +89,6 @@ struct State {
     const thcParams *params;
     std::mt19937     rng;
 
-    /* Edits on top of the declared graph, as this has asked for them. */
-    int depth;
-
     /* The first fire arms the clock and changes nothing, as swap's does:
        a piece opens on the graph it declared. */
     bool started;
@@ -101,7 +101,6 @@ composer_create (const thcParams *params)
 
     st->params = params;
     st->rng.seed(params->seed);
-    st->depth = 0;
     st->started = false;
 
     return st;
@@ -150,13 +149,12 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     ev.at = t->now;
     ev.channel = 0;                        /* the sink routes            */
     ev.u.grow.choice = choice;
-    ev.u.grow.shrink = st->depth >= depth || (st->depth > 0 && back);
+    ev.u.grow.shrink = back;
+    ev.u.grow.depth = depth;
     ev.u.grow.kinds = p->get_string(p->ctx, paramIndex[P_KINDS]);
     ev.u.grow.target = p->get_string(p->ctx, paramIndex[P_TARGET]);
     ev.u.grow.listen = paramInt(p, P_LISTEN, 1, 16);
     ev.u.grow.tune = paramInt(p, P_TUNE, 0, 40);
-
-    st->depth += ev.u.grow.shrink ? -1 : 1;
 
     out->emit(out->ctx, &ev);
 
