@@ -1498,6 +1498,12 @@ body.tiled .panelrows
 .player .takes button.on { border-color: var(--role); color: var(--role);
                            font-weight: bold; }
 
+/* The player's own picture, as its plugin draws it: a grid to click, a
+   board to paint. */
+.player .bandpic { grid-column: 1 / -1; display: block; width: 100%;
+                   border-radius: 4px; }
+.player .bandpic.control { touch-action: none; }
+
 /* The pad: across calm to busy, up steady to wandering. */
 .bandpad
 {
