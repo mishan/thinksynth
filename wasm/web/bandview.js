@@ -33,6 +33,7 @@
 
 import { IDEAS as GALLERY, SOUNDS, addOps, freeName, removeOps }
     from './bandideas.js';
+import { MOODS, ROOTS, inKey, keyNotes, keyOf, keyOps } from './bandkey.js';
 import { replay } from './replay.js';
 import { gestureOn } from './seqview.js';
 
@@ -821,6 +822,39 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         return el;
     }
 
+    /* The players whose notes are a key's to move: every one but the
+       drums. */
+    const pitchedOf = (now) => new Set(playersOf(now)
+        .filter((p) => p.role !== 'drums').map((p) => p.name));
+
+    /* The bar's key, as the piece has it; a piece with no `key' scale of
+       its own shows the one its notes fit best. */
+    function showKey (now)
+    {
+        const key = keyOf(now, pitchedOf(now));
+
+        $('bandroot').value = String(key.root);
+        $('bandmood').value = key.mood;
+        $('bandkey').title = key.written
+            ? 'The key every player but the drums plays in'
+            : 'The key this piece sounds in; choosing one writes it';
+    }
+
+    function chooseKey ()
+    {
+        const now = piece();
+
+        if (now === null)
+            return;
+
+        const pitched = pitchedOf(now);
+        const from = keyOf(now, pitched);
+        const to = { root: Number($('bandroot').value),
+                     mood: $('bandmood').value };
+
+        edit(keyOps(now, pitched, from, to));
+    }
+
     /* An idea for each role, a button each: chosen, it is a player of
        its own, on its own instrument. */
     function gallery ()
@@ -857,8 +891,20 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                         ...(now?.chains ?? []).map((c) => c.name),
                         ...(now?.instruments ?? []).map((i) => i.name)]);
 
+                    /* In the band's key, which a chord player names and so
+                       must be written if the piece has none of its own. */
+                    const key = keyOf(now, pitchedOf(now));
+                    const tuned = role === 'drums' ? idea : {
+                        ...idea,
+                        stages: idea.stages.map(([c, p, params]) =>
+                            [c, p, Object.fromEntries(
+                                Object.entries(params).map(([k, v]) =>
+                                    [k, inKey(v, key)]))]) };
+
                     g.hidden = true;
-                    edit(addOps(idea, freeName(idea.call, taken)));
+                    edit([...(key.written ? [] : [['scale', 'key',
+                                                    keyNotes(key)]]),
+                          ...addOps(tuned, freeName(idea.call, taken))]);
                 });
 
                 b.dataset.idea = idea.name;
@@ -881,6 +927,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         }
 
         const players = playersOf(now);
+
+        showKey(now);
 
         for (const p of players)
             if (restNext.delete(p.name))
@@ -958,6 +1006,12 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         /* The bar above the cards: New, and the gallery of ideas. */
         bar ()
         {
+            $('bandroot').replaceChildren(...ROOTS.map((r, i) =>
+                new Option(r, String(i))));
+            $('bandmood').replaceChildren(...MOODS.map(([m]) =>
+                new Option(m, m)));
+            $('bandroot').addEventListener('change', chooseKey);
+            $('bandmood').addEventListener('change', chooseKey);
             $('bandnew').addEventListener('click', () => newBand());
             $('bandadd').addEventListener('click', () =>
             {

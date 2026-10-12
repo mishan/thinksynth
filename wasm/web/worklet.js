@@ -722,7 +722,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             return { errors: loadErrors(this.M), name: '', description: '',
                      effect: '', tempo: 0, beats: false,
                      knobs: [], instruments: [], listens: [], sinks: [],
-                     chains: [] };
+                     chains: [], scales: [] };
 
         /* Off the panel, so there is one answer to "which knobs are shown"
            rather than two that have to agree. Hidden knobs keep their
@@ -792,9 +792,11 @@ class ThinkProcessor extends AudioWorkletProcessor
             listens,
             sinks,
 
-            /* The chains as the text says them, for the band. */
+            /* The chains and scales as the text says them, for the band. */
             chains: JSON.parse(this.M.UTF8ToString(
                 this.M._tw_piece_chains_json())),
+            scales: JSON.parse(this.M.UTF8ToString(
+                this.M._tw_piece_scales_json())),
         };
     }
 
