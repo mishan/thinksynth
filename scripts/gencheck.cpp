@@ -6528,13 +6528,13 @@ enum Interrupt { HEARD_OUT, REWOUND, TO_MIDI };
    tick or, as live, on a later one, and `interrupt' while it hears. The
    graph it grew to, or empty for the declared one; after TO_MIDI, "kept"
    if the ear's answers were still collected for it. `then', if given,
-   sees the scheduler before it goes. */
+   sees the scheduler before it goes; `chains' are more of the piece's. */
 static std::string
 grownToward (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &aim, const std::string &target,
              int listen, bool sync, Interrupt interrupt = HEARD_OUT,
              const std::function<void (thcScheduler &, int)> &then = NULL,
-             int tune = 0)
+             int tune = 0, const std::string &chains = "")
 {
     const std::string path = thUtil::tempFile("gencheck-toward-");
 
@@ -6551,7 +6551,7 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                "shrink = 0; kinds = \"voice\"; listen = " << listen
             << "; tune = " << tune << "; target = \"" << target
             << "\"; };\n"
-               "    sink { instrument = pad; };\n};\n";
+               "    sink { instrument = pad; };\n};\n" << chains;
     }
 
     clearChannels(synth);
@@ -6639,6 +6639,84 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
 
 /* A target one edit away is reached in one step when every edit is heard,
    though the walk alone goes elsewhere. */
+/* gen::grow's depth is held to the stack: at it, the next step goes back;
+   and a step back from a window is in the stack too, so put back to the
+   declared graph it grows again rather than stepping back from where it
+   thought it was. */
+static void
+checkGrowDepth (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-depth-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "chain melody {\n    stage s gen::eno_line { notes = "
+               "\"A2 C3\"; period = 0.5 s; prob = 1; };\n"
+               "    sink { instrument = pad; };\n};\n"
+               "chain shape {\n    stage g gen::grow { every = 1 s; "
+               "depth = 2; shrink = 0; };\n"
+               "    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::vector<std::string> stack;
+        std::vector<thcScheduler::GrowthStep> log;
+        std::string why;
+
+        sched.setAuditionSynchronous(true);
+        sched.setGrower([synth] (const std::string &text,
+                                 const std::string &base, unsigned int choice,
+                                 const std::string &kinds, size_t want,
+                                 std::vector<std::string> &g,
+                                 std::vector<std::string> &w,
+                                 std::string &why)
+                        { return NodeMutate::grow(synth, text, base, choice,
+                                                  kinds, want, g, w, why); });
+
+        if (!loader.load(path, &sched))
+            fail("the piece growing to its depth does not load");
+        else
+        {
+            const int ch = sched.instrument("pad")->channel;
+
+            sched.start();
+
+            for (double t = 0; t < 3.5; t += 0.05)
+            {
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            if (!sched.growth(ch, stack, log) || stack.size() != 2)
+                fail("gen::grow at its depth did not step back: " +
+                     std::to_string(stack.size()) + " on the stack");
+
+            sched.growBackTo(ch, 0, why);
+
+            for (double t = 0; t < 1.0; t += 0.05)
+            {
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            if (!sched.growth(ch, stack, log) || stack.size() != 2)
+                fail("gen::grow put back to its declared graph did not grow "
+                     "again: " + std::to_string(stack.size()) + " on the "
+                     "stack");
+        }
+    }
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+}
+
 static void
 checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
@@ -6677,6 +6755,24 @@ checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
         if (!grownToward(plugins, synth, options[i], "aim", 16, false,
                          REWOUND).empty())
             fail("a growth still being heard went on after a rewind");
+
+        /* A node-arg edit that comes while the edits are heard is for the
+           graph they make, as on a host that grew at once. */
+        grownToward(plugins, synth, options[i], "aim", 16, false, HEARD_OUT,
+                    [&] (thcScheduler &, int ch)
+        {
+            thMidiChan *c = synth->getChannel(ch);
+            thSynthTree *tree = c != NULL ? c->modnode() : NULL;
+            thNode *n = tree != NULL ? tree->findNode("sub") : NULL;
+            thArg *a = n != NULL ? n->getArg("waveform") : NULL;
+
+            if (a == NULL || (*a)[0] != 3)
+                fail("a node-arg edit made while a growth was heard was "
+                     "lost when the growth went on");
+        }, 0,
+                    "chain poke {\n    stage r gen::reshape { node = \"sub\"; "
+                    "arg = \"waveform\"; from = 3; to = 3; every = 2 s; "
+                    "steps = 1; };\n    sink { instrument = pad; };\n};\n");
 
         if (!grownToward(plugins, synth, options[i], "aim", 16, false,
                          TO_MIDI).empty())
@@ -14365,6 +14461,7 @@ main (int argc, char *argv[])
     checkStructureEdits(plugins, &synth, genFile);
     checkGrow(plugins, &synth);
     checkGrowToward(plugins, &synth);
+    checkGrowDepth(plugins, &synth);
     checkInlineGraph(plugins, &synth);
     checkOneErrorEach(plugins, &synth);
     checkColony(plugins, &synth, genFile);

@@ -235,6 +235,10 @@ typedef struct {
             int          listen;  /* edits heard when there is a target  */
             int          tune;    /* generations each is tuned toward it
                                      first, where the host can           */
+            int          depth;   /* most edits on the declared graph,
+                                     held to the stack as it stands, and
+                                     `shrink' then a wish to go back; 0:
+                                     `shrink' is the step                */
         } grow;
     } u;
     unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */

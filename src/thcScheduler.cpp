@@ -1389,8 +1389,15 @@ thcScheduler::runQueued (int channel)
 
         rest.pop_front();
 
-        if (!stepGraph(channel, q.shrink, NULL, q.choice, q.kinds, q.target,
-                       q.listen, q.tune, why))
+        if (q.nodeArg)
+        {
+            if (!setNodeArg(channel, q.node, q.arg, q.value, why))
+                fprintf(stderr, "thcScheduler: %s.%s on channel %d: %s\n",
+                        q.node.c_str(), q.arg.c_str(), channel + 1,
+                        why.c_str());
+        }
+        else if (!stepGraph(channel, q.shrink, NULL, q.choice, q.kinds,
+                            q.target, q.listen, q.tune, q.depth, why))
             fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
                     channel + 1, why.c_str());
 
@@ -2251,17 +2258,17 @@ bool
 thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
                               const std::string &kinds,
                               const std::string &target, int listen, int tune,
-                              std::string &why)
+                              std::string &why, int depth)
 {
     return stepGraph(channel, shrink, NULL, choice, kinds, target, listen,
-                     tune, why);
+                     tune, depth, why);
 }
 
 bool
 thcScheduler::tryGraph (int channel, const std::string &text,
                         std::string &why)
 {
-    return stepGraph(channel, false, &text, 0, "", "", 0, 0, why);
+    return stepGraph(channel, false, &text, 0, "", "", 0, 0, 0, why);
 }
 
 thcScheduler::Growth *
@@ -2308,7 +2315,7 @@ bool
 thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
                          unsigned int choice, const std::string &kinds,
                          const std::string &target, int listen, int tune,
-                         std::string &why)
+                         int depth, std::string &why)
 {
     Growth *g = growthOf(channel, why);
 
@@ -2320,6 +2327,16 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
 
     GrowthStep step;
     std::vector<std::string> options, whats;
+
+    /* Held to the stack as it stands, not to the stage's own count: what a
+       step back from a window, a failed step or a search did to it is not
+       in that. */
+    if (depth > 0 && given == NULL)
+    {
+        const size_t at = g->texts.size() - 1;
+
+        shrink = at >= (size_t)depth || (at > 0 && shrink);
+    }
 
     if (shrink)     /* at the declared graph there is nothing to go back on */
         return g->texts.size() < 2 ||
@@ -4259,11 +4276,16 @@ thcScheduler::deliver (const thcEvent &ev)
             if (g != grown_.end() &&
                 (g->second.asked != 0 || !g->second.options.empty()))
             {
-                g->second.queued.push_back({
-                    ev.u.grow.shrink != 0, ev.u.grow.choice,
-                    ev.u.grow.kinds ? ev.u.grow.kinds : "",
-                    ev.u.grow.target ? ev.u.grow.target : "",
-                    ev.u.grow.listen, ev.u.grow.tune });
+                Growth::Queued q;
+
+                q.shrink = ev.u.grow.shrink != 0;
+                q.choice = ev.u.grow.choice;
+                q.kinds = ev.u.grow.kinds ? ev.u.grow.kinds : "";
+                q.target = ev.u.grow.target ? ev.u.grow.target : "";
+                q.listen = ev.u.grow.listen;
+                q.tune = ev.u.grow.tune;
+                q.depth = ev.u.grow.depth;
+                g->second.queued.push_back(q);
                 break;
             }
 
@@ -4271,7 +4293,8 @@ thcScheduler::deliver (const thcEvent &ev)
                                 ev.u.grow.shrink != 0,
                                 ev.u.grow.kinds ? ev.u.grow.kinds : "",
                                 ev.u.grow.target ? ev.u.grow.target : "",
-                                ev.u.grow.listen, ev.u.grow.tune, why))
+                                ev.u.grow.listen, ev.u.grow.tune, why,
+                                ev.u.grow.depth))
                 fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
                         ev.channel + 1, why.c_str());
             break;
@@ -4279,6 +4302,23 @@ thcScheduler::deliver (const thcEvent &ev)
         case THC_EV_NODEARG:
         {
             std::string why;
+            const auto g = grown_.find(ev.channel);
+
+            /* Behind a growth still out, for the graph it will make: a
+               host that grew at once would set it on that one. */
+            if (g != grown_.end() && ev.u.nodearg.node != NULL &&
+                ev.u.nodearg.arg != NULL &&
+                (g->second.asked != 0 || !g->second.options.empty()))
+            {
+                Growth::Queued q;
+
+                q.nodeArg = true;
+                q.node = ev.u.nodearg.node;
+                q.arg = ev.u.nodearg.arg;
+                q.value = ev.u.nodearg.value;
+                g->second.queued.push_back(q);
+                break;
+            }
 
             if (ev.u.nodearg.node != NULL && ev.u.nodearg.arg != NULL &&
                 !setNodeArg(ev.channel, ev.u.nodearg.node,

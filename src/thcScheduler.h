@@ -756,10 +756,13 @@ public:
        swap does. With a `target', up to `listen' edits are heard against
        it, each tuned toward it first for `tune' generations if a tuner is
        set, and the nearest is taken -- on a later step if the ear answers
-       later. False with `why' when it cannot be done. */
+       later. With `depth', the step is held to that many edits on the
+       declared graph as the stack stands, and `shrink' is a wish to go
+       back. False with `why' when it cannot be done. */
     bool growInstrument (int channel, unsigned int choice, bool shrink,
                          const std::string &kinds, const std::string &target,
-                         int listen, int tune, std::string &why);
+                         int listen, int tune, std::string &why,
+                         int depth = 0);
 
     /* `text' on `channel' as growth would put it there, one step up the
        same stack: heard at once, gone with a step back or a rewind, and
@@ -1589,10 +1592,16 @@ private:
            taken in order once it is in. */
         struct Queued
         {
-            bool shrink;
-            unsigned int choice;
+            bool shrink = false;
+            unsigned int choice = 0;
             std::string kinds, target;
-            int listen, tune;
+            int listen = 0, tune = 0, depth = 0;
+
+            /* Or a node-arg edit, for the graph the step makes: taken on
+               it, as a host that grew at once took it. */
+            bool nodeArg = false;
+            std::string node, arg;
+            float value = 0;
         };
 
         std::deque<Queued> queued;
@@ -1609,7 +1618,7 @@ private:
     bool stepGraph (int channel, bool shrink, const std::string *given,
                     unsigned int choice, const std::string &kinds,
                     const std::string &target, int listen, int tune,
-                    std::string &why);
+                    int depth, std::string &why);
 
     /* `candidate' queued against `target' as hear() resolves it: an
        instrument of the piece, or a sound file. */
