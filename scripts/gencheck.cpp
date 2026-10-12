@@ -14373,6 +14373,7 @@ main (int argc, char *argv[])
 
     std::string pluginDir;
     std::string genFile;
+    std::string part;
     bool json = false;
 
     for (int i = 1; i < argc; i++)
@@ -14381,6 +14382,8 @@ main (int argc, char *argv[])
             pluginDir = argv[++i];
         else if (strcmp(argv[i], "--json") == 0)
             json = true;
+        else if (strcmp(argv[i], "--part") == 0 && i + 1 < argc)
+            part = argv[++i];
         else
             genFile = argv[i];
     }
@@ -14403,14 +14406,23 @@ main (int argc, char *argv[])
         return 0;
     }
 
-    if (pluginDir.empty() || genFile.empty())
+    if (pluginDir.empty() || genFile.empty() ||
+        (!part.empty() && part != "presets" && part != "corpus" &&
+         part != "silent" && part != "rest"))
     {
         fprintf(stderr, "usage: gencheck -p <plugindir> <file.gen>\n"
-                "       gencheck --json <gendir>\n");
+                "       gencheck --json <gendir>\n"
+                "  --part presets|corpus|silent|rest  one part of the checks\n");
         return 2;
     }
 
-    checkNotes();
+    /* One part of the checks, or all of them: ctest runs the parts side by
+       side (scripts/CMakeLists.txt), the three longest a part each. */
+    const auto in = [&part] (const char *which)
+                    { return part.empty() || part == which; };
+
+    if (in("rest"))
+        checkNotes();
 
     std::map<std::string, thcPlugin *> plugins;
 
@@ -14441,56 +14453,65 @@ main (int argc, char *argv[])
     silent.setSilent(true);
     silentSynth = &silent;
 
-    checkValidation(plugins, &synth);
-    checkExpressions(plugins, &synth);
-    checkReplay(plugins, &synth, genFile);
-    checkLiveEdits(plugins, &synth, genFile);
-    checkPlanners(plugins, &synth);
-    checkLiveInput(plugins, &synth);
-    checkEdits(plugins, &synth, genFile);
-    checkPresets(plugins, &synth);
-    checkInput(plugins, &synth);
-    checkGrid(plugins, &synth);
-    checkTempoAndRevival(plugins, &synth);
-    checkInstruments(plugins, &synth);
-    checkInstrumentEffects(plugins, &synth);
-    checkEffectSide(plugins, &synth);
-    checkEffectChanargSink(plugins, &synth);
-    checkKnobSink(plugins, &synth);
-    checkNodes(plugins, &synth, genFile);
-    checkStructureEdits(plugins, &synth, genFile);
-    checkGrow(plugins, &synth);
-    checkGrowToward(plugins, &synth);
-    checkGrowDepth(plugins, &synth);
-    checkInlineGraph(plugins, &synth);
-    checkOneErrorEach(plugins, &synth);
-    checkColony(plugins, &synth, genFile);
-    checkPhrasing(plugins, &synth);
-    checkThrow(plugins, &synth);
-    checkStutter(plugins, &synth);
-    checkInstrumentText(plugins, &synth);
-    checkSay(plugins, &synth);
-    checkHarmonyKit(plugins, &synth);
-    checkVoiceLeading(plugins, &synth);
-    checkHeldNotes(plugins, &synth);
-    checkMidiOut(plugins, &synth);
-    checkRetriggerAudio(plugins, &synth);
-    checkSeedReachesNoise(plugins, &synth);
-    checkFloor(plugins, &synth);
-    checkSections(plugins, &synth);
-    checkMuteSolo(plugins, &synth);
-    checkChainIdentity(plugins, &synth);
-    checkSectionEdits(plugins, &synth);
-    checkDrawnControls(plugins, &synth);
-    checkSeek(plugins, &synth);
-    checkProbes(plugins, &synth);
-    checkChainStart(plugins, &synth);
-    checkRun(plugins, &synth);
-    checkVariation(plugins, &synth);
-    checkCloud(plugins, &synth);
-    checkMasterEffect(plugins, &synth);
-    checkCorpus(plugins, &synth, genFile);
-    checkSilent(plugins, &synth, &silent, genFile);
+    if (in("rest"))
+    {
+        checkValidation(plugins, &synth);
+        checkExpressions(plugins, &synth);
+        checkReplay(plugins, &synth, genFile);
+        checkLiveEdits(plugins, &synth, genFile);
+        checkPlanners(plugins, &synth);
+        checkLiveInput(plugins, &synth);
+        checkEdits(plugins, &synth, genFile);
+        checkInput(plugins, &synth);
+        checkGrid(plugins, &synth);
+        checkTempoAndRevival(plugins, &synth);
+        checkInstruments(plugins, &synth);
+        checkInstrumentEffects(plugins, &synth);
+        checkEffectSide(plugins, &synth);
+        checkEffectChanargSink(plugins, &synth);
+        checkKnobSink(plugins, &synth);
+        checkNodes(plugins, &synth, genFile);
+        checkStructureEdits(plugins, &synth, genFile);
+        checkGrow(plugins, &synth);
+        checkGrowToward(plugins, &synth);
+        checkGrowDepth(plugins, &synth);
+        checkInlineGraph(plugins, &synth);
+        checkOneErrorEach(plugins, &synth);
+        checkColony(plugins, &synth, genFile);
+        checkPhrasing(plugins, &synth);
+        checkThrow(plugins, &synth);
+        checkStutter(plugins, &synth);
+        checkInstrumentText(plugins, &synth);
+        checkSay(plugins, &synth);
+        checkHarmonyKit(plugins, &synth);
+        checkVoiceLeading(plugins, &synth);
+        checkHeldNotes(plugins, &synth);
+        checkMidiOut(plugins, &synth);
+        checkRetriggerAudio(plugins, &synth);
+        checkSeedReachesNoise(plugins, &synth);
+        checkFloor(plugins, &synth);
+        checkSections(plugins, &synth);
+        checkMuteSolo(plugins, &synth);
+        checkChainIdentity(plugins, &synth);
+        checkSectionEdits(plugins, &synth);
+        checkDrawnControls(plugins, &synth);
+        checkSeek(plugins, &synth);
+        checkProbes(plugins, &synth);
+        checkChainStart(plugins, &synth);
+        checkRun(plugins, &synth);
+        checkVariation(plugins, &synth);
+        checkCloud(plugins, &synth);
+        checkMasterEffect(plugins, &synth);
+    }
+
+    if (in("presets"))
+        checkPresets(plugins, &synth);
+
+    if (in("corpus"))
+        checkCorpus(plugins, &synth, genFile);
+
+    if (in("silent"))
+        checkSilent(plugins, &synth, &silent, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
        runs under sanitizers should not salt the report. The schedulers

@@ -939,11 +939,20 @@ add_test(NAME visualcheck
 # at a corpus is the compiled-in DSP_PATH, which on a development machine is
 # answered by whatever was last installed to /usr/local -- the same way round
 # the configcheck registration got it wrong.
-add_test(NAME gencheck
-         COMMAND gencheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+#
+# In four parts, run side by side by `ctest -j': run whole, it is the longest
+# gate there is, and under the sanitizers the tail of the whole run.
+set(GENCHECK_PARTS gencheck.presets gencheck.corpus gencheck.silent
+                   gencheck.rest)
 
-set_tests_properties(gencheck PROPERTIES
+foreach(test IN LISTS GENCHECK_PARTS)
+  string(REPLACE "gencheck." "" part "${test}")
+  add_test(NAME ${test}
+           COMMAND gencheck -p "${PROJECT_BINARY_DIR}/plugins/" --part ${part}
+                   "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+endforeach()
+
+set_tests_properties(${GENCHECK_PARTS} PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 # Every seeded piece in gen/, edited four times while it plays. THINK_DSP_PATH
@@ -1107,8 +1116,8 @@ endif()
 
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     exprcheck statecheck voicecheck poolcheck fxcheck gencheck
-                     panelcheck
+                     exprcheck statecheck voicecheck poolcheck fxcheck
+                     ${GENCHECK_PARTS} panelcheck
                      dspsweep dspsweep.guard
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
@@ -1116,7 +1125,8 @@ set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspbloc
 # The longest gates, started first. With no timing history -- which a fresh CI
 # runner never has -- `ctest -j' starts tests in declaration order, and these
 # started late are the whole tail of the run, worst under the sanitizers.
-set_tests_properties(gencheck poolcheck editcheck PROPERTIES COST 1000)
+set_tests_properties(${GENCHECK_PARTS} poolcheck editcheck PROPERTIES
+                     COST 1000)
 
 # The two harnesses that build real widgets need LeakSanitizer told which
 # leaks are the toolkit's. See scripts/lsan.supp for what is in it and what
