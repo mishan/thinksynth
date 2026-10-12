@@ -1361,51 +1361,77 @@ function shifted (lowest)
 
 /* ---- what the page shows ---- */
 
+/* Each peer's row, by id, kept across the once-a-second redraws so a
+   button someone has tabbed to stays focused. */
+const peerRows = new Map();
+
+/* A peer's row, with the buttons its owner gets. */
+function peerRow (id, me, owns, spectator)
+{
+    const el = document.createElement('span');
+    const label = document.createElement('span');
+    const path = document.createElement('span');
+
+    el.className = me ? 'peer me' : 'peer';
+    el.append(label);
+
+    if (owns)
+    {
+        const role = document.createElement('button');
+        const remove = document.createElement('button');
+
+        role.textContent = spectator ? 'Make musician' : 'Make spectator';
+        role.addEventListener('click', () =>
+            room.setRole(id, spectator ? 'musician' : 'spectator'));
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', () => room.remove(id));
+        el.append(role, remove);
+    }
+
+    path.className = 'path';
+    el.append(path);
+    return { el, label, path, key: `${me} ${owns} ${spectator}` };
+}
+
 function showPeers ()
 {
     const box = $('peers');
-
-    box.replaceChildren();
+    const els = [];
 
     for (const [id, p] of room.peers)
     {
-        const el = document.createElement('span');
         const me = id === room.peer;
+        const spectator = room.roleOf(id) === 'spectator';
+        const owns = room.owns && !me;
+        let row = peerRows.get(id);
 
-        el.className = me ? 'peer me' : 'peer';
-        el.textContent = p.name + (p.seat === null
-                                   ? '' : ` (channel ${p.seat + 1})`) +
-                         (room.settings.owner === id ? ' (owner)'
-                          : room.roleOf(id) === 'spectator' ? ' (spectator)'
-                          : '');
+        if (row === undefined || row.key !== `${me} ${owns} ${spectator}`)
+            peerRows.set(id, row = peerRow(id, me, owns, spectator));
 
-        if (room.owns && !me)
-        {
-            const spectator = room.roleOf(id) === 'spectator';
-            const role = document.createElement('button');
-            const remove = document.createElement('button');
+        row.label.textContent = p.name + (p.seat === null
+                                          ? '' : ` (channel ${p.seat + 1})`) +
+                                (room.settings.owner === id ? ' (owner)'
+                                 : spectator ? ' (spectator)' : '');
 
-            role.textContent = spectator ? 'Make musician' : 'Make spectator';
-            role.addEventListener('click', () =>
-                room.setRole(id, spectator ? 'musician' : 'spectator'));
-            remove.textContent = 'Remove';
-            remove.addEventListener('click', () => room.remove(id));
-            el.append(role, remove);
-        }
+        for (const b of row.el.querySelectorAll('button'))
+            b.setAttribute('aria-label', `${b.textContent} ${p.name}`);
 
-        if (!me && mesh !== null)
-        {
-            const s = mesh.status(id);
-            const path = document.createElement('span');
+        const s = me || mesh === null ? null : mesh.status(id);
 
-            path.className = 'path';
-            path.textContent = s.path +
-                (Number.isNaN(s.rtt) ? '' : ` ${s.rtt.toFixed(0)} ms`);
-            el.append(path);
-        }
-
-        box.append(el);
+        row.path.textContent = s === null ? '' : s.path +
+            (Number.isNaN(s.rtt) ? '' : ` ${s.rtt.toFixed(0)} ms`);
+        row.path.hidden = s === null;
+        els.push(row.el);
     }
+
+    for (const id of peerRows.keys())
+        if (!room.peers.has(id))
+            peerRows.delete(id);
+
+    /* Moved only when who is here changes: a moved button loses focus. */
+    if (els.length !== box.children.length ||
+        els.some((el, i) => box.children[i] !== el))
+        box.replaceChildren(...els);
 
     /* Our seat, as the relay has it. */
     $('seat').value = room.seat === null ? '' : String(room.seat);
@@ -2079,6 +2105,10 @@ const ROOMS_EVERY_MS = 5000;
 /* The rooms the relay last listed, by name, with the piece each plays. */
 let listed = new Map();
 
+/* The list as last shown, so an unchanged poll leaves its buttons (and
+   the focus on one) alone. */
+let roomsShown = '';
+
 /* The piece a new room starts on, offered only while the name in the box
    is not a room that is already there: that one plays what it plays. */
 function showNewPiece ()
@@ -2150,6 +2180,15 @@ async function showRooms ()
     listed = new Map(rooms.map((r) => [r.name, r.piece]));
     showNewPiece();
     rooms.sort((a, b) => b.peers - a.peers || a.name.localeCompare(b.name));
+    list.hidden = rooms.length === 0;
+    setTimeout(showRooms, ROOMS_EVERY_MS);
+
+    const shown = JSON.stringify(rooms);
+
+    if (shown === roomsShown)
+        return;
+
+    roomsShown = shown;
     list.replaceChildren(...rooms.map((r) =>
     {
         const li = document.createElement('li');
@@ -2168,8 +2207,6 @@ async function showRooms ()
                      (r.playing ? ', playing' : ''));
         return li;
     }));
-    list.hidden = rooms.length === 0;
-    setTimeout(showRooms, ROOMS_EVERY_MS);
 }
 
 /* A room socket, its handlers on, connected: resolves once welcomed, as

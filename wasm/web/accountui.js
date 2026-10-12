@@ -349,6 +349,17 @@ export function createAccounts ({ open, dialog, relays, onChange })
 
         WebAuthnAbortService.cancelCeremony();
         body.replaceChildren(...nodes);
+
+        /* The button pressed to get here went with the old screen. */
+        if (dialog.open && !dialog.contains(document.activeElement))
+        {
+            const to = body.querySelector('h2, input, button');
+
+            if (to?.tagName === 'H2')
+                to.tabIndex = -1;
+
+            to?.focus();
+        }
     };
     const changed = (k) =>
     {
