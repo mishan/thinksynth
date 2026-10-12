@@ -110,7 +110,8 @@
        the wheel changes how much time is on screen. -->
   <div id="roll" class="canvasview rollview"
        data-pane data-pane-title="Piano roll" data-pane-min="320">
-    <canvas id="rollcanvas" tabindex="0"></canvas>
+    <canvas id="rollcanvas" tabindex="0" role="img"
+            aria-label="Piano roll: the notes played, and those to come"></canvas>
   </div>
 
   <div id="knobs"
@@ -247,7 +248,8 @@
     <p id="nodeempty" hidden>No graph to edit: this piece plays only the
       shipped patches. A .dsp in the room's document is drawn here.</p>
     <div id="nodescroll" class="canvasview">
-      <canvas id="nodecanvas" tabindex="0"></canvas>
+      <canvas id="nodecanvas" tabindex="0" role="img"
+              aria-label="The graph, as nodes and wires"></canvas>
     </div>
     <div id="nodeparams"></div>
   </details>

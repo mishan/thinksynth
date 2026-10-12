@@ -325,8 +325,8 @@ export function createAccounts ({ open, dialog, relays, onChange })
 
     dialog.append(
         el('div', { className: 'accounthead' },
-           el('h2', { className: 'accounttitle', id: 'accounttitle',
-                      textContent: 'Account' }),
+           el('span', { className: 'accounttitle', id: 'accounttitle',
+                        textContent: 'Account' }),
            Object.assign(button('\u00d7', close),
                          { ariaLabel: 'Close', id: 'accountclose' })),
         status, body);
@@ -619,7 +619,7 @@ export function createAccounts ({ open, dialog, relays, onChange })
         const rename = keyForm('rename', account.handle, 'current-password',
                                'Change');
         const handle = el('input', { id: 'account-newhandle', maxLength: 64,
-                                     autocomplete: 'username' });
+                                     autocomplete: 'off' });
 
         rename.form.prepend(el('label', {}, 'New ', handle));
         rename.form.onsubmit = (e) =>

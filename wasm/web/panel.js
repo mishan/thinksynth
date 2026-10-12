@@ -583,16 +583,15 @@ function makeRow (row, panel, onEdit, bound, onCommit)
     emit.commit = (text) => onCommit?.(row.id, text);
     const control = (CONTROLS[row.kind] ?? makeReadonly)(row, emit, bound);
 
-    /* The label names every field of the control (a slider is a range and
-       a box), and the row's description reaches them as well as the row. */
+    /* The label names every field of the control: a slider is a range and
+       a box. */
+    const FIELDS = 'input, select, textarea';
+
     label.id = `panellabel${++labels}`;
 
-    for (const field of [control, ...control.querySelectorAll('*')])
-        if (field.matches('input, select, textarea'))
-        {
-            field.setAttribute('aria-labelledby', label.id);
-            field.title = line.title;
-        }
+    for (const field of control.matches(FIELDS)
+                            ? [control] : control.querySelectorAll(FIELDS))
+        field.setAttribute('aria-labelledby', label.id);
 
     /* The menus that are about the value rather than being it, after the
      * control, because they qualify what is already there -- "4000,

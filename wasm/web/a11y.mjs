@@ -20,9 +20,8 @@
  * a11y.mjs -- what axe-core finds wrong with a page, for the harnesses
  * that have one open.
  *
- * WCAG 2.2 AA's rules. Contrast is left out until the page's colors are
- * reworked, and anything a caller passes in `exclude' is not looked at:
- * the composer's controls, which are being rebuilt.
+ * WCAG 2.2 AA's rules, less contrast until the page's colors are
+ * reworked, on all of the page but the selectors in `exclude'.
  */
 
 import { AxeBuilder } from '@axe-core/playwright';

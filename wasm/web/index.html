@@ -352,7 +352,7 @@
          status beside the button cannot move it. -->
     <div id="midiclock"></div>
   </div>
-  <svg id="keys" role="group" aria-label="Keyboard"></svg>
+  <svg id="keys" role="application" aria-label="Keyboard"></svg>
   <p class="hint">
     Touch or click the keys. From a computer keyboard,
     <kbd>Z</kbd>&ndash;<kbd>/</kbd> is an octave and a bit from C with the
@@ -411,7 +411,7 @@
             title="Download the graph chosen as a .dsp file">Keep</button>
   </div>
   <canvas id="growplot" width="320" height="80" hidden aria-hidden="true"></canvas>
-  <div id="growstate" class="hint" role="status"></div>
+  <div id="growstate" class="hint"></div>
 </section>
 
 <details id="piecesource" data-pane-off
@@ -485,12 +485,12 @@
   <pre id="log"></pre>
 </details>
 
+</main>
+
 <!-- What a stage's params handle asks for, and what a right-click on a
      port offers: placed in page coordinates beside whatever asked for
      them, so where they sit in the document says nothing -- except that
      being after every pane is what keeps them over one. -->
-</main>
-
 <div id="composerparams" class="popover" hidden></div>
 <div id="nodemenu" class="popover" hidden></div>
 

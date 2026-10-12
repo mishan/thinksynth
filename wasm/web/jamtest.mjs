@@ -2960,7 +2960,8 @@ try
 
         ok(`${label} joined the room and started`);
 
-        const axe = await axeFindings(page);
+        /* Evolve is the composer's, which is being rebuilt. */
+        const axe = await axeFindings(page, ['#evolve']);
 
         if (axe.length === 0)
             ok(`axe finds nothing wrong with ${label}'s room`);
