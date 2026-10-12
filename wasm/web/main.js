@@ -1661,10 +1661,14 @@ function paramsEdited ({ piece: text, edits })
 
     /* What the band reads a player's notes from, as they are now. */
     if (mode() === 'band')
-        synth.pieceChains().then(({ chains }) =>
+        synth.pieceChains().then(({ chains, sections }) =>
         {
             if (piece !== null && loadedText === text)
+            {
                 piece.chains = chains;
+                piece.sections = sections;
+                band.draw();
+            }
         });
 }
 
@@ -1897,6 +1901,12 @@ const band = createBand({
     },
 
     sounds: () => dspGroups,
+
+    /* A scene: where it starts, and a chain's level in it -- the same
+       command the composer view's lane sends, written into the piece. */
+    seek: (at) => synth?.transport('seek', at),
+    level: (section, chain, level) =>
+        synth?.section({ at: -1, section, chain, level }),
 
     sound: async (p, dsp) =>
     {
@@ -3022,6 +3032,7 @@ async function start ()
                                                 feeds it: without this
                                                 the scope stays blank. */
                                              nodes?.feed(m.probes);
+                                             band.at(m.section, m.running);
                                          },
                                          onParamEdits: paramsEdited,
                                          onEdited: edited,

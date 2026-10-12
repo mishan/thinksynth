@@ -366,6 +366,8 @@ class ThinkProcessor extends AudioWorkletProcessor
                 type: 'chains', id: m.id,
                 chains: JSON.parse(this.M.UTF8ToString(
                     this.M._tw_piece_chains_json())),
+                sections: JSON.parse(this.M.UTF8ToString(
+                    this.M._tw_piece_sections_json())),
             });
 
             return;
@@ -722,7 +724,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             return { errors: loadErrors(this.M), name: '', description: '',
                      effect: '', tempo: 0, beats: false,
                      knobs: [], instruments: [], listens: [], sinks: [],
-                     chains: [], scales: [] };
+                     chains: [], scales: [], sections: [] };
 
         /* Off the panel, so there is one answer to "which knobs are shown"
            rather than two that have to agree. Hidden knobs keep their
@@ -797,6 +799,8 @@ class ThinkProcessor extends AudioWorkletProcessor
                 this.M._tw_piece_chains_json())),
             scales: JSON.parse(this.M.UTF8ToString(
                 this.M._tw_piece_scales_json())),
+            sections: JSON.parse(this.M.UTF8ToString(
+                this.M._tw_piece_sections_json())),
         };
     }
 
@@ -1203,6 +1207,9 @@ class ThinkProcessor extends AudioWorkletProcessor
             /* Edits applied since the load (thinkweb.cpp, applyEdit): a
                count that moved is the page's cue to read the piece again. */
             edits: this.M._tw_edit_count(),
+
+            /* The section the transport is in, -1 for none. */
+            section: this.M._tw_section_now(),
 
             /* Where `now' falls in beats, at what tempo, and how many
                beats a bar is: the next bar, for an edit. */

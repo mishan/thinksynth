@@ -681,8 +681,8 @@ export async function createSynth (ctx, { windowlen = 128,
             ask({ type: 'genops', text,
                   ops: ops.map((f) => f.join('\t')).join('\n') }),
 
-        /* The piece's chains as its text says them now. Resolves to
-           { chains }. */
+        /* The piece's chains as its text says them now, and its sections
+           as they play. Resolves to { chains, sections }. */
         pieceChains: () => ask({ type: 'chains' }),
 
         /* Chain `chainName' given its own seed in `text', or the piece's
