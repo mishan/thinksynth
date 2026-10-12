@@ -885,8 +885,8 @@ static bool level (thSynth &synth, const string &text, double &rms,
 }
 
 bool grow (thSynth *synth, const string &text, const string &base,
-           unsigned int choice, const string &kinds, string &grown,
-           string &what, string &why)
+           unsigned int choice, const string &kinds, size_t want,
+           vector<string> &grown, vector<string> &what, string &why)
 {
     if (synth == NULL)
     {
@@ -952,7 +952,11 @@ bool grow (thSynth *synth, const string &text, const string &base,
 
     /* Sixteen tries at most: each is a render, and a host may be asking
        from the thread that draws its window. */
-    for (size_t k = 0; k < allowed.size() && k < 16; k++)
+    grown.clear();
+    what.clear();
+
+    for (size_t k = 0; k < allowed.size() && k < 16 && grown.size() < want;
+         k++)
     {
         const Edit &pick = *allowed[(choice + k) % allowed.size()];
         double rms, peak;
@@ -961,11 +965,13 @@ bool grow (thSynth *synth, const string &text, const string &base,
         if (level(ear, pick.source, rms, peak) && rms <= wantRms * 1.4125 &&
             rms >= wantRms * 0.2512 && peak <= wantPeak * 1.4125)
         {
-            grown = pick.source;
-            what = pick.what;
-            return true;
+            grown.push_back(pick.source);
+            what.push_back(pick.what);
         }
     }
+
+    if (!grown.empty())
+        return true;
 
     why = "the edits tried all move the level too far";
     return false;

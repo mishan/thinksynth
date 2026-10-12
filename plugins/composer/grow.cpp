@@ -30,6 +30,16 @@
  * declares, and between the two a step back with chance `shrink'. A graph
  * that only ever grew would only ever get bigger and busier; one that can
  * go back wanders, and comes home.
+ *
+ * Given a `target' -- an instrument of the piece or a sound file, as
+ * breed's -- the walk leans: the host hears `listen' of the edits that
+ * would do and takes the one that sounds nearest. An edit arrives with
+ * its plugin's defaults, which are rarely what would bring it nearer, so
+ * each is first tuned for `tune' generations -- only in what it added --
+ * and judged as tuned. A step back is still the dice's, so the graph
+ * drifts toward the target rather than climbing to it. Offline the hearing is
+ * done in the tick and a piece replays as the plain walk does; live, as
+ * with breed, the step lands on the tick its answers come in.
  */
 
 #include <random>
@@ -37,7 +47,8 @@
 #include "thcomposer.h"
 #include "thcRandom.h"
 
-enum { P_EVERY, P_DEPTH, P_SHRINK, P_KINDS, P_COUNT };
+enum { P_EVERY, P_DEPTH, P_SHRINK, P_KINDS, P_TARGET, P_LISTEN, P_TUNE,
+       P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -53,6 +64,12 @@ composer_init (thcComposerInfo *info)
           THC_PARAM_FLOAT, 0, 1, 0.3, NULL, NULL },
         { "kinds",  "edits allowed: splice, modulate, voice",
           THC_PARAM_STRING, 0, 0, 0, "splice modulate voice", NULL },
+        { "target", "an instrument of the piece, or a sound file, to lean "
+          "toward; omit to wander", THC_PARAM_STRING, 0, 0, 0, "", NULL },
+        { "listen", "edits heard each step toward `target', the nearest "
+          "taken", THC_PARAM_INT, 1, 16, 4, NULL, NULL },
+        { "tune",   "generations each edit heard is tuned toward `target' "
+          "first; 0 for none", THC_PARAM_INT, 0, 40, 6, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -90,6 +107,17 @@ composer_create (const thcParams *params)
     return st;
 }
 
+/* Clamped before it is an int: a piece's value is not held to the
+   declared range, and a huge double or a NaN has no int to be. A NaN
+   fails both comparisons and is `lo'. */
+static int
+paramInt (const thcParams *p, int which, int lo, int hi)
+{
+    const double v = p->get(p->ctx, paramIndex[which]);
+
+    return v >= lo ? (v <= hi ? (int)v : hi) : lo;
+}
+
 extern "C" THINK_PLUGIN_API double
 composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 {
@@ -107,7 +135,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         return next;
     }
 
-    const int depth = (int)p->get(p->ctx, paramIndex[P_DEPTH]);
+    const int depth = paramInt(p, P_DEPTH, 1, 16);
     const double shrink = p->get(p->ctx, paramIndex[P_SHRINK]);
 
     /* Drawn whether or not it is used, so changing `shrink' moves which
@@ -124,6 +152,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     ev.u.grow.choice = choice;
     ev.u.grow.shrink = st->depth >= depth || (st->depth > 0 && back);
     ev.u.grow.kinds = p->get_string(p->ctx, paramIndex[P_KINDS]);
+    ev.u.grow.target = p->get_string(p->ctx, paramIndex[P_TARGET]);
+    ev.u.grow.listen = paramInt(p, P_LISTEN, 1, 16);
+    ev.u.grow.tune = paramInt(p, P_TUNE, 0, 40);
 
     st->depth += ev.u.grow.shrink ? -1 : 1;
 

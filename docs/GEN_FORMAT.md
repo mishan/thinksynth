@@ -910,12 +910,43 @@ home rather than only getting bigger. Each graph goes on as a swap does, so
 what is sounding finishes on the one it started on. A host that does not link
 the node model — the Node build — refuses growth and says so.
 
+Given a `target` — an instrument of the piece or a sound file, as `gen::breed`
+takes — the walk leans toward it: of the edits that keep the level, the host
+hears up to `listen` (4 unless set) against the target and takes the nearest.
+
+```
+    stage g gen::grow { every = 20 s; depth = 4; target = "bell"; listen = 8; };
+```
+
+An edit arrives with its plugin's defaults, which are rarely what would bring it
+nearer, so each one heard is first tuned toward the target for `tune`
+generations (6 unless set; 0 for none) — only in the constants the edit added,
+with the search Evolve toward uses — and judged, and put on, as tuned. A step
+back is still the dice's, so the graph drifts toward the target rather than
+climbing to it; **Evolve toward**, below, is the climb. Tuning is a few dozen
+renders an edit, a few seconds a step: live, the edits are heard on the ear's
+own thread and the step goes on when the answers are in, so no note waits for
+it; offline, `genwav` hears them in the tick, and renders are deterministic, so
+a piece that leans replays as one that wanders does. Where the host has no ear,
+the first edit is taken, untuned.
+
 What grew is the performance's, not the piece's: the file never changes by
 itself, and a rewind puts the declared graph back. To keep a graph, select the
 `gen::grow` stage in the Composer and press **Keep the grown graph**, which
 writes it into the piece as the instrument's `dsp { ... }` — over its file name
 if it had one — and reloads; from then on that is what the piece declares, and
 growth goes on from there.
+
+Selected, the stage also lists the edits on the declared graph in words, the one
+playing last, for each instrument its chain's sinks reach; choosing a row puts that graph back on the channel, and Keep then
+writes that one. A stage with a `target` adds a plot below: each step's edits
+heard as dots, the one taken filled, and the graph on the channel as a line,
+nearer the target higher, with how far it is now and how far it began.
+
+The channel's node editor shows a grown graph — or a result Evolve toward put on
+the channel — with the nodes it added to the declared graph titled in green, and
+follows each step as it lands. Saving it there writes it into the piece as Keep
+does, with whatever was edited.
 
 **All three are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
@@ -929,12 +960,15 @@ instruments and what it should sound like — another of its instruments, or a
 recording — and how far to go: **Tune** moves its constants, a minute or two;
 **Tune and grow** races edits to its shape as well, several minutes. The search
 is `scripts/dspmatch`'s (`src/NodeEvolve`), run on a thread of its own while the
-piece goes on playing. What it finds goes on the instrument's channel to be
-heard, as a grown graph does: **Keep** writes it into the piece as the
-instrument's `dsp { ... }`, **Discard** puts back what was there. It starts from
-the graph the channel plays now, so a kept or grown graph can be evolved
-further. The instrument's values (`a = 900 ms`) are not part of the search: it
-hears the graph as the graph declares it.
+piece goes on playing. The window plots how near it has come as it goes, and
+**Listen** puts the nearest graph so far on the instrument's channel. What it
+finds goes on the channel to be heard, as a grown graph does, in place of what
+was listened to on the way while that is still what the channel plays: **Keep**
+writes it into the piece as the instrument's `dsp { ... }`, **Discard** puts
+back what was there. It starts from the graph the channel plays now, so a kept
+or grown graph can be evolved further. Each graph is heard with its instrument's
+values (`a = 900 ms`), as the piece plays it; the values themselves are the
+piece's, and the search leaves them as they are.
 
 A structure edit reaches **every** sink of its chain. The note/chanarg filter is
 a rule about notes and chanargs; an edit is neither, and both kinds of sink name

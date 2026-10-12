@@ -14,6 +14,7 @@
 
 #include "thcAudition.h"
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -21,6 +22,7 @@
 
 #include "think.h"
 #include "thSoundFile.h"
+#include "thUtil.h"
 
 thcAuditioner::thcAuditioner (const std::string &pluginPath, double rate)
     : pluginPath_(pluginPath), rate_(rate), synchronous_(false), quit_(false),
@@ -48,7 +50,8 @@ thcAuditioner::~thcAuditioner (void)
 int
 thcAuditioner::hear (const Instrument &candidate, const std::string &targetKey,
                      const Instrument *targetInstrument,
-                     const std::string &targetFile)
+                     const std::string &targetFile, int tune,
+                     const std::string &from)
 {
     if (candidate.dsp.empty() || (targetInstrument == NULL && targetFile.empty()))
         return -1;
@@ -59,6 +62,8 @@ thcAuditioner::hear (const Instrument &candidate, const std::string &targetKey,
     job.candidate = candidate;
     job.targetKey = targetKey;
     job.targetIsFile = targetInstrument == NULL;
+    job.tune = tune;
+    job.from = from;
 
     if (targetInstrument)
         job.targetInstrument = *targetInstrument;
@@ -88,7 +93,7 @@ thcAuditioner::hear (const Instrument &candidate, const std::string &targetKey,
 }
 
 int
-thcAuditioner::heard (int ticket, double *distance)
+thcAuditioner::heard (int ticket, double *distance, std::string *tuned)
 {
     std::lock_guard<std::mutex> hold(lock_);
 
@@ -107,6 +112,9 @@ thcAuditioner::heard (int ticket, double *distance)
 
     if (distance)
         *distance = answer.distance;
+
+    if (tuned)
+        *tuned = answer.tuned;
 
     return 1;
 }
@@ -308,7 +316,7 @@ thcAuditioner::targetOf (const Job &job, int &note)
 thcAuditioner::Answer
 thcAuditioner::judge (const Job &job)
 {
-    Answer answer = { false, 0.0 };
+    Answer answer = { false, 0.0, std::string() };
     int note = 60;
 
     const thsound::Features *target = targetOf(job, note);
@@ -316,19 +324,56 @@ thcAuditioner::judge (const Job &job)
     if (target == NULL)
         return answer;
 
-    std::vector<float> mono;
-    thsound::Features mine;
+    /* `inst' as the target hears it, or a negative for one that will not
+       render or is not a sound. */
+    const auto distance = [&] (const Instrument &inst)
+    {
+        std::vector<float> mono;
+        thsound::Features mine;
 
-    if (!render(job.candidate, note, mono))
-        return answer;
+        if (!render(inst, note, mono))
+            return -1.0;
 
-    extractor_.extract(mono, mine);
+        extractor_.extract(mono, mine);
 
-    if (!mine.usable())
-        return answer;
+        return mine.usable() ? thsound::Extractor::distance(*target,
+                                                            mine).total()
+                             : -1.0;
+    };
 
-    answer.ok = true;
-    answer.distance = thsound::Extractor::distance(*target, mine).total();
+    std::string text;
+
+    if (job.tune > 0 && tuner_ && thUtil::findGraphText(job.candidate.dsp,
+                                                        text))
+    {
+        static std::atomic<unsigned int> serial { 0 };
+        Instrument tried = job.candidate;
+
+        if (synth_ == NULL)
+            synth_ = new thSynth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH,
+                                 (int)rate_);
+
+        /* A search's candidates are scored as a far miss rather than not
+           at all: it ranks them. */
+        answer.tuned = tuner_(*synth_, job.from, text, job.tune,
+                              [&] (const std::string &variant)
+        {
+            tried.dsp = "tune-heard#" + std::to_string(++serial) + ".dsp";
+            thUtil::GraphHold hold = thUtil::addGraphText(tried.dsp, variant);
+            const double d = distance(tried);
+
+            return d < 0 ? 1e6 : d;
+        });
+
+        tried.dsp = "tune-heard#" + std::to_string(++serial) + ".dsp";
+        thUtil::GraphHold hold = thUtil::addGraphText(tried.dsp, answer.tuned);
+
+        answer.distance = distance(tried);
+    }
+    else
+        answer.distance = distance(job.candidate);
+
+    answer.ok = answer.distance >= 0;
 
     return answer;
 }

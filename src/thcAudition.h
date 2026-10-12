@@ -43,6 +43,7 @@
  */
 
 #include <condition_variable>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <memory>
@@ -82,17 +83,32 @@ public:
        exact replay. For genwav and gencheck. */
     void setSynchronous (bool on) { synchronous_ = on; }
 
+    /* What tunes a candidate before it is judged: `text', grown from
+       `from', moved for `generations' toward what `distance' measures,
+       parsed on `synth'. The node model's (NodeEvolve::tuneAdded), and so
+       a hook. Set before the first hear(). */
+    typedef std::function<std::string (
+        thSynth &synth, const std::string &from, const std::string &text,
+        int generations,
+        const std::function<double (const std::string &)> &distance)> Tuner;
+
+    void setTuner (const Tuner &fn) { tuner_ = fn; }
+
     /* `candidate' is the chain's instrument with the composer's values
        already folded in. `target' is either an instrument -- `targetInstrument'
        set, rendered and remembered under `targetKey' until its files or
        chanargs change -- or a sound file at `targetFile', read again
-       once it is written over. Returns a ticket, or -1 if nothing can be
-       rendered. */
+       once it is written over. With `tune' generations and a tuner, an
+       inline graph `candidate' is tuned first, as grown from `from'.
+       Returns a ticket, or -1 if nothing can be rendered. */
     int hear (const Instrument &candidate, const std::string &targetKey,
-              const Instrument *targetInstrument, const std::string &targetFile);
+              const Instrument *targetInstrument, const std::string &targetFile,
+              int tune = 0, const std::string &from = std::string());
 
-    /* 1 with the distance, 0 while pending, -1 if the render failed. */
-    int heard (int ticket, double *distance);
+    /* 1 with the distance, 0 while pending, -1 if the render failed;
+       `tuned', if given, gets the graph that was judged when it was
+       tuned, and is emptied otherwise. */
+    int heard (int ticket, double *distance, std::string *tuned = NULL);
 
     /* A ticket nobody will collect: unqueued if it has not started, its
        answer dropped when it has or once it arrives. */
@@ -116,12 +132,15 @@ private:
         Instrument targetInstrument;
         bool targetIsFile;
         std::string targetFile;
+        int tune;
+        std::string from;
     };
 
     struct Answer
     {
         bool ok;
         double distance;
+        std::string tuned;
     };
 
     void run (void);
@@ -132,6 +151,7 @@ private:
     std::string pluginPath_;
     double rate_;
     bool synchronous_;
+    Tuner tuner_;
 
     std::thread worker_;
     std::mutex lock_;

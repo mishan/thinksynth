@@ -19,6 +19,7 @@
 #ifndef THCSCHEDULER_H
 #define THCSCHEDULER_H
 
+#include <cmath>
 #include <deque>
 #include <functional>
 #include <map>
@@ -729,7 +730,7 @@ public:
        have to agree about which events are which. */
     static bool isStructureEdit (thcEventType t)
     {
-        return t == THC_EV_PATCH || t == THC_EV_NODEARG;
+        return t == THC_EV_PATCH || t == THC_EV_NODEARG || t == THC_EV_GROW;
     }
 
     /* ---- structure edits ----
@@ -752,9 +753,13 @@ public:
        Only on a channel the piece declares an instrument for, and only in
        a host with a grower (setGrower). The grown graph is loaded as an
        inline graph is, under a name its text decides, and goes on as a
-       swap does. False with `why' when it cannot be done. */
+       swap does. With a `target', up to `listen' edits are heard against
+       it, each tuned toward it first for `tune' generations if a tuner is
+       set, and the nearest is taken -- on a later step if the ear answers
+       later. False with `why' when it cannot be done. */
     bool growInstrument (int channel, unsigned int choice, bool shrink,
-                         const std::string &kinds, std::string &why);
+                         const std::string &kinds, const std::string &target,
+                         int listen, int tune, std::string &why);
 
     /* `text' on `channel' as growth would put it there, one step up the
        same stack: heard at once, gone with a step back or a rewind, and
@@ -762,15 +767,55 @@ public:
     bool tryGraph (int channel, const std::string &text, std::string &why);
 
     /* What turns a graph's text into the text one edit on: `choice' among
-       the edits of `kinds', judged against `base', the declared graph. A hook, as loading is, because the edits are
-       the node model's (NodeMutate::grow) and a host that does not link
-       it -- the Node build -- has no business growing anything. */
+       the edits of `kinds', judged against `base', the declared graph, and
+       up to `want' of them for a host that listens to choose among, each
+       with what it did in words. A hook, as loading is, because the edits
+       are the node model's (NodeMutate::grow) and a host that does not
+       link it -- the Node build -- has no business growing anything. */
     typedef std::function<bool (const std::string &text,
                                 const std::string &base, unsigned int choice,
-                                const std::string &kinds, std::string &grown,
-                                std::string &what, std::string &why)> Grower;
+                                const std::string &kinds, size_t want,
+                                std::vector<std::string> &grown,
+                                std::vector<std::string> &what,
+                                std::string &why)> Grower;
 
     void setGrower (const Grower &fn) { grower_ = fn; }
+
+    /* What tunes each edit a growth toward a target hears, before it is
+       judged: NodeEvolve::tuneAdded, for a host that links the node model.
+       Set before the piece plays; the ear's thread reads it. */
+    void setTuner (const thcAuditioner::Tuner &fn);
+
+    /* One change growth made to a channel, for a host to show. */
+    struct GrowthStep
+    {
+        double at = 0;              /* transport seconds                */
+        size_t depth = 0;           /* edits on the declared graph after */
+        std::string what;           /* the edit, in words; empty for a
+                                       step back                        */
+
+        /* Distances to the target in dB, NaN where none was heard: the
+           graph on the channel after, the one it grew from, and each
+           edit heard, of which `taken' went on (-1 without a target). */
+        double distance = NAN;
+        double from = NAN;
+        std::vector<double> heard;
+        int taken = -1;
+    };
+
+    /* The edits on `channel' in words, the declared graph's "" first, and
+       every change since the piece loaded or rewound. False for a
+       channel that has not grown. */
+    bool growth (int channel, std::vector<std::string> &stack,
+                 std::vector<GrowthStep> &log) const;
+
+    /* Moves whenever any channel's growth does, for a host to poll. */
+    unsigned int growthSerial (void) const { return growthSerial_; }
+
+    /* Back to `depth' edits on the declared graph, as steps back would
+       go; the stack above it is gone. A growing stage goes on from there,
+       counting the edits it asked for rather than these. */
+    bool growBackTo (int channel, size_t depth, std::string &why);
 
     /* The graph on `channel' now, as text: what growth or a search put
        there, or what the instrument declares. False for a channel that is
@@ -787,6 +832,18 @@ public:
             return false;
 
         text = g->second.texts.back();
+        return true;
+    }
+
+    /* The graph growth on `channel' started from, while it has grown. */
+    bool declaredText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.texts.size() < 2)
+            return false;
+
+        text = g->second.texts[0];
         return true;
     }
 
@@ -1465,16 +1522,72 @@ private:
     {
         std::vector<std::string> texts;
         std::vector<std::shared_ptr<void> > holds;
+
+        /* Beside each text: the edit that made it, in words, and how far
+           it was heard from a target, or NaN. */
+        std::vector<std::string> whats;
+        std::vector<double> levels;
+
+        std::vector<GrowthStep> log;
+
+        /* The next step's edits while the ear hears them against a
+           target: their tickets, -1 once answered, and their distances,
+           with the graph on the channel heard last. */
+        std::vector<std::string> options;
+        std::vector<std::string> optionWhats;
+        std::vector<std::string> tuned;     /* what the ear tuned each to */
+        std::vector<int> tickets;
+        std::vector<double> distances;
     };
 
     std::map<int, Growth> grown_;
     Grower grower_;
+    thcAuditioner::Tuner tuner_;
 
     /* growInstrument and tryGraph: one step up the channel's stack, to
        `given' or to what the grower makes, or one back. */
     bool stepGraph (int channel, bool shrink, const std::string *given,
                     unsigned int choice, const std::string &kinds,
+                    const std::string &target, int listen, int tune,
                     std::string &why);
+
+    /* `candidate' queued against `target' as hear() resolves it: an
+       instrument of the piece, or a sound file. */
+    int hearAgainst (const thcAuditioner::Instrument &candidate,
+                     const char *target, int tune = 0,
+                     const std::string &from = std::string());
+
+    /* The channel's stack, started from what it plays if it has none;
+       NULL with `why' for a channel nothing can grow on. */
+    Growth *growthOf (int channel, std::string &why);
+
+    /* The nearest of `g''s heard edits, onto the channel. */
+    bool takeHeard (int channel, Growth &g, std::string &why);
+
+    /* The stack's one change: back to the level `backTo', or with
+       std::string::npos, `grown' pushed on top, made by `what'. Logged
+       as `step'. */
+    bool placeStep (int channel, size_t backTo, const std::string &grown,
+                    const std::string &what, GrowthStep step,
+                    std::string &why);
+
+    unsigned int growthSerial_ = 0;
+
+    /* Each of `options', a graph in `inst''s place, queued against
+       `target', the first `tuned' to be tuned for `tune' generations as
+       grown from `from': a ticket each, -1 for one that cannot be heard. */
+    std::vector<int> hearAll (const thcInstrument &inst,
+                              const std::vector<std::string> &options,
+                              const std::string &target, size_t tuned,
+                              int tune, const std::string &from);
+
+    /* `g''s answers that are in; true once all are. */
+    bool collect (Growth &g);
+    void forgetHearing (Growth &g);
+
+    /* A channel's growth, or every channel's for -1, tickets and all. */
+    void forgetGrowth (int channel);
+    void takeHeardGrowth (void);
 
     /* `put' onto its channel and its values on it, or neither: what a swap
        and a growth step both end in. */

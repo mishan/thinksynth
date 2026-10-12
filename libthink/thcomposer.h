@@ -159,7 +159,15 @@ typedef enum {
      * graph goes on as a swap does, so what is sounding finishes on the old
      * one, and a rewind puts the declared graph back. Since `choice' comes
      * from the seed and the list from the graph, a piece that grows replays
-     * exactly. Only on a channel the piece declares an instrument for. */
+     * exactly. Only on a channel the piece declares an instrument for.
+     *
+     * With a `target', the host hears up to `listen' of the edits from
+     * `choice' on against it, as it hears breed's candidates, and takes
+     * the nearest: a walk that leans. With `tune', each is first tuned
+     * toward the target, only in what the edit added, so it is judged as
+     * it could sound rather than as its defaults. Live, the step is taken
+     * once the answers are in, not when the event is. Without an ear, the
+     * first. */
     THC_EV_GROW
 } thcEventType;
 
@@ -171,8 +179,11 @@ typedef enum {
  * `reserved', so sizeof(thcEvent) and every offset stay where they are, and
  * it means at 0 what an event without it always meant -- since a plugin
  * built before it zero-fills it, and passes on whatever it was handed. The
- * union is full: a note's new field goes in `reserved' too, not in `note'.
- * Only a field that cannot be given a 0 that means "as before" is a bump. */
+ * union is full for `note', its largest arm: a note's new field goes in
+ * `reserved' too. Any other arm grows in place, into bytes of the union
+ * that the same zero-fill covers -- `note' is its first member, so `= {}'
+ * zeroes them all. Only a field that cannot be given a 0 that means "as
+ * before" is a bump. */
 #define THC_EVENT_RESERVED 64
 
 typedef struct {
@@ -218,6 +229,12 @@ typedef struct {
             int          shrink;  /* nonzero: undo the last instead     */
             const char  *kinds;   /* "splice modulate voice", or NULL or
                                      empty for all; copied               */
+            const char  *target;  /* an instrument of the piece or a
+                                     sound file, or NULL or empty for
+                                     none; copied                        */
+            int          listen;  /* edits heard when there is a target  */
+            int          tune;    /* generations each is tuned toward it
+                                     first, where the host can           */
         } grow;
     } u;
     unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */

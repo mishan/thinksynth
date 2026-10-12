@@ -143,7 +143,7 @@ RollCanvas::onDelivered (const thcEvent &ev)
 
         argTicks_.push_back({ ev.at, ev.channel, (float)v });
     }
-    else if (ev.type == THC_EV_PATCH || ev.type == THC_EV_NODEARG)
+    else if (thcScheduler::isStructureEdit(ev.type))
     {
         /* The label is what the piece said, not what the host made of
            it: "bell", or "fmap.inmax". Somebody reading the roll is
@@ -152,6 +152,8 @@ RollCanvas::onDelivered (const thcEvent &ev)
 
         if (ev.type == THC_EV_PATCH)
             label = ev.u.patch.name ? ev.u.patch.name : "?";
+        else if (ev.type == THC_EV_GROW)
+            label = ev.u.grow.shrink ? "grow back" : "grow";
         else
         {
             char buf[96];

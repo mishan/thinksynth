@@ -394,6 +394,70 @@ bool candidate (const Host &host, const string &source, const string &what,
     return true;
 }
 
+string tuneAdded (thSynth &synth, const string &from, const string &text,
+                  int generations,
+                  const std::function<double (const string &)> &distance)
+{
+    static std::atomic<unsigned int> serial { 0 };
+    Host host;
+
+    host.score = [&] (const string &source, Distance *)
+    {
+        return distance(source);
+    };
+    host.scoreAll = [&] (const vector<string> &sources, vector<double> &out)
+    {
+        out.resize(sources.size());
+
+        for (size_t i = 0; i < sources.size(); i++)
+            out[i] = distance(sources[i]);
+    };
+    host.read = [&] (const string &source, vector<Gene> *genes, Shape *shape)
+    {
+        const string name = "tune#" + std::to_string(++serial) + ".dsp";
+        thUtil::GraphHold hold = thUtil::addGraphText(name, source);
+        thSynthTree *tree = synth.parseTree(name);
+
+        if (tree == NULL)
+            return false;
+
+        NodeMutate::read(tree, source, genes, shape);
+        delete tree;
+
+        return true;
+    };
+
+    Shape before;
+    Candidate c;
+
+    if (!host.read(from, NULL, &before) || !candidate(host, text, "", c))
+        return text;
+
+    /* Only what the edit brought: the rest is the graph the piece has. */
+    vector<Gene> added;
+    vector<double> at;
+
+    for (size_t g = 0; g < c.genes.size(); g++)
+        if (!c.genes[g].node.empty() &&
+            std::find(before.names.begin(), before.names.end(),
+                      c.genes[g].node) == before.names.end())
+        {
+            added.push_back(c.genes[g]);
+            at.push_back(c.at[g]);
+        }
+
+    if (added.empty())
+        return text;
+
+    std::mt19937 rng(1);
+    string found;
+    vector<double> bestAt;
+
+    search(host, text, added, at, 1.0, rng, generations, NULL, found, bestAt);
+
+    return found.empty() ? text : found;
+}
+
 int grow (const Host &host, const vector<Splice> &pool,
           const string &start, unsigned int seed, int generations,
           int rounds, string &found)
@@ -545,9 +609,32 @@ bool Job::start (const Spec &spec, string &why)
         return false;
     }
 
+    begun_ = std::chrono::steady_clock::now();
     thread_ = std::thread(&Job::run, this, spec);
 
     return true;
+}
+
+vector<pair<double, double> > Job::trail (void) const
+{
+    std::lock_guard<std::mutex> hold(lock_);
+
+    return trail_;
+}
+
+double Job::seconds (void) const
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                         begun_).count();
+}
+
+bool Job::nearest (string &graph) const
+{
+    std::lock_guard<std::mutex> hold(lock_);
+
+    graph = bestSource_;
+
+    return !graph.empty();
 }
 
 string Job::progress (void) const
@@ -623,8 +710,8 @@ void Job::work (const Spec &spec)
     {
         synths.emplace_back(new thSynth(spec.pluginPath,
                                         TH_DEFAULT_WINDOW_LENGTH,
-                                        TH_DEFAULT_SAMPLES));
-        exs.emplace_back(new thsound::Extractor(TH_DEFAULT_SAMPLES));
+                                        (int)spec.rate));
+        exs.emplace_back(new thsound::Extractor((int)spec.rate));
     }
 
     thSynth &synth = *synths[0];
@@ -650,26 +737,26 @@ void Job::work (const Spec &spec)
     string unread;
 
     if (!spec.targetWav.empty() &&
-        !thsound::readWav(spec.targetWav, recording, unread))
+        !thsound::readWav(spec.targetWav, recording, unread, spec.rate))
     {
         finish(false, "", 0, unread);
         return;
     }
 
     const int detected = recording.empty()
-                       ? -1 : thsound::detectNote(recording);
+                       ? -1 : thsound::detectNote(recording, spec.rate);
     const int at = detected >= 0 ? detected : 60;
 
-    /* `text' rendered as one note on `on', under a name of its own in the
-       registry inline graphs use. */
+    /* `text' rendered as one note on `on' with `args', under a name of its
+       own in the registry inline graphs use. */
     const auto render = [&] (thSynth &on, const string &text,
+                             const vector<pair<string, float> > &args,
                              vector<float> &mono)
     {
         const string name = "evolve#" + std::to_string(++serial) + ".dsp";
         thUtil::GraphHold hold = thUtil::addGraphText(name, text);
 
-        return thsound::renderNote(on, name, vector<pair<string, float> >(),
-                                   at, thsound::HOLD_WINDOWS,
+        return thsound::renderNote(on, name, args, at, thsound::HOLD_WINDOWS,
                                    thsound::TAIL_WINDOWS, mono);
     };
 
@@ -678,7 +765,7 @@ void Job::work (const Spec &spec)
 
     srand(1);
 
-    if (!render(synth, spec.start, mono))
+    if (!render(synth, spec.start, spec.startArgs, mono))
     {
         finish(false, "", 0, "the graph to evolve does not load");
         return;
@@ -688,7 +775,8 @@ void Job::work (const Spec &spec)
 
     srand(1);
 
-    if (!spec.targetGraph.empty() && !render(synth, spec.targetGraph, heard))
+    if (!spec.targetGraph.empty() &&
+        !render(synth, spec.targetGraph, spec.targetArgs, heard))
     {
         finish(false, "", 0, "the target graph does not load");
         return;
@@ -710,7 +798,7 @@ void Job::work (const Spec &spec)
         vector<float> got;
         thsound::Features f;
 
-        if (!render(*synths[w], source, got))
+        if (!render(*synths[w], source, spec.startArgs, got))
             return DEAD;
 
         exs[w]->extract(got, f);
@@ -726,7 +814,11 @@ void Job::work (const Spec &spec)
         std::lock_guard<std::mutex> hold(lock_);
 
         if (best_ < 0 || d.total() < best_)
+        {
             best_ = d.total();
+            bestSource_ = source;
+            trail_.push_back(std::make_pair(seconds(), best_));
+        }
 
         return d.total();
     };

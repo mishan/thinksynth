@@ -37,6 +37,7 @@
  */
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <random>
@@ -116,6 +117,16 @@ void tune (const Host &host, Candidate &c, std::mt19937 &rng, int generations);
 bool candidate (const Host &host, const string &source, const string &what,
                 Candidate &c, Shape *shape = NULL);
 
+/* What an edit added to `from' to make `text' -- the constants of nodes
+   `from' does not have -- tuned for `generations' toward what `distance'
+   measures, from where the edit put them; parsed on `synth'. `text' as it
+   is when the edit added no constant, or nothing nearer was found. For a
+   host growing toward a target, so an edit is judged as it could sound
+   rather than with whatever its plugin's defaults happen to be. */
+string tuneAdded (thSynth &synth, const string &from, const string &text,
+                  int generations,
+                  const std::function<double (const string &)> &distance);
+
 /* The graph itself: up to `rounds' of every single edit raced against the
    graph as it stands, the winner kept if it wins by enough, and then
    searchAll over what is left. 0, with `found', or 2 for a start that
@@ -137,6 +148,12 @@ public:
            file, read on the job's thread -- whichever is not empty. */
         string targetGraph;
         string targetWav;
+
+        /* The values an instrument sets on each graph, in the engine's
+           terms at `rate' -- a time folded to samples is folded at one --
+           so the search hears what the piece plays. */
+        vector<pair<string, float> > startArgs, targetArgs;
+        double rate = TH_DEFAULT_SAMPLES;
 
         bool grow = false;      /* the graph's shape too, not only its
                                    constants                              */
@@ -165,6 +182,15 @@ public:
     /* How far the graph as it started was from the target, once known. */
     double started (void) const;
 
+    /* Each time the search came nearer, how many seconds in and how near;
+       the graph it started from first. */
+    vector<pair<double, double> > trail (void) const;
+
+    /* Seconds since it started, and the nearest graph so far: false for
+       none yet. */
+    double seconds (void) const;
+    bool nearest (string &graph) const;
+
     /* Once done: the graph it found and how far that is from the target,
        or false with why there is none. */
     bool result (string &graph, double &distance, string &why) const;
@@ -180,6 +206,9 @@ private:
     mutable std::mutex lock_;
     string line_, partial_;
     double best_ = -1;
+    string bestSource_;
+    vector<pair<double, double> > trail_;
+    std::chrono::steady_clock::time_point begun_;
     double started_ = -1;
     bool ok_ = false;
     string found_, why_;

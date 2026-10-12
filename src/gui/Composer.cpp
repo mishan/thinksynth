@@ -287,10 +287,12 @@ Composer::start (void)
     sched_ = new thcScheduler(synth_);
     sched_->setGrower(
         [this](const std::string &text, const std::string &base,
-               unsigned int choice, const std::string &kinds,
-               std::string &grown, std::string &what, std::string &why)
-        { return NodeMutate::grow(synth_, text, base, choice, kinds, grown,
-                                  what, why); });
+               unsigned int choice, const std::string &kinds, size_t want,
+               std::vector<std::string> &grown, std::vector<std::string> &w,
+               std::string &why)
+        { return NodeMutate::grow(synth_, text, base, choice, kinds, want,
+                                  grown, w, why); });
+    sched_->setTuner(NodeEvolve::tuneAdded);
     sched_->setInstrumentLoader(
         [this](const thcInstrument &inst, std::string &why)
         { return loadInstrument(inst, why); });
@@ -676,24 +678,105 @@ Composer::inlineGraph (const std::string &name, std::string &instrument,
 }
 
 bool
+Composer::grownGraph (const std::string &name, std::string &instrument,
+                      std::string &body, std::set<std::string> &added)
+{
+    for (size_t i = 0; started_ && i < sched_->instruments().size(); i++)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+        std::string declared;
+
+        /* What grew is the instrument the channel holds, which after a
+           swap is not the one that owns it. */
+        const std::string held = sched_->holding(inst.channel);
+
+        if (!sched_->grownText(inst.channel, body) ||
+            thcGenLoader::inlineGraphName(held, body) != name)
+            continue;
+
+        instrument = held;
+        added.clear();
+
+        /* By the names of its nodes, as each graph's parse has them. */
+        std::set<std::string> was;
+        const auto names = [this] (const std::string &text,
+                                   std::set<std::string> &out)
+        {
+            static unsigned int serial = 0;
+            const std::string as = "grown-view#" + std::to_string(++serial) +
+                                   ".dsp";
+            thUtil::GraphHold hold = thUtil::addGraphText(as, text);
+            thSynthTree *tree = synth_->parseTree(as);
+
+            if (tree == NULL)
+                return;
+
+            for (const auto &n : tree->nodes())
+                out.insert(n.first);
+
+            delete tree;
+        };
+
+        if (sched_->declaredText(inst.channel, declared))
+            names(declared, was);
+
+        std::set<std::string> now;
+
+        names(body, now);
+
+        for (const std::string &n : now)
+            if (!was.count(n))
+                added.insert(n);
+
+        return true;
+    }
+
+    return false;
+}
+
+bool
 Composer::keepGrown (size_t ci, std::string &why)
 {
     if (!started_ || ci >= doc_.chains.size())
         return false;
 
-    std::string inst;
+    const std::vector<std::string> insts = playedBy(ci);
+    bool kept = false;
 
-    for (const thcGenEdit::Sink &sink : doc_.chains[ci].sinks)
-        if (!sink.instrument.empty() && sink.chanarg.empty())
-            inst = sink.instrument;
-
-    if (inst.empty())
+    if (insts.empty())
     {
         why = "chain " + doc_.chains[ci].name + " plays no instrument";
         return false;
     }
 
-    return keepInstrument(inst, why);
+    /* Each the chain grew, the error the last of them gave if none did. */
+    for (const std::string &inst : insts)
+    {
+        std::string failed;
+
+        if (keepInstrument(inst, failed))
+            kept = true;
+        else
+            why = failed;
+    }
+
+    return kept;
+}
+
+/* The instruments chain `ci''s sinks reach, notes or chanargs: where a
+   structure edit it makes goes. */
+std::vector<std::string>
+Composer::playedBy (size_t ci) const
+{
+    std::vector<std::string> insts;
+
+    for (const thcGenEdit::Sink &sink : doc_.chains[ci].sinks)
+        if (!sink.instrument.empty() &&
+            std::find(insts.begin(), insts.end(), sink.instrument) ==
+                insts.end())
+            insts.push_back(sink.instrument);
+
+    return insts;
 }
 
 bool
@@ -780,11 +863,16 @@ Composer::startEvolve (const std::string &instrument,
     if (!playable(what, instrument))
         return false;
 
+    thcAuditioner::Instrument values;
+
     if (!sched_->graphText(what->channel, spec.start))
     {
         why = instrument + " has no graph here to evolve";
         return false;
     }
+
+    if (sched_->auditionInstrument(*what, values))
+        spec.startArgs = values.chanargs;
 
     if (!towardWav.empty())
         spec.targetWav = towardWav;
@@ -800,11 +888,15 @@ Composer::startEvolve (const std::string &instrument,
             why = towardInstrument + " has no graph here to move toward";
             return false;
         }
+
+        if (sched_->auditionInstrument(*toward, values))
+            spec.targetArgs = values.chanargs;
     }
 
     thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
 
     spec.pluginPath = pm ? pm->pluginPath() : std::string(PLUGIN_PATH);
+    spec.rate = synth_ ? synth_->getSampleRate() : TH_DEFAULT_SAMPLES;
     spec.grow = grow;
     spec.seed = sched_->masterSeed();
 
@@ -814,9 +906,111 @@ Composer::startEvolve (const std::string &instrument,
         return false;
 
     evolving_ = instrument;
+    evolveGraph_.clear();
     evolvePending_ = false;
 
     return true;
+}
+
+bool
+Composer::putEvolveGraph (const std::string &graph, bool over,
+                          std::string &why)
+{
+    const thcInstrument *what = sched_->instrument(evolving_);
+    std::string now;
+
+    if (what == NULL)
+    {
+        why = evolving_ + " is no longer in the piece";
+        return false;
+    }
+
+    const bool onTop = sched_->grownText(what->channel, now) &&
+                       now == evolveGraph_;
+
+    if (!evolveGraph_.empty() && !onTop && !over)
+    {
+        why = "the channel has changed since the last Listen";
+        return false;
+    }
+
+    if (!evolveGraph_.empty() && onTop &&
+        !sched_->growInstrument(what->channel, 0, true, "", "", 0, 0, why))
+        return false;
+
+    if (!sched_->tryGraph(what->channel, graph, why))
+        return false;
+
+    evolveGraph_ = graph;
+
+    return true;
+}
+
+bool
+Composer::listenNearest (std::string &why)
+{
+    std::string graph;
+
+    if (!evolve_ || evolve_->done())
+    {
+        why = "no search is running";
+        return false;
+    }
+
+    if (!evolve_->nearest(graph))
+    {
+        why = "the search has found nothing yet";
+        return false;
+    }
+
+    return graph == evolveGraph_ || putEvolveGraph(graph, false, why);
+}
+
+/* The nearest the search has come, a step for each time it came nearer,
+   held to now: time across, distance down from nearest at the top. */
+void
+Composer::drawEvolve (const Cairo::RefPtr<Cairo::Context> &cr, int w, int h)
+{
+    cr->set_source_rgb(0x14 / 255.0, 0x16 / 255.0, 0x1a / 255.0);
+    cr->paint();
+
+    if (!evolve_)
+        return;
+
+    const std::vector<std::pair<double, double> > trail = evolve_->trail();
+
+    if (trail.empty())
+        return;
+
+    const double end = std::max(evolve_->done() ? trail.back().first
+                                                : evolve_->seconds(), 1.0);
+    double lo = trail[0].second, hi = trail[0].second;
+
+    for (const auto &p : trail)
+    {
+        lo = std::min(lo, p.second);
+        hi = std::max(hi, p.second);
+    }
+
+    const double pad = 6, range = std::max(hi - lo, 0.5);
+    const auto x = [&] (double t) { return pad + t / end * (w - 2 * pad); };
+    const auto y = [&] (double d) { return pad + (d - lo) / range * (h - 2 * pad); };
+
+    double held = trail[0].second;
+
+    cr->move_to(x(0), y(held));
+
+    for (const auto &p : trail)
+    {
+        cr->line_to(x(p.first), y(held));
+        cr->line_to(x(p.first), y(p.second));
+        held = p.second;
+    }
+
+    cr->line_to(x(end), y(trail.back().second));
+    cr->set_source_rgb(0.35, 0.65, 1.0);
+    cr->set_line_width(1.5);
+    cr->stroke();
 }
 
 bool
@@ -842,10 +1036,9 @@ Composer::evolveResult (std::string &why)
         return false;
     }
 
-    if (!sched_->tryGraph(what->channel, graph, why))
+    if (!putEvolveGraph(graph, true, why))
         return false;
 
-    evolveGraph_ = graph;
     evolvePending_ = true;
 
     char said[96];
@@ -908,6 +1101,15 @@ Composer::onEvolve (void)
         evolveStop_ = manage(new Gtk::Button("_Cancel", true));
         evolveKeep_ = manage(new Gtk::Button("_Keep", true));
         evolveDrop_ = manage(new Gtk::Button("_Discard", true));
+        evolveHear_ = manage(new Gtk::Button("_Listen", true));
+        evolvePlot_ = manage(new Gtk::DrawingArea());
+
+        evolveHear_->set_tooltip_text("Put the nearest graph the search has "
+                                      "found so far on the instrument's "
+                                      "channel");
+        evolvePlot_->set_content_height(90);
+        evolvePlot_->set_draw_func(sigc::mem_fun(*this,
+                                                 &Composer::drawEvolve));
 
         evolveState_->set_xalign(0);
         evolveState_->set_wrap(true);
@@ -931,10 +1133,20 @@ Composer::onEvolve (void)
 
         buttons->append(*evolveGo_);
         buttons->append(*evolveStop_);
+        buttons->append(*evolveHear_);
         buttons->append(*evolveKeep_);
         buttons->append(*evolveDrop_);
         grid->attach(*evolveState_, 0, 3, 2, 1);
-        grid->attach(*buttons, 0, 4, 2, 1);
+        grid->attach(*evolvePlot_, 0, 4, 2, 1);
+        grid->attach(*buttons, 0, 5, 2, 1);
+
+        evolveHear_->signal_clicked().connect([this]
+        {
+            std::string why;
+
+            if (!listenNearest(why))
+                evolveState_->set_text(why);
+        });
         evolveWin_->set_child(*grid);
 
         /* The last entry of Toward is a recording, chosen when it is
@@ -994,6 +1206,7 @@ Composer::onEvolve (void)
             evolveState_->set_text("listening...");
             evolveGo_->set_sensitive(false);
             evolveStop_->set_sensitive(true);
+            evolveHear_->set_sensitive(true);
             evolveKeep_->set_sensitive(false);
             evolveDrop_->set_sensitive(false);
             evolvePoll_ = Glib::signal_timeout().connect(
@@ -1034,7 +1247,8 @@ Composer::onEvolve (void)
                 evolveState_->set_text("it is no longer on the channel");
             else
                 evolveState_->set_text(
-                    sched_->growInstrument(what->channel, 0, true, "", why)
+                    sched_->growInstrument(what->channel, 0, true, "", "", 0, 0,
+                                           why)
                     ? "put back as it was" : why);
 
             evolvePending_ = false;
@@ -1054,6 +1268,7 @@ Composer::onEvolve (void)
 
     evolveGo_->set_sensitive(!running);
     evolveStop_->set_sensitive(running);
+    evolveHear_->set_sensitive(running);
     evolveKeep_->set_sensitive(!running && evolvePending_);
     evolveDrop_->set_sensitive(!running && evolvePending_);
 
@@ -1095,8 +1310,11 @@ Composer::pollEvolve (void)
         evolveState_->set_text("the piece it was for is closed");
         evolveGo_->set_sensitive(true);
         evolveStop_->set_sensitive(false);
+        evolveHear_->set_sensitive(false);
         return false;
     }
+
+    evolvePlot_->queue_draw();
 
     if (!evolveDone())
     {
@@ -1113,13 +1331,23 @@ Composer::pollEvolve (void)
     std::string why;
     const bool ok = evolveResult(why);
 
+    /* A search that failed after a Listen left what was listened to on
+       the channel, and that is as much the search's to keep or discard. */
+    if (!ok && !evolveGraph_.empty())
+    {
+        evolvePending_ = true;
+        why += "; what was listened to is playing on " + evolving_ +
+               ": Keep or Discard";
+    }
+
     evolveState_->set_text(ok ? why + ": playing on " + evolving_ +
                                 "; Keep or Discard"
                               : why);
     evolveGo_->set_sensitive(true);
     evolveStop_->set_sensitive(false);
-    evolveKeep_->set_sensitive(ok);
-    evolveDrop_->set_sensitive(ok);
+    evolveHear_->set_sensitive(false);
+    evolveKeep_->set_sensitive(evolvePending_);
+    evolveDrop_->set_sensitive(evolvePending_);
 
     return false;
 }
@@ -2404,6 +2632,9 @@ Composer::onDrawTimer (void)
     if (seqShown_)
         seq_.tick();
 
+    for (GrowthView *view : growthViews_)
+        view->tick();
+
     /* The transport can stop without anyone pressing Pause: a piece
        whose arrangement ends (`section end;') stops itself when its last
        section is over. The transport has to say so, and this is the only
@@ -3218,6 +3449,7 @@ Composer::rebuildEditor (void)
        dereferenced the null and took the program with it. A pointer
        cleared here has to be one the loop below actually destroys. */
     selBox_ = NULL;
+    growthViews_.clear();
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);
@@ -3254,6 +3486,8 @@ Composer::rebuildSelection (void)
 {
     if (selBox_ == NULL)
         return;
+
+    growthViews_.clear();
 
     while (Gtk::Widget *child = selBox_->get_first_child())
         selBox_->remove(*child);
@@ -4435,6 +4669,26 @@ Composer::buildStageSelection (size_t ci, size_t si)
             });
 
         selBox_->append(*keep);
+
+        const std::vector<std::string> insts = playedBy(ci);
+
+        for (const std::string &name : insts)
+        {
+            const thcInstrument *inst = sched_->instrument(name);
+
+            if (inst == NULL)
+                continue;
+
+            if (insts.size() > 1)
+                selBox_->append(*Gtk::make_managed<Gtk::Label>(name));
+
+            GrowthView *view = Gtk::make_managed<GrowthView>(sched_,
+                                                             inst->channel);
+
+            view->say = [this] (const std::string &s) { status_->set_text(s); };
+            selBox_->append(*view);
+            growthViews_.push_back(view);
+        }
     }
 
     Gtk::Button *rm = manage(new Gtk::Button("Remove stage"));

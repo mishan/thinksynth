@@ -65,6 +65,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "NodeEvolve.h"
 #include "NodeMutate.h"
 #include "thcNodeHost.h"
 #include "thcAudition.h"
@@ -6410,10 +6411,12 @@ grownFor (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
         sched.setAuditionSynchronous(true);
         sched.setGrower([synth] (const std::string &text,
                                  const std::string &base, unsigned int choice,
-                                 const std::string &kinds, std::string &g,
-                                 std::string &what, std::string &why)
+                                 const std::string &kinds, size_t want,
+                                 std::vector<std::string> &g,
+                                 std::vector<std::string> &w,
+                                 std::string &why)
                         { return NodeMutate::grow(synth, text, base, choice,
-                                                  kinds, g, what, why); });
+                                                  kinds, want, g, w, why); });
 
         if (!loader.load(path, &sched))
             fail("the growing piece does not load");
@@ -6515,6 +6518,270 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
     }
     else
         fail("there was no grown graph to keep");
+}
+
+/* What happens to a growth while it is being heard. */
+enum Interrupt { HEARD_OUT, REWOUND, TO_MIDI };
+
+/* One growth step on bass.dsp, of second voices only, toward `target' --
+   empty for none -- hearing up to `listen', with the ear answering in the
+   tick or, as live, on a later one, and `interrupt' while it hears. The
+   graph it grew to, or empty for the declared one; after TO_MIDI, "kept"
+   if the ear's answers were still collected for it. `then', if given,
+   sees the scheduler before it goes. */
+static std::string
+grownToward (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &aim, const std::string &target,
+             int listen, bool sync, Interrupt interrupt = HEARD_OUT,
+             const std::function<void (thcScheduler &, int)> &then = NULL,
+             int tune = 0)
+{
+    const std::string path = thUtil::tempFile("gencheck-toward-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "instrument aim { dsp {\n" << aim << "\n}; };\n"
+               "instrument ext { midi \"nowhere\"; midichannel = 1; };\n"
+               "chain melody {\n    stage s gen::eno_line { notes = "
+               "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
+               "    sink { instrument = pad; };\n};\n"
+               "chain shape {\n    stage g gen::grow { every = 2 s; depth = 1; "
+               "shrink = 0; kinds = \"voice\"; listen = " << listen
+            << "; tune = " << tune << "; target = \"" << target
+            << "\"; };\n"
+               "    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    std::string grown;
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        sched.setAuditionSynchronous(sync);
+        sched.setGrower([synth] (const std::string &text,
+                                 const std::string &base, unsigned int choice,
+                                 const std::string &kinds, size_t want,
+                                 std::vector<std::string> &g,
+                                 std::vector<std::string> &w,
+                                 std::string &why)
+                        { return NodeMutate::grow(synth, text, base, choice,
+                                                  kinds, want, g, w, why); });
+        sched.setTuner(NodeEvolve::tuneAdded);
+
+        if (!loader.load(path, &sched))
+            fail("the piece growing toward a target does not load");
+        else
+        {
+            sched.start();
+
+            for (double t = 0; t < 1.9; t += 0.05)
+            {
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            /* One step over the grow at 2 s: a live ear's answers can be
+               taken no sooner than the step after. */
+            sched.stepTransportTo(2.02);
+            drainSynth();
+
+            const int ch = sched.instrument("pad")->channel;
+            std::string why;
+
+            if (interrupt == REWOUND)
+            {
+                sched.reset();
+                sched.start();
+            }
+            else if (interrupt == TO_MIDI)
+                sched.swapInstrument(ch, "ext", why);
+
+            const int answered = sched.auditioner() != NULL
+                               ? sched.auditioner()->answered() : 0;
+
+            if (!sync && sched.auditioner() != NULL)
+            {
+                sched.auditioner()->drain();
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            if (interrupt == TO_MIDI)
+                grown = sched.auditioner() != NULL &&
+                        sched.auditioner()->answered() > answered
+                      ? "kept" : "";
+            else
+                sched.grownText(ch, grown);
+
+            if (then)
+                then(sched, ch);
+        }
+    }
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+
+    return grown;
+}
+
+/* A target one edit away is reached in one step when every edit is heard,
+   though the walk alone goes elsewhere. */
+static void
+checkGrowToward (const std::map<std::string, thcPlugin *> &plugins,
+                 thSynth *synth)
+{
+    /* Binary, as the scheduler reads it: a CRLF checkout's graph is
+       another text in text mode. */
+    std::ifstream in(thUtil::findDataFile("bass.dsp", "dsp", "THINK_DSP_PATH",
+                                          DSP_PATH).c_str(), std::ios::binary);
+    const std::string base((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    std::vector<std::string> options, whats;
+    std::string why;
+
+    if (!NodeMutate::grow(synth, base, base, 0, "voice", 16, options, whats,
+                          why) ||
+        options.size() < 2)
+    {
+        fail("bass.dsp has too few second voices to choose among: " + why);
+        return;
+    }
+
+    const std::string wander = grownToward(plugins, synth, base, "", 16, true);
+
+    for (size_t i = 0; i < options.size(); i++)
+    {
+        if (options[i] == wander)
+            continue;
+
+        for (int sync = 0; sync < 2; sync++)
+            if (grownToward(plugins, synth, options[i], "aim", 16, sync) !=
+                options[i])
+                fail(std::string("gen::grow toward a graph one edit away did "
+                                 "not reach it, with the ear answering ") +
+                     (sync ? "in the tick" : "later"));
+
+        if (!grownToward(plugins, synth, options[i], "aim", 16, false,
+                         REWOUND).empty())
+            fail("a growth still being heard went on after a rewind");
+
+        if (!grownToward(plugins, synth, options[i], "aim", 16, false,
+                         TO_MIDI).empty())
+            fail("a growth still being heard outlived a swap to a MIDI "
+                 "instrument");
+
+        /* One edit heard is still heard, so a host has its distance. */
+        grownToward(plugins, synth, options[i], "aim", 1, true, HEARD_OUT,
+                    [&] (thcScheduler &sched, int ch)
+        {
+            std::vector<std::string> stack;
+            std::vector<thcScheduler::GrowthStep> log;
+
+            if (!sched.growth(ch, stack, log) || log.size() != 1 ||
+                log[0].heard.size() != 1 || std::isnan(log[0].distance) ||
+                std::isnan(log[0].from))
+                fail("a growth toward a target hearing one edit is not "
+                     "logged as heard");
+        });
+
+        /* What a host is told: the edit in words, each heard, and the
+           graph on the channel nearer than the one it grew from. Then
+           back to the declared graph, which is logged too. */
+        grownToward(plugins, synth, options[i], "aim", 16, true, HEARD_OUT,
+                    [&] (thcScheduler &sched, int ch)
+        {
+            std::vector<std::string> stack;
+            std::vector<thcScheduler::GrowthStep> log;
+            std::string text, why;
+
+            if (!sched.growth(ch, stack, log) || stack.size() != 2 ||
+                stack[1] != whats[i] || log.size() != 1 ||
+                log[0].heard.size() < 2 || log[0].taken < 0 ||
+                !(log[0].distance < log[0].from) ||
+                log[0].distance != log[0].heard[log[0].taken])
+                fail("a growth toward a target is not logged as heard");
+
+            if (!sched.growBackTo(ch, 0, why) || sched.grownText(ch, text) ||
+                !sched.growth(ch, stack, log) || stack.size() != 1 ||
+                log.size() != 2 || log[1].depth != 0 || !log[1].what.empty())
+                fail("going back to the declared graph did not: " + why);
+        });
+
+        /* The target is the edit with what it added moved well away, so
+           the edit as it comes is near it but not on it: tuned first, the
+           step lands nearer. */
+        std::string aim = options[i];
+        thSynthTree *before, *after;
+
+        {
+            thUtil::GraphHold a = thUtil::addGraphText("gencheck-base.dsp",
+                                                       base);
+            thUtil::GraphHold b = thUtil::addGraphText("gencheck-aim.dsp",
+                                                       aim);
+
+            before = synth->parseTree("gencheck-base.dsp");
+            after = synth->parseTree("gencheck-aim.dsp");
+        }
+
+        std::vector<NodeMutate::Gene> genes;
+        NodeMutate::Shape was;
+
+        if (before != NULL && after != NULL)
+        {
+            NodeMutate::read(before, base, NULL, &was);
+            NodeMutate::read(after, aim, &genes, NULL);
+        }
+
+        delete before;
+        delete after;
+
+        bool moved = false;
+
+        for (const NodeMutate::Gene &g : genes)
+            if (!moved && g.choices.empty() && !g.node.empty() &&
+                std::find(was.names.begin(), was.names.end(), g.node) ==
+                    was.names.end())
+                moved = NodeMutate::write(aim, g, NodeMutate::fromU(
+                            g, NodeMutate::toU(g, g.value) + 2.0));
+
+        double untuned = NAN, tuned = NAN;
+        bool playsTuned = false;
+
+        for (int t = 0; moved && t < 2; t++)
+            grownToward(plugins, synth, aim, "aim", 16, true, HEARD_OUT,
+                        [&] (thcScheduler &sched, int ch)
+            {
+                std::vector<std::string> stack;
+                std::vector<thcScheduler::GrowthStep> log;
+
+                std::string text;
+
+                if (sched.growth(ch, stack, log) && !log.empty())
+                    (t ? tuned : untuned) = log.back().distance;
+
+                if (t && sched.grownText(ch, text))
+                    playsTuned = std::find(options.begin(), options.end(),
+                                           text) == options.end();
+            }, t ? 6 : 0);
+
+        if (!moved)
+            fail("the second voice added no constant to move");
+        else if (!(tuned < untuned))
+            fail("an edit tuned before it was heard did not land nearer: " +
+                 std::to_string(tuned) + " dB tuned, " +
+                 std::to_string(untuned) + " untuned");
+        else if (!playsTuned)
+            fail("the channel plays an edit as it came, not as it was tuned");
+
+        return;
+    }
+
+    fail("gen::grow without a target grew none of the edits on offer");
 }
 
 static void
@@ -14089,6 +14356,7 @@ main (int argc, char *argv[])
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkGrow(plugins, &synth);
+    checkGrowToward(plugins, &synth);
     checkInlineGraph(plugins, &synth);
     checkOneErrorEach(plugins, &synth);
     checkColony(plugins, &synth, genFile);

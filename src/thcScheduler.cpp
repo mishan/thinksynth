@@ -679,7 +679,7 @@ thcScheduler::clearChains (void)
     /* Structure edits belong to the piece that made them. */
     nodeArgs_.clear();
     swapped_.clear();
-    grown_.clear();
+    forgetGrowth(-1);
 
     /* The instrument table goes with the piece too. What is *loaded* on
        those channels does not: a patch outlives the file that asked for
@@ -904,8 +904,22 @@ thcScheduler::ensureAuditioner (void)
 #ifndef __EMSCRIPTEN__
     if (auditioner_ == NULL && synth_ != NULL &&
         synth_->getPluginManager() != NULL)
+    {
         auditioner_ = new thcAuditioner(synth_->getPluginManager()->pluginPath(),
                                         (double)synth_->getSampleRate());
+        auditioner_->setTuner(tuner_);
+    }
+#endif
+}
+
+void
+thcScheduler::setTuner (const thcAuditioner::Tuner &fn)
+{
+    tuner_ = fn;
+
+#ifndef __EMSCRIPTEN__
+    if (auditioner_ != NULL)
+        auditioner_->setTuner(fn);
 #endif
 }
 
@@ -916,6 +930,11 @@ thcScheduler::setAuditionSynchronous (bool on)
     ensureAuditioner();
 
 #ifndef __EMSCRIPTEN__
+    /* A synchronous render uses the synth the worker renders on, so the
+       worker finishes first. */
+    if (auditioner_ != NULL && on)
+        auditioner_->drain();
+
     if (auditioner_ != NULL)
         auditioner_->setSynchronous(on);
 #endif
@@ -1066,6 +1085,18 @@ thcScheduler::hear (thcStage *stage, const char *target,
                     std::make_pair(name, (float)values[i]));
         }
 
+    return hearAgainst(candidate, target);
+#endif
+}
+
+int
+thcScheduler::hearAgainst (const thcAuditioner::Instrument &candidate,
+                           const char *target, int tune,
+                           const std::string &from)
+{
+#ifdef __EMSCRIPTEN__
+    return -1;
+#else
     const thcInstrument *other = instrument(target);
     thcAuditioner::Instrument targetInstrument;
 
@@ -1075,7 +1106,7 @@ thcScheduler::hear (thcStage *stage, const char *target,
             return -1;
 
         return auditioner_->hear(candidate, "instrument:" + other->name,
-                                 &targetInstrument, "");
+                                 &targetInstrument, "", tune, from);
     }
 
     std::string file = target;
@@ -1092,8 +1123,122 @@ thcScheduler::hear (thcStage *stage, const char *target,
         file = found;
     }
 
-    return auditioner_->hear(candidate, "file:" + file, NULL, file);
+    return auditioner_->hear(candidate, "file:" + file, NULL, file, tune,
+                             from);
 #endif
+}
+
+std::vector<int>
+thcScheduler::hearAll (const thcInstrument &inst,
+                       const std::vector<std::string> &options,
+                       const std::string &target, size_t tuned, int tune,
+                       const std::string &from)
+{
+    std::vector<int> tickets(options.size(), -1);
+
+#ifndef __EMSCRIPTEN__
+    ensureAuditioner();
+
+    for (size_t i = 0; auditioner_ != NULL && i < options.size(); i++)
+    {
+        thcInstrument as = inst;
+        thcAuditioner::Instrument candidate;
+
+        as.dsp = thcGenLoader::inlineGraphName(inst.name, options[i]);
+        as.graphs.push_back(thUtil::addGraphText(as.dsp, options[i]));
+
+        if (auditionInstrument(as, candidate))
+            tickets[i] = hearAgainst(candidate, target.c_str(),
+                                     i < tuned ? tune : 0, from);
+    }
+#else
+    (void)inst;
+    (void)target;
+    (void)tuned;
+    (void)tune;
+    (void)from;
+#endif
+
+    return tickets;
+}
+
+bool
+thcScheduler::collect (Growth &g)
+{
+    bool all = true;
+
+#ifndef __EMSCRIPTEN__
+    for (size_t i = 0; i < g.tickets.size(); i++)
+    {
+        double d;
+        const int r = g.tickets[i] < 0 || auditioner_ == NULL ? -1 :
+                      auditioner_->heard(g.tickets[i], &d, &g.tuned[i]);
+
+        if (r == 0)
+            all = false;
+        else
+        {
+            g.distances[i] = r == 1 ? d : HUGE_VAL;
+            g.tickets[i] = -1;
+        }
+    }
+#endif
+
+    return all;
+}
+
+void
+thcScheduler::forgetHearing (Growth &g)
+{
+#ifndef __EMSCRIPTEN__
+    for (size_t i = 0; i < g.tickets.size(); i++)
+        if (g.tickets[i] >= 0 && auditioner_ != NULL)
+            auditioner_->forget(g.tickets[i]);
+#endif
+
+    g.options.clear();
+    g.optionWhats.clear();
+    g.tuned.clear();
+    g.tickets.clear();
+    g.distances.clear();
+}
+
+void
+thcScheduler::forgetGrowth (int channel)
+{
+    for (auto &e : grown_)
+        if (channel < 0 || e.first == channel)
+            forgetHearing(e.second);
+
+    if (channel < 0)
+        grown_.clear();
+    else
+        grown_.erase(channel);
+
+    growthSerial_++;
+}
+
+/* A growth being heard live goes on in the step its last answer comes in:
+   the nearest of its edits, onto the graph it was grown from, which is
+   still the top of the stack -- anything that moved the stack forgot it. */
+void
+thcScheduler::takeHeardGrowth (void)
+{
+    std::vector<int> ready;
+
+    for (auto &e : grown_)
+        if (!e.second.options.empty() && collect(e.second))
+            ready.push_back(e.first);
+
+    for (size_t i = 0; i < ready.size(); i++)
+    {
+        std::string why;
+
+        if (!growthOf(ready[i], why) ||
+            !takeHeard(ready[i], grown_[ready[i]], why))
+            fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
+                    ready[i] + 1, why.c_str());
+    }
 }
 
 /* ---- instruments ------------------------------------------------------- */
@@ -1789,6 +1934,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
             overMidi_[channel] = true;
             holding_[channel] = name;
             forgetNodeArgs(channel);
+            forgetGrowth(channel);
             return true;
         }
 
@@ -1806,6 +1952,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
 
             holding_[channel] = name;
             forgetNodeArgs(channel);
+            forgetGrowth(channel);
             return true;
         }
     }
@@ -1814,7 +1961,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
         return false;
 
     /* Whatever grew on this channel grew on the graph that is gone. */
-    grown_.erase(channel);
+    forgetGrowth(channel);
 
     /* What the channel is holding now, so the next swap can tell whether
        it has anything to do and the host can tell that the channel no
@@ -1902,22 +2049,23 @@ thcScheduler::graphText (int channel, std::string &text) const
 
 bool
 thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
-                              const std::string &kinds, std::string &why)
+                              const std::string &kinds,
+                              const std::string &target, int listen, int tune,
+                              std::string &why)
 {
-    return stepGraph(channel, shrink, NULL, choice, kinds, why);
+    return stepGraph(channel, shrink, NULL, choice, kinds, target, listen,
+                     tune, why);
 }
 
 bool
 thcScheduler::tryGraph (int channel, const std::string &text,
                         std::string &why)
 {
-    return stepGraph(channel, false, &text, 0, "", why);
+    return stepGraph(channel, false, &text, 0, "", "", 0, 0, why);
 }
 
-bool
-thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
-                         unsigned int choice, const std::string &kinds,
-                         std::string &why)
+thcScheduler::Growth *
+thcScheduler::growthOf (int channel, std::string &why)
 {
     const thcInstrument *inst = instrument(holding(channel));
 
@@ -1925,13 +2073,13 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
     {
         why = "channel " + std::to_string(channel + 1) + " is not one this "
               "piece declares an instrument for";
-        return false;
+        return NULL;
     }
 
     if (playsOverMidi(channel) || inst->dsp.empty())
     {
         why = "instrument '" + inst->name + "' has no graph here to grow";
-        return false;
+        return NULL;
     }
 
     Growth &g = grown_[channel];
@@ -1944,33 +2092,133 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
         {
             grown_.erase(channel);
             why = "'" + inst->dsp + "' could not be read";
-            return false;
+            return NULL;
         }
 
         g.texts.push_back(text);
         g.holds.push_back(std::shared_ptr<void>());
+        g.whats.push_back("");
+        g.levels.push_back(std::nan(""));
     }
 
-    std::string text, what;
+    return &g;
+}
 
-    if (shrink)
-    {
-        if (g.texts.size() < 2)
-            return true;    /* the declared graph: nothing to go back on */
+bool
+thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
+                         unsigned int choice, const std::string &kinds,
+                         const std::string &target, int listen, int tune,
+                         std::string &why)
+{
+    Growth *g = growthOf(channel, why);
 
-        text = g.texts[g.texts.size() - 2];
-    }
-    else if (given != NULL)
-        text = *given;
-    else if (!grower_)
+    if (g == NULL)
+        return false;
+
+    /* A step of any kind supersedes a growth still being heard. */
+    forgetHearing(*g);
+
+    GrowthStep step;
+    std::vector<std::string> options, whats;
+
+    if (shrink)     /* at the declared graph there is nothing to go back on */
+        return g->texts.size() < 2 ||
+               placeStep(channel, g->texts.size() - 2, "", "", step, why);
+
+    if (given != NULL)
+        return placeStep(channel, std::string::npos, *given,
+                         "what a search found", step, why);
+
+    if (!grower_)
     {
         why = "this host cannot grow a graph";
         return false;
     }
-    else if (!grower_(g.texts.back(), g.texts[0], choice, kinds, text, what,
-                      why))
+
+    if (!grower_(g->texts.back(), g->texts[0], choice, kinds,
+                 target.empty() ? 1 : (size_t)std::max(listen, 1),
+                 options, whats, why))
         return false;
 
+    if (target.empty())
+        return placeStep(channel, std::string::npos, options[0], whats[0],
+                         step, why);
+
+    /* The graph on the channel is heard too, last, so a host can show
+       where the step started from as well as where it went. */
+    std::vector<std::string> heard = options;
+
+    heard.push_back(g->texts.back());
+
+    g->options = options;
+    g->optionWhats = whats;
+    g->tuned.assign(heard.size(), std::string());
+    g->tickets = hearAll(*instrument(holding(channel)), heard, target,
+                         options.size(), tune, g->texts.back());
+    g->distances.assign(heard.size(), HUGE_VAL);
+
+    /* Answered later on a live host, so the step is taken then and the
+       notes due meanwhile are not held up; answered by now on one that
+       renders in the tick. */
+    if (!auditionSync_ || !collect(*g))
+        return true;
+
+    return takeHeard(channel, *g, why);
+}
+
+bool
+thcScheduler::takeHeard (int channel, Growth &g, std::string &why)
+{
+    const size_t n = g.options.size();
+    GrowthStep step;
+
+    for (size_t i = 0; i <= n; i++)
+        step.heard.push_back(g.distances[i] == HUGE_VAL ? std::nan("")
+                                                        : g.distances[i]);
+
+    step.taken = (int)(std::min_element(g.distances.begin(),
+                                        g.distances.begin() + n) -
+                       g.distances.begin());
+    step.from = step.heard[n];
+    step.heard.pop_back();
+
+    const std::string text = g.tuned[step.taken].empty()
+                           ? g.options[step.taken] : g.tuned[step.taken];
+    const std::string what = g.optionWhats[step.taken];
+
+    forgetHearing(g);
+
+    return placeStep(channel, std::string::npos, text, what, step, why);
+}
+
+bool
+thcScheduler::growBackTo (int channel, size_t depth, std::string &why)
+{
+    Growth *g = growthOf(channel, why);
+
+    if (g == NULL)
+        return false;
+
+    if (depth + 1 >= g->texts.size())
+    {
+        why = "the channel is not that many edits on";
+        return false;
+    }
+
+    forgetHearing(*g);
+
+    return placeStep(channel, depth, "", "", GrowthStep(), why);
+}
+
+bool
+thcScheduler::placeStep (int channel, size_t backTo, const std::string &grown,
+                         const std::string &what, GrowthStep step,
+                         std::string &why)
+{
+    const thcInstrument *inst = instrument(holding(channel));
+    Growth &g = grown_[channel];
+    const bool back = backTo != std::string::npos;
+    const std::string text = back ? g.texts[backTo] : grown;
     thcInstrument put = *inst;
 
     put.channel = channel;
@@ -1979,7 +2227,7 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
        a name its text decides, held for as long as it is on the stack. */
     std::shared_ptr<void> hold;
 
-    if (!shrink || g.texts.size() > 2)
+    if (!back || backTo > 0)
     {
         put.dsp = thcGenLoader::inlineGraphName(inst->name, text);
         hold = thUtil::addGraphText(put.dsp, text);
@@ -1991,18 +2239,48 @@ thcScheduler::stepGraph (int channel, bool shrink, const std::string *given,
     if (!putOn(put, why))
         return false;
 
-    if (shrink)
+    if (std::isnan(g.levels.back()))
+        g.levels.back() = step.from;
+
+    if (back)
     {
-        g.texts.pop_back();
-        g.holds.pop_back();
+        g.texts.resize(backTo + 1);
+        g.holds.resize(backTo + 1);
+        g.whats.resize(backTo + 1);
+        g.levels.resize(backTo + 1);
     }
     else
     {
         g.texts.push_back(text);
         g.holds.push_back(hold);
+        g.whats.push_back(what);
+        g.levels.push_back(step.taken >= 0 ? step.heard[step.taken]
+                                           : std::nan(""));
     }
 
+    step.at = transportNow_;
+    step.depth = g.texts.size() - 1;
+    step.what = back ? "" : what;
+    step.distance = g.levels.back();
+    g.log.push_back(step);
+    growthSerial_++;
+
     forgetNodeArgs(channel);
+
+    return true;
+}
+
+bool
+thcScheduler::growth (int channel, std::vector<std::string> &stack,
+                      std::vector<GrowthStep> &log) const
+{
+    const auto g = grown_.find(channel);
+
+    if (g == grown_.end() || g->second.texts.empty())
+        return false;
+
+    stack = g->second.whats;
+    log = g->second.log;
 
     return true;
 }
@@ -3042,6 +3320,7 @@ thcScheduler::runStep (void)
      * time, because that is what makes a replay a replay: how far an LFO
      * has travelled is a function of where the transport is, not of how
      * many times this was called or how late a frame was. */
+    takeHeardGrowth();
     runDueTicks(transportNow_);
 
     for (size_t i = 0; i < chains_.size(); i++)
@@ -3490,6 +3769,9 @@ thcScheduler::queuePending (const thcEvent &ev,
         p.text.reset(new std::string(ev.u.grow.kinds ? ev.u.grow.kinds
                                                      : ""));
         p.ev.u.grow.kinds = p.text->c_str();
+        p.text2.reset(new std::string(ev.u.grow.target ? ev.u.grow.target
+                                                       : ""));
+        p.ev.u.grow.target = p.text2->c_str();
     }
     else if (ev.type == THC_EV_NODEARG)
     {
@@ -3724,7 +4006,9 @@ thcScheduler::deliver (const thcEvent &ev)
 
             if (!growInstrument(ev.channel, ev.u.grow.choice,
                                 ev.u.grow.shrink != 0,
-                                ev.u.grow.kinds ? ev.u.grow.kinds : "", why))
+                                ev.u.grow.kinds ? ev.u.grow.kinds : "",
+                                ev.u.grow.target ? ev.u.grow.target : "",
+                                ev.u.grow.listen, ev.u.grow.tune, why))
                 fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
                         ev.channel + 1, why.c_str());
             break;
@@ -4089,6 +4373,10 @@ thcScheduler::reset (void)
     wakeups_.clear();
     started_ = false;
 
+    /* A growth still being heard was asked for by a play that is over. */
+    for (auto &e : grown_)
+        forgetHearing(e.second);
+
     /* The embedded nodes rewind too, or a replay would start with an
        LFO wherever the last play left it -- which is the same
        divergence a composer instance carrying its old state would be,
@@ -4166,7 +4454,7 @@ thcScheduler::reset (void)
         {
             nodeArgs_.clear();
             swapped_.clear();
-            grown_.clear();
+            forgetGrowth(-1);
             holding_.clear();   /* every channel says what the file says */
         }
     }

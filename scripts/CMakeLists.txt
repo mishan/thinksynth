@@ -356,6 +356,7 @@ think_harness(composercheck NODEMODEL COMPOSERHOST VISUALHOST COMPOSERCANVAS ROL
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/GrowthView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM ${THINK_RTMIDI_LIB})
@@ -397,6 +398,7 @@ think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
                     "${PROJECT_SOURCE_DIR}/src/gui/PatchSelPanel.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/GrowthView.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp")
 target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB}

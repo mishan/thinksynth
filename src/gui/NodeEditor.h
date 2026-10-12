@@ -88,6 +88,10 @@ public:
        empty, not in a dialog over a window the user was not looking at. */
     void setStatusPublic (const string &text) { setStatus(text); }
 
+    /* `names' marked as what growth or a search added to the graph the
+       piece declares, and the status line saying so. */
+    void markGrown (const std::set<string> &names);
+
 protected:
     void onArrange (void);
     void onSave (void);

@@ -21,6 +21,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@
 #include "thcScheduler.h"
 #include "NodeEvolve.h"
 #include "ComposerCanvasWidget.h"
+#include "GrowthView.h"
 #include "SeqView.h"
 #include "StageParamsView.h"
 
@@ -177,6 +179,12 @@ public:
     bool inlineGraph (const std::string &name, std::string &instrument,
                       std::string &body);
 
+    /* The instrument growth or a search has put the graph loaded under
+       `name' on, that graph's text, and the nodes it has that the
+       instrument's declared graph does not. False for any other name. */
+    bool grownGraph (const std::string &name, std::string &instrument,
+                     std::string &body, std::set<std::string> &added);
+
     /* What gen::grow has made of the instrument chain `ci' plays, written
        into the piece as that instrument's `dsp { ... }' -- over a file's
        name if it had one -- and the piece reloaded, so the grown graph is
@@ -188,6 +196,7 @@ public:
        or -- keepGraph -- `text', written into the piece as its dsp { } and
        the piece reloaded. */
     bool keepInstrument (const std::string &instrument, std::string &why);
+    std::vector<std::string> playedBy (size_t ci) const;
     bool keepGraph (const std::string &instrument, const std::string &text,
                     std::string &why);
 
@@ -201,6 +210,12 @@ public:
                       std::string &why);
     bool evolveDone (void) const;
     bool evolveResult (std::string &why);
+
+    /* The nearest graph the running search has found, on the channel to
+       be heard -- in place of the last one heard, so the channel holds one
+       graph of the search's at a time and Discard goes back past it.
+       Refused once the channel has moved on from that one. */
+    bool listenNearest (std::string &why);
 
     /* `body' written into that instrument's `dsp { }' and the piece
        reloaded; `name' gets what the graph is loaded under now. */
@@ -541,6 +556,10 @@ protected:
        canvas selection changes. */
     Gtk::Box *selBox_;
 
+    /* The selected gen::grow stage's views, one for each instrument its
+       chain reaches, while they are in selBox_. */
+    std::vector<GrowthView *> growthViews_;
+
     /* The node canvas; inline composer_draw replaced the old draw
        strip. */
     ComposerCanvasWidget *canvas_;
@@ -572,13 +591,25 @@ protected:
                   *evolveHow_ = NULL;
     Gtk::Label *evolveState_ = NULL;
     Gtk::Button *evolveGo_ = NULL, *evolveStop_ = NULL,
-                *evolveKeep_ = NULL, *evolveDrop_ = NULL;
+                *evolveKeep_ = NULL, *evolveDrop_ = NULL,
+                *evolveHear_ = NULL;
+
+    /* How near the search has come over time, nearer higher. */
+    Gtk::DrawingArea *evolvePlot_ = NULL;
+
+    /* `graph' on the channel in place of the search's last, if that is
+       still what plays; on top of whatever does if `over', and refused
+       otherwise. */
+    bool putEvolveGraph (const std::string &graph, bool over,
+                         std::string &why);
+    void drawEvolve (const Cairo::RefPtr<Cairo::Context> &cr, int w, int h);
     std::string evolveWav_;
     std::vector<std::string> evolveNames_;
 
-    /* What the last search found, while it waits on the channel to be kept
-       or discarded -- remembered here rather than read back off the
-       channel, which a seek or a swap may have changed since. */
+    /* What the last search found, or the nearest it had when listened to,
+       while it waits on the channel to be kept or discarded -- remembered
+       here rather than read back off the channel, which a seek or a swap
+       may have changed since. */
     std::string evolveGraph_;
     bool evolvePending_ = false;
 

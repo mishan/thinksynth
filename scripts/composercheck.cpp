@@ -70,6 +70,7 @@
 #include "gthSignal.h"
 #include "gui/ComposerCanvasWidget.h"
 #include "gui/Composer.h"
+#include "thcGenFile.h"
 #include "gthMidiOut.h"
 #include "thcMidiFile.h"
 #include "gui/ItemBrowser.h"
@@ -155,6 +156,8 @@ public:
     using Composer::roll_;
     using Composer::sched_;
     using Composer::selBox_;
+    using Composer::growthViews_;
+    using Composer::evolve_;
     using Composer::editorBox_;
     using Composer::seq_;
     using Composer::dirty_;
@@ -2006,6 +2009,7 @@ runExportMidi (const std::string &pluginPath)
                 "name \"growing\";\n"
                 "seed 11;\n"
                 "instrument pad { dsp \"bass.dsp\"; };\n"
+                "instrument low { dsp \"bass.dsp\"; };\n"
                 "chain melody {\n"
                 "    stage s gen::eno_line { notes = \"A2 C3\"; "
                 "period = 0.5 s; prob = 1; };\n"
@@ -2015,6 +2019,7 @@ runExportMidi (const std::string &pluginPath)
                 "    stage g gen::grow { every = 1 s; depth = 2; "
                 "shrink = 0; };\n"
                 "    sink { instrument = pad; };\n"
+                "    sink { instrument = low; chanarg = \"glide\"; };\n"
                 "};\n");
 
         thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
@@ -2032,20 +2037,106 @@ runExportMidi (const std::string &pluginPath)
         for (int i = 0; i < 30; i++)
             win->sched_->stepTransport(0.05);
 
+        /* Held while the window is pumped, or its own clock -- seconds of
+           it under the sanitizers -- grows the graph on past what is
+           checked. */
+        win->sched_->stop();
+
+        /* The grow stage, selected, lists what grew in each instrument
+           its chain reaches, a chanarg sink's too; a first row puts that
+           one's declared graph back. */
+        ComposerCanvas::Selection sel;
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = 1;
+        sel.index = 0;
+        win->setEditing(true);
+        win->canvas_->select(sel);
+        pump(4);
+
+        GrowthView *view = win->growthViews_.empty() ? NULL
+                                                     : win->growthViews_[0];
+        const thcInstrument *grew = win->sched_->instrument("pad");
+        std::string text;
+
+        check(win->growthViews_.size() == 2 &&
+              win->growthViews_[1]->rows().size() == 2 &&
+              view->rows().size() == 2 && !view->rows()[1].empty(),
+              "a gen::grow stage's view lists the edit that grew, in words, "
+              "in each instrument its chain reaches");
+
+        /* The node editor's question about the channel's graph: whose it
+           is, and what growth added to it. */
+        std::string grownBody, owner, shown, declared;
+        std::set<std::string> added;
+
+        const bool found = grew != NULL &&
+            win->sched_->grownText(grew->channel, grownBody) &&
+            win->sched_->declaredText(grew->channel, declared) &&
+            win->grownGraph(thcGenLoader::inlineGraphName("pad", grownBody),
+                            owner, shown, added);
+        bool addedOnly = !added.empty();
+
+        for (const std::string &n : added)
+            addedOnly = addedOnly &&
+                        grownBody.find("node " + n + " ") != std::string::npos &&
+                        declared.find("node " + n + " ") == std::string::npos;
+
+        check(found && owner == "pad" && shown == grownBody && addedOnly,
+              "...and the node editor is told whose grown graph it is and "
+              "which nodes growth added");
+
+        if (view != NULL)
+            view->choose(0);
+
+        check(view != NULL && grew != NULL &&
+              !win->sched_->grownText(grew->channel, text) &&
+              view->rows().size() == 1,
+              "...and its first row puts the declared graph back");
+
+        win->sched_->start();
+
+        for (int i = 0; i < 20; i++)
+            win->sched_->stepTransport(0.05);
+
         const bool kept = win->keepGrown(1, why);
 
         pump(10);
 
         const thcInstrument *pad = win->sched_->instrument("pad");
 
+        const thcInstrument *low = win->sched_->instrument("low");
+
         check(kept && readAll(win->workPath_).find("dsp {") !=
                           std::string::npos &&
-              pad != NULL && pad->dsp.find('#') != std::string::npos,
+              pad != NULL && pad->dsp.find('#') != std::string::npos &&
+              low != NULL && low->dsp.find('#') != std::string::npos,
               "...and keeps what grew as the instrument's dsp { }, which "
               "the piece then plays");
 
         if (!kept)
             printf("      %s\n", why.c_str());
+
+        /* Swapped onto another instrument's channel and grown there, the
+           graph is that instrument's to show and to save into. */
+        bool swappedGrown = false;
+
+        if (pad != NULL && win->sched_->swapInstrument(pad->channel, "low",
+                                                       why) &&
+            win->sched_->growInstrument(pad->channel, 7, false, "", "", 0, 0,
+                                        why))
+        {
+            std::string body, owner, shown;
+            std::set<std::string> added;
+
+            swappedGrown = win->sched_->grownText(pad->channel, body) &&
+                win->grownGraph(thcGenLoader::inlineGraphName("low", body),
+                                owner, shown, added) &&
+                owner == "low";
+        }
+
+        check(swappedGrown, "...and a graph grown after a swap is the "
+                            "swapped-in instrument's");
 
         delete win;
 
@@ -2058,7 +2149,8 @@ runExportMidi (const std::string &pluginPath)
         /* Evolve toward: one instrument tuned toward another's sound on a
            thread of its own, the result heard on its channel, and kept.
            The two are the same enveloped sine with a different sustain,
-           which a tune can find in seconds. */
+           which a tune can find in seconds -- and the target's is its
+           instrument's value, so it is heard only if values are. */
         auto graphWith = [] (const char *sustain)
         {
             return std::string(
@@ -2076,8 +2168,9 @@ runExportMidi (const std::string &pluginPath)
                 "name \"evolving\";\n"
                 "instrument pad {\n    dsp {\n" + graphWith("0.05") +
                 "    };\n};\n"
-                "instrument ref {\n    dsp {\n" + graphWith("0.7") +
-                "    };\n};\n"
+                "instrument ref {\n    dsp {\n"
+                "@sus = 0.05;\n@sus.min = 0;\n@sus.max = 1;\n" +
+                graphWith("@sus") + "    };\n    sus = 0.7;\n};\n"
                 "chain melody {\n"
                 "    stage s gen::eno_line { notes = \"A3\"; "
                 "period = 1 s; prob = 1; };\n"
@@ -2100,11 +2193,18 @@ runExportMidi (const std::string &pluginPath)
 
         const bool started = win->startEvolve("pad", "ref", "", false, why);
 
-        /* Seconds on a desktop; minutes under the sanitizers. */
+        /* Seconds on a desktop; minutes under the sanitizers. The nearest
+           so far is listened to once, as the window's Listen does. */
+        int listened = 0;
+
         for (int i = 0; started && i < 6000 && !win->evolveDone(); i++)
         {
             pump(1);
             g_usleep(50000);
+
+            std::string ignored;
+
+            listened += win->listenNearest(ignored);
         }
 
         const bool heard = started && win->evolveResult(why);
@@ -2119,13 +2219,27 @@ runExportMidi (const std::string &pluginPath)
         if (!heard)
             printf("      %s\n", why.c_str());
 
+        std::vector<std::string> stack;
+        std::vector<thcScheduler::GrowthStep> log;
+
+        check(listened > 0 && pad != NULL &&
+              win->sched_->growth(pad->channel, stack, log) &&
+              stack.size() == 2,
+              "...and what was listened to on the way is replaced by it, "
+              "not stacked under it");
+
+        const auto trail = win->evolve_->trail();
+
+        check(trail.size() > 1 && trail.back().second < trail[0].second,
+              "...and its trail comes nearer than where it started");
+
         const bool kept = win->keepInstrument("pad", why);
 
         pump(10);
 
         const std::string text = readAll(win->workPath_);
 
-        check(kept && text.find("s = 0.05;") == std::string::npos &&
+        check(kept && text.find("s = 0.05; r") == std::string::npos &&
               win->sched_->instrument("pad") != NULL,
               "...and Keep writes it into the piece, which loads");
 

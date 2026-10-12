@@ -19,6 +19,8 @@
 #ifndef NODE_CANVAS_H
 #define NODE_CANVAS_H 1
 
+#include <set>
+
 #include <sigc++/sigc++.h>
 
 #include "NodeGraph.h"
@@ -196,6 +198,10 @@ public:
     void onMotion (double x, double y);
     void onLeave (void);
 
+    /* Nodes drawn with a title of their own color: what growth or a search
+       added to the graph the piece declares. */
+    void setMarked (const std::set<string> &names) { marked_ = names; }
+
 protected:
     /* How big the graph is, for the base's zoom-to-fit and sizing. */
     void contentExtent (double &w, double &h) const override;
@@ -252,6 +258,7 @@ private:
     ProbePainter probePainter_;
 
     type_signal_box_moved m_signal_box_moved_;
+    std::set<string> marked_;
     type_signal_selected m_signal_selected_;
     type_signal_selection m_signal_selection_;
     type_signal_connect m_signal_connect_;
