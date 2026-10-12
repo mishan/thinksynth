@@ -371,6 +371,19 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* Several edits as one, in a text given (thinkweb.cpp, tw_gen_ops):
+         * a band's player added or taken out. "" when one was refused. */
+        if (m.type === 'genops')
+        {
+            this.port.postMessage({
+                type: 'genops', id: m.id,
+                text: this.M.ccall('tw_gen_ops', 'string',
+                                   ['string', 'string'], [m.text, m.ops]),
+            });
+
+            return;
+        }
+
         /* A stage added behind a chain's others, in a text given: what
          * the band puts behind a player for its pad (bandview.js). ""
          * when refused. */

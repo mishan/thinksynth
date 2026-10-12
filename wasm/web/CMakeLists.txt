@@ -272,7 +272,7 @@ set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js midi.js midiout.js midioutui.js clock.js
                 mirror.js ear.js evolve.js evolveui.js growui.js
-                bandview.js canvasview.js composerview.js
+                bandideas.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
                 layouts.js packs.js manifest.json)
 set(SITE_OUTPUTS "")

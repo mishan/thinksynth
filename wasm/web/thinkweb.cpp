@@ -6163,6 +6163,93 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
         });
 }
 
+/* Several edits to `text' as one, each a line of tab-separated fields,
+ * and nothing written unless every one of them goes in: what adding or
+ * taking out a band's player is (bandview.js), so that one undo takes it
+ * back.
+ *
+ *   instrument  NAME DSP [k=v ...]
+ *   chain       NAME INSTRUMENT STAGE CATEGORY PLUGIN [k=v ...]
+ *   stage       CHAIN STAGE CATEGORY PLUGIN [k=v ...]
+ *   unchain     NAME
+ *   uninstrument NAME        -- unless a chain still plays it
+ *
+ * Values as the file would write them. "" when one was refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
+                                             const char *ops)
+{
+    if (text == NULL || ops == NULL)
+        return "";
+
+    typedef std::vector<std::pair<std::string, std::string> > Values;
+
+    std::vector<std::vector<std::string> > lines;
+    std::istringstream in(ops);
+
+    for (std::string line; std::getline(in, line); )
+    {
+        std::vector<std::string> f;
+        std::istringstream fields(line);
+
+        for (std::string one; std::getline(fields, one, '\t'); )
+            f.push_back(one);
+
+        if (!f.empty())
+            lines.push_back(f);
+    }
+
+    auto values = [] (const std::vector<std::string> &f, size_t from)
+    {
+        Values v;
+
+        for (size_t i = from; i < f.size(); i++)
+        {
+            const size_t eq = f[i].find('=');
+
+            if (eq != std::string::npos)
+                v.push_back(std::make_pair(f[i].substr(0, eq),
+                                           f[i].substr(eq + 1)));
+        }
+
+        return v;
+    };
+
+    return spliceText(text, "the band",
+        [&](const std::string &path, std::string &why)
+        {
+            for (const auto &f : lines)
+            {
+                thcGenEdit::Result r = thcGenEdit::REFUSED;
+
+                if (f[0] == "instrument" && f.size() >= 3)
+                    r = thcGenEdit::addInstrument(path, f[1], f[2],
+                                                  values(f, 3), why);
+                else if (f[0] == "chain" && f.size() >= 6)
+                    r = thcGenEdit::addChain(path, f[1], 0, f[2], f[3], f[4],
+                                             f[5], values(f, 6), why);
+                else if (f[0] == "stage" && f.size() >= 5)
+                    r = thcGenEdit::addStage(path, f[1], f[2], f[3], f[4],
+                                             values(f, 5), why);
+                else if (f[0] == "unchain" && f.size() >= 2)
+                    r = thcGenEdit::removeChain(path, f[1], why);
+                else if (f[0] == "uninstrument" && f.size() >= 2)
+                {
+                    r = thcGenEdit::removeInstrument(path, f[1], why);
+
+                    if (r == thcGenEdit::REFUSED)
+                        r = thcGenEdit::OK;
+                }
+                else
+                    why = "no edit '" + f[0] + "'";
+
+                if (r != thcGenEdit::OK)
+                    return r;
+            }
+
+            return thcGenEdit::OK;
+        });
+}
+
 /* A stage added to chain `chain' in `text', after its others: `params'
  * one `name=value' a line, each value as the file would write it. What
  * the band adds behind a player for its pad to move (bandview.js). ""

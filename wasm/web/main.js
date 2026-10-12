@@ -62,6 +62,7 @@
  * on is how they stop agreeing.
  */
 
+import { NEW_BAND, addOps, ideaNamed } from './bandideas.js';
 import { createBand } from './bandview.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
@@ -1168,6 +1169,9 @@ function setLoaded (text, join = null)
 {
     loadedText = text;
 
+    if (textMode === 'piece')
+        keepSession(text);
+
     const h = history();
 
     if (h === null || undoing || h.past.at(-1) === text)
@@ -1278,6 +1282,8 @@ async function applyText (text)
         {
             $('gen').value = was;
             await loadPiece();
+            status('That change did not load, so the piece is as it was; ' +
+                   'see below.', true);
             return false;
         }
 
@@ -1375,29 +1381,78 @@ function openPiece ()
 
 async function openFile (file)
 {
-    const text = await file.text();
+    await openText(file.name, await file.text());
+}
 
+/* A text as the piece, named `label' in the piece menu until another is
+   chosen: a file opened, a band started, the last session's piece. */
+async function openText (label, text, menuValue = '#opened')
+{
     if (!playsPiece())
     {
         $('mode').value = 'piece';
         await pickMode();
     }
 
-    let mine = $('piece').querySelector('option[data-opened]');
+    let mine = $('piece').querySelector(`option[value="${menuValue}"]`);
 
     if (mine === null)
     {
-        mine = new Option('', '');
-        mine.dataset.opened = '';
+        mine = new Option('', menuValue);
         $('piece').prepend(mine);
     }
 
-    mine.textContent = file.name;
-    $('piece').value = '';
+    mine.textContent = label;
+    $('piece').value = menuValue;
     band.forget();
     forgetHistory();
     $('gen').value = text;
     await loadPiece();
+}
+
+/* ---- the last session ----
+ *
+ * The piece's text, kept in the browser as it changes, so that a reload
+ * or a closed tab does not lose it: offered back in the piece menu the
+ * next time the page opens.
+ */
+const SESSION_KEY = 'thinksynth:piece';
+
+function keepSession (text)
+{
+    try
+    {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+            name: $('piece').selectedOptions[0]?.textContent ?? '', text }));
+    }
+    catch
+    {
+        /* No storage here: the session is simply not kept. */
+    }
+}
+
+/* The last session's piece, read once at start: what is kept from here on
+   is this session's. */
+let lastSession = null;
+
+function offerLastSession ()
+{
+    try
+    {
+        lastSession = JSON.parse(localStorage.getItem(SESSION_KEY));
+    }
+    catch
+    {
+        lastSession = null;
+    }
+
+    if (typeof lastSession?.text !== 'string' || lastSession.text === '')
+        return;
+
+    const o = new Option(`Last session: ${lastSession.name || 'a piece'}`,
+                         '#saved');
+
+    $('piece').prepend(o);
 }
 
 /* The control, put where the piece that is playing leaves it.
@@ -1776,6 +1831,72 @@ const band = createBand({
     },
     toMirror: (m) => synth?.toMirror(m),
     onGesture: (g) => synth?.input({ ...g, at: -1 }),
+
+    edit: async (ops) =>
+    {
+        const was = $('gen').value;
+
+        if (synth === null || was !== loadedText || loading > 0)
+        {
+            status('The text has changes that are not loaded; load them ' +
+                   'first.', true);
+            return;
+        }
+
+        const { text } = await synth.genOps(was, ops);
+
+        if (text === '' || $('gen').value !== was)
+        {
+            status('The band could not make that change.', true);
+            return;
+        }
+
+        await applyText(text);
+    },
+
+    sounds: () => dspGroups,
+
+    sound: async (p, dsp) =>
+    {
+        const was = $('gen').value;
+
+        if (synth === null || was !== loadedText || loading > 0)
+            return;
+
+        const { text } = await synth.genSetInstrument(was, p.instrument,
+                                                      dsp);
+
+        if (text === '' || $('gen').value !== was)
+            status(`Could not put ${p.name} on ${dsp}.`, true);
+        else
+            await applyText(text);
+    },
+
+    /* A beat, a bass and keys, as the gallery would add them. */
+    newBand: async () =>
+    {
+        if (synth === null)
+            return;
+
+        const taken = new Set();
+        const ops = NEW_BAND.ideas.flatMap(([role, name]) =>
+        {
+            const idea = ideaNamed(role, name);
+            let call = idea.call;
+
+            for (let n = 2; taken.has(call); n++)
+                call = `${idea.call}${n}`;
+
+            taken.add(call);
+            return addOps(idea, call);
+        });
+        const { text } = await synth.genOps(NEW_BAND.text, ops);
+
+        if (text === '')
+            status('A new band could not be written.', true);
+        else
+            await openText('A new band', text);
+    },
 });
 
 /* Evolve toward (evolveui.js). What it finds goes on the channel at the
@@ -2164,7 +2285,15 @@ async function pickPiece ()
 {
     composer?.forgetMix();
 
-    $('piece').querySelector('option[data-opened]')?.remove();
+    if ($('piece').value === '#saved')
+    {
+        picking = openText($('piece').selectedOptions[0].textContent,
+                           lastSession.text, '#saved').catch(() => {});
+        await picking;
+        return;
+    }
+
+    $('piece').querySelector('option[value="#opened"]')?.remove();
     band.forget();
 
     const run = (async () =>
@@ -3010,9 +3139,12 @@ async function start ()
     if (genGroups.length > 0)
     {
         const chosen = $('piece').value;
+        const ours = [...$('piece').querySelectorAll('option[value^="#"]')];
 
         $('piece').replaceChildren();
         fillPieces($('piece'), chosen);
+        $('piece').prepend(...ours);
+        $('piece').value = chosen;
     }
 
     /* And the default patches, before anything needs one. The aiming runs
@@ -3915,6 +4047,8 @@ async function init ()
        quantum on a desktop, which is a whole one on a phone. */
     fill($('patch'), playableDsps(), 'ladder.dsp');
     fill($('piece'), gens, 'ebb.gen');
+    offerLastSession();
+    band.bar();
     grow.fill();
 
     [$('dsp').value, $('gen').value] = await Promise.all([
