@@ -41,7 +41,12 @@ on:
   push:
     branches:
       - master
+  # Only a PR into master: one stacked on another runs once the one under
+  # it merges and GitHub moves it onto master, rather than every PR of a
+  # stack running the whole workflow on each rebase.
   pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 # A second push supersedes the first; no point finishing a run nobody will
@@ -54,8 +59,44 @@ concurrency:
 # cmake/RunHarness.cmake, which reads each file rather than matching names.
 
 jobs:
+  # What a PR needs built. Anything but the Markdown and the docs' pictures
+  # is code, and a PR with none builds and tests nothing; anything outside
+  # wasm/ as well is the desktop's, and a change to the browser page alone
+  # skips the jobs that only build and test the desktop. Skipped, which a
+  # required check counts as passed. A push to master builds everything.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      desktop: ${{ steps.diff.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            printf 'code=true\ndesktop=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files=$(git diff --name-only "$BASE" HEAD)
+          code=$(grep -qvE '\.md$|^docs/screenshots/' <<< "$files" &&
+                 echo true || echo false)
+          desktop=$(grep -qvE '^wasm/|\.md$|^docs/screenshots/' \
+                        <<< "$files" && echo true || echo false)
+          printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
+
   linux:
     name: linux (gcc)
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # Pinned, not ubuntu-latest: instrcount's baseline and corpushash.txt
     # are this image's compiler and glibc, so a move to a new Ubuntu is a
     # commit that records the new image's numbers rather than a gate that
@@ -148,7 +189,7 @@ jobs:
         env:
           THINK_INSTRCOUNT_STRICT: 1
           THINK_CORPUSHASH_STRICT: 1
-        run: xvfb-run -a ctest --test-dir build --output-on-failure -j "$(nproc)"
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
 
       # ctest shows a passing test's output to nobody, and the margin under
       # instrcount's limits is the number worth seeing on every run.
@@ -174,6 +215,9 @@ jobs:
   # tree or its tests.
   gtk-data:
     name: linux GTK runtime data
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
 
     env:
@@ -294,7 +338,9 @@ jobs:
   # holds a single runner rather than a dozen while other PRs queue.
   asan:
     name: linux asan + ubsan
-    needs: linux
+    timeout-minutes: 40
+    needs: [linux, changes]
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
 
     env:
@@ -357,7 +403,7 @@ jobs:
         # deliberately destroys the editor at the end, so the teardown order --
         # stop the tick, close the instances, then unload the modules -- is
         # exercised under ASan and nowhere else.
-        run: xvfb-run -a ctest --test-dir build --output-on-failure -j "$(nproc)"
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
 
   # The WebAssembly build, held against the native one. wasm/compare.mjs
   # renders every seeded piece with scripts/genwav and with wasm/genwav.mjs:
@@ -380,6 +426,7 @@ jobs:
   # trees on is the whole of it.
   wasm-build:
     name: wasm (emscripten) build
+    timeout-minutes: 30
     needs: linux
     runs-on: ubuntu-latest
 
@@ -581,6 +628,7 @@ jobs:
   # for. It is the one gate that needs the native plugins.
   wasm-compare:
     name: wasm (emscripten) against native
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     needs: wasm-build
 
@@ -761,6 +809,9 @@ jobs:
   # node graph, the room's own catalog.
   catalog:
     name: the panes each page declares
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -1038,6 +1089,7 @@ jobs:
   # Its config.json names the relay JAM_RELAY does, if any.
   pages:
     name: the site, to GitHub Pages
+    timeout-minutes: 15
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     needs: [wasm-build, wasm-compare, wasm-pieces, wasm-browsers, wasm-jam]
@@ -1058,6 +1110,9 @@ jobs:
   # every run, published to ghcr.io from master for the host to pull.
   relay:
     name: the relay's image
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     permissions:
@@ -1115,7 +1170,9 @@ jobs:
 
   macos:
     name: macos (clang, arm64)
-    needs: linux
+    timeout-minutes: 40
+    needs: [linux, changes]
+    if: needs.changes.outputs.desktop == 'true'
     # Sequoia rather than Sonoma, and the version is the whole point of the
     # line. Homebrew bottles per macOS release and drops the oldest as it
     # goes: as of 2026-09-19 glib, glibmm, gtk4, gtkmm4 and pangomm have
@@ -1189,7 +1246,7 @@ jobs:
         run: ./build/src/thinksynth.app/Contents/MacOS/thinksynth -h
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure -j "$(sysctl -n hw.ncpu)"
+        run: ctest --test-dir build --output-on-failure --timeout 600 -j "$(sysctl -n hw.ncpu)"
 
       - name: Package
         run: cpack --config build/CPackConfig.cmake -B build/package
@@ -1225,7 +1282,9 @@ jobs:
 
   windows:
     name: windows (mingw-w64, ucrt64)
-    needs: linux
+    timeout-minutes: 45
+    needs: [linux, changes]
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: windows-latest
 
     defaults:
@@ -1360,7 +1419,7 @@ jobs:
           ldd build/src/thinksynth.exe || true
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure -j "$(nproc)"
+        run: ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
 
       # The installed tree, not the build tree -- see the macOS job.
       - name: GTK runtime data
