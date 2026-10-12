@@ -392,6 +392,11 @@ export function createAccounts ({ open, dialog, relays, onChange })
         finally
         {
             b.disabled = false;
+
+            /* Disabled, it lost the focus; a failure leaves it on screen. */
+            if (dialog.open && b.isConnected &&
+                !dialog.contains(document.activeElement))
+                b.focus();
         }
     };
 

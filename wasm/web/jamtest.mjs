@@ -1674,19 +1674,26 @@ async function peerFocusKept (pages)
             if (b === null)
                 return null;
 
+            let redraws = 0;
+            const seen = new MutationObserver(() => { redraws++; });
+
+            seen.observe(document.getElementById('peers'),
+                         { childList: true, subtree: true });
             b.focus();
             await new Promise((r) => setTimeout(r, 2500));
+            seen.disconnect();
 
-            return document.activeElement === b;
+            return { redraws, focused: document.activeElement === b };
         });
 
         if (kept === null)
             continue;
 
-        if (kept)
+        if (kept.redraws > 0 && kept.focused)
             ok(`${label}'s peer button keeps the focus across pings`);
         else
-            fail(`${label}'s peer button lost the focus to a redraw`);
+            fail(`${label}'s peer button: ${kept.redraws} redraws, ` +
+                 `focused ${kept.focused}`);
 
         return;
     }
