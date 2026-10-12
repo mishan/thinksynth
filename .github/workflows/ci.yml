@@ -59,15 +59,17 @@ concurrency:
 # cmake/RunHarness.cmake, which reads each file rather than matching names.
 
 jobs:
-  # Whether the desktop needs building: anything outside wasm/ and the
-  # Markdown. A change to the browser page alone skips the jobs that only
-  # build and test the desktop -- skipped, which a required check counts
-  # as passed. A push to master builds everything.
+  # What a PR needs built. Anything but the Markdown and the docs' pictures
+  # is code, and a PR with none builds and tests nothing; anything outside
+  # wasm/ as well is the desktop's, and a change to the browser page alone
+  # skips the jobs that only build and test the desktop. Skipped, which a
+  # required check counts as passed. A push to master builds everything.
   changes:
     name: what changed
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      code: ${{ steps.diff.outputs.code }}
       desktop: ${{ steps.diff.outputs.desktop }}
     steps:
       - uses: actions/checkout@v4
@@ -79,17 +81,22 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "${{ github.event_name }}" != pull_request ]; then
-            echo desktop=true >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE" HEAD |
-               grep -qvE '^wasm/|\.md$'; then
-            echo desktop=true >> "$GITHUB_OUTPUT"
-          else
-            echo desktop=false >> "$GITHUB_OUTPUT"
+            printf 'code=true\ndesktop=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          files=$(git diff --name-only "$BASE" HEAD)
+          code=$(grep -qvE '\.md$|^docs/screenshots/' <<< "$files" &&
+                 echo true || echo false)
+          desktop=$(grep -qvE '^wasm/|\.md$|^docs/screenshots/' \
+                        <<< "$files" && echo true || echo false)
+          printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
 
   linux:
     name: linux (gcc)
     timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # Pinned, not ubuntu-latest: instrcount's baseline and corpushash.txt
     # are this image's compiler and glibc, so a move to a new Ubuntu is a
     # commit that records the new image's numbers rather than a gate that
@@ -803,6 +810,8 @@ jobs:
   catalog:
     name: the panes each page declares
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -1102,6 +1111,8 @@ jobs:
   relay:
     name: the relay's image
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     permissions:
