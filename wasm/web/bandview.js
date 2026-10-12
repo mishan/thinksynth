@@ -127,28 +127,40 @@ const IDEAS = {
 const PICTURES = ['life', 'ca', 'grid', 'euclid', 'accent', 'evolve',
                   'lsystem', 'markov', 'morph', 'breed'];
 
-/* The plugins that draw from the seed, whose takes another seed changes.
-   Life and CA only when they scatter: a drawn board plays the same way
-   every time, and another seed only starts it over. */
+/* The ones of those that take a pointer (composer_input); the rest are
+   only looked at, and leave a swipe to scroll the list. */
+const CONTROLS = new Set(['life', 'ca', 'grid', 'euclid', 'accent',
+                          'evolve']);
+
+/* The plugins that draw from the seed, whose takes another seed changes,
+   and when: Life and CA only when they scatter -- a drawn board plays the
+   same way every time, and another seed only starts it over -- an arp
+   only in its random pattern, a progression only on the stage's seed. */
 const RANDOM = new Set(['arp', 'cloud', 'humanize', 'chance', 'evolve',
                         'stutter', 'eno_line', 'markov', 'walk', 'swap',
                         'progression', 'ratchet', 'vary', 'breed', 'run',
-                        'grow']);
+                        'grow', 'life', 'ca']);
 
-function scatters (s)
+const valueOf = (s, row, or) =>
+    numberOf(s.params.find((p) => p.name === row)?.valueText ?? '')?.num ??
+    or;
+
+function drawsFromSeed (s)
 {
-    const v = s.params.find((p) => p.name === 'scatter');
-
-    return (numberOf(v?.valueText ?? '0')?.num ?? 0) > 0;
+    switch (s.plugin)
+    {
+        case 'life': case 'ca': return valueOf(s, 'scatter', 0) > 0;
+        case 'arp': return valueOf(s, 'pattern', 0) === 3;
+        case 'progression': return valueOf(s, 'seed', 0) === 0;
+        default: return RANDOM.has(s.plugin);
+    }
 }
 
 /* What another seed does to a player: 'vary' another take, 'restart' the
    same board from the top, or nothing. */
 export function seededAs (stages)
 {
-    if (stages.some((s) => RANDOM.has(s.plugin) ||
-                           ((s.plugin === 'life' || s.plugin === 'ca') &&
-                            scatters(s))))
+    if (stages.some(drawsFromSeed))
         return 'vary';
 
     return stages.some((s) => s.plugin === 'life' || s.plugin === 'ca')
@@ -156,17 +168,17 @@ export function seededAs (stages)
 }
 
 /* How tall a picture is drawn at `w' CSS pixels wide: a grid's rows big
-   enough to hit, a board's cells square, a ring room to be a ring. */
+   enough to hit, a board's cells square, a ring room to be a ring. A param
+   the piece does not write is at the plugin's default. */
 function pictureHeight (s, w)
 {
-    const n = (row, or) => numberOf(s.params.find((p) => p.name === row)
-                                     ?.valueText ?? '')?.num ?? or;
+    const n = (row, or) => valueOf(s, row, or);
 
     switch (s.plugin)
     {
-        case 'grid': return Math.min(160, Math.max(26, n('rows', 1) * 16));
+        case 'grid': return Math.min(160, Math.max(26, n('rows', 8) * 16));
         case 'life':
-            return Math.round(Math.max(40, Math.min(16, w / n('width', 16)) *
+            return Math.round(Math.max(40, Math.min(16, w / n('width', 10)) *
                                            n('height', 8)));
         case 'euclid': return 90;
         default: return 64;
@@ -352,6 +364,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     let pictures = [];
     let visible = false;
     let frameId = null;
+    let lastFrame = 0;
 
     function picture (p)
     {
@@ -363,10 +376,16 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         canvas.className = 'bandpic';
         canvas.style.height = `${pic.height(320)}px`;
-        pic.drop = gestureOn(canvas, (kind, where, button) =>
-            onGesture({ chain: p.index, stage: s.live, chainName: p.name,
-                        stageName: s.name, kind, ...where, w: pic.w,
-                        h: pic.h, button }));
+        pic.drop = () => {};
+
+        if (CONTROLS.has(s.plugin))
+        {
+            canvas.classList.add('control');
+            pic.drop = gestureOn(canvas, (kind, where, button) =>
+                onGesture({ chain: p.index, stage: s.live, chainName: p.name,
+                            stageName: s.name, kind, ...where, w: pic.w,
+                            h: pic.h, button }));
+        }
         pictures.push(pic);
         return canvas;
     }
@@ -374,12 +393,23 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     /* Each picture asked for again once the last one is back, at the
        card's width: the element is the draw's size, so the pointer's
        coordinates are the picture's. */
-    function frame ()
+    function frame (now)
     {
         frameId = null;
 
         if (!visible)
             return;
+
+        /* Thirty a second at most: a card is not a canvas to scroll, and
+           ten players at the screen's rate is a worker drawing nothing
+           else. */
+        if (now - lastFrame < 1000 / 30)
+        {
+            frameId = requestAnimationFrame(frame);
+            return;
+        }
+
+        lastFrame = now;
 
         const dpr = globalThis.devicePixelRatio || 1;
 
@@ -606,7 +636,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         else if (p.seeded === 'restart')
             moves.append(button('Restart', 'The board as it is written, ' +
                                            'from here on',
-                                () => vary(p, seed())));
+                                () => vary(p, p.seed === null ? seed()
+                                                              : null)));
 
         moves.append(
             button('Keep', 'Keep what it just played as notes you can ' +
@@ -669,7 +700,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
             return [p.name, p.index, st.shape, p.role, p.sound, p.idea,
                     st.takes, st.take, st.resting, p.seeded,
-                    p.picture?.live];
+                    p.picture?.live, p.picture?.params];
         }));
 
         if (from !== drawnFrom || list.childElementCount === 0)

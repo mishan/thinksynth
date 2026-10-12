@@ -3372,6 +3372,50 @@ try
                                             null }));
     }
 
+    /* The pictures: a drawn Life board is offered Restart rather than
+       Vary, and a grid player's picture is a sequencer track -- a click on
+       it draws a note into the piece. */
+    {
+        await page.selectOption('#piece', 'glider.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const walk = page.locator('.player[data-chain="walk"]');
+        const moves = await walk.locator('.moves button')
+            .allTextContents();
+        const board = await walk.locator('canvas.bandpic.control').count();
+
+        check(moves.includes('Restart') && !moves.includes('Vary') &&
+              board === 1,
+              '...a drawn Life board is offered Restart, not Vary, and ' +
+              `shows its board to paint: ${moves.join(' ')}`);
+
+        await page.selectOption('#piece', 'scratch.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const cellsOf = () => page.evaluate(() =>
+        {
+            const t = window.solo.genText();
+
+            return /cells *= *"[^"]*"/.exec(t.slice(
+                t.indexOf('chain drums_snare')))?.[0];
+        });
+        const was = await cellsOf();
+        const pic = page.locator('.player[data-chain="drums_snare"] ' +
+                                 'canvas.bandpic');
+
+        await pic.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(500);
+        const at = await pic.boundingBox();
+
+        await page.mouse.click(at.x + at.width * 0.53, at.y + at.height / 2);
+
+        const now = await until(cellsOf, (c) => c !== was);
+
+        check(now !== was,
+              '...and a click on a grid player\'s picture draws into its ' +
+              `cells: ${was} -> ${now}`);
+    }
+
     /* A pad moved only across leaves what is up the pad as written: an
        lsystem at depth 0 -- a sequencer -- stays one. */
     {
