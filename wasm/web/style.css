@@ -1528,8 +1528,6 @@ body.tiled .panelrows
 .bandpad .r { right: 3px; top: 50%; transform: translateY(-50%); }
 .bandpad .t { top: 1px; left: 50%; transform: translateX(-50%); }
 .bandpad .b { bottom: 1px; left: 50%; transform: translateX(-50%); }
-.bandpad.nobusy .l, .bandpad.nobusy .r,
-.bandpad.nowander .t, .bandpad.nowander .b { opacity: 0.3; }
 .bandpaddot
 {
     position: absolute;

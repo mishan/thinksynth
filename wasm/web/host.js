@@ -380,6 +380,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'genparam':
             case 'genseed':
             case 'chains':
+            case 'genaddstage':
             case 'genmove':
             case 'gensection':
             case 'geninstrument':
@@ -662,6 +663,15 @@ export async function createSynth (ctx, { windowlen = 128,
         genSetParam: (text, { chainName, docStage, param, valueText }) =>
             ask({ type: 'genparam', text, chain: chainName, stage: docStage,
                   param, valueText }),
+
+        /* A stage added behind chain `chainName''s others in `text',
+           `params' as { name: valueText }. Resolves to { text }, "" when
+           the writer refused. */
+        genAddStage: (text, chainName, stage, category, plugin, params) =>
+            ask({ type: 'genaddstage', text, chain: chainName, stage,
+                  category, plugin,
+                  params: Object.entries(params)
+                      .map(([k, v]) => `${k}=${v}`).join('\n') }),
 
         /* The piece's chains as its text says them now. Resolves to
            { chains }. */

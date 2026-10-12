@@ -23,10 +23,12 @@
  * same doors the canvas uses, so what the band does is in the .gen like
  * anything else.
  *
- * The pad moves params the chain already has. RECIPES says which, per
- * plugin, and how far: the middle of the pad is the piece as it was when
- * the band first showed it, the corners as far as each param sensibly
- * goes. A chain with nothing on an axis shows the axis as not there.
+ * The pad moves params the chain has. RECIPES says which, per plugin,
+ * and how far: the middle of the pad is the piece as it was when the band
+ * first showed it, the corners as far as each param sensibly goes. A chain
+ * with nothing on an axis -- a drawn grid -- is given stages for it the
+ * first time the pad moves (TOUCH), which play what is written loosely or
+ * tightly rather than rewriting it.
  */
 
 import { replay } from './replay.js';
@@ -338,13 +340,37 @@ export function axesOf (stages)
     return has;
 }
 
+/* What the band puts behind a player whose pad has nothing to move on an
+ * axis -- a drawn grid, a plain ring -- so that the pad plays what is
+ * written rather than rewriting it: across, notes dropped toward calm and
+ * rolled toward busy; up, the line loosened. At the middle of the pad each
+ * passes every note as it came. A drum is loosened in time and touch only,
+ * since a note moved in pitch is another drum.
+ */
+const TOUCH = {
+    busy: () => [
+        { name: 'thin', plugin: 'chance', params: { prob: '1' } },
+        { name: 'rolls', plugin: 'ratchet', params: { prob: '0' } }],
+    wander: (drums) => drums
+        ? [{ name: 'loose', plugin: 'humanize',
+             params: { time: '0 s', vel: '0' } }]
+        : [{ name: 'loose', plugin: 'vary',
+             params: { grid: '0.25 beats', rest: '0', leap: '0', push: '0',
+                       double: '0' } }],
+};
+
+const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
+    [s.plugin, s.name, s.live]));
+
 /* The pane. `piece' is a getter for the page's; `params' sends param
    edits, `vary' sets a chain's seed (null: the piece's) and resolves to
    whether it went in, `keep' freezes a chain, `rest' mutes one, `say'
-   tells the page's status; `toMirror' asks the mirror to draw a stage and
-   `onGesture' sends a pointer on a picture, as the sequencer's do. */
+   tells the page's status, `touch' adds stages behind a chain (TOUCH)
+   and resolves to whether they went in; `toMirror' asks the mirror to
+   draw a stage and `onGesture' sends a pointer on a picture, as the
+   sequencer's do. */
 export function createBand ({ piece, params, vary, keep, rest, say,
-                              toMirror, onGesture })
+                              touch, toMirror, onGesture })
 {
     /* Per chain name, for the piece the band was last shown: the stages as
        they were then, which the middle of the pad is; where the pad is;
@@ -358,6 +384,10 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     /* What the cards were drawn from: drawn again only when that changes,
        so a pad being dragged is not taken out from under the pointer. */
     let drawnFrom = '';
+
+    /* How many pads are held, and whether a draw waits for them. */
+    let held = 0;
+    let drawLater = false;
 
     /* The pictures on the cards, each drawn by the mirror one frame at a
        time: { chain, stage, canvas, ctx, w, h, dpr, asked, drop }. */
@@ -442,8 +472,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
     /* Another chain under the same name -- another piece, stages added
        or taken out -- is another player. */
-    const shapeOf = (p) => JSON.stringify(p.stages.map((s) =>
-        [s.plugin, s.name, s.live]));
+    const shapeOf = (p) => shapeOfStages(p.stages);
 
     function stateOf (p)
     {
@@ -455,14 +484,53 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         return state.get(p.name);
     }
 
-    function pad (p, st, axes)
+    /* The stages TOUCH adds for an axis the pad has left the middle of
+     * and `p' has nothing on, written in, and taken into the player's
+     * state at once as the places they will have -- after its others -- so
+     * the card is not drawn again under a drag when the piece comes back
+     * with them. Resolves when they are in, or have been refused and taken
+     * out of the state again; refused, they are asked for again only when
+     * the pad is next taken hold of.
+     */
+    function ready (p, st)
+    {
+        const has = axesOf(st.base);
+        const adds = [
+            ...(has.busy || st.x === 0.5 ? [] : TOUCH.busy()),
+            ...(has.wander || st.y === 0.5 ? [] : TOUCH.wander(p.role ===
+                                                               'drums'))];
+
+        if (adds.length === 0 || st.refused)
+            return Promise.resolve();
+
+        const taken = new Set(st.base.map((s) => s.name));
+
+        for (const a of adds)
+            for (let n = 2; taken.has(a.name); n++)
+                a.name = a.name.replace(/\d*$/, String(n));
+
+        let live = st.base.filter((s) => s.live >= 0).length;
+        const was = { base: st.base, shape: st.shape };
+
+        st.base = [...st.base, ...adds.map((a) => ({
+            name: a.name, category: 'xform', plugin: a.plugin, live: live++,
+            params: Object.entries(a.params).map(([name, valueText]) =>
+                ({ name, valueText })) }))];
+        st.shape = shapeOfStages(st.base);
+
+        return touch(p, adds).then((went) =>
+        {
+            if (!went)
+                Object.assign(st, was, { refused: true });
+        });
+    }
+
+    function pad (p, st)
     {
         const box = document.createElement('div');
         const dot = document.createElement('span');
 
         box.className = 'bandpad';
-        box.classList.toggle('nobusy', !axes.busy);
-        box.classList.toggle('nowander', !axes.wander);
         box.title = 'Across: calm to busy. Up: steady to wandering.';
         box.setAttribute('role', 'slider');
         box.setAttribute('aria-label', `${p.name}: calm to busy, steady to ` +
@@ -489,12 +557,14 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                              st.y.toFixed(1));
         };
 
-        const send = () =>
+        /* Not before what the pad moves is in the piece. */
+        const send = async () =>
         {
+            st.readying ??= ready(p, st).finally(() => st.readying = null);
+            await st.readying;
             st.timer = null;
             st.sent = performance.now();
-            params(p, padEdits(st.base, axes.busy ? st.x : 0.5,
-                               axes.wander ? st.y : 0.5));
+            params(p, padEdits(st.base, st.x, st.y));
         };
 
         const to = (x, y) =>
@@ -530,18 +600,28 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
             e.preventDefault();
             e.stopPropagation();
+            st.refused = false;
             to(st.x + k[0], st.y + k[1]);
         });
 
         box.addEventListener('pointerdown', (e) =>
         {
             box.setPointerCapture(e.pointerId);
+            held++;
+            st.refused = false;
             move(e);
         });
         box.addEventListener('pointermove', (e) =>
         {
             if (box.hasPointerCapture(e.pointerId))
                 move(e);
+        });
+        box.addEventListener('lostpointercapture', () =>
+        {
+            held--;
+
+            if (held === 0 && drawLater)
+                draw();
         });
 
         place();
@@ -587,7 +667,6 @@ export function createBand ({ piece, params, vary, keep, rest, say,
     function card (p)
     {
         const st = stateOf(p);
-        const axes = axesOf(st.base);
         const el = document.createElement('div');
         const who = document.createElement('div');
 
@@ -669,7 +748,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             takes.append(t);
         });
 
-        el.append(who, pad(p, st, axes), octs, moves, takes);
+        el.append(who, pad(p, st), octs, moves, takes);
 
         if (p.picture !== null)
             el.append(picture(p));
@@ -694,6 +773,19 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             if (restNext.delete(p.name))
                 stateOf(p).resting = true;
 
+        /* Again after every load or edit: a load makes the chains anew. */
+        for (const p of players)
+            if (stateOf(p).resting)
+                rest(p, true);
+
+        /* Not under a pad being dragged: what the drag itself changed --
+           the stages behind a player, a Vary they make worth offering --
+           is drawn when it is let go. */
+        drawLater = held > 0;
+
+        if (drawLater)
+            return;
+
         const from = JSON.stringify(players.map((p) =>
         {
             const st = stateOf(p);
@@ -705,19 +797,26 @@ export function createBand ({ piece, params, vary, keep, rest, say,
 
         if (from !== drawnFrom || list.childElementCount === 0)
         {
+            /* A pad that had the keys has them again on its new card. */
+            const keys = document.activeElement?.classList
+                .contains('bandpad')
+                ? document.activeElement.closest('.player')?.dataset.chain
+                : undefined;
+
             for (const pic of pictures)
                 pic.drop();
 
             pictures = [];
+            held = 0;
             list.replaceChildren(...players.map(card));
+
+            if (keys !== undefined)
+                list.querySelector(
+                    `.player[data-chain="${CSS.escape(keys)}"] .bandpad`)
+                    ?.focus();
         }
 
         drawnFrom = from;
-
-        /* Again after every load or edit: a load makes the chains anew. */
-        for (const p of players)
-            if (stateOf(p).resting)
-                rest(p, true);
         $('bandhint').textContent = players.length === 0
             ? 'This piece has no players: nothing in it plays notes.'
             : 'Drag a pad: across is calm to busy, up is steady to ' +
