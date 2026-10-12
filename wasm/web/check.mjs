@@ -953,5 +953,65 @@ for (const name of names)
         process.stdout.write('ok    midi sender    clock to the checked output only\n');
 }
 
+/* A band's key (bandkey.js): a line moved through keys and back is where
+   it was, a pentatonic's third goes to a third, a note between steps keeps
+   its distance, and a key is read from notes the way a person would. */
+{
+    const { retune, nameOf, pitchOf, keyOf } =
+        await import(pathToFileURL(path.join(here, 'bandkey.js')).href);
+    const key = (root, mood) => ({ root, mood });
+    const line = (notes, from, to) => notes.split(' ').map((n) =>
+        nameOf(retune(pitchOf(n), from, to), to)).join(' ');
+    const through = (notes, keys) =>
+    {
+        let from = key(9, 'dark');
+
+        for (const to of keys)
+        {
+            notes = line(notes, from, to);
+            from = to;
+        }
+
+        return notes;
+    };
+    const heard = (notes) => keyOf({ scales: [], chains: [{ name: 'x',
+        stages: [{ params: [{ name: 'notes',
+                              valueText: `"${notes}"` }] }] }] },
+                                   new Set(['x']));
+    const start = 'A1 C2 E2 A3 C4 D4 E4 G4';
+    const cases = [
+        ['a tritone and back, three times',
+         through(start, [3, 9, 3, 9, 3, 9].map((r) => key(r, 'dark'))),
+         start],
+        ['round the fourths',
+         through(start, [2, 7, 0, 5, 10, 3, 8, 1, 6, 11, 4, 9]
+             .map((r) => key(r, 'dark'))), start],
+        ['C open to C dark',
+         line('C4 D4 E4 G4 A4', key(0, 'open'), key(0, 'dark')),
+         'C4 D4 Eb4 G4 Ab4'],
+        ['C bluesy to C bright',
+         line('C4 Eb4 F4 G4 Bb4', key(0, 'bluesy'), key(0, 'bright')),
+         'C4 E4 F4 G4 B4'],
+        ['C bright to C dark, between steps',
+         line('C4 C#4 D4 F#4', key(0, 'bright'), key(0, 'dark')),
+         'C4 Db4 D4 Gb4'],
+        ['an A minor line is in A', JSON.stringify(heard(
+            'A3 C4 E4 A4 C5 E5 D4 G4 B3')),
+         JSON.stringify({ root: 9, mood: 'dark', written: false })],
+        ['notes parted by commas', JSON.stringify(heard(
+            'G3, A3, B3, C4, D4, E4, F#4')),
+         JSON.stringify({ root: 7, mood: 'bright', written: false })],
+        ['no notes at all',
+         JSON.stringify(keyOf({ scales: [], chains: [] }, new Set())),
+         JSON.stringify({ root: 9, mood: 'dark', written: false })],
+    ];
+
+    for (const [what, got, want] of cases)
+        if (got !== want)
+            fail(`band key: ${what}: ${got}, not ${want}`);
+        else
+            process.stdout.write(`ok    band key       ${what}\n`);
+}
+
 process.stdout.write(`\n${failures === 0 ? 'all passed' : failures + ' failed'}\n`);
 process.exitCode = failures;

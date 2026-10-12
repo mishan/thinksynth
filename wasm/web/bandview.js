@@ -840,7 +840,7 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             : 'The key this piece sounds in; choosing one writes it';
     }
 
-    function chooseKey ()
+    async function chooseKey ()
     {
         const now = piece();
 
@@ -852,7 +852,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         const to = { root: Number($('bandroot').value),
                      mood: $('bandmood').value };
 
-        edit(keyOps(now, pitched, from, to));
+        await edit(keyOps(now, pitched, from, to));
+
+        /* What the piece is in, whether or not the change went in. */
+        if (piece() !== null)
+            showKey(piece());
     }
 
     /* An idea for each role, a button each: chosen, it is a player of
