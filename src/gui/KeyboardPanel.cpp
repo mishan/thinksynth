@@ -29,7 +29,6 @@
 
 #include "Keyboard.h"
 #include "KeyboardPanel.h"
-#include "Access.h"
 #include "gthSignal.h"
 
 KeyboardPanel::KeyboardPanel (thSynth *synth)
@@ -121,13 +120,12 @@ KeyboardPanel::KeyboardPanel (thSynth *synth)
     keyboard_->signal_transpose_changed().connect(
         sigc::mem_fun(*this, &KeyboardPanel::eventTransposeChanged));
 
-    /* A click leaves the focus on the keys, which play from the computer
-       keyboard; Tab still reaches these. */
-    chanBtn_->set_focus_on_click(false);
-    transBtn_->set_focus_on_click(false);
+    /* Tab reaches these. A click on Reset leaves the focus on the keys,
+       which play from the computer keyboard; one in a number takes it, to
+       type a number. */
     resetBtn_->set_focus_on_click(false);
-    labelWith(*chanBtn_, *chanLbl_);
-    labelWith(*transBtn_, *transLbl_);
+    chanBtn_->add_mnemonic_label(*chanLbl_);
+    transBtn_->add_mnemonic_label(*transLbl_);
 
     resetBtn_->signal_clicked().connect(
         sigc::mem_fun(*this, &KeyboardPanel::keyboardReset));

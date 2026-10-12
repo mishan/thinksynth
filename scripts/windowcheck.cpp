@@ -205,7 +205,7 @@ rowFor (TestWindow *win, int chan)
    one (a spin button's own buttons) are GTK's to name. */
 static void
 inaccessible (Gtk::Widget *w, std::vector<std::string> &unnamed,
-              std::vector<std::string> &unreachable)
+              std::vector<std::string> &unreachable, bool canFocus = true)
 {
     for (Gtk::Widget *c = w->get_first_child(); c != NULL;
          c = c->get_next_sibling())
@@ -231,11 +231,15 @@ inaccessible (Gtk::Widget *w, std::vector<std::string> &unnamed,
                 a, GTK_ACCESSIBLE_RELATION_LABELLED_BY))
             unnamed.push_back(what);
 
-        if ((control || (ours && dynamic_cast<Gtk::Button *>(c) != NULL)) &&
-            c->get_sensitive() && !c->get_can_focus())
+        /* can-focus off anywhere above shuts out everything under it. */
+        const bool reaches = canFocus && c->get_can_focus();
+        Gtk::Button *button = dynamic_cast<Gtk::Button *>(c);
+
+        if ((control || (ours && button != NULL)) && c->is_sensitive() &&
+            (!reaches || (button != NULL && !button->get_focusable())))
             unreachable.push_back(what);
 
-        inaccessible(c, unnamed, unreachable);
+        inaccessible(c, unnamed, unreachable, reaches);
     }
 }
 
@@ -264,9 +268,11 @@ described (Gtk::Widget *w, const char *want)
     char *diff = gtk_test_accessible_check_property(
         GTK_ACCESSIBLE(w->gobj()), GTK_ACCESSIBLE_PROPERTY_DESCRIPTION, want);
 
+    const bool same = diff == NULL;
+
     g_free(diff);
 
-    return diff == NULL;
+    return same;
 }
 
 /* That check, said: the first few offenders by name. */
@@ -474,13 +480,13 @@ run (const std::string &pluginPath, const std::string &dsp)
         if (keys != NULL)
         {
             keys->SetNote(60, true);
-            keys->SetNote(64, true);
+            keys->SetNote(63, true);
             pump(4);
 
-            const bool held = described(keys, "Held: C4 E4");
+            const bool held = described(keys, "Held: C4 E flat 4");
 
             keys->SetNote(60, false);
-            keys->SetNote(64, false);
+            keys->SetNote(63, false);
             pump(4);
 
             check(held && described(keys, "No keys held"),

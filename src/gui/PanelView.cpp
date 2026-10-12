@@ -316,18 +316,8 @@ Gtk::Widget *PanelView::makeRow (size_t at)
     Gtk::Box *box = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
     box->set_spacing(8);
-    Gtk::Widget *control = makeControl(at);
-
     box->append(*label);
-    box->append(*control);
-
-    /* A slider is a box: the range and the number in it are each named. */
-    if (dynamic_cast<Gtk::Box *>(control) != NULL)
-        for (Gtk::Widget *c = control->get_first_child(); c != NULL;
-             c = c->get_next_sibling())
-            labelWith(*c, *label);
-    else
-        labelWith(*control, *label);
+    box->append(*makeControl(at, *label));
 
     /* And the menus that are about the value rather than being it. They go
        after the control because they qualify what is already there -- "4000,
@@ -417,18 +407,24 @@ Gtk::Widget *PanelView::makeBind (size_t at)
     return bind;
 }
 
-Gtk::Widget *PanelView::makeControl (size_t at)
+/* `label' is the row's, which names the control to a screen reader. */
+Gtk::Widget *PanelView::makeControl (size_t at, Gtk::Label &label)
 {
+    Gtk::Widget *control;
+
     switch (panel_.rows[at].kind)
     {
-        case thPanelRow::CHOICE:   return makeChoice(at);
-        case thPanelRow::NUMBER:   return makeNumber(at);
-        case thPanelRow::TEXT:     return makeText(at);
+        case thPanelRow::CHOICE:   control = makeChoice(at); break;
+        case thPanelRow::NUMBER:   control = makeNumber(at); break;
+        case thPanelRow::TEXT:     control = makeText(at); break;
         case thPanelRow::READONLY: return makeRead(at);
-        case thPanelRow::TOGGLE:   return makeToggle(at);
+        case thPanelRow::TOGGLE:   control = makeToggle(at); break;
         case thPanelRow::SLIDER:
-        default:                   return makeSlider(at);
+        default:                   return makeSlider(at, label);
     }
+
+    control->add_mnemonic_label(label);
+    return control;
 }
 
 /* A range to drag and a box to type in, sharing one adjustment.
@@ -436,7 +432,7 @@ Gtk::Widget *PanelView::makeControl (size_t at)
  * Both work in display units, so an envelope time runs 0..20000 ms rather
  * than 0..882000 samples. Only the display converts; what reaches the arg is
  * whatever the provider folds the spelling back to. */
-Gtk::Widget *PanelView::makeSlider (size_t at)
+Gtk::Widget *PanelView::makeSlider (size_t at, Gtk::Label &label)
 {
     const thPanelRow &row = panel_.rows[at];
     Bound &bound = bound_[at];
@@ -502,6 +498,8 @@ Gtk::Widget *PanelView::makeSlider (size_t at)
 
     box->append(*slider);
     box->append(*valEntry);
+    slider->add_mnemonic_label(label);
+    valEntry->add_mnemonic_label(label);
 
     return box;
 }

@@ -113,8 +113,8 @@ protected:
        have to end up in the same Bound, and a row id is a string lookup
        away from one. */
     Gtk::Widget *makeRow (size_t at);
-    Gtk::Widget *makeControl (size_t at);
-    Gtk::Widget *makeSlider (size_t at);
+    Gtk::Widget *makeControl (size_t at, Gtk::Label &label);
+    Gtk::Widget *makeSlider (size_t at, Gtk::Label &label);
     Gtk::Widget *makeNumber (size_t at);
     Gtk::Widget *makeChoice (size_t at);
     Gtk::Widget *makeText   (size_t at);

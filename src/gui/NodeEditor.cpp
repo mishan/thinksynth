@@ -184,13 +184,9 @@ NodeEditor::NodeEditor (thSynth *synth)
     revertBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onRevert));
     /* Read out as "plus", "minus" and "one colon one" otherwise. */
-    for (auto [b, name] : { std::pair(&zoomInBtn_, "Zoom in"),
-                            std::pair(&zoomOutBtn_, "Zoom out"),
-                            std::pair(&zoomResetBtn_, "Actual size") })
-    {
-        b->set_tooltip_text(name);
-        nameAs(*b, name);
-    }
+    nameAs(zoomInBtn_, "Zoom in");
+    nameAs(zoomOutBtn_, "Zoom out");
+    nameAs(zoomResetBtn_, "Actual size");
 
     zoomInBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onZoomIn));

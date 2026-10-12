@@ -44,7 +44,6 @@
 #include "gthSignal.h"
 #include "gthMidiOut.h"
 #include "Composer.h"
-#include "Access.h"
 
 /* ---- little local helpers --------------------------------------------- */
 
@@ -138,7 +137,7 @@ Composer::Composer (thSynth *synth)
     tempoLbl_ = manage(new Gtk::Label("Tempo"));
     tempoVal_ = Gtk::Adjustment::create(120, 20, 300, 1, 10);
     tempoBtn_ = manage(new Gtk::SpinButton(tempoVal_));
-    labelWith(*tempoBtn_, *tempoLbl_);
+    tempoBtn_->add_mnemonic_label(*tempoLbl_);
     tempoVal_->signal_value_changed().connect(
         sigc::mem_fun(*this, &Composer::onTempo));
 
@@ -3707,7 +3706,7 @@ Composer::buildMidiSection (void)
         Gtk::Adjustment::create(midiOut_->delay(), 0, 500, 1, 10)));
 
     dl->set_xalign(0);
-    labelWith(*delay, *dl);
+    delay->add_mnemonic_label(*dl);
     delay->set_tooltip_text("How long after its time a note is sent to a "
                             "device. At least the composer's 20 ms step, so "
                             "notes go out evenly; about the synth's own "

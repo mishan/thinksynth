@@ -21,23 +21,12 @@
 
 #include <gtkmm.h>
 
-/* What a screen reader calls a control, for the controls GTK cannot name
- * by itself: a label beside one names nothing until it is said to, and an
- * icon or a sign on a button is read out as the sign.
+/* `w' is called `name' by a screen reader, for a control whose own text
+ * is a sign ("+") or that has none. A label beside a control names it by
+ * add_mnemonic_label instead.
  *
- * In C because gtkmm's update_relation takes a Glib::ValueBase, and a
- * relation's value is a list of accessibles it has no wrapper for. */
-
-/* `w' is named by `label', and follows it if the label's text changes. */
-inline void
-labelWith (Gtk::Widget &w, Gtk::Widget &label)
-{
-    gtk_accessible_update_relation(GTK_ACCESSIBLE(w.gobj()),
-                                   GTK_ACCESSIBLE_RELATION_LABELLED_BY,
-                                   label.gobj(), NULL, -1);
-}
-
-/* `w' is called `name'. */
+ * In C because gtkmm's update_property takes a Glib::ValueBase, which is
+ * four lines for one string. */
 inline void
 nameAs (Gtk::Widget &w, const Glib::ustring &name)
 {

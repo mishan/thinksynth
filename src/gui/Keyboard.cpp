@@ -173,7 +173,6 @@ Keyboard::Keyboard (void)
     set_focusable(true);
     property_accessible_role() = Gtk::Accessible::Role::GROUP;
     nameAs(*this, "On-screen keyboard");
-    describeHeld();
 
     focus_box_ = false;
 
@@ -186,6 +185,8 @@ Keyboard::Keyboard (void)
 
     dispatchRedraw_.connect(
         sigc::mem_fun(*this, &Keyboard::queueRedraw));
+
+    describeHeld();
 }
 
 void Keyboard::resetKeys (void)
@@ -446,7 +447,15 @@ void Keyboard::describeHeld (void)
 
         for (int i = 0; i < 128; i++)
             if (active_keys_[i])
-                held += " " + thcGenLoader::noteName(i);
+            {
+                /* "Db4" is read as D, B, 4. */
+                std::string n = thcGenLoader::noteName(i);
+
+                if (n.size() > 2 && n[1] == 'b')
+                    n = n.substr(0, 1) + " flat " + n.substr(2);
+
+                held += " " + n;
+            }
     }
 
     held = held.empty() ? "No keys held" : "Held:" + held;
@@ -540,11 +549,14 @@ void Keyboard::onReleased (int nPress, double x, double y)
 bool Keyboard::onKeyPressed (guint keyval, guint keycode,
                              Gdk::ModifierType state)
 {
-    (void)keycode; (void)state;
+    (void)keycode;
 
     int notenum = keyval_to_notnum ((int)keyval);
 
-    if (notenum < 0)
+    /* Alt and Ctrl with a note key are a mnemonic or a shortcut. */
+    if (notenum < 0 ||
+        (state & (Gdk::ModifierType::ALT_MASK |
+                  Gdk::ModifierType::CONTROL_MASK)) != Gdk::ModifierType(0))
         return false;
 
     /* Auto-repeat arrives as a run of presses with no release between them,
