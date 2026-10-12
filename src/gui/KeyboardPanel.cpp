@@ -120,9 +120,12 @@ KeyboardPanel::KeyboardPanel (thSynth *synth)
     keyboard_->signal_transpose_changed().connect(
         sigc::mem_fun(*this, &KeyboardPanel::eventTransposeChanged));
 
-    chanBtn_->set_can_focus(false);
-    transBtn_->set_can_focus(false);
-    resetBtn_->set_can_focus(false);
+    /* Tab reaches these. A click on Reset leaves the focus on the keys,
+       which play from the computer keyboard; one in a number takes it, to
+       type a number. */
+    resetBtn_->set_focus_on_click(false);
+    chanBtn_->add_mnemonic_label(*chanLbl_);
+    transBtn_->add_mnemonic_label(*transLbl_);
 
     resetBtn_->signal_clicked().connect(
         sigc::mem_fun(*this, &KeyboardPanel::keyboardReset));

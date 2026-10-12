@@ -197,7 +197,6 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         t.area = manage(new Gtk::DrawingArea);
         t.area->set_hexpand(true);
         t.area->set_content_height(heightFor(t.rows));
-        t.area->set_focusable(true);
         t.area->set_cursor("crosshair");
         t.area->set_draw_func(
             [this, i](const Cairo::RefPtr<Cairo::Context> &cr, int w, int h)

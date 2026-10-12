@@ -20,6 +20,7 @@
 #define KEYBOARD_H
 
 #include <mutex>
+#include <string>
 
 /* this widget's custom signals */
 typedef sigc::signal<void()>                  type_signal_note_clear;
@@ -62,8 +63,9 @@ protected:
     static void setColour (const Cairo::RefPtr<Cairo::Context> &cr,
                            unsigned int rgb);
 
-    /* Dispatcher target: redraws happen through the widget now. */
-    void queueRedraw (void) { queue_draw(); }
+    /* Every change to the keys ends here, the MIDI thread's through
+       dispatchRedraw_: a redraw, and what a screen reader is told is held. */
+    void queueRedraw (void) { describeHeld(); queue_draw(); }
     
     /* Input, as GTK4 delivers it.
      *
@@ -82,6 +84,7 @@ protected:
     void onMotion (double x, double y);
     void onFocusEnter (void);
     void onFocusLeave (void);
+    void describeHeld (void);
 
     int channel_;
     int transpose_;
@@ -114,6 +117,9 @@ private:
     Glib::Dispatcher dispatchRedraw_;
 
     bool focus_box_;
+
+    /* What a screen reader was last told is held, to tell it only changes. */
+    std::string described_;
 
     /* Ratio of the widget's allocation to its natural key_sizes[] geometry.
        on_draw scales by these; the mouse hit-testing divides by them. */
