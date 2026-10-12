@@ -163,8 +163,11 @@ export async function createSynth (ctx, { windowlen = 128,
         ? new Worker(new URL('mirror.js', import.meta.url), { type: 'module' })
         : null;
 
+    /* A growth the mirror made for the worklet goes straight back to it;
+       everything else the mirror says is the caller's. */
     if (mirror !== null)
-        mirror.onmessage = (e) => onMirror(e.data);
+        mirror.onmessage = (e) => e.data.type === 'grown'
+            ? node.port.postMessage(e.data) : onMirror(e.data);
 
     /* What the worklet's process() calls have cost, summed since the
        start: a batch is 16 calls, too few to have a p99 of its own. And
@@ -201,6 +204,11 @@ export async function createSynth (ctx, { windowlen = 128,
                mirror can put its own on the same one. */
             case 'aligned':
                 mirror?.postMessage({ type: 'align', frame: m.frame });
+                break;
+            /* A growth step for the mirror to make (thinkweb.cpp,
+               tw_grow_mode). With no mirror, nothing grows. */
+            case 'grow':
+                mirror?.postMessage({ type: 'growask', ask: m.ask });
                 break;
             case 'log':
                 onLog(m.text);
@@ -239,6 +247,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'patchdefaults':
             case 'dsps':
             case 'gens':
+            case 'growntext':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -578,6 +587,17 @@ export async function createSynth (ctx, { windowlen = 128,
 
                 waiting.set(id, resolve);
                 node.port.postMessage({ type: 'panel', id, kind, a, b });
+            }),
+
+        /* The graph growth has put on `instrument''s channel in the
+           worklet, or '' while it plays what the piece declares. */
+        grownText: (instrument) =>
+            new Promise((resolve) =>
+            {
+                const id = nextId++;
+
+                waiting.set(id, (m) => resolve(m.text));
+                node.port.postMessage({ type: 'growntext', id, instrument });
             }),
 
         /* The values of the panel that is open, and its shape again.

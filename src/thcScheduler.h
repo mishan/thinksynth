@@ -781,6 +781,22 @@ public:
 
     void setGrower (const Grower &fn) { grower_ = fn; }
 
+    /* A grower that answers later, for a host that cannot grow on the
+       thread this runs on -- the browser's audio worklet, whose quantum is
+       a few milliseconds and a growth step's level check a tenth of a
+       second. Asked with a ticket, `text' the graph on the channel, and
+       answered through growthAnswer. Used where there is no grower. */
+    typedef std::function<void (unsigned int ticket, const std::string &text,
+                                const std::string &base, unsigned int choice,
+                                const std::string &kinds)> GrowRequest;
+
+    void setGrowRequest (const GrowRequest &fn) { growRequest_ = fn; }
+
+    /* What the grower made for `ticket': on the channel, unless something
+       has moved its stack since it was asked; `why' if it made nothing. */
+    void growthAnswer (unsigned int ticket, const std::string &grown,
+                       const std::string &what, const std::string &why);
+
     /* What tunes each edit a growth toward a target hears, before it is
        judged: NodeEvolve::tuneAdded, for a host that links the node model.
        Set before the piece plays; the ear's thread reads it. */
@@ -1538,10 +1554,27 @@ private:
         std::vector<std::string> tuned;     /* what the ear tuned each to */
         std::vector<int> tickets;
         std::vector<double> distances;
+
+        /* The GrowRequest ticket this channel waits on, or 0. */
+        unsigned int asked = 0;
+
+        /* Composer steps that came while an answer was awaited, to be
+           taken in order once it is in. */
+        struct Queued
+        {
+            bool shrink;
+            unsigned int choice;
+            std::string kinds, target;
+            int listen, tune;
+        };
+
+        std::deque<Queued> queued;
     };
 
     std::map<int, Growth> grown_;
     Grower grower_;
+    GrowRequest growRequest_;
+    unsigned int growTicket_ = 0;
     thcAuditioner::Tuner tuner_;
 
     /* growInstrument and tryGraph: one step up the channel's stack, to
@@ -1583,7 +1616,14 @@ private:
 
     /* `g''s answers that are in; true once all are. */
     bool collect (Growth &g);
+
+    /* The hearing or the asking, and the steps queued behind it, given
+       up; or only the hearing, once its answer has been taken. */
     void forgetHearing (Growth &g);
+    void doneHearing (Growth &g);
+
+    /* `channel''s queued steps, from the front, until one waits again. */
+    void runQueued (int channel);
 
     /* A channel's growth, or every channel's for -1, tickets and all. */
     void forgetGrowth (int channel);

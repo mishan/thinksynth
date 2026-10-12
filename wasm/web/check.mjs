@@ -494,6 +494,99 @@ for (const name of names)
                              'list, a retrigger, a stale off, a flush\n');
 }
 
+/* gen::grow in the browser module, both ways it is hosted: growing in
+ * place, as the mirror does, and asking and being answered, as the
+ * worklet is -- here by the same module standing in for the mirror, at
+ * once or only after every step has been asked, as a mirror busy for
+ * seconds would. All three reach the same graph. And a splice is among
+ * the edits, from the plugins compiled in. */
+{
+    const piece = (kinds) =>
+        'seed 11;\n' +
+        'instrument pad { dsp {\n' +
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n' +
+        '}; };\n' +
+        'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+        '    prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::grow { every = 1 s; depth = 3; shrink = 0;\n' +
+        `    kinds = "${kinds}"; }; sink { instrument = pad; }; };\n`;
+
+    /* `mode' 1 grows in place; 2 answers each ask as it comes, 3 holds
+       the answers until the end. */
+    const grownBy = async (mode, kinds = 'modulate voice') =>
+    {
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+        const held = [];
+        const answer = (ask) =>
+        {
+            const a = JSON.parse(ask);
+            const r = JSON.parse(M.ccall('tw_grow', 'string',
+                ['string', 'string', 'number', 'string'],
+                [a.text, a.base, a.choice, a.kinds]));
+
+            M.ccall('tw_grow_answer', null,
+                    ['number', 'string', 'string', 'string'],
+                    [a.ticket, r.grown, r.what, r.why]);
+        };
+        const asks = () =>
+        {
+            const out = [];
+
+            for (let ask; (ask = M.UTF8ToString(M._tw_grow_next())); )
+                out.push(ask);
+
+            return out;
+        };
+
+        M._tw_create(RATE, 256, 128);
+        M._tw_grow_mode(mode === 1 ? 1 : 2);
+
+        const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                           [piece(kinds), 1]) !== 0;
+
+        M._tw_transport(0, 0, 0);       /* TW_START */
+
+        for (let done = 0; ok && done < RATE * 3.5; done += 128)
+        {
+            M._tw_render(128);
+
+            for (const ask of asks())
+                mode === 3 ? held.push(ask) : answer(ask);
+        }
+
+        /* The slow mirror at last: each answer lets the step queued
+           behind it ask in turn. */
+        for (let ask; (ask = held.shift() ?? asks()[0]); )
+            answer(ask);
+
+        return M.ccall('tw_grown_text', 'string', ['string'], ['pad']);
+    };
+
+    const here = await grownBy(1);
+    const asked = await grownBy(2);
+    const late = await grownBy(3);
+    const spliced = await grownBy(1, 'splice');
+
+    if (here === '')
+        fail('grow: nothing grew in the browser module');
+    else if (asked !== here)
+        fail('grow: asked of another instance, the graph grew otherwise');
+    else if (late !== here)
+        fail('grow: answered late, the steps asked meanwhile were lost');
+    else if (spliced === '')
+        fail('grow: no splice among the browser module\'s edits');
+    else
+        process.stdout.write('ok    grow           grown in place, asked of ' +
+                             'a worker, or answered late: the same graph; ' +
+                             'and spliced\n');
+}
+
 /* The pitch wheel: a chain's `bend' mapping goes as 14-bit pitch bend,
  * and a stop puts a bent wheel back to center -- after the flush record, so
  * the page's flush, which drops what is queued, does not drop it. */

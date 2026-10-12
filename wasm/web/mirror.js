@@ -95,6 +95,10 @@ async function start ({ bytes, windowlen, sampleRate })
 
     M._tw_create(sampleRate, windowlen, 128);
 
+    /* A worker can take a growth step's tenth of a second: this instance
+       grows its own, and the worklet's too (case 'growask' below). */
+    M._tw_grow_mode(1);
+
     /* Before anything is loaded: it is a kind of synth and not a mode a
        running one flips (thSynth::setSilent). */
     M._tw_silent();
@@ -546,6 +550,21 @@ function receive (m)
 
     switch (m.type)
     {
+        /* A growth step the worklet's scheduler asked for, grown here and
+           sent back through the page (host.js). */
+        case 'growask':
+        {
+            const a = JSON.parse(m.ask);
+            const r = JSON.parse(M.ccall('tw_grow', 'string',
+                                         ['string', 'string', 'number',
+                                          'string'],
+                                         [a.text, a.base, a.choice,
+                                          a.kinds]));
+
+            postMessage({ type: 'grown', ticket: a.ticket, ...r });
+            break;
+        }
+
         /* This instance's frames are the worklet's from here on
            (thinkweb.cpp, tw_align). */
         case 'align':

@@ -25,6 +25,7 @@
 #include <map>
 
 #include "think.h"
+#include "thDynLib.h"
 #include "thSoundFile.h"
 
 #include "NodeCatalog.h"
@@ -449,8 +450,27 @@ void buildPool (thPluginManager *pm, vector<Splice> &pool)
 
     NodeCatalog catalog;
 
+#ifdef THINK_STATIC_PLUGINS
+    /* Compiled in, as in the browser: no directory to walk, so the
+       catalog takes the table's names, as thinknode.cpp's does. */
+    vector<string> spellings;
+
+    for (size_t i = 0; i < thStaticPluginCount; i++)
+    {
+        const string name = thStaticPlugins[i].name;
+        const string::size_type slash = name.find('/');
+
+        if (slash != string::npos)
+            spellings.push_back(name.substr(0, slash) + "::" +
+                                name.substr(slash + 1));
+    }
+
+    if (pm == NULL || catalog.take(spellings) == 0)
+        return;
+#else
     if (pm == NULL || catalog.scan(pm->pluginPath()) == 0)
         return;
+#endif
 
     for (size_t c = 0; c < sizeof CATEGORIES / sizeof CATEGORIES[0]; c++)
     {
