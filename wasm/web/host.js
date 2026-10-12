@@ -52,26 +52,28 @@
  * commands with the same stamps (docs/JAM.md).
  */
 
-let fetched = null;
+/* Each module's bytes, by file, fetched once. */
+const fetched = new Map();
 
-function wasmBytes ()
+function wasmBytes (name = 'thinkweb.wasm')
 {
-    fetched ??= fetch(new URL('thinkweb.wasm', import.meta.url))
-        .then((r) =>
-        {
-            if (!r.ok)
-                throw new Error(`thinkweb.wasm: ${r.status} ${r.statusText}`);
+    if (!fetched.has(name))
+        fetched.set(name, fetch(new URL(name, import.meta.url))
+            .then((r) =>
+            {
+                if (!r.ok)
+                    throw new Error(`${name}: ${r.status} ${r.statusText}`);
 
-            return r.arrayBuffer();
-        })
-        .catch((e) =>
-        {
-            /* Not kept: Start after a failed fetch fetches again. */
-            fetched = null;
-            throw e;
-        });
+                return r.arrayBuffer();
+            })
+            .catch((e) =>
+            {
+                /* Not kept: Start after a failed fetch fetches again. */
+                fetched.delete(name);
+                throw e;
+            }));
 
-    return fetched;
+    return fetched.get(name);
 }
 
 /* The tape batches the load's recent figures are summed over: 64 is
@@ -696,43 +698,91 @@ export async function createSynth (ctx, { windowlen = 128,
                                         toward });
             }),
 
-        /* Evolve toward: `islands' searches of `spec', a worker each
-           (evolve.js) on seeds from `seed', each saying what it finds to
-           onEvent(island, message) and ending itself when it is done.
-           cancel() ends those still going. */
-        evolve: (spec, { seed, islands, sound }, onEvent) =>
+        /* Evolve toward on `workers' of the machine's cores (evolve.js).
+           Where the browser can suspend a module on a promise (JSPI), one
+           search whose generations `workers' listeners score; elsewhere
+           `workers' searches on seeds from `seed', of which the caller
+           keeps the best. Each says what it finds to onEvent(search,
+           message) and ends itself when it is done. Resolves to
+           { cancel, searches }: cancel() ends whatever is still going, and
+           `searches' is how many will say they are done. */
+        evolve: async (spec, { seed, workers, sound }, onEvent) =>
         {
-            const workers = [];
-
-            for (let i = 0; i < islands; i++)
+            const started = [];
+            const cancel = () => started.forEach((w) => w.terminate());
+            const spawn = (message, transfer, onMessage, onError) =>
             {
                 const w = new Worker(new URL('evolve.js', import.meta.url),
                                      { type: 'module' });
-                const copy = bytes.slice(0);
 
-                w.onmessage = (e) =>
-                {
-                    if (e.data.type === 'done')
-                        w.terminate();
-
-                    onEvent(i, e.data);
-                };
+                w.onmessage = onMessage;
                 w.onerror = (e) =>
                 {
                     w.terminate();
-                    onEvent(i, { type: 'done', ok: false,
-                                 why: e.message ?? 'the search failed' });
+                    onError(e.message ?? 'the search failed');
                 };
                 /* The sound files too: an instrument that plays one --
                    a kit, a pack -- sounds of nothing without it. */
-                w.postMessage({ bytes: copy, windowlen: info.windowlen,
-                                sampleRate: info.sampleRate, spec,
-                                seed: seed + i, sound,
-                                sounds: [...sounds] }, [copy]);
-                workers.push(w);
+                w.postMessage({ windowlen: info.windowlen,
+                                sampleRate: info.sampleRate, spec, sound,
+                                sounds: [...sounds], ...message }, transfer);
+                started.push(w);
+            };
+
+            const shared = typeof WebAssembly.Suspending === 'function'
+                ? await wasmBytes('thinkevolve.wasm').catch(() => null)
+                : null;
+
+            if (shared !== null)
+            {
+                let ended = false;
+                const done = (m) =>
+                {
+                    if (ended)
+                        return;
+
+                    ended = true;
+                    cancel();
+                    onEvent(0, m);
+                };
+                const failed = (why) =>
+                    done({ type: 'done', ok: false, why });
+                const ears = [];
+
+                for (let i = 0; i < workers; i++)
+                {
+                    const { port1, port2 } = new MessageChannel();
+                    const copy = bytes.slice(0);
+
+                    spawn({ bytes: copy, port: port2 }, [copy, port2],
+                          () => {}, failed);
+                    ears.push(port1);
+                }
+
+                const copy = shared.slice(0);
+
+                spawn({ bytes: copy, seed, ears }, [copy, ...ears],
+                      (e) => (e.data.type === 'done' ? done(e.data)
+                                                     : onEvent(0, e.data)),
+                      failed);
+
+                return { cancel, searches: 1 };
             }
 
-            return { cancel: () => workers.forEach((w) => w.terminate()) };
+            for (let i = 0; i < workers; i++)
+            {
+                const copy = bytes.slice(0);
+
+                spawn({ bytes: copy, seed: seed + i }, [copy], (e) =>
+                {
+                    if (e.data.type === 'done')
+                        started[i].terminate();
+
+                    onEvent(i, e.data);
+                }, (why) => onEvent(i, { type: 'done', ok: false, why }));
+            }
+
+            return { cancel, searches: workers };
         },
 
         /* A search's graph on `instrument''s channel in place of `over',

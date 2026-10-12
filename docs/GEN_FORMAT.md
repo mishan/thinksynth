@@ -983,10 +983,12 @@ values (`a = 900 ms`), as the piece plays it; the values themselves are the
 piece's, and the search leaves them as they are.
 
 On the page it is under Piece source. The browser gives a module no threads, so
-a search runs in a worker of its own, on one synth, and the page runs a few at
-once on seeds of their own — two cores spare, four at most — and keeps the best
-of them: a tune takes longer than the application's, and Cancel ends the workers
-and keeps the nearest found. Listen, the result, Keep and Discard work as they
+the search runs in a worker of its own and hands each generation to a few more —
+two cores spare, four at most — each scoring candidates on a synth of its own;
+the search waits on them with its module suspended, which takes JSPI (Chrome and
+Firefox have it). In a browser without it the page runs that many searches
+instead, on seeds of their own, and keeps the best: a tune takes longer there.
+Cancel ends the workers and keeps the nearest found. Listen, the result, Keep and Discard work as they
 do in the application. In a room the search runs in the browser of whoever
 started it, what it puts on the channel is a command every peer hears at the same
 time, and Keep writes it into the room's document.

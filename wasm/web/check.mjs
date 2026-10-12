@@ -723,9 +723,9 @@ for (const name of names)
     const r = spec.why !== '' ? { ok: false, why: spec.why }
         : JSON.parse(M.ccall('tw_evolve', 'string',
             ['string', 'string', 'string', 'string', 'string', 'number',
-             'number', 'number'],
+             'number', 'number', 'number'],
             [spec.start, spec.startArgs, spec.target, spec.targetArgs, '', 0,
-             1, 20]));
+             1, 20, 0]));
 
     if (!r.ok)
         fail(`evolve: the search failed: ${r.why}`);
@@ -736,6 +736,24 @@ for (const name of names)
     else
         process.stdout.write('ok    evolve         a search in the module ' +
                              'comes nearer, and says so on the way\n');
+
+    /* A listener for a search elsewhere hears what the search heard: the
+       graph it began from as far away, and what it found as near. */
+    const heard = M.ccall('tw_evolve_listen', 'string',
+        ['string', 'string', 'string', 'string', 'string'],
+        [spec.start, spec.startArgs, spec.target, spec.targetArgs, '']);
+    const score = (g) => M.ccall('tw_evolve_score', 'number', ['string'],
+                                 [g]);
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+
+    if (heard !== '' || !r.ok || !near(score(spec.start), said.started) ||
+        !near(score(r.found), r.distance))
+        fail(`evolve: a listener ${heard || 'heard'} ` +
+             `${score(spec.start)} and ${score(r.found)} dB where the ` +
+             `search heard ${said.started} and ${r.distance}`);
+    else
+        process.stdout.write('ok    evolve         a listener elsewhere ' +
+                             'hears what the search heard\n');
 }
 
 /* The pitch wheel: a chain's `bend' mapping goes as 14-bit pitch bend,

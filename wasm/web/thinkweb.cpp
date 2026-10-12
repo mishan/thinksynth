@@ -63,6 +63,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -70,6 +71,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -3011,18 +3013,12 @@ EMSCRIPTEN_KEEPALIVE const char *tw_evolve_spec (const char *instrument,
     return evolveJson_.c_str();
 }
 
-/* One search, here, to its end: {"ok", "found", "distance", "why"}.
-   `wav' is a sound file's path in this realm, or "" for `target'. */
-EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
-                                            const char *startArgs,
-                                            const char *target,
-                                            const char *targetArgs,
-                                            const char *wav, int grow,
-                                            unsigned int seed,
-                                            int generations)
+/* A search of `start' toward `target', or the sound file at path `wav'. */
+static NodeEvolve::Spec
+evolveOf (const char *start, const char *startArgs, const char *target,
+          const char *targetArgs, const char *wav)
 {
     NodeEvolve::Spec spec;
-    NodeEvolve::Report report;
 
     spec.pluginPath = "";
     spec.rate = rate_;
@@ -3031,11 +3027,60 @@ EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
     spec.targetGraph = target ? target : "";
     spec.targetArgs = argsOf(targetArgs);
     spec.targetWav = wav ? wav : "";
+
+    return spec;
+}
+
+#ifdef TW_SCORE_ELSEWHERE
+/* A generation scored in the page's listener workers (evolve.js): the
+   sources joined by '\x1e', and their distances written to `out'. The
+   search waits on it with the module suspended (JSPI), which is why this
+   is in a module of its own: thinkevolve. */
+EM_ASYNC_JS(void, twScoreAll, (const char *sources, double *out, int n), {
+    const scores = await Module.scoreAll(UTF8ToString(sources));
+
+    for (let k = 0; k < n && k < scores.length; k++)
+        HEAPF64[(out >> 3) + k] = scores[k];
+});
+#endif
+
+/* One search, here, to its end: {"ok", "found", "distance", "why"}.
+   `wav' is a sound file's path in this realm, or "" for `target'. With
+   `elsewhere', in thinkevolve, each generation is scored by the page's
+   listeners rather than here. */
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
+                                            const char *startArgs,
+                                            const char *target,
+                                            const char *targetArgs,
+                                            const char *wav, int grow,
+                                            unsigned int seed,
+                                            int generations, int elsewhere)
+{
+    NodeEvolve::Spec spec = evolveOf(start, startArgs, target, targetArgs,
+                                     wav);
+    NodeEvolve::Report report;
+
     spec.grow = grow != 0;
     spec.seed = seed;
 
     if (generations > 0)
         spec.generations = generations;
+
+#ifdef TW_SCORE_ELSEWHERE
+    if (elsewhere)
+        report.scoreAll = [] (const std::vector<std::string> &sources,
+                              std::vector<double> &out)
+        {
+            std::string joined;
+
+            for (size_t k = 0; k < sources.size(); k++)
+                joined += (k ? "\x1e" : "") + sources[k];
+
+            twScoreAll(joined.c_str(), out.data(), (int)out.size());
+        };
+#else
+    (void)elsewhere;
+#endif
 
     report.say = [] (const std::string &text)
                  { twEvolveSay(0, 0, text.c_str()); };
@@ -3055,6 +3100,39 @@ EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
     evolveJson_ += "}";
 
     return evolveJson_.c_str();
+}
+
+/* A listener for a search elsewhere (evolve.js): the target heard here,
+   once; "" when it was, or why it could not be. */
+static std::unique_ptr<NodeEvolve::Listener> listener_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve_listen (const char *start,
+                                                   const char *startArgs,
+                                                   const char *target,
+                                                   const char *targetArgs,
+                                                   const char *wav)
+{
+    listener_.reset(new NodeEvolve::Listener(
+        evolveOf(start, startArgs, target, targetArgs, wav)));
+    evolveJson_.clear();
+
+    if (!listener_->open(evolveJson_))
+        listener_.reset();
+
+    return evolveJson_.c_str();
+}
+
+/* How far `source' sounds from the listener's target. Seeded alike for
+   every graph, so a candidate scores the same on whichever worker is
+   free. */
+EMSCRIPTEN_KEEPALIVE double tw_evolve_score (const char *source)
+{
+    if (!listener_)
+        return NodeEvolve::DEAD;
+
+    srand(1);
+
+    return listener_->distance(source ? source : "");
 }
 
 /* A search's graph on `instrument''s channel, at a transport time

@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <memory>
 
@@ -695,27 +696,114 @@ void Job::run (Spec spec)
     }
 }
 
-Outcome evolve (const Spec &spec, size_t workers, const Report &report)
-{
-    /* A synth and an extractor for each of the threads a generation is
-       scored on. Two synths share nothing: even the plugins that keep a
-       table for a whole synth keep one per synth. */
-    vector<std::unique_ptr<thSynth> > synths;
-    vector<std::unique_ptr<thsound::Extractor> > exs;
+/* Names in the registry inline graphs use, one per render: unique across
+   every thread scoring at once. */
+static std::atomic<unsigned int> serial { 0 };
 
-    for (size_t w = 0; w < workers; w++)
+Listener::Listener (const Spec &spec)
+    : spec_(spec),
+      synth_(new thSynth(spec.pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                         (int)spec.rate)),
+      ex_((int)spec.rate)
+{
+}
+
+Listener::Listener (const Listener &first)
+    : spec_(first.spec_),
+      synth_(new thSynth(first.spec_.pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                         (int)first.spec_.rate)),
+      ex_((int)first.spec_.rate),
+      target_(first.target_),
+      at_(first.at_)
+{
+}
+
+/* `text' rendered as one note with `args', under a name of its own in the
+   registry inline graphs use. */
+bool Listener::render (const string &text,
+                       const vector<pair<string, float> > &args,
+                       vector<float> &mono)
+{
+    const string name = "evolve#" + std::to_string(++serial) + ".dsp";
+    thUtil::GraphHold hold = thUtil::addGraphText(name, text);
+
+    return thsound::renderNote(*synth_, name, args, at_,
+                               thsound::HOLD_WINDOWS, thsound::TAIL_WINDOWS,
+                               mono);
+}
+
+bool Listener::open (string &why)
+{
+    /* The note a recording sounds, where it has one; middle C otherwise.
+       Read before anything is rendered, since the render is at that note. */
+    vector<float> recording;
+
+    if (!spec_.targetWav.empty() &&
+        !thsound::readWav(spec_.targetWav, recording, why, spec_.rate))
+        return false;
+
+    const int detected = recording.empty()
+                       ? -1 : thsound::detectNote(recording, spec_.rate);
+
+    at_ = detected >= 0 ? detected : 60;
+
+    /* The target as features, at the length a render is. */
+    vector<float> mono;
+
+    srand(1);
+
+    if (!render(spec_.start, spec_.startArgs, mono))
     {
-        synths.emplace_back(new thSynth(spec.pluginPath,
-                                        TH_DEFAULT_WINDOW_LENGTH,
-                                        (int)spec.rate));
-        exs.emplace_back(new thsound::Extractor((int)spec.rate));
+        why = "the graph to evolve does not load";
+        return false;
     }
 
-    thSynth &synth = *synths[0];
-    const thsound::Extractor &ex = *exs[0];
-    thsound::Features target;
-    std::atomic<unsigned int> serial { 0 };
+    vector<float> heard = recording;
 
+    srand(1);
+
+    if (!spec_.targetGraph.empty() &&
+        !render(spec_.targetGraph, spec_.targetArgs, heard))
+    {
+        why = "the target graph does not load";
+        return false;
+    }
+
+    heard.resize(mono.size(), 0.0f);
+    ex_.extract(heard, target_);
+
+    if (!target_.usable())
+    {
+        why = string("the target is ") + thsound::verdictName(target_.verdict);
+        return false;
+    }
+
+    return true;
+}
+
+double Listener::distance (const string &source, Distance *parts)
+{
+    vector<float> got;
+    thsound::Features f;
+
+    if (!render(source, spec_.startArgs, got))
+        return DEAD;
+
+    ex_.extract(got, f);
+
+    if (!f.usable())
+        return DEAD;
+
+    const Distance d = thsound::Extractor::distance(target_, f);
+
+    if (parts != NULL)
+        *parts = d;
+
+    return d.total();
+}
+
+Outcome evolve (const Spec &spec, size_t workers, const Report &report)
+{
     const auto stopped = [&report] { return report.stop && report.stop(); };
     const auto failed = [] (const string &why)
     {
@@ -724,96 +812,47 @@ Outcome evolve (const Spec &spec, size_t workers, const Report &report)
         o.why = why;
         return o;
     };
+
+    /* A listener for each of the threads a generation is scored on. Two
+       synths share nothing: even the plugins that keep a table for a whole
+       synth keep one per synth. */
+    vector<std::unique_ptr<Listener> > ears;
+    string unheard;
+
+    ears.emplace_back(new Listener(spec));
+
+    if (!ears[0]->open(unheard))
+        return failed(unheard);
+
+    for (size_t w = 1; w < workers; w++)
+        ears.emplace_back(new Listener(*ears[0]));
+
+    thSynth &synth = ears[0]->synth();
     std::mutex lock;
     double best = -1;
 
-    /* The note a recording sounds, where it has one; middle C otherwise.
-       Read before anything is rendered, since the render is at that note. */
-    vector<float> recording;
-    string unread;
-
-    if (!spec.targetWav.empty() &&
-        !thsound::readWav(spec.targetWav, recording, unread, spec.rate))
+    const auto heard = [&] (double d, const string &source)
     {
-        return failed(unread);
-    }
-
-    const int detected = recording.empty()
-                       ? -1 : thsound::detectNote(recording, spec.rate);
-    const int at = detected >= 0 ? detected : 60;
-
-    /* `text' rendered as one note on `on' with `args', under a name of its
-       own in the registry inline graphs use. */
-    const auto render = [&] (thSynth &on, const string &text,
-                             const vector<pair<string, float> > &args,
-                             vector<float> &mono)
-    {
-        const string name = "evolve#" + std::to_string(++serial) + ".dsp";
-        thUtil::GraphHold hold = thUtil::addGraphText(name, text);
-
-        return thsound::renderNote(on, name, args, at, thsound::HOLD_WINDOWS,
-                                   thsound::TAIL_WINDOWS, mono);
-    };
-
-    /* The target as features, at the length a render is. */
-    vector<float> mono;
-
-    srand(1);
-
-    if (!render(synth, spec.start, spec.startArgs, mono))
-    {
-        return failed("the graph to evolve does not load");
-    }
-
-    vector<float> heard = recording;
-
-    srand(1);
-
-    if (!spec.targetGraph.empty() &&
-        !render(synth, spec.targetGraph, spec.targetArgs, heard))
-    {
-        return failed("the target graph does not load");
-    }
-
-    heard.resize(mono.size(), 0.0f);
-    ex.extract(heard, target);
-
-    if (!target.usable())
-    {
-        return failed(string("the target is ") +
-                      thsound::verdictName(target.verdict));
-    }
-
-    const auto scoreOn = [&] (size_t w, const string &source,
-                              thsound::Distance *parts)
-    {
-        vector<float> got;
-        thsound::Features f;
-
-        if (!render(*synths[w], source, spec.startArgs, got))
-            return DEAD;
-
-        exs[w]->extract(got, f);
-
-        if (!f.usable())
-            return DEAD;
-
-        const thsound::Distance d = thsound::Extractor::distance(target, f);
-
-        if (parts != NULL)
-            *parts = d;
+        if (d >= DEAD)
+            return;
 
         std::lock_guard<std::mutex> hold(lock);
 
-        if (best < 0 || d.total() < best)
+        if (best < 0 || d < best)
         {
-            best = d.total();
+            best = d;
 
             if (report.nearer)
                 report.nearer(best, source);
         }
+    };
+    const auto scoreOn = [&] (size_t w, const string &source,
+                              thsound::Distance *parts)
+    {
+        const double d = ears[w]->distance(source, parts);
 
-        return d.total();
+        heard(d, source);
+        return d;
     };
 
     Host host;
@@ -826,6 +865,16 @@ Outcome evolve (const Spec &spec, size_t workers, const Report &report)
     host.scoreAll = [&] (const vector<string> &sources, vector<double> &out)
     {
         out.assign(sources.size(), DEAD);
+
+        if (report.scoreAll)
+        {
+            report.scoreAll(sources, out);
+
+            for (size_t k = 0; k < sources.size() && k < out.size(); k++)
+                heard(out[k], sources[k]);
+
+            return;
+        }
 
         /* Each thread takes every workers'th candidate, until a cancel.
            What one throws is rethrown here once all are joined, for run()

@@ -177,7 +177,7 @@ get_property(STATIC_SOURCES GLOBAL PROPERTY THINK_STATIC_SOURCES)
 # shells keep them in -- sixteen documents, a dirty flag and a generation --
 # so the page can say what is on a channel and whether it has been edited,
 # which is a thing the desktop has always been able to say.
-add_executable(thinkweb
+add_library(thinkweb_parts OBJECT
     ${STATIC_SOURCES}
     "${PROJECT_BINARY_DIR}/static/registry.cpp"
     "${THINK_TOP}/src/gthSynthSource.cpp"
@@ -204,17 +204,23 @@ add_executable(thinkweb
     "${THINK_TOP}/src/StagePanel.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
-    thinkweb.cpp
     thinknode.cpp)
 
-target_include_directories(thinkweb PRIVATE
+set(THINKWEB_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${THINK_TOP}/wasm"
     "${THINK_TOP}/wasm/shim"
     "${THINK_TOP}"
     "${THINK_TOP}/src")
 
-target_link_libraries(thinkweb PRIVATE think_objects think_loader sigc cairo2d)
+target_include_directories(thinkweb_parts PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkweb_parts PRIVATE think_objects think_loader sigc
+                      cairo2d)
+
+add_executable(thinkweb thinkweb.cpp)
+target_include_directories(thinkweb PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkweb PRIVATE thinkweb_parts think_objects
+                      think_loader sigc cairo2d)
 
 # .js, not Emscripten's .mjs, for the reason at the top; EXPORT_ES6 below
 # is what makes it a module, whatever it is called.
@@ -232,6 +238,28 @@ target_link_options(thinkweb PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sSTACK_SIZE=1MB
     -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString,HEAPF32,HEAPF64,HEAP32,HEAPU32,HEAPU8)
+
+# The same module again, for an Evolve toward search where the browser can
+# suspend one on a promise (JSPI): the search waits on the page's listener
+# workers for each generation's scores (thinkweb.cpp, twScoreAll; evolve.js).
+# Its own module, so that the one every page plays through needs nothing a
+# browser without JSPI lacks.
+add_executable(thinkevolve thinkweb.cpp)
+target_compile_definitions(thinkevolve PRIVATE TW_SCORE_ELSEWHERE)
+target_include_directories(thinkevolve PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkevolve PRIVATE thinkweb_parts think_objects
+                      think_loader sigc cairo2d)
+set_target_properties(thinkevolve PROPERTIES SUFFIX ".js")
+target_link_options(thinkevolve PRIVATE
+    -sMODULARIZE=1
+    -sEXPORT_ES6=1
+    -sEXPORT_NAME=createThinkEvolve
+    -sENVIRONMENT=web,worker
+    -sALLOW_MEMORY_GROWTH=1
+    -sSTACK_SIZE=1MB
+    -sJSPI=1
+    -sJSPI_EXPORTS=tw_evolve
+    -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString,HEAPU8)
 
 # ---------------------------------------------------------------------------
 # The site
@@ -499,17 +527,20 @@ set(PRECACHE_FILES ${SITE_OUTPUTS})
 list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/thinkweb.js"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+    "${PROJECT_BINARY_DIR}/thinkevolve.js"
+    "${PROJECT_BINARY_DIR}/thinkevolve.wasm"
     "${PROJECT_BINARY_DIR}/dsp/index.json"
     "${PROJECT_BINARY_DIR}/gen/index.json"
     "${PROJECT_BINARY_DIR}/patches/index.json")
 list(JOIN PRECACHE_FILES "\n" precache_list)
 
-# What sw.js is rebuilt on is the same list less the .wasm, which the link
-# writes beside thinkweb.js without Ninja knowing it has a rule: named
-# here, a fresh tree stops with "no known rule to make it". thinkweb.js is
-# written by the same link, so depending on it covers both.
+# What sw.js is rebuilt on is the same list less the .wasm files, which
+# each link writes beside its .js without Ninja knowing it has a rule:
+# named here, a fresh tree stops with "no known rule to make it". The .js
+# is written by the same link, so depending on it covers both.
 set(PRECACHE_DEPENDS ${PRECACHE_FILES})
-list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm")
+list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+                                   "${PROJECT_BINARY_DIR}/thinkevolve.wasm")
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
      CONTENT "${precache_list}\n")
 
@@ -518,7 +549,7 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
             "${PROJECT_BINARY_DIR}"
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${PROJECT_BINARY_DIR}/precache.list"
-    DEPENDS ${PRECACHE_DEPENDS} thinkweb
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
             "${PROJECT_BINARY_DIR}/precache.list"
@@ -561,7 +592,9 @@ list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"
     "$<TARGET_FILE:thinkweb>"
-    "${PROJECT_BINARY_DIR}/thinkweb.wasm")
+    "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+    "$<TARGET_FILE:thinkevolve>"
+    "${PROJECT_BINARY_DIR}/thinkevolve.wasm")
 
 install(FILES ${DIST_ROOT_FILES} DESTINATION . PERMISSIONS ${SITE_FILE_MODE})
 install(FILES ${DIST_ICON_FILES} DESTINATION icons PERMISSIONS ${SITE_FILE_MODE})
@@ -655,4 +688,4 @@ add_custom_target(dist
             --prefix "${DIST_DIR}"
     COMMENT "Packaging the site into ${DIST_DIR}"
     VERBATIM)
-add_dependencies(dist site thinkweb)
+add_dependencies(dist site thinkweb thinkevolve)

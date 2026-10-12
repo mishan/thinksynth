@@ -13,11 +13,12 @@
  */
 
 /* Evolve toward, for the solo page and a room alike: the desktop's Evolve
- * window on the page's terms. A search a worker each (host.js, evolve.js)
- * on seeds of their own -- one or a few, as the machine has cores to
- * spare -- the best of them kept as they go: the nearest graph for Listen,
- * the trail for the plot, and at the end the nearest result. Cancel ends
- * the workers and keeps the nearest found.
+ * window on the page's terms. A search on as many workers as the machine
+ * has cores to spare (host.js, evolve.js) -- one search scored on all of
+ * them, or where the browser cannot, a search each on seeds of their own
+ * -- the best kept as they go: the nearest graph for Listen, the trail
+ * for the plot, and at the end the nearest result. Cancel ends the workers
+ * and keeps the nearest found.
  *
  * The search is this browser's; what it finds is the page's to put on the
  * channel (`put'), in place of what this search put there last -- a
@@ -191,11 +192,12 @@ export function createEvolve ({ synth, piece, loading, put, keep,
 
         spec.grow = $('evolvehow').value === '1';
 
-        const islands = Math.max(1, Math.min(4,
+        const workers = Math.max(1, Math.min(4,
             (navigator.hardwareConcurrency ?? 2) - 2));
         const run = { trail: [], best: Infinity, nearest: '', started: null,
-                      done: false, ended: 0, islands, result: null,
-                      began: performance.now(), cancel: () => {} };
+                      done: false, ended: 0, searches: Infinity,
+                      result: null, began: performance.now(),
+                      cancel: () => {} };
 
         evolving = run;
         what = instrument;
@@ -203,10 +205,10 @@ export function createEvolve ({ synth, piece, loading, put, keep,
         graph = '';
         $('evolvestate').textContent = 'listening...';
 
-        run.cancel = synth().evolve(spec, {
-            seed: piece()?.seed ?? 1, islands,
+        const searching = synth().evolve(spec, {
+            seed: piece()?.seed ?? 1, workers,
             sound: recording ? sound : null,
-        }, (island, m) =>
+        }, (search, m) =>
         {
             if (evolving !== run)
                 return;
@@ -227,17 +229,26 @@ export function createEvolve ({ synth, piece, loading, put, keep,
                              m.distance < run.result.distance))
                     run.result = m;
 
-                if (++run.ended === islands)
+                if (++run.ended === run.searches)
                     end(run, run.result?.why ?? m.why);
             }
 
             draw();
-        }).cancel;
+        });
 
         buttons();
+
+        const { cancel, searches } = await searching;
+
+        run.cancel = cancel;
+        run.searches = searches;
+
+        /* Cancelled while the workers were being made. */
+        if (run.done)
+            cancel();
     }
 
-    /* A search over, all its islands in or cancelled: the nearest it
+    /* A search over, all its searches in or cancelled: the nearest it
        found on the channel, to be kept or discarded. */
     async function end (run, why)
     {
@@ -246,8 +257,8 @@ export function createEvolve ({ synth, piece, loading, put, keep,
 
         run.done = true;
 
-        /* The nearest any island came: a finished island's result, or
-           what one still going had found when it was cancelled. */
+        /* The nearest any search came: a finished one's result, or what
+           one still going had found when it was cancelled. */
         const finished = run.result !== null &&
                          run.result.distance <= run.best;
         const found = finished ? run.result.found : run.nearest;

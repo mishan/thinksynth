@@ -3076,6 +3076,11 @@ try
         await page.evaluate(() => window.solo.settled());
         await page.selectOption('#evolvewhat', 'pad');
         await page.selectOption('#evolvetoward', 'ref');
+
+        const fetched = [];
+        const asked = (r) => fetched.push(r.url());
+
+        page.on('request', asked);
         await page.click('#evolvego');
 
         const ended = await page.waitForFunction(
@@ -3087,10 +3092,13 @@ try
         const playing = await page.evaluate(
             () => window.solo.grownText('pad'));
 
+        page.off('request', asked);
         check(ended && playing.includes('node env') &&
               !playing.includes('s = 0.05; r'),
               `Evolve toward tunes an instrument in the page's workers and ` +
               `puts the result on its channel: ${state}`);
+        check(fetched.some((u) => u.endsWith('/thinkevolve.wasm')),
+              '...as one search its workers score, Chromium having JSPI');
 
         await page.click('#evolvekeep');
 

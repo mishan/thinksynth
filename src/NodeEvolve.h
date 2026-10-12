@@ -39,6 +39,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <string>
@@ -158,6 +159,39 @@ struct Spec {
     int rounds = 2;         /* of edits raced, when growing          */
 };
 
+/* How far a graph sounds from what a Spec moves toward, on a synth of its
+   own: the target heard once, at the note a recording sounds or middle C,
+   and each graph rendered at that note and measured against it. A search
+   scores on one per thread; a host with no threads to give it, on one per
+   worker of its own (Report::scoreAll). */
+class Listener {
+public:
+    explicit Listener (const Spec &spec);
+
+    /* Another on a synth of its own, hearing what `first' heard. */
+    Listener (const Listener &first);
+
+    /* The target heard; false, with `why', if it cannot be. */
+    bool open (string &why);
+
+    /* How far `source' is from the target, and the parts of that if
+       `parts' is given; DEAD for a graph that will not load or is no
+       sound. */
+    double distance (const string &source, thsound::Distance *parts = NULL);
+
+    thSynth &synth (void) { return *synth_; }
+
+private:
+    bool render (const string &text, const vector<pair<string, float> > &args,
+                 vector<float> &mono);
+
+    Spec spec_;
+    std::unique_ptr<thSynth> synth_;
+    thsound::Extractor ex_;
+    thsound::Features target_;
+    int at_ = 60;
+};
+
 /* What a search says as it goes, to whatever runs it. Each may be empty. */
 struct Report {
     std::function<bool ()> stop;                 /* asked between candidates */
@@ -167,6 +201,11 @@ struct Report {
     /* Each time a candidate comes nearer than any before it. From any of
        the threads a generation is scored on. */
     std::function<void (double distance, const string &graph)> nearer;
+
+    /* A generation scored by the host, on Listeners of its own, in place
+       of this search's threads: the browser's, in workers. */
+    std::function<void (const vector<string> &sources, vector<double> &out)>
+        scoreAll;
 };
 
 struct Outcome {
