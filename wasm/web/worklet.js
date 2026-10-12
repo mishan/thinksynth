@@ -379,6 +379,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                 type: 'genops', id: m.id,
                 text: this.M.ccall('tw_gen_ops', 'string',
                                    ['string', 'string'], [m.text, m.ops]),
+                why: this.M.ccall('tw_gen_ops_why', 'string'),
             });
 
             return;

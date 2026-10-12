@@ -258,10 +258,12 @@ export function playersOf (piece)
         const dsp = dspOf.get(sink.instrument) ?? '';
         const gens = c.stages.filter((s) => s.category === 'gen');
         const plugins = c.stages.map((s) => `${s.category}::${s.plugin}`);
-        const words = `${c.name} ${sound} ${dsp}`.toLowerCase()
-            .split(/[^a-z]+/);
-        let role = ROLES.find(([, re]) => words.some((w) => re.test(w)))
-            ?.[0];
+        /* The chain's own name first: a graph says what kind of sound it
+           is, and the name what the player is for. */
+        const words = (t) => t.toLowerCase().split(/[^a-z]+/);
+        const named = (t) => ROLES.find(([, re]) =>
+            words(t).some((w) => re.test(w)))?.[0];
+        let role = named(c.name) ?? named(`${sound} ${dsp}`);
 
         if (role === undefined)
             role = plugins.some((p) => /progression|harmonize/.test(p))
@@ -709,8 +711,16 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         if (![...menu.options].some((o) => o.value === p.dsp))
             menu.prepend(new Option(p.dsp || p.sound, p.dsp));
 
+        /* Back to what plays it until the piece says otherwise: a card is
+           drawn again when its graph changes, and a refusal leaves it. */
         menu.value = p.dsp;
-        menu.addEventListener('change', () => sound(p, menu.value));
+        menu.addEventListener('change', () =>
+        {
+            const dsp = menu.value;
+
+            menu.value = p.dsp;
+            sound(p, dsp);
+        });
         return menu;
     }
 
@@ -832,8 +842,11 @@ export function createBand ({ piece, params, vary, keep, rest, say,
                     const now = piece();
 
                     /* A player is an instrument, and an instrument a
-                       channel: there are sixteen. */
-                    if ((now?.instruments ?? []).length >= 16)
+                       channel: there are sixteen, less those the piece's
+                       chains play on by number. */
+                    if (new Set([...(now?.instruments ?? [])
+                                     .map((i) => i.channel),
+                                 ...(now?.sinks ?? [])]).size >= 16)
                     {
                         say('The band is full: sixteen players, one for ' +
                             'each channel. Take one out to add another.');
@@ -890,8 +903,8 @@ export function createBand ({ piece, params, vary, keep, rest, say,
         {
             const st = stateOf(p);
 
-            return [p.name, p.index, st.shape, p.role, p.sound, p.idea,
-                    st.takes, st.take, st.resting, p.seeded,
+            return [p.name, p.index, st.shape, p.role, p.sound, p.dsp,
+                    p.idea, st.takes, st.take, st.resting, p.seeded,
                     p.picture?.live, p.picture?.params];
         }));
 

@@ -3518,12 +3518,22 @@ try
                 .join(' '));
 
         await page.selectOption('#mode', 'band');
-        await page.click('#bandnew');
-        const band = await until(cards, (c) => c.split(' ').length === 5);
 
-        check(band === 'kick:drums snare:drums hats:drums bass:bass ' +
-                       'keys:melody',
-              `New band is a beat, a bass and keys: ${band}`);
+        /* The piece before it was changed, so New asks first. */
+        let asked = false;
+
+        page.once('dialog', (d) =>
+        {
+            asked = true;
+            d.accept();
+        });
+        await page.click('#bandnew');
+        const band = await until(cards, (c) => c.startsWith('kick:drums'));
+
+        check(asked && band === 'kick:drums snare:drums hats:drums ' +
+                         'bass:bass keys:melody',
+              'New band asks before putting a changed piece away, and is ' +
+              `a beat, a bass and keys: ${band}`);
 
         await page.click('#bandadd');
         await page.click('#bandgallery button[data-idea="Game of Life"]');
@@ -3551,8 +3561,10 @@ try
 
         await page.click('#undo');
         const back = await until(text, (t) => /chain air/.test(t));
-        const kept = await page.evaluate(() =>
-            JSON.parse(localStorage.getItem('thinksynth:piece'))?.text);
+        /* Written a second after the last change. */
+        const kept = await until(() => page.evaluate(() =>
+            JSON.parse(localStorage.getItem('thinksynth:piece'))?.text),
+            (t) => t === back);
 
         check(/chain air/.test(back) && kept === back,
               '...which Undo puts back, and the session keeps the piece ' +

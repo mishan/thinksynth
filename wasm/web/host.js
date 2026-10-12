@@ -675,8 +675,8 @@ export async function createSynth (ctx, { windowlen = 128,
                       .map(([k, v]) => `${k}=${v}`).join('\n') }),
 
         /* Several edits made to `text' as one: each an array of fields
-           (thinkweb.cpp, tw_gen_ops). Resolves to { text }, "" when one
-           was refused. */
+           (thinkweb.cpp, tw_gen_ops). Resolves to { text, why }, text ""
+           when one was refused. */
         genOps: (text, ops) =>
             ask({ type: 'genops', text,
                   ops: ops.map((f) => f.join('\t')).join('\n') }),

@@ -6175,9 +6175,19 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   uninstrument NAME        -- unless a chain still plays it
  *
  * Values as the file would write them. "" when one was refused. */
+/* Why the last tw_gen_ops wrote nothing. */
+static std::string opsWhy_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops_why (void)
+{
+    return opsWhy_.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                                              const char *ops)
 {
+    opsWhy_.clear();
+
     if (text == NULL || ops == NULL)
         return "";
 
@@ -6243,7 +6253,10 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                     why = "no edit '" + f[0] + "'";
 
                 if (r != thcGenEdit::OK)
+                {
+                    opsWhy_ = why;
                     return r;
+                }
             }
 
             return thcGenEdit::OK;

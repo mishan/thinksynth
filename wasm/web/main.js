@@ -62,7 +62,7 @@
  * on is how they stop agreeing.
  */
 
-import { NEW_BAND, addOps, ideaNamed } from './bandideas.js';
+import { NEW_BAND, addOps, freeName, ideaNamed } from './bandideas.js';
 import { createBand } from './bandview.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
@@ -1169,7 +1169,11 @@ function setLoaded (text, join = null)
 {
     loadedText = text;
 
-    if (textMode === 'piece')
+    /* Kept once it is somebody's: edited, or opened or made here. A
+       shipped piece only listened to is not, or it would put the last
+       session's piece out of reach before it could be chosen. */
+    if (textMode === 'piece' &&
+        (history().past.length > 0 || $('piece').value.startsWith('#')))
         keepSession(text);
 
     const h = history();
@@ -1417,19 +1421,56 @@ async function openText (label, text, menuValue = '#opened')
  * next time the page opens.
  */
 const SESSION_KEY = 'thinksynth:piece';
+const SESSION_EVERY_MS = 1000;
 
+let sessionText = null;
+let sessionName = '';
+let sessionTimer = null;
+
+/* Written a second after the last change rather than on each -- a pad
+   dragged is a change a tenth of a second -- and when the page goes. */
 function keepSession (text)
 {
+    sessionText = text;
+    sessionName = $('piece').value === '#saved'
+        ? lastSession?.name ?? ''
+        : $('piece').selectedOptions[0]?.textContent ?? '';
+    sessionTimer ??= setTimeout(writeSession, SESSION_EVERY_MS);
+}
+
+function writeSession ()
+{
+    clearTimeout(sessionTimer);
+    sessionTimer = null;
+
+    if (sessionText === null)
+        return;
+
     try
     {
         localStorage.setItem(SESSION_KEY, JSON.stringify({
-            name: $('piece').selectedOptions[0]?.textContent ?? '', text }));
+            name: sessionName, text: sessionText }));
     }
     catch
     {
-        /* No storage here: the session is simply not kept. */
+        /* Too big, or no storage: rather nothing offered next time than
+           an older piece offered as the last. */
+        try
+        {
+            localStorage.removeItem(SESSION_KEY);
+        }
+        catch
+        {
+        }
     }
 }
+
+addEventListener('pagehide', writeSession);
+addEventListener('visibilitychange', () =>
+{
+    if (document.visibilityState === 'hidden')
+        writeSession();
+});
 
 /* The last session's piece, read once at start: what is kept from here on
    is this session's. */
@@ -1843,11 +1884,12 @@ const band = createBand({
             return;
         }
 
-        const { text } = await synth.genOps(was, ops);
+        const { text, why } = await synth.genOps(was, ops);
 
         if (text === '' || $('gen').value !== was)
         {
-            status('The band could not make that change.', true);
+            status('The band could not make that change: ' +
+                   `${why || 'the piece changed meanwhile'}.`, true);
             return;
         }
 
@@ -1859,33 +1901,37 @@ const band = createBand({
     sound: async (p, dsp) =>
     {
         const was = $('gen').value;
+        let why = 'the text has changes that are not loaded';
 
-        if (synth === null || was !== loadedText || loading > 0)
-            return;
+        if (synth !== null && was === loadedText && loading === 0)
+        {
+            const r = await synth.genSetInstrument(was, p.instrument, dsp);
 
-        const { text } = await synth.genSetInstrument(was, p.instrument,
-                                                      dsp);
+            why = r.why || 'the piece changed meanwhile';
 
-        if (text === '' || $('gen').value !== was)
-            status(`Could not put ${p.name} on ${dsp}.`, true);
-        else
-            await applyText(text);
+            if (r.text !== '' && $('gen').value === was &&
+                await applyText(r.text))
+                return;
+        }
+
+        status(`Could not put ${p.name} on ${dsp}: ${why}.`, true);
     },
 
     /* A beat, a bass and keys, as the gallery would add them. */
     newBand: async () =>
     {
-        if (synth === null)
+        /* What New would put away is offered back only as the last
+           session, so it is asked about when it has been changed. */
+        if (synth === null || (history()?.past.length > 1 &&
+                               !confirm('Start a new band? The piece ' +
+                                        'you have changed is put away.')))
             return;
 
         const taken = new Set();
         const ops = NEW_BAND.ideas.flatMap(([role, name]) =>
         {
             const idea = ideaNamed(role, name);
-            let call = idea.call;
-
-            for (let n = 2; taken.has(call); n++)
-                call = `${idea.call}${n}`;
+            const call = freeName(idea.call, taken);
 
             taken.add(call);
             return addOps(idea, call);
@@ -2287,7 +2333,8 @@ async function pickPiece ()
 
     if ($('piece').value === '#saved')
     {
-        picking = openText($('piece').selectedOptions[0].textContent,
+        $('piece').querySelector('option[value="#opened"]')?.remove();
+        picking = openText(`Last session: ${lastSession.name || 'a piece'}`,
                            lastSession.text, '#saved').catch(() => {});
         await picking;
         return;

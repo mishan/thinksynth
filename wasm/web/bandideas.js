@@ -21,6 +21,10 @@
  * an instrument, and a chain playing it.
  */
 
+/* A grid of `rows' rows of sixteen steps with nothing drawn: without a
+   `cells', gen::grid starts from a pattern of its own. */
+const blank = (rows) => `"${Array(rows).fill('................').join('/')}"`;
+
 const KEY = {
     bass: '"A1 C2 D2 E2 G2"',
     mid: '"A3 C4 D4 E4 G4 A4 C5"',
@@ -54,7 +58,7 @@ export const IDEAS = {
         { call: 'drum', name: 'Draw a beat', say: 'a row of steps to click',
           sound: 'snare808.dsp', amp: '24',
           stages: [['gen', 'grid', { notes: '"D2"', steps: '16', rows: '1',
-                                     period: '0.25 beats',
+                                     cells: blank(1), period: '0.25 beats',
                                      hold: '0.2 beats', vel: '92' }]] },
     ],
     bass: [
@@ -75,7 +79,8 @@ export const IDEAS = {
           say: 'a grid of steps and notes to click', sound: 'ebass.dsp',
           amp: '26',
           stages: [['gen', 'grid', { notes: KEY.bass, steps: '16',
-                                     rows: '5', period: '0.25 beats',
+                                     rows: '5', cells: blank(5),
+                                     period: '0.25 beats',
                                      hold: '0.4 beats', vel: '96' }]] },
     ],
     chords: [
@@ -104,7 +109,8 @@ export const IDEAS = {
                                          jitter: '1 s', prob: '0.7',
                                          hold: '2 s', vel: '70' }]] },
         { call: 'lead', name: 'Growing phrase',
-          say: 'a motif that branches', sound: 'epiano.dsp', amp: '22',
+          say: 'a motif rewritten into a longer one', sound: 'epiano.dsp',
+          amp: '22',
           stages: [['gen', 'lsystem', { axiom: '"F_+F_-F+F__"',
                                         rules: '"F=F+F-"', depth: '2',
                                         notes: KEY.mid, step: '0.5 beats',
@@ -113,7 +119,8 @@ export const IDEAS = {
           say: 'a grid of steps and notes to click', sound: 'rhodes.dsp',
           amp: '21',
           stages: [['gen', 'grid', { notes: KEY.mid, steps: '16',
-                                     rows: '7', period: '0.25 beats',
+                                     rows: '7', cells: blank(7),
+                                     period: '0.25 beats',
                                      hold: '0.5 beats', vel: '80' }]] },
     ],
     texture: [
