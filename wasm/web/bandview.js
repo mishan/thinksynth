@@ -705,7 +705,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
     }
 
     /* `f' names the control, for its focus to come back to it when it is
-       drawn again (draw). */
+       drawn again (draw): a player's under its chain's name, the scenes'
+       under an `@', which no name has. */
     function button (text, title, on, f)
     {
         const b = document.createElement('button');
@@ -858,7 +859,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                     chosen = i;
                     seek(startOf(s));
                     draw();
-                }, `scene:${s.name}`);
+                }, `@scene=${s.name}`);
 
             b.className = 'scene';
             b.classList.toggle('on', sc !== null && sc.index === i);
@@ -884,7 +885,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             chosen = sc === null ? 0 : indexOf(sc.name) + 1;
             edit([['section', name, length, sc?.name ?? '', ...levels]])
                 .then((went) => went && tell(`A scene called ${name}`));
-        }, 'scene:+');
+        }, '@add');
 
         add.className = 'scene add';
         box.replaceChildren(...row, add);
@@ -894,7 +895,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         const size = document.createElement('select');
 
-        size.dataset.f = 'scene:size';
+        size.dataset.f = '@size';
         size.title = `How long ${sc.name} lasts`;
         size.setAttribute('aria-label', size.title);
 
@@ -931,14 +932,14 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
             if (to && to !== was)
                 edit([['resection', was, to]]);
-        }, 'scene:rename');
+        }, '@rename');
         const out = button('×', `Take ${sc.name} out of the song`, () =>
         {
             const name = now();
 
             edit([['unsection', name]]).then((went) =>
                 went && tell(`${name} is out of the song`));
-        }, 'scene:out');
+        }, '@out');
 
         out.setAttribute('aria-label', out.title);
         box.append(size, name, out);
@@ -1193,15 +1194,19 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             return;
         }
 
-        if (was === null || document.activeElement?.isConnected &&
-                            document.activeElement !== document.body)
+        /* A piece reloading has no cards yet: the draw after it does. */
+        if (was === null || piece() === null ||
+            document.activeElement?.isConnected &&
+            document.activeElement !== document.body)
             return;
 
+        /* Not the next scene's ×, one Enter from taking that out too. */
         const cards = $('players').children;
         const card = cards[Math.min(was.at, cards.length - 1)];
-        const e = find(was.f) ?? (was.f.startsWith('scene:')
-            ? $('bandscenes').querySelector('.scene.on, .scene.add')
-            : card?.querySelector('.bandpad') ?? $('bandadd'));
+        const e = (was.f === '@out' ? null : find(was.f)) ??
+            (was.f.startsWith('@')
+                ? $('bandscenes').querySelector('.scene.on, .scene.add')
+                : card?.querySelector('.bandpad') ?? $('bandadd'));
 
         e?.focus();
     }
@@ -1319,15 +1324,15 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             running = isRunning;
 
             if (running && playing >= 0)
-            {
                 chosen = playing;
 
-                if (sectionsOf()[playing] !== undefined)
-                    tell(`Playing ${sectionsOf()[playing].name}`);
-            }
+            if ($('bandscenes').offsetParent === null)
+                return;
 
-            if ($('bandscenes').offsetParent !== null)
-                draw();
+            if (running && sectionsOf()[playing] !== undefined)
+                tell(`Playing ${sectionsOf()[playing].name}`);
+
+            draw();
         },
 
         /* The bar above the cards: New, and the gallery of ideas. */
@@ -1340,6 +1345,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             $('bandroot').addEventListener('change', chooseKey);
             $('bandmood').addEventListener('change', chooseKey);
             $('bandnew').addEventListener('click', () => newBand());
+            /* A click elsewhere puts the keys where it meant them. */
+            document.addEventListener('pointerdown', () => { lost = null; },
+                                      true);
             $('bandadd').setAttribute('aria-expanded', 'false');
             $('bandadd').setAttribute('aria-controls', 'bandgallery');
             $('bandadd').addEventListener('click', () =>
