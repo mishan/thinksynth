@@ -739,12 +739,30 @@ function joinRun ({ unlessSeen = null } = {})
     return done;
 }
 
+/* Loads under way, which a search's result waits out (evolveui.js). */
+let loads = 0;
+
 /* The piece from the document into the worklet, and what the page shows
    of it: the knobs, the seats, the channels it listens on. `seed' is
    the master seed, or -1 to draw one. `from' is the document to read, the
    room's own unless a late joiner is loading the revision a run started
    from. */
+
 async function loadFromDoc (seed = -1, from = doc)
+{
+    loads++;
+
+    try
+    {
+        return await loadPieceFromDoc(seed, from);
+    }
+    finally
+    {
+        loads--;
+    }
+}
+
+async function loadPieceFromDoc (seed, from)
 {
     const gen = pieceText(from);
 
@@ -1005,17 +1023,16 @@ async function keepGraph (instrument, body)
 const evolve = createEvolve({
     synth: () => synth,
     piece: () => piece,
-    loading: () => false,
+    loading: () => loads > 0,
+    mayChange: () => room.roleOf() !== 'spectator',
+
+    /* Waited on from when it reaches the synth: a Play still loading
+       holds the commands behind it. */
     put: (instrument, graph, over, strict) =>
     {
-        if (room.roleOf() === 'spectator')
-            return Promise.resolve('a spectator cannot change the sound');
-
         const cmd = maker.tryGraph(instrument, graph, over, strict);
-        const done = synth.tried(commandTag(cmd));
 
-        send(cmd);
-        return done;
+        return send(cmd).then(() => synth.tried(commandTag(cmd)));
     },
     keep: keepGraph,
 });
@@ -1726,6 +1743,7 @@ function enable ()
     $('stop').disabled = synth === null || !playing;
     $('tempo').disabled = !ready;
     $('export').disabled = synth === null;
+    evolve.buttons();
 }
 
 /* ---- the tape ---- */

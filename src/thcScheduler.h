@@ -857,8 +857,22 @@ public:
 
     /* Back to `depth' edits on the declared graph, as steps back would
        go; the stack above it is gone. A growing stage goes on from there,
-       counting the edits it asked for rather than these. */
+       counting the edits it asked for rather than these. Behind a step
+       still waiting for its answer, as a composer's step is, so a host
+       that grew at once and one that asked go back from the same stack. */
     bool growBackTo (int channel, size_t depth, std::string &why);
+
+    /* `graph' put on `channel' in place of `over' -- what the caller put
+       there last -- while that is still what plays, and otherwise on top
+       of whatever does, or with `strict' not at all; or, with `graph'
+       empty, `over' taken off again if it still plays: a search's Listen,
+       result and Discard. Behind a step waiting for its answer, as
+       growBackTo is; `done' hears what it came to, "" when it went on. */
+    typedef std::function<void (const std::string &why)> PutDone;
+
+    void putGraph (int channel, const std::string &graph,
+                   const std::string &over, bool strict,
+                   const PutDone &done);
 
     /* The graph on `channel' now, as text: what growth or a search put
        there, or what the instrument declares. False for a channel that is
@@ -1602,6 +1616,12 @@ private:
             bool nodeArg = false;
             std::string node, arg;
             float value = 0;
+
+            /* Or a host's: growBackTo's `back', or putGraph's. */
+            int back = -1;
+            bool put = false, strict = false;
+            std::string graph, over;
+            PutDone done;
         };
 
         std::deque<Queued> queued;

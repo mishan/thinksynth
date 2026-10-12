@@ -1028,8 +1028,14 @@ void applyScheduled (const Scheduled &given)
     if (c.rev >= 0 && c.rev != edits_ && !named)
         switch (c.op)
         {
+            case TW_GROWBACK:
+                if (!mirror_)
+                    fprintf(stderr, "growth: the piece has changed since "
+                            "that row was chosen\n");
+                return;
+
             case TW_MUTE: case TW_SOLO: case TW_SECTION: case TW_KNOBWRITE:
-            case TW_PARAM: case TW_INPUT: case TW_GROWBACK:
+            case TW_PARAM: case TW_INPUT:
                 return;
         }
 
@@ -2470,53 +2476,40 @@ void applyPick (const Scheduled &c)
    is never asked. */
 std::deque<std::pair<std::string, std::string> > tried_;
 
+void triedGraph (const std::string &tag, const std::string &why)
+{
+    tried_.push_back(std::make_pair(tag, why));
+
+    if (tried_.size() > 32)
+        tried_.pop_front();
+}
+
+/* Said once per page: the worklet's stderr and the mirror's both reach
+   its log. */
 void applyGrowBack (const Scheduled &c)
 {
     std::string why;
 
-    if (c.note < 0 || !sched_->growBackTo(c.channel, (size_t)c.note, why))
+    if ((c.note < 0 || !sched_->growBackTo(c.channel, (size_t)c.note, why)) &&
+        !mirror_)
         fprintf(stderr, "growth: %s\n", why.empty() ? "no such step"
                                                     : why.c_str());
 }
 
-/* A search's graph on an instrument's channel to be heard, in place of
-   `over' -- the one it put there last -- while that is still what plays,
-   and otherwise on top of whatever does, or with `strict' not at all; or,
-   with no graph, `over' taken off again if it still plays. Applied at its
-   time in every realm, so each puts it on the same channel as it stands
-   then. */
+/* A search's graph on an instrument's channel (thcScheduler::putGraph),
+   applied at its time in every realm, so each puts it on the same channel
+   as it stands then. */
 void applyTryGraph (const Scheduled &c)
 {
     const thcInstrument *inst = sched_->instrument(c.row);
-    std::string now, why;
+    const std::string tag = c.tag;
 
     if (inst == NULL)
-        why = "no such instrument";
+        triedGraph(tag, "no such instrument");
     else
-    {
-        const bool onTop = !c.over.empty() &&
-                           sched_->grownText(inst->channel, now) &&
-                           now == c.over;
-
-        if (c.on && !c.over.empty() && !onTop)
-            why = "the channel has changed since the last Listen";
-        else
-        {
-            if (onTop)
-                sched_->growInstrument(inst->channel, 0, true, "", "", 0, 0,
-                                       why);
-
-            if (!c.text.empty())
-                sched_->tryGraph(inst->channel, c.text, why);
-            else if (!onTop)
-                why = "it is no longer on the channel";
-        }
-    }
-
-    tried_.push_back(std::make_pair(c.tag, why));
-
-    if (tried_.size() > 32)
-        tried_.pop_front();
+        sched_->putGraph(inst->channel, c.text, c.over, c.on,
+                         [tag] (const std::string &why)
+                         { triedGraph(tag, why); });
 }
 
 } /* namespace */
@@ -5658,9 +5651,10 @@ EMSCRIPTEN_KEEPALIVE void tw_knob_write (double at, int k, double value)
     schedule(c);
 }
 
-/* The name the next input or knob write goes by, for the edit it writes
- * to be reported under: a room page's "peer:seq", so the peer that made
- * it knows it for its own. Set just before that call, and used once. */
+/* The name the next input, knob write or trygraph goes by, for what it
+ * comes to to be reported under: a room page's "peer:seq", so the peer
+ * that made it knows it for its own. Set just before that call, and used
+ * once. */
 EMSCRIPTEN_KEEPALIVE void tw_command_tag (const char *tag)
 {
     nextTag_ = tag != NULL ? tag : "";

@@ -26,12 +26,14 @@
  * on a grow stage. Discard takes it off.
  *
  * `synth' and `piece' are getters for the page's; `loading' says a load
- * is under way.
+ * is under way, and `mayChange' whether this page may change the sound --
+ * a room's spectator may not. buttons() is for when that changes.
  */
 
 const $ = (id) => document.getElementById(id);
 
-export function createEvolve ({ synth, piece, loading, put, keep })
+export function createEvolve ({ synth, piece, loading, put, keep,
+                                mayChange = () => true })
 {
     let evolving = null;
     let graph = '';
@@ -46,12 +48,13 @@ export function createEvolve ({ synth, piece, loading, put, keep })
     function buttons ()
     {
         const running = evolving !== null && !evolving.done;
+        const may = mayChange();
 
-        $('evolvego').disabled = running || piece() === null;
+        $('evolvego').disabled = running || piece() === null || !may;
         $('evolvestop').disabled = !running;
-        $('evolvehear').disabled = !running;
-        $('evolvekeep').disabled = running || graph === '';
-        $('evolvedrop').disabled = running || graph === '';
+        $('evolvehear').disabled = !running || !may;
+        $('evolvekeep').disabled = running || graph === '' || !may;
+        $('evolvedrop').disabled = running || graph === '' || !may;
     }
 
     /* The piece's instruments to choose among, and what a load leaves of
@@ -334,5 +337,5 @@ export function createEvolve ({ synth, piece, loading, put, keep })
             : `toward ${file.name}`;
     });
 
-    return { show };
+    return { show, buttons };
 }

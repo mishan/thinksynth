@@ -6643,6 +6643,109 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
    and a step back from a window is in the stack too, so put back to the
    declared graph it grows again rather than stepping back from where it
    thought it was. */
+/* A graph put on a channel and a step back, while a growth step there waits
+ * for its answer: they wait too, so a host that grew at once and one that
+ * asked end on the same stack. The page's worklet asks and its mirror grows
+ * at once, and a room's peers hear whichever they hold. */
+static void
+checkGrowQueue (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-growqueue-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "chain shape {\n    stage g gen::grow { every = 1 s; "
+               "depth = 4; shrink = 0; };\n"
+               "    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    const auto grow = [synth] (const std::string &text,
+                               const std::string &base, unsigned int choice,
+                               const std::string &kinds, size_t want,
+                               std::vector<std::string> &g,
+                               std::vector<std::string> &w, std::string &why)
+    { return NodeMutate::grow(synth, text, base, choice, kinds, want, g, w,
+                              why); };
+
+    struct Asked { unsigned int ticket; std::string text, base, kinds;
+                   unsigned int choice; size_t want; };
+
+    std::vector<std::string> stacks[2];
+    std::string said[2] = { "-", "-" };
+
+    for (int asks = 0; asks < 2; asks++)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::vector<Asked> asked;
+        std::vector<thcScheduler::GrowthStep> log;
+        std::string declared, why;
+
+        sched.setAuditionSynchronous(true);
+
+        if (asks)
+            sched.setGrowRequest([&asked] (unsigned int ticket,
+                                           const std::string &text,
+                                           const std::string &base,
+                                           unsigned int choice,
+                                           const std::string &kinds,
+                                           size_t want)
+                                 { asked.push_back({ ticket, text, base, kinds,
+                                                     choice, want }); });
+        else
+            sched.setGrower(grow);
+
+        if (!loader.load(path, &sched))
+        {
+            fail("the piece growing behind a put does not load");
+            break;
+        }
+
+        const int ch = sched.instrument("pad")->channel;
+
+        sched.graphText(ch, declared);
+        sched.start();
+
+        for (double t = 0; t < 1.1; t += 0.05)
+        {
+            sched.stepTransport(0.05);
+            drainSynth();
+        }
+
+        sched.putGraph(ch, declared, "", false,
+                       [&said, asks] (const std::string &w)
+                       { said[asks] = w; });
+        sched.growBackTo(ch, 1, why);
+
+        for (const Asked &a : asked)
+        {
+            std::vector<std::string> g, w;
+            std::string no;
+
+            grow(a.text, a.base, a.choice, a.kinds, a.want, g, w, no);
+            sched.growthAnswer(a.ticket, g, w, no);
+        }
+
+        sched.growth(ch, stacks[asks], log);
+    }
+
+    if (stacks[1].size() != 2 || stacks[0] != stacks[1] || said[0] != "" ||
+        said[1] != "")
+        fail("a put and a step back behind a step awaiting its answer: " +
+             std::to_string(stacks[0].size()) + " graphs grown at once, " +
+             std::to_string(stacks[1].size()) + " asked for, " +
+             (stacks[0] == stacks[1] ? "alike" : "different") + "; put " +
+             said[0] + " / " + said[1]);
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+}
+
 static void
 checkGrowDepth (const std::map<std::string, thcPlugin *> &plugins,
                 thSynth *synth)
@@ -14475,6 +14578,7 @@ main (int argc, char *argv[])
         checkGrow(plugins, &synth);
         checkGrowToward(plugins, &synth);
         checkGrowDepth(plugins, &synth);
+        checkGrowQueue(plugins, &synth);
         checkInlineGraph(plugins, &synth);
         checkOneErrorEach(plugins, &synth);
         checkColony(plugins, &synth, genFile);

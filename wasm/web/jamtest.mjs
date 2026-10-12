@@ -769,10 +769,10 @@ async function pickTogether (pages)
 }
 
 /* A piece that grows, in a room: pad grows on both pages alike, and a row
- * of A's grow stage's popover puts the declared graph back on both. Alike
- * while it plays: a step lands where its answer reaches each worklet
- * (thinkweb.cpp, tw_grow_answer), so at a Stop one page may be a step
- * behind the other, which the row puts right. Then A
+ * of A's grow stage's popover puts the declared graph back on both. The
+ * two are compared while it plays: a step lands where its answer reaches
+ * each worklet (thinkweb.cpp, tw_grow_answer), and at a Stop one page may
+ * not have had its last answer yet. Then A
  * tunes pad toward ref's sound in its own workers, and what it finds is
  * heard on both pages and kept into the document. */
 async function growTogether (pages)
@@ -840,12 +840,11 @@ async function growTogether (pages)
     });
 
     await A.page.mouse.click(box.x + handle.x, box.y + handle.y);
-    await A.page.waitForSelector('#composerparams button.growthrow',
-                                 { timeout: 15000 }).catch(() => {});
-    await A.page.click('#composerparams button.growthrow',
-                       { timeout: 5000 }).catch(() => {});
+    const clicked = await A.page.click('#composerparams button.growthrow',
+                                       { timeout: 15000 })
+        .then(() => true, (e) => fail(`no growth row to click: ${e.message}`));
 
-    if (await both((t) => t === '') !== null)
+    if (clicked && await both((t) => t === '') !== null)
         ok(`${A.label}'s first growth row puts the declared graph back on ` +
            'both pages');
     else
