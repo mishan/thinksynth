@@ -1269,7 +1269,18 @@ async function applyText (text)
 
     if (lastTape?.running !== true || piece === null || loading > 0)
     {
+        const was = loadedText;
+
         await loadPiece();
+
+        /* A text made here that does not load is not left as the piece. */
+        if (piece === null && was !== text)
+        {
+            $('gen').value = was;
+            await loadPiece();
+            return false;
+        }
+
         return piece !== null;
     }
 
@@ -1755,7 +1766,13 @@ const band = createBand({
             }
         }
 
-        return $('gen').value === was && applyText(text);
+        if ($('gen').value !== was)
+        {
+            status('The piece changed meanwhile; move the pad again.', true);
+            return false;
+        }
+
+        return applyText(text);
     },
     toMirror: (m) => synth?.toMirror(m),
     onGesture: (g) => synth?.input({ ...g, at: -1 }),

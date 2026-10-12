@@ -3455,6 +3455,29 @@ try
               keys.includes(cells),
               '...a drawn player\'s pad puts a chance, a ratchet and a ' +
               'vary behind its grid and moves them, the cells as drawn');
+
+        /* A drum is loosened in time and touch, not pitch. */
+        const kick = page.locator('.player[data-chain="drums_kick"] .bandpad');
+
+        await kick.scrollIntoViewIfNeeded();
+        await kick.focus();
+        await page.keyboard.press('ArrowUp');
+        await page.keyboard.press('ArrowUp');
+
+        const drums = await until(() => page.evaluate(() =>
+        {
+            const t = window.solo.genText();
+            const at = t.indexOf('chain drums_kick');
+
+            return t.slice(at, t.indexOf('chain', at + 5));
+        }), (t) => /xform::humanize[^}]*time = 0\.0[0-9]*[1-9]/.test(t));
+        const focused = await page.evaluate(() =>
+            document.activeElement?.closest('.player')?.dataset.chain);
+
+        check(/stage loose xform::humanize/.test(drums) &&
+              !/xform::vary/.test(drums) && focused === 'drums_kick',
+              '...a drum\'s pad, from the keys, puts a humanize behind it ' +
+              'rather than a vary, and keeps the keys');
     }
 
     /* A pad moved only across leaves what is up the pad as written: an
