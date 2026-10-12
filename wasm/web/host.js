@@ -378,6 +378,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'patchcompose':
             case 'settempo':
             case 'genparam':
+            case 'genseed':
             case 'genmove':
             case 'gensection':
             case 'geninstrument':
@@ -660,6 +661,13 @@ export async function createSynth (ctx, { windowlen = 128,
         genSetParam: (text, { chainName, docStage, param, valueText }) =>
             ask({ type: 'genparam', text, chain: chainName, stage: docStage,
                   param, valueText }),
+
+        /* Chain `chainName' given its own seed in `text', or the piece's
+           back when `seed' is null. Resolves to { text }, "" when the
+           writer refused. */
+        genSetChainSeed: (text, chainName, seed) =>
+            ask({ type: 'genseed', text, chain: chainName,
+                  pin: seed !== null, seed: seed ?? 0 }),
 
         /* One stage of a chain moved to another place in it, in `text';
            stages in the document's numbering. Resolves to { text }, ""

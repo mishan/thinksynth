@@ -358,6 +358,21 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* A chain's own seed set, or taken out, in a text given: another
+         * take of a band's player (bandview.js). "" when refused. */
+        if (m.type === 'genseed')
+        {
+            this.port.postMessage({
+                type: 'genseed', id: m.id,
+                text: this.M.ccall('tw_gen_set_chain_seed', 'string',
+                                   ['string', 'string', 'number', 'number'],
+                                   [m.text, m.chain, m.pin ? 1 : 0,
+                                    m.seed]),
+            });
+
+            return;
+        }
+
         /* One stage moved within its chain, in a text given: the edit a
          * stage box dropped on the canvas makes. "" when refused. */
         if (m.type === 'genmove')
@@ -662,7 +677,8 @@ class ThinkProcessor extends AudioWorkletProcessor
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
                      effect: '', tempo: 0, beats: false,
-                     knobs: [], instruments: [], listens: [], sinks: [] };
+                     knobs: [], instruments: [], listens: [], sinks: [],
+                     chains: [] };
 
         /* Off the panel, so there is one answer to "which knobs are shown"
            rather than two that have to agree. Hidden knobs keep their
@@ -731,6 +747,10 @@ class ThinkProcessor extends AudioWorkletProcessor
             instruments,
             listens,
             sinks,
+
+            /* The chains as the text says them, for the band. */
+            chains: JSON.parse(this.M.UTF8ToString(
+                this.M._tw_piece_chains_json())),
         };
     }
 

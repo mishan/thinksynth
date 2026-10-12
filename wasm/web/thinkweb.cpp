@@ -3564,6 +3564,77 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_effect (void)
     return canvasDoc_.masterEffect.c_str();
 }
 
+/* The piece's chains as its text says them: what the band draws its
+ * players from (bandview.js). Each stage in the document's order, `live'
+ * its place in the scheduler's list -- what a command names it by -- or -1
+ * for a node; each param's value as written. */
+static std::string chainsJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_chains_json (void)
+{
+    std::string &o = chainsJson_;
+
+    o = "[";
+
+    for (size_t c = 0; c < canvasDoc_.chains.size(); c++)
+    {
+        const thcGenEdit::Chain &ch = canvasDoc_.chains[c];
+
+        o += c == 0 ? "{\"name\":" : ",{\"name\":";
+        jsonString(o, ch.name);
+        o += std::string(",\"input\":") + (ch.inputMidi ? "true" : "false");
+        o += std::string(",\"hasSeed\":") + (ch.hasSeed ? "true" : "false");
+        o += ",\"seed\":" + std::to_string(ch.seed) + ",\"stages\":[";
+
+        for (size_t si = 0; si < ch.stages.size(); si++)
+        {
+            const thcGenEdit::Stage &st = ch.stages[si];
+
+            o += si == 0 ? "{\"name\":" : ",{\"name\":";
+            jsonString(o, st.name);
+            o += ",\"category\":";
+            jsonString(o, st.category);
+            o += ",\"plugin\":";
+            jsonString(o, st.plugin);
+            o += ",\"live\":" +
+                 std::to_string(thcGenEdit::liveIndex(ch, si)) +
+                 ",\"params\":[";
+
+            for (size_t k = 0; k < st.params.size(); k++)
+            {
+                o += k == 0 ? "{\"name\":" : ",{\"name\":";
+                jsonString(o, st.params[k].name);
+                o += ",\"valueText\":";
+                jsonString(o, st.params[k].valueText);
+                o += "}";
+            }
+
+            o += "]}";
+        }
+
+        o += "],\"sinks\":[";
+
+        for (size_t k = 0; k < ch.sinks.size(); k++)
+        {
+            const thcGenEdit::Sink &sk = ch.sinks[k];
+
+            o += k == 0 ? "{\"instrument\":" : ",{\"instrument\":";
+            jsonString(o, sk.instrument);
+            o += ",\"channel\":" + std::to_string(sk.channel) +
+                 ",\"chanarg\":";
+            jsonString(o, sk.chanarg);
+            o += ",\"knob\":";
+            jsonString(o, sk.knob);
+            o += "}";
+        }
+
+        o += "]}";
+    }
+
+    o += "]";
+    return o.c_str();
+}
+
 /* What the transport is running at, in beats per minute. The piece's own
    `tempo' after a load, and whatever a tempo command has since made it. */
 EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
@@ -6089,6 +6160,23 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
         {
             return thcGenEdit::setParam(path, chain, docStage, param,
                                         valueText, why);
+        });
+}
+
+/* Chain `chain' given seed `seed' in `text', or its seed taken out when
+ * !pin: another take (bandview.js). "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_chain_seed (const char *text,
+                                                        const char *chain,
+                                                        int pin, double seed)
+{
+    if (text == NULL || chain == NULL)
+        return "";
+
+    return spliceText(text, chain,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setChainSeed(path, chain, pin != 0,
+                                            (unsigned)seed, why);
         });
 }
 

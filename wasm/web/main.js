@@ -62,6 +62,7 @@
  * on is how they stop agreeing.
  */
 
+import { createBand } from './bandview.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
 import { createGrow } from './growui.js';
@@ -133,8 +134,8 @@ const VELOCITY = 100;
  * The room page keeps a list of its own, and panecheck.mjs holds the two
  * against each other where they overlap.
  */
-const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
-               'paramview', 'nodeview', 'keyboard', 'patchsource',
+const PANES = ['roll', 'bandview', 'seqview', 'composerview', 'knobs',
+               'channelbox', 'paramview', 'nodeview', 'keyboard', 'patchsource',
                'growview', 'piecesource', 'detail', 'packs'];
 
 /* Which of them belong to which mode. Everything not named here is in
@@ -148,6 +149,9 @@ const PANES = ['roll', 'seqview', 'composerview', 'knobs', 'channelbox',
 const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
                      'channelbox', 'piecesource'];
 const SEQ_PANES = ['roll', 'seqview', 'channelbox', 'piecesource'];
+
+/* The band is a piece as its players: their pane, and what is playing. */
+const BAND_PANES = ['roll', 'bandview', 'knobs', 'channelbox', 'piecesource'];
 const PATCH_PANES = ['patchsource'];
 const GROW_PANES = ['patchsource', 'growview'];
 
@@ -155,6 +159,7 @@ const GROW_PANES = ['patchsource', 'growview'];
    also one of its own. */
 const modePanes = {
     seq: SEQ_PANES, piece: PIECE_PANES, patch: PATCH_PANES, grow: GROW_PANES,
+    band: BAND_PANES,
 };
 
 /* Where they go, the first time somebody opens this page in a window
@@ -206,6 +211,19 @@ const SEQ_LAYOUT = {
             { tabs: ['paramview'] },
             { tabs: ['keyboard'] },
             { tabs: ['channelbox', 'piecesource'] }] }],
+};
+
+/* The players, with what they played under them, and the keys to play
+   along on. */
+const BAND_LAYOUT = {
+    dir: 'row', size: [0.64, 0.36], kids: [
+        { dir: 'col', size: [0.7, 0.3], kids: [
+            { tabs: ['bandview'] },
+            { tabs: ['roll'] }] },
+        { dir: 'col', size: [0.35, 0.35, 0.3], kids: [
+            { tabs: ['knobs', 'channelbox'] },
+            { tabs: ['keyboard'] },
+            { tabs: ['piecesource', 'paramview'] }] }],
 };
 
 const PIECE_LAYOUT = {
@@ -269,6 +287,10 @@ const phoneLayouts = (keys = keysShare()) => ({
     /* The tracks are what the sequence is for; the keys are a tab. */
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
 
+    band: { dir: 'col', size: [1 - keys, keys], kids: [
+        { tabs: ['bandview', 'roll', 'knobs', 'channelbox'] },
+        { tabs: ['keyboard'] }] },
+
     /* The roll in front: what the piece is doing is what a phone is
        for watching; the knobs are a tab away. */
     piece: { dir: 'col', size: [1 - keys, keys], kids: [
@@ -284,6 +306,7 @@ const SIDEWAYS_LAYOUTS = {
     patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
     grow: { tabs: ['growview', 'keyboard', 'paramview', 'nodeview'] },
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
+    band: { tabs: ['bandview', 'keyboard', 'roll', 'knobs'] },
     piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'channelbox',
                     'paramview'] },
 };
@@ -313,7 +336,7 @@ function tile (phone, forced)
         layouts: sideways ? SIDEWAYS_LAYOUTS
                : phone ? phoneLayouts()
                : { patch: PATCH_LAYOUT, grow: GROW_LAYOUT,
-                   piece: PIECE_LAYOUT, seq: SEQ_LAYOUT },
+                   piece: PIECE_LAYOUT, seq: SEQ_LAYOUT, band: BAND_LAYOUT },
 
         /* A way back to the mode's layout that needs no Alt 0: a phone
            has no keys to press it with, and on a desktop it is a chord
@@ -338,6 +361,8 @@ function tile (phone, forced)
                 showComposer(on && mode() === 'piece');
             else if (id === 'seqview')
                 showSeq(on && composing());
+            else if (id === 'bandview' && on)
+                band.draw();
             else if (id === 'roll')
                 showRoll(on && composing());
             else if (id === 'nodeview')
@@ -559,6 +584,13 @@ function mode ()
 function playsPatch ()
 {
     return mode() === 'patch' || mode() === 'grow';
+}
+
+/* The piece menu's piece, as its picture or as its players: the two share
+   the piece and its text. */
+function playsPiece ()
+{
+    return mode() === 'piece' || mode() === 'band';
 }
 
 /* What the piece says about itself: shown when a piece is what is
@@ -846,7 +878,7 @@ async function textsInPlay ()
 
     /* The piece's own names, as doc.js reads them for the room: the
        `dsp' of an instrument block and each `effect' in one. */
-    if (mode() === 'piece')
+    if (playsPiece())
         for (const m of $('gen').value.matchAll(
                  /\b(?:dsp|effect)\s+"([^"]+)"/g))
             names.add(m[1]);
@@ -1329,7 +1361,7 @@ async function openFile (file)
 {
     const text = await file.text();
 
-    if (mode() !== 'piece')
+    if (!playsPiece())
     {
         $('mode').value = 'piece';
         await pickMode();
@@ -1634,12 +1666,51 @@ async function freezeChain (chain, chainName)
     }
 
     composer?.muteOnLoad(chainName);
+    band.restOnLoad(chainName);
     $('gen').value = text;
     await loadPiece();
 
     if (wasRunning && piece !== null)
         synth.transport('start');
 }
+
+/* The band (bandview.js): each of its moves an edit by the door the
+ * canvas uses for the same thing -- a param, a chain's seed, a freeze, a
+ * mute -- on the terms those doors set about text that was never loaded.
+ */
+const band = createBand({
+    piece: () => piece,
+    params: (p, edits) =>
+    {
+        for (const e of edits)
+            synth?.param({ at: -1, chain: p.index, stage: e.stage,
+                           row: e.row, text: e.text, chainName: p.name,
+                           stageName: e.stageName });
+    },
+    vary: async (p, seed) =>
+    {
+        const was = $('gen').value;
+
+        if (synth === null || was !== loadedText || loading > 0)
+        {
+            status('The text has changes that are not loaded; load them ' +
+                   'before another take.', true);
+            return;
+        }
+
+        const { text } = await synth.genSetChainSeed(was, p.name, seed);
+
+        if (text === '' || $('gen').value !== was)
+        {
+            status(`Could not give ${p.name} another take.`, true);
+            return;
+        }
+
+        await applyText(text);
+    },
+    keep: (p) => freezeChain(p.index, p.name),
+    rest: (p, on) => synth?.mute({ at: -1, chain: p.index, on }),
+});
 
 /* Evolve toward (evolveui.js). What it finds goes on the channel at the
    next window, by the same command a room sends. */
@@ -1796,6 +1867,9 @@ async function loadPiece ()
 /* Everything that shows what the piece is, after a load or an edit. */
 async function followPiece ()
 {
+    if (mode() === 'band')
+        band.show($('piece').selectedOptions[0]?.textContent ?? '');
+
     showLiveIn();
     showPieceEffect();
     evolve.show();
@@ -3385,6 +3459,7 @@ window.solo = {
     canvasLayout: (arrow) => composer?.layout(arrow),
     lane: () => composer?.lane(),
     genText: () => $('gen').value,
+    band: (name) => band.padOf(name),
 
     /* The piece's knobs as the worklet holds them: { id, value } by row. */
     knobValues: async () =>
@@ -3568,7 +3643,7 @@ async function pickMode ()
        the piece section used to wrap are panes of their own now, and
        panesFor's. */
     $('patchmode').hidden = !playsPatch();
-    $('piecemode').hidden = which !== 'piece';
+    $('piecemode').hidden = !playsPiece();
     $('transport').hidden = playsPatch();
     $('document').hidden = playsPatch();
     showAbout();
@@ -3603,7 +3678,7 @@ async function pickMode ()
        still on the channels until it does. */
     if (which === 'seq')
         await loadSequence();
-    else if (which === 'piece')
+    else if (playsPiece())
         await loadPieceMode();
     else
     {

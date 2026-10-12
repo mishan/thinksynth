@@ -326,6 +326,14 @@ declared and move it as it runs; the roll is what the scheduler has
 delivered, a colour per channel. The keyboard still plays, into whatever
 chains the piece routed `input midi` to.
 
+*A band* plays the same piece as its players — a card for each chain that
+plays notes, named for its role. Drag a player's pad across from calm to busy
+and up from steady to wandering; ▲ and ▼ move it an octave. **Vary** is
+another take of what it plays, from where the piece is, and the numbered
+takes go back to one; **Keep** turns the take into notes, and **Rest** leaves
+it out. Each is written into the `.gen`, which **Undo**, **Save** and
+**Open** treat as a document.
+
 Under the roll is a line for each channel the piece touches. A piece that
 carries its own instruments has aimed them itself and says so. One whose
 sinks just name channels — `fern.gen` asks for something plucked and a soft

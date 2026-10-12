@@ -3275,6 +3275,65 @@ try
               `...and Keep downloads it: ${download.suggestedFilename()}`);
     }
 
+    /* The band: pulse.gen as players; the kick's pad dragged to busy
+       fills its ring, Vary gives it a seed of its own while it plays,
+       and its first take takes the seed out again. */
+    {
+        const kickOf = () => page.evaluate(() =>
+        {
+            const t = window.solo.genText();
+            const at = t.indexOf('chain kick');
+
+            return t.slice(at, t.indexOf('chain', at + 5));
+        });
+        const card = page.locator('.player[data-chain="kick"]');
+
+        await page.selectOption('#mode', 'band');
+        await page.selectOption('#piece', 'pulse.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const roles = await page.$$eval('.player', (p) =>
+            p.map((e) => `${e.dataset.chain}:${e.className.split(' ')[1]}`));
+
+        check(roles.length === 4 && roles.includes('kick:drums'),
+              `the band shows pulse.gen's players: ${roles.join(' ')}`);
+
+        await page.click('#play');
+
+        /* The page test's window is short: the pad has to be on it. */
+        await card.locator('.bandpad').scrollIntoViewIfNeeded();
+        const pad = await card.locator('.bandpad').boundingBox();
+
+        await page.mouse.move(pad.x + pad.width / 2, pad.y + pad.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(pad.x + pad.width - 1, pad.y + pad.height / 2,
+                              { steps: 5 });
+        await page.mouse.up();
+
+        const busy = await until(kickOf, (t) => /fills = 4;/.test(t));
+
+        await card.locator('button', { hasText: 'Vary' }).click();
+
+        const varied = await until(kickOf, (t) => /seed \d+;/.test(t));
+        const others = await page.evaluate(() =>
+            (window.solo.genText().match(/^\s*seed \d+;/gm) ?? []).length);
+
+        await card.locator('.takes button', { hasText: '1' }).click();
+
+        const back = await until(kickOf, (t) => !/seed \d+;/.test(t));
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        check(/fills = 4;/.test(busy) && /seed \d+;/.test(varied) &&
+              others === 1 && !/seed/.test(back),
+              '...the kick\'s pad at busy fills its ring, Vary gives it a ' +
+              'take of its own and its first take puts the piece\'s back: ' +
+              JSON.stringify({ busy: /fills = \d+/.exec(busy)?.[0],
+                               varied: /seed \d+/.test(varied), others,
+                               back: /seed/.test(back) }));
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
