@@ -577,10 +577,20 @@ export function createBand ({ piece, params, vary, keep, rest, say,
             params(p, padEdits(st.base, st.x, st.y));
         };
 
+        /* Near the middle is the middle: a pad dragged across by a hand is
+           not an inch up or down, and an axis left alone stays as
+           written. */
+        const settle = (v) =>
+        {
+            const c = Math.min(1, Math.max(0, v));
+
+            return Math.abs(c - 0.5) < 0.06 ? 0.5 : c;
+        };
+
         const to = (x, y) =>
         {
-            st.x = Math.min(1, Math.max(0, x));
-            st.y = Math.min(1, Math.max(0, y));
+            st.x = settle(x);
+            st.y = settle(y);
             place();
 
             if (st.timer === null)
