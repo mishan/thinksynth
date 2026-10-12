@@ -3275,6 +3275,105 @@ try
               `...and Keep downloads it: ${download.suggestedFilename()}`);
     }
 
+    /* The band: pulse.gen as players; the kick's pad dragged to busy
+       fills its ring, Vary gives it a seed of its own while it plays,
+       and its first take takes the seed out again. */
+    {
+        const kickOf = () => page.evaluate(() =>
+        {
+            const t = window.solo.genText();
+            const at = t.indexOf('chain kick');
+
+            return t.slice(at, t.indexOf('chain', at + 5));
+        });
+        const card = page.locator('.player[data-chain="kick"]');
+
+        await page.selectOption('#mode', 'band');
+        await page.selectOption('#piece', 'pulse.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const roles = await page.$$eval('.player', (p) =>
+            p.map((e) => `${e.dataset.chain}:${e.className.split(' ')[1]}`));
+
+        check(roles.length === 4 && roles.includes('kick:drums'),
+              `the band shows pulse.gen's players: ${roles.join(' ')}`);
+
+        await page.click('#play');
+
+        /* The page test's window is short: the pad has to be on it. */
+        await card.locator('.bandpad').scrollIntoViewIfNeeded();
+        const pad = await card.locator('.bandpad').boundingBox();
+
+        await page.mouse.move(pad.x + pad.width / 2, pad.y + pad.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(pad.x + pad.width - 1, pad.y + pad.height / 2,
+                              { steps: 5 });
+        await page.mouse.up();
+
+        const busy = await until(kickOf, (t) => /fills = 4;/.test(t));
+
+        await card.locator('button', { hasText: 'Vary' }).click();
+
+        const varied = await until(kickOf, (t) => /seed \d+;/.test(t));
+        const others = await page.evaluate(() =>
+            (window.solo.genText().match(/^\s*seed \d+;/gm) ?? []).length);
+
+        await card.locator('.takes button', { hasText: '1' }).click();
+
+        const back = await until(kickOf, (t) => !/seed \d+;/.test(t));
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        /* The bell an octave up: its note list respelled, as the panel
+           writes a list. */
+        const bell = page.locator('.player[data-chain="bell"]');
+
+        await bell.locator('button', { hasText: '▲' }).click();
+
+        const up = await until(
+            () => page.evaluate(() => window.solo.genText()),
+            (t) => /notes = "C6 Eb6 G6 Bb6";/.test(t));
+
+        check(/notes = "C6 Eb6 G6 Bb6";/.test(up),
+              '...and the bell\'s ▲ moves its notes up an octave');
+
+        check(/fills = 4;/.test(busy) && /seed \d+;/.test(varied) &&
+              others === 1 && !/seed/.test(back),
+              '...the kick\'s pad at busy fills its ring, Vary gives it a ' +
+              'take of its own and its first take puts the piece\'s back: ' +
+              JSON.stringify({ busy: /fills = \d+/.exec(busy)?.[0],
+                               varied: /seed \d+/.test(varied), others,
+                               back: /seed/.test(back) }));
+    }
+
+    /* A pad moved only across leaves what is up the pad as written: an
+       lsystem at depth 0 -- a sequencer -- stays one. */
+    {
+        await page.selectOption('#piece', 'acetate.gen');
+        await page.evaluate(() => window.solo.settled());
+
+        const pad = page.locator('.player[data-chain="kickline"] .bandpad');
+
+        await pad.scrollIntoViewIfNeeded();
+        const at = await pad.boundingBox();
+
+        await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(at.x + at.width * 0.9, at.y + at.height / 2,
+                              { steps: 4 });
+        await page.mouse.up();
+        await page.waitForTimeout(1000);
+        await page.evaluate(() => window.solo.settled());
+
+        const text = await page.evaluate(() => window.solo.genText());
+        const kick = text.slice(text.indexOf('chain kickline'),
+                                text.indexOf('chain snareline'));
+
+        check(/depth = 0;/.test(kick) && !/depth = 1;/.test(kick),
+              '...and a pad moved across leaves a depth-0 lsystem at 0');
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

@@ -47,6 +47,7 @@
 
   <label><span class="say">Play</span> <select id="mode">
     <option value="seq">a sequence</option>
+    <option value="band">a band</option>
     <option value="patch">a patch</option>
     <option value="grow">a patch, growing</option>
     <option value="piece">a piece</option>
@@ -185,6 +186,14 @@
      command, applied at its time here and on every peer -- the same path
      the composer canvas's gestures take, and the reason what you drew
      appears a moment later. -->
+<!-- The band: the piece as players, each steered by a pad, an octave,
+     another take, keeping the take and a rest (bandview.js). -->
+<section id="bandview" data-pane-off
+         data-pane data-pane-title="The band" data-pane-min="320">
+  <div id="players"></div>
+  <p id="bandhint" class="hint"></p>
+</section>
+
 <section id="seqview" data-pane-off
          data-pane data-pane-title="Sequencer" data-pane-min="320">
   <div id="tracks"></div>
