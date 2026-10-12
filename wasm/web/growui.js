@@ -91,6 +91,10 @@ export function createGrow ({ synth, name, setGraph, hear, targets,
             b.textContent = r.what;
             b.addEventListener('click', () => choose(i));
             li.classList.toggle('chosen', i === chosen);
+
+            if (i === chosen)
+                b.ariaCurrent = 'true';
+
             li.append(b);
             return li;
         }));

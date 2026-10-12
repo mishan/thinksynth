@@ -108,6 +108,7 @@ import { WebSocketServer } from 'ws';
 import { tapeBefore } from '../tape.mjs';
 import { firstDifference, reference } from './piececheck.mjs';
 import { relay } from './relay.mjs';
+import { axeFindings } from './a11y.mjs';
 import { serve } from './serve.mjs';
 
 /* A document socket the relay refuses, as the browser logs it: one
@@ -2918,7 +2919,7 @@ try
         ['firefox', firefox, {}]])
     {
         const browser = await type.launch(opts);
-        const page = await browser.newPage();
+        const page = await (await browser.newContext()).newPage();
 
         page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
         page.on('console', (m) =>
@@ -2958,6 +2959,15 @@ try
         }
 
         ok(`${label} joined the room and started`);
+
+        /* Evolve is the composer's, which is being rebuilt. */
+        const axe = await axeFindings(page, ['#evolve']);
+
+        if (axe.length === 0)
+            ok(`axe finds nothing wrong with ${label}'s room`);
+        else
+            fail(`axe on ${label}'s room:` +
+                 axe.map((f) => `\n      ${f}`).join(''));
 
         if (await page.isVisible('#start'))
             fail(`${label} still offers Start once started`);

@@ -129,6 +129,10 @@ body
 
 h1 { font-size: 1.6em; margin: 0 0 0.4em; }
 
+/* A landmark for a screen reader to jump to, and no box: tiled, the layout
+   is a flex child of <body> and has to stay one. */
+main { display: contents; }
+
 pre, source-box .cm-editor
 {
     font: 13px/1.35 ui-monospace, monospace;
@@ -1368,8 +1372,17 @@ body.tiled .panelrows
 {
     /* The status line only when it has something that must be seen
        (main.js, status): on a phone it is a row of the little height
-       there is. */
-    #chrome #status:not([data-alert]) { display: none; }
+       there is. Out of sight rather than gone, so a screen reader still
+       hears it change. */
+    #chrome #status:not([data-alert])
+    {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
 
     /* The strip, down to what a phone plays with: the speed and the
        clock behind the fold. */

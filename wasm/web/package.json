@@ -22,6 +22,7 @@
     "screenshots": "node screenshots.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "esbuild": "^0.28.2",
     "playwright": "1.63.0",
     "shotbox": "0.3.0"

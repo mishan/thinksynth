@@ -325,7 +325,8 @@ export function createAccounts ({ open, dialog, relays, onChange })
 
     dialog.append(
         el('div', { className: 'accounthead' },
-           el('span', { className: 'accounttitle', textContent: 'Account' }),
+           el('span', { className: 'accounttitle', id: 'accounttitle',
+                        textContent: 'Account' }),
            Object.assign(button('\u00d7', close),
                          { ariaLabel: 'Close', id: 'accountclose' })),
         status, body);
@@ -412,7 +413,7 @@ export function createAccounts ({ open, dialog, relays, onChange })
     function loggedOut ()
     {
         const handle = el('input', { id: 'account-handle', maxLength: 64,
-                                     autocomplete: 'off' });
+                                     autocomplete: 'username' });
         const make = (b, withPasskey) => busy(b, async () =>
         {
             const h = normalizeName(handle.value);
@@ -651,7 +652,7 @@ export function createAccounts ({ open, dialog, relays, onChange })
         const confirm = el('input', { id: 'account-confirm', maxLength: 64,
                                       autocomplete: 'off' });
 
-        remove.form.insertBefore(el('label', {}, 'Type it ', confirm),
+        remove.form.insertBefore(el('label', {}, 'Type your handle ', confirm),
                                  remove.submit);
         const logout = button('Log out', () => busy(logout, async () =>
         {
