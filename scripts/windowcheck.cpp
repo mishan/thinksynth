@@ -56,6 +56,7 @@
 #include "gthPrefs.h"
 #include "gthSignal.h"
 #include "gui/Composer.h"
+#include "gui/Keyboard.h"
 #include "gui/MainSynthWindow.h"
 #include "gui/Panes.h"
 
@@ -195,6 +196,102 @@ rowFor (TestWindow *win, int chan)
             return win->chanList_.get_row_at_index((int)i);
 
     return NULL;
+}
+
+/* The controls showing under `w' that a screen reader would read with no
+   name, and those Tab cannot reach, by type and tooltip. A check button
+   with text, like any button, is named by it. Only the window's own: a
+   widget gtkmm made has a gtkmm__ type, and the parts GTK builds inside
+   one (a spin button's own buttons) are GTK's to name. */
+static void
+inaccessible (Gtk::Widget *w, std::vector<std::string> &unnamed,
+              std::vector<std::string> &unreachable)
+{
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+    {
+        if (!c->get_mapped())
+            continue;
+
+        GtkAccessible *a = GTK_ACCESSIBLE(c->gobj());
+        Gtk::CheckButton *check = dynamic_cast<Gtk::CheckButton *>(c);
+        const bool ours = g_str_has_prefix(G_OBJECT_TYPE_NAME(c->gobj()),
+                                           "gtkmm__");
+        const bool control = ours && ( dynamic_cast<Gtk::Range *>(c) != NULL ||
+                             dynamic_cast<Gtk::SpinButton *>(c) != NULL ||
+                             dynamic_cast<Gtk::DropDown *>(c) != NULL ||
+                             dynamic_cast<Gtk::Entry *>(c) != NULL ||
+                             (check != NULL && check->get_label().empty()));
+        const std::string what = std::string(G_OBJECT_TYPE_NAME(c->gobj())) +
+                                 " \"" + c->get_tooltip_text() + "\"";
+
+        if (control &&
+            !gtk_test_accessible_has_property(a, GTK_ACCESSIBLE_PROPERTY_LABEL) &&
+            !gtk_test_accessible_has_relation(
+                a, GTK_ACCESSIBLE_RELATION_LABELLED_BY))
+            unnamed.push_back(what);
+
+        if ((control || (ours && dynamic_cast<Gtk::Button *>(c) != NULL)) &&
+            c->get_sensitive() && !c->get_can_focus())
+            unreachable.push_back(what);
+
+        inaccessible(c, unnamed, unreachable);
+    }
+}
+
+/* The first widget of type T under `w', or NULL. */
+template <typename T>
+static T *
+findUnder (Gtk::Widget *w)
+{
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+    {
+        if (T *t = dynamic_cast<T *>(c))
+            return t;
+
+        if (T *t = findUnder<T>(c))
+            return t;
+    }
+
+    return NULL;
+}
+
+/* Whether `w''s description is `want'. */
+static bool
+described (Gtk::Widget *w, const char *want)
+{
+    char *diff = gtk_test_accessible_check_property(
+        GTK_ACCESSIBLE(w->gobj()), GTK_ACCESSIBLE_PROPERTY_DESCRIPTION, want);
+
+    g_free(diff);
+
+    return diff == NULL;
+}
+
+/* That check, said: the first few offenders by name. */
+static void
+checkAccessible (TestWindow *win, const char *where)
+{
+    std::vector<std::string> unnamed, unreachable;
+
+    inaccessible(win, unnamed, unreachable);
+
+    for (const auto &[list, what] :
+         { std::pair(&unnamed, "has a name"),
+           std::pair(&unreachable, "can be reached by Tab") })
+    {
+        std::string msg = std::string("every control in ") + where + " " +
+                          what;
+
+        for (size_t i = 0; i < list->size() && i < 5; i++)
+            msg += (i == 0 ? ": not " : ", ") + (*list)[i];
+
+        if (list->size() > 5)
+            msg += ", and " + std::to_string(list->size() - 5) + " more";
+
+        check(list->empty(), msg.c_str());
+    }
 }
 
 static std::string
@@ -362,6 +459,34 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     check(win->chan_ == 2 && win->editors_.count(2) == 1,
           "the DSP entry reloads the channel and keeps it, graph and all");
+
+    checkAccessible(win, "patch mode");
+
+    {
+        Keyboard *keys = findUnder<Keyboard>(win);
+
+        check(keys != NULL &&
+              keys->get_accessible_role() == Gtk::Accessible::Role::GROUP &&
+              gtk_test_accessible_has_property(
+                  GTK_ACCESSIBLE(keys->gobj()), GTK_ACCESSIBLE_PROPERTY_LABEL),
+              "the keys are a named group to a screen reader");
+
+        if (keys != NULL)
+        {
+            keys->SetNote(60, true);
+            keys->SetNote(64, true);
+            pump(4);
+
+            const bool held = described(keys, "Held: C4 E4");
+
+            keys->SetNote(60, false);
+            keys->SetNote(64, false);
+            pump(4);
+
+            check(held && described(keys, "No keys held"),
+                  "...which says the notes held, and when none are");
+        }
+    }
 
     /* ---- the piece ---- */
 
@@ -537,8 +662,12 @@ run (const std::string &pluginPath, const std::string &dsp)
           seq.trackArea(3)->get_content_height() == 26,
           "...and the track is a one-row strip after the reload");
 
+    checkAccessible(win, "sequence mode");
+
     pickMode(win, "piece");
     pump(8);
+
+    checkAccessible(win, "piece mode");
 
     check(win->composer_->document() == Composer::PIECE &&
           win->composer_->status().get_text().find("Untitled") !=

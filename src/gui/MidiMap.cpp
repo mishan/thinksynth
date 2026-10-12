@@ -125,10 +125,10 @@ MidiMap::MidiMap (thSynth *argsynth)
     expCheckBtn_->signal_toggled().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onExpToggled));
 
-    addBtn_ = manage(new Gtk::Button("Add/Modify Connection"));
+    addBtn_ = manage(new Gtk::Button("A_dd/Modify Connection", true));
     addBtn_->signal_clicked().connect(sigc::mem_fun(*this,
                                                    &MidiMap::onAddButton));
-    delBtn_ = manage(new Gtk::Button("Remove Connection"));
+    delBtn_ = manage(new Gtk::Button("_Remove Connection", true));
     delBtn_->signal_clicked().connect(sigc::mem_fun(*this,
                                                    &MidiMap::onDelButton));
 

@@ -24,6 +24,7 @@
 
 #include "think.h"
 
+#include "Access.h"
 #include "PanelView.h"
 
 /* Columns to wrap at, at most. Not a width: how many actually appear is
@@ -315,8 +316,18 @@ Gtk::Widget *PanelView::makeRow (size_t at)
     Gtk::Box *box = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
     box->set_spacing(8);
+    Gtk::Widget *control = makeControl(at);
+
     box->append(*label);
-    box->append(*makeControl(at));
+    box->append(*control);
+
+    /* A slider is a box: the range and the number in it are each named. */
+    if (dynamic_cast<Gtk::Box *>(control) != NULL)
+        for (Gtk::Widget *c = control->get_first_child(); c != NULL;
+             c = c->get_next_sibling())
+            labelWith(*c, *label);
+    else
+        labelWith(*control, *label);
 
     /* And the menus that are about the value rather than being it. They go
        after the control because they qualify what is already there -- "4000,
@@ -355,6 +366,7 @@ Gtk::Widget *PanelView::makeUnit (size_t at)
     Gtk::DropDown *unit = manage(new Gtk::DropDown(shown));
 
     bound_[at].unit = unit;
+    nameAs(*unit, row.label + " unit");
 
     /* Before anything is listening, for the reason the slider gives. */
     unit->set_selected((guint)sel);
@@ -395,6 +407,7 @@ Gtk::Widget *PanelView::makeBind (size_t at)
     Gtk::DropDown *bind = manage(new Gtk::DropDown(shown));
 
     bound_[at].bind = bind;
+    nameAs(*bind, row.label + " knob");
 
     bind->set_selected((guint)sel);
 

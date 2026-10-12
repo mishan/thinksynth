@@ -46,6 +46,7 @@
 
 #include "../gthTheme.h"
 #include "AboutBox.h"
+#include "Access.h"
 #include "MidiMap.h"
 #include "ArgPanelView.h"
 #include "NodeEditor.h"
@@ -189,12 +190,14 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     set_titlebar(header_);
 
     dspEntryLbl_.set_label("Channel 1 DSP:");
-    dspBrowseBtn_.set_label("Browse");
+    dspBrowseBtn_.set_label("_Browse");
+    dspBrowseBtn_.set_use_underline(true);
     dspEntryBox_.set_spacing(6);
     dspEntryBox_.set_margin(6);
     dspEntryBox_.append(dspEntryLbl_);
     dspEntry_.set_hexpand(true);
     dspEntryBox_.append(dspEntry_);
+    labelWith(dspEntry_, dspEntryLbl_);
     dspEntryBox_.append(dspBrowseBtn_);
 
     /* Master level, in the title bar because it is the whole synth's rather
@@ -222,6 +225,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     masterScale_.set_size_request(160, -1);
     masterScale_.set_value(thSynth::instance()->masterGain() * 100.0);
     masterScale_.set_tooltip_text("Master level: 100 is unity");
+    labelWith(masterScale_, masterLbl_);
 
     masterScale_.signal_value_changed().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onMasterGain));
@@ -1739,6 +1743,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
         ampScale->set_value_pos(Gtk::PositionType::RIGHT);
         ampScale->set_size_request(160, -1);
         ampScale->set_value((*amp)[0]);
+        labelWith(*ampScale, *ampLbl);
 
         ampScale->signal_value_changed().connect(
             sigc::bind(

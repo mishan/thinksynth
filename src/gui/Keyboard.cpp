@@ -29,6 +29,8 @@
 #include "think.h"
 
 #include "Keyboard.h"
+#include "Access.h"
+#include "thcGenFile.h"
 
 /* XXX: implement sticky keys??? */
 
@@ -169,6 +171,9 @@ Keyboard::Keyboard (void)
 
     /* allow the widget to grab focus and process keypress events */
     set_focusable(true);
+    property_accessible_role() = Gtk::Accessible::Role::GROUP;
+    nameAs(*this, "On-screen keyboard");
+    describeHeld();
 
     focus_box_ = false;
 
@@ -196,7 +201,7 @@ void Keyboard::resetKeys (void)
         active_veloc_[i] = 0;
     }
 
-    queue_draw();
+    queueRedraw();
 }
   
 Keyboard::~Keyboard (void)
@@ -236,7 +241,7 @@ void Keyboard::SetChannel (int channel)
 
     m_signal_channel_changed_(channel_);
 
-    queue_draw();
+    queueRedraw();
 }
 
 void Keyboard::SetTranspose (int transpose)
@@ -327,7 +332,7 @@ void Keyboard::SetTranspose (int transpose)
        display, if any */
     m_signal_transpose_changed_(transpose_);
 
-    queue_draw();
+    queueRedraw();
 }
 
 /* Called from the synthesizer engine thread, not the GUI one -- which is why
@@ -430,18 +435,43 @@ void Keyboard::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
     cr->restore();
 }
 
+/* Which keys are down, as a screen reader is told it. On the main thread,
+   where accessibility has to be. */
+void Keyboard::describeHeld (void)
+{
+    std::string held;
+
+    {
+        std::lock_guard<std::mutex> lock(drawMutex_);
+
+        for (int i = 0; i < 128; i++)
+            if (active_keys_[i])
+                held += " " + thcGenLoader::noteName(i);
+    }
+
+    held = held.empty() ? "No keys held" : "Held:" + held;
+
+    if (held != described_)
+    {
+        described_ = held;
+        gtk_accessible_update_property(GTK_ACCESSIBLE(gobj()),
+                                       GTK_ACCESSIBLE_PROPERTY_DESCRIPTION,
+                                       held.c_str(), -1);
+    }
+}
+
 void Keyboard::onFocusEnter (void)
 {
     focus_box_ = true;
 
-    queue_draw();
+    queueRedraw();
 }
 
 void Keyboard::onFocusLeave (void)
 {
     focus_box_ = false;
 
-    queue_draw();
+    queueRedraw();
 }
 
 void Keyboard::onPressed (int nPress, double x, double y)
@@ -481,7 +511,7 @@ void Keyboard::onPressed (int nPress, double x, double y)
        left-button velocity -- whichever button was actually down. */
     active_veloc_[mouse_notnum_] = veloc;
 
-    queue_draw();
+    queueRedraw();
 
     mouse_veloc_ = veloc;    /* save velocity */
 }
@@ -495,7 +525,7 @@ void Keyboard::onReleased (int nPress, double x, double y)
         m_signal_note_off_(channel_, mouse_notnum_);
         active_keys_[mouse_notnum_] = 0;
         active_veloc_[mouse_notnum_] = 0;
-        queue_draw();
+        queueRedraw();
     }
 
     mouse_notnum_ = -1;
@@ -527,7 +557,7 @@ bool Keyboard::onKeyPressed (guint keyval, guint keycode,
     active_keys_[notenum] = 1;
     active_veloc_[notenum] = veloc3_;
 
-    queue_draw();
+    queueRedraw();
 
     return true;
 }
@@ -542,7 +572,7 @@ void Keyboard::onKeyReleased (guint keyval, guint keycode,
     if (notenum >= 0) {    /* note event */
         m_signal_note_off_(channel_, notenum);
         active_keys_[notenum] = 0;
-        queue_draw();
+        queueRedraw();
     }
 }
 
@@ -566,7 +596,7 @@ void Keyboard::onMotion (double x, double y)
 
         mouse_notnum_ = notenum;
 
-        queue_draw();
+        queueRedraw();
     }
 }
 

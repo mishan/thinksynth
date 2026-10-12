@@ -41,6 +41,7 @@
 
 #include "thUtil.h"
 #include "Dialogs.h"
+#include "Access.h"
 
 
 NodeEditor::NodeEditor (thSynth *synth)
@@ -182,6 +183,15 @@ NodeEditor::NodeEditor (thSynth *synth)
         sigc::mem_fun(*this, &NodeEditor::onSaveAs));
     revertBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onRevert));
+    /* Read out as "plus", "minus" and "one colon one" otherwise. */
+    for (auto [b, name] : { std::pair(&zoomInBtn_, "Zoom in"),
+                            std::pair(&zoomOutBtn_, "Zoom out"),
+                            std::pair(&zoomResetBtn_, "Actual size") })
+    {
+        b->set_tooltip_text(name);
+        nameAs(*b, name);
+    }
+
     zoomInBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onZoomIn));
     zoomOutBtn_.signal_clicked().connect(
