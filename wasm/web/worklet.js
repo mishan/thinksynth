@@ -183,6 +183,10 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         const took = M._tw_create(sampleRate, windowlen, 128);
 
+        /* A growth step is too slow for a quantum: asked of the mirror
+           (thinkweb.cpp, tw_grow_mode). */
+        M._tw_grow_mode(2);
+
         /* Asked for once, and once is enough: it is an address inside the
            wasm memory, and growing that appends pages rather than moving
            what is already there. What does change on a grow is the JS view,
@@ -245,6 +249,25 @@ class ThinkProcessor extends AudioWorkletProcessor
          * up, and it carries the shape so that the page knows when the
          * description it drew from has stopped being true.
          */
+        if (m.type === 'growntext')
+        {
+            this.port.postMessage({
+                type: 'growntext', id: m.id,
+                text: this.M.ccall('tw_grown_text', 'string', ['string'],
+                                   [m.instrument]),
+            });
+            return;
+        }
+
+        /* What the mirror grew for one of this scheduler's requests. */
+        if (m.type === 'grown')
+        {
+            this.M.ccall('tw_grow_answer', null,
+                         ['number', 'string', 'string', 'string'],
+                         [m.ticket, m.grown, m.what, m.why]);
+            return;
+        }
+
         if (m.type === 'panel')
         {
             const shape = this.M._tw_panel_open(m.kind, m.a, m.b) >>> 0;
@@ -732,6 +755,11 @@ class ThinkProcessor extends AudioWorkletProcessor
             for (let i = 0; i < frames; i++)
                 ch[i] = heap[src + i * 2];
         }
+
+        /* After the copy: a request is a string the module allocates, and
+           memory that grows for one detaches `heap'. */
+        for (let ask; (ask = this.M.UTF8ToString(this.M._tw_grow_next())); )
+            this.port.postMessage({ type: 'grow', ask });
 
         /* A rewind or a load inside the batch: what is held so far is
            the old run's, and goes out under the old run's epoch before

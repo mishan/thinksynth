@@ -3012,6 +3012,9 @@ window.solo = {
     },
     params: () => composer?.params() ?? [],
 
+    /* The graph growth has put on an instrument in the worklet. */
+    grownText: (instrument) => synth.grownText(instrument),
+
     /* The tracks the sequencer pane ended up with: which stage each row
        is and how tall the grid behind it said to be. */
     tracks: () => seq?.tracks() ?? [],

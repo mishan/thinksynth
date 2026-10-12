@@ -107,6 +107,7 @@
 #include "PatchFile.h"
 #include "PatchSet.h"
 #include "KnobPanel.h"
+#include "NodeMutate.h"
 #include "NodePanel.h"
 #include "StagePanel.h"
 #include "twnode.h"
@@ -2495,6 +2496,104 @@ EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
     rendered_ = frame;
 }
 
+/* Growth (gen::grow). A step renders a phrase for each edit it weighs, a
+ * tenth of a second, and the worklet's quantum is a few milliseconds: so
+ * the worklet's scheduler asks (mode 2), the page carries each request to
+ * the mirror, a worker, which grows it with tw_grow and sends the answer
+ * back to tw_grow_answer. The mirror grows its own in place (mode 1).
+ * Renders are deterministic, so both arrive at the same graph; the
+ * worklet a few quanta later. */
+static std::deque<std::string> growAsks_;
+static std::string growJson_;
+
+EMSCRIPTEN_KEEPALIVE void tw_grow_mode (int mode)
+{
+    if (mode == 1)
+        sched_->setGrower([] (const std::string &text, const std::string &base,
+                              unsigned int choice, const std::string &kinds,
+                              size_t want, std::vector<std::string> &grown,
+                              std::vector<std::string> &what, std::string &why)
+                          { return NodeMutate::grow(synth_, text, base, choice,
+                                                    kinds, want, grown, what,
+                                                    why); });
+    else if (mode == 2)
+        sched_->setGrowRequest([] (unsigned int ticket,
+                                   const std::string &text,
+                                   const std::string &base,
+                                   unsigned int choice,
+                                   const std::string &kinds)
+        {
+            std::string ask = "{\"ticket\":" + std::to_string(ticket) +
+                              ",\"choice\":" + std::to_string(choice) +
+                              ",\"text\":";
+
+            jsonString(ask, text);
+            ask += ",\"base\":";
+            jsonString(ask, base);
+            ask += ",\"kinds\":";
+            jsonString(ask, kinds);
+            ask += "}";
+            growAsks_.push_back(ask);
+        });
+}
+
+/* The next request the worklet's scheduler has made, as JSON, or "". */
+EMSCRIPTEN_KEEPALIVE const char *tw_grow_next (void)
+{
+    growJson_.clear();
+
+    if (!growAsks_.empty())
+    {
+        growJson_ = growAsks_.front();
+        growAsks_.pop_front();
+    }
+
+    return growJson_.c_str();
+}
+
+/* One request grown here: {"grown":..., "what":..., "why":...}, with
+   "grown" empty if nothing would do. */
+EMSCRIPTEN_KEEPALIVE const char *tw_grow (const char *text, const char *base,
+                                          unsigned int choice,
+                                          const char *kinds)
+{
+    std::vector<std::string> grown, what;
+    std::string why;
+
+    NodeMutate::grow(synth_, text, base, choice, kinds, 1, grown, what, why);
+
+    growJson_ = "{\"grown\":";
+    jsonString(growJson_, grown.empty() ? std::string() : grown[0]);
+    growJson_ += ",\"what\":";
+    jsonString(growJson_, what.empty() ? std::string() : what[0]);
+    growJson_ += ",\"why\":";
+    jsonString(growJson_, why);
+    growJson_ += "}";
+
+    return growJson_.c_str();
+}
+
+/* The graph growth has put on `instrument''s channel, or "" while it
+   plays what the piece declares. */
+EMSCRIPTEN_KEEPALIVE const char *tw_grown_text (const char *instrument)
+{
+    const thcInstrument *inst = sched_->instrument(instrument);
+
+    growJson_.clear();
+
+    if (inst != NULL)
+        sched_->grownText(inst->channel, growJson_);
+
+    return growJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_grow_answer (unsigned int ticket,
+                                          const char *grown, const char *what,
+                                          const char *why)
+{
+    sched_->growthAnswer(ticket, grown, what, why);
+}
+
 /* What each channel was given, and whether it has been edited since.
  *
  * The same slots the application keeps (src/PatchSet.h), instantiated rather
@@ -2707,6 +2806,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
 {
     delivery_.disconnect();
     pending_.clear();
+    growAsks_.clear();      /* the old piece's: their answers would be dropped */
 
     /* A speed change still in the queue is not a command about this
        piece: it is what the listener asked the clock to do, and the clock
