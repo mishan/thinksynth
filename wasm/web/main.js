@@ -1665,9 +1665,15 @@ function paramsEdited ({ piece: text, edits })
         {
             if (piece !== null && loadedText === text)
             {
+                const moved = JSON.stringify(sections) !==
+                              JSON.stringify(piece.sections);
+
                 piece.chains = chains;
                 piece.sections = sections;
-                band.draw();
+
+                /* A level in a scene: a pad's edits leave them be. */
+                if (moved)
+                    band.draw();
             }
         });
 }
@@ -1905,6 +1911,8 @@ const band = createBand({
     /* A scene: where it starts, and a chain's level in it -- the same
        command the composer view's lane sends, written into the piece. */
     seek: (at) => synth?.transport('seek', at),
+    clock: () => ({ tempo: lastTape?.tempo ?? piece?.tempo ?? 120,
+                    meter: lastTape?.meter ?? 4 }),
     level: (section, chain, level) =>
         synth?.section({ at: -1, section, chain, level }),
 

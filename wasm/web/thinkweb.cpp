@@ -3635,11 +3635,22 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_chains_json (void)
     return o.c_str();
 }
 
-/* The piece's sections as it plays them: [{ name, start, seconds, bars,
- * levels: { chain: level } }], start and seconds in transport seconds and
- * bars at the piece's meter, 0 for a length written in seconds. What the
- * band's scenes are drawn from. */
+/* The piece's sections as written: [{ name, length, unit, before,
+ * beatsBefore, levels: { chain: level } }], the length in `unit' (beats or
+ * s, bars being beats) and where each starts as the seconds and the beats
+ * of the sections before it, so a page finds the start at whatever tempo
+ * the transport has. What the band's scenes are drawn from. Numbers as
+ * %.17g, so a length copied is the length. */
 static std::string sectionsJson_;
+
+static std::string
+exact (double v)
+{
+    char buf[32];
+
+    snprintf(buf, sizeof(buf), "%.17g", v);
+    return buf;
+}
 
 EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
 {
@@ -3648,21 +3659,19 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
 
     sectionsJson_ = "[";
 
-    double start = 0;
+    double seconds = 0, beats = 0;
     const auto &all = sched_->sections();
 
     for (size_t i = 0; i < all.size(); i++)
     {
         const thcSection &s = all[i];
-        const double seconds = sched_->sectionLength(s);
 
         sectionsJson_ += i == 0 ? "{\"name\":" : ",{\"name\":";
         jsonString(sectionsJson_, s.name);
-        sectionsJson_ += ",\"start\":" + std::to_string(start) +
-                         ",\"seconds\":" + std::to_string(seconds) +
-                         ",\"bars\":" +
-                         std::to_string(s.beats ? s.length / sched_->meter()
-                                                : 0) +
+        sectionsJson_ += ",\"length\":" + exact(s.length) +
+                         ",\"unit\":\"" + (s.beats ? "beats" : "s") +
+                         "\",\"before\":" + exact(seconds) +
+                         ",\"beatsBefore\":" + exact(beats) +
                          ",\"levels\":{";
 
         for (size_t k = 0; k < s.levels.size(); k++)
@@ -3671,11 +3680,11 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
                 sectionsJson_ += ",";
 
             jsonString(sectionsJson_, s.levels[k].first);
-            sectionsJson_ += ":" + std::to_string(s.levels[k].second);
+            sectionsJson_ += ":" + exact(s.levels[k].second);
         }
 
         sectionsJson_ += "}}";
-        start += seconds;
+        (s.beats ? beats : seconds) += s.length;
     }
 
     sectionsJson_ += "]";

@@ -3625,19 +3625,21 @@ try
         await page.click('#play');
         const lit = await until(scenes, (s) => s.startsWith('*intro'));
 
-        await page.click('#bandscenes .scene:has-text("break")');
-        const jumped = await until(scenes, (s) => s.includes('*break'));
+        /* Full, which is long enough that a slow machine still rests the
+           guitar inside it. */
+        await page.click('#bandscenes .scene:has-text("full")');
+        const jumped = await until(scenes, (s) => s.includes('*full'));
 
         await page.click('.player[data-chain="guitar"] .moves ' +
                          'button:has-text("Rest")');
         const rested = await until(text,
-            (t) => /guitar\s*=\s*0;/.test(block(t, 'break')));
+            (t) => /guitar\s*=\s*0;/.test(block(t, 'full')));
 
         await page.click('#stop');
         await page.evaluate(() => window.solo.settled());
 
-        check(lit.startsWith('*intro') && jumped.includes('*break') &&
-              /guitar\s*=\s*0;/.test(block(rested, 'break')) &&
+        check(lit.startsWith('*intro') && jumped.includes('*full') &&
+              /guitar\s*=\s*0;/.test(block(rested, 'full')) &&
               !/guitar\s*=\s*0;/.test(block(rested, 'groove')),
               `scenes are the piece's sections, the one playing lit: ${lit}; ` +
               'a scene chosen is played from, and a rest is written into it');
