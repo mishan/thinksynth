@@ -121,6 +121,16 @@
             title="Speed and clock">&hellip;</button>
   </span>
 
+  <!-- The piece's text as a document: undone, redone, kept on disk and
+       opened from it. -->
+  <span id="document" class="group">
+    <button id="undo" disabled title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" disabled title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button id="openpiece" disabled title="Open a .gen file">Open</button>
+    <button id="savepiece" title="Download the piece as a .gen file">Save</button>
+    <input id="openfile" type="file" accept=".gen,text/plain" hidden>
+  </span>
+
   <span id="status">Press Start, then play.</span>
 </div>
 

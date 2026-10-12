@@ -1862,6 +1862,87 @@ try
                   `fx/space.dsp in its place: ${shown} -> ${now}`);
         }
 
+        /* Undo and redo: the effect taken back and put back, stopped, as
+           loads; then taken back while it plays, as an edit, which does
+           not start the piece again from the top. */
+        {
+            const has = (fx) => page.waitForFunction(
+                (f) => window.solo.genText().includes(f), fx,
+                { timeout: 30000 }).then(() => true, () => false);
+            const clock = () => page.$eval('#clock', (c) =>
+            {
+                const [m, s] = c.textContent.split(' ')[0].split(':');
+
+                return Number(m) * 60 + Number(s);
+            });
+
+            await page.click('#undo');
+            const undone = await has('fx/glue.dsp');
+
+            await page.click('#redo');
+            const redone = await has('fx/space.dsp');
+
+            await page.click('#play');
+            await page.waitForTimeout(3000);
+
+            const before = await clock();
+
+            await page.click('#undo');
+            const live = await has('fx/glue.dsp');
+            const after = await clock();
+
+            await page.click('#stop');
+            await page.evaluate(() => window.solo.settled());
+
+            check(undone && redone && live && after >= before && before > 1,
+                  'Undo takes the effect back and Redo puts it back; Undo ' +
+                  `while playing goes on from where it was: ${before} s, ` +
+                  `then ${after} s`);
+        }
+
+        /* Save downloads the box's text; Open loads a file as the piece,
+           named in the menu until another is chosen. */
+        {
+            const [download] = await Promise.all([
+                page.waitForEvent('download'), page.click('#savepiece')]);
+            const saved = await new Promise((resolve) =>
+            {
+                const parts = [];
+
+                download.createReadStream().then((s) =>
+                {
+                    s.on('data', (d) => parts.push(d));
+                    s.on('end', () => resolve(Buffer.concat(parts)
+                                                    .toString()));
+                });
+            });
+            const text = await page.evaluate(() => window.solo.genText());
+            const was = await page.$eval('#piece', (m) => m.value);
+            const mine = 'name "Mine";\nchain one {\n    stage src ' +
+                         'gen::euclid { steps = 4; fills = 2; notes = "C4"; ' +
+                         'period = 0.25 s; hold = 0.1 s; };\n    sink { ' +
+                         'channel = 1; };\n};\n';
+
+            await page.setInputFiles('#openfile', {
+                name: 'mine.gen', mimeType: 'text/plain',
+                buffer: Buffer.from(mine) });
+            await page.waitForFunction(
+                (t) => window.solo.genText() === t, mine, { timeout: 30000 })
+                .catch(() => {});
+            await page.evaluate(() => window.solo.settled());
+
+            const opened = await page.evaluate(() => window.solo.genText());
+            const shown = await page.$eval('#piece', (m) =>
+                m.selectedOptions[0]?.textContent);
+
+            check(saved === text && opened === mine && shown === 'mine.gen',
+                  'Save downloads the piece\'s text and Open loads a file ' +
+                  `as the piece: menu says ${shown}`);
+
+            await page.selectOption('#piece', was);
+            await page.evaluate(() => window.solo.settled());
+        }
+
         /* The euclid ring, enlarged and right-clicked in its middle: a hit
            fewer, which the end of the gesture writes into the piece. */
         await page.locator('#composerscroll').scrollIntoViewIfNeeded();
