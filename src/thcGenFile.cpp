@@ -2427,8 +2427,15 @@ thcGenLoader::parseChain (thcScheduler *sched)
         {
             take();
 
+            if (sawSink)
+            {
+                error(t.line, "chain " + nameTok.text +
+                      ": seed after sink (sinks come last)");
+                return false;
+            }
+
             /* Its stages are seeded as they are added (setChainSeed). */
-            if (sawStage || sawSink)
+            if (sawStage)
             {
                 error(t.line, "chain " + nameTok.text +
                       ": seed must come before its stages");

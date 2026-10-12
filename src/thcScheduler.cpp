@@ -549,9 +549,13 @@ thcScheduler::stageSeed (size_t chain, size_t stage) const
     const thcChain &c = chains_[chain];
     unsigned h = c.seeded ? c.seed : masterSeed_;
 
-    /* A seeded chain's place is left out, so its take does not change
-       when chains are added or moved above it. */
-    if (!c.seeded)
+    /* A seeded chain is told apart by its name rather than its place, so
+       its take does not change when chains are added or moved above it,
+       and two chains given one seed do not play in lockstep. */
+    if (c.seeded)
+        for (char ch : c.name)
+            h = (h ^ (unsigned char)ch) * 16777619u;
+    else
         h ^= (unsigned)(chain + 1) * 2654435761u;
     h ^= (unsigned)(stage + 1) * 0x9e3779b9u + (h << 6) + (h >> 2);
 

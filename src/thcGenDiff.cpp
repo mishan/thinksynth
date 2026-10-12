@@ -72,12 +72,14 @@ sameKnob (const thcGenEdit::Knob &a, const thcGenEdit::Knob &b)
 }
 
 /* Whatever an unchanged stage line can mean something else under: the
-   seed its instance was made from, and the scales and presets a param
-   may name. */
+   scales and presets a param may name, and -- unless `seedToo' is false --
+   the piece's seed, which every chain without one of its own is seeded
+   from. */
 static bool
-sameContext (const Doc &a, const Doc &b)
+sameContext (const Doc &a, const Doc &b, bool seedToo = true)
 {
-    if (a.hasSeed != b.hasSeed || (a.hasSeed && a.seed != b.seed) ||
+    if ((seedToo && (a.hasSeed != b.hasSeed ||
+                     (a.hasSeed && a.seed != b.seed))) ||
         a.scales.size() != b.scales.size() ||
         a.presets.size() != b.presets.size())
         return false;
@@ -127,8 +129,12 @@ thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
             if (sameKnob(was.knobs[o], now.knobs[n]))
                 keepKnobValues.insert(now.knobs[n].name);
 
-    if (!sameContext(was, now))
+    /* A new piece seed is another take of every chain but those with a
+       seed of their own. */
+    if (!sameContext(was, now, false))
         return true;
+
+    const bool sameSeed = sameContext(was, now);
 
     for (size_t n = 0; n < now.chains.size(); n++)
     {
@@ -145,7 +151,8 @@ thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
                 plan.keepChains.insert(nc.name);
 
             /* Another take: every stage built again from the new seed. */
-            if (oc.hasSeed != nc.hasSeed || oc.seed != nc.seed)
+            if (oc.hasSeed != nc.hasSeed || oc.seed != nc.seed ||
+                (!nc.hasSeed && !sameSeed))
                 break;
 
             for (size_t s = 0; s < nc.stages.size(); s++)

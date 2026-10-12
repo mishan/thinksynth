@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -1068,8 +1069,12 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     continue;
                 }
 
+                /* Only a seed the loader would take: anything else is the
+                   loader's to refuse, and not a number to fold. */
                 if (t[j].kind == Tok::WORD && t[j].text == "seed" &&
-                    t[j + 1].kind == Tok::NUMBER && isPunct(t[j + 2], ';'))
+                    t[j + 1].kind == Tok::NUMBER && isPunct(t[j + 2], ';') &&
+                    t[j + 1].num >= 0 && t[j + 1].num <= 4294967295.0 &&
+                    t[j + 1].num == std::floor(t[j + 1].num))
                 {
                     c.hasSeed = true;
                     c.seed = (unsigned)t[j + 1].num;

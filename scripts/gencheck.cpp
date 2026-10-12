@@ -12462,6 +12462,9 @@ checkChainSeed (const std::map<std::string, thcPlugin *> &plugins,
 
     expectReject(plugins, synth, "chain-seed-late", late,
                  "seed must come before its stages");
+    expectReject(plugins, synth, "chain-seed-sink",
+                 "chain a {\n  input midi;\n  sink { channel = 1; };\n"
+                 "  seed 3;\n};\n", "seed after sink");
 }
 
 static void

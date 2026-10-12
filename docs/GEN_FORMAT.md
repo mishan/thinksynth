@@ -640,10 +640,13 @@ A chain body holds, in order:
   Write `meter` before a chain start in bars. The composer panel's chain
   strip has an entry for it beside the name.
 - optionally `seed 7;` — the chain's own seed, in place of the piece's, for
-  its stages: what it plays is the same whatever the piece's `seed` is and
+  its stages: their choices are the same whatever the piece's `seed` is and
   whatever chains are added or moved around it, and another number is
-  another take. A whole number, 0 to 4294967295, before the chain's first
-  stage. A live edit that changes it builds the chain's stages again.
+  another take. The chain's name goes into it too, so two chains given one
+  seed do not choose alike, and a renamed chain is another take. A whole
+  number, 0 to 4294967295, before the chain's first stage. A live edit that
+  changes it builds the chain's stages again; one that changes the piece's
+  `seed` leaves them playing.
 - optionally `input midi;` — the chain is fed by live MIDI arriving on the
   sink channel (arpeggiators, Markov training). A chain may have an input, a
   generator stage, both, or neither only if it is all transformers reached by
