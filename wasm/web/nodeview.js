@@ -653,6 +653,8 @@ export async function createNodeView ({ files, root = document,
      */
     function showParams ()
     {
+        outline();
+
         const box = $('nodeparams');
 
         box.replaceChildren();
@@ -697,6 +699,294 @@ export async function createNodeView ({ files, root = document,
                  ['string', 'string', 'string', 'number'],
                  [node, name, value]);
         });
+    }
+
+    /* ---- the outline ----
+     *
+     * The graph for a keyboard and a screen reader: every box, to choose
+     * as a click on it chooses (and so to edit in the panel), and the
+     * chosen one's wires -- each input and what feeds it, to cut; a new
+     * one from any output, refused for the reason the canvas would give
+     * (tw_graph_can_connect); an output to watch; and the node itself to
+     * delete. Each is the call the canvas's gesture makes.
+     */
+    /* What a box is called in the list: its name and what it is, which is
+       its plugin, the io halves' included, or a control. */
+    const named = (b) =>
+    {
+        const what = call('tw_graph_box_plugin', ['number'], [b]) ||
+                     (M._tw_graph_box_kind(b) === BOX.CONTROL ? 'control'
+                                                              : '');
+
+        return call('tw_graph_box_name', ['number'], [b]) +
+               (what && ` (${what})`);
+    };
+
+    /* An expression's box (`osc.freq = ...'): its inputs are its text's,
+       and it is a node's arg rather than a node to delete. */
+    const isExpr = (b) =>
+        call('tw_graph_box_plugin', ['number'], [b]) === 'expression';
+
+    const portName = (b, p) =>
+        call('tw_graph_port_name', ['number', 'number'], [b, p]);
+
+    const el = (tag, props = {}, ...kids) =>
+    {
+        const e = Object.assign(document.createElement(tag), props);
+
+        e.append(...kids);
+        return e;
+    };
+
+    /* Chosen from the list: the canvas's selection and the panel, as a
+       click, and the box brought into view. */
+    function choose (b)
+    {
+        selected = b;
+        M._tw_node_canvas_select(b);
+
+        const zoom = M._tw_node_canvas_zoom();
+
+        $('nodescroll').scrollTo({
+            left: Math.max(0, M._tw_graph_box_x(b) * zoom - 40),
+            top: Math.max(0, M._tw_graph_box_y(b) * zoom - 40) });
+        showParams();
+        paint();
+    }
+
+    $('nodeoutline').addEventListener('toggle', () => outline());
+
+    function outline ()
+    {
+        /* Nothing to keep up to date while it is shut: it is made again
+           when it opens. */
+        if (!$('nodeoutline').open)
+            return;
+
+        const list = $('nodelist');
+        const count = file === null ? 0 : M._tw_graph_box_count();
+        const shown = [];
+
+        for (let b = 0; b < count; b++)
+            if (M._tw_graph_box_kind(b) !== BOX.PROBE)
+                shown.push(b);
+
+        /* The same boxes as last drawn keep their buttons, so the one a
+           person is on keeps the focus; only which is chosen moves. */
+        const names = shown.map(named);
+
+        if (names.join('\n') !== list.dataset.names)
+        {
+            list.dataset.names = names.join('\n');
+            list.replaceChildren(...shown.map((b, i) =>
+                el('li', {}, el('button', { type: 'button',
+                                            textContent: names[i],
+                                            onclick: () => choose(b) }))));
+        }
+
+        [...list.children].forEach((li, i) =>
+        {
+            const on = shown[i] === selected;
+
+            li.firstChild.ariaCurrent = on ? 'true' : null;
+        });
+
+        wiring();
+    }
+
+    function wiring ()
+    {
+        const box = $('nodewiring');
+        const b = selected;
+
+        if (!$('nodeoutline').open)
+            return;
+
+        if (file === null || b < 0 || M._tw_graph_box_kind(b) === BOX.PROBE)
+        {
+            box.replaceChildren();
+            box.dataset.made = '';
+            return;
+        }
+
+        const name = call('tw_graph_box_name', ['number'], [b]);
+        const ports = M._tw_graph_port_count(b);
+        const edges = [];
+
+        for (let e = 0; e < M._tw_graph_edge_count(); e++)
+            edges.push({ e, fromBox: M._tw_graph_edge_from_box(e),
+                         fromPort: M._tw_graph_edge_from_port(e),
+                         toBox: M._tw_graph_edge_to_box(e),
+                         toPort: M._tw_graph_edge_to_port(e) });
+
+        const ins = [];
+        const outs = [];
+
+        for (let p = 0; p < ports; p++)
+            (M._tw_graph_port_is_input(b, p) ? ins : outs).push(p);
+
+        /* Made again only when what it shows has changed: an edit
+           elsewhere -- a peer's, a keystroke in the source -- would
+           otherwise take the focus and a half-made choice out of a menu
+           somebody is in. */
+        const made = JSON.stringify([
+            named(b), channel, probes.map((p) => `${p.node}.${p.arg}`),
+            edges.filter((x) => x.toBox === b).map((x) =>
+                [x.toPort, call('tw_graph_box_name', ['number'],
+                                [x.fromBox]), x.fromPort]),
+            M._tw_graph_box_count()]);
+
+        if (made === box.dataset.made)
+            return;
+
+        box.dataset.made = made;
+        const expr = isExpr(b);
+
+        /* After an action the panel is made again; the focus goes back to
+           the chosen box in the list rather than to the page. */
+        const home = () => [...$('nodelist').querySelectorAll('button')]
+            .find((x) => x.ariaCurrent === 'true')?.focus();
+
+        const rows = ins.map((p) =>
+        {
+            const from = edges.find((x) => x.toBox === b && x.toPort === p);
+            const li = el('li', {}, `${portName(b, p)} from ` +
+                (from === undefined ? 'nothing'
+                    : `${call('tw_graph_box_name', ['number'],
+                              [from.fromBox])}.` +
+                      portName(from.fromBox, from.fromPort)));
+
+            if (from !== undefined && !expr)
+                li.append(' ', el('button', {
+                    type: 'button', textContent: 'Disconnect',
+                    ariaLabel: `Disconnect ${name}.${portName(b, p)}`,
+                    onclick: () => { disconnect(from.e); home(); } }));
+
+            return li;
+        });
+
+        const parts = [el('h3', { textContent: `${name}'s wires` }),
+                       el('ul', {}, ...rows)];
+
+        /* A wire into one of its inputs, from any output of another box. */
+        if (ins.length > 0 && !expr)
+        {
+            const to = el('select', { ariaLabel: 'Input' },
+                          ...ins.map((p) => new Option(portName(b, p), p)));
+            const from = el('select', { ariaLabel: 'From' });
+
+            for (let o = 0; o < M._tw_graph_box_count(); o++)
+                for (let p = 0; o !== b && p < M._tw_graph_port_count(o); p++)
+                    if (!M._tw_graph_port_is_input(o, p))
+                        from.append(new Option(
+                            `${call('tw_graph_box_name', ['number'], [o])}.` +
+                            portName(o, p), `${o}:${p}`));
+
+            parts.push(el('div', { className: 'row' },
+                el('label', {}, 'Connect ', to),
+                el('label', {}, ' from ', from),
+                el('button', { type: 'button', textContent: 'Connect',
+                    onclick: () =>
+                    {
+                        const [o, p] = from.value.split(':').map(Number);
+                        const t = Number(to.value);
+
+                        if (M._tw_graph_can_connect(o, p, b, t) === 0)
+                            onStatus(`No wire: ${M.UTF8ToString(
+                                M._tw_graph_why())}`);
+                        else
+                        {
+                            connect(o, p, b, t);
+                            home();
+                        }
+                    } })));
+        }
+
+        /* An output to watch, as the probe menu offers, and the ones being
+           watched to stop. */
+        if (probe !== null && outs.length > 0 && M._tw_visual_count() > 0)
+        {
+            const port = el('select', { ariaLabel: 'Output' },
+                            ...outs.map((p) => new Option(portName(b, p), p)));
+            const visual = el('select', { ariaLabel: 'With' });
+
+            for (let v = 0; v < M._tw_visual_count(); v++)
+            {
+                const n = call('tw_visual_name', ['number'], [v]);
+
+                visual.append(new Option(n, n));
+            }
+
+            parts.push(el('div', { className: 'row' },
+                el('label', {}, 'Watch ', port),
+                el('label', {}, ' with a ', visual),
+                el('button', { type: 'button', textContent: 'Watch',
+                    disabled: channel < 0,
+                    title: channel < 0 ? 'Nothing is playing this ' +
+                                         'instrument' : '',
+                    onclick: async () =>
+                    {
+                        const arg = portName(b, Number(port.value));
+
+                        /* One watch to a port, as the probe menu has it. */
+                        if (probes.some((p) => p.node === name &&
+                                               p.arg === arg))
+                            onStatus(`Already watching ${name}.${arg}.`);
+                        else
+                            await armProbe(name, arg, visual.value);
+
+                        home();
+                    } })));
+        }
+
+        probes.forEach((p, i) =>
+        {
+            if (p.node === name)
+                parts.push(el('button', {
+                    type: 'button',
+                    textContent: `Stop watching ${p.node}.${p.arg}`,
+                    onclick: () => { stopProbe(i); home(); } }));
+        });
+
+        /* The box itself, but for the io halves, which are the patch's
+           ends rather than a node in it. */
+        const kind = M._tw_graph_box_kind(b);
+
+        if ((kind === BOX.NODE && !expr) || kind === BOX.CONTROL)
+            parts.push(el('button', {
+                type: 'button', textContent: `Delete ${name}`,
+                onclick: () =>
+                {
+                    /* What watched it goes first: its panel would have no
+                       host, and nothing left to stop it from. And nothing
+                       is chosen before the write, which rebuilds at once:
+                       the index would otherwise name the box after it. */
+                    for (let i = probes.length - 1; i >= 0; i--)
+                        if (probes[i].node === name)
+                            stopProbe(i);
+
+                    const was = selected;
+
+                    selected = -1;
+
+                    const gone = kind === BOX.CONTROL
+                        ? edit('tw_edit_remove_control',
+                               ['string', 'string'],
+                               [call('tw_graph_box_control', ['number'],
+                                     [b])])
+                        : edit('tw_edit_remove_node', ['string', 'string'],
+                               [name]);
+
+                    if (gone)
+                    {
+                        onStatus(`Deleted ${name}.`);
+                        $('nodelist').querySelector('button')?.focus();
+                    }
+                    else
+                        selected = was;
+                } }));
+
+        box.replaceChildren(...parts);
     }
 
     /* ---- the file ---- */
@@ -901,7 +1191,11 @@ export async function createNodeView ({ files, root = document,
                 this is how a harness holds that claim to it. */
              visible: () => view.visible(),
              /* Which channel this instrument is on, for arming a tap. */
-             onChannel: (c) => { channel = c; },
+             onChannel: (c) =>
+             {
+                 channel = c;
+                 wiring();
+             },
              boxes: () => M._tw_graph_box_count(),
              probes: () => probes.length,
              selected: () => selected };
