@@ -418,7 +418,7 @@ protected:
     Gtk::ListBox boxList_;
     Gtk::Box wiring_{Gtk::Orientation::VERTICAL};
     std::vector<int> listed_;           /* the box on each row */
-    std::string listedNames_;           /* and their names, as last listed */
+    std::vector<std::string> listedRows_;   /* and what each one says */
 
     void refreshOutline (void);
     void showWiring (int box);
@@ -545,7 +545,6 @@ private:
        more of it. */
     Gtk::ToggleButton paletteBtn_;
     Gtk::ToggleButton paramsBtn_;
-
 
     /* Widths to come back to, remembered as each panel is collapsed. */
     int paletteWidth_;

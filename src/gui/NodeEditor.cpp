@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 
 #include <gtkmm.h>
@@ -129,11 +130,14 @@ NodeEditor::NodeEditor (thSynth *synth)
 
     boxList_.set_selection_mode(Gtk::SelectionMode::SINGLE);
     nameAs(boxList_, "Nodes");
-    boxList_.signal_row_activated().connect([this](Gtk::ListBoxRow *row)
+    /* Selected, not only activated: arrows move the selection, and the
+       wiring under the list has to be about the row they are on. */
+    boxList_.signal_row_selected().connect([this](Gtk::ListBoxRow *row)
     {
-        const int i = row->get_index();
+        const int i = row == NULL ? -1 : row->get_index();
 
-        if (i >= 0 && i < (int)listed_.size())
+        if (i >= 0 && i < (int)listed_.size() &&
+            canvas_.selected() != listed_[i])
             canvas_.setSelected(listed_[i]);
     });
     wiring_.set_spacing(4);
@@ -2127,28 +2131,27 @@ void NodeEditor::refreshOutline (void)
 
     const std::vector<NodeGraph::Box> &boxes = graph_.boxes();
     std::vector<int> listed;
-    std::string names;
+    std::vector<std::string> rows;
 
     for (size_t b = 0; b < boxes.size(); b++)
         if (!boxes[b].isProbe)
         {
             listed.push_back((int)b);
-            names += boxes[b].name + " (" + boxes[b].plugin + ")\n";
+            rows.push_back(boxes[b].name + " (" + boxes[b].plugin + ")");
         }
 
     /* The same boxes keep their rows, so the one with the focus keeps it. */
-    if (names != listedNames_)
+    if (rows != listedRows_)
     {
-        listedNames_ = names;
+        listedRows_ = rows;
         listed_ = listed;
 
         while (Gtk::Widget *row = boxList_.get_first_child())
             boxList_.remove(*row);
 
-        for (int b : listed_)
+        for (const std::string &text : rows)
         {
-            Gtk::Label *l = Gtk::manage(new Gtk::Label(
-                boxes[b].name + " (" + boxes[b].plugin + ")"));
+            Gtk::Label *l = Gtk::manage(new Gtk::Label(text));
 
             l->set_xalign(0);
             boxList_.append(*l);
@@ -2171,6 +2174,15 @@ void NodeEditor::outlineHome (void)
 {
     if (Gtk::ListBoxRow *row = boxList_.get_selected_row())
         row->grab_focus();
+}
+
+/* An action from a button under the list, run once its click is over:
+   every action makes the list again, and the button with it, which must
+   not go while its own handler is still running. */
+static void
+later (std::function<void ()> run)
+{
+    Glib::signal_idle().connect_once(std::move(run));
 }
 
 void NodeEditor::showWiring (int b)
@@ -2208,7 +2220,6 @@ void NodeEditor::showWiring (int b)
     head->add_css_class("heading");
     wiring_.append(*head);
 
-    /* Each input, what feeds it, and a cut. */
     std::vector<int> ins, outs;
 
     for (size_t p = 0; p < box.ports.size(); p++)
@@ -2241,13 +2252,19 @@ void NodeEditor::showWiring (int b)
         nameAs(*cut, "Disconnect " + box.name + "." + box.ports[p].name);
         cut->signal_clicked().connect([this, edge]
         {
-            onDisconnect(edge);
-            outlineHome();
+            later([this, edge]
+            {
+                const size_t was = graph_.edges().size();
+
+                onDisconnect(edge);
+
+                if (graph_.edges().size() != was)
+                    outlineHome();
+            });
         });
         row({ label(what), cut });
     }
 
-    /* A wire into one of its inputs, from any other box's output. */
     if (!ins.empty() && !box.isExpr)
     {
         std::vector<std::pair<int, int>> sources;
@@ -2279,8 +2296,18 @@ void NodeEditor::showWiring (int b)
             if (t >= ins.size() || f >= sources.size())
                 return;
 
-            onConnect(sources[f].first, sources[f].second, b, ins[t]);
-            outlineHome();
+            const std::pair<int, int> src = sources[f];
+            const int in = ins[t];
+
+            later([this, b, src, in]
+            {
+                const size_t was = wires_.size();
+
+                onConnect(src.first, src.second, b, in);
+
+                if (wires_.size() != was)
+                    outlineHome();
+            });
         });
         row({ label("Connect"), to, label("from"), from, go });
     }
@@ -2310,11 +2337,16 @@ void NodeEditor::showWiring (int b)
             const guint p = port->get_selected();
             const guint v = visual->get_selected();
 
-            if (p < outNames.size() && v < visualNames.size())
-                armProbe(name, outNames[p], visualNames[v]);
+            if (p >= outNames.size() || v >= visualNames.size())
+                return;
 
-            refreshOutline();
-            outlineHome();
+            const std::string arg = outNames[p], with = visualNames[v];
+
+            later([this, name, arg, with]
+            {
+                if (armProbe(name, arg, with))
+                    outlineHome();
+            });
         });
         row({ label("Watch"), port, label("with a"), visual, go });
     }
@@ -2328,16 +2360,17 @@ void NodeEditor::showWiring (int b)
 
             stop->signal_clicked().connect([this, node, arg]
             {
-                for (size_t i = 0; i < probes_.size(); i++)
-                    if (probes_[i].node == node && probes_[i].arg == arg)
-                    {
-                        disarmProbe(i);
-                        setStatus("Stopped watching " + node + "." + arg);
-                        break;
-                    }
-
-                refreshOutline();
-                outlineHome();
+                later([this, node, arg]
+                {
+                    for (size_t i = 0; i < probes_.size(); i++)
+                        if (probes_[i].node == node && probes_[i].arg == arg)
+                        {
+                            disarmProbe(i);
+                            setStatus("Stopped watching " + node + "." + arg);
+                            outlineHome();
+                            break;
+                        }
+                });
             });
             wiring_.append(*stop);
         }
@@ -2350,13 +2383,27 @@ void NodeEditor::showWiring (int b)
         Gtk::Button *gone = Gtk::manage(new Gtk::Button(
             "Delete " + box.name));
 
-        gone->signal_clicked().connect([this]
-        {
-            onDeleteNode();
+        const std::string name = box.name;
 
-            /* Its row went with it: the focus to the list's first. */
-            if (Gtk::ListBoxRow *first = boxList_.get_row_at_index(0))
-                first->grab_focus();
+        gone->signal_clicked().connect([this, b, name]
+        {
+            later([this, b, name]
+            {
+                /* This box only: Delete takes the canvas's selection, which
+                   a rubber band may have made several. */
+                canvas_.setSelected(b);
+                onDeleteNode();
+
+                bool still = false;
+
+                for (const NodeGraph::Box &x : graph_.boxes())
+                    still |= x.name == name;
+
+                /* Its row went with it: the focus to the list's first. */
+                if (!still)
+                    if (Gtk::ListBoxRow *first = boxList_.get_row_at_index(0))
+                        first->grab_focus();
+            });
         });
         wiring_.append(*gone);
     }
@@ -2747,6 +2794,8 @@ void NodeEditor::reapplyProbes (void)
     updateProbeTick();
 
     canvas_.queue_draw();
+
+    refreshOutline();
 }
 
 void NodeEditor::updateProbeTick (void)

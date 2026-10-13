@@ -670,20 +670,24 @@ int run (const string &pluginPath, const char *file)
         ed->listBtn_.set_active(true);
         pump(0.2);
 
-        /* What is under the list's wiring panel, by a button's label. */
-        std::function<Gtk::Widget *(Gtk::Widget *, const char *)> find =
-            [&](Gtk::Widget *w, const char *what) -> Gtk::Widget *
+        /* A button under the list's wiring panel, by its label, in the row
+           whose first label starts with `in' if there is one. */
+        auto button = [&](const std::string &label,
+                          const std::string &in = "") -> Gtk::Button *
         {
-            for (Gtk::Widget *c = w->get_first_child(); c != NULL;
-                 c = c->get_next_sibling())
+            std::vector<Gtk::Button *> all;
+
+            collectWidgets<Gtk::Button>(&ed->wiring_, all);
+
+            for (Gtk::Button *b : all)
             {
-                Gtk::Button *b = dynamic_cast<Gtk::Button *>(c);
+                Gtk::Label *first = dynamic_cast<Gtk::Label *>(
+                    b->get_parent()->get_first_child());
 
-                if (b != NULL && b->get_label() == what)
+                if (b->get_label() == label &&
+                    (in.empty() || (first != NULL &&
+                                    first->get_text().find(in) == 0)))
                     return b;
-
-                if (Gtk::Widget *in = find(c, what))
-                    return in;
             }
 
             return NULL;
@@ -718,17 +722,16 @@ int run (const string &pluginPath, const char *file)
             ed->boxList_.get_row_at_index(row)->activate();
             pump(0.1);
 
-            Gtk::Button *cut = dynamic_cast<Gtk::Button *>(
-                find(&ed->wiring_, "Disconnect"));
+            Gtk::Button *cut = button("Disconnect", input + " from ");
 
             if (cut != NULL)
                 g_signal_emit_by_name(cut->gobj(), "clicked");
-            pump(0.1);
+            pump(0.2);
 
             const size_t cutTo = ed->graph().edges().size();
 
             /* The Connect row: its input menu, then its source menu. */
-            Gtk::Widget *go = find(&ed->wiring_, "Connect");
+            Gtk::Widget *go = button("Connect");
             Gtk::DropDown *to = NULL, *from = NULL;
 
             for (Gtk::Widget *c = go == NULL ? NULL
@@ -753,7 +756,7 @@ int run (const string &pluginPath, const char *file)
                 pick(from, source);
                 g_signal_emit_by_name(go->gobj(), "clicked");
             }
-            pump(0.1);
+            pump(0.2);
 
             bool back = false;
 
@@ -767,8 +770,7 @@ int run (const string &pluginPath, const char *file)
                "again from its Connect row", name.c_str(), input.c_str(),
                source.c_str());
 
-            Gtk::Button *gone = dynamic_cast<Gtk::Button *>(
-                find(&ed->wiring_, ("Delete " + name).c_str()));
+            Gtk::Button *gone = button("Delete " + name);
 
             if (gone != NULL)
                 g_signal_emit_by_name(gone->gobj(), "clicked");
@@ -783,7 +785,9 @@ int run (const string &pluginPath, const char *file)
                "...and %s deleted from the list is gone from the graph",
                name.c_str());
 
-            ed->reload();
+            /* The file as it was: the delete is in the working copy, which
+               a reload would read back. */
+            ed->open(file, 0);
             pump(0.2);
         }
 
