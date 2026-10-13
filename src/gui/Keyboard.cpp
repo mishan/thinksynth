@@ -47,14 +47,14 @@ static char    keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
 static unsigned int    color0 = 0x00000000;    /* key border                */
 static unsigned int    color1 = 0x00FFFFFF;    /* white key                */
 static unsigned int    color2 = 0x00000000;    /* black key                */
-static unsigned int    color3 = 0x00C0FFFF;    /* middle C key            */
+static unsigned int    color3 = 0x00C0FFFF;    /* C key                    */
 static unsigned int color4 = 0x005050FF;    /* white key / active       */
 static unsigned int    color5 = 0x005050FF;    /* black key / active        */
 /* 00707070 */ /* 00909090 */
-static unsigned int    color6 = 0x005050FF;    /* middle C key / active    */
+static unsigned int    color6 = 0x005050FF;    /* C key / active           */
 /* 0090D0D0 */
 
-/* The one key tinted, and marked (see drawKeyboard). */
+/* The one C marked as well as tinted (see drawKeyboard). */
 #define MIDDLE_C 60
 
 /* White keys in the 128-note range the widget covers: 10 full octaves of 7
@@ -723,7 +723,9 @@ void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
             if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
             {
                 /* white keys */
-                if (i == MIDDLE_C)
+                /* Every C tinted: ten octaves are found by their Cs, as
+                   on the web page's keys. */
+                if (k == 0)
                 {
                     c = (unsigned int)
                         (active_keys_[i] ? color6 : color3);
