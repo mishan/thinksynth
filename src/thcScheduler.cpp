@@ -1251,6 +1251,11 @@ thcScheduler::hear (thcStage *stage, const char *target,
     if (mine == NULL || !auditionInstrument(*mine, candidate))
         return -1;
 
+    stage->unwritten = true;
+
+    if (catchingUp_)
+        return -1;
+
     /* Where each value lands live: every chanarg sink on that channel
        takes it, under the sink's name unless the sink is `*' -- the
        rename propagate() does, in the order it does it. */
@@ -3933,6 +3938,8 @@ thcScheduler::catchUp (size_t chain)
     catchingUp_ = true;
     caughtUp_.clear();
 
+    const unsigned long queued = pendingSeq_;
+
     while (!due.empty() && due.front().at < transportNow_)
     {
         std::pop_heap(due.begin(), due.end(), Later());
@@ -3955,6 +3962,25 @@ thcScheduler::catchUp (size_t chain)
         }};
 
         const double next = s->plugin->tick(s->state, &t, &sink);
+
+        /* What it would have heard cannot be heard again now: it starts
+           from now instead, as made, with nothing it composed here. */
+        if (s->unwritten)
+        {
+            catchingUp_ = false;
+            caughtUp_.clear();
+            pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                               [chain, queued](const Pending &p)
+                               { return p.chain == (int)chain &&
+                                        p.seq >= queued; }),
+                           pending_.end());
+            std::make_heap(pending_.begin(), pending_.end(), LaterPending());
+
+            for (size_t si = 0; si < c.stages.size(); si++)
+                remake(chain, si);
+
+            return;
+        }
 
         if (next == THC_NEVER)
         {
@@ -5032,9 +5058,13 @@ thcScheduler::reset (void)
         }
     }
 
+    /* Each stage is what its text says again, painted on or not. */
     for (size_t ci = 0; ci < chains_.size(); ci++)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
+        {
+            chains_[ci].stages[si]->unwritten = false;
             remake(ci, si);
+        }
 
     sigReset.emit();
 }
@@ -5100,6 +5130,13 @@ thcScheduler::remake (size_t ci, size_t si)
 }
 
 void
+thcScheduler::input (thcStage *s, const thcInputEvent &ev)
+{
+    s->plugin->input(s->state, &ev);
+    s->unwritten |= !s->plugin->inputEdits();
+}
+
+void
 thcScheduler::recompose (size_t chain, bool passing)
 {
     if (chain >= chains_.size())
@@ -5110,22 +5147,42 @@ thcScheduler::recompose (size_t chain, bool passing)
     recompose_[chain] = passing && (m == recompose_.end() || m->second);
 }
 
+/* How often a chain may be played again from its start for values a drag
+   passes through: the replay's cost grows with how long the piece has
+   played, and a drag sends a value a frame. Those in between wait, and the
+   one let go at is not held. */
+static const double PASSING_EVERY_SEC = 0.1;
+
 void
 thcScheduler::recomposeMarked (void)
 {
-    std::map<size_t, bool> marked;
+    const bool due = transportNow_ < passedAt_ ||
+                     transportNow_ >= passedAt_ + PASSING_EVERY_SEC;
+    std::map<size_t, bool> marked, later;
 
-    marked.swap(recompose_);
+    for (const auto &m : recompose_)
+        (m.second && !due ? later : marked)[m.first] = m.second;
+
+    recompose_.swap(later);
 
     for (const auto &m : marked)
+    {
+        if (m.second)
+            passedAt_ = transportNow_;
+
         composeAgain(m.first, m.second);
+    }
 }
 
 void
 thcScheduler::composeAgain (size_t chain, bool passing)
 {
     if (chain >= chains_.size() || !started_ || chains_[chain].nodes ||
-        chains_[chain].inputMidi)
+        chains_[chain].inputMidi ||
+        std::any_of(chains_[chain].stages.begin(),
+                    chains_[chain].stages.end(),
+                    [](const std::unique_ptr<thcStage> &s)
+                    { return s->unwritten; }))
         return;
 
     auto sound = [chain](const Pending &p)

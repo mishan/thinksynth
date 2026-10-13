@@ -972,6 +972,115 @@ checkRecompose (const std::map<std::string, thcPlugin *> &plugins,
         printf("ok    a param poked into a phrase is heard from then on\n");
 }
 
+/* A breeding population that listens, edited while it plays, through an
+   ear that answers at once as the browser's does: what it would have heard
+   until then is not rendered again, which would be every generation of it
+   inside one edit. */
+static void
+checkListener (const std::map<std::string, thcPlugin *> &plugins,
+               const std::string &pluginDir, const std::filesystem::path &dir)
+{
+    auto text = [](double mutation)
+    {
+        return "tempo 120;\n"
+               "instrument tone { dsp \"amb01.dsp\"; res = 0.5; };\n"
+               "instrument goal { dsp \"amb01.dsp\"; res = 0.9; };\n"
+               "preset lo { res = 0.2; };\npreset hi { res = 0.8; };\n"
+               "chain search {\n    stage g gen::breed { from = lo; "
+               "toward = hi; population = 4; period = 1 s; "
+               "target = \"goal\"; listen = 1; mutation = " +
+               std::to_string(mutation) +
+               "; };\n    sink { instrument = tone; chanarg = \"*\"; };\n"
+               "};\n";
+    };
+    std::vector<std::string> errors;
+    Peer p(plugins, pluginDir, dir, "l");
+
+    p.sched.setAuditionSynchronous(true);
+    p.load(text(0.2), errors);
+    play(p, "listener", {}, 12, [] { return 1024.0 / 44100; });
+
+    const int before = p.sched.auditioner()->answered();
+
+    if (!p.edit(text(0.3), errors))
+    {
+        fail("listener", "did not load: " +
+             (errors.empty() ? "" : errors[0]));
+        return;
+    }
+
+    const int during = p.sched.auditioner()->answered() - before;
+
+    play(p, "listener", {}, 15, [] { return 1024.0 / 44100; });
+
+    if (before == 0 ||
+        p.sched.auditioner()->answered() == before + during)
+        fail("listener", "the population never asked the ear, before the "
+             "edit or after it");
+    else if (during > 0)
+        fail("listener", "an edit rendered " + std::to_string(during) +
+             " sounds a listening population had already heard");
+    else
+        printf("ok    an edit does not have a listener hear again what it "
+               "heard\n");
+}
+
+/* A Life board painted on while it plays, and then a param of its chain
+   set: what was painted is still on the board, which a chain played again
+   from its text would have lost. */
+static void
+checkPainted (const std::map<std::string, thcPlugin *> &plugins,
+              const std::string &pluginDir, const std::filesystem::path &dir)
+{
+    const std::string text =
+        "tempo 120;\nchain c {\n    stage b gen::life { width = 4; "
+        "height = 4; wrap = 1; board = \"..../..../..../....\"; "
+        "notes = \"C4 D4 E4 G4\"; period = 1 s; hold = 0.2 s; };\n"
+        "    sink { channel = 1; };\n};\n";
+    const double at = 3, until = 12;
+    std::string tapes[2];
+
+    for (int set = 0; set < 2; set++)
+    {
+        std::vector<std::string> errors;
+        Peer p(plugins, pluginDir, dir, "paint");
+
+        p.load(text, errors);
+        play(p, "painted", {}, at, [] { return 1024.0 / 44100; });
+
+        /* A row of three, which stays alive: a blinker. */
+        thcStage *s = p.sched.chain(0)->stages[0].get();
+        const thcInputType kinds[] = { THC_IN_PRESS, THC_IN_DRAG,
+                                       THC_IN_DRAG, THC_IN_RELEASE };
+
+        for (int i = 0; i < 4; i++)
+        {
+            thcInputEvent ev = {};
+
+            ev.type = kinds[i];
+            ev.x = 50 + 100 * std::min(i, 2);
+            ev.y = 150;
+            ev.w = ev.h = 400;
+            ev.button = 1;
+            thcScheduler::input(s, ev);
+        }
+
+        if (set == 1)
+            p.sched.recompose(0);
+
+        play(p, "painted", {}, until, [] { return 1024.0 / 44100; });
+        tapes[set] = notesBetween(p.tape, { 0 }, at, until);
+    }
+
+    if (tapes[0].empty())
+        fail("painted", "a painted board played nothing");
+    else if (tapes[1] != tapes[0])
+        fail("painted", "a param set lost what was painted: " +
+             firstDifference(tapes[0], tapes[1]));
+    else
+        printf("ok    a param set keeps what was painted on its chain\n");
+}
+
 /* A device that answers to every name and remembers which channel each
    attach asked for. */
 struct StubMidiOut : public thcMidiOut
@@ -1387,6 +1496,8 @@ main (int argc, char *argv[])
                std::filesystem::path(genDir) / "airports.gen");
     checkCases(plugins, pluginDir, dir);
     checkRecompose(plugins, pluginDir, dir);
+    checkListener(plugins, pluginDir, dir);
+    checkPainted(plugins, pluginDir, dir);
 
     std::error_code ec;
 

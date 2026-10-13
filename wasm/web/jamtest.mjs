@@ -3099,15 +3099,19 @@ try
     await B.page.evaluate(() => window.jam.knob(0, 0.77));
 
     /* An edit, applied while it plays: the wildcard chain always plays,
-       and louder. */
+       often, and louder. Often, because an edited chain plays in step
+       with the piece, and at 45 s apart its next note is past the run. */
     await at(10000);
     {
         const edited = await A.page.evaluate(() =>
         {
             const name = window.jam.piece();
             const was = window.jam.file(name);
-            const next = was.replace('prob = 0.6; hold = 5 s; vel = 50;',
-                                     'prob = 1; hold = 5 s; vel = 90;');
+            const next = was
+                .replace('period = 45 s; jitter = 8 s;',
+                         'period = 4 s; jitter = 1 s;')
+                .replace('prob = 0.6; hold = 5 s; vel = 50;',
+                         'prob = 1; hold = 5 s; vel = 90;');
 
             if (next === was)
                 return false;

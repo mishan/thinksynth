@@ -480,6 +480,11 @@ struct thcStage
        is every stage in the tree -- never touches this. */
     unsigned       stalled;
 
+    /* Whether it holds what its text does not: an ear's answers, or a
+       picture played on that does not write itself into the text. Its
+       chain is not played again from its start, which would lose them. */
+    bool           unwritten = false;
+
     /* When an event last went in and last came out, in transport
        seconds, or -1: what the composer view flashes. A note-off is not
        counted; it is bookkeeping, not something the stage did. */
@@ -1354,15 +1359,19 @@ public:
        rather than when the chain's next phrase begins, and a chain set
        back to what it said plays what it played. Done before the
        transport next moves, once however many of the chain's params were
-       set meanwhile. Not a chain with nodes, or one played from a
-       keyboard.
+       set meanwhile. Not a chain with nodes, one played from a keyboard,
+       or one with a stage holding what its text does not.
 
        `passing': a value a gesture passes through on its way to the one
        it ends on. Only a chain that has composed further than a beat
-       ahead is composed again for one -- what the rest compose next hears
-       it already, and the whole chain played again for every value of a
-       drag is more than the drag is worth. */
+       ahead is composed again for one, and not more often than
+       PASSING_EVERY_SEC -- what the rest compose next hears it already,
+       and the whole chain played again for every value of a drag is more
+       than the drag is worth. */
     void recompose (size_t chain, bool passing = false);
+
+    /* A gesture on a stage's picture, into its instance now. */
+    static void input (thcStage *s, const thcInputEvent &ev);
 
     /* MIDI clock from where the transport is: Start at the top, or Song
        Position and Continue. For a host that kept the clock from its
@@ -1912,6 +1921,7 @@ private:
     /* recompose()'s chains, each with whether only values passing by
        asked for it. */
     std::map<size_t, bool> recompose_;
+    double passedAt_ = -1e9;  /* transport seconds of the last passing one */
 
 #ifdef __EMSCRIPTEN__
     bool localEar_ = false;
