@@ -294,9 +294,9 @@ try
 
     await page.emulateMedia({ colorScheme: 'dark' });
 
-    const dark = await axeFindings(page, ['#evolve']);
+    const dark = await axeFindings(page, ['#evolve'])
+        .finally(() => page.emulateMedia({ colorScheme: 'light' }));
 
-    await page.emulateMedia({ colorScheme: 'light' });
     check(dark.length === 0, 'and nothing in the dark scheme either' +
           dark.map((f) => `\n      ${f}`).join(''));
 
@@ -315,6 +315,27 @@ try
     check(!kept.includes('none'),
           'and at a desktop\'s 200%, its statuses and the hints with a ' +
           `control in them are still shown: ${kept}`);
+
+    /* And on a phone, where the hints that only explain do go: the same
+       statuses and controls stay, and the sequencer's hint goes. */
+    const phone = await browser.newContext(
+        { viewport: { width: 400, height: 800 }, hasTouch: true,
+          isMobile: true });
+    const onPhone = await phone.newPage().then(async (p) =>
+    {
+        await p.goto(url);
+
+        return p.evaluate(() =>
+            ['#keysstate', '#midistatus', 'label:has(#rollbychain)',
+             '#seqhint']
+                .map((s) => getComputedStyle(document.querySelector(s))
+                                .display)
+                .join());
+    }).finally(() => phone.close());
+
+    check(/^(?!none)\w+,(?!none)\w+,(?!none)\w+,none$/.test(onPhone),
+          'and on a phone, the statuses and the controls stay and an ' +
+          `explanation goes: ${onPhone}`);
 
     /* ---- the sequencer, in the document ---- */
 

@@ -53,11 +53,11 @@ export function colourOf (name)
 
     const hue = h % 360;
 
-    /* Lightness in OKLCH, which is the same to the eye at every hue: 0.5
-       reads at 4.5:1 on the page's light grounds and under the cursor's
-       white label, and 0.72 on its dark ones. */
-    return { color: `oklch(0.5 0.13 ${hue})`,
-             light: `oklch(0.5 0.13 ${hue} / 0.25)`,
+    /* The cursor's in the one shape the relay passes on (relay.mjs,
+       CURSOR_COLOR). A name in text is drawn here and goes nowhere, so it
+       is in OKLCH lightness, the same to the eye at every hue: 0.5 reads
+       at 4.5:1 on the page's light grounds, 0.72 on its dark ones. */
+    return { color: `hsl(${hue} 70% 45%)`, light: `hsl(${hue} 70% 45% / 0.25)`,
              text: `light-dark(oklch(0.5 0.13 ${hue}), oklch(0.72 0.13 ${hue}))` };
 }
 

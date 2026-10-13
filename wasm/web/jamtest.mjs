@@ -2963,11 +2963,17 @@ try
         /* Evolve is the composer's, which is being rebuilt. */
         const axe = await axeFindings(page, ['#evolve']);
 
-        if (axe.length === 0)
-            ok(`axe finds nothing wrong with ${label}'s room`);
+        await page.emulateMedia({ colorScheme: 'dark' });
+
+        const dark = await axeFindings(page, ['#evolve'])
+            .finally(() => page.emulateMedia({ colorScheme: 'light' }));
+
+        if (axe.length === 0 && dark.length === 0)
+            ok(`axe finds nothing wrong with ${label}'s room, light or dark`);
         else
             fail(`axe on ${label}'s room:` +
-                 axe.map((f) => `\n      ${f}`).join(''));
+                 [...axe, ...dark.map((f) => `dark: ${f}`)]
+                     .map((f) => `\n      ${f}`).join(''));
 
         if (await page.isVisible('#start'))
             fail(`${label} still offers Start once started`);

@@ -50,7 +50,7 @@
     --key-edge:  #b0b0b0;
     --key-black: #202020;
     --held:      #5050ff;
-    --heard:     #7878ff;       /* 3:1 on a key, white or C */
+    --heard:     #7878ff;       /* 3:1 on a key, white, black or C */
     --key-held:  var(--held);
 
     /* Something a person should notice but nothing is broken: a patch
@@ -101,10 +101,10 @@
         --key-edge:  #555555;
         --key-black: #101010;
         --held:      #6a6aff;
-        /* Dark enough to read on the light keys this palette keeps, which
-           --held, a border on dark grounds, is not. */
+        /* 3:1 on the light keys this palette keeps and on its black ones,
+           which --held, a border on dark grounds, is not. */
         --heard:     #6060c0;
-        --key-held:  #3a3ae0;
+        --key-held:  #5050e0;
         --warn:      #d09040;
         /* A white key tinted, as in light: dark here read as a gap in
            the keyboard rather than a C. */
@@ -424,10 +424,8 @@ kbd
    Join on the room page, and Play there once it has started. */
 #start, #join, #play.primary
 {
-    /* The desktop's accent, no lighter than white text can be read on:
-       Chromium's own is 4.2:1 under it. */
-    background: oklch(from AccentColor min(l, 0.55) c h);
-    color: white;
+    background: AccentColor;
+    color: AccentColorText;
     border-color: transparent;
     font-weight: 600;
     padding: 0.05em 0.9em;
@@ -440,6 +438,18 @@ kbd
     background: AccentColor;
     color: AccentColorText;
     border-color: transparent;
+}
+
+/* The desktop's accent, no lighter than white text can be read on:
+   Chromium's own is 4.2:1 under it. Where relative colors are not, the
+   accent and the text the system pairs with it. */
+@supports (color: oklch(from red l c h))
+{
+    #start, #join, #play:is(.primary, .lead)
+    {
+        background: oklch(from AccentColor min(l, 0.55) c h);
+        color: white;
+    }
 }
 
 #start:hover:not(:disabled), #join:hover:not(:disabled),
@@ -651,7 +661,6 @@ details { margin: 0.8em 0; }
 
 .trackgrid:focus-visible
 {
-    outline: 2px solid AccentColor;
     outline-offset: -2px;
 }
 
@@ -763,8 +772,12 @@ details { margin: 0.8em 0; }
 
     #keys { height: 160px; }
 
-    /* The keyboard's hint is about a computer's keys and a MIDI cable. */
-    #keyboard .hint { display: none; }
+    /* The keyboard's hint is about a computer's keys and a MIDI cable;
+       what it says of the keys and of MIDI is a status, and stays. */
+    #keyboard .hint:not([id$="status"], [id$="state"], [aria-live])
+    {
+        display: none;
+    }
 
     /* A slider a thumb can find, in the knob strip and in the parameter
        panel alike -- both are panel.js's rows now. */
@@ -1039,7 +1052,6 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
 }
 
 .canvasview canvas:focus-visible {
-    outline: 2px solid AccentColor;
     outline-offset: -2px;
 }
 
