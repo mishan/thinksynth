@@ -3043,8 +3043,7 @@ async function start ()
                                              nodes?.feed(m.probes);
                                              band.at(m.section, m.running,
                                                      m.now);
-                                             band.heard(m.events, m.now,
-                                                        m.speed);
+                                             band.heard(m.events, m.now);
                                              $('play').classList.toggle(
                                                  'lead', !m.running);
                                          },

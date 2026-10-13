@@ -1510,15 +1510,11 @@ body.tiled .panelrows
 .player.chords  { --role: #8f6fd6; }
 .player.melody  { --role: #2fae7a; }
 .player.texture { --role: #d98a3d; }
-/* Lit for a moment by each note it plays: faint, so that a busy hat is
-   not a flashing light. */
+/* Lit for a moment by each note it plays (not under reduced motion):
+   faint, so that a busy hat is not a flashing light. */
 .player.sounding { background: color-mix(in srgb, var(--role) 12%,
                                          var(--panel));
                    transition: none; }
-@media (prefers-reduced-motion: reduce)
-{
-    .player.sounding { background: var(--panel); }
-}
 /* Its controls kept readable: only what it plays is dimmed. */
 .player.resting .bandpad { opacity: 0.4; }
 .player.resting .bandpic { filter: grayscale(1) brightness(0.6); }

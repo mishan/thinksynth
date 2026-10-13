@@ -285,7 +285,7 @@ export function playersOf (piece)
                   seed: c.hasSeed ? c.seed : null, picture,
                   seeded: seededAs(c.stages), instrument: sink.instrument,
                   dsp, channel: sink.instrument === ''
-                      ? sink.channel : channelOf.get(sink.instrument) }];
+                      ? sink.channel - 1 : channelOf.get(sink.instrument) }];
     });
 }
 
@@ -1310,40 +1310,35 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         const length = s === undefined ? 0 : s.unit === 'beats'
             ? s.length * 60 / clock().tempo : s.length;
         const done = running && length > 0
-            ? Math.min(1, Math.max(0, (now - startOf(s)) / length)) : 1;
+            ? Math.min(1, Math.max(0, (now - startOf(s)) / length)) : 0;
 
         b.style.setProperty('--done', `${(done * 100).toFixed(1)}%`);
     }
 
-    /* Each card lit as its notes sound: they come ahead of time, at the
-       transport's time `at', which is `now' on the tape that brought
-       them. By channel, which a player resting may share with one that
-       is not. */
+    /* Each card lit as its notes sound, by channel, which a player
+       resting may share with one that is not. A note after `now' is the
+       run before a seek back, posted after it. */
     const LIT_MS = 120;
+    const still = matchMedia('(prefers-reduced-motion: reduce)');
 
-    function heard (events, now, speed)
+    function heard (events, now)
     {
-        if (!visible)
+        if (!visible || still.matches)
             return;
 
-        for (const e of events)
-        {
-            if (e.kind !== 'N')
-                continue;
+        const channels = new Set(events.filter((e) => e.kind === 'N' &&
+                                                      e.at <= now)
+            .map((e) => e.channel));
 
-            const cards = $('players').querySelectorAll(
-                `.player[data-channel="${e.channel}"]:not(.resting)`);
-            const wait = Math.max(0, (e.at - now) / (speed || 1) * 1000);
-
-            for (const el of cards)
-                setTimeout(() =>
-                {
-                    el.classList.add('sounding');
-                    clearTimeout(el.unlit);
-                    el.unlit = setTimeout(() =>
-                        el.classList.remove('sounding'), LIT_MS);
-                }, wait);
-        }
+        for (const channel of channels)
+            for (const el of $('players').querySelectorAll(
+                `.player[data-channel="${channel}"]:not(.resting)`))
+            {
+                el.classList.add('sounding');
+                clearTimeout(el.unlit);
+                el.unlit = setTimeout(() => el.classList.remove('sounding'),
+                                      LIT_MS);
+            }
     }
 
     return {
@@ -1373,10 +1368,11 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
            the scenes drawn again when it moves on. */
         at (section, isRunning, now)
         {
-            progress(now);
-
             if (section === playing && isRunning === running)
+            {
+                progress(now);
                 return;
+            }
 
             playing = section;
             running = isRunning;
@@ -1391,6 +1387,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                 tell(`Playing ${sectionsOf()[playing].name}`);
 
             draw();
+            progress(now);
         },
 
         /* The bar above the cards: New, and the gallery of ideas. */
