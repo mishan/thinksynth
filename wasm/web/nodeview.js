@@ -383,6 +383,14 @@ export async function createNodeView ({ files, root = document,
             return;
         }
 
+        /* Closed by an item or Escape, it gives the focus back to the
+           canvas it was asked for on, not to the page. */
+        const close = () =>
+        {
+            menu.hidden = true;
+            $('nodecanvas').focus({ preventScroll: true });
+        };
+
         const item = (label, go) =>
         {
             const b = document.createElement('button');
@@ -390,7 +398,7 @@ export async function createNodeView ({ files, root = document,
             b.textContent = label;
             b.addEventListener('click', () =>
             {
-                menu.hidden = true;
+                close();
                 go();
             });
             menu.append(b);
@@ -402,7 +410,25 @@ export async function createNodeView ({ files, root = document,
 
             t.className = 'menutitle';
             t.textContent = text;
+            menu.ariaLabel = text;
             menu.append(t);
+        };
+
+        menu.onkeydown = (e) =>
+        {
+            if (e.key !== 'Escape')
+                return;
+
+            close();
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        /* Tabbed out of, it is done with, and not left open behind. */
+        menu.onfocusout = (e) =>
+        {
+            if (!menu.contains(e.relatedTarget))
+                menu.hidden = true;
         };
 
         const node = call('tw_graph_box_name', ['number'], [box]);
@@ -469,6 +495,7 @@ export async function createNodeView ({ files, root = document,
 
         placePopover(menu, at.left + window.scrollX + x,
                      at.top + window.scrollY + y);
+        menu.querySelector('button')?.focus();
     }
 
     function stopProbe (which)
