@@ -203,13 +203,10 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         t.area->set_content_height(heightFor(t.rows));
         t.area->set_cursor("crosshair");
 
-        /* Its own keys, which a screen reader passes through, and the
-           track by its number and what is on it. */
+        /* A group of cells, as the keys are, by its number and what is
+           on it: GTK puts the application role on the bus as a frame. */
         t.area->set_focusable(true);
-#if GTK_CHECK_VERSION(4, 14, 0)
-        t.area->property_accessible_role() =
-            Gtk::Accessible::Role::APPLICATION;
-#endif
+        t.area->property_accessible_role() = Gtk::Accessible::Role::GROUP;
         nameAs(*t.area, "Track " + std::to_string(i + 1) + ": " + t.name);
         gtk_accessible_update_property(
             GTK_ACCESSIBLE(t.area->gobj()),
