@@ -23,7 +23,9 @@
 #include <string.h>
 #include <unistd.h>   /* access -- can the source be written back? */
 
+#include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 
 #include <gtkmm.h>
@@ -113,6 +115,41 @@ NodeEditor::NodeEditor (thSynth *synth)
     paletteBtn_.set_tooltip_text("Show or hide the plugin palette");
     paramsBtn_.set_tooltip_text("Show or hide the parameter panel");
 
+    listBtn_.set_label("_List");
+    listBtn_.set_use_underline(true);
+    listBtn_.set_tooltip_text("Show or hide the graph as a list of its "
+                              "nodes and wires");
+    listBtn_.set_active(false);
+    outlineScroll_.set_visible(false);
+    toolbar_.append(listBtn_);
+    listBtn_.signal_toggled().connect([this]
+    {
+        outlineScroll_.set_visible(listBtn_.get_active());
+        refreshOutline();
+    });
+
+    boxList_.set_selection_mode(Gtk::SelectionMode::SINGLE);
+    nameAs(boxList_, "Nodes");
+    /* Selected, not only activated: arrows move the selection, and the
+       wiring under the list has to be about the row they are on. */
+    boxList_.signal_row_selected().connect([this](Gtk::ListBoxRow *row)
+    {
+        const int i = row == NULL ? -1 : row->get_index();
+
+        if (i >= 0 && i < (int)listed_.size() &&
+            canvas_.selected() != listed_[i])
+            canvas_.setSelected(listed_[i]);
+    });
+    wiring_.set_spacing(4);
+    outline_.set_spacing(6);
+    outline_.set_margin(6);
+    outline_.append(boxList_);
+    outline_.append(wiring_);
+    outlineScroll_.set_policy(Gtk::PolicyType::NEVER,
+                              Gtk::PolicyType::AUTOMATIC);
+    outlineScroll_.set_child(outline_);
+    outlineScroll_.set_size_request(-1, 120);
+
     scroller_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     scroller_.set_child(canvas_);
 
@@ -136,7 +173,18 @@ NodeEditor::NodeEditor (thSynth *synth)
     outer_.set_shrink_end_child(false);
     outer_.set_position(paletteWidth_);
 
-    split_.set_start_child(scroller_);
+    /* The list under the canvas, when it is asked for. A group, since
+       GTK's own role for a paned, generic, takes no name. */
+    graphSplit_.set_start_child(scroller_);
+    graphSplit_.set_resize_start_child(true);
+    graphSplit_.set_shrink_start_child(false);
+    graphSplit_.set_end_child(outlineScroll_);
+    graphSplit_.set_resize_end_child(false);
+    graphSplit_.set_shrink_end_child(false);
+    graphSplit_.property_accessible_role() = Gtk::Accessible::Role::GROUP;
+    nameAs(graphSplit_, "Graph and list");
+
+    split_.set_start_child(graphSplit_);
     split_.set_resize_start_child(true);
     split_.set_shrink_start_child(false);
     /* Vertically only: the panel's rows wrap into whatever width the pane
@@ -1169,6 +1217,7 @@ void NodeEditor::onBoxMoved (int box)
 void NodeEditor::onSelected (int box)
 {
     params_.setBox(&graph_, box);
+    refreshOutline();
 
     /* A group is still a group when one of its members is pressed to drag it,
        and this fires for that. So ask the canvas how many are actually held
@@ -2066,6 +2115,298 @@ void NodeEditor::onConnect (int fromBox, int fromPort, int toBox, int toPort)
     setStatus(e.node + "." + e.arg + " <- " +
               (e.srcControl.empty() ? e.srcNode + "->" + e.srcPort
                                     : "@" + e.srcControl));
+    refreshOutline();
+}
+
+/* ---- the graph as a list ----
+ *
+ * Each action is the call the canvas's gesture makes: a row is a click on
+ * its box (canvas_.setSelected, and onSelected shows its panel), a cut is
+ * onDisconnect, a wire onConnect, which says why the graph refuses one, a
+ * watch armProbe, and a delete onDeleteNode on the box chosen. */
+void NodeEditor::refreshOutline (void)
+{
+    if (!outlineScroll_.get_visible())
+        return;
+
+    const std::vector<NodeGraph::Box> &boxes = graph_.boxes();
+    std::vector<int> listed;
+    std::vector<std::string> rows;
+
+    for (size_t b = 0; b < boxes.size(); b++)
+        if (!boxes[b].isProbe)
+        {
+            listed.push_back((int)b);
+            rows.push_back(boxes[b].name + " (" + boxes[b].plugin + ")");
+        }
+
+    /* The same boxes keep their rows, so the one with the focus keeps it. */
+    if (rows != listedRows_)
+    {
+        listedRows_ = rows;
+        listed_ = listed;
+
+        while (Gtk::Widget *row = boxList_.get_first_child())
+            boxList_.remove(*row);
+
+        for (const std::string &text : rows)
+        {
+            Gtk::Label *l = Gtk::manage(new Gtk::Label(text));
+
+            l->set_xalign(0);
+            boxList_.append(*l);
+        }
+    }
+
+    const int chosen = canvas_.selected();
+    const auto at = std::find(listed_.begin(), listed_.end(), chosen);
+
+    if (at == listed_.end())
+        boxList_.unselect_all();
+    else
+        boxList_.select_row(*boxList_.get_row_at_index(
+            (int)(at - listed_.begin())));
+
+    showWiring(chosen);
+}
+
+void NodeEditor::outlineHome (void)
+{
+    if (Gtk::ListBoxRow *row = boxList_.get_selected_row())
+        row->grab_focus();
+}
+
+/* An action from a button under the list, run once its click is over:
+   every action makes the list again, and the button with it, which must
+   not go while its own handler is still running. */
+static void
+later (std::function<void ()> run)
+{
+    Glib::signal_idle().connect_once(std::move(run));
+}
+
+void NodeEditor::showWiring (int b)
+{
+    while (Gtk::Widget *w = wiring_.get_first_child())
+        wiring_.remove(*w);
+
+    const std::vector<NodeGraph::Box> &boxes = graph_.boxes();
+
+    if (b < 0 || b >= (int)boxes.size() || boxes[b].isProbe)
+        return;
+
+    const NodeGraph::Box &box = boxes[b];
+    const std::vector<NodeGraph::Edge> &edges = graph_.edges();
+    auto row = [this](std::initializer_list<Gtk::Widget *> kids)
+    {
+        Gtk::Box *r = Gtk::manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL,
+                                               6));
+
+        for (Gtk::Widget *k : kids)
+            r->append(*k);
+
+        wiring_.append(*r);
+    };
+    auto label = [](const std::string &text)
+    {
+        Gtk::Label *l = Gtk::manage(new Gtk::Label(text));
+
+        l->set_xalign(0);
+        return l;
+    };
+
+    Gtk::Label *head = label(box.name + "'s wires");
+
+    head->add_css_class("heading");
+    wiring_.append(*head);
+
+    std::vector<int> ins, outs;
+
+    for (size_t p = 0; p < box.ports.size(); p++)
+        (box.ports[p].isInput ? ins : outs).push_back((int)p);
+
+    for (int p : ins)
+    {
+        int edge = -1;
+
+        for (size_t e = 0; e < edges.size(); e++)
+            if (edges[e].toBox == b && edges[e].toPort == p)
+                edge = (int)e;
+
+        const std::string what = box.ports[p].name + " from " +
+            (edge < 0 ? std::string("nothing")
+                      : boxes[edges[edge].fromBox].name + "." +
+                        boxes[edges[edge].fromBox]
+                            .ports[edges[edge].fromPort].name);
+
+        /* An expression's inputs are its text's, which a cut cannot
+           rewrite (onDisconnect refuses). */
+        if (edge < 0 || box.isExpr)
+        {
+            row({ label(what) });
+            continue;
+        }
+
+        Gtk::Button *cut = Gtk::manage(new Gtk::Button("Disconnect"));
+
+        nameAs(*cut, "Disconnect " + box.name + "." + box.ports[p].name);
+        cut->signal_clicked().connect([this, edge]
+        {
+            later([this, edge]
+            {
+                const size_t was = graph_.edges().size();
+
+                onDisconnect(edge);
+
+                if (graph_.edges().size() != was)
+                    outlineHome();
+            });
+        });
+        row({ label(what), cut });
+    }
+
+    if (!ins.empty() && !box.isExpr)
+    {
+        std::vector<std::pair<int, int>> sources;
+        std::vector<Glib::ustring> inNames, fromNames;
+
+        for (int p : ins)
+            inNames.push_back(box.ports[p].name);
+
+        for (size_t o = 0; o < boxes.size(); o++)
+            for (size_t p = 0; (int)o != b && p < boxes[o].ports.size(); p++)
+                if (!boxes[o].ports[p].isInput && !boxes[o].isProbe)
+                {
+                    sources.emplace_back((int)o, (int)p);
+                    fromNames.push_back(boxes[o].name + "." +
+                                        boxes[o].ports[p].name);
+                }
+
+        Gtk::DropDown *to = Gtk::manage(new Gtk::DropDown(inNames));
+        Gtk::DropDown *from = Gtk::manage(new Gtk::DropDown(fromNames));
+        Gtk::Button *go = Gtk::manage(new Gtk::Button("Connect"));
+
+        nameAs(*to, "Input");
+        nameAs(*from, "From");
+        go->signal_clicked().connect([this, b, ins, sources, to, from]
+        {
+            const guint t = to->get_selected();
+            const guint f = from->get_selected();
+
+            if (t >= ins.size() || f >= sources.size())
+                return;
+
+            const std::pair<int, int> src = sources[f];
+            const int in = ins[t];
+
+            later([this, b, src, in]
+            {
+                const size_t was = wires_.size();
+
+                onConnect(src.first, src.second, b, in);
+
+                if (wires_.size() != was)
+                    outlineHome();
+            });
+        });
+        row({ label("Connect"), to, label("from"), from, go });
+    }
+
+    /* An output to watch, as the context menu offers, and the ones being
+       watched to stop. */
+    if (!outs.empty() && !visuals_.empty())
+    {
+        std::vector<Glib::ustring> outNames, visualNames;
+
+        for (int p : outs)
+            outNames.push_back(box.ports[p].name);
+
+        for (const auto &v : visuals_)
+            visualNames.push_back(v.first);
+
+        Gtk::DropDown *port = Gtk::manage(new Gtk::DropDown(outNames));
+        Gtk::DropDown *visual = Gtk::manage(new Gtk::DropDown(visualNames));
+        Gtk::Button *go = Gtk::manage(new Gtk::Button("Watch"));
+        const std::string name = box.name;
+
+        nameAs(*port, "Output");
+        nameAs(*visual, "With");
+        go->signal_clicked().connect(
+            [this, name, outNames, visualNames, port, visual]
+        {
+            const guint p = port->get_selected();
+            const guint v = visual->get_selected();
+
+            if (p >= outNames.size() || v >= visualNames.size())
+                return;
+
+            const std::string arg = outNames[p], with = visualNames[v];
+
+            later([this, name, arg, with]
+            {
+                if (armProbe(name, arg, with))
+                    outlineHome();
+            });
+        });
+        row({ label("Watch"), port, label("with a"), visual, go });
+    }
+
+    for (const Probe &p : probes_)
+        if (p.node == box.name)
+        {
+            Gtk::Button *stop = Gtk::manage(new Gtk::Button(
+                "Stop watching " + p.node + "." + p.arg));
+            const std::string node = p.node, arg = p.arg;
+
+            stop->signal_clicked().connect([this, node, arg]
+            {
+                later([this, node, arg]
+                {
+                    for (size_t i = 0; i < probes_.size(); i++)
+                        if (probes_[i].node == node && probes_[i].arg == arg)
+                        {
+                            disarmProbe(i);
+                            setStatus("Stopped watching " + node + "." + arg);
+                            outlineHome();
+                            break;
+                        }
+                });
+            });
+            wiring_.append(*stop);
+        }
+
+    /* The box itself, as the toolbar's Delete takes it; not the io halves,
+       which are the patch's ends rather than a node in it, nor an
+       expression, which is a node's arg rather than a node. */
+    if (!box.isIoSource && !box.isIoSink && !box.isExpr)
+    {
+        Gtk::Button *gone = Gtk::manage(new Gtk::Button(
+            "Delete " + box.name));
+
+        const std::string name = box.name;
+
+        gone->signal_clicked().connect([this, b, name]
+        {
+            later([this, b, name]
+            {
+                /* This box only: Delete takes the canvas's selection, which
+                   a rubber band may have made several. */
+                canvas_.setSelected(b);
+                onDeleteNode();
+
+                bool still = false;
+
+                for (const NodeGraph::Box &x : graph_.boxes())
+                    still |= x.name == name;
+
+                /* Its row went with it: the focus to the list's first. */
+                if (!still)
+                    if (Gtk::ListBoxRow *first = boxList_.get_row_at_index(0))
+                        first->grab_focus();
+            });
+        });
+        wiring_.append(*gone);
+    }
 }
 
 void NodeEditor::onDisconnect (int edge)
@@ -2102,6 +2443,7 @@ void NodeEditor::onDisconnect (int edge)
     updateDirty();
 
     setStatus("Disconnected " + e.node + "." + e.arg + ".  Revert undoes it.");
+    refreshOutline();
 }
 
 /* A slider moved. `commit' is false while dragging and true on release.
@@ -2452,6 +2794,8 @@ void NodeEditor::reapplyProbes (void)
     updateProbeTick();
 
     canvas_.queue_draw();
+
+    refreshOutline();
 }
 
 void NodeEditor::updateProbeTick (void)

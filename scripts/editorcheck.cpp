@@ -138,6 +138,10 @@ public:
     using NodeEditor::paletteShown;
     using NodeEditor::paramsShown;
     using NodeEditor::onSave;
+    using NodeEditor::listBtn_;
+    using NodeEditor::listed_;
+    using NodeEditor::boxList_;
+    using NodeEditor::wiring_;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -658,6 +662,138 @@ int run (const string &pluginPath, const char *file)
 
     ok(!ed->paletteShown() && !ed->paramsShown(),
        "...and close them again");
+
+    /* The graph as a list: List shows it under the canvas, a row chosen is
+       its box chosen, and the chosen one's wire is cut, made again from
+       the Connect row, and the box deleted, each in the graph. */
+    {
+        ed->listBtn_.set_active(true);
+        pump(0.2);
+
+        /* A button under the list's wiring panel, by its label, in the row
+           whose first label starts with `in' if there is one. */
+        auto button = [&](const std::string &label,
+                          const std::string &in = "") -> Gtk::Button *
+        {
+            std::vector<Gtk::Button *> all;
+
+            collectWidgets<Gtk::Button>(&ed->wiring_, all);
+
+            for (Gtk::Button *b : all)
+            {
+                Gtk::Label *first = dynamic_cast<Gtk::Label *>(
+                    b->get_parent()->get_first_child());
+
+                if (b->get_label().raw() == label &&
+                    (in.empty() || (first != NULL &&
+                                    first->get_text().raw().find(in) == 0)))
+                    return b;
+            }
+
+            return NULL;
+        };
+
+        int row = -1;
+        NodeGraph::Edge wire{};
+
+        /* A node's, not an expression's, whose inputs are its text's. */
+        for (size_t r = 0; r < ed->listed_.size() && row < 0; r++)
+            for (const NodeGraph::Edge &e : ed->graph().edges())
+                if (e.toBox == ed->listed_[r] &&
+                    !ed->graph().boxes()[e.toBox].isExpr &&
+                    !ed->graph().boxes()[e.toBox].isIoSink)
+                {
+                    row = (int)r;
+                    wire = e;
+                    break;
+                }
+
+        ok(row >= 0, "the list has a box with a wire into it");
+
+        if (row >= 0)
+        {
+            const std::vector<NodeGraph::Box> &boxes = ed->graph().boxes();
+            const std::string name = boxes[wire.toBox].name;
+            const std::string input = boxes[wire.toBox].ports[wire.toPort].name;
+            const std::string source = boxes[wire.fromBox].name + "." +
+                boxes[wire.fromBox].ports[wire.fromPort].name;
+            const size_t edges = ed->graph().edges().size();
+
+            ed->boxList_.get_row_at_index(row)->activate();
+            pump(0.1);
+
+            Gtk::Button *cut = button("Disconnect", input + " from ");
+
+            if (cut != NULL)
+                g_signal_emit_by_name(cut->gobj(), "clicked");
+            pump(0.2);
+
+            const size_t cutTo = ed->graph().edges().size();
+
+            /* The Connect row: its input menu, then its source menu. */
+            Gtk::Widget *go = button("Connect");
+            Gtk::DropDown *to = NULL, *from = NULL;
+
+            for (Gtk::Widget *c = go == NULL ? NULL
+                     : go->get_parent()->get_first_child();
+                 c != NULL; c = c->get_next_sibling())
+                if (Gtk::DropDown *d = dynamic_cast<Gtk::DropDown *>(c))
+                    (to == NULL ? to : from) = d;
+
+            auto pick = [](Gtk::DropDown *d, const std::string &what)
+            {
+                auto list = std::dynamic_pointer_cast<Gtk::StringList>(
+                    d->get_model());
+
+                for (guint i = 0; list && i < list->get_n_items(); i++)
+                    if (list->get_string(i).raw() == what)
+                        d->set_selected(i);
+            };
+
+            if (to != NULL && from != NULL)
+            {
+                pick(to, input);
+                pick(from, source);
+                g_signal_emit_by_name(go->gobj(), "clicked");
+            }
+            pump(0.2);
+
+            bool back = false;
+
+            for (const NodeGraph::Edge &e : ed->graph().edges())
+                back |= e.toBox == wire.toBox && e.toPort == wire.toPort &&
+                        e.fromBox == wire.fromBox && e.fromPort == wire.fromPort;
+
+            ok(cut != NULL && cutTo == edges - 1 && back &&
+               ed->graph().edges().size() == edges,
+               "...whose wire %s.%s from %s is cut from the list and made "
+               "again from its Connect row", name.c_str(), input.c_str(),
+               source.c_str());
+
+            Gtk::Button *gone = button("Delete " + name);
+
+            if (gone != NULL)
+                g_signal_emit_by_name(gone->gobj(), "clicked");
+            pump(0.2);
+
+            bool still = false;
+
+            for (const NodeGraph::Box &b : ed->graph().boxes())
+                still |= b.name == name;
+
+            ok(gone != NULL && !still,
+               "...and %s deleted from the list is gone from the graph",
+               name.c_str());
+
+            /* The file as it was: the delete is in the working copy, which
+               a reload would read back. */
+            ed->open(file, 0);
+            pump(0.2);
+        }
+
+        ed->listBtn_.set_active(false);
+        pump(0.1);
+    }
 
     ok(ed->panels() == 0, "a freshly opened patch carries no panels");
 
