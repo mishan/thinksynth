@@ -866,7 +866,7 @@ export async function createNodeView ({ files, root = document,
         });
 
         const parts = [el('h3', { textContent: `${name}'s wires` }),
-                       el('ul', {}, ...rows)];
+                       el('ul', { ariaLabel: `${name}'s inputs` }, ...rows)];
 
         /* A wire into one of its inputs, from any output of another box. */
         if (ins.length > 0 && !expr)
