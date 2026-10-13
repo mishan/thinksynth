@@ -409,7 +409,7 @@
     <label><input type="checkbox" name="growkind" value="voice" checked>
       voice</label>
   </div>
-  <ol id="growlist" class="growlist"></ol>
+  <ol id="growlist" class="growlist" aria-label="Graphs"></ol>
   <div class="row">
     <label>Toward <select id="growtoward" disabled></select></label>
     <input id="growsound" type="file" accept=".wav,audio/wav" hidden>
@@ -479,7 +479,7 @@
       <button id="evolvedrop" disabled
               title="Put back the graph the instrument had before the search">Discard</button>
     </div>
-    <canvas id="evolveplot" width="320" height="80" hidden></canvas>
+    <canvas id="evolveplot" width="320" height="80" hidden aria-hidden="true"></canvas>
     <div id="evolvestate" class="hint"></div>
   </fieldset>
 </details>
