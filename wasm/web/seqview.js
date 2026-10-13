@@ -52,8 +52,8 @@ const ROW = 24;
 const MIN_H = 26;
 const MAX_H = 240;
 
-/* Longer than an edit from the keys takes to reach the grid's cells: a
-   frame still without it after this is a peer's edit having its say. */
+/* Longer than an edit from the keys takes to reach the grid's cells,
+   beyond the lead it is stamped with. */
 const LANDS_MS = 2000;
 
 /* thcInputType. */
@@ -213,7 +213,8 @@ const spoken = (p) => FLATS[p % 12] + (Math.floor(p / 12) - 1);
 export function createSeqView ({ root = document, toMirror, onGesture,
                                  describeChannel = () => '',
                                  chooserFor = () => null,
-                                 onMeasure = () => {} })
+                                 onMeasure = () => {},
+                                 leadMs = () => 0 })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -287,7 +288,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                                rows: 1, rowsParam: -1,
                                steps: 16, grid: [[]], pitches: [null],
                                cursor: { r: 0, s: 0 },
-                               landsBy: 0,
+                               text: '', landsBy: 0,
                                canvas: null, ctx: null, mark: null,
                                w: 0, h: 0, dpr: 0 });
 
@@ -420,13 +421,17 @@ export function createSeqView ({ root = document, toMirror, onGesture,
     const listen = (track) =>
     {
         track.drop = gestureOn(track.canvas, (kind, where, button) =>
+        {
+            /* What the pointer does is not foretold: the frames say it. */
+            track.landsBy = 0;
             onGesture({
                 chain: track.chain, stage: track.stage,
                 chainName: track.name, stageName: track.label, kind,
                 ...where,
                 w: track.w, h: track.h,
                 button,
-            }));
+            });
+        });
     };
 
     /* ---- the keys ----
@@ -459,9 +464,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
         send(RELEASE, through.at(-1) ?? from);
 
-        /* Until the cells read as this grid will, the edit has not landed,
-           and what is said is the grid as it will be. */
-        track.landsBy = performance.now() + LANDS_MS;
+        /* Until it has landed, what is said is the grid as it will be. */
+        track.landsBy = performance.now() + leadMs() + LANDS_MS;
     };
 
     /* How many steps the note at a cell holds: itself and its ties. */
@@ -719,19 +723,30 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 track.pitches = pitchesOf(param('notes')?.text, track.rows);
 
                 /* The cells as written, except while an edit from the keys
-                   has not landed: it does at its time, and until a frame
-                   shows it the grid said is the one it will be. Frames
-                   lag the edits, so one before then can be from before
-                   it, or from before an edit sent earlier. */
-                const grid = gridOf(param('cells')?.text, track.rows,
-                                    track.steps);
+                   has not landed: until then, only a frame that shows the
+                   grid said. Frames lag the edits, so one that does not
+                   can be from before any of them, or between two -- and
+                   one that does can be too, after edits that came back
+                   to where they started, so a match does not end it. A
+                   change of size is the grid's own, and always taken. */
+                const text = param('cells')?.text ?? '';
+                const grid = gridOf(text, track.rows, track.steps);
+                const said = (g) => g.map((row) => row.join('')).join('/');
 
-                if (performance.now() >= track.landsBy ||
-                    grid.every((row, r) => row.every((c, s) =>
-                        (track.grid[r]?.[s] ?? '.') === c)))
-                {
+                if (performance.now() >= track.landsBy)
                     track.landsBy = 0;
-                    track.grid = grid;
+
+                if (text !== track.text || track.landsBy > 0)
+                {
+                    const shape = track.grid.length === track.rows &&
+                                  track.grid[0].length === track.steps;
+
+                    if (track.landsBy === 0 || !shape ||
+                        said(grid) === said(track.grid))
+                    {
+                        track.text = text;
+                        track.grid = grid;
+                    }
                 }
 
                 track.cursor.r = Math.min(track.cursor.r, track.rows - 1);

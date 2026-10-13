@@ -2096,7 +2096,8 @@ function showSeq (on)
         return;
 
     seq ??= createSeqView({ toMirror: (m) => synth?.toMirror(m),
-                            onGesture: sendGesture });
+                            onGesture: sendGesture,
+                            leadMs: () => (maker?.knobLead ?? 0) * 1000 });
 
     seq.show(on);
 }
