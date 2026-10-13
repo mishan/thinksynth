@@ -20,8 +20,7 @@
  * a11y.mjs -- what axe-core finds wrong with a page, for the harnesses
  * that have one open.
  *
- * WCAG 2.2 AA's rules, less contrast until the page's colors are
- * reworked, on all of the page but the selectors in `exclude'.
+ * WCAG 2.2 AA's rules, on all of the page but the selectors in `exclude'.
  */
 
 import { AxeBuilder } from '@axe-core/playwright';
@@ -32,8 +31,7 @@ import { AxeBuilder } from '@axe-core/playwright';
 export async function axeFindings (page, exclude = [])
 {
     let builder = new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-        .disableRules(['color-contrast']);
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']);
 
     for (const selector of exclude)
         builder = builder.exclude(selector);

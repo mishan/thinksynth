@@ -45,12 +45,13 @@
     --panel:     #f4f4f4;
     --line:      #dcdcdc;
     --ctl:       #f6f6f6;
-    --ctl-edge:  #c4c4c4;
+    --ctl-edge:  #8a8a8a;       /* 3:1 on white and on --ctl */
     --key:       #ffffff;
     --key-edge:  #b0b0b0;
     --key-black: #202020;
     --held:      #5050ff;
-    --heard:     #9a9aff;
+    --heard:     #7878ff;       /* 3:1 on a key, white, black or C */
+    --key-held:  var(--held);
 
     /* Something a person should notice but nothing is broken: a patch
        edited and not written. Not the red an error gets. */
@@ -61,10 +62,10 @@
     /* The source boxes' syntax colors (thinklang.js). */
     --tok-keyword: #7a3e9d;
     --tok-string:  #2e7d32;
-    --tok-number:  #b35900;
+    --tok-number:  #a65200;
     --tok-plugin:  #1f5fa8;
     --tok-knob:    #a0306a;
-    --tok-field:   #00838f;
+    --tok-field:   #00737d;
     --tok-invalid: #c62828;
 }
 
@@ -95,12 +96,15 @@
         --panel:     #262626;
         --line:      #3a3a3a;
         --ctl:       #2e2e2e;
-        --ctl-edge:  #4a4a4a;
+        --ctl-edge:  #808080;
         --key:       #d8d8d8;
         --key-edge:  #555555;
         --key-black: #101010;
         --held:      #6a6aff;
-        --heard:     #9c9cd8;
+        /* 3:1 on the light keys this palette keeps and on its black ones,
+           which --held, a border on dark grounds, is not. */
+        --heard:     #6060c0;
+        --key-held:  #5050e0;
         --warn:      #d09040;
         /* A white key tinted, as in light: dark here read as a gap in
            the keyboard rather than a C. */
@@ -271,6 +275,11 @@ pre
                 overlay 0.18s allow-discrete;
 }
 
+@media (prefers-reduced-motion: reduce)
+{
+    #menu { transition: none; }
+}
+
 #menu[open] { display: flex; flex-direction: column; gap: 0.6em; }
 
 @starting-style { #menu[open] { translate: -100% 0; } }
@@ -431,10 +440,22 @@ kbd
     border-color: transparent;
 }
 
+/* The desktop's accent, no lighter than white text can be read on:
+   Chromium's own is 4.2:1 under it. Where relative colors are not, the
+   accent and the text the system pairs with it. */
+@supports (color: oklch(from red l c h))
+{
+    #start, #join, #play:is(.primary, .lead)
+    {
+        background: oklch(from AccentColor min(l, 0.55) c h);
+        color: white;
+    }
+}
+
 #start:hover:not(:disabled), #join:hover:not(:disabled),
 #play:is(.primary, .lead):hover:not(:disabled)
 {
-    filter: brightness(1.1);
+    filter: brightness(0.9);
 }
 
 /* Until Start, the panes a synth fills have nothing in them, and a page
@@ -640,7 +661,6 @@ details { margin: 0.8em 0; }
 
 .trackgrid:focus-visible
 {
-    outline: 2px solid var(--held);
     outline-offset: -2px;
 }
 
@@ -706,7 +726,7 @@ details { margin: 0.8em 0; }
    key of its own that has landed. Before .held, which wins on a key that
    is both. */
 #keys .heard { fill: var(--heard); }
-#keys .held  { fill: var(--held); }
+#keys .held  { fill: var(--key-held); }
 
 /* Outlined, because the key under a note name changes colour when it is
    held and the name has to stay readable on either. paint-order puts the
@@ -752,8 +772,12 @@ details { margin: 0.8em 0; }
 
     #keys { height: 160px; }
 
-    /* The keyboard's hint is about a computer's keys and a MIDI cable. */
-    #keyboard .hint { display: none; }
+    /* The keyboard's hint is about a computer's keys and a MIDI cable;
+       what it says of the keys and of MIDI is a status, and stays. */
+    #keyboard .hint:not([id$="status"], [id$="state"], [aria-live])
+    {
+        display: none;
+    }
 
     /* A slider a thumb can find, in the knob strip and in the parameter
        panel alike -- both are panel.js's rows now. */
@@ -780,8 +804,17 @@ details { margin: 0.8em 0; }
     source-box .cm-editor { height: 14em; }
 
     #roll { height: 120px; }
+}
 
-    .hint { display: none; }
+/* On a phone the hints that explain go, for the room. By the pointer as
+   well as the width: a desktop zoomed to 200% is this width too, and its
+   reader is the one who needs them. Never a status, nor a hint that holds
+   a control. */
+@media (max-width: 40em) and (pointer: coarse),
+       (max-height: 30em) and (orientation: landscape) and (pointer: coarse)
+{
+    .hint:not([id$="status"], [id$="state"], [aria-live], [role="status"],
+              :has(input, select, button)) { display: none; }
 }
 
 /* A phone held sideways is the playing position, and it is also the shape
@@ -794,7 +827,7 @@ details { margin: 0.8em 0; }
 {
     body { margin: 0.3em auto; }
 
-    h1, #about, .hint { display: none; }
+    h1, #about { display: none; }
 
     #roll { height: 80px; }
 
@@ -1019,7 +1052,6 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
 }
 
 .canvasview canvas:focus-visible {
-    outline: 2px solid var(--held);
     outline-offset: -2px;
 }
 
@@ -1382,15 +1414,19 @@ body.tiled .panelrows
     /* The status line only when it has something that must be seen
        (main.js, status): on a phone it is a row of the little height
        there is. Out of sight rather than gone, so a screen reader still
-       hears it change. */
-    #chrome #status:not([data-alert])
+       hears it change; and on a phone only, not a desktop zoomed to this
+       size, whose reader is reading it. */
+    @media (pointer: coarse)
     {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
+        #chrome #status:not([data-alert])
+        {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+        }
     }
 
     /* The strip, down to what a phone plays with: the speed and the
