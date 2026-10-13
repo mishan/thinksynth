@@ -188,6 +188,21 @@ NodeEditor::NodeEditor (thSynth *synth)
     nameAs(zoomOutBtn_, "Zoom out");
     nameAs(zoomResetBtn_, "Actual size");
 
+    /* Tab stops of GTK's own -- a split's handle moves from the keys, and
+       the graph's scroller takes the focus for its arrows -- that a
+       screen reader had nothing to call. Groups, since GTK's own role for
+       them, generic, takes no name. */
+    for (auto [w, name] : { std::pair<Gtk::Widget *, const char *>(
+                                &outer_, "Palette and graph"),
+                            std::pair<Gtk::Widget *, const char *>(
+                                &split_, "Graph and parameters"),
+                            std::pair<Gtk::Widget *, const char *>(
+                                &scroller_, "Patch graph") })
+    {
+        w->property_accessible_role() = Gtk::Accessible::Role::GROUP;
+        nameAs(*w, name);
+    }
+
     zoomInBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onZoomIn));
     zoomOutBtn_.signal_clicked().connect(
