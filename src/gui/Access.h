@@ -25,11 +25,16 @@
  * is a sign ("+") or that has none. A label beside a control names it by
  * add_mnemonic_label instead.
  *
+ * A button is labelled by its own label, and labelled-by outranks a name,
+ * so that relation goes: without it a "+" button stayed "+".
+ *
  * In C because gtkmm's update_property takes a Glib::ValueBase, which is
  * four lines for one string. */
 inline void
 nameAs (Gtk::Widget &w, const Glib::ustring &name)
 {
+    gtk_accessible_reset_relation(GTK_ACCESSIBLE(w.gobj()),
+                                  GTK_ACCESSIBLE_RELATION_LABELLED_BY);
     gtk_accessible_update_property(GTK_ACCESSIBLE(w.gobj()),
                                    GTK_ACCESSIBLE_PROPERTY_LABEL,
                                    name.c_str(), -1);
