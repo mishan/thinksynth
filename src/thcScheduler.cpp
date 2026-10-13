@@ -3237,14 +3237,15 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
 
     /* The chains built again, which are played up to now below -- not
        one with nodes, which are where the edit left them, and a node
-       does not step back. What one of them, or a chain taken away, had
+       does not step back, nor one played from a keyboard, whose keys a
+       replay has not got. What one of them, or a chain taken away, had
        composed for after now is not played: the new chain composes its
        own, and a chain taken away is silent. */
     std::vector<bool> replayed(chains_.size(), false);
 
     for (size_t j = 0; j < chains_.size(); j++)
         replayed[j] = started_ && !chains_[j].stages.empty() &&
-                      !chains_[j].nodes;
+                      !chains_[j].nodes && !chains_[j].inputMidi;
 
     for (std::map<Slot, Slot>::iterator f = from.begin(); f != from.end();
          ++f)
@@ -3912,8 +3913,10 @@ thcScheduler::catchUp (size_t chain)
     for (const Wakeup &w : wakeups_)
         (w.chain == chain ? due : rest).push_back(w);
 
-    /* From the chain's start as a load computes it, at time 0. */
-    const double start = c.startBeats ? c.start * 60.0 / tempo_ : c.start;
+    /* From the chain's start as a load computes it: in beats, on the
+       beat grid the piece is on now, whatever tempo it got there at. */
+    const double start = c.startBeats
+        ? transportNow_ - (beat_ - c.start) * 60.0 / tempo_ : c.start;
 
     if (due.empty() || start >= transportNow_)
         return;
@@ -3927,12 +3930,8 @@ thcScheduler::catchUp (size_t chain)
 
     std::make_heap(due.begin(), due.end(), Later());
 
-    const bool wasSync = auditionSync_;
-
-    if (!wasSync)
-        setAuditionSynchronous(true);
-
     catchingUp_ = true;
+    caughtUp_.clear();
 
     while (!due.empty() && due.front().at < transportNow_)
     {
@@ -3963,15 +3962,38 @@ thcScheduler::catchUp (size_t chain)
             continue;
         }
 
-        due.push_back({ next > w.at ? next : w.at + 0.001, chain, w.stage,
-                        heapSeq_++ });
+        /* Held to now past runDueTicks's cap, as it holds one to a
+           step. */
+        double at = next;
+
+        if (next > w.at)
+            s->stalled = 0;
+        else
+            at = ++s->stalled > TH_MAX_STALLED_WAKES ? transportNow_
+                                                    : w.at + 0.001;
+
+        due.push_back({ at, chain, w.stage, heapSeq_++ });
         std::push_heap(due.begin(), due.end(), Later());
     }
 
     catchingUp_ = false;
 
-    if (!wasSync)
-        setAuditionSynchronous(false);
+    std::vector<Pending> last;
+
+    for (auto &e : caughtUp_)
+        last.push_back(e.second);
+
+    caughtUp_.clear();
+    std::sort(last.begin(), last.end(), [](const Pending &a,
+                                           const Pending &b)
+              { return a.seq < b.seq; });
+
+    for (Pending &p : last)
+    {
+        p.at = p.ev.at = transportNow_;
+        pending_.push_back(p);
+        std::push_heap(pending_.begin(), pending_.end(), LaterPending());
+    }
 
     for (const Wakeup &w : due)
     {
@@ -4267,8 +4289,33 @@ thcScheduler::queuePending (const thcEvent &ev,
         p.ev.u.nodearg.arg = p.text2->c_str();
     }
 
+    /* A chain played up to now: a note before now would never have been
+       heard, but a value or a structure edit is where the chain left its
+       target, as a seek leaves it -- so the last for each target is
+       delivered now (catchUp). */
     if (catchingUp_ && p.at < transportNow_)
+    {
+        if (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF)
+            return;
+
+        char key[64];
+
+        snprintf(key, sizeof(key), "%d %d %p ", (int)ev.type, ev.channel,
+                 (void *)knob);
+
+        std::string k = key;
+
+        if (p.chanargName)
+            k += *p.chanargName;
+        else if (ev.type == THC_EV_NODEARG)
+            k += *p.text + "->" + *p.text2;
+        else if (ev.type == THC_EV_GROW)
+            k += std::to_string(pendingSeq_);
+
+        p.seq = pendingSeq_++;
+        caughtUp_[k] = p;
         return;
+    }
 
     /* Live input on a paused clock: pending_ is keyed in transport
        time and transport time is frozen, so anything due now would
@@ -5077,7 +5124,8 @@ thcScheduler::recomposeMarked (void)
 void
 thcScheduler::composeAgain (size_t chain, bool passing)
 {
-    if (chain >= chains_.size() || !started_ || chains_[chain].nodes)
+    if (chain >= chains_.size() || !started_ || chains_[chain].nodes ||
+        chains_[chain].inputMidi)
         return;
 
     auto sound = [chain](const Pending &p)
@@ -5102,6 +5150,12 @@ thcScheduler::composeAgain (size_t chain, bool passing)
                                   { return w.chain == chain; }),
                    wakeups_.end());
     std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+
+    /* A key held through it would be released into stages that never
+       saw it pressed, as in adopt(). */
+    const std::set<int> one = { (int)chain };
+
+    flushHeld(&one);
 
     for (size_t si = 0; si < chains_[chain].stages.size(); si++)
         remake(chain, si);

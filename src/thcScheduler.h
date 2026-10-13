@@ -1354,7 +1354,8 @@ public:
        rather than when the chain's next phrase begins, and a chain set
        back to what it said plays what it played. Done before the
        transport next moves, once however many of the chain's params were
-       set meanwhile. Not a chain with nodes.
+       set meanwhile. Not a chain with nodes, or one played from a
+       keyboard.
 
        `passing': a value a gesture passes through on its way to the one
        it ends on. Only a chain that has composed further than a beat
@@ -1902,6 +1903,10 @@ private:
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
     bool catchingUp_ = false;  /* catchUp(): what is due before now goes */
+
+    /* What catchUp() delivers now: the last value or edit it composed
+       before now for each target. */
+    std::map<std::string, Pending> caughtUp_;
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
 
     /* recompose()'s chains, each with whether only values passing by

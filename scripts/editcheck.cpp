@@ -1001,6 +1001,15 @@ smallChain (const std::string &name, int channel, const std::string &extra)
            "    sink { channel = " + std::to_string(channel) + "; };\n};\n";
 }
 
+/* A chain riding @k through `values', two seconds a step at 120. */
+static std::string
+rider (const std::string &values)
+{
+    return "chain w {\n    stage s gen::steps { values = \"" + values +
+           "\"; period = 4 beats; min = 0; max = 16; };\n"
+           "    sink { knob = @k; };\n};\n";
+}
+
 static std::string
 knobMeta (thArg *k)
 {
@@ -1123,6 +1132,20 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
                                        " s, not 4";
 
               return std::string("it never played");
+          } },
+        { "a knob a rebuilt chain writes is where the new text has it",
+          head + rider("0.1 0.2 0.3 0.4"), head + rider("0.5 0.6 0.7 0.8"),
+          5.01, nullptr,
+          [](Peer &p)
+          {
+              p.stepTo(5.02);
+
+              const float k = (*p.sched.knob("k"))[0];
+
+              return std::fabs(k - 0.7f * 16) < 1e-3
+                         ? std::string()
+                         : "@k is " + std::to_string(k) + ", not " +
+                               std::to_string(0.7 * 16);
           } },
         { "a chain keeps what it was heard to play", head + late,
           "# a comment\n" + head + late, 6.01, nullptr,

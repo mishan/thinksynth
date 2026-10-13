@@ -327,7 +327,7 @@ export function padEdits (stages, x, y, said = new Map())
                                     f.whole === true);
 
                 /* Back where it was written is as written, not respelled. */
-                const text = numberOf(moved).num === n.num ? p.valueText
+                const text = numberOf(moved)?.num === n.num ? p.valueText
                                                            : moved;
 
                 if (said === null ||
@@ -666,6 +666,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             if (last)
             {
                 clearTimeout(st.timer);
+                st.timer = null;
                 send(true);
             }
             else if (st.timer === null)
