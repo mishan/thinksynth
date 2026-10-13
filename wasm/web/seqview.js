@@ -283,7 +283,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                                rows: 1, rowsParam: -1,
                                steps: 16, grid: [[]], pitches: [null],
                                cursor: { r: 0, s: 0 },
-                               text: '', sent: null,
+                               text: '', inFlight: 0,
                                canvas: null, ctx: null, mark: null,
                                w: 0, h: 0, dpr: 0 });
 
@@ -454,10 +454,6 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             send(DRAG, s);
 
         send(RELEASE, through.at(-1) ?? from);
-
-        /* Until the cells read differently from this, the edit has not
-           landed, and what is said is the grid as it will be. */
-        track.sent ??= track.text;
     };
 
     /* How many steps the note at a cell holds: itself and its ties. */
@@ -519,6 +515,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
            the key alone, as on the desktop. */
         const hold = e.shiftKey &&
                      (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+        const was = row.join('');
 
         switch (hold ? `Shift+${e.key}` : e.key)
         {
@@ -577,6 +574,11 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             default:
                 return;
         }
+
+        /* Each edit that moves a cell moves the text once when it lands;
+           until every one has, what is said is the grid as it will be. */
+        if (row.join('') !== was)
+            track.inFlight++;
 
         e.preventDefault();
         place(track);
@@ -715,16 +717,17 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 track.pitches = pitchesOf(param('notes')?.text, track.rows);
 
                 /* The cells as written, except while an edit from the keys
-                   has not landed: it does at its time, and until the text
-                   moves the grid said is the one it will be. */
+                   has not landed: it does at its time, and a text moved by
+                   an earlier one is not yet the grid a later one made. */
                 const text = param('cells')?.text ?? '';
 
-                if (text !== track.sent)
-                {
-                    track.sent = null;
-                    track.text = text;
+                if (text !== track.text && track.inFlight > 0)
+                    track.inFlight--;
+
+                track.text = text;
+
+                if (track.inFlight === 0)
                     track.grid = gridOf(text, track.rows, track.steps);
-                }
 
                 track.cursor.r = Math.min(track.cursor.r, track.rows - 1);
                 track.cursor.s = Math.min(track.cursor.s, track.steps - 1);
