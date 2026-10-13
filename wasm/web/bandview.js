@@ -290,8 +290,10 @@ export function playersOf (piece)
 }
 
 /* The param edits the pad at (x, y) makes from `base', the stages as they
-   were: [{ stage, stageName, row, text }] for every param that moves. */
-export function padEdits (stages, x, y)
+   were: [{ stage, stageName, row, text }] for every param whose text is not
+   what `said' (`stage:row' to text) says was sent last, or else as
+   written -- or for every param, with `said' null. */
+export function padEdits (stages, x, y, said = new Map())
 {
     const edits = [];
 
@@ -321,11 +323,15 @@ export function padEdits (stages, x, y)
                 if (n === null)
                     continue;
 
-                const text = spell(Math.max(0, f(n.num, t, nums)), n.unit,
-                                   f.whole === true);
+                const moved = spell(Math.max(0, f(n.num, t, nums)), n.unit,
+                                    f.whole === true);
 
-                /* As written stays as written, not respelled. */
-                if (numberOf(text)?.num !== n.num)
+                /* Back where it was written is as written, not respelled. */
+                const text = numberOf(moved).num === n.num ? p.valueText
+                                                           : moved;
+
+                if (said === null ||
+                    text !== (said.get(`${s.name}:${row}`) ?? p.valueText))
                     edits.push({ stage: s.live, stageName: s.name, row,
                                  text });
             }
@@ -536,7 +542,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         if (state.get(p.name)?.shape !== shapeOf(p))
             state.set(p.name, { shape: shapeOf(p), base: p.stages, x: 0.5,
                                 y: 0.5, takes: [p.seed], take: 0,
-                                resting: false, sent: 0, timer: null });
+                                resting: false, sent: 0, said: new Map(),
+                                timer: null });
 
         return state.get(p.name);
     }
@@ -621,14 +628,23 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                              `wandering ${Math.round(st.y * 10)} of 10`);
         };
 
-        /* Not before what the pad moves is in the piece. */
-        const send = async () =>
+        /* Not before what the pad moves is in the piece. On the way, what
+           has moved; where it ends, all of it, which the chain is
+           composed again from (thcScheduler::recompose). */
+        const send = async (last) =>
         {
             st.readying ??= ready(p, st).finally(() => st.readying = null);
             await st.readying;
             st.timer = null;
             st.sent = performance.now();
-            params(p, padEdits(st.base, st.x, st.y));
+
+            const edits = padEdits(st.base, st.x, st.y,
+                                   last ? null : st.said);
+
+            for (const e of edits)
+                st.said.set(`${e.stageName}:${e.row}`, e.text);
+
+            params(p, edits, !last);
         };
 
         /* Near the middle is the middle: a pad dragged across by a hand is
@@ -641,15 +657,20 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             return Math.abs(c - 0.5) < 0.06 ? 0.5 : c;
         };
 
-        const to = (x, y) =>
+        const to = (x, y, last) =>
         {
             st.x = settle(x);
             st.y = settle(y);
             place();
 
-            if (st.timer === null)
-                st.timer = setTimeout(send, Math.max(0, PAD_EVERY_MS -
-                    (performance.now() - st.sent)));
+            if (last)
+            {
+                clearTimeout(st.timer);
+                send(true);
+            }
+            else if (st.timer === null)
+                st.timer = setTimeout(() => send(false), Math.max(0,
+                    PAD_EVERY_MS - (performance.now() - st.sent)));
         };
 
         const move = (e) =>
@@ -678,9 +699,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             st.refused = false;
 
             if (k === null)
-                to(0.5, 0.5);
+                to(0.5, 0.5, true);
             else
-                to(st.x + k[0], st.y + k[1]);
+                to(st.x + k[0], st.y + k[1], true);
         });
 
         box.addEventListener('pointerdown', (e) =>
@@ -698,6 +719,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         box.addEventListener('lostpointercapture', () =>
         {
             held--;
+            to(st.x, st.y, true);
 
             if (held === 0 && drawLater)
                 draw();
