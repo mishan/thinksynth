@@ -274,6 +274,10 @@ struct Scheduled
        (tw_try_graph). */
     std::string row, text, over;
 
+    /* TW_PARAM: a value a gesture passes through (thcScheduler::
+       recompose). */
+    bool passing;
+
     /* TW_EDIT: the other files it carries, as name and text, written only
        once its text has loaded (applyEdit). */
     std::vector<std::pair<std::string, std::string> > files;
@@ -1302,6 +1306,11 @@ void applyScheduled (const Scheduled &given)
          */
         case TW_PARAM:
             writeParam(c, given, c.row, c.text, false);
+
+            /* Composed again whether or not this one changed the line: a
+               gesture's last value is sent again as its last. */
+            if (c.chain >= 0)
+                sched_->recompose((size_t)c.chain, c.passing);
             break;
 
         case TW_INPUT:
@@ -6065,7 +6074,8 @@ EMSCRIPTEN_KEEPALIVE double tw_speed_now (void)
  * tell.
  */
 EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
-                                    const char *row, const char *text)
+                                    const char *row, const char *text,
+                                    int passing)
 {
     if (row == NULL || text == NULL)
         return;
@@ -6078,6 +6088,7 @@ EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
     c.stage = stage;
     c.row = row;
     c.text = text;
+    c.passing = passing != 0;
 
     schedule(c);
 }
@@ -6086,7 +6097,7 @@ EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
 EMSCRIPTEN_KEEPALIVE void tw_param_named (double at, const char *chainName,
                                           const char *stageName, int chain,
                                           int stage, const char *row,
-                                          const char *text)
+                                          const char *text, int passing)
 {
     if (row == NULL || text == NULL)
         return;
@@ -6101,6 +6112,7 @@ EMSCRIPTEN_KEEPALIVE void tw_param_named (double at, const char *chainName,
     c.text = text;
     c.chainName = chainName ? chainName : "";
     c.stageName = stageName ? stageName : "";
+    c.passing = passing != 0;
 
     schedule(c);
 }

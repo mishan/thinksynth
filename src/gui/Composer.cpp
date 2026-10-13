@@ -3435,6 +3435,10 @@ Composer::applyParam (size_t ci, size_t si, const std::string &param,
     live.setPiece(&doc_, sched_);
     live.setStage(edit.a, edit.b);
     live.deliver(edit);
+
+    /* Now, too, in a chain that has already composed its next bars. */
+    if (sched_ != NULL)
+        sched_->recompose(ci);
 }
 
 void

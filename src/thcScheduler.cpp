@@ -660,6 +660,7 @@ thcScheduler::clearChains (void)
     meter_ = 4;
     wakeups_.clear();
     pending_.clear();
+    recompose_.clear();
 
     /* The arrangement names chains by the names this just took away. */
     sections_.clear();
@@ -3005,14 +3006,15 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             }
         }
 
-        if (nodes)
-        {
-            if (here.size() != nc.stages.size() ||
-                oc.stages.size() != nc.stages.size())
-                continue;
+        /* A chain one of whose stages is built again is built again
+           whole: what its generator composed went through the old
+           stages, and only a generator made again composes it again. */
+        if (here.size() != nc.stages.size() ||
+            oc.stages.size() != nc.stages.size())
+            continue;
 
+        if (nodes)
             hostFrom[j] = i;
-        }
 
         from.insert(here.begin(), here.end());
     }
@@ -3233,9 +3235,47 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
         if (held_[n].chain >= 0)
             held_[n].chain = moved[held_[n].chain];
 
-    for (size_t n = 0; n < pending_.size(); n++)
-        if (pending_[n].chain >= 0)
-            pending_[n].chain = moved[pending_[n].chain];
+    /* The chains built again, which are played up to now below -- not
+       one with nodes, which are where the edit left them, and a node
+       does not step back. What one of them, or a chain taken away, had
+       composed for after now is not played: the new chain composes its
+       own, and a chain taken away is silent. */
+    std::vector<bool> replayed(chains_.size(), false);
+
+    for (size_t j = 0; j < chains_.size(); j++)
+        replayed[j] = started_ && !chains_[j].stages.empty() &&
+                      !chains_[j].nodes;
+
+    for (std::map<Slot, Slot>::iterator f = from.begin(); f != from.end();
+         ++f)
+        replayed[f->first.first] = false;
+
+    std::map<size_t, bool> marked;
+
+    for (const auto &m : recompose_)
+        if (moved[m.first] >= 0 && !replayed[moved[m.first]])
+            marked[moved[m.first]] = m.second;
+
+    recompose_.swap(marked);
+
+    std::vector<Pending> left;
+
+    for (Pending &p : pending_)
+    {
+        if (p.chain >= 0)
+        {
+            p.chain = moved[p.chain];
+
+            if ((p.chain < 0 || replayed[p.chain]) &&
+                (p.ev.type == THC_EV_NOTE || p.ev.type == THC_EV_CHANARG))
+                continue;
+        }
+
+        left.push_back(std::move(p));
+    }
+
+    pending_.swap(left);
+    std::make_heap(pending_.begin(), pending_.end(), LaterPending());
 
     /* Every stage answers to this scheduler and to its new place. */
     for (size_t j = 0; j < chains_.size(); j++)
@@ -3285,6 +3325,10 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
         auditioner_ = next.auditioner_;
         next.ownsAuditioner_ = false;
     }
+
+    for (size_t j = 0; j < chains_.size(); j++)
+        if (replayed[j])
+            catchUp(j);
 
     /* The instruments. A channel no new instrument is on is taken back;
        an instrument that is new, or changed, or whose files changed under
@@ -3628,6 +3672,7 @@ thcScheduler::stepTransport (double dt)
        and reaches the scheduler only through here -- still gets the
        retry it would otherwise never see. */
     retireStranded();
+    recomposeMarked();
 
     if (!running_ || dt < 0)
         return;
@@ -3651,6 +3696,7 @@ void
 thcScheduler::stepTransportTo (double t)
 {
     retireStranded();
+    recomposeMarked();
 
     if (!running_ || t < transportNow_)
         return;
@@ -3850,6 +3896,90 @@ thcScheduler::runDueTicks (double now)
     }
 }
 
+/* A chain built again while the piece plays, played from its start up to
+ * now without a sound, so that from now on it plays what it would have had
+ * it been the piece from the top: an arpeggio comes in on its beat and a
+ * phrase in its bar, rather than wherever the edit landed. What it composes
+ * for before now is dropped (queuePending), and what for after is queued as
+ * any tick's is. Its stages' wakes are where a load put them.
+ */
+void
+thcScheduler::catchUp (size_t chain)
+{
+    thcChain &c = chains_[chain];
+    std::vector<Wakeup> due, rest;
+
+    for (const Wakeup &w : wakeups_)
+        (w.chain == chain ? due : rest).push_back(w);
+
+    /* From the chain's start as a load computes it, at time 0. */
+    const double start = c.startBeats ? c.start * 60.0 / tempo_ : c.start;
+
+    if (due.empty() || start >= transportNow_)
+        return;
+
+    wakeups_.swap(rest);
+    std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+
+    for (Wakeup &w : due)
+        if (c.stages[w.stage]->awaitingStart)
+            w.at = start;
+
+    std::make_heap(due.begin(), due.end(), Later());
+
+    const bool wasSync = auditionSync_;
+
+    if (!wasSync)
+        setAuditionSynchronous(true);
+
+    catchingUp_ = true;
+
+    while (!due.empty() && due.front().at < transportNow_)
+    {
+        std::pop_heap(due.begin(), due.end(), Later());
+        Wakeup w = due.back();
+        due.pop_back();
+
+        thcStage *s = c.stages[w.stage].get();
+        const thcTransport t = {
+            w.at, tempo_, beat_ - (transportNow_ - w.at) * tempo_ / 60.0,
+            true };
+
+        s->awaitingStart = false;
+
+        struct Ctx { thcScheduler *self; size_t chain, stage; } ctx =
+            { this, chain, w.stage };
+        thcEventSink sink = { &ctx, [](void *p, const thcEvent *ev) {
+            Ctx *x = static_cast<Ctx *>(p);
+            x->self->propagate(x->self->chains_[x->chain], x->stage + 1,
+                               *ev);
+        }};
+
+        const double next = s->plugin->tick(s->state, &t, &sink);
+
+        if (next == THC_NEVER)
+        {
+            s->sleeping = true;
+            continue;
+        }
+
+        due.push_back({ next > w.at ? next : w.at + 0.001, chain, w.stage,
+                        heapSeq_++ });
+        std::push_heap(due.begin(), due.end(), Later());
+    }
+
+    catchingUp_ = false;
+
+    if (!wasSync)
+        setAuditionSynchronous(false);
+
+    for (const Wakeup &w : due)
+    {
+        wakeups_.push_back(w);
+        std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
+    }
+}
+
 void
 thcScheduler::rearmStage (size_t chain, size_t stage)
 {
@@ -3905,7 +4035,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     passingThrough_ = false;
 
-    if (ev.type != THC_EV_NOTEOFF && !seeking_)
+    if (ev.type != THC_EV_NOTEOFF && !seeking_ && !catchingUp_)
     {
         if (fromStage > 0 && fromStage <= c.stages.size() && !passed)
             c.stages[fromStage - 1]->lastOut = transportNow_;
@@ -3920,7 +4050,8 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
        it included -- and every note that went into a stage that takes
        them, eight seconds of each. A held note's release gives it its
        length. */
-    if (!seeking_ && (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF))
+    if (!seeking_ && (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF) &&
+        !(catchingUp_ && ev.at < transportNow_))
     {
         auto keep = [&](std::deque<thcPlayed> &d)
         {
@@ -3989,7 +4120,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
                    been heard: a chain that emits ahead is dropped ahead
                    too, and would light before the notes it still plays. */
                 if ((ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG) &&
-                    !seeking_)
+                    !seeking_ && !catchingUp_)
                     c.lastGated[ev.type == THC_EV_CHANARG] =
                         std::max(transportNow_, ev.at);
 
@@ -4135,6 +4266,9 @@ thcScheduler::queuePending (const thcEvent &ev,
         p.ev.u.nodearg.node = p.text->c_str();
         p.ev.u.nodearg.arg = p.text2->c_str();
     }
+
+    if (catchingUp_ && p.at < transportNow_)
+        return;
 
     /* Live input on a paused clock: pending_ is keyed in transport
        time and transport time is frozen, so anything due now would
@@ -4762,6 +4896,7 @@ thcScheduler::reset (void)
 
     pending_.clear();
     wakeups_.clear();
+    recompose_.clear();
     started_ = false;
 
     /* A growth still being heard was asked for by a play that is over. */
@@ -4852,63 +4987,126 @@ thcScheduler::reset (void)
 
     for (size_t ci = 0; ci < chains_.size(); ci++)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
-        {
-            thcStage *s = chains_[ci].stages[si].get();
-
-            /* Over the defaults, as the load created it -- what the
-               store was before the loader touched it -- and the load's
-               work done again afterwards (thcParamStore::replay). */
-            s->params.restoreDefaults();
-
-            /* The replacement is made before the old instance goes,
-               so a module refusing the second create leaves the stage
-               with its old state rather than with a NULL that the next
-               tick or receive would hand straight back to it. A stale
-               instance mid-replay is wrong; a crash is more wrong. */
-            void *fresh = s->plugin->create(s->params.params());
-
-            if (fresh == NULL)
-            {
-                /* The replay below still runs, over the instance that
-                   survived: restoreDefaults() has already emptied the
-                   store, and leaving it on the plugin's defaults would
-                   make every param of this stage read something the
-                   file never said. A stage that did not rewind is the
-                   lesser of the two. */
-                fprintf(stderr, "thcScheduler: %s refused to recreate; "
-                        "keeping the old instance\n",
-                        s->plugin->name().c_str());
-            }
-            else
-            {
-                s->plugin->destroy(s->state);
-                s->state = fresh;
-                s->params.instance_ = s->state;
-            }
-
-            /* Awake before anything is announced to it, as a stage is
-               on a load. An announcement re-arms a sleeper, and a stage
-               that had gone to sleep by the end of the run would be
-               armed by the first announcement and then again below: two
-               wakes at zero, two ticks, and a replay that was not one. */
-            s->sleeping = false;
-            s->awaitingStart = s->ticks;
-
-            /* Everything the load did, done again to the instance that
-               now serves the store -- see replay(). After the swap,
-               because the announcements go to whichever instance is
-               current. */
-            s->params.replay();
-
-            if (s->ticks && s->state != NULL)
-            {
-                wakeups_.push_back({ chainStartTime(chains_[ci]), ci, si,
-                                     heapSeq_++ });
-                std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
-            }
-        }
+            remake(ci, si);
 
     sigReset.emit();
+}
+
+/* A stage's instance made again over its store, as the load made it, and
+ * woken at its chain's start. */
+void
+thcScheduler::remake (size_t ci, size_t si)
+{
+    thcStage *s = chains_[ci].stages[si].get();
+
+    /* Over the defaults, as the load created it -- what the
+       store was before the loader touched it -- and the load's
+       work done again afterwards (thcParamStore::replay). */
+    s->params.restoreDefaults();
+
+    /* The replacement is made before the old instance goes,
+       so a module refusing the second create leaves the stage
+       with its old state rather than with a NULL that the next
+       tick or receive would hand straight back to it. A stale
+       instance mid-replay is wrong; a crash is more wrong. */
+    void *fresh = s->plugin->create(s->params.params());
+
+    if (fresh == NULL)
+    {
+        /* The replay below still runs, over the instance that
+           survived: restoreDefaults() has already emptied the
+           store, and leaving it on the plugin's defaults would
+           make every param of this stage read something the
+           file never said. A stage that did not rewind is the
+           lesser of the two. */
+        fprintf(stderr, "thcScheduler: %s refused to recreate; "
+                "keeping the old instance\n",
+                s->plugin->name().c_str());
+    }
+    else
+    {
+        s->plugin->destroy(s->state);
+        s->state = fresh;
+        s->params.instance_ = s->state;
+    }
+
+    /* Awake before anything is announced to it, as a stage is
+       on a load. An announcement re-arms a sleeper, and a stage
+       that had gone to sleep by the end of the run would be
+       armed by the first announcement and then again below: two
+       wakes at zero, two ticks, and a replay that was not one. */
+    s->sleeping = false;
+    s->awaitingStart = s->ticks;
+
+    /* Everything the load did, done again to the instance that
+       now serves the store -- see replay(). After the swap,
+       because the announcements go to whichever instance is
+       current. */
+    s->params.replay();
+
+    if (s->ticks && s->state != NULL)
+    {
+        wakeups_.push_back({ chainStartTime(chains_[ci]), ci, si,
+                             heapSeq_++ });
+        std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
+    }
+}
+
+void
+thcScheduler::recompose (size_t chain, bool passing)
+{
+    if (chain >= chains_.size())
+        return;
+
+    const auto m = recompose_.find(chain);
+
+    recompose_[chain] = passing && (m == recompose_.end() || m->second);
+}
+
+void
+thcScheduler::recomposeMarked (void)
+{
+    std::map<size_t, bool> marked;
+
+    marked.swap(recompose_);
+
+    for (const auto &m : marked)
+        composeAgain(m.first, m.second);
+}
+
+void
+thcScheduler::composeAgain (size_t chain, bool passing)
+{
+    if (chain >= chains_.size() || !started_ || chains_[chain].nodes)
+        return;
+
+    auto sound = [chain](const Pending &p)
+    {
+        return p.chain == (int)chain && (p.ev.type == THC_EV_NOTE ||
+                                         p.ev.type == THC_EV_CHANARG);
+    };
+
+    const double beat = transportNow_ + 60.0 / tempo_;
+
+    if (passing && std::none_of(pending_.begin(), pending_.end(),
+                     [&](const Pending &p) { return sound(p) &&
+                                                    p.at > beat; }))
+        return;
+
+    pending_.erase(std::remove_if(pending_.begin(), pending_.end(), sound),
+                   pending_.end());
+    std::make_heap(pending_.begin(), pending_.end(), LaterPending());
+
+    wakeups_.erase(std::remove_if(wakeups_.begin(), wakeups_.end(),
+                                  [chain](const Wakeup &w)
+                                  { return w.chain == chain; }),
+                   wakeups_.end());
+    std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+
+    for (size_t si = 0; si < chains_[chain].stages.size(); si++)
+        remake(chain, si);
+
+    catchUp(chain);
 }
 
 void

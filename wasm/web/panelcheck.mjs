@@ -473,8 +473,9 @@ const edit = (row, text, b = INSTRUMENT) =>
         const param = (row, text) =>
         {
             M.ccall('tw_param', null,
-                    ['number', 'number', 'number', 'string', 'string'],
-                    [-1, 0, 0, row, text]);
+                    ['number', 'number', 'number', 'string', 'string',
+                     'number'],
+                    [-1, 0, 0, row, text, 0]);
 
             M._tw_step(M._tw_frame() + 4096);
         };
