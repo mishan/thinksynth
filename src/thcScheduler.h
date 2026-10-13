@@ -1364,10 +1364,10 @@ public:
 
        `passing': a value a gesture passes through on its way to the one
        it ends on. Only a chain that has composed further than a beat
-       ahead is composed again for one, and not more than ten times a
-       second -- what the rest compose next hears it already, and the
-       whole chain played again for every value of a drag is more than the
-       drag is worth. */
+       ahead is composed again for one, and not more often than
+       PASSING_EVERY_SEC -- what the rest compose next hears it already,
+       and the whole chain played again for every value of a drag is more
+       than the drag is worth. */
     void recompose (size_t chain, bool passing = false);
 
     /* A gesture on a stage's picture, into its instance now. */

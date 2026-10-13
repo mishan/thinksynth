@@ -1235,11 +1235,6 @@ thcScheduler::hear (thcStage *stage, const char *target,
         stage->chain >= chains_.size())
         return -1;
 
-    stage->unwritten = true;
-
-    if (catchingUp_)
-        return -1;
-
     const thcChain &c = chains_[stage->chain];
     const thcInstrument *mine = NULL;
     int channel = -1;
@@ -1254,6 +1249,11 @@ thcScheduler::hear (thcStage *stage, const char *target,
     thcAuditioner::Instrument candidate;
 
     if (mine == NULL || !auditionInstrument(*mine, candidate))
+        return -1;
+
+    stage->unwritten = true;
+
+    if (catchingUp_)
         return -1;
 
     /* Where each value lands live: every chanarg sink on that channel
@@ -3963,7 +3963,7 @@ thcScheduler::catchUp (size_t chain)
 
         const double next = s->plugin->tick(s->state, &t, &sink);
 
-        /* What it would have heard can't be heard again now: it starts
+        /* What it would have heard cannot be heard again now: it starts
            from now instead, as made, with nothing it composed here. */
         if (s->unwritten)
         {
@@ -5058,9 +5058,13 @@ thcScheduler::reset (void)
         }
     }
 
+    /* Each stage is what its text says again, painted on or not. */
     for (size_t ci = 0; ci < chains_.size(); ci++)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
+        {
+            chains_[ci].stages[si]->unwritten = false;
             remake(ci, si);
+        }
 
     sigReset.emit();
 }
