@@ -206,8 +206,10 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         /* Its own keys, which a screen reader passes through, and the
            track by its number and what is on it. */
         t.area->set_focusable(true);
+#if GTK_CHECK_VERSION(4, 14, 0)
         t.area->property_accessible_role() =
             Gtk::Accessible::Role::APPLICATION;
+#endif
         nameAs(*t.area, "Track " + std::to_string(i + 1) + ": " + t.name);
         gtk_accessible_update_property(
             GTK_ACCESSIBLE(t.area->gobj()),
@@ -335,9 +337,7 @@ SeqView::rowsOf (const Track &t) const
     if (p < 0)
         return 1;
 
-    const int rows = (int)(s->params.get(p) + 0.5);
-
-    return rows < 1 ? 1 : rows;
+    return std::max(1, std::min(32, (int)s->params.get(p)));
 }
 
 /* The name the piece gave the instrument on the channel, or the patch
@@ -459,7 +459,8 @@ SeqView::draw (size_t i, const Cairo::RefPtr<Cairo::Context> &cr, int w,
         const double cw = (double)w / stepsOf(t);
         const double ch = (double)h / rowsOf(t);
 
-        cr->rectangle(t.curStep * cw + 1.5, t.curRow * ch + 1.5,
+        cr->rectangle(std::min(t.curStep, stepsOf(t) - 1) * cw + 1.5,
+                      std::min(t.curRow, rowsOf(t) - 1) * ch + 1.5,
                       cw - 3, ch - 3);
         cr->set_line_width(3);
         cr->set_source_rgb(0, 0, 0);
@@ -479,9 +480,9 @@ SeqView::stepsOf (const Track &t) const
     if (p < 0)
         return 16;
 
-    const int steps = (int)(s->params.get(p) + 0.5);
-
-    return steps < 1 ? 1 : steps;
+    /* Cut and held in range as the grid does (grid.cpp), so a gesture's
+       columns are the grid's. */
+    return std::max(1, std::min(64, (int)s->params.get(p)));
 }
 
 std::string
@@ -520,63 +521,66 @@ SeqView::trackSaid (size_t i) const
     const Track &t = tracks_[i];
     const thcStage *s = stageOf(t);
     const std::vector<std::string> rows = rowsIn(trackCells(i));
-    const std::string row = t.curRow < (int)rows.size() ? rows[t.curRow] : "";
-    const char c = t.curStep < (int)row.size() ? row[t.curStep] : '.';
+
+    /* The cursor as far in as the grid now goes, which a knob can shrink
+       under it. */
+    const int row = std::min(t.curRow, rowsOf(t) - 1);
+    const int step = std::min(t.curStep, stepsOf(t) - 1);
+    const std::string cells = row < (int)rows.size() ? rows[row] : "";
+    const char c = step < (int)cells.size() ? cells[step] : '.';
 
     /* The row's pitch, from the grid's ladder climbing from the bottom an
        octave each time round (grid.cpp, noteOf), as a reader says it. */
-    std::string pitch = "row " + std::to_string(t.curRow + 1);
+    std::string pitch = "row " + std::to_string(row + 1);
     const int np = s == NULL ? -1 : s->plugin->paramIndex("notes");
 
     if (np >= 0)
     {
-        /* In names, or in numbers, which is how a noteset is held. */
-        const std::string text = s->params.getString(np);
+        /* As the grid reads it (grid.cpp, parseLadder): numbers, kept
+           only on the MIDI range, and middle C for none. */
         std::vector<int> ladder;
-        std::string bad;
+        const std::string text = s->params.getString(np);
 
-        if (!thcGenLoader::parseNoteList(text, ladder, bad))
+        for (const char *p = text.c_str(); *p != '\0';)
         {
-            ladder.clear();
+            char *end;
+            const long n = strtol(p, &end, 10);
 
-            for (const char *p = text.c_str(); *p != '\0';)
-            {
-                char *end;
-                const long n = strtol(p, &end, 10);
+            if (end == p)
+                break;
 
-                if (end == p)
-                    p++;
-                else
-                {
-                    ladder.push_back((int)n);
-                    p = end;
-                }
-            }
+            if (n >= 0 && n <= 127)
+                ladder.push_back((int)n);
+
+            p = *end == ',' ? end + 1 : end;
         }
 
-        if (!ladder.empty())
-        {
-            const int y = rowsOf(t) - 1 - t.curRow;
-            std::string n = thcGenLoader::noteName(
-                ladder[y % ladder.size()] + 12 * (y / ladder.size()));
+        if (ladder.empty())
+            ladder.push_back(60);
 
-            if (n.size() > 2 && n[1] == 'b')
-                n = n.substr(0, 1) + " flat " + n.substr(2);
+        const int y = rowsOf(t) - 1 - row;
+        const int n = (int)ladder.size();
+        std::string name = thcGenLoader::noteName(
+            ladder[y % n] + 12 * (y / n));
 
-            pitch = n;
-        }
+        if (name.size() > 2 && name[1] == 'b')
+            name = name.substr(0, 1) + " flat " + name.substr(2);
+
+        /* Above the MIDI range a row plays nothing, and has no name. */
+        if (!name.empty())
+            pitch = name;
     }
 
     int held = 1;
 
-    while ((c == 'x' || c == 'X') && t.curStep + held < (int)row.size() &&
-           row[t.curStep + held] == '-')
+    while ((c == 'x' || c == 'X') && step + held < (int)cells.size() &&
+           cells[step + held] == '-')
         held++;
 
     const std::string what = c == 'x' ? "note" : c == 'X' ? "accent"
                            : c == '-' ? "held" : "empty";
 
-    return pitch + ", step " + std::to_string(t.curStep + 1) + ": " + what +
+    return pitch + ", step " + std::to_string(step + 1) + ": " + what +
            (held > 1 ? ", held " + std::to_string(held) + " steps" : "");
 }
 
@@ -615,6 +619,10 @@ SeqView::key (size_t i, guint keyval, Gdk::ModifierType state)
     Track &t = tracks_[i];
     const int rows = rowsOf(t);
     const int steps = stepsOf(t);
+
+    t.curRow = std::min(t.curRow, rows - 1);
+    t.curStep = std::min(t.curStep, steps - 1);
+
     const bool shift = (state & Gdk::ModifierType::SHIFT_MASK) !=
                        Gdk::ModifierType(0);
     const std::vector<std::string> grid = rowsIn(trackCells(i));
@@ -686,10 +694,12 @@ SeqView::key (size_t i, guint keyval, Gdk::ModifierType state)
             return false;
     }
 
+#if GTK_CHECK_VERSION(4, 14, 0)
     const std::string said = trackSaid(i);
 
     gtk_accessible_announce(GTK_ACCESSIBLE(t.area->gobj()), said.c_str(),
                             GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
+#endif
     t.area->queue_draw();
     return true;
 }

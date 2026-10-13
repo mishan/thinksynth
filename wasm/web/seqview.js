@@ -42,7 +42,6 @@
  * arithmetic. That is what keeps one tape.
  */
 
-import { noteName } from './keyboard.js';
 import { replay } from './replay.js';
 
 /* A row of the grid, in CSS pixels, and what a track may be at its
@@ -168,29 +167,44 @@ const gridOf = (text, rows, steps) =>
         Array.from({ length: steps }, (_, s) => read[r]?.[s] ?? '.'));
 };
 
-/* The pitch of each row, top first, from the grid's `notes': a ladder,
-   in numbers or names, that the rows climb from the bottom, an octave up
-   each time round it (grid.cpp, noteOf). */
+/* The pitch of each row, top first, from the grid's `notes' as the grid
+   reads it (grid.cpp, parseLadder: numbers, only on the MIDI range, and
+   middle C for none), climbing from the bottom an octave each time round
+   it (noteOf). null for a row above the range, which plays nothing. */
 const pitchesOf = (text, rows) =>
 {
-    const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-    const ladder = (text ?? '').split(/[\s,]+/).map((t) =>
-    {
-        const m = /^([A-G])([#b]?)(-?\d+)$/.exec(t);
+    const ladder = [];
 
-        return m === null ? Number(t)
-            : STEP[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) +
-              12 * (Number(m[3]) + 1);
-    }).filter(Number.isFinite);
+    for (const t of (text ?? '').split(','))
+    {
+        const n = parseInt(t, 10);
+
+        if (Number.isNaN(n))
+            break;
+
+        if (n >= 0 && n <= 127)
+            ladder.push(n);
+    }
+
+    if (ladder.length === 0)
+        ladder.push(60);
 
     return Array.from({ length: rows }, (_, r) =>
     {
         const y = rows - 1 - r;
+        const p = ladder[y % ladder.length] + 12 * Math.floor(y / ladder.length);
 
-        return ladder.length === 0 ? null
-            : ladder[y % ladder.length] + 12 * Math.floor(y / ladder.length);
+        return p <= 127 ? p : null;
     });
 };
+
+/* A pitch as it is said: in flats, as a piece spells them
+   (thcGenLoader::noteName), and "E flat 4", which a reader says right,
+   rather than "Eb4". */
+const FLATS = ['C', 'D flat ', 'D', 'E flat ', 'E', 'F', 'G flat ', 'G',
+               'A flat ', 'A', 'B flat ', 'B'];
+
+const spoken = (p) => FLATS[p % 12] + (Math.floor(p / 12) - 1);
 
 export function createSeqView ({ root = document, toMirror, onGesture,
                                  describeChannel = () => '',
@@ -268,7 +282,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                                channel: chain.channel,
                                rows: 1, rowsParam: -1,
                                steps: 16, grid: [[]], pitches: [null],
-                               cursor: { r: 0, s: 0 }, mine: 0,
+                               cursor: { r: 0, s: 0 },
+                               text: '', sent: null,
                                canvas: null, ctx: null, mark: null,
                                w: 0, h: 0, dpr: 0 });
 
@@ -439,7 +454,10 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             send(DRAG, s);
 
         send(RELEASE, through.at(-1) ?? from);
-        track.mine = performance.now();
+
+        /* Until the cells read differently from this, the edit has not
+           landed, and what is said is the grid as it will be. */
+        track.sent ??= track.text;
     };
 
     /* How many steps the note at a cell holds: itself and its ties. */
@@ -461,10 +479,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
         const pitch = track.pitches[r];
         const n = c === 'x' || c === 'X' ? held(row, s) : 1;
 
-        /* "C#4" is read "C number 4" by some screen readers. */
         told.textContent =
-            `${pitch === null ? `row ${r + 1}`
-                              : noteName(pitch).replace('#', ' sharp ')}, ` +
+            `${pitch === null ? `row ${r + 1}` : spoken(pitch)}, ` +
             `step ${s + 1}: ${SAID[c] ?? 'empty'}` +
             (n > 1 ? `, held ${n} steps` : '');
     };
@@ -499,7 +515,12 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             at.s = Math.max(0, Math.min(track.steps - 1, s));
         };
 
-        switch (e.shiftKey ? `Shift+${e.key}` : e.key)
+        /* Shift is a hold only on Left and Right; on anything else it is
+           the key alone, as on the desktop. */
+        const hold = e.shiftKey &&
+                     (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+
+        switch (hold ? `Shift+${e.key}` : e.key)
         {
             case 'ArrowLeft':  go(at.r, at.s - 1); break;
             case 'ArrowRight': go(at.r, at.s + 1); break;
@@ -685,21 +706,29 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 const param = (name) => m.params.find((x) => x.name === name);
 
                 track.rowsParam = p;
-                track.rows = p < 0
-                    ? 1 : Math.max(1, Math.round(m.params[p].value));
-                track.steps = Math.max(1,
-                    Math.round(param('steps')?.value ?? 16));
+                /* Cut and held in range as the grid does (grid.cpp), so a
+                   gesture's columns and rows are the grid's. */
+                track.rows = p < 0 ? 1
+                    : Math.max(1, Math.min(32, Math.trunc(m.params[p].value)));
+                track.steps = Math.max(1, Math.min(64,
+                    Math.trunc(param('steps')?.value ?? 16)));
                 track.pitches = pitchesOf(param('notes')?.text, track.rows);
 
-                /* The cells as written, except just after an edit of this
-                   page's own: that lands at its time, and until then the
-                   text is the grid before it. */
-                if (performance.now() - track.mine > 2000)
-                    track.grid = gridOf(param('cells')?.text, track.rows,
-                                        track.steps);
+                /* The cells as written, except while an edit from the keys
+                   has not landed: it does at its time, and until the text
+                   moves the grid said is the one it will be. */
+                const text = param('cells')?.text ?? '';
+
+                if (text !== track.sent)
+                {
+                    track.sent = null;
+                    track.text = text;
+                    track.grid = gridOf(text, track.rows, track.steps);
+                }
 
                 track.cursor.r = Math.min(track.cursor.r, track.rows - 1);
                 track.cursor.s = Math.min(track.cursor.s, track.steps - 1);
+                place(track);
 
                 onMeasure();
                 return true;
