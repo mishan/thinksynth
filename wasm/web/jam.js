@@ -3000,7 +3000,7 @@ function init ()
         note: $('chatnote'), self: () => room?.peer,
         send: (text, n) => room.chat(text, n,
                                      barBeat(lastTape, transportNow())),
-        colorOf: (name) => colourOf(name).color,
+        colorOf: (name) => colourOf(name).text,
         visible: () => panes.visible('chat'),
         title: (text) =>
         {

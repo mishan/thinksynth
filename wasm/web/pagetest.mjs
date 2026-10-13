@@ -292,6 +292,30 @@ try
     check(axe.length === 0, 'axe finds nothing wrong with the started page' +
           axe.map((f) => `\n      ${f}`).join(''));
 
+    await page.emulateMedia({ colorScheme: 'dark' });
+
+    const dark = await axeFindings(page, ['#evolve']);
+
+    await page.emulateMedia({ colorScheme: 'light' });
+    check(dark.length === 0, 'and nothing in the dark scheme either' +
+          dark.map((f) => `\n      ${f}`).join(''));
+
+    /* A desktop zoomed to 200% is a phone's width; what it is told, and
+       what it can set, stays on the page. */
+    const wide = page.viewportSize();
+
+    await page.setViewportSize({ width: 600, height: wide.height });
+
+    const kept = await page.evaluate(() =>
+        ['#keysstate', '#midistatus', 'label:has(#rollbychain)']
+            .map((s) => getComputedStyle(document.querySelector(s)).display)
+            .join());
+
+    await page.setViewportSize(wide);
+    check(!kept.includes('none'),
+          'and at a desktop\'s 200%, its statuses and the hints with a ' +
+          `control in them are still shown: ${kept}`);
+
     /* ---- the sequencer, in the document ---- */
 
     /* The mode the page opens on, and the pane it opens on, untiled.
