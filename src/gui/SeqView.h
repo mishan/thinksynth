@@ -111,6 +111,17 @@ public:
        of a gesture is signal_edited's to announce. */
     void input (size_t i, int type, double x, double y, int button);
 
+    /* A key on track `i', as the track's key controller has it: the
+       cursor moved, or a gesture at its cell. True if it was the track's.
+       What a harness presses with, too. */
+    bool key (size_t i, guint keyval, Gdk::ModifierType state);
+
+    /* Track `i''s cells as the grid writes them, "" out of range. */
+    std::string trackCells (size_t i) const;
+
+    /* What track `i' says of its cursor's cell: "C4, step 5: note". */
+    std::string trackSaid (size_t i) const;
+
     /* A gesture on a track has ended: the stage at doc chain `chain',
        doc stage `stage' was edited. */
     sigc::signal<void (size_t, size_t)> &signal_edited (void)
@@ -134,6 +145,8 @@ protected:
 
         int rows;               /* what the height was last fitted to   */
         int button;             /* the press's, while a drag is on      */
+        int curRow = 0;         /* the keys' cell, the top row 0        */
+        int curStep = 0;
     };
 
     thcStage *stageOf (const Track &t) const;
@@ -141,6 +154,12 @@ protected:
     /* The height a track wants for `rows' rows of its grid. */
     static int heightFor (int rows);
     int rowsOf (const Track &t) const;
+    int stepsOf (const Track &t) const;
+
+    /* A press at step `from' of row `row', a drag through `through', and
+       a release at the last of them, at the cells' middles. */
+    void gesture (size_t i, int button, int row, int from,
+                  const std::vector<int> &through);
 
     /* What is on a track's channel, in the words its heading wants. */
     std::string describe (const Track &t) const;

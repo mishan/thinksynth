@@ -1670,7 +1670,7 @@ runSequencer (const std::string &pluginPath)
     Gtk::DrawingArea *line = seq.trackArea(1);
 
     if (drum != NULL && line != NULL &&
-        drum->get_content_height() == 26 && line->get_content_height() == 108)
+        drum->get_content_height() == 26 && line->get_content_height() == 144)
         ok("a one-row grid is a strip and a six-row one is six rows tall");
     else
         fail("a one-row grid is a strip and a six-row one is six rows tall");
@@ -1730,7 +1730,7 @@ runSequencer (const std::string &pluginPath)
         stage->params.set(stage->plugin->paramIndex("rows"), 3);
         seq.tick();
 
-        if (line->get_content_height() == 54)
+        if (line->get_content_height() == 72)
             ok("a track follows its grid's rows as they change");
         else
             fail("a track follows its grid's rows as they change");
@@ -2655,7 +2655,7 @@ runDocuments (const std::string &pluginPath)
     check(chainText(readAll(win->workPath_), "tall").find("rows") ==
               std::string::npos &&
           seq.trackArea(3) != NULL &&
-          seq.trackArea(3)->get_content_height() == 8 * 18,
+          seq.trackArea(3)->get_content_height() == 8 * 24,
           "...and it keeps the eight rows it has");
 
     /* A note drawn on the drum, never written down, and the document put
