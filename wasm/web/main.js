@@ -1813,12 +1813,12 @@ async function freezeChain (chain, chainName)
  */
 const band = createBand({
     piece: () => piece,
-    params: (p, edits) =>
+    params: (p, edits, passing = false) =>
     {
         for (const e of edits)
             synth?.param({ at: -1, chain: p.index, stage: e.stage,
                            row: e.row, text: e.text, chainName: p.name,
-                           stageName: e.stageName });
+                           stageName: e.stageName, passing });
     },
     /* Resolves to whether the take went in. */
     vary: async (p, seed) =>

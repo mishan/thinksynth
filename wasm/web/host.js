@@ -993,9 +993,9 @@ export async function createSynth (ctx, { windowlen = 128,
          * and `text' is the part of the line the person touched; every
          * instance completes it against the piece it holds. */
         param: ({ at = -1, chain, stage, chainName, stageName, row, text,
-                  rev }) =>
+                  rev, passing = false }) =>
             post({ type: 'param', at, chain, stage, chainName, stageName, row,
-                   text, rev }),
+                   text, rev, passing }),
 
         /* A chain's live mute or solo, at a transport time or -1 for the
            next window. Not written into the piece. */

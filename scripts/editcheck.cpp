@@ -31,11 +31,13 @@
  *      failure below is the edit's and not the piece's.
  *   1. The two peers deliver one tape, through every edit.
  *   2. The channels only unedited chains play on deliver the tape of a run
- *      with no edits at all: a stage whose text did not change kept its
- *      instance, its wake and its state, whatever happened around it.
- *   3. The added chain is heard from its edit on and not before, and is
- *      silent once it is taken away -- apart from what it had already
- *      composed, which is delivered as composed.
+ *      with no edits at all: a chain whose text did not change kept its
+ *      instances, their wakes and their state, whatever happened around
+ *      it. And from B on, the edited chain's channels play what B's text
+ *      loaded from the top plays, as the added chain's does from C on:
+ *      a chain an edit builds comes in where it would have been.
+ *   3. The added chain is not heard before its edit, and is silent once
+ *      it is taken away.
  *   4. A rewind after the edits plays what a fresh load of the final text
  *      plays: the document is the new text, and a rewind is a load.
  *   5. A knob whose declaration an edit did not touch keeps the value it
@@ -96,10 +98,6 @@ static const double EDIT_B = 13.77;
 static const double EDIT_C = 21.13;
 static const double EDIT_D = 33.91;
 static const double SECONDS = 60;
-
-/* How long the added chain may go on being heard after it is taken away:
-   what it had queued before then. */
-static const double QUEUED_FOR = 20;
 
 /* The channel the added chain plays on, engine numbering. */
 static const int ADDED_CHANNEL = 15;
@@ -233,6 +231,22 @@ onChannels (const std::string &tape, const std::set<int> &keep)
 
     for (const std::string &l : lines(tape))
         if (keep.count(channelOf(l)))
+            out += l + "\n";
+
+    return out;
+}
+
+/* The notes on the channels in `keep' struck in [from, to). Not the offs:
+   one for a note struck before `from' is a different note in each run. */
+static std::string
+notesBetween (const std::string &tape, const std::set<int> &keep,
+              double from, double to)
+{
+    std::string out;
+
+    for (const std::string &l : lines(tape))
+        if (l[0] == 'N' && keep.count(channelOf(l)) && timeOf(l) >= from &&
+            timeOf(l) < to)
             out += l + "\n";
 
     return out;
@@ -683,9 +697,9 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
 
         if (t < EDIT_C)
             before++;
-        else if (t < EDIT_D + QUEUED_FOR)
+        else if (t < EDIT_D)
             during++;
-        else
+        else if (l[0] == 'N')
             after++;
     }
 
@@ -694,20 +708,50 @@ checkPiece (const std::map<std::string, thcPlugin *> &plugins,
              " times before it was added and " + std::to_string(after) +
              " times after it was taken away");
 
-    /* Heard, if it is heard at all: loaded from the top, over as long as
-       it was in the edited run, does the chain make a sound? A copy of a
-       generator that waits for input, or whose first note is further off
-       than that, is silent in both. */
-    if (during == 0)
+    /* 2, the chains the edits built, against their texts loaded from the
+       top. Not an edited chain with nodes: an edit leaves those where
+       they were rather than playing them up to it. */
+    auto fromTop = [&](const std::string &t, double seconds)
     {
-        Peer alone(plugins, pluginDir, dir, "alone");
+        Peer top(plugins, pluginDir, dir, "top");
 
-        alone.load(c, errors);
-        play(alone, piece, {}, EDIT_D - EDIT_C, [] { return 1024.0 / 44100; });
+        top.load(t, errors);
+        play(top, piece, {}, seconds, [] { return 1024.0 / 44100; });
 
-        if (!onChannels(alone.tape, { ADDED_CHANNEL }).empty())
-            fail(piece, "the added chain was never heard, and it is when "
-                 "the text is loaded from the top");
+        return top.tape;
+    };
+
+    bool nodes = false;
+
+    for (size_t i = 0; i < base.sched.chainCount(); i++)
+        if (base.sched.chain(i)->name == edChain.name)
+            nodes = base.sched.chain(i)->nodes != nullptr;
+
+    if (!nodes)
+    {
+        const std::string top = fromTop(b, EDIT_C);
+        const std::string want = notesBetween(top, editedChannels, EDIT_B,
+                                              EDIT_C);
+        const std::string got = notesBetween(P.tape, editedChannels, EDIT_B,
+                                             EDIT_C);
+
+        if (got != want)
+            fail(piece, "from its edit on, the edited chain did not play "
+                 "what its text plays from the top: " +
+                 firstDifference(want, got));
+    }
+
+    {
+        const std::string top = fromTop(c, EDIT_D);
+        const std::string want = notesBetween(top, { ADDED_CHANNEL },
+                                              EDIT_C, EDIT_D);
+        const std::string got = notesBetween(P.tape, { ADDED_CHANNEL },
+                                             EDIT_C, EDIT_D);
+
+        if (got != want)
+            fail(piece, "from its edit on, the added chain did not play "
+                 "what its text plays from the top: " +
+                 firstDifference(want, got));
     }
 
     /* 4. A rewind is a load of the final text. */
@@ -889,6 +933,45 @@ checkKnobsAndRefusal (const std::map<std::string, thcPlugin *> &plugins,
            errors.empty() ? "" : errors[0].c_str());
 }
 
+/* A param poked into a chain that composes ahead, and the chain composed
+   again (thcScheduler::recompose): from then on it plays what a text with
+   the new value plays from the top, not the rest of a phrase composed with
+   the old one. */
+static void
+checkRecompose (const std::map<std::string, thcPlugin *> &plugins,
+                const std::string &pluginDir, const std::filesystem::path &dir)
+{
+    const double at = 5.3, until = 12;
+    auto text = [](int vel)
+    {
+        return "tempo 120;\nchain a {\n    stage src gen::lsystem { "
+               "axiom = \"FFFFFFFFFFFFFFFF\"; depth = 0; notes = \"C4 D4 "
+               "E4\"; step = 0.5 beats; hold = 0.25 beats; vel = " +
+               std::to_string(vel) + "; };\n    sink { channel = 1; };\n"
+               "};\n";
+    };
+    std::vector<std::string> errors;
+    Peer p(plugins, pluginDir, dir, "r"), top(plugins, pluginDir, dir, "rt");
+
+    p.load(text(100), errors);
+    top.load(text(50), errors);
+    play(top, "recompose", {}, until, [] { return 1024.0 / 44100; });
+    play(p, "recompose", {}, at, [] { return 1024.0 / 44100; });
+
+    p.sched.chain(0)->stages[0]->params.set("vel", 50);
+    p.sched.recompose(0);
+    play(p, "recompose", {}, until, [] { return 1024.0 / 44100; });
+
+    const std::string want = notesBetween(top.tape, { 0 }, at, until);
+    const std::string got = notesBetween(p.tape, { 0 }, at, until);
+
+    if (want.empty() || got != want)
+        fail("recompose", "a param poked into a phrase is not heard from "
+             "then on: " + firstDifference(want, got));
+    else
+        printf("ok    a param poked into a phrase is heard from then on\n");
+}
+
 /* A device that answers to every name and remembers which channel each
    attach asked for. */
 struct StubMidiOut : public thcMidiOut
@@ -916,6 +999,15 @@ smallChain (const std::string &name, int channel, const std::string &extra)
            "notes = \"C3\"; period = 1 beats; hold = 0.25 beats; "
            "vel = 100; };\n"
            "    sink { channel = " + std::to_string(channel) + "; };\n};\n";
+}
+
+/* A chain riding @k through `values', two seconds a step at 120. */
+static std::string
+rider (const std::string &values)
+{
+    return "chain w {\n    stage s gen::steps { values = \"" + values +
+           "\"; period = 4 beats; min = 0; max = 16; };\n"
+           "    sink { knob = @k; };\n};\n";
 }
 
 static std::string
@@ -1040,6 +1132,20 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
                                        " s, not 4";
 
               return std::string("it never played");
+          } },
+        { "a knob a rebuilt chain writes is where the new text has it",
+          head + rider("0.1 0.2 0.3 0.4"), head + rider("0.5 0.6 0.7 0.8"),
+          5.01, nullptr,
+          [](Peer &p)
+          {
+              p.stepTo(5.02);
+
+              const float k = (*p.sched.knob("k"))[0];
+
+              return std::fabs(k - 0.7f * 16) < 1e-3
+                         ? std::string()
+                         : "@k is " + std::to_string(k) + ", not " +
+                               std::to_string(0.7 * 16);
           } },
         { "a chain keeps what it was heard to play", head + late,
           "# a comment\n" + head + late, 6.01, nullptr,
@@ -1280,6 +1386,7 @@ main (int argc, char *argv[])
                std::filesystem::path(genDir) / "orrery.gen",
                std::filesystem::path(genDir) / "airports.gen");
     checkCases(plugins, pluginDir, dir);
+    checkRecompose(plugins, pluginDir, dir);
 
     std::error_code ec;
 

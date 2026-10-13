@@ -1211,12 +1211,18 @@ public:
     /* ---- an edit while playing ----
      *
      * A new text for the piece, applied at one transport time on every
-     * peer. What it keeps is decided by name: a stage whose chain and
-     * stage names are the same in both texts, and whose text did not
-     * change, keeps its instance -- its state, its wake, its bindings --
-     * and everything else is built from the new text, with the seed the
-     * new text gives it. thcGenDiff decides which stages those are; this
-     * is the mechanism.
+     * peer. What it keeps is decided by name: a chain whose stages all
+     * keep their chain and stage names in both texts, and whose text did
+     * not change, keeps its instances -- their state, their wakes, their
+     * bindings -- and everything else is built from the new text, with
+     * the seed the new text gives it. thcGenDiff decides which stages
+     * those are; this is the mechanism.
+     *
+     * A chain built again is played from its start up to the edit
+     * without a sound, and what the chain it replaces had composed for
+     * after the edit is not played: from the edit on, it plays what the
+     * new text loaded from the top would. A chain taken away is silent
+     * from the edit on.
      *
      * Two schedulers, because the new text has to be read before
      * anything is taken away: a text that does not load changes nothing.
@@ -1231,12 +1237,12 @@ public:
      *
      * A staged scheduler touches no channel: its instruments are
      * recorded and not loaded, and adopt() loads the ones that changed.
-     * It builds its stages at the live transport's time, so a new
-     * generator's first wake is the edit's time or its chain's start,
-     * whichever is later. And its knobs are the live ones, by name, so a
-     * kept stage's binding and a new stage's binding are the same knob;
-     * a knob whose declaration did not change keeps the value it has,
-     * and one whose declaration did takes the new text's.
+     * It builds its stages at the live transport's time, so a chain
+     * that starts after the edit waits for its start. And its knobs are
+     * the live ones, by name, so a kept stage's binding and a new
+     * stage's binding are the same knob; a knob whose declaration did
+     * not change keeps the value it has, and one whose declaration did
+     * takes the new text's.
      */
     void prepareEdit (thcScheduler &next,
                       const std::set<std::string> &keepKnobValues);
@@ -1340,6 +1346,23 @@ public:
        there; chanargs and structure edits on the way are applied. Keeps
        playing if it was, and otherwise waits at `t'. */
     void seek (double t);
+
+    /* `chain' composed again from what it now says, as an edit builds a
+       chain again: its instances made again from their stores, played
+       silently from its start up to now, and what it had composed for
+       after now not played. So a param set while it plays is heard now
+       rather than when the chain's next phrase begins, and a chain set
+       back to what it said plays what it played. Done before the
+       transport next moves, once however many of the chain's params were
+       set meanwhile. Not a chain with nodes, or one played from a
+       keyboard.
+
+       `passing': a value a gesture passes through on its way to the one
+       it ends on. Only a chain that has composed further than a beat
+       ahead is composed again for one -- what the rest compose next hears
+       it already, and the whole chain played again for every value of a
+       drag is more than the drag is worth. */
+    void recompose (size_t chain, bool passing = false);
 
     /* MIDI clock from where the transport is: Start at the top, or Song
        Position and Continue. For a host that kept the clock from its
@@ -1453,6 +1476,14 @@ private:
        nodes, the deliveries and the offs, in that order. */
     void runStep (void);
     void runDueTicks (double now);
+
+    /* A chain made again while the piece plays, played silently from its
+       start up to now: see adopt(). */
+    void catchUp (size_t chain);
+    void remake (size_t chain, size_t stage);
+    void recomposeMarked (void);
+    void composeAgain (size_t chain, bool passing);
+
     void deliverDue (double now);
     void sendDueNoteOffs (double now);
     void propagate (thcChain &c, size_t fromStage, const thcEvent &ev);
@@ -1871,7 +1902,16 @@ private:
     int deliveringChain_;
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
+    bool catchingUp_ = false;  /* catchUp(): what is due before now goes */
+
+    /* What catchUp() delivers now: the last value or edit it composed
+       before now for each target. */
+    std::map<std::string, Pending> caughtUp_;
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
+
+    /* recompose()'s chains, each with whether only values passing by
+       asked for it. */
+    std::map<size_t, bool> recompose_;
 
 #ifdef __EMSCRIPTEN__
     bool localEar_ = false;

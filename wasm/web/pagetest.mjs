@@ -3700,6 +3700,17 @@ try
               '...a drawn player\'s pad puts a chance, a ratchet and a ' +
               'vary behind its grid and moves them, the cells as drawn');
 
+        await pad.focus();
+        await page.keyboard.press('Home');
+        const home = await until(chainOf, (t) =>
+            /xform::ratchet[^}]*prob = 0;/.test(t) &&
+            /xform::vary[^}]*leap = 0;/.test(t));
+
+        check(/xform::chance[^}]*prob = 1;/.test(home) &&
+              /xform::ratchet[^}]*prob = 0;/.test(home) &&
+              /xform::vary[^}]*leap = 0;/.test(home),
+              '...and Home puts what it moved back as written');
+
         /* A drum is loosened in time and touch, not pitch. */
         const kick = page.locator('.player[data-chain="drums_kick"] .bandpad');
 

@@ -281,13 +281,15 @@ export function apply (M, m, host = NOWHERE)
             if (m.chainName && m.stageName)
                 M.ccall('tw_param_named', null,
                         ['number', 'string', 'string', 'number', 'number',
-                         'string', 'string'],
+                         'string', 'string', 'number'],
                         [m.at ?? -1, m.chainName, m.stageName, m.chain,
-                         m.stage, m.row, m.text]);
+                         m.stage, m.row, m.text, m.passing ? 1 : 0]);
             else
                 M.ccall('tw_param', null,
-                        ['number', 'number', 'number', 'string', 'string'],
-                        [m.at ?? -1, m.chain, m.stage, m.row, m.text]);
+                        ['number', 'number', 'number', 'string', 'string',
+                         'number'],
+                        [m.at ?? -1, m.chain, m.stage, m.row, m.text,
+                         m.passing ? 1 : 0]);
 
             return true;
 
