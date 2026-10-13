@@ -654,6 +654,66 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(seq.trackChooser(0) != NULL && seq.trackDsp(3) == "ebass.dsp",
           "...each with a button for the graph that plays it");
 
+    /* A track from the keys: its cursor walks to the last step, puts a
+       note there, accents it, clears it, and holds a note a step longer
+       and back; each lands in the grid and is said. The Rhodes, whose
+       ladder names its rows. */
+    {
+        const Gdk::ModifierType none = Gdk::ModifierType(0);
+        const Gdk::ModifierType shift = Gdk::ModifierType::SHIFT_MASK;
+        const std::string was = seq.trackCells(4);
+        auto count = [](const std::string &s, char c)
+        { return std::count(s.begin(), s.end(), c); };
+
+        seq.key(4, GDK_KEY_End, none);
+
+        const std::string atEnd = seq.trackSaid(4);
+
+        seq.key(4, GDK_KEY_Return, none);
+
+        const std::string one = seq.trackSaid(4);
+        const std::string noted = seq.trackCells(4);
+
+        seq.key(4, GDK_KEY_Return, none);
+
+        const std::string two = seq.trackSaid(4);
+
+        seq.key(4, GDK_KEY_Delete, none);
+
+        const std::string three = seq.trackSaid(4);
+        const std::string cleared = seq.trackCells(4);
+
+        seq.key(4, GDK_KEY_Left, none);
+        seq.key(4, GDK_KEY_Return, none);
+        seq.key(4, GDK_KEY_Right, shift);
+
+        const std::string longer = seq.trackSaid(4);
+        const long ties = count(seq.trackCells(4), '-');
+
+        seq.key(4, GDK_KEY_Left, shift);
+
+        const std::string shorter = seq.trackSaid(4);
+        const long untied = count(seq.trackCells(4), '-');
+
+        seq.key(4, GDK_KEY_Delete, none);
+        pump(4);
+
+        printf("      %s | %s | %s | %s | %s | %s\n", atEnd.c_str(),
+               one.c_str(), two.c_str(), three.c_str(), longer.c_str(),
+               shorter.c_str());
+        check(atEnd.find("step 16: empty") != std::string::npos &&
+              count(noted, 'x') == count(was, 'x') + 1 &&
+              two.find(": accent") != std::string::npos &&
+              cleared == was && three.find(": empty") != std::string::npos &&
+              ties == count(was, '-') + 1 &&
+              longer.find("held 2 steps") != std::string::npos &&
+              untied == count(was, '-') &&
+              shorter.find("step 15: note") != std::string::npos &&
+              seq.trackCells(4) == was,
+              "a track's keys place, accent, clear and hold a note, in the "
+              "grid and aloud");
+    }
+
     check(win->chan_ == seq.trackChannel(4),
           "...and the keys on the last track's channel");
 

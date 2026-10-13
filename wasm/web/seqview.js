@@ -42,13 +42,14 @@
  * arithmetic. That is what keeps one tape.
  */
 
+import { noteName } from './keyboard.js';
 import { replay } from './replay.js';
 
 /* A row of the grid, in CSS pixels, and what a track may be at its
    shortest and tallest. A drum track is one row and a keys track is
    eight; both want to be hittable without either running the pane off
-   the screen. */
-const ROW = 18;
+   the screen. 24 is the smallest target WCAG 2.5.8 allows. */
+const ROW = 24;
 const MIN_H = 26;
 const MAX_H = 240;
 
@@ -154,6 +155,43 @@ export function gestureOn (canvas, send)
     };
 }
 
+/* What a cell of a grid is, as the `cells' param writes it: off, a note,
+   an accent, and a tie that holds the note before it on. */
+const SAID = { '.': 'empty', 'x': 'note', 'X': 'accent', '-': 'held' };
+
+/* `cells' as rows of characters, the top row first, as the param has it. */
+const gridOf = (text, rows, steps) =>
+{
+    const read = (text ?? '').replace(/[| ]/g, '').split('/');
+
+    return Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: steps }, (_, s) => read[r]?.[s] ?? '.'));
+};
+
+/* The pitch of each row, top first, from the grid's `notes': a ladder,
+   in numbers or names, that the rows climb from the bottom, an octave up
+   each time round it (grid.cpp, noteOf). */
+const pitchesOf = (text, rows) =>
+{
+    const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+    const ladder = (text ?? '').split(/[\s,]+/).map((t) =>
+    {
+        const m = /^([A-G])([#b]?)(-?\d+)$/.exec(t);
+
+        return m === null ? Number(t)
+            : STEP[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) +
+              12 * (Number(m[3]) + 1);
+    }).filter(Number.isFinite);
+
+    return Array.from({ length: rows }, (_, r) =>
+    {
+        const y = rows - 1 - r;
+
+        return ladder.length === 0 ? null
+            : ladder[y % ladder.length] + 12 * Math.floor(y / ladder.length);
+    });
+};
+
 export function createSeqView ({ root = document, toMirror, onGesture,
                                  describeChannel = () => '',
                                  chooserFor = () => null,
@@ -163,6 +201,24 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     const box = $('tracks');
     const hint = $('seqhint');
+
+    /* What a track's keys say: where the cursor is and what is there,
+       after a move or an edit. Out of sight; a screen reader's. */
+    const told = document.createElement('p');
+
+    told.className = 'unseen';
+    told.setAttribute('role', 'status');
+
+    /* How a track's keys go, for every track to point at. */
+    const help = document.createElement('p');
+
+    help.className = 'unseen';
+    help.id = 'seqkeys';
+    help.textContent = 'Arrows move between cells, Home and End along ' +
+        'the row. Enter or Space puts a note in a cell, accents it, or ' +
+        'clears it; Delete erases it. Shift with Right or Left holds a ' +
+        'note a step longer or shorter.';
+    box.after(told, help);
 
     /* One per grid stage in the piece, in the piece's own order. */
     let tracks = [];
@@ -211,7 +267,9 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                                name: chain.name, label: stage.label,
                                channel: chain.channel,
                                rows: 1, rowsParam: -1,
-                               canvas: null, ctx: null,
+                               steps: 16, grid: [[]], pitches: [null],
+                               cursor: { r: 0, s: 0 }, mine: 0,
+                               canvas: null, ctx: null, mark: null,
                                w: 0, h: 0, dpr: 0 });
 
         return out;
@@ -247,9 +305,25 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             dress(track, head);
 
             const canvas = document.createElement('canvas');
+            const frame = document.createElement('div');
+            const mark = document.createElement('div');
 
             canvas.className = 'trackgrid';
             canvas.tabIndex = 0;
+
+            /* Its own keys, which a screen reader passes through, and the
+               track by its number and what is on it. */
+            canvas.setAttribute('role', 'application');
+            canvas.ariaLabel = `Track ${tracks.indexOf(track) + 1}: ` +
+                               track.name;
+            canvas.setAttribute('aria-describedby', help.id);
+
+            /* The cell the keys are on, drawn over the picture while the
+               track has the focus. */
+            frame.className = 'trackframe';
+            mark.className = 'trackcursor';
+            frame.append(canvas, mark);
+            track.mark = mark;
 
             /* A canvas with no size is 300x150, and at `width: 100%' that
                ratio made each track half the pane's width tall for the
@@ -260,8 +334,9 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             track.ctx = canvas.getContext('2d');
 
             listen(track);
+            keys(track);
 
-            row.append(head, canvas);
+            row.append(head, frame);
             box.append(row);
         }
 
@@ -313,7 +388,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
               'the steps you cover, and back to shorten it. Drag across ' +
               'empty cells to draw a run of notes' +
               (touch ? '. '
-                     : ', and use the other button to erase. ') +
+                     : ', and use the other button to erase. Or Tab to ' +
+                       'a track and use the arrows, Enter and Delete. ') +
               'What you draw goes out as a command and arrives at its ' +
               'time, here as on every peer.';
     };
@@ -333,6 +409,158 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                 button,
             }));
     };
+
+    /* ---- the keys ----
+     *
+     * A cursor on a cell, and a gesture at that cell's middle for each
+     * key, the same press and release a pointer sends: a command, so it
+     * reaches the plugin and every peer as a click does, and the grid's
+     * own rules decide what it does (grid.cpp: a press on an empty cell
+     * paints a note, a tap on a note accents it, on an accent clears it;
+     * the other button erases; a drag from a note along its row holds it).
+     * What the cell then is, is said from those rules rather than waited
+     * for, since the edit lands at its time and not at once. */
+    const middle = (track, r, s) =>
+        ({ x: (s + 0.5) * track.w / track.steps,
+           y: (r + 0.5) * track.h / track.rows });
+
+    /* A press at `from', a drag through the steps in `through', and a
+       release at the last of them. */
+    const gesture = (track, button, r, from, through = []) =>
+    {
+        const send = (kind, s) => onGesture({
+            chain: track.chain, stage: track.stage,
+            chainName: track.name, stageName: track.label, kind,
+            ...middle(track, r, s), w: track.w, h: track.h, button });
+
+        send(PRESS, from);
+
+        for (const s of through)
+            send(DRAG, s);
+
+        send(RELEASE, through.at(-1) ?? from);
+        track.mine = performance.now();
+    };
+
+    /* How many steps the note at a cell holds: itself and its ties. */
+    const held = (row, s) =>
+    {
+        let n = 1;
+
+        while (row[s + n] === '-')
+            n++;
+
+        return n;
+    };
+
+    const tell = (track) =>
+    {
+        const { r, s } = track.cursor;
+        const row = track.grid[r] ?? [];
+        const c = row[s] ?? '.';
+        const pitch = track.pitches[r];
+        const n = c === 'x' || c === 'X' ? held(row, s) : 1;
+
+        /* "C#4" is read "C number 4" by some screen readers. */
+        told.textContent =
+            `${pitch === null ? `row ${r + 1}`
+                              : noteName(pitch).replace('#', ' sharp ')}, ` +
+            `step ${s + 1}: ${SAID[c] ?? 'empty'}` +
+            (n > 1 ? `, held ${n} steps` : '');
+    };
+
+    const place = (track) =>
+    {
+        const { r, s } = track.cursor;
+        const w = track.w / track.steps;
+        const h = track.h / track.rows;
+
+        Object.assign(track.mark.style, {
+            left: `${s * w}px`, top: `${r * h}px`,
+            width: `${w}px`, height: `${h}px` });
+    };
+
+    const keys = (track) =>
+        track.canvas.addEventListener('keydown', (e) =>
+    {
+        if (e.altKey || e.ctrlKey || e.metaKey)
+            return;
+
+        const at = track.cursor;
+
+        /* A row before the cells have been read is an empty one. */
+        const row = track.grid[at.r] ??=
+            Array.from({ length: track.steps }, () => '.');
+        const c = row[at.s] ?? '.';
+        const note = c === 'x' || c === 'X';
+        const go = (r, s) =>
+        {
+            at.r = Math.max(0, Math.min(track.rows - 1, r));
+            at.s = Math.max(0, Math.min(track.steps - 1, s));
+        };
+
+        switch (e.shiftKey ? `Shift+${e.key}` : e.key)
+        {
+            case 'ArrowLeft':  go(at.r, at.s - 1); break;
+            case 'ArrowRight': go(at.r, at.s + 1); break;
+            case 'ArrowUp':    go(at.r - 1, at.s); break;
+            case 'ArrowDown':  go(at.r + 1, at.s); break;
+            case 'Home':       go(at.r, 0); break;
+            case 'End':        go(at.r, track.steps - 1); break;
+
+            case 'Enter':
+            case ' ':
+                gesture(track, 1, at.r, at.s);
+                row[at.s] = { '.': 'x', '-': 'x', 'x': 'X' }[c] ?? '.';
+
+                if (c === 'X')
+                    for (let s = at.s + 1; row[s] === '-'; s++)
+                        row[s] = '.';
+                break;
+
+            case 'Delete':
+            case 'Backspace':
+                gesture(track, 3, at.r, at.s);
+                row[at.s] = '.';
+
+                for (let s = at.s + 1; note && row[s] === '-'; s++)
+                    row[s] = '.';
+                break;
+
+            /* A note held over the next step, or let go of its last; up
+               to the next note, which a hold stops at. */
+            case 'Shift+ArrowRight':
+            case 'Shift+ArrowLeft':
+            {
+                if (!note)
+                    return;
+
+                const n = held(row, at.s);
+                const to = e.key === 'ArrowRight' ? n : n - 2;
+
+                if (to < 0 || at.s + to >= track.steps ||
+                    (to >= n && row[at.s + to] !== '.'))
+                    return;
+
+                /* Back to one step is a drag that leaves the note and
+                   comes back to it: a press and release on one note
+                   without leaving it is a tap, which accents it. */
+                gesture(track, 1, at.r, at.s,
+                        to === 0 ? [at.s + 1, at.s] : [at.s + to]);
+
+                for (let s = 1; s < Math.max(n, to + 1); s++)
+                    row[at.s + s] = s <= to ? '-' : '.';
+                break;
+            }
+
+            default:
+                return;
+        }
+
+        e.preventDefault();
+        place(track);
+        tell(track);
+    });
 
     /* ---- frames ---- */
 
@@ -359,6 +587,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
         track.canvas.style.height = `${h}px`;
         track.canvas.width = Math.round(w * dpr);
         track.canvas.height = Math.round(h * dpr);
+        place(track);
     };
 
     const ask = () =>
@@ -453,10 +682,24 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                    this param has to carry: the list is in the plugin's
                    own order (mirror.js). */
                 const p = m.params.findIndex((x) => x.name === 'rows');
+                const param = (name) => m.params.find((x) => x.name === name);
 
                 track.rowsParam = p;
                 track.rows = p < 0
                     ? 1 : Math.max(1, Math.round(m.params[p].value));
+                track.steps = Math.max(1,
+                    Math.round(param('steps')?.value ?? 16));
+                track.pitches = pitchesOf(param('notes')?.text, track.rows);
+
+                /* The cells as written, except just after an edit of this
+                   page's own: that lands at its time, and until then the
+                   text is the grid before it. */
+                if (performance.now() - track.mine > 2000)
+                    track.grid = gridOf(param('cells')?.text, track.rows,
+                                        track.steps);
+
+                track.cursor.r = Math.min(track.cursor.r, track.rows - 1);
+                track.cursor.s = Math.min(track.cursor.s, track.steps - 1);
 
                 onMeasure();
                 return true;

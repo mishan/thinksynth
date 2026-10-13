@@ -386,6 +386,79 @@ try
     check(await page.evaluate(() => window.solo.drawing().seq),
           'and they are asking for frames');
 
+    /* ---- a track from the keys ---- */
+
+    /* Tabbed to, a track's cursor walks its cells and puts a note in one,
+       accents it and clears it, the same press a click is: so it lands in
+       the piece's cells as a click does, and is said aloud. */
+    {
+        const marks = () => page.evaluate(() =>
+        {
+            const cells = [...window.solo.genText()
+                .matchAll(/cells *= *"([^"]*)"/g)].map((m) => m[1]).join();
+
+            return [(cells.match(/x/g) ?? []).length,
+                    (cells.match(/X/g) ?? []).length];
+        });
+        const said = () => page.textContent('#seqview [role="status"]');
+        const press = async (key, from) =>
+        {
+            await page.keyboard.press(key);
+            await page.waitForFunction(
+                (f) => window.solo.genText() !== f, from,
+                { timeout: 10000 }).catch(() => {});
+            return [await marks(), await said()];
+        };
+
+        const grid = '#tracks .track:nth-child(5) .trackgrid';
+
+        await page.focus(grid);
+        await page.waitForTimeout(800);
+        await page.keyboard.press('End');
+
+        const [x0, X0] = await marks();
+        const atEnd = await said();
+        const [[x1], one] = await press('Enter',
+            await page.evaluate(() => window.solo.genText()));
+        const [[, X2], two] = await press('Enter',
+            await page.evaluate(() => window.solo.genText()));
+        const [[x3, X3], three] = await press('Delete',
+            await page.evaluate(() => window.solo.genText()));
+
+        /* And a note one step back held over the step after it, and let
+           go of again. */
+        const ties = () => page.evaluate(() => ([...window.solo.genText()
+            .matchAll(/cells *= *"([^"]*)"/g)].map((m) => m[1]).join()
+            .match(/-/g) ?? []).length);
+        const t0 = await ties();
+
+        await page.keyboard.press('ArrowLeft');
+        await press('Enter', await page.evaluate(() => window.solo.genText()));
+        const [, longer] = await press('Shift+ArrowRight',
+            await page.evaluate(() => window.solo.genText()));
+        const t1 = await ties();
+        const [, shorter] = await press('Shift+ArrowLeft',
+            await page.evaluate(() => window.solo.genText()));
+        const t2 = await ties();
+
+        await press('Delete', await page.evaluate(() => window.solo.genText()));
+
+        check(t1 === t0 + 1 && /step 15: note, held 2 steps$/.test(longer) &&
+              t2 === t0 && /step 15: note$/.test(shorter),
+              'and Shift with an arrow holds a note a step longer and ' +
+              `shorter: ${longer} | ${shorter}`);
+
+        check(/step 16: empty$/.test(atEnd) &&
+              x1 === x0 + 1 && / note$/.test(one) &&
+              X2 === X0 + 1 && / accent$/.test(two) &&
+              x3 === x0 && X3 === X0 && / empty$/.test(three),
+              'a track tabbed to puts a note in a cell from the keys, ' +
+              'accents it and clears it, in the piece and aloud: ' +
+              `${atEnd} | ${one} | ${two} | ${three}`);
+
+        await page.evaluate(() => document.activeElement.blur());
+    }
+
     /* ---- a drum track is one row ---- */
 
     /* An instrument that ignores the note it is sent sounds the same on
