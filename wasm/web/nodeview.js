@@ -710,17 +710,22 @@ export async function createNodeView ({ files, root = document,
      * (tw_graph_can_connect); an output to watch; and the node itself to
      * delete. Each is the call the canvas's gesture makes.
      */
-    const KINDS = ['', 'control', 'MIDI in', 'audio out', 'probe'];
-
-    /* What a box is called in the list: its name and what it is. */
+    /* What a box is called in the list: its name and what it is, which is
+       its plugin, the io halves' included, or a control. */
     const named = (b) =>
     {
-        const plugin = call('tw_graph_box_plugin', ['number'], [b]);
-        const kind = KINDS[M._tw_graph_box_kind(b)] ?? '';
+        const what = call('tw_graph_box_plugin', ['number'], [b]) ||
+                     (M._tw_graph_box_kind(b) === BOX.CONTROL ? 'control'
+                                                              : '');
 
-        return `${call('tw_graph_box_name', ['number'], [b])}` +
-               ((plugin || kind) && ` (${plugin || kind})`);
+        return call('tw_graph_box_name', ['number'], [b]) +
+               (what && ` (${what})`);
     };
+
+    /* An expression's box (`osc.freq = ...'): its inputs are its text's,
+       and it is a node's arg rather than a node to delete. */
+    const isExpr = (b) =>
+        call('tw_graph_box_plugin', ['number'], [b]) === 'expression';
 
     const portName = (b, p) =>
         call('tw_graph_port_name', ['number', 'number'], [b, p]);
@@ -740,17 +745,24 @@ export async function createNodeView ({ files, root = document,
         selected = b;
         M._tw_node_canvas_select(b);
 
-        const at = boxAt(b);
-        const scroller = $('nodescroll');
+        const zoom = M._tw_node_canvas_zoom();
 
-        scroller.scrollTo({ left: Math.max(0, at.x - 40),
-                            top: Math.max(0, at.y - 40) });
+        $('nodescroll').scrollTo({
+            left: Math.max(0, M._tw_graph_box_x(b) * zoom - 40),
+            top: Math.max(0, M._tw_graph_box_y(b) * zoom - 40) });
         showParams();
         paint();
     }
 
+    $('nodeoutline').addEventListener('toggle', () => outline());
+
     function outline ()
     {
+        /* Nothing to keep up to date while it is shut: it is made again
+           when it opens. */
+        if (!$('nodeoutline').open)
+            return;
+
         const list = $('nodelist');
         const count = file === null ? 0 : M._tw_graph_box_count();
         const shown = [];
@@ -787,9 +799,13 @@ export async function createNodeView ({ files, root = document,
         const box = $('nodewiring');
         const b = selected;
 
+        if (!$('nodeoutline').open)
+            return;
+
         if (file === null || b < 0 || M._tw_graph_box_kind(b) === BOX.PROBE)
         {
             box.replaceChildren();
+            box.dataset.made = '';
             return;
         }
 
@@ -809,6 +825,23 @@ export async function createNodeView ({ files, root = document,
         for (let p = 0; p < ports; p++)
             (M._tw_graph_port_is_input(b, p) ? ins : outs).push(p);
 
+        /* Made again only when what it shows has changed: an edit
+           elsewhere -- a peer's, a keystroke in the source -- would
+           otherwise take the focus and a half-made choice out of a menu
+           somebody is in. */
+        const made = JSON.stringify([
+            named(b), channel, probes.map((p) => `${p.node}.${p.arg}`),
+            edges.filter((x) => x.toBox === b).map((x) =>
+                [x.toPort, call('tw_graph_box_name', ['number'],
+                                [x.fromBox]), x.fromPort]),
+            M._tw_graph_box_count()]);
+
+        if (made === box.dataset.made)
+            return;
+
+        box.dataset.made = made;
+        const expr = isExpr(b);
+
         /* After an action the panel is made again; the focus goes back to
            the chosen box in the list rather than to the page. */
         const home = () => [...$('nodelist').querySelectorAll('button')]
@@ -823,7 +856,7 @@ export async function createNodeView ({ files, root = document,
                               [from.fromBox])}.` +
                       portName(from.fromBox, from.fromPort)));
 
-            if (from !== undefined)
+            if (from !== undefined && !expr)
                 li.append(' ', el('button', {
                     type: 'button', textContent: 'Disconnect',
                     ariaLabel: `Disconnect ${name}.${portName(b, p)}`,
@@ -836,7 +869,7 @@ export async function createNodeView ({ files, root = document,
                        el('ul', {}, ...rows)];
 
         /* A wire into one of its inputs, from any output of another box. */
-        if (ins.length > 0)
+        if (ins.length > 0 && !expr)
         {
             const to = el('select', { ariaLabel: 'Input' },
                           ...ins.map((p) => new Option(portName(b, p), p)));
@@ -850,7 +883,8 @@ export async function createNodeView ({ files, root = document,
                             portName(o, p), `${o}:${p}`));
 
             parts.push(el('div', { className: 'row' },
-                el('label', {}, 'Connect ', to), el('label', {}, ' from ', from),
+                el('label', {}, 'Connect ', to),
+                el('label', {}, ' from ', from),
                 el('button', { type: 'button', textContent: 'Connect',
                     onclick: () =>
                     {
@@ -892,8 +926,15 @@ export async function createNodeView ({ files, root = document,
                                          'instrument' : '',
                     onclick: async () =>
                     {
-                        await armProbe(name, portName(b, Number(port.value)),
-                                       visual.value);
+                        const arg = portName(b, Number(port.value));
+
+                        /* One watch to a port, as the probe menu has it. */
+                        if (probes.some((p) => p.node === name &&
+                                               p.arg === arg))
+                            onStatus(`Already watching ${name}.${arg}.`);
+                        else
+                            await armProbe(name, arg, visual.value);
+
                         home();
                     } })));
         }
@@ -911,11 +952,23 @@ export async function createNodeView ({ files, root = document,
            ends rather than a node in it. */
         const kind = M._tw_graph_box_kind(b);
 
-        if (kind === BOX.NODE || kind === BOX.CONTROL)
+        if ((kind === BOX.NODE && !expr) || kind === BOX.CONTROL)
             parts.push(el('button', {
                 type: 'button', textContent: `Delete ${name}`,
                 onclick: () =>
                 {
+                    /* What watched it goes first: its panel would have no
+                       host, and nothing left to stop it from. And nothing
+                       is chosen before the write, which rebuilds at once:
+                       the index would otherwise name the box after it. */
+                    for (let i = probes.length - 1; i >= 0; i--)
+                        if (probes[i].node === name)
+                            stopProbe(i);
+
+                    const was = selected;
+
+                    selected = -1;
+
                     const gone = kind === BOX.CONTROL
                         ? edit('tw_edit_remove_control',
                                ['string', 'string'],
@@ -927,9 +980,10 @@ export async function createNodeView ({ files, root = document,
                     if (gone)
                     {
                         onStatus(`Deleted ${name}.`);
-                        selected = -1;
                         $('nodelist').querySelector('button')?.focus();
                     }
+                    else
+                        selected = was;
                 } }));
 
         box.replaceChildren(...parts);
@@ -1137,7 +1191,11 @@ export async function createNodeView ({ files, root = document,
                 this is how a harness holds that claim to it. */
              visible: () => view.visible(),
              /* Which channel this instrument is on, for arming a tap. */
-             onChannel: (c) => { channel = c; },
+             onChannel: (c) =>
+             {
+                 channel = c;
+                 wiring();
+             },
              boxes: () => M._tw_graph_box_count(),
              probes: () => probes.length,
              selected: () => selected };

@@ -2668,7 +2668,9 @@ try
             await page.keyboard.press('Enter');
 
             if (await page.locator('#nodewiring button',
-                                   { hasText: 'Disconnect' }).count() > 0)
+                                   { hasText: 'Disconnect' }).count() > 0 &&
+                await page.locator('#nodewiring button',
+                                   { hasText: /^Delete / }).count() > 0)
                 chosen = i;
         }
 
@@ -2683,53 +2685,59 @@ try
               'the graph as a list: a node chosen from the keys is the ' +
               `canvas's selection, and keeps the focus: ${picked.current}`);
 
-        /* Its first wired input, cut, and made again from the form. */
-        const wire = await page.$eval('#nodewiring li:has(button)',
-                                      (li) => li.firstChild.textContent);
-        const [, input, source] = /^(\S+) from (\S+)/.exec(wire) ?? [];
-        const before = await dsp();
 
-        await page.locator('#nodewiring button',
-                           { hasText: 'Disconnect' }).first().click();
-        await changed(before);
+        /* The rest needs that node, and a list without one has said so
+           above. */
+        if (chosen >= 0)
+        {
+            /* Its first wired input, cut, and made again from the form. */
+            const wire = await page.$eval('#nodewiring li:has(button)',
+                                          (li) => li.firstChild.textContent);
+            const [, input, source] = /^(\S+) from (\S+)/.exec(wire) ?? [];
+            const before = await dsp();
 
-        const cut = await dsp();
-        const cutWire = await page.$eval('#nodewiring',
-            (w, i) => [...w.querySelectorAll('li')].find((li) =>
-                li.firstChild.textContent.startsWith(`${i} from`))
-                ?.firstChild.textContent, input);
+            await page.locator('#nodewiring button',
+                               { hasText: 'Disconnect' }).first().click();
+            await changed(before);
 
-        await page.selectOption('#nodewiring select[aria-label="Input"]',
-                                { label: input });
-        await page.selectOption('#nodewiring select[aria-label="From"]',
-                                { label: source });
-        await page.locator('#nodewiring button',
-                           { hasText: /^Connect$/ }).click();
-        await changed(cut);
+            const cut = await dsp();
+            const cutWire = await page.$eval('#nodewiring',
+                (w, i) => [...w.querySelectorAll('li')].find((li) =>
+                    li.firstChild.textContent.startsWith(`${i} from`))
+                    ?.firstChild.textContent, input);
 
-        const made = await page.$eval('#nodewiring',
-            (w, i) => [...w.querySelectorAll('li')].find((li) =>
-                li.firstChild.textContent.startsWith(`${i} from`))
-                ?.firstChild.textContent, input);
+            await page.selectOption('#nodewiring select[aria-label="Input"]',
+                                    { label: input });
+            await page.selectOption('#nodewiring select[aria-label="From"]',
+                                    { label: source });
+            await page.locator('#nodewiring button',
+                               { hasText: /^Connect$/ }).click();
+            await changed(cut);
 
-        check(cut !== before && cutWire === `${input} from nothing` &&
-              made === `${input} from ${source}`,
-              `and its wire ${input} from ${source} cut and made again from ` +
-              `the list, in the .dsp: ${cutWire} | ${made}`);
+            const made = await page.$eval('#nodewiring',
+                (w, i) => [...w.querySelectorAll('li')].find((li) =>
+                    li.firstChild.textContent.startsWith(`${i} from`))
+                    ?.firstChild.textContent, input);
 
-        /* And the node itself, deleted. */
-        const name = (await page.$eval('#nodewiring h3',
-                                       (h) => h.textContent))
-            .replace(/'s wires$/, '');
-        const kept = await dsp();
+            check(cut !== before && cutWire === `${input} from nothing` &&
+                  made === `${input} from ${source}`,
+                  `and its wire ${input} from ${source} cut and made again from ` +
+                  `the list, in the .dsp: ${cutWire} | ${made}`);
 
-        await page.locator('#nodewiring button',
-                           { hasText: `Delete ${name}` }).click();
-        await changed(kept);
+            /* And the node itself, deleted. */
+            const name = (await page.$eval('#nodewiring h3',
+                                           (h) => h.textContent))
+                .replace(/'s wires$/, '');
+            const kept = await dsp();
 
-        check(!new RegExp(`^\\s*node\\s+${name}\\b`, 'm')
-                  .test(await dsp()),
-              `and ${name} deleted from the list is gone from the .dsp`);
+            await page.locator('#nodewiring button',
+                               { hasText: `Delete ${name}` }).click();
+            await changed(kept);
+
+            check(!new RegExp(`^\\s*node\\s+${name}\\b`, 'm')
+                      .test(await dsp()),
+                  `and ${name} deleted from the list is gone from the .dsp`);
+        }
 
         await page.evaluate((t) =>
         {
