@@ -236,6 +236,30 @@ export class Keyboard
         svg.replaceChildren();
         this.keys.clear();
 
+        /* A heard key's stripes (style.css): a peer's key is told from one
+           under this page's hands by more than which blue, and a pattern,
+           unlike an outline, moves no key's edge. */
+        const hatch = document.createElementNS(SVG, 'pattern');
+
+        hatch.id = 'keyheard';
+        hatch.setAttribute('patternUnits', 'userSpaceOnUse');
+        hatch.setAttribute('width', 0.3);
+        hatch.setAttribute('height', 0.3);
+        hatch.setAttribute('patternTransform', 'rotate(45)');
+
+        for (const [cls, w] of [['ground', 0.3], ['stripe', 0.1]])
+        {
+            const r = document.createElementNS(SVG, 'rect');
+
+            r.setAttribute('class', cls);
+            r.setAttribute('width', w);
+            r.setAttribute('height', 0.3);
+            hatch.append(r);
+        }
+
+        svg.append(document.createElementNS(SVG, 'defs'));
+        svg.firstChild.append(hatch);
+
         const rect = (cls, note, x, y, w, h) =>
         {
             const r = document.createElementNS(SVG, 'rect');
