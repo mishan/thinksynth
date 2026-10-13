@@ -407,6 +407,26 @@ protected:
        reopens afterwards, and the reopen discards anything still in memory. */
     bool flushPending (string &why);
 
+    /* The graph as a list, under the canvas (refreshOutline): every box to
+       choose, and the chosen one's wires to cut, make and watch, and the
+       box to delete -- for a keyboard and a screen reader, which the canvas
+       has no way in for. */
+    Gtk::ToggleButton listBtn_;
+    Gtk::Paned graphSplit_{Gtk::Orientation::VERTICAL};   /* canvas | list */
+    Gtk::ScrolledWindow outlineScroll_;
+    Gtk::Box outline_{Gtk::Orientation::VERTICAL};
+    Gtk::ListBox boxList_;
+    Gtk::Box wiring_{Gtk::Orientation::VERTICAL};
+    std::vector<int> listed_;           /* the box on each row */
+    std::string listedNames_;           /* and their names, as last listed */
+
+    void refreshOutline (void);
+    void showWiring (int box);
+
+    /* The focus back on the chosen box's row, after an action has made
+       the wiring again under it. */
+    void outlineHome (void);
+
 private:
     thSynth *synth_;
     thSynthTree *tree_;     /* owned by this window */
@@ -525,6 +545,7 @@ private:
        more of it. */
     Gtk::ToggleButton paletteBtn_;
     Gtk::ToggleButton paramsBtn_;
+
 
     /* Widths to come back to, remembered as each panel is collapsed. */
     int paletteWidth_;
