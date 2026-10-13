@@ -246,6 +246,8 @@ export function playersOf (piece)
 {
     const dspOf = new Map((piece.instruments ?? []).map((i) => [i.name,
                                                                 i.dsp]));
+    const channelOf = new Map((piece.instruments ?? []).map((i) =>
+        [i.name, i.channel]));
 
     return (piece.chains ?? []).flatMap((c, index) =>
     {
@@ -282,7 +284,8 @@ export function playersOf (piece)
         return [{ index, name: c.name, role, sound, idea, stages: c.stages,
                   seed: c.hasSeed ? c.seed : null, picture,
                   seeded: seededAs(c.stages), instrument: sink.instrument,
-                  dsp }];
+                  dsp, channel: sink.instrument === ''
+                      ? sink.channel : channelOf.get(sink.instrument) }];
     });
 }
 
@@ -458,7 +461,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                       ctx: canvas.getContext('2d'), w: 0, h: 0, dpr: 0,
                       height: (w) => pictureHeight(s, w), asked: false };
 
-        canvas.className = 'bandpic';
+        canvas.className = `bandpic ${s.plugin}`;
         canvas.style.height = `${pic.height(320)}px`;
         pic.drop = () => {};
 
@@ -955,6 +958,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         el.classList.toggle('resting', st.resting ||
                                        levelIn(scene(), p) === 0);
         el.dataset.chain = p.name;
+        el.dataset.channel = String(p.channel);
         el.setAttribute('role', 'group');
         el.setAttribute('aria-label', nameOf(p));
 
@@ -1294,7 +1298,59 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
               'wandering. Vary is another take; Keep makes the take notes.';
     }
 
+    /* How far the scene playing is through, as its button's fill. */
+    function progress (now)
+    {
+        const b = $('bandscenes').querySelector('.scene.on');
+        const s = sectionsOf()[playing];
+
+        if (b === null)
+            return;
+
+        const length = s === undefined ? 0 : s.unit === 'beats'
+            ? s.length * 60 / clock().tempo : s.length;
+        const done = running && length > 0
+            ? Math.min(1, Math.max(0, (now - startOf(s)) / length)) : 1;
+
+        b.style.setProperty('--done', `${(done * 100).toFixed(1)}%`);
+    }
+
+    /* Each card lit as its notes sound: they come ahead of time, at the
+       transport's time `at', which is `now' on the tape that brought
+       them. By channel, which a player resting may share with one that
+       is not. */
+    const LIT_MS = 120;
+
+    function heard (events, now, speed)
+    {
+        if (!visible)
+            return;
+
+        for (const e of events)
+        {
+            if (e.kind !== 'N')
+                continue;
+
+            const cards = $('players').querySelectorAll(
+                `.player[data-channel="${e.channel}"]:not(.resting)`);
+            const wait = Math.max(0, (e.at - now) / (speed || 1) * 1000);
+
+            for (const el of cards)
+                setTimeout(() =>
+                {
+                    el.classList.add('sounding');
+                    clearTimeout(el.unlit);
+                    el.unlit = setTimeout(() =>
+                        el.classList.remove('sounding'), LIT_MS);
+                }, wait);
+        }
+    }
+
     return {
+        /* Notes as the tape brings them, to light the cards that play
+           them. */
+        heard,
+
         /* A piece to show: another one starts the band afresh. */
         follow (name)
         {
@@ -1315,8 +1371,10 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         /* The section the transport is in, from each tape: the cards and
            the scenes drawn again when it moves on. */
-        at (section, isRunning)
+        at (section, isRunning, now)
         {
+            progress(now);
+
             if (section === playing && isRunning === running)
                 return;
 

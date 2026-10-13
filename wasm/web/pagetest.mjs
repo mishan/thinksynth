@@ -3624,6 +3624,13 @@ try
         await page.evaluate(() => window.solo.settled());
         await page.click('#play');
         const lit = await until(scenes, (s) => s.startsWith('*intro'));
+        const sounding = await (await page.waitForFunction(() =>
+            document.querySelector('.player.sounding')?.dataset.chain,
+            null, { polling: 'raf', timeout: 10000 })).jsonValue();
+
+        check(['hats', 'guitar', 'swoop'].includes(sounding),
+              'a card lights as its player sounds, and not one resting in ' +
+              `the scene: ${sounding}`);
 
         /* Full, which is long enough that a slow machine still rests the
            guitar inside it. */
