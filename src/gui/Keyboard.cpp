@@ -54,6 +54,9 @@ static unsigned int    color5 = 0x005050FF;    /* black key / active        */
 static unsigned int    color6 = 0x005050FF;    /* middle C key / active    */
 /* 0090D0D0 */
 
+/* The one key tinted, and marked (see drawKeyboard). */
+#define MIDDLE_C 60
+
 /* White keys in the 128-note range the widget covers: 10 full octaves of 7
    plus C..G of the eleventh. */
 #define KB_WHITE_KEYS 75
@@ -720,9 +723,8 @@ void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
             if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
             {
                 /* white keys */
-                if (i == 60) 
+                if (i == MIDDLE_C)
                 {
-                    /* middle C */
                     c = (unsigned int)
                         (active_keys_[i] ? color6 : color3);
                 }
@@ -756,13 +758,20 @@ void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
 
                 /* Middle C by a mark as well as its tint, which is 1.1:1
                    on a white key: a dot in the key's color for an edge,
-                   which is 3:1 on it held or not. */
-                if (i == 60)
+                   which is 3:1 on it held or not. Round and at least 6
+                   pixels across however the keys are stretched, so drawn
+                   in the device's pixels and not the natural drawing's. */
+                if (i == MIDDLE_C)
                 {
+                    const double w = (s2 - 1) * scaleX_;
+
+                    cr->save();
+                    cr->translate(l + (s2 - 1) / 2.0, s0 + (s1 - 1) / 2.0);
+                    cr->scale(1.0 / scaleX_, 1.0 / scaleY_);
                     setColour(cr, color0);
-                    cr->arc(l + (s2 - 1) / 2.0, s0 + (s1 - 1) / 2.0,
-                            std::min(s2, s1) / 6.0, 0, 2 * M_PI);
+                    cr->arc(0, 0, std::max(3.0, w / 5.0), 0, 2 * M_PI);
                     cr->fill();
+                    cr->restore();
                 }
             }
             else
