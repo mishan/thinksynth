@@ -752,8 +752,10 @@ details { margin: 0.8em 0; }
 /* Sounding but not under this page's hands: a peer's key, or a stamped
    key of its own that has landed. Before .held, which wins on a key that
    is both. */
-#keys .heard { fill: var(--heard); }
+#keys .heard { fill: url(#keyheard); }
 #keys .held  { fill: var(--key-held); }
+#keys .ground { fill: var(--heard); }
+#keys .stripe { fill: var(--key); }
 
 /* Outlined, because the key under a note name changes colour when it is
    held and the name has to stay readable on either. paint-order puts the
