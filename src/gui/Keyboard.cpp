@@ -26,6 +26,9 @@
 #include <gtkmm.h>
 #include <gtk/gtk.h>
 
+#include <algorithm>
+#include <cmath>
+
 #include "think.h"
 
 #include "Keyboard.h"
@@ -750,6 +753,17 @@ void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
                 }
                 cr->rectangle(l, s0, s2 - 1, s1 - 1);
                 cr->fill();
+
+                /* Middle C by a mark as well as its tint, which is 1.1:1
+                   on a white key: a dot in the key's color for an edge,
+                   which is 3:1 on it held or not. */
+                if (i == 60)
+                {
+                    setColour(cr, color0);
+                    cr->arc(l + (s2 - 1) / 2.0, s0 + (s1 - 1) / 2.0,
+                            std::min(s2, s1) / 6.0, 0, 2 * M_PI);
+                    cr->fill();
+                }
             }
             else
             {

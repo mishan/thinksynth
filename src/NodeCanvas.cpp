@@ -32,14 +32,17 @@
 #include "NodeCanvas.h"
 
 /* Palette. Kept flat and low-contrast so the wires stay the loudest thing on
-   screen -- in a signal-flow diagram the connections are the content. */
+   screen -- in a signal-flow diagram the connections are the content. Not
+   so low a box cannot be found: its edge is 3:1 on the ground, and dimmed
+   text 4.5:1 on whatever box it is in, as WCAG asks of an outline and of
+   text. */
 #define COL_BG        0.16, 0.17, 0.19
 #define COL_BOX       0.24, 0.25, 0.28
-#define COL_BOX_EDGE  0.38, 0.40, 0.44
+#define COL_BOX_EDGE  0.46, 0.48, 0.52
 #define COL_HEAD      0.30, 0.32, 0.36
 #define COL_IO_HEAD   0.24, 0.36, 0.44
 #define COL_TEXT      0.88, 0.89, 0.91
-#define COL_DIM       0.62, 0.64, 0.68
+#define COL_DIM       0.68, 0.70, 0.74
 #define COL_WIRE      0.55, 0.72, 0.85
 #define COL_FEEDBACK  0.88, 0.55, 0.40
 #define COL_PORT_IN   0.60, 0.75, 0.55
