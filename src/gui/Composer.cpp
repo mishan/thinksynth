@@ -366,6 +366,7 @@ Composer::~Composer (void)
     evolve_.reset();
     delete evolveWin_;
     drawTimer_.disconnect();
+    settle_.disconnect();
     reloadIdle_.disconnect();
     midiIdle_.disconnect();
     midiOnConn_.disconnect();
@@ -3436,9 +3437,23 @@ Composer::applyParam (size_t ci, size_t si, const std::string &param,
     live.setStage(edit.a, edit.b);
     live.deliver(edit);
 
-    /* Now, too, in a chain that has already composed its next bars. */
+    /* Now, too, in a chain that has already composed its next bars: as a
+       value passing by while the edit may still be a drag, which says
+       nothing when it is over, and as written once it has been still. */
     if (sched_ != NULL)
-        sched_->recompose(ci);
+    {
+        sched_->recompose(ci, true);
+        settling_.insert(ci);
+        settle_.disconnect();
+        settle_ = Glib::signal_timeout().connect([this]
+        {
+            for (size_t c : settling_)
+                sched_->recompose(c);
+
+            settling_.clear();
+            return false;
+        }, 200);
+    }
 }
 
 void

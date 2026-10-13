@@ -575,6 +575,11 @@ protected:
     Gtk::Popover *paramPop_ = NULL;
     sigc::connection drawTimer_;
 
+    /* applyParam's chains, composed again as written once their edits
+       have been still a while. */
+    sigc::connection settle_;
+    std::set<size_t> settling_;
+
     /* The idle a reload is deferred to, kept so the destructor can take
        it back. The main loop holds a slot, not this, so an idle that
        captured `this' and outlived it is a call into freed memory. */
