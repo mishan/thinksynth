@@ -1558,7 +1558,8 @@ body.tiled .panelrows
     {
         min-height: 34px;
         font-size: 0.95em;
-        padding: 0.35em 0.3em 0.35em 0.8em;
+        padding-block: 0.35em;
+        padding-inline: 0.8em 0.3em;
     }
 
     .panesroot .paneshut,
