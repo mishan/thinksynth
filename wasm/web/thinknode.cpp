@@ -648,6 +648,36 @@ TW_EDGE_FIELD(to_port,   toPort)
 
 #undef TW_EDGE_FIELD
 
+/* What a box is an instance of ("osc::simple"; the io halves say "midi
+   in" and "audio out"), for anything naming a box to a person who cannot
+   see the canvas. */
+EMSCRIPTEN_KEEPALIVE const char *tw_graph_box_plugin (int b)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    return box != NULL ? box->plugin.c_str() : "";
+}
+
+/* Whether a wire from (fromBox, fromPort) to (toBox, toPort) is one the
+   canvas would make, by the graph's own rule (NodeGraph::canConnect), and
+   why not when it is not, in tw_graph_why. For a path to a wire that is
+   not a drag, which would otherwise have to guess the rule. */
+static std::string graphWhy_;
+
+EMSCRIPTEN_KEEPALIVE int tw_graph_can_connect (int fromBox, int fromPort,
+                                               int toBox, int toPort)
+{
+    graphWhy_.clear();
+
+    return graph_.canConnect(fromBox, fromPort, toBox, toPort, graphWhy_)
+        ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_graph_why (void)
+{
+    return graphWhy_.c_str();
+}
+
 /* ---- what a box has on it ---- */
 
 /* Whether anything on this box is a plain number somebody could type into.

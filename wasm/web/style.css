@@ -1228,6 +1228,29 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
 
 /* The selected node's parameters, drawn by panel.js like everything else
    this page has a panel for. */
+/* The graph as a list (nodeview.js, outline): a box to choose, and the
+   chosen one's wires. */
+#nodeoutline { margin: 0.5rem 0; }
+
+#nodelist
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3em;
+    margin: 0.4em 0;
+    padding: 0;
+    list-style: none;
+}
+
+#nodelist button[aria-current="true"]
+{
+    border-color: AccentColor;
+    font-weight: 600;
+}
+
+#nodewiring h3 { font-size: 1em; margin: 0.6em 0 0.2em; }
+#nodewiring ul { margin: 0 0 0.4em; padding-left: 1.2em; }
+
 #nodeparams { margin-top: 0.5rem; }
 
 /*

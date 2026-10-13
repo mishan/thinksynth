@@ -2641,6 +2641,104 @@ try
         }
     }
 
+    /* The graph as a list (nodeview.js, outline), driven from the keys: a
+       node chosen as a click chooses it, an input's wire cut and made again
+       from the form, and a node deleted -- each in the .dsp, as the
+       canvas's gestures are. The patch is put back after. */
+    {
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const original = await dsp();
+        const changed = (before) => page.waitForFunction(
+            (b) => document.getElementById('dsp').value !== b, before,
+            { timeout: 15000 }).catch(() => {});
+
+        await page.evaluate(() =>
+        {
+            document.getElementById('nodeoutline').open = true;
+        });
+
+        const listed = await page.$$eval('#nodelist button', (b) => b.length);
+        const buttons = page.locator('#nodelist button');
+        let chosen = -1;
+
+        /* The first box with a wire into it, chosen from the keys. */
+        for (let i = 0; i < listed && chosen < 0; i++)
+        {
+            await buttons.nth(i).focus();
+            await page.keyboard.press('Enter');
+
+            if (await page.locator('#nodewiring button',
+                                   { hasText: 'Disconnect' }).count() > 0)
+                chosen = i;
+        }
+
+        const picked = await page.evaluate(() => ({
+            selected: window.solo.node().selected,
+            current: document.querySelector(
+                '#nodelist button[aria-current="true"]')?.textContent,
+            focus: document.activeElement?.textContent }));
+
+        check(listed > 0 && chosen >= 0 && picked.selected >= 0 &&
+              picked.current === picked.focus,
+              'the graph as a list: a node chosen from the keys is the ' +
+              `canvas's selection, and keeps the focus: ${picked.current}`);
+
+        /* Its first wired input, cut, and made again from the form. */
+        const wire = await page.$eval('#nodewiring li:has(button)',
+                                      (li) => li.firstChild.textContent);
+        const [, input, source] = /^(\S+) from (\S+)/.exec(wire) ?? [];
+        const before = await dsp();
+
+        await page.locator('#nodewiring button',
+                           { hasText: 'Disconnect' }).first().click();
+        await changed(before);
+
+        const cut = await dsp();
+        const cutWire = await page.$eval('#nodewiring',
+            (w, i) => [...w.querySelectorAll('li')].find((li) =>
+                li.firstChild.textContent.startsWith(`${i} from`))
+                ?.firstChild.textContent, input);
+
+        await page.selectOption('#nodewiring select[aria-label="Input"]',
+                                { label: input });
+        await page.selectOption('#nodewiring select[aria-label="From"]',
+                                { label: source });
+        await page.locator('#nodewiring button',
+                           { hasText: /^Connect$/ }).click();
+        await changed(cut);
+
+        const made = await page.$eval('#nodewiring',
+            (w, i) => [...w.querySelectorAll('li')].find((li) =>
+                li.firstChild.textContent.startsWith(`${i} from`))
+                ?.firstChild.textContent, input);
+
+        check(cut !== before && cutWire === `${input} from nothing` &&
+              made === `${input} from ${source}`,
+              `and its wire ${input} from ${source} cut and made again from ` +
+              `the list, in the .dsp: ${cutWire} | ${made}`);
+
+        /* And the node itself, deleted. */
+        const name = (await page.$eval('#nodewiring h3',
+                                       (h) => h.textContent))
+            .replace(/'s wires$/, '');
+        const kept = await dsp();
+
+        await page.locator('#nodewiring button',
+                           { hasText: `Delete ${name}` }).click();
+        await changed(kept);
+
+        check(!new RegExp(`^\\s*node\\s+${name}\\b`, 'm')
+                  .test(await dsp()),
+              `and ${name} deleted from the list is gone from the .dsp`);
+
+        await page.evaluate((t) =>
+        {
+            document.getElementById('dsp').value = t;
+        }, original);
+        await page.click('#load');
+        await page.evaluate(() => window.solo.settled());
+    }
+
     /* MIDI out (midiout.js): a piece whose instrument names a port. Before
      * access it plays its dsp, and its row says why; with MIDI out on it
      * plays on the fake output, every message scheduled for a time in
