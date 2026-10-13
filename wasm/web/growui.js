@@ -82,22 +82,33 @@ export function createGrow ({ synth, name, setGraph, hear, targets,
     function draw ()
     {
         const list = $('growlist');
+        const shown = [...list.children];
 
-        list.replaceChildren(...rows.map((r, i) =>
+        /* The same rows as last drawn when only which one is chosen has
+           moved: those are kept, and the button a click was on keeps the
+           focus. */
+        if (shown.length !== rows.length ||
+            shown.some((li, i) => li.firstChild.textContent !== rows[i].what))
+            list.replaceChildren(...rows.map((r, i) =>
+            {
+                const li = document.createElement('li');
+                const b = document.createElement('button');
+
+                b.textContent = r.what;
+                b.addEventListener('click', () => choose(i));
+                li.append(b);
+                return li;
+            }));
+
+        [...list.children].forEach((li, i) =>
         {
-            const li = document.createElement('li');
-            const b = document.createElement('button');
-
-            b.textContent = r.what;
-            b.addEventListener('click', () => choose(i));
             li.classList.toggle('chosen', i === chosen);
 
             if (i === chosen)
-                b.ariaCurrent = 'true';
-
-            li.append(b);
-            return li;
-        }));
+                li.firstChild.ariaCurrent = 'true';
+            else
+                li.firstChild.removeAttribute('aria-current');
+        });
 
         buttons();
     }

@@ -534,7 +534,7 @@ try
             const r = m.getBoundingClientRect();
 
             return { up: !m.hidden, left: r.left, right: r.right,
-                     w: innerWidth };
+                     w: innerWidth, into: m.contains(document.activeElement) };
         });
 
         check(menu.up && menu.right <= menu.w && menu.left < port.x,
@@ -544,6 +544,15 @@ try
               `${Math.round(menu.left)}-${Math.round(menu.right)}`);
 
         await page.keyboard.press('Escape');
+
+        const back = await page.evaluate(() => ({
+            shut: document.getElementById('nodemenu').hidden,
+            on: document.activeElement?.id }));
+
+        check(menu.into && back.shut && back.on === 'nodecanvas',
+              'and it takes the focus, and Escape shuts it and gives the ' +
+              `focus back to the canvas: ${menu.into} ${JSON.stringify(back)}`);
+
         await page.mouse.click(port.x - 200, port.y);
     }
 

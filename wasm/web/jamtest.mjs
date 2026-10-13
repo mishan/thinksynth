@@ -1952,6 +1952,28 @@ async function accountsTogether (pages)
 
     await A.page.goto(lobby);
     await A.page.click('#account', { timeout: 10000 });
+
+    /* A handle of nothing but spaces is the field's fault, and it says
+       so: marked, pointed at what is wrong, and the focus back in it. */
+    await A.page.fill('#account-handle', '   ');
+    await dialog(A.page).getByRole('button', { name: 'Create account' })
+        .click();
+
+    const blank = await A.page.evaluate(() =>
+    {
+        const h = document.getElementById('account-handle');
+
+        return [h.getAttribute('aria-invalid'),
+                document.getElementById(h.getAttribute('aria-describedby'))
+                    ?.textContent ?? '',
+                document.activeElement === h].join('|');
+    });
+
+    if (/^true\|A handle needs .*\|true$/.test(blank))
+        ok('a blank handle marks the field, says why, and keeps the focus in it');
+    else
+        fail(`a blank handle: ${blank}`);
+
     await A.page.fill('#account-handle', 'Ann');
     await dialog(A.page).getByRole('button', { name: 'Create account' })
         .click();

@@ -302,14 +302,44 @@ export function createAccounts ({ open, dialog, relays, onChange })
     let kept = null;
     let api = null;
     let passkeys = false;
-    const status = el('p', { className: 'hint', role: 'status' });
+    const status = el('p', { className: 'hint', role: 'status',
+                             id: 'accountstatus' });
     const body = el('div', { className: 'accountbody' });
 
     /* What closing must not lose: a key on screen that has not been
        saved, which cannot be shown again. Closing a second time does. */
     let unsaved = false;
 
-    const say = (text) => { status.textContent = text; };
+    /* Takes off the last field's marking (see `invalid'). */
+    let unmark = () => {};
+
+    const say = (text) =>
+    {
+        unmark();
+        status.textContent = text;
+    };
+
+    /* What is wrong with one field: said, on the field, and the focus
+       there to fix it. Until it is typed into or the status says
+       something else, which would then be read as this field's fault. */
+    const invalid = (input, text) =>
+    {
+        say(text);
+        input.ariaInvalid = 'true';
+        input.setAttribute('aria-describedby', status.id);
+
+        const off = () =>
+        {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+            input.removeEventListener('input', off);
+            unmark = () => {};
+        };
+
+        input.addEventListener('input', off);
+        unmark = off;
+        input.focus();
+    };
     const close = () =>
     {
         if (!unsaved)
@@ -420,7 +450,8 @@ export function createAccounts ({ open, dialog, relays, onChange })
 
             if (h === null)
             {
-                say('A handle needs at least one visible character.');
+                invalid(handle,
+                        'A handle needs at least one visible character.');
                 return;
             }
 
@@ -631,7 +662,8 @@ export function createAccounts ({ open, dialog, relays, onChange })
 
                 if (h === null)
                 {
-                    say('A handle needs at least one visible character.');
+                    invalid(handle,
+                            'A handle needs at least one visible character.');
                     return;
                 }
 

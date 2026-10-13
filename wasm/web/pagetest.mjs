@@ -3233,6 +3233,19 @@ try
         check(await until(box, (t) => t === picked) === picked,
               '...and the first row puts the patch back');
 
+        /* And the row pressed is the row with the focus still, now marked
+           as the one chosen: the list redraws which is chosen in place. */
+        const kept = await page.evaluate(() =>
+        {
+            const first = document.querySelector(
+                '#growlist li:first-child button');
+
+            return document.activeElement === first &&
+                   first.getAttribute('aria-current') === 'true';
+        });
+
+        check(kept, '...and the row pressed keeps the focus, marked chosen');
+
         await page.selectOption('#growtoward', 'pluck.dsp');
         await page.click('#growgo');
 
