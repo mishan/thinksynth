@@ -3550,6 +3550,9 @@ try
 
         await page.selectOption('#bandroot', { label: 'C' });
         await until(text, (t) => /scale key "C3/.test(t));
+        /* The text is in before the piece has loaded from it, and a mood
+           chosen meanwhile is refused. */
+        await page.evaluate(() => window.solo.settled());
         await page.selectOption('#bandmood', 'bright');
         const inC = await until(text,
             (t) => /scale key "C3 D3 E3 F3 G3 A3 B3"/.test(t));
