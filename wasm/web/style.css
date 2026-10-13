@@ -422,8 +422,17 @@ kbd
     padding: 0.05em 0.9em;
 }
 
+/* The solo page's Play while stopped: as plain to find, but no wider,
+   so the header does not wrap as the band starts and stops. */
+#play.lead
+{
+    background: AccentColor;
+    color: AccentColorText;
+    border-color: transparent;
+}
+
 #start:hover:not(:disabled), #join:hover:not(:disabled),
-#play.primary:hover:not(:disabled)
+#play:is(.primary, .lead):hover:not(:disabled)
 {
     filter: brightness(1.1);
 }
@@ -1482,9 +1491,14 @@ body.tiled .panelrows
     --role-text: color-mix(in srgb, var(--role) 55%, var(--fg));
     display: grid;
     grid-template-columns: 8rem auto 1fr;
-    grid-template-areas: "who who who" "pad octave moves" "pad octave takes";
+    /* The picture beside the pad rather than under it, for twice the
+       players in the same room. */
+    grid-template-areas: "who who who" "pad octave moves"
+                         "pad octave takes" "pad octave pic";
+    grid-template-rows: auto auto auto 1fr;
     gap: 0.3rem 0.8rem;
-    align-items: center;
+    align-items: start;
+    transition: background-color 0.3s;
     padding: 0.5rem 0.7rem;
     border: 1px solid var(--line);
     border-left: 5px solid var(--role);
@@ -1496,6 +1510,11 @@ body.tiled .panelrows
 .player.chords  { --role: #8f6fd6; }
 .player.melody  { --role: #2fae7a; }
 .player.texture { --role: #d98a3d; }
+/* Lit for a moment by each note it plays (not under reduced motion):
+   faint, so that a busy hat is not a flashing light. */
+.player.sounding { background: color-mix(in srgb, var(--role) 12%,
+                                         var(--panel));
+                   transition: none; }
 /* Its controls kept readable: only what it plays is dimmed. */
 .player.resting .bandpad { opacity: 0.4; }
 .player.resting .bandpic { filter: grayscale(1) brightness(0.6); }
@@ -1522,14 +1541,16 @@ body.tiled .panelrows
 
 /* The player's own picture, as its plugin draws it: a grid to click, a
    board to paint. */
-.player .bandpic { grid-column: 1 / -1; display: block; width: 100%;
+.player .bandpic { grid-area: pic; display: block; width: 100%;
                    border-radius: 4px; background: #14161a; }
 .player .bandpic.control { touch-action: none; }
+.player .bandpic.euclid { max-width: 10rem; }
 
 /* The pad: across calm to busy, up steady to wandering. */
 .bandpad
 {
     grid-area: pad;
+    align-self: start;
     position: relative;
     height: 4.5rem;
     border: 1px solid var(--ctl-edge);
@@ -1586,9 +1607,13 @@ body.tiled .panelrows
                      align-items: flex-start; min-width: 5rem;
                      padding: 0.2rem 0.6rem; border-radius: 6px; }
 .bandscenes .scene small { color: var(--dim); font-size: 0.7rem; }
-/* Darker than --held, for white to read on it in both themes. */
+/* Darker than --held, for white to read on it in both themes, with a
+   bar along the bottom as far as it has played. */
 .bandscenes .scene.on { --on: color-mix(in srgb, var(--held) 85%, #000);
-                        background: var(--on); border-color: var(--on);
+                        background: linear-gradient(#fff, #fff) left bottom /
+                                        var(--done, 0%) 3px no-repeat,
+                                    var(--on);
+                        border-color: var(--on);
                         color: #fff; }
 .bandscenes .scene.on small { color: inherit; }
 .bandscenes .scene.add { justify-content: center; color: var(--dim); }

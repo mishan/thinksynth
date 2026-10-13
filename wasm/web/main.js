@@ -217,14 +217,14 @@ const SEQ_LAYOUT = {
 /* The players, with what they played under them, and the keys to play
    along on. */
 const BAND_LAYOUT = {
-    dir: 'row', size: [0.64, 0.36], kids: [
-        { dir: 'col', size: [0.7, 0.3], kids: [
+    dir: 'row', size: [0.68, 0.32], kids: [
+        { dir: 'col', size: [0.8, 0.2], kids: [
             { tabs: ['bandview'] },
             { tabs: ['roll'] }] },
-        { dir: 'col', size: [0.35, 0.35, 0.3], kids: [
-            { tabs: ['knobs', 'channelbox'] },
+        { dir: 'col', size: [0.45, 0.55], kids: [
             { tabs: ['keyboard'] },
-            { tabs: ['piecesource', 'paramview'] }] }],
+            { tabs: ['knobs', 'channelbox', 'paramview',
+                     'piecesource'] }] }],
 };
 
 const PIECE_LAYOUT = {
@@ -288,9 +288,8 @@ const phoneLayouts = (keys = keysShare()) => ({
     /* The tracks are what the sequence is for; the keys are a tab. */
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
 
-    band: { dir: 'col', size: [1 - keys, keys], kids: [
-        { tabs: ['bandview', 'roll', 'knobs', 'channelbox'] },
-        { tabs: ['keyboard'] }] },
+    /* The players are what the band is for; the keys are a tab. */
+    band: { tabs: ['bandview', 'keyboard', 'roll', 'knobs', 'channelbox'] },
 
     /* The roll in front: what the piece is doing is what a phone is
        for watching; the knobs are a tab away. */
@@ -3042,7 +3041,11 @@ async function start ()
                                                 feeds it: without this
                                                 the scope stays blank. */
                                              nodes?.feed(m.probes);
-                                             band.at(m.section, m.running);
+                                             band.at(m.section, m.running,
+                                                     m.now);
+                                             band.heard(m.events, m.now);
+                                             $('play').classList.toggle(
+                                                 'lead', !m.running);
                                          },
                                          onParamEdits: paramsEdited,
                                          onEdited: edited,
