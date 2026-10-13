@@ -208,7 +208,7 @@
         <label>Instrument <select id="evolvewhat" disabled></select></label>
         <label>toward <select id="evolvetoward" disabled></select></label>
         <input id="evolvesound" type="file" accept=".wav,audio/wav" hidden>
-        <select id="evolvehow" disabled>
+        <select id="evolvehow" aria-label="Search" disabled>
           <option value="0">Tune: its constants</option>
           <option value="1">Tune and grow: its shape too</option>
         </select>
@@ -255,7 +255,7 @@
          one's wires, to cut, make and watch (nodeview.js). -->
     <details id="nodeoutline">
       <summary>Nodes and wires, as a list</summary>
-      <ul id="nodelist"></ul>
+      <ul id="nodelist" aria-label="Nodes"></ul>
       <div id="nodewiring"></div>
     </details>
     <div id="nodeparams"></div>
