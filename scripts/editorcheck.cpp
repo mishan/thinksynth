@@ -684,9 +684,9 @@ int run (const string &pluginPath, const char *file)
                 Gtk::Label *first = dynamic_cast<Gtk::Label *>(
                     b->get_parent()->get_first_child());
 
-                if (b->get_label() == label &&
+                if (b->get_label().raw() == label &&
                     (in.empty() || (first != NULL &&
-                                    first->get_text().find(in) == 0)))
+                                    first->get_text().raw().find(in) == 0)))
                     return b;
             }
 
@@ -746,7 +746,7 @@ int run (const string &pluginPath, const char *file)
                     d->get_model());
 
                 for (guint i = 0; list && i < list->get_n_items(); i++)
-                    if (list->get_string(i) == what)
+                    if (list->get_string(i).raw() == what)
                         d->set_selected(i);
             };
 
