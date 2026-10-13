@@ -725,7 +725,7 @@ SeqView::input (size_t i, int type, double x, double y, int button)
     ev.h = t.area->get_height();
     ev.button = button > 0 ? button : 1;
 
-    s->plugin->input(s->state, &ev);
+    thcScheduler::input(s, ev);
     t.area->queue_draw();
 }
 

@@ -2397,7 +2397,7 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
     /* Whoever is listening decides when the plugin hears it; with nobody
        listening it hears it now. See sigInput. */
     if (sigInput.empty())
-        s->plugin->input(s->state, &ev);
+        thcScheduler::input(s, ev);
     else
         sigInput.emit(enlarged_.chain, enlarged_.index, ev);
 

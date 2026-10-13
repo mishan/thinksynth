@@ -1343,7 +1343,7 @@ void applyScheduled (const Scheduled &given)
             ev.h = c.h;
             ev.button = c.button;
 
-            st->plugin->input(st->state, &ev);
+            thcScheduler::input(st, ev);
 
             if (ev.type == THC_IN_RELEASE && st->plugin->inputEdits())
                 captureEdits(c, st);
