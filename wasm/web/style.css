@@ -1583,8 +1583,9 @@ body.tiled .panelrows
     /* The picture beside the pad rather than under it, for twice the
        players in the same room. */
     grid-template-areas: "who who who" "pad octave moves"
-                         "pad octave takes" "pad octave pic";
-    grid-template-rows: auto auto auto 1fr;
+                         "pad octave takes" "pad octave pic"
+                         "volume volume pic";
+    grid-template-rows: auto auto auto 1fr auto;
     gap: 0.3rem 0.8rem;
     align-items: start;
     transition: background-color 0.3s;
@@ -1624,6 +1625,9 @@ body.tiled .panelrows
 .player .octave button[aria-disabled="true"] { opacity: 0.4; }
 .player .moves { grid-area: moves; display: flex; flex-wrap: wrap;
                  gap: 0.3rem; }
+.player .volume { grid-area: volume; display: flex; align-items: center;
+                  gap: 0.4rem; font-size: 0.8rem; color: var(--dim); }
+.player .volume input { width: 8rem; accent-color: var(--role); }
 .player .takes { grid-area: takes; display: flex; gap: 0.2rem;
                  flex-wrap: wrap; }
 .player .takes button { min-width: 1.8rem; min-height: 24px;

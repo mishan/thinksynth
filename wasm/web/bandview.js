@@ -217,20 +217,32 @@ function spell (num, unit, integer)
     return text + unit;
 }
 
-/* The band's own octave stage on a chain (an xform::transpose it adds,
-   which works on whatever the chain's notes come from), and how many
-   octaves it moves them; 0 with none. */
-const octaveStage = (stages) => stages.find((s) =>
-    s.plugin === 'transpose' && /^octave\d*$/.test(s.name) && s.live >= 0);
+/* The stages the band adds behind a player for a control of the card's
+   own, each with the one param it sets: they work on whatever the
+   chain's notes come from. The volume is a note's level at the mix, not
+   its velocity, which a hat reads as how open it is. */
+const OWN = {
+    octave: { name: 'octave', plugin: 'transpose', row: 'semitones' },
+    volume: { name: 'volume', plugin: 'level', row: 'gain' },
+};
 
-export function octavesOf (stages)
-{
-    const s = octaveStage(stages);
-    const n = numberOf(s?.params.find((q) => q.name === 'semitones')
-                         ?.valueText ?? '');
+/* One of them on a chain -- under its name, or a number after it where
+   the name was taken -- and its param, null with none. */
+const ownStage = (stages, own) => stages.find((s) =>
+    s.plugin === own.plugin && s.live >= 0 &&
+    new RegExp(`^${own.name}\\d*$`).test(s.name));
 
-    return n === null ? 0 : Math.round(n.num / 12);
-}
+const ownValue = (stages, own) => numberOf(ownStage(stages, own)?.params
+    .find((q) => q.name === own.row)?.valueText ?? '')?.num ?? null;
+
+/* How many octaves the band has moved a player's notes. */
+export const octavesOf = (stages) =>
+    Math.round((ownValue(stages, OWN.octave) ?? 0) / 12);
+
+/* A player's volume, 1 as written; up to VOLUME_MAX. */
+export const volumeOf = (stages) => ownValue(stages, OWN.volume) ?? 1;
+
+const VOLUME_MAX = 2;
 
 /* How far either way the octave buttons go. */
 const OCTAVES = 3;
@@ -760,54 +772,121 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         return b;
     }
 
-    /* By the player's state, which a param edit is not read back into. */
+    /* The band's own stage `own' (OWN) on a player, its param set to
+     * `text': where it is, a param edit; where it is not, added behind
+     * the player. A value set while it is on its way is sent once it is
+     * in. Into the player's state at once, which is what the card shows:
+     * a param edit is not read back into it.
+     */
+    function setOwn (p, st, own, text, passing = false)
+    {
+        const s = ownStage(st.base, own);
+
+        st.owning ??= new Map();
+
+        if (s !== undefined)
+            st.base = st.base.map((b) => b !== s ? b : {
+                ...s, params: [{ name: own.row, valueText: text }] });
+
+        if (st.owning.has(own.name))
+            st.owning.set(own.name, text);
+        else if (s !== undefined)
+            params(p, [{ stage: s.live, stageName: s.name, row: own.row,
+                         text }], passing);
+        else
+        {
+            st.owning.set(own.name, text);
+            behind(p, st, [{ name: own.name, plugin: own.plugin,
+                             params: { [own.row]: text } }]).then((went) =>
+            {
+                const wanted = st.owning.get(own.name);
+
+                st.owning.delete(own.name);
+
+                if (went && wanted !== text)
+                    setOwn(p, st, own, wanted);
+
+                draw();
+            });
+        }
+    }
+
     function octave (p, st, by)
     {
-        const s = octaveStage(st.base);
         const to = octavesOf(st.base) + by;
-
-        /* A press while the stage is on its way is taken once it is in. */
-        if (st.octaving)
-        {
-            st.octavesNext = (st.octavesNext ?? 0) + by;
-            return;
-        }
 
         if (Math.abs(to) > OCTAVES)
             return;
 
-        const said = `${nameOf(p)}: ${octaveWords(to)}`;
-        const text = String(12 * to);
-
-        if (s !== undefined)
-        {
-            params(p, [{ stage: s.live, stageName: s.name, row: 'semitones',
-                         text }]);
-            st.base = st.base.map((b) => b !== s ? b : { ...s,
-                params: [{ name: 'semitones', valueText: text }] });
-            tell(said);
-            draw();
-            return;
-        }
-
-        st.octaving = true;
-        behind(p, st, [{ name: 'octave', plugin: 'transpose',
-                         params: { semitones: text } }])
-            .then((went) =>
-            {
-                const next = went ? st.octavesNext : 0;
-
-                st.octaving = false;
-                st.octavesNext = 0;
-                draw();
-
-                if (went)
-                    tell(said);
-
-                if (next)
-                    octave(p, st, next);
-            });
+        setOwn(p, st, OWN.octave, String(12 * to));
+        tell(`${nameOf(p)}: ${octaveWords(to)}`);
         draw();
+    }
+
+    /* A slider from silent to twice as loud, as written in the middle --
+       sent as it moves, at most every PAD_EVERY_MS, and held like a pad,
+       so a draw does not take it out from under the pointer. */
+    function volume (p, st)
+    {
+        const box = document.createElement('label');
+        const range = document.createElement('input');
+        let timer = null;
+        let holding = false;
+
+        box.className = 'volume';
+        box.append(Object.assign(document.createElement('span'),
+                                 { textContent: 'vol' }), range);
+        range.type = 'range';
+        range.min = '0';
+        range.max = String(VOLUME_MAX);
+        range.step = '0.05';
+        range.value = String(volumeOf(st.base));
+        range.dataset.f = `${p.name}:volume`;
+        range.setAttribute('aria-label', `${nameOf(p)}: volume`);
+
+        const spoken = () => range.setAttribute('aria-valuetext',
+            `${Math.round(Number(range.value) * 100)}%`);
+        const send = (last) =>
+        {
+            clearTimeout(timer);
+            timer = null;
+            setOwn(p, st, OWN.volume, String(Number(range.value)), !last);
+        };
+        const release = () =>
+        {
+            if (!holding)
+                return;
+
+            holding = false;
+
+            if (--held === 0 && drawLater)
+                draw();
+        };
+
+        spoken();
+        range.addEventListener('pointerdown', () =>
+        {
+            if (!holding)
+            {
+                holding = true;
+                held++;
+            }
+        });
+        range.addEventListener('input', () =>
+        {
+            spoken();
+
+            if (timer === null)
+                timer = setTimeout(() => send(false), PAD_EVERY_MS);
+        });
+        range.addEventListener('change', () =>
+        {
+            send(true);
+            release();
+        });
+        range.addEventListener('pointerup', release);
+        range.addEventListener('pointercancel', release);
+        return box;
     }
 
     /* What plays the player, as a menu of the graphs its role is offered
@@ -1121,7 +1200,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         out.className = 'out';
         out.setAttribute('aria-label', out.title);
-        el.append(who, out, pad(p, st), octs, moves, takes);
+        el.append(who, out, pad(p, st), octs, moves, volume(p, st), takes);
 
         if (p.picture !== null)
             el.append(picture(p));
