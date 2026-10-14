@@ -315,6 +315,7 @@ export function playersOf (piece)
             (s) => s.plugin === n && s.live >= 0)).find(Boolean) ?? null;
 
         return [{ index, name: c.name, role, sound, idea, stages: c.stages,
+                  input: c.input === true,
                   seed: c.hasSeed ? c.seed : null, picture,
                   seeded: seededAs(c.stages), instrument: sink.instrument,
                   dsp, channel: sink.instrument === ''
@@ -444,10 +445,14 @@ const energyStages = (drums) => [
 
 const isEnergyStage = (s) => /^energy(_fill|_level)?$/.test(s.name);
 
-/* Those, as ops adding them behind chain `name' (tw_gen_ops). */
-const energyOps = (name, drums) => energyStages(drums).map((st) =>
-    ['stage', name, st.name, 'xform', st.plugin,
-     ...Object.entries(st.params).map(([k, v]) => `${k}=${v}`)]);
+/* Those `stages' has not got, as ops adding them behind chain `name'
+   (tw_gen_ops): a kept player has the level, which a freeze carries,
+   and not the others. */
+const energyOps = (name, drums, stages = []) => energyStages(drums)
+    .filter((st) => !stages.some((s) => s.name === st.name))
+    .map((st) => ['stage', name, st.name, 'xform', st.plugin,
+                  ...Object.entries(st.params).map(([k, v]) =>
+                      `${k}=${v}`)]);
 
 /* And with scenes, the knob moved by a chain of its own: a gen::steps a
    beat a step, each scene's energy on its first beat and held. */
@@ -476,6 +481,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
        chosen, while it does not: the one a Rest is written into. */
     let playing = -1;
     let running = false;
+    let transportNow = 0;
     let chosen = 0;
 
     const sectionsOf = () => piece()?.sections ?? [];
@@ -566,29 +572,47 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         return knobValue(ENERGY) ?? 0.5;
     }
 
-    /* What the energy needs and the piece has not got: the knob, each
-       player's stages, and with scenes the curve, at `value' for the
-       scene there is now and as written for the others. */
+    /* What the energy needs and the piece has not got: the knob, the
+       stages of each player the band plays -- not one that is played by
+       hand, whose notes are yours -- and with scenes the curve, at `value'
+       for the scene there is now and as written for the others; and a
+       curve with no scenes left to follow, taken out. A chain of that
+       name the band did not write is left alone, and the energy is the
+       knob's. */
     function energyMissing (value)
     {
         const now = piece();
         const ops = [];
         const all = curveScenes();
+        const clash = curveChain() === null &&
+                      now.chains.some((c) => c.name === CURVE);
 
-        if (!(now.knobs ?? []).some((k) => k.name === ENERGY))
+        if (!(now.knobs ?? []).some((k) => k.name === ENERGY) &&
+            knobValue(ENERGY) === null)
             ops.push(['knob', ENERGY, String(value), '0', '1', 'Energy']);
 
         for (const p of playersOf(now))
-            if (!p.stages.some(isEnergyStage))
-                ops.push(...energyOps(p.name, p.role === 'drums'));
+            if (!p.input)
+                ops.push(...energyOps(p.name, p.role === 'drums', p.stages));
 
-        if (all !== null && curveChain() === null)
+        if (all !== null && curveChain() === null && !clash)
             ops.push(['knobchain', CURVE, ENERGY, 'src', 'gen', 'steps',
                       `values=${curveRow(all, new Map([[scene().name,
                                                         value]]))}`,
                       'period=1 beats']);
+        else if (all === null && curveChain() !== null)
+            ops.push(['unchain', CURVE]);
 
         return ops;
+    }
+
+    /* A curve made or changed while the piece plays, put in step with
+       the scenes: a chain added mid-piece starts its row where the
+       transport is, and one edited goes on with the row it had sent. */
+    function realign ()
+    {
+        if (running)
+            seek(transportNow);
     }
 
     /* Live as it moves; let go of, into the piece -- into the scene's
@@ -616,15 +640,22 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
             const went = await edit(ops);
             const next = energyNext;
+            /* What was written with `value' in it need not be again. */
+            const wrote = ops.some(([op]) => op === 'knob' ||
+                                             op === 'knobchain');
 
             energyAdding = false;
             energyNext = null;
 
-            if (went && next !== null)
-                setEnergy(next.value, next.commit);
-            else
+            if (!went)
+            {
                 draw();
+                return;
+            }
 
+            realign();
+            setEnergy(next?.value ?? value,
+                      next?.commit ?? (commit && !wrote));
             return;
         }
 
@@ -637,32 +668,66 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             const energies = sceneEnergies();
 
             energies.set(scene().name, value);
-            await edit([['param', CURVE, '0', 'values',
-                         curveRow(all, energies)]]);
+
+            if (await edit([['param', CURVE, '0', 'values',
+                             curveRow(all, energies)]]))
+                realign();
         }
     }
 
-    /* A scene edit, and the curve made again for the scenes it leaves:
-       each scene's energy as it was, a new one `to' at that of `from'. */
+    /* The scenes `ops' leave, as curveScenes says them. */
+    function scenesAfter (ops)
+    {
+        const meter = clock().meter;
+        const lengthOf = (text) =>
+        {
+            const m = /^([\d.]+)\s*(bars|beats|b|s)$/.exec(text.trim());
+            const n = Number(m?.[1]);
+
+            return m === null ? { length: 0, unit: '' }
+                : m[2] === 's' ? { length: n, unit: 's' }
+                : { length: m[2] === 'bars' ? n * meter : n, unit: 'beats' };
+        };
+        let all = sectionsOf().map((s) => ({ name: s.name, length: s.length,
+                                            unit: s.unit }));
+
+        for (const [op, name, length, after] of ops)
+            if (op === 'section')
+                all.splice(after ? all.findIndex((s) => s.name === after) + 1
+                                 : all.length, 0,
+                           { name, ...lengthOf(length) });
+            else if (op === 'sectionlength')
+                all = all.map((s) => s.name === name
+                    ? { name, ...lengthOf(length) } : s);
+            else if (op === 'unsection')
+                all = all.filter((s) => s.name !== name);
+
+        return all.length > 0 && all.every((s) =>
+            s.unit === 'beats' && Number.isInteger(s.length)) ? all : null;
+    }
+
+    /* A scene edit, with the curve made again for the scenes it leaves in
+       the same edit, one undo: each scene's energy as it was, a new one
+       `to' at that of `from'; or taken out with no scenes to follow. */
     async function sceneEdit (ops, from = null, to = null)
     {
-        const energies = curveChain() === null ? null : sceneEnergies();
+        if (curveChain() === null)
+            return edit(ops);
 
-        if (!(await edit(ops)))
-            return false;
+        const energies = sceneEnergies();
+        const after = scenesAfter(ops);
 
-        const all = curveScenes();
+        if (to !== null)
+            energies.set(to, energies.get(from) ?? 0.5);
 
-        if (energies !== null && all !== null)
-        {
-            if (to !== null)
-                energies.set(to, energies.get(from) ?? 0.5);
+        const went = await edit([...ops, after === null
+            ? ['unchain', CURVE]
+            : ['param', CURVE, '0', 'values', curveRow(after, energies)]]);
 
-            await edit([['param', CURVE, '0', 'values',
-                         curveRow(all, energies)]]);
-        }
+        if (went)
+            realign();
 
-        return true;
+        return went;
     }
 
     function showEnergy ()
@@ -1810,6 +1875,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
            the scenes drawn again when it moves on. */
         at (section, isRunning, now)
         {
+            transportNow = now;
+
             if (section === playing && isRunning === running)
             {
                 progress(now);
