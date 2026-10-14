@@ -214,15 +214,14 @@ const SEQ_LAYOUT = {
             { tabs: ['channelbox', 'piecesource'] }] }],
 };
 
-/* The players, with what they played under them, and the keys to play
-   along on. */
+/* The players the whole height, for a band of eight to fit on a laptop,
+   and beside them the keys to play along on and what they all played. */
 const BAND_LAYOUT = {
     dir: 'row', size: [0.68, 0.32], kids: [
-        { dir: 'col', size: [0.8, 0.2], kids: [
-            { tabs: ['bandview'] },
-            { tabs: ['roll'] }] },
-        { dir: 'col', size: [0.45, 0.55], kids: [
+        { tabs: ['bandview'] },
+        { dir: 'col', size: [0.36, 0.28, 0.36], kids: [
             { tabs: ['keyboard'] },
+            { tabs: ['roll'] },
             { tabs: ['knobs', 'channelbox', 'paramview',
                      'piecesource'] }] }],
 };
@@ -1774,8 +1773,8 @@ async function freezeChain (chain, chainName)
 
     if (was !== loadedText || loading > 0)
     {
-        status('The text has changes that are not loaded; load them ' +
-               'before freezing a chain.', true);
+        status('The piece\'s source has edits that are not loaded; ' +
+               'load them first.', true);
         return;
     }
 
@@ -1784,14 +1783,14 @@ async function freezeChain (chain, chainName)
 
     if (text === '')
     {
-        status(`Could not freeze ${chainName}: ${why}.`, true);
+        status(`Could not keep what ${chainName.replace(/_/g, ' ')} ` +
+               `played: ${why}.`, true);
         return;
     }
 
     if ($('gen').value !== was || loadedText !== was || loading > 0)
     {
-        status('The piece changed while that chain was being frozen; ' +
-               'try it again.', true);
+        status('The piece changed meanwhile; try it again.', true);
         return;
     }
 
@@ -1827,8 +1826,8 @@ const band = createBand({
 
         if (synth === null || was !== loadedText || loading > 0)
         {
-            status('The text has changes that are not loaded; load them ' +
-                   'before another take.', true);
+            status('The piece\'s source has edits that are not loaded; ' +
+                   'load them first.', true);
             return false;
         }
 
@@ -1836,7 +1835,8 @@ const band = createBand({
 
         if (text === '' || $('gen').value !== was)
         {
-            status(`Could not give ${p.name} another take.`, true);
+            status(`Could not give ${p.name.replace(/_/g, ' ')} another ` +
+                   'take.', true);
             return false;
         }
 
@@ -1855,8 +1855,8 @@ const band = createBand({
 
         if (synth === null || was !== loadedText || loading > 0)
         {
-            status('The text has changes that are not loaded; load them ' +
-                   'first.', true);
+            status('The piece\'s source has edits that are not loaded; ' +
+                   'load them first.', true);
             return false;
         }
 
@@ -1867,7 +1867,8 @@ const band = createBand({
 
             if (text === '')
             {
-                status(`Could not add ${a.plugin} to ${p.name}.`, true);
+                status(`Could not change ${p.name.replace(/_/g, ' ')}.`,
+                       true);
                 return false;
             }
         }
@@ -1889,8 +1890,8 @@ const band = createBand({
 
         if (synth === null || was !== loadedText || loading > 0)
         {
-            status('The text has changes that are not loaded; load them ' +
-                   'first.', true);
+            status('The piece\'s source has edits that are not loaded; ' +
+                   'load them first.', true);
             return false;
         }
 
@@ -1919,7 +1920,7 @@ const band = createBand({
     sound: async (p, dsp) =>
     {
         const was = $('gen').value;
-        let why = 'the text has changes that are not loaded';
+        let why = 'the piece\'s source has edits that are not loaded';
 
         if (synth !== null && was === loadedText && loading === 0)
         {
@@ -1932,7 +1933,8 @@ const band = createBand({
                 return true;
         }
 
-        status(`Could not put ${p.name} on ${dsp}: ${why}.`, true);
+        status(`Could not change ${p.name.replace(/_/g, ' ')}'s sound: ` +
+               `${why}.`, true);
         return false;
     },
 

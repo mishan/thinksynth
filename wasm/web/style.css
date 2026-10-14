@@ -1624,7 +1624,7 @@ body.tiled .panelrows
     gap: 0.3rem 0.8rem;
     align-items: start;
     transition: background-color 0.3s;
-    padding: 0.5rem 0.7rem;
+    padding: 0.4rem 0.7rem;
     border: 1px solid var(--line);
     border-left: 5px solid var(--role);
     border-radius: 8px;
@@ -1676,7 +1676,7 @@ body.tiled .panelrows
 .player .bandpic { grid-area: pic; display: block; width: 100%;
                    border-radius: 4px; background: #14161a; }
 .player .bandpic.control { touch-action: none; }
-.player .bandpic.euclid { max-width: 10rem; }
+.player .bandpic.euclid { max-width: 8rem; }
 
 /* The pad: across calm to busy, up steady to wandering. */
 .bandpad

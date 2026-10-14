@@ -123,6 +123,11 @@ const IDEAS = {
     'gen::markov': 'learns and wanders', 'gen::progression': 'chord changes',
     'gen::arp': 'an arpeggio', 'gen::life': 'the Game of Life',
     'gen::ca': 'a cellular pattern', 'gen::evolve': 'an evolving phrase',
+    'gen::steps': 'a step pattern', 'gen::walk': 'a drifting sound',
+    'gen::breed': 'a bred sound', 'gen::grow': 'a growing sound',
+    'gen::reshape': 'a reshaped sound', 'gen::pump': 'a pumping swell',
+    'gen::morph': 'a morphing sound', 'gen::stutter': 'a stuttered end',
+    'gen::swap': 'changing sounds',
 };
 
 /* What a player's card shows of it: the first stage that draws, one that
@@ -185,7 +190,7 @@ function pictureHeight (s, w)
         case 'life':
             return Math.round(Math.max(40, Math.min(16, w / n('width', 10)) *
                                            n('height', 8)));
-        case 'euclid': return 90;
+        case 'euclid': return 70;
         default: return 64;
     }
 }
@@ -288,7 +293,7 @@ export function playersOf (piece)
 
         const idea = gens.length === 0
             ? (c.input ? 'what you play' : 'what comes in')
-            : IDEAS[`gen::${gens[0].plugin}`] ?? gens[0].plugin;
+            : IDEAS[`gen::${gens[0].plugin}`] ?? 'a pattern';
 
         const picture = PICTURES.map((n) => c.stages.find(
             (s) => s.plugin === n && s.live >= 0)).find(Boolean) ?? null;
@@ -1460,9 +1465,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         drawnFrom = from;
         $('bandhint').textContent = players.length === 0
             ? 'This piece has no players: nothing in it plays notes.'
-            : 'Press Play to hear the band. Drag a pad, or use the arrow ' +
-              'keys on it: across is calm to busy, up is steady to ' +
-              'wandering. Vary is another take; Keep makes the take notes.';
+            : 'Drag a pad, or use its arrow keys: across is calm to busy, ' +
+              'up is steady to wandering.';
     }
 
     /* How far the scene playing is through, as its button's fill. */
