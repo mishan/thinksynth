@@ -235,6 +235,26 @@ thcFreeze::write (const std::string &path, const thcGenEdit::Chain &from,
     if (r == thcGenEdit::OK && !from.startText.empty())
         r = thcGenEdit::setChainStart(path, name, from.startText, why);
 
+    /* What was played is notes and velocities; a level scales neither,
+       so the chain's xform::level stages go on after the grid as they
+       were, or what it froze plays at a loudness it never had. */
+    for (const thcGenEdit::Stage &st : from.stages)
+    {
+        if (r != thcGenEdit::OK)
+            break;
+
+        if (st.category != "xform" || st.plugin != "level")
+            continue;
+
+        Params kept;
+
+        for (const thcGenEdit::Param &p : st.params)
+            kept.push_back({ p.name, p.valueText });
+
+        r = thcGenEdit::addStage(path, name, st.name, "xform", "level", kept,
+                                 why);
+    }
+
     const std::vector<thcSection> &secs = sched.sections();
 
     for (size_t si = 0; r == thcGenEdit::OK && si < secs.size(); si++)

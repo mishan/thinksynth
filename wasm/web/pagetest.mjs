@@ -3520,8 +3520,8 @@ try
     }
 
     /* The band: pulse.gen as players; the kick's pad dragged to busy
-       fills its ring, Vary gives it a seed of its own while it plays,
-       and its first take takes the seed out again. */
+       fills its ring, and Vary on it, with nothing random in it, puts a
+       take behind it. */
     {
         const kickOf = () => page.evaluate(() =>
         {
@@ -3555,15 +3555,23 @@ try
         await page.mouse.up();
 
         const busy = await until(kickOf, (t) => /fills = 4;/.test(t));
-        const kickVaries = await card.locator('button',
-                                              { hasText: 'Vary' }).count();
+
+        check(/fills = 4;/.test(busy),
+              '...the kick\'s pad at busy fills its ring: ' +
+              `${/fills = \d+/.exec(busy)}`);
+
+        /* A ring with nothing random in it: its first Vary puts a take
+           behind it, and gives the chain a seed of its own. */
+        await card.locator('button', { hasText: 'Vary' }).click();
+
+        const varied = await until(kickOf, (t) =>
+            /stage take xform::vary/.test(t) && /seed \d+;/.test(t));
 
         await page.click('#stop');
         await page.evaluate(() => window.solo.settled());
 
-        check(/fills = 4;/.test(busy) && kickVaries === 0,
-              '...the kick\'s pad at busy fills its ring, and a ring with ' +
-              `nothing random in it offers no Vary: ${/fills = \d+/.exec(busy)}`);
+        check(/stage take xform::vary/.test(varied) && /seed \d+;/.test(varied),
+              '...and Vary on it puts a take behind it, with a seed');
 
         /* The bell an octave up and up again: a transpose behind it, the
            second ▲ its param, and the card saying where it is. The second

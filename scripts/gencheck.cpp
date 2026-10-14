@@ -11939,6 +11939,28 @@ checkDrawnControls (const std::map<std::string, thcPlugin *> &plugins,
         if (frozen != 16)
             fail("the frozen chain should double the original on the "
                  "beat; heard " + std::to_string(frozen) + " of 16");
+
+        /* A chain turned down by an xform::level freezes turned down:
+           the grid holds velocities, and the level goes on after it. */
+        thcGenEdit::Chain quiet;
+        thcGenEdit::Sink sink = {};
+
+        quiet.name = "beat";
+        quiet.stages.push_back({ "volume", "xform", "level",
+                                 { { "gain", "0.3" } } });
+        sink.channel = 1;
+        quiet.sinks.push_back(sink);
+        editOk(thcFreeze::write(path, quiet, sched, "beat_quiet", params,
+                                why), why, "thcFreeze::write");
+
+        const std::string text = slurp(path);
+        const size_t at = text.find("chain beat_quiet");
+
+        if (at == std::string::npos ||
+            text.find("stage volume xform::level", at) == std::string::npos ||
+            text.find("gain = 0.3", at) == std::string::npos)
+            fail("a frozen chain should keep its level stage: " +
+                 (at == std::string::npos ? text : text.substr(at)));
     }
 
     /* A phrase with two pitches, a held note, and a note struck again

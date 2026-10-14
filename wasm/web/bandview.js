@@ -123,6 +123,11 @@ const IDEAS = {
     'gen::markov': 'learns and wanders', 'gen::progression': 'chord changes',
     'gen::arp': 'an arpeggio', 'gen::life': 'the Game of Life',
     'gen::ca': 'a cellular pattern', 'gen::evolve': 'an evolving phrase',
+    'gen::steps': 'a step pattern', 'gen::walk': 'a drifting sound',
+    'gen::breed': 'a bred sound', 'gen::grow': 'a growing sound',
+    'gen::reshape': 'a reshaped sound', 'gen::pump': 'a pumping swell',
+    'gen::morph': 'a morphing sound', 'gen::stutter': 'a stuttered end',
+    'gen::swap': 'changing sounds',
 };
 
 /* What a player's card shows of it: the first stage that draws, one that
@@ -146,6 +151,10 @@ const RANDOM = new Set(['arp', 'cloud', 'humanize', 'chance', 'evolve',
                         'progression', 'ratchet', 'vary', 'breed', 'run',
                         'grow', 'life', 'ca']);
 
+/* An xform::vary's rows that draw from the seed. */
+const VARIES = ['rest', 'leap', 'push', 'double', 'approach', 'ornament',
+                'pan', 'tone', 'attack'];
+
 const valueOf = (s, row, or) =>
     numberOf(s.params.find((p) => p.name === row)?.valueText ?? '')?.num ??
     or;
@@ -157,6 +166,15 @@ function drawsFromSeed (s)
         case 'life': case 'ca': return valueOf(s, 'scatter', 0) > 0;
         case 'arp': return valueOf(s, 'pattern', 0) === 3;
         case 'progression': return valueOf(s, 'seed', 0) === 0;
+
+        /* As TOUCH and TAKES write them at rest, they pass every note
+           as it came, whatever the seed. */
+        case 'chance': return valueOf(s, 'prob', 0.75) < 1;
+        case 'ratchet': return valueOf(s, 'prob', 0.25) > 0;
+        case 'humanize':
+            return valueOf(s, 'time', 0.02) > 0 || valueOf(s, 'vel', 0) > 0;
+        case 'vary':
+            return VARIES.some((row) => valueOf(s, row, 0) !== 0);
         default: return RANDOM.has(s.plugin);
     }
 }
@@ -185,7 +203,7 @@ function pictureHeight (s, w)
         case 'life':
             return Math.round(Math.max(40, Math.min(16, w / n('width', 10)) *
                                            n('height', 8)));
-        case 'euclid': return 90;
+        case 'euclid': return 70;
         default: return 64;
     }
 }
@@ -217,20 +235,33 @@ function spell (num, unit, integer)
     return text + unit;
 }
 
-/* The band's own octave stage on a chain (an xform::transpose it adds,
-   which works on whatever the chain's notes come from), and how many
-   octaves it moves them; 0 with none. */
-const octaveStage = (stages) => stages.find((s) =>
-    s.plugin === 'transpose' && /^octave\d*$/.test(s.name) && s.live >= 0);
+/* The stages the band adds behind a player for a control of the card's
+   own, each with the one param it sets: they work on whatever the
+   chain's notes come from. The volume is a note's level at the mix, not
+   its velocity, which a hat reads as how open it is. */
+const OWN = {
+    octave: { name: 'octave', plugin: 'transpose', row: 'semitones' },
+    volume: { name: 'volume', plugin: 'level', row: 'gain' },
+    take: { name: 'take', plugin: 'vary' },
+};
 
-export function octavesOf (stages)
-{
-    const s = octaveStage(stages);
-    const n = numberOf(s?.params.find((q) => q.name === 'semitones')
-                         ?.valueText ?? '');
+/* One of them on a chain -- under its name, or a number after it where
+   the name was taken -- and its param, null with none. */
+const ownStage = (stages, own) => stages.find((s) =>
+    s.plugin === own.plugin && s.live >= 0 &&
+    new RegExp(`^${own.name}\\d*$`).test(s.name));
 
-    return n === null ? 0 : Math.round(n.num / 12);
-}
+const ownValue = (stages, own) => numberOf(ownStage(stages, own)?.params
+    .find((q) => q.name === own.row)?.valueText ?? '')?.num ?? null;
+
+/* How many octaves the band has moved a player's notes. */
+export const octavesOf = (stages) =>
+    Math.round((ownValue(stages, OWN.octave) ?? 0) / 12);
+
+/* A player's volume, 1 as written; up to VOLUME_MAX. */
+export const volumeOf = (stages) => ownValue(stages, OWN.volume) ?? 1;
+
+const VOLUME_MAX = 2;
 
 /* How far either way the octave buttons go. */
 const OCTAVES = 3;
@@ -276,7 +307,7 @@ export function playersOf (piece)
 
         const idea = gens.length === 0
             ? (c.input ? 'what you play' : 'what comes in')
-            : IDEAS[`gen::${gens[0].plugin}`] ?? gens[0].plugin;
+            : IDEAS[`gen::${gens[0].plugin}`] ?? 'a pattern';
 
         const picture = PICTURES.map((n) => c.stages.find(
             (s) => s.plugin === n && s.live >= 0)).find(Boolean) ?? null;
@@ -374,6 +405,20 @@ const TOUCH = {
              params: { grid: '0.25 beats', rest: '0', leap: '0', push: '0',
                        double: '0' } }],
 };
+
+/* What the band puts behind a player with nothing random in it -- a
+   drawn grid, a plain ring, a written phrase -- for Vary to have takes
+   of: a note now and then left out or played twice, and a pitched one
+   now and then an octave away, which keeps it in key. */
+const TAKES = (drums) => ({
+    name: 'take', plugin: 'vary',
+    params: { rest: '0.1', double: '0.12', leap: drums ? '0' : '0.08' } });
+
+/* Those, set for another take or, `on' false, to pass every note as
+   written: the take the card had before. */
+const takeEdits = (s, drums, on) => Object.entries(TAKES(drums).params)
+    .map(([row, text]) => ({ stage: s.live, stageName: s.name, row,
+                             text: on ? text : '0' }));
 
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
@@ -760,54 +805,137 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         return b;
     }
 
-    /* By the player's state, which a param edit is not read back into. */
+    /* The band's own stage `own' (OWN) on a player, its param set to
+     * `text': where it is, a param edit; where it is not, added behind
+     * the player. A value set while it is on its way is sent once it is
+     * in. Into the player's state at once, which is what the card shows:
+     * a param edit is not read back into it. Resolves to whether it went
+     * in.
+     */
+    function setOwn (p, st, own, text, passing = false)
+    {
+        const s = ownStage(st.base, own);
+
+        st.owning ??= new Map();
+
+        if (s !== undefined)
+            st.base = st.base.map((b) => b !== s ? b : {
+                ...s, params: [{ name: own.row, valueText: text }] });
+
+        if (st.owning.has(own.name))
+        {
+            st.owning.set(own.name, text);
+            return st.adding;
+        }
+
+        if (s !== undefined)
+        {
+            params(p, [{ stage: s.live, stageName: s.name, row: own.row,
+                         text }], passing);
+            return Promise.resolve(true);
+        }
+
+        st.owning.set(own.name, text);
+        st.adding = behind(p, st, [{ name: own.name, plugin: own.plugin,
+                                     params: { [own.row]: text } }])
+            .then((went) =>
+        {
+            const wanted = st.owning.get(own.name);
+
+            st.owning.delete(own.name);
+
+            if (went && wanted !== text)
+                setOwn(p, st, own, wanted);
+
+            draw();
+            return went;
+        });
+        return st.adding;
+    }
+
     function octave (p, st, by)
     {
-        const s = octaveStage(st.base);
         const to = octavesOf(st.base) + by;
-
-        /* A press while the stage is on its way is taken once it is in. */
-        if (st.octaving)
-        {
-            st.octavesNext = (st.octavesNext ?? 0) + by;
-            return;
-        }
 
         if (Math.abs(to) > OCTAVES)
             return;
 
-        const said = `${nameOf(p)}: ${octaveWords(to)}`;
-        const text = String(12 * to);
-
-        if (s !== undefined)
-        {
-            params(p, [{ stage: s.live, stageName: s.name, row: 'semitones',
-                         text }]);
-            st.base = st.base.map((b) => b !== s ? b : { ...s,
-                params: [{ name: 'semitones', valueText: text }] });
-            tell(said);
-            draw();
-            return;
-        }
-
-        st.octaving = true;
-        behind(p, st, [{ name: 'octave', plugin: 'transpose',
-                         params: { semitones: text } }])
-            .then((went) =>
-            {
-                const next = went ? st.octavesNext : 0;
-
-                st.octaving = false;
-                st.octavesNext = 0;
-                draw();
-
-                if (went)
-                    tell(said);
-
-                if (next)
-                    octave(p, st, next);
-            });
+        setOwn(p, st, OWN.octave, String(12 * to));
+        tell(`${nameOf(p)}: ${octaveWords(to)}`);
         draw();
+    }
+
+    /* A slider from silent to twice as loud, as written in the middle --
+       sent as it moves, at most every PAD_EVERY_MS, and held like a pad,
+       so a draw does not take it out from under the pointer. */
+    function volume (p, st)
+    {
+        const box = document.createElement('label');
+        const range = document.createElement('input');
+        let timer = null;
+        let holding = false;
+
+        box.className = 'volume';
+        box.append(Object.assign(document.createElement('span'),
+                                 { textContent: 'vol' }), range);
+        range.type = 'range';
+        range.min = '0';
+        range.max = String(VOLUME_MAX);
+        range.step = '0.05';
+        range.value = String(volumeOf(st.base));
+        range.dataset.f = `${p.name}:volume`;
+        range.setAttribute('aria-label', `${nameOf(p)}: volume`);
+
+        const spoken = () => range.setAttribute('aria-valuetext',
+            `${Math.round(Number(range.value) * 100)}%`);
+        const send = (last) =>
+        {
+            clearTimeout(timer);
+            timer = null;
+            setOwn(p, st, OWN.volume, String(Number(range.value)), !last)
+                .then((went) =>
+            {
+                /* Refused, the card is not drawn again: nothing it is
+                   drawn from has changed. */
+                if (!went)
+                    range.value = String(volumeOf(st.base));
+            });
+        };
+        const release = () =>
+        {
+            if (!holding)
+                return;
+
+            holding = false;
+
+            if (--held === 0 && drawLater)
+                draw();
+        };
+
+        spoken();
+        range.addEventListener('pointerdown', () =>
+        {
+            if (!holding)
+            {
+                holding = true;
+                held++;
+            }
+        });
+        range.addEventListener('input', () =>
+        {
+            spoken();
+
+            if (timer === null)
+                timer = setTimeout(() => send(false), PAD_EVERY_MS);
+        });
+        range.addEventListener('change', () =>
+        {
+            send(true);
+            release();
+        });
+        range.addEventListener('pointerup', release);
+        range.addEventListener('pointercancel', release);
+        return box;
     }
 
     /* What plays the player, as a menu of the graphs its role is offered
@@ -1062,14 +1190,29 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         moves.className = 'moves';
 
-        if (p.seeded === 'vary')
+        /* With nothing random in it, the first Vary puts TAKES behind it,
+           and the take is had once they are in; As it was sets them to
+           pass every note, and another Vary back. After the seed, whose
+           edit loads the piece again over any param edit sent before
+           it. */
+        const drums = p.role === 'drums';
+        const taking = () => ownStage(st.base, OWN.take);
+
+        if (p.seeded === 'vary' || p.seeded === null)
             moves.append(button('Vary', 'Another take, from here on',
                                 async () =>
             {
                 const next = seed();
 
+                if (p.seeded === null && taking() === undefined &&
+                    !(await behind(p, st, [TAKES(drums)])))
+                    return;
+
                 if (!(await vary(p, next)))
                     return;
+
+                if (taking() !== undefined)
+                    params(p, takeEdits(taking(), drums, true));
 
                 st.takes = st.takes.slice(0, st.take + 1);
                 st.takes.push(next);
@@ -1092,7 +1235,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         takes.className = 'takes';
         takes.title = 'Takes so far: click one to go back to it';
         /* One take is no choice to offer. */
-        (p.seeded === 'vary' && st.takes.length > 1 ? st.takes : [])
+        ((p.seeded === 'vary' || taking() !== undefined) &&
+         st.takes.length > 1 ? st.takes : [])
             .forEach((taken, i) =>
         {
             const t = button(String(i + 1), i === 0 ? 'As it was'
@@ -1101,6 +1245,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             {
                 if (!(await vary(p, taken)))
                     return;
+
+                if (taking() !== undefined)
+                    params(p, takeEdits(taking(), drums, i !== 0));
 
                 st.take = i;
                 tell(`${nameOf(p)}: ${t.title.toLowerCase()}`);
@@ -1121,7 +1268,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         out.className = 'out';
         out.setAttribute('aria-label', out.title);
-        el.append(who, out, pad(p, st), octs, moves, takes);
+        el.append(who, out, pad(p, st), octs, moves, volume(p, st), takes);
 
         if (p.picture !== null)
             el.append(picture(p));
@@ -1367,9 +1514,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         drawnFrom = from;
         $('bandhint').textContent = players.length === 0
             ? 'This piece has no players: nothing in it plays notes.'
-            : 'Press Play to hear the band. Drag a pad, or use the arrow ' +
-              'keys on it: across is calm to busy, up is steady to ' +
-              'wandering. Vary is another take; Keep makes the take notes.';
+            : 'Drag a pad, or use its arrow keys: across is calm to busy, ' +
+              'up is steady to wandering.';
     }
 
     /* How far the scene playing is through, as its button's fill. */

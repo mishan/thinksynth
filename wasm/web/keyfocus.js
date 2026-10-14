@@ -165,8 +165,10 @@ export function createKeyFocus ({ editing = '', indicator = null,
      * "I am done with this box". */
     document.addEventListener('keydown', (e) =>
     {
+        /* A dialog's Escape closes it, and is not this one to take. */
         if (e.key !== 'Escape' || e.defaultPrevented ||
-            !claims(document.activeElement))
+            !claims(document.activeElement) ||
+            document.activeElement.closest('dialog[open]') !== null)
             return;
 
         release();
