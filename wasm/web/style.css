@@ -952,6 +952,41 @@ body:has(#joinrow:not([hidden])) #roomhead
 #join { align-self: flex-end; }
 #account { align-self: flex-start; }
 
+/* The piece browser (index.html, main.js listPieces). */
+#piecebrowser
+{
+    width: min(calc(100vw - 2em), 40em);
+    max-height: 85vh;
+    box-sizing: border-box;
+    padding: 1em 1.2em;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+#piecebrowser[open] { display: flex; flex-direction: column; gap: 0.6em; }
+#piecebrowser::backdrop { background: rgb(0 0 0 / 0.45); }
+#piecebrowser .browsehead { display: flex; justify-content: space-between; }
+#piecebrowser .browsetitle { font-weight: bold; font-size: 1.2em; }
+#piecebrowserclose
+{
+    background: none;
+    border: 0;
+    color: var(--fg);
+    font-size: 1.4em;
+}
+
+#piecelist { overflow-y: auto; display: flex; flex-direction: column;
+             gap: 0.3em; }
+#piecelist h3 { margin: 0.6em 0 0.1em; font-size: 0.9em; color: var(--dim); }
+.pieceentry { display: flex; flex-direction: column; align-items: flex-start;
+              flex-shrink: 0; height: auto; gap: 0.1em; text-align: left;
+              padding: 0.4em 0.6em; }
+.pieceentry span { font-size: 0.85em; color: var(--dim); }
+.pieceentry[aria-current="true"] { border-color: var(--held);
+                                   box-shadow: inset 3px 0 var(--held); }
+
 /* The account dialog over the join card (accountui.js). */
 #accountdialog
 {

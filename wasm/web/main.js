@@ -2346,6 +2346,57 @@ async function loadPieceMode ()
    before the one it chose. */
 let picking = Promise.resolve();
 
+/* The piece menu as a list to read: by category, each piece with its
+   description, those that do not have `words' left out. Chosen, it is
+   chosen in the menu. */
+function listPieces (words)
+{
+    const find = words.trim().toLowerCase();
+    const entry = (o, group) =>
+    {
+        if (!`${o.textContent} ${o.title} ${group}`.toLowerCase()
+                .includes(find))
+            return null;
+
+        const b = document.createElement('button');
+
+        b.className = 'pieceentry';
+        b.dataset.file = o.value;
+        b.append(Object.assign(document.createElement('b'),
+                               { textContent: o.textContent }),
+                 Object.assign(document.createElement('span'),
+                               { textContent: o.title }));
+
+        if (o.value === $('piece').value)
+            b.setAttribute('aria-current', 'true');
+
+        b.addEventListener('click', () =>
+        {
+            $('piecebrowser').close();
+
+            if ($('piece').value !== o.value)
+            {
+                $('piece').value = o.value;
+                $('piece').dispatchEvent(new Event('change'));
+            }
+        });
+        return b;
+    };
+
+    $('piecelist').replaceChildren(...[...$('piece').children].flatMap((c) =>
+    {
+        if (c.tagName === 'OPTION')
+            return [entry(c, '')].filter(Boolean);
+
+        const entries = [...c.children].map((o) => entry(o, c.label))
+            .filter(Boolean);
+
+        return entries.length === 0 ? [] : [
+            Object.assign(document.createElement('h3'),
+                          { textContent: c.label }), ...entries];
+    }));
+}
+
 async function pickPiece ()
 {
     composer?.forgetMix();
@@ -4197,6 +4248,18 @@ async function init ()
     $('exportmidi').addEventListener('click', exportMidi);
     $('pieceeffect').addEventListener('change', choosePieceEffect);
     $('piece').addEventListener('change', pickPiece);
+    $('browsepieces').addEventListener('click', () =>
+    {
+        $('piecefilter').value = '';
+        listPieces('');
+        $('piecebrowser').showModal();
+        $('piecelist').querySelector('[aria-current]')
+            ?.scrollIntoView({ block: 'center' });
+    });
+    $('piecefilter').addEventListener('input',
+                                      () => listPieces($('piecefilter').value));
+    $('piecebrowserclose').addEventListener('click',
+                                            () => $('piecebrowser').close());
 
     showLineNumbers(savedLineNumbers());
 

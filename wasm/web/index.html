@@ -83,6 +83,7 @@
        going away, and the transport is its own strip beside it. -->
   <span id="piecemode" class="group" hidden>
     <label><span class="say">Piece</span> <select id="piece"></select></label>
+    <button id="browsepieces" aria-haspopup="dialog">Browse&hellip;</button>
   </span>
 
   <!-- The transport, which belongs to neither of those and to both: a
@@ -141,6 +142,18 @@
      and it says anything. Out of the piece section and into a line of its
      own, which is a line it takes only when it has something in it. -->
 <p id="about" hidden></p>
+
+<!-- Every piece in the menu with what it says about itself, which the
+     menu's options say only in a title. -->
+<dialog id="piecebrowser" aria-labelledby="piecebrowsertitle">
+  <div class="browsehead">
+    <span id="piecebrowsertitle" class="browsetitle">Pieces</span>
+    <button id="piecebrowserclose" aria-label="Close">&times;</button>
+  </div>
+  <input id="piecefilter" type="search" placeholder="Filter"
+         aria-label="Filter the pieces">
+  <div id="piecelist"></div>
+</dialog>
 
 <!-- The phone's menu, from the left. What the tiler has put away is listed
      in #menupanes (mullion's `drawer'); the source link and the Install
