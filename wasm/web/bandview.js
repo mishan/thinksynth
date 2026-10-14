@@ -183,6 +183,8 @@ function drawsFromSeed (s)
    same board from the top, or nothing. */
 export function seededAs (stages)
 {
+    stages = stages.filter((s) => !isEnergyStage(s));
+
     if (stages.some(drawsFromSeed))
         return 'vary';
 
@@ -313,6 +315,7 @@ export function playersOf (piece)
             (s) => s.plugin === n && s.live >= 0)).find(Boolean) ?? null;
 
         return [{ index, name: c.name, role, sound, idea, stages: c.stages,
+                  input: c.input === true,
                   seed: c.hasSeed ? c.seed : null, picture,
                   seeded: seededAs(c.stages), instrument: sink.instrument,
                   dsp, channel: sink.instrument === ''
@@ -420,6 +423,41 @@ const takeEdits = (s, drums, on) => Object.entries(TAKES(drums).params)
     .map(([row, text]) => ({ stage: s.live, stageName: s.name, row,
                              text: on ? text : '0' }));
 
+/* The band's energy: one knob, 0 to 1 and as written at a half, that
+ * every player follows through stages of its own -- below the half a
+ * note now and then left out, down to one in two, and quieter; above it
+ * a drum now and then a roll and a pitched note now and then played
+ * twice, and louder. Arithmetic on the knob, so the piece plays it as
+ * written wherever it is played, and a pad, which moves numbers, leaves
+ * it alone.
+ */
+const ENERGY = 'energy';
+
+const energyStages = (drums) => [
+    { name: 'energy', plugin: 'chance', params: { prob: '0.5 + @energy' } },
+    drums ? { name: 'energy_fill', plugin: 'ratchet',
+              params: { prob: '@energy * 0.6 - 0.3' } }
+          : { name: 'energy_fill', plugin: 'vary',
+              params: { double: '@energy * 0.4 - 0.2' } },
+    { name: 'energy_level', plugin: 'level',
+      params: { gain: '0.7 + @energy * 0.6' } },
+];
+
+const isEnergyStage = (s) => /^energy(_fill|_level)?$/.test(s.name);
+
+/* Those `stages' has not got, as ops adding them behind chain `name'
+   (tw_gen_ops): a kept player has the level, which a freeze carries,
+   and not the others. */
+const energyOps = (name, drums, stages = []) => energyStages(drums)
+    .filter((st) => !stages.some((s) => s.name === st.name))
+    .map((st) => ['stage', name, st.name, 'xform', st.plugin,
+                  ...Object.entries(st.params).map(([k, v]) =>
+                      `${k}=${v}`)]);
+
+/* And with scenes, the knob moved by a chain of its own: a gen::steps a
+   beat a step, each scene's energy on its first beat and held. */
+const CURVE = 'energy';
+
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
 
@@ -436,12 +474,14 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
    and `newBand' starts a band over. */
 export function createBand ({ piece, params, vary, keep, rest, say, tell,
                               touch, toMirror, onGesture, edit, sounds,
-                              sound, newBand, seek, level, clock })
+                              sound, newBand, seek, level, clock, knob,
+                              knobValue })
 {
     /* The scene being played, while the piece plays, and the one last
        chosen, while it does not: the one a Rest is written into. */
     let playing = -1;
     let running = false;
+    let transportNow = 0;
     let chosen = 0;
 
     const sectionsOf = () => piece()?.sections ?? [];
@@ -475,6 +515,237 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
     const indexOf = (name) => sectionsOf().findIndex((s) => s.name === name);
 
     const nameOf = (p) => p.name.replace(/_/g, ' ');
+
+    /* ---- the energy (ENERGY) ---- */
+
+    /* The scenes, when each is a whole number of beats: what a curve a
+       beat a step can follow. */
+    function curveScenes ()
+    {
+        const all = sectionsOf();
+
+        return all.length > 0 && all.every((s) => s.unit === 'beats' &&
+                                                  Number.isInteger(s.length))
+            ? all : null;
+    }
+
+    const curveChain = () => piece()?.chains?.find((c) =>
+        c.name === CURVE && c.stages[0]?.plugin === 'steps') ?? null;
+
+    /* Each scene's energy, by name, as the curve has it. */
+    function sceneEnergies ()
+    {
+        const row = (curveChain()?.stages[0].params.find((q) =>
+            q.name === 'values')?.valueText ?? '').replace(/"/g, '').trim()
+            .split(/\s+/);
+        const out = new Map();
+        let at = 0;
+
+        for (const sc of curveScenes() ?? [])
+        {
+            let i = Math.min(at, row.length - 1);
+
+            while (i > 0 && row[i] === '_')
+                i--;
+
+            const v = Number(row[i]);
+
+            out.set(sc.name, Number.isFinite(v) ? v : 0.5);
+            at += sc.length;
+        }
+
+        return out;
+    }
+
+    const curveRow = (all, energies) => '"' + all.flatMap((sc) =>
+        [String(+(energies.get(sc.name) ?? 0.5).toFixed(2)),
+         ...Array(sc.length - 1).fill('_')]).join(' ') + '"';
+
+    /* The playing or chosen scene's on a curve; else the knob's. */
+    function energyNow ()
+    {
+        const sc = scene();
+
+        if (sc !== null && curveChain() !== null)
+            return sceneEnergies().get(sc.name) ?? 0.5;
+
+        return knobValue(ENERGY) ?? 0.5;
+    }
+
+    /* What the energy needs and the piece has not got: the knob, the
+       stages of each player the band plays -- not one that is played by
+       hand, whose notes are yours -- and with scenes the curve, at `value'
+       for the scene there is now and as written for the others; and a
+       curve with no scenes left to follow, taken out. A chain of that
+       name the band did not write is left alone, and the energy is the
+       knob's. */
+    function energyMissing (value)
+    {
+        const now = piece();
+        const ops = [];
+        const all = curveScenes();
+        const clash = curveChain() === null &&
+                      now.chains.some((c) => c.name === CURVE);
+
+        if (!(now.knobs ?? []).some((k) => k.name === ENERGY) &&
+            knobValue(ENERGY) === null)
+            ops.push(['knob', ENERGY, String(value), '0', '1', 'Energy']);
+
+        for (const p of playersOf(now))
+            if (!p.input)
+                ops.push(...energyOps(p.name, p.role === 'drums', p.stages));
+
+        if (all !== null && curveChain() === null && !clash)
+            ops.push(['knobchain', CURVE, ENERGY, 'src', 'gen', 'steps',
+                      `values=${curveRow(all, new Map([[scene().name,
+                                                        value]]))}`,
+                      'period=1 beats']);
+        else if (all === null && curveChain() !== null)
+            ops.push(['unchain', CURVE]);
+
+        return ops;
+    }
+
+    /* A curve made or changed while the piece plays, put in step with
+       the scenes: a chain added mid-piece starts its row where the
+       transport is, and one edited goes on with the row it had sent. */
+    function realign ()
+    {
+        if (running)
+            seek(transportNow);
+    }
+
+    /* Live as it moves; let go of, into the piece -- into the scene's
+       place on the curve where there is one. A move while what is
+       missing goes in is made once it is in. */
+    let energyAdding = false;
+    let energyNext = null;
+
+    async function setEnergy (value, commit)
+    {
+        if (piece() === null)
+            return;
+
+        if (energyAdding)
+        {
+            energyNext = { value, commit: commit || energyNext?.commit };
+            return;
+        }
+
+        const ops = energyMissing(value);
+
+        if (ops.length > 0)
+        {
+            energyAdding = true;
+
+            const went = await edit(ops);
+            const next = energyNext;
+            /* What was written with `value' in it need not be again. */
+            const wrote = ops.some(([op]) => op === 'knob' ||
+                                             op === 'knobchain');
+
+            energyAdding = false;
+            energyNext = null;
+
+            if (!went)
+            {
+                draw();
+                return;
+            }
+
+            realign();
+            setEnergy(next?.value ?? value,
+                      next?.commit ?? (commit && !wrote));
+            return;
+        }
+
+        const all = curveScenes();
+
+        knob(ENERGY, value, commit && curveChain() === null);
+
+        if (commit && all !== null && curveChain() !== null)
+        {
+            const energies = sceneEnergies();
+
+            energies.set(scene().name, value);
+
+            if (await edit([['param', CURVE, '0', 'values',
+                             curveRow(all, energies)]]))
+                realign();
+        }
+    }
+
+    /* The scenes `ops' leave, as curveScenes says them. */
+    function scenesAfter (ops)
+    {
+        const meter = clock().meter;
+        const lengthOf = (text) =>
+        {
+            const m = /^([\d.]+)\s*(bars|beats|b|s)$/.exec(text.trim());
+            const n = Number(m?.[1]);
+
+            return m === null ? { length: 0, unit: '' }
+                : m[2] === 's' ? { length: n, unit: 's' }
+                : { length: m[2] === 'bars' ? n * meter : n, unit: 'beats' };
+        };
+        let all = sectionsOf().map((s) => ({ name: s.name, length: s.length,
+                                            unit: s.unit }));
+
+        for (const [op, name, length, after] of ops)
+            if (op === 'section')
+                all.splice(after ? all.findIndex((s) => s.name === after) + 1
+                                 : all.length, 0,
+                           { name, ...lengthOf(length) });
+            else if (op === 'sectionlength')
+                all = all.map((s) => s.name === name
+                    ? { name, ...lengthOf(length) } : s);
+            else if (op === 'unsection')
+                all = all.filter((s) => s.name !== name);
+
+        return all.length > 0 && all.every((s) =>
+            s.unit === 'beats' && Number.isInteger(s.length)) ? all : null;
+    }
+
+    /* A scene edit, with the curve made again for the scenes it leaves in
+       the same edit, one undo: each scene's energy as it was, a new one
+       `to' at that of `from'; or taken out with no scenes to follow. */
+    async function sceneEdit (ops, from = null, to = null)
+    {
+        if (curveChain() === null)
+            return edit(ops);
+
+        const energies = sceneEnergies();
+        const after = scenesAfter(ops);
+
+        if (to !== null)
+            energies.set(to, energies.get(from) ?? 0.5);
+
+        const went = await edit([...ops, after === null
+            ? ['unchain', CURVE]
+            : ['param', CURVE, '0', 'values', curveRow(after, energies)]]);
+
+        if (went)
+            realign();
+
+        return went;
+    }
+
+    function showEnergy ()
+    {
+        const box = $('bandenergy');
+        const sc = scene();
+
+        if (document.activeElement !== box && !energyAdding)
+            box.value = String(energyNow());
+
+        box.setAttribute('aria-valuetext',
+                         `${Math.round(Number(box.value) * 100)}%`);
+        box.title = sc !== null && curveScenes() !== null
+            ? `How much is going on in ${sc.name}: calm to full, as ` +
+              'written in the middle'
+            : 'How much the whole band plays: calm to full, as written ' +
+              'in the middle';
+    }
 
     /* The control to have the keys after the next draw, by its `f': a
        player just added, before it has a card. */
@@ -1041,6 +1312,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         const box = $('bandscenes');
         const all = sectionsOf();
         const sc = scene();
+        const energies = curveChain() === null ? null : sceneEnergies();
         const row = all.map((s, i) =>
         {
             const b = button(s.name, sizeOf(s), () =>
@@ -1052,6 +1324,15 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
             b.className = 'scene';
             b.classList.toggle('on', sc !== null && sc.index === i);
+
+            if (energies !== null)
+            {
+                const e = energies.get(s.name) ?? 0.5;
+
+                b.style.setProperty('--energy', String(e));
+                b.classList.add('energized');
+                b.title += `, energy ${Math.round(e * 100)}%`;
+            }
 
             if (sc !== null && sc.index === i)
                 b.setAttribute('aria-current', 'true');
@@ -1072,7 +1353,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             const name = freeName('scene', taken);
 
             chosen = sc === null ? 0 : indexOf(sc.name) + 1;
-            edit([['section', name, length, sc?.name ?? '', ...levels]])
+            sceneEdit([['section', name, length, sc?.name ?? '', ...levels]],
+                      sc?.name ?? null, name)
                 .then((went) => went && tell(`A scene called ${name}`));
         }, '@add');
 
@@ -1107,7 +1389,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             const name = now();
 
             if (size.value !== '')
-                edit([['sectionlength', name, `${size.value} bars`]])
+                sceneEdit([['sectionlength', name, `${size.value} bars`]])
                     .then((went) => went &&
                           tell(`${name} lasts ${size.value} bars`));
         });
@@ -1126,7 +1408,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         {
             const name = now();
 
-            edit([['unsection', name]]).then((went) =>
+            sceneEdit([['unsection', name]]).then((went) =>
                 went && tell(`${name} is out of the song`));
         }, '@out');
 
@@ -1369,7 +1651,11 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                     focusNext = `${name}:pad`;
                     edit([...(key.written ? [] : [['scale', 'key',
                                                     keyNotes(key)]]),
-                          ...addOps(tuned, name)]).then((went) =>
+                          ...addOps(tuned, name),
+                          ...((now?.knobs ?? []).some((k) =>
+                                  k.name === ENERGY)
+                              ? energyOps(name, role === 'drums') : [])])
+                        .then((went) =>
                     {
                         if (went)
                             tell(`${name.replace(/_/g, ' ')} joins the ` +
@@ -1468,6 +1754,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                 stateOf(p).resting = true;
 
         scenes();
+        showEnergy();
 
         /* Again after every load or edit: a load makes the chains anew. */
         for (const p of players)
@@ -1588,6 +1875,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
            the scenes drawn again when it moves on. */
         at (section, isRunning, now)
         {
+            transportNow = now;
+
             if (section === playing && isRunning === running)
             {
                 progress(now);
@@ -1620,6 +1909,16 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             $('bandroot').addEventListener('change', chooseKey);
             $('bandmood').addEventListener('change', chooseKey);
             $('bandnew').addEventListener('click', () => newBand());
+            $('bandenergy').addEventListener('input', () =>
+            {
+                const box = $('bandenergy');
+
+                box.setAttribute('aria-valuetext',
+                                 `${Math.round(Number(box.value) * 100)}%`);
+                setEnergy(Number(box.value), false);
+            });
+            $('bandenergy').addEventListener('change', () =>
+                setEnergy(Number($('bandenergy').value), true));
             /* A click elsewhere puts the keys where it meant them. */
             document.addEventListener('pointerdown', () => { lost = null; },
                                       true);

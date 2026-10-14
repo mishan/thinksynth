@@ -4729,6 +4729,73 @@ checkKnobSink (const std::map<std::string, thcPlugin *> &plugins,
         fail("the editor does not describe a knob sink" +
              (why.empty() ? std::string() : ": " + why));
 
+    /* A chain added to write a knob: refused for one the piece does not
+       declare, and for @runs a chain that loads and writes it. */
+    {
+        const std::vector<std::pair<std::string, std::string> > row = {
+            { "values", "\"0.2 _ 0.9 _\"" }, { "period", "1 beats" } };
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (thcGenEdit::addKnobChain(ok, "shape", "nothing", "src", "gen",
+                                     "steps", row, why) !=
+            thcGenEdit::REFUSED)
+            fail("a chain writing a knob nobody declared was written");
+
+        editOk(thcGenEdit::addKnobChain(ok, "shape", "runs", "src", "gen",
+                                        "steps", row, why), why,
+               "addKnobChain");
+        drainSynth();
+
+        if (thcGenEdit::describe(ok, doc, why) != thcGenEdit::OK ||
+            doc.chains.size() != 3 || doc.chains[2].sinks.size() != 1 ||
+            doc.chains[2].sinks[0].knob != "runs" || !loader.load(ok, &sched))
+            fail("addKnobChain did not write a chain that loads and writes "
+                 "@runs" + (loader.errors().empty()
+                                ? std::string() : ": " + loader.errors()[0]));
+    }
+
+    /* Arithmetic on a knob is written as a param, as the loader reads
+       it; half of some is not. */
+    {
+        const std::string sum = thUtil::tempFile("gencheck-sum-");
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        {
+            std::ofstream out(sum.c_str(), std::ios::trunc);
+
+            out << "@lift = 0.5;\n"
+                   "chain a {\n"
+                   "    stage s gen::euclid { notes = \"C4\"; };\n"
+                   "    sink { channel = 1; };\n"
+                   "};\n";
+        }
+
+        editOk(thcGenEdit::addStage(sum, "a", "up", "xform", "level",
+                                    { { "gain", "0.5 + @lift * (2 - 1)" } },
+                                    why), why, "addStage of arithmetic");
+        drainSynth();
+
+        if (!loader.load(sum, &sched))
+            fail("a stage written with arithmetic on a knob did not load" +
+                 (loader.errors().empty() ? std::string()
+                                          : ": " + loader.errors()[0]));
+
+        if (thcGenEdit::addStage(sum, "a", "half", "xform", "level",
+                                 { { "gain", "0.5 +" } }, why) ==
+            thcGenEdit::OK)
+            fail("'gain = 0.5 +' was written");
+
+        /* An instrument's values are a number or a knob, and no sum. */
+        if (thcGenEdit::addInstrument(sum, "pad", "rhodes.dsp",
+                                      { { "amp", "@lift * 2" } }, why) ==
+            thcGenEdit::OK)
+            fail("an instrument's 'amp = @lift * 2' was written");
+
+        std::filesystem::remove(sum);
+    }
+
     if (thcGenEdit::removeKnob(ok, "runs", 0.5, rewritten, why) !=
         thcGenEdit::REFUSED)
         fail("a knob a chain writes was deleted from under it");

@@ -212,7 +212,12 @@
     <span id="bandkey" class="group">Key
       <select id="bandroot" aria-label="Root"></select>
       <select id="bandmood" aria-label="Mood"></select></span>
+    <label class="group energy">Energy
+      <input id="bandenergy" type="range" min="0" max="1" step="0.05"
+             value="0.5"></label>
+    <button id="bandrecord" class="record" aria-pressed="false">&#9679; Record</button>
   </div>
+  <div id="bandtakes" hidden></div>
   <div id="bandgallery" hidden></div>
   <div id="bandscenes" class="row bandscenes" role="group" aria-label="Scenes"></div>
   <p id="bandhint" class="hint"></p>

@@ -109,6 +109,13 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.micPtr = 0;
         this.micCap = 0;
 
+        /* A take being recorded (record): the output, interleaved, a
+           second at a time to the page, from the first quantum the
+           transport runs; and a mark for every run of the transport in
+           it -- the first, and one after each rewind or load -- of the
+           frame of the take that run's transport time `now' was at. */
+        this.take = null;
+
         /* And how loud it was, since the last batch went to the page.
          *
          * A meter, and it earns its place: the browser's automatic gain
@@ -210,6 +217,26 @@ class ThinkProcessor extends AudioWorkletProcessor
         if (m.type === 'start')
         {
             this.start(m);
+            return;
+        }
+
+        if (m.type === 'record')
+        {
+            if (m.on && this.take === null)
+                this.take = { buf: null, fill: 0, frames: 0, epoch: null,
+                              marks: [] };
+            else if (!m.on && this.take !== null)
+            {
+                /* The notes it heard so far first: the page keeps the
+                   take on `done', and takes no notes after. */
+                if (this.M !== null &&
+                    (this.events.length > 0 || this.keys.length > 0))
+                    this.postTape();
+
+                this.postTake(true);
+                this.take = null;
+            }
+
             return;
         }
 
@@ -853,6 +880,17 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         this.feedInput(inputs[0], frames);
 
+        const taking = this.take !== null &&
+                       (this.take.frames > 0 || this.M._tw_running() !== 0);
+
+        if (taking && this.take.epoch !== this.M._tw_epoch())
+        {
+            this.take.epoch = this.M._tw_epoch();
+            this.take.marks.push({ epoch: this.take.epoch,
+                                   now: this.M._tw_now(),
+                                   frame: this.take.frames });
+        }
+
         const p = this.M._tw_render(frames) >> 2;
         const heap = this.M.HEAPF32;
 
@@ -865,6 +903,12 @@ class ThinkProcessor extends AudioWorkletProcessor
 
             for (let i = 0; i < frames; i++)
                 ch[i] = heap[src + i * 2];
+        }
+
+        if (taking)
+        {
+            this.record(heap.subarray(p, p + frames * 2));
+            this.take.frames += frames;
         }
 
         /* After the copy: a request is a string the module allocates, and
@@ -1157,6 +1201,42 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
 
         this.M._tw_keys_clear();
+    }
+
+    /* A quantum of output, interleaved, into the take; a second of it
+       full goes to the page. */
+    record (block)
+    {
+        const t = this.take;
+
+        if (t.buf === null)
+        {
+            t.buf = new Float32Array(sampleRate * 2);
+            t.fill = 0;
+        }
+
+        const n = Math.min(block.length, t.buf.length - t.fill);
+
+        t.buf.set(block.subarray(0, n), t.fill);
+        t.fill += n;
+
+        if (t.fill === t.buf.length)
+        {
+            this.postTake(false);
+            this.record(block.subarray(n));
+        }
+    }
+
+    postTake (done)
+    {
+        const t = this.take;
+        const samples = t.buf === null ? new Float32Array(0)
+                                       : t.buf.subarray(0, t.fill);
+
+        this.port.postMessage({ type: 'recorded', marks: t.marks, sampleRate,
+                                samples, done }, [samples.buffer]);
+        t.buf = null;
+        t.marks = [];
     }
 
     postTape ()

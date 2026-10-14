@@ -274,7 +274,7 @@ set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 mirror.js ear.js evolve.js evolveui.js growui.js
                 bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
-                layouts.js packs.js manifest.json)
+                layouts.js packs.js takes.js manifest.json)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)

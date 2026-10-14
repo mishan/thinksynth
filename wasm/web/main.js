@@ -63,7 +63,8 @@
  */
 
 import { NEW_BAND, addOps, freeName, ideaNamed } from './bandideas.js';
-import { createBand } from './bandview.js';
+import { createBand, playersOf } from './bandview.js';
+import { createTakes } from './takes.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
 import { createGrow } from './growui.js';
@@ -1806,6 +1807,24 @@ async function freezeChain (chain, chainName)
         synth.transport('start');
 }
 
+/* The band's Record and its takes (takes.js). */
+const takes = createTakes({
+    button: $('bandrecord'), list: $('bandtakes'), synth: () => synth,
+    play: () =>
+    {
+        if (lastTape?.running !== true)
+            $('play').click();
+    },
+    about: () => ({
+        name: piece?.name ?? '',
+        tempo: lastTape?.tempo ?? piece?.tempo ?? 120,
+        meter: lastTape?.meter ?? 4,
+        names: new Map(piece === null ? [] : playersOf(piece).map((p) =>
+            [p.channel, p.name.replace(/_/g, ' ')])),
+    }),
+    say: (text) => status(text),
+});
+
 /* The band (bandview.js): each of its moves an edit by the door the
  * canvas uses for the same thing -- a param, a chain's seed, a freeze, a
  * mute -- on the terms those doors set about text that was never loaded.
@@ -1916,6 +1935,29 @@ const band = createBand({
                     meter: lastTape?.meter ?? 4 }),
     level: (section, chain, level) =>
         synth?.section({ at: -1, section, chain, level }),
+
+    /* A piece knob by name, as the knob strip moves one: live, and let
+       go of, written into the piece. */
+    knob: (name, value, commit) =>
+    {
+        const index = piece?.knobs?.find((k) => k.name === name)?.knob ?? -1;
+
+        if (synth === null || index < 0)
+            return;
+
+        synth.knob(index, value);
+        setKnobShown(String(index), value);
+
+        if (commit)
+            synth.knobWrite({ at: -1, knob: index, value });
+    },
+    knobValue: (name) =>
+    {
+        const m = new RegExp(`^@${name}\\s*=\\s*(-?[\\d.]+)\\s*;`, 'm')
+            .exec(loadedText);
+
+        return m === null ? null : Number(m[1]);
+    },
 
     sound: async (p, dsp) =>
     {
@@ -3085,6 +3127,7 @@ async function start ()
                                              micDropped = m.captureDropped ?? 0;
                                              lastTape = m;
                                              takeTapeNotes(m);
+                                             takes.tape(m);
 
                                              diff.take('worklet', m);
                                              showClock($('clock'), m);
@@ -3102,6 +3145,8 @@ async function start ()
                                          },
                                          onParamEdits: paramsEdited,
                                          onEdited: edited,
+                                         onRecorded: (m) =>
+                                             takes.recorded(m),
                                          onMidi: (msgs) => midiOutUI.take(msgs),
                                          onMidiState: (list) =>
                                              midiOutUI.state(list),
