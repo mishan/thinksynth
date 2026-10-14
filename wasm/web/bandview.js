@@ -151,6 +151,10 @@ const RANDOM = new Set(['arp', 'cloud', 'humanize', 'chance', 'evolve',
                         'progression', 'ratchet', 'vary', 'breed', 'run',
                         'grow', 'life', 'ca']);
 
+/* An xform::vary's rows that draw from the seed. */
+const VARIES = ['rest', 'leap', 'push', 'double', 'approach', 'ornament',
+                'pan', 'tone', 'attack'];
+
 const valueOf = (s, row, or) =>
     numberOf(s.params.find((p) => p.name === row)?.valueText ?? '')?.num ??
     or;
@@ -162,6 +166,15 @@ function drawsFromSeed (s)
         case 'life': case 'ca': return valueOf(s, 'scatter', 0) > 0;
         case 'arp': return valueOf(s, 'pattern', 0) === 3;
         case 'progression': return valueOf(s, 'seed', 0) === 0;
+
+        /* As TOUCH and TAKES write them at rest, they pass every note
+           as it came, whatever the seed. */
+        case 'chance': return valueOf(s, 'prob', 0.75) < 1;
+        case 'ratchet': return valueOf(s, 'prob', 0.25) > 0;
+        case 'humanize':
+            return valueOf(s, 'time', 0.02) > 0 || valueOf(s, 'vel', 0) > 0;
+        case 'vary':
+            return VARIES.some((row) => valueOf(s, row, 0) !== 0);
         default: return RANDOM.has(s.plugin);
     }
 }
@@ -229,6 +242,7 @@ function spell (num, unit, integer)
 const OWN = {
     octave: { name: 'octave', plugin: 'transpose', row: 'semitones' },
     volume: { name: 'volume', plugin: 'level', row: 'gain' },
+    take: { name: 'take', plugin: 'vary' },
 };
 
 /* One of them on a chain -- under its name, or a number after it where
@@ -399,6 +413,12 @@ const TOUCH = {
 const TAKES = (drums) => ({
     name: 'take', plugin: 'vary',
     params: { rest: '0.1', double: '0.12', leap: drums ? '0' : '0.08' } });
+
+/* Those, set for another take or, `on' false, to pass every note as
+   written: the take the card had before. */
+const takeEdits = (s, drums, on) => Object.entries(TAKES(drums).params)
+    .map(([row, text]) => ({ stage: s.live, stageName: s.name, row,
+                             text: on ? text : '0' }));
 
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
@@ -789,7 +809,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
      * `text': where it is, a param edit; where it is not, added behind
      * the player. A value set while it is on its way is sent once it is
      * in. Into the player's state at once, which is what the card shows:
-     * a param edit is not read back into it.
+     * a param edit is not read back into it. Resolves to whether it went
+     * in.
      */
     function setOwn (p, st, own, text, passing = false)
     {
@@ -802,26 +823,34 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                 ...s, params: [{ name: own.row, valueText: text }] });
 
         if (st.owning.has(own.name))
-            st.owning.set(own.name, text);
-        else if (s !== undefined)
-            params(p, [{ stage: s.live, stageName: s.name, row: own.row,
-                         text }], passing);
-        else
         {
             st.owning.set(own.name, text);
-            behind(p, st, [{ name: own.name, plugin: own.plugin,
-                             params: { [own.row]: text } }]).then((went) =>
-            {
-                const wanted = st.owning.get(own.name);
-
-                st.owning.delete(own.name);
-
-                if (went && wanted !== text)
-                    setOwn(p, st, own, wanted);
-
-                draw();
-            });
+            return st.adding;
         }
+
+        if (s !== undefined)
+        {
+            params(p, [{ stage: s.live, stageName: s.name, row: own.row,
+                         text }], passing);
+            return Promise.resolve(true);
+        }
+
+        st.owning.set(own.name, text);
+        st.adding = behind(p, st, [{ name: own.name, plugin: own.plugin,
+                                     params: { [own.row]: text } }])
+            .then((went) =>
+        {
+            const wanted = st.owning.get(own.name);
+
+            st.owning.delete(own.name);
+
+            if (went && wanted !== text)
+                setOwn(p, st, own, wanted);
+
+            draw();
+            return went;
+        });
+        return st.adding;
     }
 
     function octave (p, st, by)
@@ -863,7 +892,14 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         {
             clearTimeout(timer);
             timer = null;
-            setOwn(p, st, OWN.volume, String(Number(range.value)), !last);
+            setOwn(p, st, OWN.volume, String(Number(range.value)), !last)
+                .then((went) =>
+            {
+                /* Refused, the card is not drawn again: nothing it is
+                   drawn from has changed. */
+                if (!went)
+                    range.value = String(volumeOf(st.base));
+            });
         };
         const release = () =>
         {
@@ -1155,19 +1191,28 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         moves.className = 'moves';
 
         /* With nothing random in it, the first Vary puts TAKES behind it,
-           and the take is had once they are in. */
+           and the take is had once they are in; As it was sets them to
+           pass every note, and another Vary back. After the seed, whose
+           edit loads the piece again over any param edit sent before
+           it. */
+        const drums = p.role === 'drums';
+        const taking = () => ownStage(st.base, OWN.take);
+
         if (p.seeded === 'vary' || p.seeded === null)
             moves.append(button('Vary', 'Another take, from here on',
                                 async () =>
             {
                 const next = seed();
 
-                if (p.seeded === null &&
-                    !(await behind(p, st, [TAKES(p.role === 'drums')])))
+                if (p.seeded === null && taking() === undefined &&
+                    !(await behind(p, st, [TAKES(drums)])))
                     return;
 
                 if (!(await vary(p, next)))
                     return;
+
+                if (taking() !== undefined)
+                    params(p, takeEdits(taking(), drums, true));
 
                 st.takes = st.takes.slice(0, st.take + 1);
                 st.takes.push(next);
@@ -1190,7 +1235,8 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         takes.className = 'takes';
         takes.title = 'Takes so far: click one to go back to it';
         /* One take is no choice to offer. */
-        (p.seeded === 'vary' && st.takes.length > 1 ? st.takes : [])
+        ((p.seeded === 'vary' || taking() !== undefined) &&
+         st.takes.length > 1 ? st.takes : [])
             .forEach((taken, i) =>
         {
             const t = button(String(i + 1), i === 0 ? 'As it was'
@@ -1199,6 +1245,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             {
                 if (!(await vary(p, taken)))
                     return;
+
+                if (taking() !== undefined)
+                    params(p, takeEdits(taking(), drums, i !== 0));
 
                 st.take = i;
                 tell(`${nameOf(p)}: ${t.title.toLowerCase()}`);
