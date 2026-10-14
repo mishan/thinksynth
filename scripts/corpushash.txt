@@ -84,6 +84,7 @@ d8ae171dbaee805d  kit_snare.dsp
 558ee2b2d77798d5  kit_tom.dsp
 b5d862c6f8ca5eb5  ladder.dsp
 bd167d2a7ddfbb55  linn.dsp
+63678d48ccaeaeb9  lowstrings.dsp
 44e91d566d508b85  mfm01.dsp
 4210ef4bddc07135  orchestron.dsp
 e8815851f2af9d0d  orchhit.dsp
@@ -121,6 +122,7 @@ dcb8cd4efea2e205  sub.dsp
 c65e0ebdd457e835  supersaw.dsp
 d82430188274442d  syncfun.dsp
 c40f5c1593f78a0d  syndrum.dsp
+324d1b5b5407c56d  taiko.dsp
 7abf0c47fee4a359  talkbox.dsp
 300642c9439b71b5  tambourine.dsp
 74c537aa5f73cd6d  timbale.dsp
