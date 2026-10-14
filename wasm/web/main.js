@@ -1936,6 +1936,29 @@ const band = createBand({
     level: (section, chain, level) =>
         synth?.section({ at: -1, section, chain, level }),
 
+    /* A piece knob by name, as the knob strip moves one: live, and let
+       go of, written into the piece. */
+    knob: (name, value, commit) =>
+    {
+        const index = piece?.knobs?.find((k) => k.name === name)?.knob ?? -1;
+
+        if (synth === null || index < 0)
+            return;
+
+        synth.knob(index, value);
+        setKnobShown(String(index), value);
+
+        if (commit)
+            synth.knobWrite({ at: -1, knob: index, value });
+    },
+    knobValue: (name) =>
+    {
+        const m = new RegExp(`^@${name}\\s*=\\s*(-?[\\d.]+)\\s*;`, 'm')
+            .exec(loadedText);
+
+        return m === null ? null : Number(m[1]);
+    },
+
     sound: async (p, dsp) =>
     {
         const was = $('gen').value;

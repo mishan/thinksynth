@@ -3676,6 +3676,46 @@ try
                   seconds: +seconds.toFixed(2), peak, ons }));
     }
 
+    /* Energy: let go of at 0, the knob is written and every player
+       follows it; with two scenes, it is the chosen scene's place on a
+       curve a chain writes into the knob, the other's as written. */
+    {
+        const energy = async (v) =>
+        {
+            await page.$eval('#bandenergy', (e, v) =>
+            {
+                e.value = String(v);
+                e.dispatchEvent(new Event('input'));
+                e.dispatchEvent(new Event('change'));
+            }, v);
+            await page.evaluate(() => window.solo.settled());
+        };
+        const text = () => page.evaluate(() => window.solo.genText());
+
+        await energy(0);
+
+        const calm = await until(text, (t) => /@energy = 0;/.test(t));
+        const following = (calm.match(/stage energy xform::chance/g) ??
+                           []).length;
+
+        await page.click('#bandscenes .scene.add');
+        await until(text, (t) => /^section /m.test(t));
+        await page.click('#bandscenes .scene.add');
+        await until(text, (t) => /^section scene2 /m.test(t));
+        await energy(0.8);
+
+        const curve = await until(text, (t) =>
+            /chain energy \{[^}]*values = "0\.5 [_ ]*0\.8[_ ]*"/.test(t));
+
+        check(following === 4 &&
+              /chain energy \{[^}]*values = "0\.5 [_ ]*0\.8[_ ]*"/
+                  .test(curve) && /sink \{ knob = @energy; \}/.test(curve),
+              'Energy is a knob every player follows, and with scenes a ' +
+              'curve of each scene\'s: ' + JSON.stringify({ following,
+                  row: /values = "([^"]{0,40})/.exec(
+                      curve.slice(curve.indexOf('chain energy')))?.[1] }));
+    }
+
     /* The pictures: a drawn Life board is offered Restart rather than
        Vary, and a grid player's picture is a sequencer track -- a click on
        it draws a note into the piece. */
