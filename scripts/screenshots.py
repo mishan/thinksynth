@@ -17,8 +17,9 @@ BUILD_DIR is a native build (build/), OUT_DIR where the pictures go
 Taken with shotbox (https://github.com/mishan/shotbox) in a sealed
 session: its own X display, D-Bus and scratch home, so the window comes
 up at a first run's size and layout, with GTK's own defaults rather than
-whoever runs this. Its Python module has to be importable: a checkout's
-root on PYTHONPATH.
+whoever runs this. Its Python module has to be importable: `pip install
+shotbox' into a venv made with --system-site-packages, for GTK's
+bindings.
 
 The audio is a real stream, into scripts/headless.sh's null sink, since a
 piece's transport is clocked by the device: -d none would draw a piano
@@ -50,8 +51,7 @@ if not os.environ.get("THINK_HEADLESS"):
 try:
     import shotbox
 except ImportError:
-    sys.exit("screenshots.py: no shotbox module; put a checkout of "
-             "https://github.com/mishan/shotbox on PYTHONPATH")
+    sys.exit("screenshots.py: no shotbox module; pip install shotbox")
 
 BUILD = os.path.abspath(sys.argv[1] if len(sys.argv) > 1
                         else os.path.join(TOP, "build"))
