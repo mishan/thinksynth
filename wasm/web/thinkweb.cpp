@@ -6269,6 +6269,7 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   knob        NAME VALUE MIN MAX [LABEL]
  *   stage       CHAIN STAGE CATEGORY PLUGIN [k=v ...]
  *   unchain     NAME
+ *   rechain     NAME NEWNAME
  *   uninstrument NAME        -- unless a chain still plays it
  *   param       CHAIN STAGE ROW VALUE   -- STAGE in the document's order
  *   scale       NAME NOTES   -- set, or added when there is none
@@ -6353,6 +6354,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                                             atof(f[3].c_str()),
                                             atof(f[4].c_str()),
                                             f.size() > 5 ? f[5] : "", why);
+                else if (f[0] == "rechain" && f.size() >= 3)
+                    r = thcGenEdit::renameChain(path, f[1], f[2], why);
                 else if (f[0] == "unchain" && f.size() >= 2)
                     r = thcGenEdit::removeChain(path, f[1], why);
                 else if (f[0] == "param" && f.size() >= 5)

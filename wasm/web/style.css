@@ -1732,6 +1732,13 @@ body.tiled .panelrows
                padding: 0 0.4rem; border: 0; background: none;
                color: var(--dim); font-size: 1rem; }
 
+/* Start from a phrase, while it is being played. */
+#bandphrasebox { margin-bottom: 0.5rem; padding: 0.5rem 0.7rem;
+                 border: 1px solid var(--line); border-radius: 8px;
+                 background: var(--panel); }
+#bandphrasebox[hidden] { display: none; }
+#bandphrasebox p { margin: 0 0 0.4rem; }
+
 /* The energy, and on a scene with a curve, its energy as a bar up its
    left edge: the scenes in a row are the song's shape. */
 .bandbar .energy input { width: 7rem; vertical-align: middle; }

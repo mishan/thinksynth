@@ -208,6 +208,7 @@
          data-pane data-pane-title="The band" data-pane-min="320">
   <div class="row bandbar">
     <button id="bandnew" title="A beat, a bass and keys to start from">New band</button>
+    <button id="bandphrase" title="Play a phrase, and a band joins it">Start from a phrase</button>
     <button id="bandadd" title="Another player, from an idea">+ Add a player</button>
     <span id="bandkey" class="group">Key
       <select id="bandroot" aria-label="Root"></select>
@@ -218,6 +219,19 @@
     <button id="bandrecord" class="record" aria-pressed="false">&#9679; Record</button>
   </div>
   <div id="bandtakes" hidden></div>
+  <div id="bandphrasebox" role="group" aria-label="Start from a phrase" hidden>
+    <p>Play a phrase on the keys: <kbd>Z</kbd>&ndash;<kbd>/</kbd> on a
+      computer keyboard, the on-screen keys, or a MIDI keyboard. The hat
+      counts the beat. Then keep the last
+      <select id="bandphrasebars" aria-label="Bars to keep">
+        <option value="1">bar</option>
+        <option value="2" selected>2 bars</option>
+        <option value="4">4 bars</option>
+      </select>
+      you played, and a band joins it in its key.</p>
+    <button id="bandphraseuse">Use it</button>
+    <button id="bandphrasecancel">Cancel</button>
+  </div>
   <div id="bandgallery" hidden></div>
   <div id="bandscenes" class="row bandscenes" role="group" aria-label="Scenes"></div>
   <p id="bandhint" class="hint"></p>

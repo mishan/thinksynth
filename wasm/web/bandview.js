@@ -31,8 +31,8 @@
  * tightly rather than rewriting it.
  */
 
-import { IDEAS as GALLERY, SOUNDS, addOps, freeName, removeOps }
-    from './bandideas.js';
+import { IDEAS as GALLERY, PHRASE, SOUNDS, addOps, freeName, ideaNamed,
+         removeOps } from './bandideas.js';
 import { MOODS, ROOTS, inKey, keyNotes, keyOf, keyOps } from './bandkey.js';
 import { replay } from './replay.js';
 import { gestureOn } from './seqview.js';
@@ -475,7 +475,7 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
 export function createBand ({ piece, params, vary, keep, rest, say, tell,
                               touch, toMirror, onGesture, edit, sounds,
                               sound, newBand, seek, level, clock, knob,
-                              knobValue })
+                              knobValue, phrase, keepPhrase, play })
 {
     /* The scene being played, while the piece plays, and the one last
        chosen, while it does not: the one a Rest is written into. */
@@ -1595,6 +1595,67 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             showKey(piece());
     }
 
+    /* ---- start from a phrase (PHRASE) ---- */
+
+    async function startPhrase ()
+    {
+        if (!(await phrase()))
+            return;
+
+        $('bandphrasebox').hidden = false;
+        $('bandphraseuse').focus();
+        tell('Play a phrase on the keys');
+    }
+
+    /* The last bars played kept as the player `phrase', the piece's
+       count and its live input taken out, and a band added in the key the
+       phrase is in. */
+    async function usePhrase ()
+    {
+        const bars = Number($('bandphrasebars').value);
+        const taker = playersOf(piece()).find((p) => p.name === 'phrase');
+
+        if (taker === undefined || !(await keepPhrase(taker, bars)))
+            return;
+
+        const now = piece();
+        const kept = playersOf(now).find((p) =>
+            p.name.startsWith('phrase_'));
+
+        if (kept === undefined)
+            return;
+
+        const key = keyOf(now, new Set([kept.name]));
+        const taken = new Set(['phrase', 'keys']);
+        const ops = [['unchain', 'phrase'], ['unchain', 'count'],
+                     ['uninstrument', 'count'],
+                     ['rechain', kept.name, 'phrase'],
+                     ['scale', 'key', keyNotes(key)]];
+
+        for (const [role, name] of PHRASE.ideas)
+        {
+            const idea = ideaNamed(role, name);
+            const call = freeName(idea.call, taken);
+            const tuned = role === 'drums' ? idea : {
+                ...idea,
+                stages: idea.stages.map(([c, p, params]) =>
+                    [c, p, Object.fromEntries(Object.entries(params).map(
+                        ([k, v]) => [k, inKey(v, key)]))]) };
+
+            taken.add(call);
+            ops.push(...addOps(tuned, call));
+        }
+
+        if (await edit(ops))
+        {
+            /* A load, where the edit could not be made live, stops it. */
+            play();
+            $('bandphrasebox').hidden = true;
+            tell(`Your phrase, in ${ROOTS[key.root]} ${key.mood}, with a ` +
+                 'band around it');
+        }
+    }
+
     /* An idea for each role, a button each: chosen, it is a player of
        its own, on its own instrument. */
     function gallery ()
@@ -1909,6 +1970,13 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             $('bandroot').addEventListener('change', chooseKey);
             $('bandmood').addEventListener('change', chooseKey);
             $('bandnew').addEventListener('click', () => newBand());
+            $('bandphrase').addEventListener('click', startPhrase);
+            $('bandphraseuse').addEventListener('click', usePhrase);
+            $('bandphrasecancel').addEventListener('click', () =>
+            {
+                $('bandphrasebox').hidden = true;
+                $('bandphrase').focus();
+            });
             $('bandenergy').addEventListener('input', () =>
             {
                 const box = $('bandenergy');
