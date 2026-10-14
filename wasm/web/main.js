@@ -62,7 +62,8 @@
  * on is how they stop agreeing.
  */
 
-import { NEW_BAND, addOps, freeName, ideaNamed } from './bandideas.js';
+import { NEW_BAND, PHRASE, addOps, freeName, ideaNamed }
+    from './bandideas.js';
 import { createBand, playersOf } from './bandview.js';
 import { createTakes } from './takes.js';
 import { createComposerView } from './composerview.js';
@@ -1765,10 +1766,10 @@ async function choosePieceEffect ()
  * grid, written into the box by the worklet, which heard it; the piece
  * loaded again with the frozen chain's original muted, and playing again
  * if it was. On moveStage's terms about text that was never loaded. */
-async function freezeChain (chain, chainName)
+async function freezeChain (chain, chainName, bars = 2)
 {
     if (synth === null)
-        return;
+        return false;
 
     const was = $('gen').value;
 
@@ -1776,23 +1777,23 @@ async function freezeChain (chain, chainName)
     {
         status('The piece\'s source has edits that are not loaded; ' +
                'load them first.', true);
-        return;
+        return false;
     }
 
     const wasRunning = lastTape?.running === true;
-    const { text, why } = await synth.genFreeze(was, chain, 2);
+    const { text, why } = await synth.genFreeze(was, chain, bars);
 
     if (text === '')
     {
         status(`Could not keep what ${chainName.replace(/_/g, ' ')} ` +
                `played: ${why}.`, true);
-        return;
+        return false;
     }
 
     if ($('gen').value !== was || loadedText !== was || loading > 0)
     {
         status('The piece changed meanwhile; try it again.', true);
-        return;
+        return false;
     }
 
     /* The band rests the original itself, and brings it back too. */
@@ -1805,6 +1806,8 @@ async function freezeChain (chain, chainName)
 
     if (wasRunning && piece !== null)
         synth.transport('start');
+
+    return piece !== null;
 }
 
 /* The band's Record and its takes (takes.js). */
@@ -1978,6 +1981,34 @@ const band = createBand({
         status(`Could not change ${p.name.replace(/_/g, ' ')}'s sound: ` +
                `${why}.`, true);
         return false;
+    },
+
+    /* Start from a phrase: the piece that takes it, the keys put on
+       its channel, and playing. Resolves to whether it is. */
+    phrase: async () =>
+    {
+        if (synth === null || (history()?.past.length > 1 &&
+                               !confirm('Start from a phrase? The piece ' +
+                                        'you have changed is put away.')))
+            return false;
+
+        await openText('A phrase', PHRASE.text);
+
+        const listens = piece?.listens?.[0];
+
+        if (listens === undefined)
+            return false;
+
+        $('keychan').value = String(listens);
+        $('keychan').dispatchEvent(new Event('change'));
+        $('play').click();
+        return true;
+    },
+    keepPhrase: (p, bars) => freezeChain(p.index, p.name, bars),
+    play: () =>
+    {
+        if (lastTape?.running !== true)
+            $('play').click();
     },
 
     /* A beat, a bass and keys, as the gallery would add them. */
