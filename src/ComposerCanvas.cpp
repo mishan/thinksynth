@@ -1829,7 +1829,9 @@ ComposerCanvas::drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const
 
         cr->fill();
         cr->set_source_rgba(1, 1, 1, 0.75);
-        fitText(cr, secs[si].name, h.x + 3, h.y + 12, h.w - 6);
+        fitText(cr, secs[si].hold ? secs[si].name + " (hold)"
+                                  : secs[si].name,
+                h.x + 3, h.y + 12, h.w - 6);
     }
 
     /* The chain names, beside their rows. */
@@ -1879,22 +1881,17 @@ ComposerCanvas::drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const
     /* Where the transport is, in the section it is in: the blocks are
        each as wide as they are long only down to their minimum, so the
        line is placed within its own block rather than on one scale. */
-    if (playing >= 0 && (size_t)playing < heads_.size())
+    thcScheduler::SectionSpan span;
+
+    if (playing >= 0 && (size_t)playing < heads_.size() &&
+        sched_->sectionSpanAt(sched_->now(), span))
     {
-        const double total = sched_->sectionsLength();
-        double at = sched_->now();
-
-        if (total > 0 && at >= total)
-            at = fmod(at, total);
-
-        double start = 0;
-
-        for (int i = 0; i < playing; i++)
-            start += sched_->sectionLength(secs[i]);
-
-        const double len = sched_->sectionLength(secs[playing]);
-        const double f = len > 0 ? std::clamp((at - start) / len, 0.0, 1.0)
-                                 : 0.0;
+        /* As the arrangement is playing it, which a loop, a hold or a
+           cue has made something other than the list laid end to end. */
+        const double f = span.length > 0
+            ? std::clamp((sched_->now() - span.start) / span.length, 0.0,
+                         1.0)
+            : 0.0;
         const LaneRect &h = heads_[playing];
         const double px = h.x + f * h.w;
 
@@ -2457,12 +2454,7 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
             if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h)
                 continue;
 
-            double at = 0;
-
-            for (size_t k = 0; k < si && k < sched_->sections().size(); k++)
-                at += sched_->sectionLength(sched_->sections()[k]);
-
-            sigSeek.emit(at);
+            sigSeekSection.emit(si);
             return;
         }
 

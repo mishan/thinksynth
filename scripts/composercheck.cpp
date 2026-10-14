@@ -2272,7 +2272,7 @@ runExportMidi (const std::string &pluginPath)
         /* What the window plays, from the top, into a file of its own. */
         thcMidiFile played(win->sched_->tempo(), win->sched_->meter());
 
-        thcMidiExport::describe(played, *win->sched_, synth, "wander", 4);
+        thcMidiExport::describe(played, *win->sched_, synth, "wander");
 
         sigc::connection conn = win->sched_->sigDelivered.connect(
             [&](const thcEvent &ev)

@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <fstream>
@@ -178,10 +179,10 @@ Composer::Composer (thSynth *synth)
 
     /* A section's block: the piece from there, as it would be had it
        played there. */
-    canvas_->sigSeek.connect(
-        [this](double at)
+    canvas_->sigSeekSection.connect(
+        [this](size_t section)
         {
-            sched_->seek(at);
+            sched_->seekSection(section);
             updateTransportButtons();
             canvas_->queue_draw();
         });
@@ -2103,8 +2104,8 @@ Composer::onExportMidi (void)
         return;
     }
 
-    const bool ends = sched_->endsAfterSections() &&
-                      sched_->sectionsLength() > 0;
+    /* As the export will load it: a fresh piece, with no cues. */
+    const bool ends = std::isfinite(sched_->arrangementEnd(true));
     Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(
         "Export piece as MIDI", Gtk::FileChooser::Action::SAVE);
 

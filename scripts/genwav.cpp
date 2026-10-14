@@ -578,8 +578,7 @@ int main (int argc, char **argv)
 
     midi.setFineControllers(midiFine);
     thcMidiExport::describe(midi, sched, synth,
-                            std::filesystem::path(genFile).stem().string(),
-                            seconds);
+                            std::filesystem::path(genFile).stem().string());
 
     size_t notes = 0;
 
@@ -736,6 +735,10 @@ int main (int argc, char **argv)
     if (other)
         other->start();
 
+    double marked = -1;
+
+    thcMidiExport::markSection(midi, sched, marked);
+
     /* Until the time asked for, or until the piece is over: a piece
        whose arrangement closes with `section end;' stops its own
        transport, and a loop that only watched the clock would step a
@@ -749,6 +752,7 @@ int main (int argc, char **argv)
             other->stepTransport(dt);
 
         renderWindow(true, windowStart);
+        thcMidiExport::markSection(midi, sched, marked);
     }
 
     /* stop() flushes the note-offs for whatever is still sounding; the

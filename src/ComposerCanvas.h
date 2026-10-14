@@ -209,9 +209,9 @@ public:
        pixels: the arrow a probe on that stage hangs from. */
     bool probeArrow (size_t chain, size_t stage, double &x, double &y) const;
 
-    /* A section's block was pressed: the transport time it begins at,
-       the first time round, for the window to seek to. */
-    sigc::signal<void (double)> sigSeek;
+    /* A section's block was pressed: which section, for the window to
+       seek to where it begins the first time round. */
+    sigc::signal<void (size_t)> sigSeekSection;
 
     /* The middle of a section's block in the lane, in widget pixels. */
     bool sectionHead (size_t section, double &x, double &y) const;

@@ -1288,8 +1288,11 @@ class ThinkProcessor extends AudioWorkletProcessor
                count that moved is the page's cue to read the piece again. */
             edits: this.M._tw_edit_count(),
 
-            /* The section the transport is in, -1 for none. */
+            /* The section the transport is in, -1 for none, and where it
+               began and how long it lasts. */
             section: this.M._tw_section_now(),
+            sectionStart: this.M._tw_section_start(),
+            sectionLength: this.M._tw_section_length(),
 
             /* Where `now' falls in beats, at what tempo, and how many
                beats a bar is: the next bar, for an edit. */

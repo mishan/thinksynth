@@ -34,6 +34,7 @@
 thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
     : plugins_(plugins), pos_(0), meter_(4),
       sawSection_(false), sawBarStart_(false), sawSectionEnd_(false),
+      sawCue_(false),
       hasSeed_(false), seed_(0)
 {
 }
@@ -524,6 +525,7 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     sawSection_ = false;
     sawBarStart_ = false;
     sawSectionEnd_ = false;
+    sawCue_ = false;
     pos_ = 0;
     name_.clear();
     author_.clear();
@@ -904,6 +906,12 @@ thcGenLoader::parseStatement (thcScheduler *sched)
         return parseSection(sched);
     }
 
+    if (t.text == "cue")
+    {
+        take();
+        return parseCue(sched);
+    }
+
     if (t.text == "instrument")
     {
         take();
@@ -1224,8 +1232,8 @@ thcGenLoader::parseMeter (void)
 
     if (sawSection_ || sawBarStart_)
     {
-        error(n.line, "meter must come before the first section or "
-              "chain start in bars");
+        error(n.line, "meter must come before the first section, cue "
+              "or chain start in bars");
         return false;
     }
 
@@ -1271,9 +1279,42 @@ thcGenLoader::parseSection (thcScheduler *sched)
 
     if (sawSectionEnd_)
     {
-        error(nameTok.line,
-              "nothing comes after 'section end' -- the piece stops there");
+        error(nameTok.line, "nothing comes after 'section end' or "
+              "'section loop' -- the list is closed there");
         return false;
+    }
+
+    /* `section loop intro;' -- the list is closed, and goes round to
+       the section it names rather than to the first, so what comes
+       before that one is heard once. The name is spent the way `end'
+       is: a section called `loop' would read as this to anyone. */
+    if (nameTok.text == "loop")
+    {
+        if (peek().kind != Token::WORD)
+        {
+            error(nameTok.line, "'section loop' wants the name of the "
+                  "section the list goes round to");
+            return false;
+        }
+
+        Token to = take();
+        const std::vector<thcSection> &secs = sched->sections();
+        size_t k = 0;
+
+        while (k < secs.size() && secs[k].name != to.text)
+            k++;
+
+        if (k == secs.size())
+        {
+            error(to.line, "'section loop " + to.text + "': there is no "
+                  "section called " + to.text + " above it");
+            return false;
+        }
+
+        sawSectionEnd_ = true;
+        sched->loopSectionsFrom(k);
+
+        return expectPunct(';');
     }
 
     /* `section end;' -- the list is closed. A section actually called
@@ -1344,6 +1385,14 @@ thcGenLoader::parseSection (thcScheduler *sched)
     sec.beats = unit.text != "s";
     sec.length = unit.text == "bars" ? len.num * meter_ : len.num;
 
+    /* `hold': the section plays again rather than giving way, until a
+       cue moves the piece on. */
+    if (peek().kind == Token::WORD && peek().text == "hold")
+    {
+        take();
+        sec.hold = true;
+    }
+
     if (!expectPunct('{'))
         return false;
 
@@ -1413,6 +1462,81 @@ thcGenLoader::parseSection (thcScheduler *sched)
     sawSection_ = true;
     sectionLines_.push_back(nameTok.line);
     sched->addSection(sec);
+
+    return expectPunct(';');
+}
+
+/* `cue @act 1 bars;' -- the arrangement follows a knob.
+ *
+ * When @act moves, the section it names begins at the next grid line:
+ * 1 is the first section, and 0 -- or a number past the last -- names
+ * none, so a knob at rest cues nothing. Written with no grid, `cue
+ * @act;', the section playing finishes first. The knob is how a game
+ * reaches a piece -- a slider in the panel, a host parameter, a CC --
+ * and a chain may write it as well, which makes the arrangement itself
+ * something composed.
+ *
+ * The grid is folded to beats as it is read, as a section's length is,
+ * so a later meter is refused for the same reason.
+ */
+bool
+thcGenLoader::parseCue (thcScheduler *sched)
+{
+    const Token &k = peek();
+
+    if (k.kind != Token::KNOB)
+    {
+        error(k.line, "cue wants the knob it follows, as @name");
+        return false;
+    }
+
+    Token knobTok = take();
+    thArg *knob = sched->knob(knobTok.text);
+
+    if (knob == NULL)
+    {
+        error(knobTok.line, "'@" + knobTok.text + "' is not a declared knob");
+        return false;
+    }
+
+    if (sawCue_)
+    {
+        error(knobTok.line, "a piece follows one cue knob; this one has "
+              "one already");
+        return false;
+    }
+
+    double grid = 0;
+
+    if (peek().kind == Token::NUMBER)
+    {
+        Token len = take();
+
+        if (peek().kind != Token::WORD ||
+            (peek().text != "bars" && peek().text != "beats" &&
+             peek().text != "b"))
+        {
+            error(len.line, "cue: the grid is a length in bars or beats");
+            return false;
+        }
+
+        Token unit = take();
+
+        if (len.num <= 0)
+        {
+            error(len.line, "cue: a grid of no length is no grid; leave "
+                  "it out to wait for the section's end");
+            return false;
+        }
+
+        if (unit.text == "bars")
+            sawBarStart_ = true;
+
+        grid = unit.text == "bars" ? len.num * meter_ : len.num;
+    }
+
+    sawCue_ = true;
+    sched->cueOnKnob(knob, grid);
 
     return expectPunct(';');
 }

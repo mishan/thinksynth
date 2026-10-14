@@ -291,7 +291,7 @@ export function createComposerView ({ root = document, toMirror,
 
             /* A section's block: the transport to where it begins. */
             case 'canvasseek':
-                onSeek?.(m.at);
+                onSeek?.(m.at, m.section);
                 return true;
 
             /* A chain's F. */

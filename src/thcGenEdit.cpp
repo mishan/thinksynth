@@ -405,10 +405,15 @@ struct Index
     std::vector<SectionIdx>    sections;
     std::vector<ChainIdx>      chains;
 
-    /* `section end;', or npos for a piece whose sections cycle; and where
+    /* `section end;' or `section loop <name>;' -- what closes the list --
+       or npos for a piece whose sections cycle from the first; and where
        `meter' ends, or npos. */
     size_t sectionEndA, sectionEndB;
     size_t meterB;
+
+    /* The name `section loop' goes round to, and where it sits. */
+    std::string loopTo;
+    size_t loopToA, loopToB;
 
     /* The piece's own `effect "<file>" ...;', whole statement. */
     std::string masterEffect;
@@ -511,6 +516,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.firstChainOff = std::string::npos;
     ix.masterA = ix.masterB = 0;
     ix.sectionEndA = ix.sectionEndB = std::string::npos;
+    ix.loopToA = ix.loopToB = std::string::npos;
     ix.meterB = std::string::npos;
 
     size_t i = 0;
@@ -713,6 +719,19 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             continue;
         }
 
+        if (kw == "section" && t[i + 1].kind == Tok::WORD &&
+            t[i + 1].text == "loop" && t[i + 2].kind == Tok::WORD &&
+            isPunct(t[i + 3], ';'))
+        {
+            ix.sectionEndA = t[i].off;
+            ix.sectionEndB = t[i + 3].end;
+            ix.loopTo = t[i + 2].text;
+            ix.loopToA = t[i + 2].off;
+            ix.loopToB = t[i + 2].end;
+            i += 4;
+            continue;
+        }
+
         if (kw == "section" && t[i + 1].kind == Tok::WORD)
         {
             SectionIdx se;
@@ -723,15 +742,22 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             se.stmtA = t[i].off;
 
             size_t j = i + 2;
+
+            /* `hold' between the length and the block is the section's,
+               and no part of what an edit splices. */
+            const bool hold = t[j].kind == Tok::NUMBER &&
+                              t[j + 1].kind == Tok::WORD &&
+                              t[j + 2].kind == Tok::WORD &&
+                              t[j + 2].text == "hold";
             bool shaped = t[j].kind == Tok::NUMBER &&
                           t[j + 1].kind == Tok::WORD &&
-                          isPunct(t[j + 2], '{');
+                          isPunct(t[j + (hold ? 3 : 2)], '{');
 
             if (shaped)
             {
                 se.lenA = t[j].off;
                 se.lenB = t[j + 1].end;
-                j += 3;
+                j += hold ? 4 : 3;
 
                 while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
                 {
@@ -3573,7 +3599,7 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
                             double> > &levels,
                         std::string &why)
 {
-    if (!validName(name) || name == "end")
+    if (!validName(name) || name == "end" || name == "loop")
     {
         why = "'" + name + "' is not a name a section can have";
         return REFUSED;
@@ -3712,9 +3738,9 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
     return finish(filename, text, edits, why);
 }
 
-/* The last one taken out takes `section end;' with it: a piece with no
-   sections plays as written, which an end with nothing before it would
-   stop at once. */
+/* The last one taken out takes what closes the list with it, `section
+   end;' or `section loop': a piece with no sections plays as written,
+   which an end with nothing before it would stop at once. */
 R
 thcGenEdit::removeSection (const std::string &filename,
                            const std::string &name, std::string &why)
@@ -3734,6 +3760,15 @@ thcGenEdit::removeSection (const std::string &filename,
         return NOT_FOUND;
     }
 
+    /* Taking away the section the list goes round to would leave a
+       `section loop' naming nothing, and a file that does not load. */
+    if (ix.loopTo == name && ix.sections.size() > 1)
+    {
+        why = "section " + name + " is where 'section loop' goes round "
+              "to; change that first";
+        return REFUSED;
+    }
+
     std::vector<Edit> edits;
 
     edits.push_back(eraseStmt(text, se->stmtA, se->stmtB));
@@ -3749,7 +3784,7 @@ thcGenEdit::renameSection (const std::string &filename,
                            const std::string &oldName,
                            const std::string &newName, std::string &why)
 {
-    if (!validName(newName) || newName == "end")
+    if (!validName(newName) || newName == "end" || newName == "loop")
     {
         why = "'" + newName + "' is not a name a section can have";
         return REFUSED;
@@ -3779,6 +3814,11 @@ thcGenEdit::renameSection (const std::string &filename,
     std::vector<Edit> edits;
 
     edits.push_back({ se->nameA, se->nameB, newName });
+
+    /* And the `section loop' that goes round to it, or the file would
+       name a section it no longer has. */
+    if (ix.loopTo == oldName)
+        edits.push_back({ ix.loopToA, ix.loopToB, newName });
 
     return finish(filename, text, edits, why);
 }

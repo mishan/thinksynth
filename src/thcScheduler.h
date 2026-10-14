@@ -599,6 +599,10 @@ struct thcChain
  * anything else scales its notes' velocities, and a chain the section
  * does not name plays as written. A vector rather than a map because
  * declaration order is what the file says and what an editor draws.
+ *
+ * `hold' is a section that plays again when it ends rather than giving
+ * way to the next: a loop that waits for a cue, which is what a game's
+ * "until the wave ramps" is.
  */
 struct thcSection
 {
@@ -611,7 +615,9 @@ struct thcSection
 
     std::vector<std::pair<std::string, double> > levels;
 
-    thcSection (void) : length(0), beats(false) { }
+    bool        hold;
+
+    thcSection (void) : length(0), beats(false), hold(false) { }
 };
 
 class thcScheduler
@@ -1207,6 +1213,65 @@ public:
        and for a time past the end of one that ends. Cycles otherwise. */
     int sectionAt (double at) const;
 
+    /* ---- where the arrangement goes ----
+     *
+     * Written, the sections play in order and then go round from the
+     * first -- or from the one `section loop <name>;' names, so an
+     * intro is heard once -- and a `hold' section plays again until
+     * something moves the piece on.
+     *
+     * A cue is that something: the section to go to, and the grid it
+     * waits for, in beats from the top of the transport, or 0 for the
+     * end of the section playing. It is the game's hand on the music:
+     * what it asks lands on a line of the grid rather than mid-phrase,
+     * and from there the list runs as written again. Events emitted
+     * before the cue still obey it -- see sectionGate.
+     *
+     * Returns the transport time the cued section begins, or -1 for a
+     * section that does not exist. A rewind takes every cue back: what
+     * the piece says is what it plays from the top. */
+    double cueSection (size_t section, double gridBeats);
+
+    /* The section a knob names, cued whenever it moves: 1 is the first
+       section, 0 and anything past the last cue nothing. The file's
+       `cue @knob 1 bars;'. A chain may write the knob, which makes the
+       arrangement itself generative. NULL takes it off. */
+    void cueOnKnob (thArg *knob, double gridBeats);
+
+    /* `section loop <name>;': where the list goes round to. */
+    void   loopSectionsFrom (size_t section);
+    size_t loopsFrom (void) const { return loopFrom_; }
+
+    /* One section as it is played: where it starts, how long it lasts
+       and which it is. */
+    struct SectionSpan
+    {
+        double start, length;
+        int    section;
+    };
+
+    /* The span `at' falls in; false where sectionAt() is -1. */
+    bool sectionSpanAt (double at, SectionSpan &span) const;
+
+    /* Every span that starts before `until', in order -- what a lane can
+       draw. Cues made in the last eight seconds of the transport and
+       after are in it; older ones are forgotten (cueSection), so what is
+       drawn further back is the arrangement as written. A MIDI export
+       marks the sections as it plays them (thcMidiExport::markSection). */
+    std::vector<SectionSpan> sectionSpans (double until) const;
+
+    /* When a piece that ends is over: the transport time its last
+       section ends, as cued so far -- or as written, where `asWritten'
+       says, which is what a fresh load of the file would answer -- or
+       infinity for one that goes round or holds. */
+    double arrangementEnd (bool asWritten = false) const;
+
+    /* To the start of `section' as if the piece had been played straight
+       to it: seek() to its place in the first time through, with any
+       `hold' before it let go at its end, so a section behind a hold is
+       still somewhere a click can reach. */
+    void seekSection (size_t section);
+
     /* Only effective before any stage exists: a seed that changed under
        running instances would be a lie about what they were created
        with. .gen files with a pinned seed call this first. */
@@ -1501,6 +1566,19 @@ private:
        are no sections, or where none of them names it. */
     double sectionLevel (const thcChain &c, double at) const;
 
+    /* False drops the event; a note let through leaves at the
+       section's level. */
+    bool sectionGate (thcEvent &ev, int chain);
+
+    /* seek(), with the cues `keep' put back after the rewind. */
+    void seekWith (double t, const std::vector<std::pair<double, int> > &keep);
+
+    /* Where a cue made now lands: cueSection's `gridBeats'. */
+    double cueTime (double gridBeats) const;
+
+    /* The cue knob, read once a step: a move cues what it names. */
+    void pollCueKnob (void);
+
     void deliver (const thcEvent &ev);           /* -> synth addNote /
                                                     chanarg, derive off  */
     void flushNoteOffs (void);
@@ -1513,6 +1591,15 @@ private:
     size_t                   soloCount_;   /* chains with `soloed' set */
     std::vector<thcSection>  sections_;
     bool                     endAfter_;   /* the file's `section end;'  */
+    size_t                   loopFrom_;   /* `section loop <name>;'      */
+
+    /* Cues made since the top: when each cued section begins and which
+       it is, in time order. Empty is the arrangement as written. */
+    std::vector<std::pair<double, int> > cues_;
+
+    thArg                   *cueKnob_;
+    double                   cueGrid_;
+    long                     cueKnobLast_; /* the section it named */
     sigc::connection         timer_;
 
     /* Piece knobs, owned here; and the signal connections that carry a
@@ -1911,6 +1998,11 @@ private:
     int deliveringChain_;
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
+
+    /* seekSection() is replaying to a section the person chose: the cue
+       knob is followed but cues nothing, or a cue it makes on the way
+       would take back the ones that let go of the holds before it. */
+    bool cuesPinned_ = false;
     bool catchingUp_ = false;  /* catchUp(): what is due before now goes */
 
     /* What catchUp() delivers now: the last value or edit it composed

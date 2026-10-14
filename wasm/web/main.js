@@ -1931,6 +1931,7 @@ const band = createBand({
     /* A scene: where it starts, and a chain's level in it -- the same
        command the composer view's lane sends, written into the piece. */
     seek: (at) => synth?.transport('seek', at),
+    seekSection: (section) => synth?.transport('seekSection', section),
     clock: () => ({ tempo: lastTape?.tempo ?? piece?.tempo ?? 120,
                     meter: lastTape?.meter ?? 4 }),
     level: (section, chain, level) =>
@@ -3138,7 +3139,8 @@ async function start ()
                                                 the scope stays blank. */
                                              nodes?.feed(m.probes);
                                              band.at(m.section, m.running,
-                                                     m.now);
+                                                     m.now, m.sectionStart,
+                                                     m.sectionLength);
                                              band.heard(m.events, m.now);
                                              $('play').classList.toggle(
                                                  'lead', !m.running);
@@ -3653,7 +3655,7 @@ function showComposer (on)
         onKeep: keepGrown,
 
         /* A section's block: the transport there, in the next window. */
-        onSeek: (at) => synth?.transport('seek', at),
+        onSeek: (at, section) => synth?.transport('seekSection', section),
     });
 
     composer.show(on);

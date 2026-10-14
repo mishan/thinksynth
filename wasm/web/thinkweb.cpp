@@ -171,8 +171,9 @@ enum CmdType
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
    four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
    TW_SOLO, TW_SECTION, TW_KNOBWRITE, TW_GROWBACK and TW_TRYGRAPH have entry
-   points of their own and never arrive as an op from there. TW_SEEK is a
-   solo page's, framed; a room's seek is a begin from a time (tw_begin). */
+   points of their own and never arrive as an op from there. TW_SEEK and
+   TW_SEEKSECTION are a solo page's, framed; a room's seek is a begin
+   from a time (tw_begin). */
 enum TransportOp
 {
     TW_START,
@@ -194,6 +195,7 @@ enum TransportOp
     TW_PICK,
     TW_GROWBACK,
     TW_TRYGRAPH,
+    TW_SEEKSECTION,
 };
 
 struct Command
@@ -710,7 +712,12 @@ void applyDue (double start, int len)
                        Playing on, the clock is pinned there at this
                        window's first frame, as a resume is. */
                     case TW_SEEK:
-                        sched_->seek(c.value);
+                    case TW_SEEKSECTION:
+                        if (c.op == TW_SEEK)
+                            sched_->seek(c.value);
+                        else
+                            sched_->seekSection((size_t)c.value);
+
                         dropStamped();
                         newEpoch();
 
@@ -1877,8 +1884,8 @@ CanvasMove canvasMove_;
 /* A chain's F pressed: which chain, once per press. */
 int canvasFreeze_ = -1;
 
-/* A section's block pressed: the time to seek to, or -1. */
-double canvasSeek_ = -1;
+/* A section's block pressed: which section, or -1. */
+int canvasSeek_ = -1;
 
 /* A wire from a knob dropped on a stage: which knob, which stage (the
    scheduler's numbering, like a params request), and where its box is
@@ -3644,12 +3651,10 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_chains_json (void)
     return o.c_str();
 }
 
-/* The piece's sections as written: [{ name, length, unit, before,
- * beatsBefore, levels: { chain: level } }], the length in `unit' (beats or
- * s, bars being beats) and where each starts as the seconds and the beats
- * of the sections before it, so a page finds the start at whatever tempo
- * the transport has. What the band's scenes are drawn from. Numbers as
- * %.17g, so a length copied is the length. */
+/* The piece's sections as written: [{ name, length, unit, levels: {
+ * chain: level } }], the length in `unit' (beats or s, bars being beats).
+ * What the band's scenes are drawn from. Numbers as %.17g, so a length
+ * copied is the length. */
 static std::string sectionsJson_;
 
 static std::string
@@ -3668,7 +3673,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
 
     sectionsJson_ = "[";
 
-    double seconds = 0, beats = 0;
     const auto &all = sched_->sections();
 
     for (size_t i = 0; i < all.size(); i++)
@@ -3679,9 +3683,7 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
         jsonString(sectionsJson_, s.name);
         sectionsJson_ += ",\"length\":" + exact(s.length) +
                          ",\"unit\":\"" + (s.beats ? "beats" : "s") +
-                         "\",\"before\":" + exact(seconds) +
-                         ",\"beatsBefore\":" + exact(beats) +
-                         ",\"levels\":{";
+                         "\",\"levels\":{";
 
         for (size_t k = 0; k < s.levels.size(); k++)
         {
@@ -3693,7 +3695,6 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
         }
 
         sectionsJson_ += "}}";
-        (s.beats ? beats : seconds) += s.length;
     }
 
     sectionsJson_ += "]";
@@ -3704,6 +3705,25 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
 EMSCRIPTEN_KEEPALIVE int tw_section_now (void)
 {
     return sched_ == NULL ? -1 : sched_->sectionAt(sched_->now());
+}
+
+/* Where the section the transport is in began and how long it lasts, as
+   played: a loop, a hold or a cue puts it somewhere other than after the
+   sections before it. 0 for none. */
+EMSCRIPTEN_KEEPALIVE double tw_section_start (void)
+{
+    thcScheduler::SectionSpan span;
+
+    return sched_ != NULL && sched_->sectionSpanAt(sched_->now(), span)
+           ? span.start : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_section_length (void)
+{
+    thcScheduler::SectionSpan span;
+
+    return sched_ != NULL && sched_->sectionSpanAt(sched_->now(), span)
+           ? span.length : 0;
 }
 
 /* The piece's scales as its text writes them: [{ name, notes }], the
@@ -4406,7 +4426,8 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
         canvas_->sigFreeze.connect(
             [](size_t chain) { canvasFreeze_ = (int)chain; });
 
-        canvas_->sigSeek.connect([](double at) { canvasSeek_ = at; });
+        canvas_->sigSeekSection.connect(
+            [](size_t section) { canvasSeek_ = (int)section; });
 
         canvas_->sigMoveStage.connect(
             [](size_t chain, int from, int to)
@@ -4758,14 +4779,27 @@ EMSCRIPTEN_KEEPALIVE double tw_canvas_arrow_y (int chain, int stage)
            canvas_->probeArrow((size_t)chain, (size_t)stage, x, y) ? y : -1.0;
 }
 
-/* A section's block: the time to seek to, once per press, or -1. */
-EMSCRIPTEN_KEEPALIVE double tw_canvas_seek_wanted (void)
+/* A section's block: which section, once per press, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_seek_wanted (void)
 {
-    const double was = canvasSeek_;
+    const int was = canvasSeek_;
 
     canvasSeek_ = -1;
 
     return was;
+}
+
+/* Where `section' begins the first time through: what a room, which seeks
+   by time, goes to for its block. */
+EMSCRIPTEN_KEEPALIVE double tw_section_first_at (int section)
+{
+    double at = 0;
+
+    for (int k = 0; sched_ != NULL && k < section &&
+                    (size_t)k < sched_->sections().size(); k++)
+        at += sched_->sectionLength(sched_->sections()[k]);
+
+    return at;
 }
 
 /* The middle of a section's block in the lane, in shell pixels, or -1. */

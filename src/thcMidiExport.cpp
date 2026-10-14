@@ -13,6 +13,7 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "think.h"
@@ -26,8 +27,7 @@ static const double MOST = 3600;
 
 void
 thcMidiExport::describe (thcMidiFile &midi, thcScheduler &sched,
-                         thSynth &synth, const std::string &name,
-                         double seconds)
+                         thSynth &synth, const std::string &name)
 {
     midi.setName(name);
     midi.setRangeLookup(
@@ -54,29 +54,19 @@ thcMidiExport::describe (thcMidiFile &midi, thcScheduler &sched,
         if (!holds.empty())
             midi.setChannelName(ch, holds);
     }
+}
 
-    /* The arrangement at the times the scheduler gates it, and round
-       again for as long as the render runs where it has no `section
-       end;' -- sectionAt() wraps. */
-    double cycle = 0;
+void
+thcMidiExport::markSection (thcMidiFile &midi, const thcScheduler &sched,
+                            double &marked)
+{
+    thcScheduler::SectionSpan span;
 
-    for (const thcSection &s : sched.sections())
-        cycle += s.beats ? s.length * 60 / sched.tempo() : s.length;
-
-    for (double start = 0; cycle > 0 && start < seconds; start += cycle)
+    if (sched.sectionSpanAt(sched.now(), span) &&
+        std::fabs(span.start - marked) > 1e-6)
     {
-        double at = start;
-
-        for (const thcSection &s : sched.sections())
-        {
-            if (at < seconds)
-                midi.addMarker(at, s.name);
-
-            at += s.beats ? s.length * 60 / sched.tempo() : s.length;
-        }
-
-        if (sched.endsAfterSections())
-            break;
+        midi.addMarker(span.start, sched.sections()[span.section].name);
+        marked = span.start;
     }
 }
 
@@ -116,12 +106,12 @@ thcMidiExport::render (const std::map<std::string, thcPlugin *> &plugins,
         return false;
     }
 
-    /* An arrangement that ends is its own length; `seconds' is for one
-       that does not. */
+    /* An arrangement that ends is its own length -- it stops the
+       transport itself, wherever a cue on the way has taken its end --
+       and `seconds' is for one that does not. */
     const double seconds =
-        sched.endsAfterSections() && sched.sectionsLength() > 0
-            ? std::min(sched.sectionsLength(), MOST)
-            : std::min(std::max(options.seconds, 0.0), MOST);
+        std::isfinite(sched.arrangementEnd())
+            ? MOST : std::min(std::max(options.seconds, 0.0), MOST);
 
     for (size_t c = 0; c < sched.chainCount(); c++)
     {
@@ -143,13 +133,16 @@ thcMidiExport::render (const std::map<std::string, thcPlugin *> &plugins,
     describe(midi, sched, *synth,
              options.name.empty()
                  ? std::filesystem::path(genPath).stem().string()
-                 : options.name,
-             seconds);
+                 : options.name);
 
     sigc::connection conn = sched.sigDelivered.connect(
         [&](const thcEvent &ev) { midi.add(ev, sched.deliveringChain()); });
 
     sched.start();
+
+    double marked = -1;
+
+    markSection(midi, sched, marked);
 
     /* A silent synth still takes a command per channel loaded, and a ring
        nobody drains is the failure the mode exists to remove -- so it is
@@ -158,6 +151,7 @@ thcMidiExport::render (const std::map<std::string, thcPlugin *> &plugins,
     {
         sched.stepTransport(std::min(step, seconds - sched.now()));
         synth->process();
+        markSection(midi, sched, marked);
     }
 
     const double stoppedAt = sched.now();

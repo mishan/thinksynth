@@ -170,6 +170,7 @@ private:
     /* `section drop 16 bars { lead = 1.2; };' and `section end;' --
        the arrangement, docs/GEN_FORMAT.md. */
     bool parseSection (thcScheduler *sched);
+    bool parseCue (thcScheduler *sched);
     bool parseMeter (void);
 
     /* One `name = value;' inside an instrument block. `prefix' is empty for
@@ -365,7 +366,7 @@ private:
     /* Beats to a bar for sections and chain starts. Both are folded as
        read, so a later meter must be rejected. */
     double meter_;
-    bool   sawSection_, sawBarStart_, sawSectionEnd_;
+    bool   sawSection_, sawBarStart_, sawSectionEnd_, sawCue_;
 
     /* One per section the file declares, in order, so a name a section
        gets wrong is reported against the line that got it wrong. */
