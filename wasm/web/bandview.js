@@ -387,6 +387,14 @@ const TOUCH = {
                        double: '0' } }],
 };
 
+/* What the band puts behind a player with nothing random in it -- a
+   drawn grid, a plain ring, a written phrase -- for Vary to have takes
+   of: a note now and then left out or played twice, and a pitched one
+   now and then an octave away, which keeps it in key. */
+const TAKES = (drums) => ({
+    name: 'take', plugin: 'vary',
+    params: { rest: '0.1', double: '0.12', leap: drums ? '0' : '0.08' } });
+
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
 
@@ -1141,11 +1149,17 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         moves.className = 'moves';
 
-        if (p.seeded === 'vary')
+        /* With nothing random in it, the first Vary puts TAKES behind it,
+           and the take is had once they are in. */
+        if (p.seeded === 'vary' || p.seeded === null)
             moves.append(button('Vary', 'Another take, from here on',
                                 async () =>
             {
                 const next = seed();
+
+                if (p.seeded === null &&
+                    !(await behind(p, st, [TAKES(p.role === 'drums')])))
+                    return;
 
                 if (!(await vary(p, next)))
                     return;
