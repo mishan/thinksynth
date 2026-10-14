@@ -393,7 +393,8 @@ thcScheduler::thcScheduler (thSynth *synth)
        belongs to, which puts it ahead of the transport members here
        even though nothing about it is more fundamental. swapped_ is a
        container and needs no mention. */
-    : synth_(synth), soloCount_(0), endAfter_(false), staging_(false),
+    : synth_(synth), soloCount_(0), endAfter_(false), loopFrom_(0),
+      cueKnob_(NULL), cueGrid_(0), cueKnobLast_(0), staging_(false),
       ownsControl_(true), ownsAuditioner_(true), started_(false),
       controlSynth_(NULL), auditioner_(NULL), running_(false),
       transportNow_(0), beat_(0), tempoAt_(0), beatAtTempo_(0), tempo_(120),
@@ -665,6 +666,9 @@ thcScheduler::clearChains (void)
     /* The arrangement names chains by the names this just took away. */
     sections_.clear();
     endAfter_ = false;
+    loopFrom_ = 0;
+    cues_.clear();
+    cueKnob_ = NULL;
 
     /* Knob-to-param connections point into the stages just destroyed;
        the knobs themselves belong to the piece and go with it. */
@@ -3226,10 +3230,27 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
 
     chains_ = std::move(next.chains_);
     next.chains_.clear();
+
+    /* The cues made so far go where they were going, by name: the
+       piece keeps its place in the arrangement under its new text. One
+       whose section is gone is dropped. */
+    std::vector<std::pair<double, int> > cues;
+
+    for (const auto &c : cues_)
+        for (size_t k = 0; k < next.sections_.size(); k++)
+            if ((size_t)c.second < sections_.size() &&
+                next.sections_[k].name == sections_[c.second].name)
+                cues.push_back(std::make_pair(c.first, (int)k));
+
     sections_ = next.sections_;
     endAfter_ = next.endAfter_;
+    loopFrom_ = next.loopFrom_;
+    cues_ = cues;
     meter_ = next.meter_;
     next.sections_.clear();
+
+    cueKnob_ = next.cueKnob_;
+    cueGrid_ = next.cueGrid_;
 
     /* A held note's release reaches its chain's stages as they are when
        it comes, and a new stage never saw the press: one that moved the
@@ -3313,6 +3334,11 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             k->setValue(v.second);
 
     next.pendingValues_.clear();
+
+    /* What the text now declares is where the cue knob stands, not a move
+       of it. */
+    if (cueKnob_ != NULL)
+        cueKnobLast_ = std::lround((*cueKnob_)[0]);
 
     if (plan.tempo > 0)
         setTempo(plan.tempo);
@@ -3528,40 +3554,263 @@ thcScheduler::sectionsLength (void) const
 int
 thcScheduler::sectionAt (double at) const
 {
-    const double total = sectionsLength();
+    SectionSpan span;
 
-    if (sections_.empty() || total <= 0)
-        return -1;
+    return sectionSpanAt(at, span) ? span.section : -1;
+}
+
+/* Where the arrangement is at `at': from the last cue at or before it --
+ * or from the top, where none is -- walked forward as written.
+ *
+ * The edges get the nudge form makes at a bar line, and for the same
+ * reason: a note written on the edge belongs to the section it opens,
+ * not to the one it closes. A microsecond is far below anything the
+ * scheduler resolves -- a window is twenty-three milliseconds -- and far
+ * above the rounding of an edge summed from eight beat-valued lengths.
+ *
+ * Once the walk has gone round to where the list loops from, the rest is
+ * periodic and is skipped in one step rather than lap by lap: a game
+ * leaves a piece running for an hour, and every note asks this. */
+bool
+thcScheduler::sectionSpanAt (double at, SectionSpan &span) const
+{
+    if (sections_.empty() || sectionsLength() <= 0)
+        return false;
 
     if (at < 0)
         at = 0;
 
-    if (at >= total)
+    double start = 0;
+    size_t i = 0;
+
+    for (const auto &c : cues_)
     {
+        if (c.first > at + 1e-6)
+            break;
+
+        start = c.first;
+        i = (size_t)c.second;
+    }
+
+    const size_t n = sections_.size();
+    const size_t from = loopFrom_ < n ? loopFrom_ : 0;
+    double lap = 0;
+    bool holds = false;
+
+    for (size_t k = from; k < n; k++)
+    {
+        lap += sectionLength(sections_[k]);
+        holds = holds || sections_[k].hold;
+    }
+
+    /* Bounded because a lap is skipped in one step below; the walk is a
+       few sections either side of it. */
+    for (size_t guard = 0; guard < 4 * n + 4; guard++)
+    {
+        const double len = sectionLength(sections_[i]);
+
+        /* A tempo of nothing makes a section no time long, and nothing
+           can be found by walking past it. */
+        if (len <= 0)
+            return false;
+
+        if (at < start + len - 1e-6)
+        {
+            span.start = start;
+            span.length = len;
+            span.section = (int)i;
+            return true;
+        }
+
+        if (sections_[i].hold)
+        {
+            start += std::floor((at - start + 1e-6) / len) * len;
+            continue;
+        }
+
+        start += len;
+
+        if (i + 1 < n)
+        {
+            i++;
+            continue;
+        }
+
         /* Past the last one: over, or round again. */
         if (endAfter_)
-            return -1;
+            return false;
 
-        at = fmod(at, total);
+        i = from;
+
+        /* A hold in the lap stops the walk before the lap is over. */
+        if (!holds && lap > 0 && at >= start + lap)
+            start += std::floor((at - start) / lap) * lap;
     }
 
-    double edge = 0;
+    return false;
+}
 
-    for (size_t i = 0; i < sections_.size(); i++)
+std::vector<thcScheduler::SectionSpan>
+thcScheduler::sectionSpans (double until) const
+{
+    std::vector<SectionSpan> out;
+    SectionSpan span;
+    double at = 0;
+
+    while (at < until && sectionSpanAt(at, span))
     {
-        edge += sectionLength(sections_[i]);
+        /* A cue cuts the span it lands in short. */
+        double end = span.start + span.length;
 
-        /* The nudge form makes at a bar line, and for the same reason:
-           a note written on the edge belongs to the section it opens,
-           not to the one it closes. A microsecond is far below anything
-           the scheduler resolves -- a window is twenty-three
-           milliseconds -- and far above the rounding of an edge summed
-           from eight beat-valued lengths. */
-        if (at < edge - 1e-6)
-            return (int)i;
+        for (const auto &c : cues_)
+            if (c.first > span.start + 1e-6 && c.first < end)
+            {
+                end = c.first;
+                break;
+            }
+
+        span.length = end - span.start;
+        out.push_back(span);
+
+        if (end <= at)
+            break;
+
+        at = end;
     }
 
-    return (int)sections_.size() - 1;
+    return out;
+}
+
+double
+thcScheduler::arrangementEnd (bool asWritten) const
+{
+    if (!endAfter_ || sections_.empty() || sectionsLength() <= 0)
+        return INFINITY;
+
+    double start = 0;
+    size_t i = 0;
+
+    if (!cues_.empty() && !asWritten)
+    {
+        start = cues_.back().first;
+        i = (size_t)cues_.back().second;
+    }
+
+    for (; i < sections_.size(); i++)
+    {
+        if (sections_[i].hold)
+            return INFINITY;
+
+        start += sectionLength(sections_[i]);
+    }
+
+    return start;
+}
+
+void
+thcScheduler::loopSectionsFrom (size_t section)
+{
+    loopFrom_ = section;
+}
+
+double
+thcScheduler::cueTime (double gridBeats) const
+{
+    if (gridBeats > 0)
+    {
+        /* The next grid line after now, counted in beats from the top,
+           so a bar line is where the piece's bars are whatever the
+           tempo did on the way. Strictly after: what is due now has
+           been heard. */
+        const double next =
+            (std::floor(beat_ / gridBeats + 1e-9) + 1) * gridBeats;
+
+        return transportNow_ + (next - beat_) * 60.0 / tempo_;
+    }
+
+    /* The end of the section that will be playing when the last cue has
+       landed, so a cue behind a pending one waits for the cued section
+       to finish rather than cutting into it. */
+    const double from = cues_.empty()
+        ? transportNow_ : std::max(transportNow_, cues_.back().first);
+    SectionSpan span;
+
+    return sectionSpanAt(from, span) ? span.start + span.length : from;
+}
+
+double
+thcScheduler::cueSection (size_t section, double gridBeats)
+{
+    if (section >= sections_.size() || tempo_ <= 0)
+        return -1;
+
+    const double at = cueTime(gridBeats);
+
+    /* A later cue is the one that counts: anything already cued for
+       after it is taken back. */
+    while (!cues_.empty() && cues_.back().first >= at - 1e-9)
+        cues_.pop_back();
+
+    /* And one long behind is forgotten, so a game cueing for an hour does
+       not make every note's lookup longer. What is asked about is an
+       event's own time, which is now or after it; eight seconds back is
+       room for anything late. */
+    while (cues_.size() >= 2 && cues_[1].first <= transportNow_ - 8)
+        cues_.erase(cues_.begin());
+
+    cues_.push_back(std::make_pair(at, (int)section));
+
+    return at;
+}
+
+void
+thcScheduler::cueOnKnob (thArg *knob, double gridBeats)
+{
+    cueKnob_ = knob;
+    cueGrid_ = gridBeats;
+    cueKnobLast_ = knob != NULL ? std::lround((*knob)[0]) : 0;
+}
+
+void
+thcScheduler::pollCueKnob (void)
+{
+    /* While seeking too: a chain that writes the knob cues on the way, as
+       it did when the piece played straight through. Compared as the
+       section it names, so a nudge that still names the playing section
+       cues nothing. A glide names each section it passes, but a cue aimed
+       at the grid line one is already aimed at replaces it, so only where
+       the knob is when a line comes round is heard. */
+    if (cueKnob_ == NULL)
+        return;
+
+    const long k = std::lround((*cueKnob_)[0]);
+
+    if (k == cueKnobLast_)
+        return;
+
+    cueKnobLast_ = k;
+
+    if (cuesPinned_)
+        return;
+
+    if (k < 1 || (size_t)k > sections_.size() || tempo_ <= 0)
+        return;
+
+    /* Naming the section the piece would be in at the cue anyway -- the
+       one playing, or the one written next -- takes back the cues still
+       to come rather than starting it again mid-phrase. */
+    const auto cued = cues_;
+
+    while (!cues_.empty() && cues_.back().first > transportNow_ + 1e-9)
+        cues_.pop_back();
+
+    SectionSpan span;
+
+    if (sectionSpanAt(cueTime(cueGrid_), span) && span.section == k - 1)
+        return;
+
+    cues_ = cued;
+    cueSection((size_t)k - 1, cueGrid_);
 }
 
 void
@@ -3623,6 +3872,40 @@ thcScheduler::sectionLevel (const thcChain &c, double at) const
             return levels[k].second;
 
     return 1.0;                       /* unnamed: as written           */
+}
+
+/* The arrangement's half of the gate; propagate has the mute's, and
+ * says why offs and structure edits pass both. At delivery rather than
+ * at emission because a cue can move the arrangement after a chain has
+ * emitted ahead: a grammar that wrote eight bars before the cue still
+ * goes quiet from the bar it lands on. A level of 0 drops notes and
+ * chanargs; any other scales a note's voice gain and leaves its
+ * velocity, so a hat under 0.7 is quieter and exactly as open. */
+bool
+thcScheduler::sectionGate (thcEvent &ev, int chain)
+{
+    if (sections_.empty() || chain < 0 || (size_t)chain >= chains_.size() ||
+        (ev.type != THC_EV_NOTE && ev.type != THC_EV_CHANARG))
+        return true;
+
+    const double level = sectionLevel(chains_[chain], ev.at);
+
+    if (level == 1.0)
+        return true;
+
+    if (level <= 0)
+    {
+        if (!seeking_ && !catchingUp_)
+            chains_[chain].lastGated[ev.type == THC_EV_CHANARG] =
+                std::max(transportNow_, ev.at);
+
+        return false;
+    }
+
+    if (ev.type == THC_EV_NOTE)
+        ev.u.note.level *= (float)level;
+
+    return true;
 }
 
 void
@@ -3764,6 +4047,10 @@ thcScheduler::runStep (void)
     deliverDue(transportNow_);
     sendDueNoteOffs(transportNow_);
 
+    /* After the deliveries, so a chain that writes the cue knob in this
+       step is heard cueing in it. */
+    pollCueKnob();
+
     /* `section end;': the piece is over when its last section is, and
      * the transport says so itself rather than waiting to be paused.
      *
@@ -3774,7 +4061,7 @@ thcScheduler::runStep (void)
      * there plays nothing until a rewind, which is what "the piece is
      * over" means. */
     if (endAfter_ && !sections_.empty() &&
-        transportNow_ >= sectionsLength())
+        transportNow_ >= arrangementEnd())
         stop();
 }
 
@@ -4135,14 +4422,14 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
 
     if (fromStage >= c.stages.size())
     {
-        /* The arrangement, and the live mute and solo, applied as one
-         * level. The section is the one this event's own `at' falls in;
-         * a chain the mute or the solos silence is at 0 whatever the
-         * section says.
+        /* The live mute and solo. A chain they silence is silent
+         * whatever the section says; the section itself is applied when
+         * the event is delivered (sectionGate), because a cue can move
+         * the arrangement after a chain has emitted ahead.
          *
-         * A level of 0 mutes the chain: its notes and its chanargs are
-         * both dropped, so a walk or a gate driving a knob stops pushing
-         * and the knob keeps the value it had.
+         * A muted chain's notes and its chanargs are both dropped, so a
+         * walk or a gate driving a knob stops pushing and the knob keeps
+         * the value it had.
          *
          * Two kinds of event go through whatever the level says, and
          * neither of them is sound. A NOTEOFF: a swallowed off hangs a
@@ -4155,31 +4442,20 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
          * holding a graph the piece has moved on from, with no later
          * event to catch it up.
          */
-        const double level = audible(c) ? sectionLevel(c, ev.at) : 0.0;
-        thcEvent scaled = ev;
         const thcEvent *gated = &ev;
 
-        if (level != 1.0 && ev.type != THC_EV_NOTEOFF &&
+        if (!audible(c) && ev.type != THC_EV_NOTEOFF &&
             !isStructureEdit(ev.type))
         {
-            if (level <= 0)
-            {
-                /* At the event's own time, which is when it would have
-                   been heard: a chain that emits ahead is dropped ahead
-                   too, and would light before the notes it still plays. */
-                if ((ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG) &&
-                    !seeking_ && !catchingUp_)
-                    c.lastGated[ev.type == THC_EV_CHANARG] =
-                        std::max(transportNow_, ev.at);
+            /* At the event's own time, which is when it would have been
+               heard: a chain that emits ahead is dropped ahead too, and
+               would light before the notes it still plays. */
+            if ((ev.type == THC_EV_NOTE || ev.type == THC_EV_CHANARG) &&
+                !seeking_ && !catchingUp_)
+                c.lastGated[ev.type == THC_EV_CHANARG] =
+                    std::max(transportNow_, ev.at);
 
-                return;
-            }
-
-            if (ev.type == THC_EV_NOTE)
-            {
-                scaled.u.note.level *= (float)level;
-                gated = &scaled;
-            }
+            return;
         }
 
         /* No sinks: the programmatic-chain case; deliver as emitted. */
@@ -4324,6 +4600,9 @@ thcScheduler::queuePending (const thcEvent &ev,
         if (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF)
             return;
 
+        if (!sectionGate(p.ev, chain))
+            return;
+
         char key[64];
 
         snprintf(key, sizeof(key), "%d %d %p ", (int)ev.type, ev.channel,
@@ -4348,6 +4627,9 @@ thcScheduler::queuePending (const thcEvent &ev,
        wait for Play. It should not -- the keys were pressed now. */
     if (injectingLive_ && p.at <= transportNow_)
     {
+        if (!sectionGate(p.ev, chain))
+            return;
+
         if (knob != NULL)
             setKnobFrom(knob, p.ev, chain);
         else
@@ -4369,6 +4651,9 @@ thcScheduler::deliverDue (double now)
         std::pop_heap(pending_.begin(), pending_.end(), LaterPending());
         Pending p = pending_.back();
         pending_.pop_back();
+
+        if (!sectionGate(p.ev, p.chain))
+            continue;
 
         if (p.knob != NULL)
             setKnobFrom(p.knob, p.ev, p.chain);
@@ -4880,16 +5165,47 @@ thcScheduler::stop (void)
 void
 thcScheduler::seek (double t)
 {
+    seekWith(t, std::vector<std::pair<double, int> >());
+}
+
+void
+thcScheduler::seekSection (size_t section)
+{
+    if (section >= sections_.size())
+        return;
+
+    /* Its place in the first time through, and a cue at the end of each
+       hold on the way, so the walk does not wait in one. */
+    std::vector<std::pair<double, int> > keep;
+    double at = 0;
+
+    for (size_t k = 0; k < section; k++)
+    {
+        at += sectionLength(sections_[k]);
+
+        if (sections_[k].hold)
+            keep.push_back(std::make_pair(at, (int)k + 1));
+    }
+
+    seekWith(at, keep);
+}
+
+void
+thcScheduler::seekWith (double t,
+                        const std::vector<std::pair<double, int> > &keep)
+{
     const bool was = running_;
 
     halt();
     reset();
+    cues_ = keep;
+    cuesPinned_ = !keep.empty();
 
     /* No further than a piece that ends goes, and no further than an
        hour: a seek is the whole piece up to there, and a target nobody
        could mean is a host stalled for nothing. */
-    if (endAfter_ && sectionsLength() > 0)
-        t = std::min(t, sectionsLength());
+    if (std::isfinite(arrangementEnd()))
+        t = std::min(t, arrangementEnd());
 
     t = std::min(t, 3600.0);
 
@@ -4930,11 +5246,13 @@ thcScheduler::seek (double t)
             setAuditionSynchronous(false);
     }
 
+    cuesPinned_ = false;
+
     /* Playing on from there if it was playing -- start() takes the wall
        clock the timer steps by from now, or its first tick would step
        the transport by however long the seek took; otherwise waiting
        there for Play. A piece that ends before `t' has stopped itself. */
-    if (was && !(endAfter_ && sectionAt(transportNow_) < 0))
+    if (was && !(endAfter_ && transportNow_ >= arrangementEnd()))
         start();
     else
         running_ = false;
@@ -4966,6 +5284,14 @@ thcScheduler::reset (void)
     for (const auto &h : knobHome_)
         if ((*h.first)[0] != h.second)
             h.first->setValue(h.second);
+
+    /* The arrangement as written, from the top: a cue was a hand on the
+       piece that played, and a replay is not that play. The knob is
+       back home with the others, which is not a move. */
+    cues_.clear();
+
+    if (cueKnob_ != NULL)
+        cueKnobLast_ = std::lround((*cueKnob_)[0]);
 
     pending_.clear();
     wakeups_.clear();

@@ -257,11 +257,13 @@ function sendGestures ()
     M._tw_canvas_sections_clear();
 
     /* A section's block: a seek, which the page sends as a transport
-       command. */
+       command -- to the section, or for a room, which seeks by time, to
+       where it begins the first time through. */
     const seekTo = M._tw_canvas_seek_wanted();
 
     if (seekTo >= 0)
-        post({ type: 'canvasseek', at: seekTo });
+        post({ type: 'canvasseek', section: seekTo,
+               at: M._tw_section_first_at(seekTo) });
 
     /* A chain's F: the page asks the worklet, which heard what it
        played, for the text with the frozen chain in it. */

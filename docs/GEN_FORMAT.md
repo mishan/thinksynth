@@ -1091,19 +1091,82 @@ once the whole file has been read. A name it gets wrong is the quietest
 mistake the language could have: `section break 4 bars { kik = 0; }` would
 load, play, and do nothing where a bar of silence was meant.
 
+### Loops, holds and cues
+
+A piece that scores a game cannot know in advance how long a stretch lasts:
+the music waits in the fight until the wave turns, then moves on at the next
+bar line. Three things say that.
+
+```
+@act = 0;
+
+section intro  4 bars { drums = 0; };
+section fight 16 bars hold { };       # plays again until something cues
+section surge  8 bars { };
+section loop fight;                   # round to fight, not to intro
+
+cue @act 1 bars;                      # @act names a section; 1 is the first
+```
+
+- **`section loop <name>;`** closes the list, as `section end;` does, and the
+  list goes round to the section it names instead of the first, so an intro is
+  heard once.
+- **`hold`** after a section's length makes it play again when it ends,
+  instead of giving way to the next.
+- **A cue** moves the arrangement to a section at the next line of a grid, in
+  bars or beats counted from the top of the transport; from there the list
+  runs as written again. `cue @act 1 bars;` cues whichever section the knob
+  names each time it moves: 1 is the first section, and 0 or a number past
+  the last names none, so a knob at rest cues nothing. A cue for a grid
+  line another is already waiting for replaces it, so a knob swept through
+  several sections is heard where it is when the line comes. With no grid,
+  `cue @act;`, the section playing finishes first. A host reaches the knob
+  the way it reaches any knob, and a chain may write it (`sink { knob = @act;
+  };`), which makes the arrangement itself composed. A program holding the
+  scheduler can cue directly: `thcScheduler::cueSection`.
+
+A cue never cuts what is sounding, and it reaches notes a chain emitted before
+it: the section gate is read when an event is delivered, not when it is
+emitted, so a grammar that wrote eight bars at the top of a phrase still goes
+quiet from the bar the cue lands on. A rewind takes the cues back; what the
+file says is what plays from the top. A click on a section in the composer
+view seeks to its place in the first time through, with any hold before it
+let go.
+
+`xform::follow` is the harmony side of the same idea. It moves each note by
+as many scale steps as the root under it has moved from the first of
+`roots`, one root per `every`, read off the note's own time, so a figure
+written once over the tonic follows a progression without a pool entry per
+onset:
+
+```
+scale prog "D3 D3 Bb2 Bb2 D3 D3 E3 A2";
+
+chain footsteps {
+    stage src gen::euclid { steps = 16; fills = 16;
+        notes = "D3 A3 F3 D4 C#4"; period = 0.25 beats; hold = 0.18 beats; };
+    stage f xform::follow { roots = prog; every = 4 beats; scale = hung; };
+    sink { instrument = strings; };
+};
+```
+
 ## 6. Grammar
 
 ```
 genfile     : statement*
 statement   : infostring | tempo | seed | meter | knob | knobmeta | scale
-            | preset | instrument | section | chain | mastereffect
+            | preset | instrument | section | cue | chain | mastereffect
 infostring  : ("name" | "author" | "description" | "category") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
-meter       : "meter" NUMBER ";"                       # before any section
-                                                       # or start in bars
-section     : "section" WORD NUMBER seclen "{" seclevel* "}" ";"
+meter       : "meter" NUMBER ";"                       # before any section,
+                                                       # cue or start in bars
+section     : "section" WORD NUMBER seclen "hold"? "{" seclevel* "}" ";"
             | "section" "end" ";"                      # closes the list
+            | "section" "loop" WORD ";"                # closes it, and goes
+                                                       #   round to WORD
+cue         : "cue" CHANARG (NUMBER ("bars" | "beats" | "b"))? ";"
+                                                       # at most one
 seclen      : "bars" | "beats" | "b" | "s"
 seclevel    : WORD "=" NUMBER ";"                      # chain = level
 knob        : CHANARG "=" NUMBER ";"
@@ -1312,6 +1375,8 @@ reading `chain category { ... }` is a trap rather than a feature.
 | `category`             | nothing at play time; the menus group by it (7a)     |
 | `section`              | `thcSection` on the scheduler: the gate in `propagate` |
 | `section end`          | the transport stops itself after the last section    |
+| `section loop`, `hold` | where `thcScheduler::sectionSpanAt` walks the list   |
+| `cue`                  | `thcScheduler::cueOnKnob`; a move is `cueSection`    |
 | `meter`                | beats to a bar, folding a section's `bars` to beats  |
 | `@knobs` + metadata    | the existing chanarg/param-panel machinery          |
 

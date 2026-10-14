@@ -1025,6 +1025,42 @@ checkListener (const std::map<std::string, thcPlugin *> &plugins,
                "heard\n");
 }
 
+/* An edit that declares the cue knob at another value says where the knob
+   now stands; it is not the knob moving, and cues nothing. */
+static void
+checkCueEdit (const std::map<std::string, thcPlugin *> &plugins,
+              const std::string &pluginDir, const std::filesystem::path &dir)
+{
+    auto text = [](int act)
+    {
+        return "tempo 120;\nmeter 4;\n@act = " + std::to_string(act) + ";\n"
+               "section calm  1 bars hold { };\n"
+               "section storm 1 bars hold { };\n"
+               "cue @act 1 bars;\n"
+               "chain c { stage s gen::euclid { steps = 4; fills = 4;\n"
+               "    period = 1 beats; hold = 0.2 beats; };\n"
+               "    sink { channel = 1; }; };\n";
+    };
+    std::vector<std::string> errors;
+    Peer p(plugins, pluginDir, dir, "cue");
+
+    p.load(text(0), errors);
+    play(p, "cue edit", {}, 3, [] { return 0.02; });
+
+    if (!p.edit(text(2), errors))
+    {
+        fail("cue edit", "did not load: " + (errors.empty() ? "" : errors[0]));
+        return;
+    }
+
+    play(p, "cue edit", {}, 7, [] { return 0.02; });
+
+    if (p.sched.sectionAt(6.5) != 0)
+        fail("cue edit", "an edit to @act's declared value cued a section");
+    else
+        printf("ok    an edit to the cue knob's declaration cues nothing\n");
+}
+
 /* A Life board painted on while it plays, and then a param of its chain
    set: what was painted is still on the board, which a chain played again
    from its text would have lost. */
@@ -1498,6 +1534,7 @@ main (int argc, char *argv[])
     checkRecompose(plugins, pluginDir, dir);
     checkListener(plugins, pluginDir, dir);
     checkPainted(plugins, pluginDir, dir);
+    checkCueEdit(plugins, pluginDir, dir);
 
     std::error_code ec;
 

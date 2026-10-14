@@ -32,8 +32,9 @@ class thcScheduler;
  *
  * describe() is what a thcMidiFile is told about the piece before a note
  * reaches it -- its name, the chains' names, what each channel holds, the
- * sections round the arrangement, the chanargs' declared ranges -- shared
- * by genwav, which renders audio alongside, and render() below.
+ * chanargs' declared ranges -- and markSection() the sections as they are
+ * played, a step at a time; both shared by genwav, which renders audio
+ * alongside, and render() below.
  *
  * render() loads the piece onto a scheduler of its own over `synth', a
  * synth the caller made for it and made silent (thSynth::setSilent) --
@@ -75,7 +76,14 @@ namespace thcMidiExport
     };
 
     void describe (thcMidiFile &midi, thcScheduler &sched, thSynth &synth,
-                   const std::string &name, double seconds);
+                   const std::string &name);
+
+    /* A marker where the section playing now began, if it is not the one
+       `marked' last; called after every step, so a cue made on the way --
+       by a chain that writes the cue knob -- is in the file. `marked'
+       starts below zero. */
+    void markSection (thcMidiFile &midi, const thcScheduler &sched,
+                      double &marked);
 
     /* False, with `why', where the piece did not load. `length' is how
        long was composed. */

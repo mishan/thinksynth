@@ -474,8 +474,8 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
    and `newBand' starts a band over. */
 export function createBand ({ piece, params, vary, keep, rest, say, tell,
                               touch, toMirror, onGesture, edit, sounds,
-                              sound, newBand, seek, level, clock, knob,
-                              knobValue })
+                              sound, newBand, seek, seekSection, level,
+                              clock, knob, knobValue })
 {
     /* The scene being played, while the piece plays, and the one last
        chosen, while it does not: the one a Rest is written into. */
@@ -483,6 +483,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
     let running = false;
     let transportNow = 0;
     let chosen = 0;
+
+    /* Where the scene playing began and how long it lasts, as played. */
+    let span = { start: 0, length: 0 };
 
     const sectionsOf = () => piece()?.sections ?? [];
 
@@ -502,9 +505,6 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
     /* A player's level in the scene, 1 where the scene does not name it. */
     const levelIn = (sc, p) => sc?.levels?.[p.name] ?? 1;
 
-    /* Where a scene starts and how long it is, at the tempo the transport
-       has now: a length in beats is seconds only at a tempo. */
-    const startOf = (s) => s.before + s.beatsBefore * 60 / clock().tempo;
     const barsOf = (s) => (s.unit === 'beats' ? s.length / clock().meter
                                               : 0);
     const sizeOf = (s) => (s.unit === 'beats'
@@ -1318,7 +1318,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             const b = button(s.name, sizeOf(s), () =>
                 {
                     chosen = i;
-                    seek(startOf(s));
+                    seekSection(i);
                     draw();
                 }, `@scene=${s.name}`);
 
@@ -1809,15 +1809,12 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
     function progress (now)
     {
         const b = $('bandscenes').querySelector('.scene.on');
-        const s = sectionsOf()[playing];
 
         if (b === null)
             return;
 
-        const length = s === undefined ? 0 : s.unit === 'beats'
-            ? s.length * 60 / clock().tempo : s.length;
-        const done = running && length > 0
-            ? Math.min(1, Math.max(0, (now - startOf(s)) / length)) : 0;
+        const done = running && span.length > 0
+            ? Math.min(1, Math.max(0, (now - span.start) / span.length)) : 0;
 
         b.style.setProperty('--done', `${(done * 100).toFixed(1)}%`);
     }
@@ -1873,9 +1870,10 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         /* The section the transport is in, from each tape: the cards and
            the scenes drawn again when it moves on. */
-        at (section, isRunning, now)
+        at (section, isRunning, now, start = 0, length = 0)
         {
             transportNow = now;
+            span = { start, length };
 
             if (section === playing && isRunning === running)
             {

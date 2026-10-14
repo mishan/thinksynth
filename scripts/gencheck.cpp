@@ -43,6 +43,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -65,6 +66,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "thcMidiExport.h"
 #include "NodeEvolve.h"
 #include "NodeMutate.h"
 #include "thcNodeHost.h"
@@ -11287,6 +11289,829 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* ---- where the arrangement goes: loop, hold, cue ----------------------------
+ *
+ * The arrangement as a game drives it. `section loop' says where the list
+ * goes round to, so an intro is heard once; `hold' is a section that waits;
+ * a cue moves the piece to a section at the next grid line, from the API or
+ * from a knob. What is checked is what each claims, bar by bar, and the one
+ * thing a cue could quietly get wrong: notes a chain emitted before the cue
+ * still obey it, because the gate is read when they are delivered.
+ */
+
+/* Loads `body', plays `seconds' of it, and calls `each' before every step:
+   where a test moves a knob or cues a section, as a host would while the
+   piece plays. The notes delivered, and the scheduler left as it ended. */
+static std::vector<Heard>
+playCued (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+          const char *what, const std::string &body, double seconds,
+          const std::function<void (thcScheduler &)> &each,
+          double *endedAt = NULL, bool *stillRunning = NULL)
+{
+    std::vector<Heard> out;
+    const std::string path = thUtil::tempFile("gencheck-cue-");
+
+    if (path.empty())
+    {
+        fail(std::string("could not write the ") + what + " piece");
+        return out;
+    }
+
+    {
+        std::ofstream f(path.c_str(), std::ios::trunc);
+
+        f << body;
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    thcScheduler sched(synth);
+
+    sched.setAuditionSynchronous(true);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail(std::string("the ") + what + " piece did not load");
+        remove(path.c_str());
+        return out;
+    }
+
+    long posted = 0;
+    sigc::connection conn = sched.sigDelivered.connect(
+        [&out, &posted](const thcEvent &ev)
+        {
+            posted++;
+
+            if (ev.type != THC_EV_NOTE)
+                return;
+
+            Heard h;
+
+            h.at = ev.at;
+            h.channel = ev.channel;
+            h.note = ev.u.note.note;
+            h.vel = ev.u.note.velocity;
+            h.dur = ev.u.note.duration;
+            h.level = ev.u.note.level;
+            h.aux[0] = h.aux[1] = h.aux[2] = h.aux[3] = 0;
+            out.push_back(h);
+        });
+
+    sched.start();
+
+    while (sched.now() < seconds && sched.running())
+    {
+        each(sched);
+        sched.stepTransport(0.02);
+
+        if (posted >= TH_COMMAND_QUEUE_SIZE / 4)
+        {
+            drainSynth();
+            posted = 0;
+        }
+    }
+
+    if (endedAt != NULL)
+        *endedAt = sched.now();
+
+    if (stillRunning != NULL)
+        *stillRunning = sched.running();
+
+    sched.stop();
+    conn.disconnect();
+    drainSynth();
+    remove(path.c_str());
+
+    return out;
+}
+
+/* Notes per two-second bar on one channel, for `bars' bars. */
+static std::vector<int>
+perBar (const std::vector<Heard> &h, int channel, int bars)
+{
+    std::vector<int> n(bars, 0);
+
+    for (const Heard &x : h)
+    {
+        const int bar = (int)(x.at / 2.0 + 1e-9);
+
+        if (x.channel == channel && bar >= 0 && bar < bars)
+            n[bar]++;
+    }
+
+    return n;
+}
+
+static std::string
+barsText (const std::vector<int> &n)
+{
+    std::string s;
+
+    for (size_t i = 0; i < n.size(); i++)
+        s += (i ? "/" : "") + std::to_string(n[i]);
+
+    return s;
+}
+
+static void
+checkCues (const std::map<std::string, thcPlugin *> &plugins,
+           thSynth *synth)
+{
+    if (plugins.find("euclid") == plugins.end() ||
+        plugins.find("lsystem") == plugins.end())
+    {
+        fail("modules 'euclid' and 'lsystem' are needed; build the plugins "
+             "first");
+        return;
+    }
+
+    /* At 120, four to the bar: a bar is two seconds and holds four of
+       each. */
+    const std::string chains =
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain snare {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"D2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 80; };\n"
+        "  sink { channel = 2; };\n"
+        "};\n";
+    const auto nothing = [](thcScheduler &) { };
+
+    /* `section loop a;': the intro once, then a and b round again. */
+    {
+        std::vector<Heard> h = playCued(plugins, synth, "section loop",
+            "tempo 120;\nmeter 4;\n"
+            "section intro 1 bars { snare = 0; };\n"
+            "section a     1 bars { kick = 0; };\n"
+            "section b     1 bars { snare = 0; kick = 0.5; };\n"
+            "section loop a;\n" + chains, 9.9, nothing);
+        const std::vector<int> k = perBar(h, 0, 5), s = perBar(h, 1, 5);
+
+        if (barsText(k) != "4/0/4/0/4" || barsText(s) != "0/4/0/4/0")
+            fail("section loop: the intro should be heard once and a and "
+                 "b go round after it; kick " + barsText(k) + ", snare " +
+                 barsText(s));
+    }
+
+    /* `hold': the section plays again until something moves it on, and
+       a cue on a bar grid moves it at the next bar line -- not where the
+       hand was. After the cued section the list runs as written, which
+       here goes round to the hold again. */
+    {
+        bool cued = false;
+        double landed = -1;
+        std::vector<Heard> h = playCued(plugins, synth, "hold and cue",
+            "tempo 120;\nmeter 4;\n"
+            "section wait 1 bars hold { snare = 0; };\n"
+            "section go   1 bars { kick = 0; };\n" + chains, 9.9,
+            [&](thcScheduler &s)
+            {
+                if (!cued && s.now() >= 3.0)
+                {
+                    landed = s.cueSection(1, 4);
+                    cued = true;
+                }
+            });
+        const std::vector<int> k = perBar(h, 0, 5), s = perBar(h, 1, 5);
+
+        if (barsText(k) != "4/4/0/4/4" || barsText(s) != "0/0/4/0/0")
+            fail("hold and cue: two bars waiting, the cued bar, and back "
+                 "to waiting; kick " + barsText(k) + ", snare " +
+                 barsText(s));
+
+        if (!near(landed, 4.0))
+            fail("hold and cue: a cue at 3 s on a bar grid should land on "
+                 "the bar line at 4 s, not " + std::to_string(landed));
+    }
+
+    /* A grid of 0 waits for the section playing to end. */
+    {
+        bool cued = false;
+        std::vector<Heard> h = playCued(plugins, synth, "cue at the end",
+            "tempo 120;\nmeter 4;\n"
+            "section long 2 bars hold { snare = 0; };\n"
+            "section next 1 bars { kick = 0; };\n" + chains, 7.9,
+            [&](thcScheduler &s)
+            {
+                if (!cued && s.now() >= 1.0)
+                {
+                    s.cueSection(1, 0);
+                    cued = true;
+                }
+            });
+        const std::vector<int> s = perBar(h, 1, 4);
+
+        if (barsText(s) != "0/0/4/0")
+            fail("cue at the end: the two-bar section should finish before "
+                 "the cued one; snare " + barsText(s));
+    }
+
+    /* The gate is read at delivery. A grammar emits its whole phrase at
+       the top, two bars of it; the cue made a moment later still silences
+       the second bar, which was emitted before anybody asked. */
+    {
+        bool cued = false;
+        std::vector<Heard> h = playCued(plugins, synth, "cue after emission",
+            "tempo 120;\nmeter 4;\n"
+            "section play 1 bars hold { };\n"
+            "section rest 1 bars { lead = 0; };\n"
+            "chain lead {\n"
+            "  stage src gen::lsystem { axiom = \"FFFFFFFF\"; rules = \"\";\n"
+            "    depth = 0; notes = \"C4\"; step = 1 beats;\n"
+            "    hold = 0.5 beats; vel = 90; };\n"
+            "  sink { channel = 3; };\n"
+            "};\n", 7.9,
+            [&](thcScheduler &s)
+            {
+                if (!cued && s.now() >= 0.1)
+                {
+                    s.cueSection(1, 4);
+                    cued = true;
+                }
+            });
+        const std::vector<int> n = perBar(h, 2, 4);
+
+        if (barsText(n) != "4/0/4/4")
+            fail("cue after emission: the bar the cue lands on should be "
+                 "silent though the phrase was written before it; heard " +
+                 barsText(n));
+    }
+
+    /* `cue @act 1 bars;': the knob names the section, 1 the first, and
+       0 names none. */
+    {
+        std::vector<Heard> h = playCued(plugins, synth, "cue knob",
+            "tempo 120;\nmeter 4;\n"
+            "@act = 0;\n"
+            "section calm  1 bars hold { snare = 0; };\n"
+            "section storm 1 bars hold { kick = 0; };\n"
+            "cue @act 1 bars;\n" + chains, 11.9,
+            [&](thcScheduler &s)
+            {
+                thArg *act = s.knob("act");
+
+                if (act == NULL)
+                    return;
+
+                if (s.now() >= 1.0 && s.now() < 1.02)
+                    act->setValue(2);
+                else if (s.now() >= 5.0 && s.now() < 5.02)
+                    act->setValue(1);
+                else if (s.now() >= 7.0 && s.now() < 7.02)
+                    act->setValue(0);
+            });
+        const std::vector<int> k = perBar(h, 0, 6);
+
+        if (barsText(k) != "4/0/0/4/4/4")
+            fail("cue knob: calm, storm from the next bar, calm again, and "
+                 "a knob at 0 cueing nothing; kick " + barsText(k));
+    }
+
+    /* A piece that ends ends where the cues have taken it. */
+    {
+        bool cued = false, running = true;
+        double ended = 0;
+        std::vector<Heard> h = playCued(plugins, synth, "cue and end",
+            "tempo 120;\nmeter 4;\n"
+            "section a 1 bars { };\n"
+            "section b 1 bars { };\n"
+            "section end;\n" + chains, 20, [&](thcScheduler &s)
+            {
+                if (!cued && s.now() >= 3.0)
+                {
+                    s.cueSection(0, 4);
+                    cued = true;
+                }
+            }, &ended, &running);
+
+        if (running || ended < 7.9 || ended > 8.05)
+            fail("cue and end: cued back to the top at the third bar, the "
+                 "piece should end after four bars, not at " +
+                 std::to_string(ended) + " s");
+    }
+
+    /* The scheduler's own account: spans as played, and a rewind takes
+       the cues back. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-cuespans-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\nmeter 4;\n"
+                 "section intro 1 bars { };\n"
+                 "section a     1 bars hold { };\n"
+                 "section b     2 bars { };\n"
+                 "section loop a;\n" << chains;
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+
+        sched.setAuditionSynchronous(true);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+            fail("the cue-spans piece did not load");
+        else
+        {
+            if (sched.sectionAt(1) != 0 || sched.sectionAt(3) != 1 ||
+                sched.sectionAt(31) != 1)
+                fail("cue spans: the intro, then a holding for ever");
+
+            if (!std::isinf(sched.arrangementEnd()))
+                fail("cue spans: a piece that loops has no end");
+
+            sched.start();
+
+            while (sched.now() < 2.5)
+                sched.stepTransport(0.02);
+
+            const double at = sched.cueSection(2, 4);
+
+            if (!near(at, 4.0) || sched.sectionAt(5) != 2 ||
+                sched.sectionAt(8.5) != 1)
+                fail("cue spans: b from 4 s for two bars, then round to a");
+
+            std::vector<thcScheduler::SectionSpan> spans =
+                sched.sectionSpans(10);
+            std::string got;
+
+            for (const auto &sp : spans)
+                got += std::to_string(sp.section) + "@" +
+                       std::to_string((int)std::lround(sp.start)) + " ";
+
+            if (got != "0@0 1@2 2@4 1@8 ")
+                fail("cue spans: expected 0@0 1@2 2@4 1@8, got " + got);
+
+            sched.reset();
+
+            if (sched.sectionAt(5) != 1)
+                fail("cue spans: a rewind should take the cue back");
+
+            /* A section behind a hold is still somewhere a click can
+               reach. */
+            sched.seekSection(2);
+
+            /* A seek stops short of its target by a microsecond, so
+               what is due there is heard. */
+            if (std::fabs(sched.now() - 4.0) > 1e-5 ||
+                sched.sectionAt(4.0) != 2)
+                fail("seekSection: b should be reached through the hold, "
+                     "at 4 s; got " + std::to_string(sched.now()));
+
+            sched.stop();
+            drainSynth();
+        }
+
+        remove(path.c_str());
+    }
+
+    /* The knob is read as the section it names. A nudge that names the
+       same one cues nothing; a chain writing it cues the same on a seek as
+       it did on the way through. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-cueknob-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\nmeter 4;\n@act = 0;\n"
+                 "section a 2 bars hold { };\n"
+                 "section b 2 bars hold { };\n"
+                 "cue @act 1 bars;\n"
+                 "chain arr { stage s gen::steps { values = \"0 _ _ 1 _ _ _ _\";\n"
+                 "    period = 2 beats; min = 0; max = 2; };\n"
+                 "    sink { knob = @act; }; };\n" << chains;
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+
+        sched.setAuditionSynchronous(true);
+        thcGenLoader loader(plugins);
+        const auto spans = [&sched] (double until)
+        {
+            std::string got;
+
+            for (const auto &sp : sched.sectionSpans(until))
+                got += std::to_string(sp.section) + "@" +
+                       std::to_string((int)std::lround(sp.start)) + " ";
+
+            return got;
+        };
+
+        if (!loader.load(path, &sched))
+            fail("the cue-knob piece did not load");
+        else
+        {
+            sched.start();
+
+            /* The chain writes 2 at three seconds: b from the bar line at
+               four. A hand then nudges the knob to 1.6, which still names
+               b, and nothing more is cued. */
+            while (sched.now() < 4.5)
+                sched.stepTransport(0.02);
+
+            sched.knob("act")->setValue(1.6f);
+
+            while (sched.now() < 7.9)
+                sched.stepTransport(0.02);
+
+            const std::string straight = spans(7.9);
+
+            if (straight != "0@0 1@4 ")
+                fail("cue knob: written to name b at three seconds and "
+                     "nudged within it, expected 0@0 1@4, got " + straight);
+
+            sched.seek(7.9);
+
+            if (spans(7.9) != "0@0 1@4 ")
+                fail("cue knob: a seek should cue as the chain did on the "
+                     "way through; got " + spans(7.9));
+
+            sched.stop();
+            drainSynth();
+        }
+
+        remove(path.c_str());
+    }
+
+    /* Sections that do not hold. The knob naming the section the piece is
+       in, or moving off it and back inside a bar, does not restart it;
+       and a cue for the end of a section, made behind a cue still to
+       land, waits for the end of the cued one. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-cuesame-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\nmeter 4;\n@act = 0;\n"
+                 "section a 8 bars { };\n"
+                 "section b 8 bars { };\n"
+                 "cue @act 1 bars;\n" << chains;
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+
+        sched.setAuditionSynchronous(true);
+        thcGenLoader loader(plugins);
+        const auto spans = [&sched] (double until)
+        {
+            std::string got;
+
+            for (const auto &sp : sched.sectionSpans(until))
+                got += std::to_string(sp.section) + "@" +
+                       std::to_string((int)std::lround(sp.start)) + " ";
+
+            return got;
+        };
+
+        if (!loader.load(path, &sched))
+            fail("the cue-same piece did not load");
+        else
+        {
+            const std::pair<double, float> moves[] = {
+                { 1.0, 1 }, { 1.2, 2 }, { 1.5, 1 }, { 17, 2 } };
+
+            sched.start();
+
+            for (size_t m = 0; sched.now() < 20; )
+            {
+                if (m < 4 && sched.now() >= moves[m].first)
+                    sched.knob("act")->setValue(moves[m++].second);
+
+                sched.stepTransport(0.02);
+            }
+
+            if (spans(40) != "0@0 1@16 0@32 ")
+                fail("cue same: a knob naming the section the piece is in "
+                     "should cue nothing; got " + spans(40));
+
+            sched.reset();
+            sched.start();
+
+            while (sched.now() < 1)
+                sched.stepTransport(0.02);
+
+            sched.cueSection(1, 4);
+            sched.cueSection(0, 0);
+
+            if (spans(20) != "0@0 1@2 0@18 ")
+                fail("cue same: a cue for the end of the section, behind "
+                     "one for b at 2 s, should wait for b's end; got " +
+                     spans(20));
+
+            sched.stop();
+            drainSynth();
+        }
+
+        remove(path.c_str());
+    }
+
+    /* Exported, a cue a chain makes on the way is in the markers, and the
+       piece runs to where the cue has taken its end: here a again from
+       the second bar, then b, over at six seconds. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-cueexport-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\nmeter 4;\n@act = 0;\n"
+                 "section a 1 bars { };\n"
+                 "section b 1 bars { };\n"
+                 "section end;\n"
+                 "cue @act 1 bars;\n"
+                 "chain arr { stage s gen::steps { values = \"1 _ _ _ _ _ _ _\";\n"
+                 "    period = 1 beats; min = 0; max = 1; };\n"
+                 "    sink { knob = @act; }; };\n";
+        }
+
+        thcMidiExport::Options options;
+        std::vector<uint8_t> bytes;
+        std::string why, markers;
+        double length = 0;
+
+        if (!thcMidiExport::render(plugins, silentSynth, path, options, bytes,
+                                   why, &length))
+            fail("cue export: " + why);
+
+        /* A marker is FF 06, a length and the name. */
+        for (size_t i = 0; i + 3 < bytes.size(); i++)
+            if (bytes[i] == 0xff && bytes[i + 1] == 0x06 &&
+                bytes[i + 2] == 1)
+                markers += (char)bytes[i + 3];
+
+        if (markers != "aab" || std::fabs(length - 6.0) > 0.03)
+            fail("cue export: expected markers aab over 6 s, got " +
+                 markers + " over " + std::to_string(length));
+
+        remove(path.c_str());
+    }
+
+    /* Three more claims, on one piece of holds: a glide within a bar cues
+       only where it stops; a click on a section behind a hold gets there
+       even when a chain cues on the way; and the arrangement as written
+       ends where no cue has taken it. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-cueglide-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\nmeter 4;\n@act = 0;\n"
+                 "section a 1 bars hold { };\n"
+                 "section b 1 bars hold { };\n"
+                 "section c 1 bars hold { };\n"
+                 "section d 1 bars { };\n"
+                 "section end;\n"
+                 "cue @act 1 bars;\n"
+                 "chain arr { stage s gen::steps { values = \"0 1 _ _ _ _ _ _\";\n"
+                 "    period = 1 beats; min = 0; max = 1; };\n"
+                 "    sink { knob = @act; }; };\n" << chains;
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+
+        sched.setAuditionSynchronous(true);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+            fail("the cue-glide piece did not load");
+        else
+        {
+            if (!std::isinf(sched.arrangementEnd(true)))
+                fail("cue glide: a piece that waits in a hold has no end "
+                     "as written");
+
+            sched.start();
+
+            /* The chain writes 1 at half a second, naming a; then a hand
+               glides the knob through b and c to d inside the first bar. */
+            const float glide[] = { 2, 2.5f, 3, 3.5f, 4 };
+
+            for (size_t g = 0; sched.now() < 3.9; )
+            {
+                if (g < 5 && sched.now() >= 0.8 + g * 0.2)
+                    sched.knob("act")->setValue(glide[g++]);
+
+                sched.stepTransport(0.02);
+            }
+
+            std::string got;
+
+            for (const auto &sp : sched.sectionSpans(3.9))
+                got += std::to_string(sp.section) + "@" +
+                       std::to_string((int)std::lround(sp.start)) + " ";
+
+            if (got != "0@0 3@2 ")
+                fail("cue glide: a glide through b and c to d inside one "
+                     "bar should cue d alone; got " + got);
+
+            if (!std::isfinite(sched.arrangementEnd()) ||
+                !std::isinf(sched.arrangementEnd(true)))
+                fail("cue glide: cued out of the holds, the piece ends; as "
+                     "written, it still waits");
+
+            /* c is behind two holds, and the chain cues a on the way. */
+            sched.seekSection(2);
+
+            if (std::fabs(sched.now() - 4.0) > 1e-5 ||
+                sched.sectionAt(4.0) != 2)
+                fail("seekSection: c should be reached past the holds and "
+                     "the chain's cue, at 4 s; got section " +
+                     std::to_string(sched.sectionAt(4.0)) + " at " +
+                     std::to_string(sched.now()));
+
+            sched.stop();
+            drainSynth();
+        }
+
+        remove(path.c_str());
+    }
+
+    /* The things these can get wrong, each by name and line. */
+    expectReject(plugins, synth, "loop-no-such-section",
+        "section a 1 bars { };\nsection loop nowhere;\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "no section called nowhere");
+
+    expectReject(plugins, synth, "loop-no-name",
+        "section a 1 bars { };\nsection loop 8 bars { };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "'section loop' wants the name");
+
+    expectReject(plugins, synth, "after-section-loop",
+        "section a 1 bars { };\nsection loop a;\nsection b 1 bars { };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "the list is closed");
+
+    expectReject(plugins, synth, "cue-no-such-knob",
+        "section a 1 bars { };\ncue @nope 1 bars;\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "'@nope' is not a declared knob");
+
+    expectReject(plugins, synth, "cue-twice",
+        "@x = 0;\nsection a 1 bars { };\ncue @x 1 bars;\ncue @x 2 bars;\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "one already");
+
+    expectReject(plugins, synth, "cue-in-seconds",
+        "@x = 0;\nsection a 1 bars { };\ncue @x 2 s;\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "bars or beats");
+
+    expectReject(plugins, synth, "cue-then-meter",
+        "@x = 0;\ncue @x 1 bars;\nmeter 3;\nsection a 1 bars { };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "before the first section, cue");
+
+    /* And the editor: a hold section is still a section it can edit, and
+       a rename or a removal cannot leave `section loop' naming nothing. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-cueedit-");
+
+        {
+            std::ofstream f(path.c_str(), std::ios::trunc);
+
+            f << "tempo 120;\nmeter 4;\n"
+                 "section intro 1 bars { };\n"
+                 "section a     2 bars hold { kick = 0; };\n"
+                 "section loop a;\n" << chains;
+        }
+
+        std::string why;
+
+        editOk(thcGenEdit::setSectionLength(path, "a", "4 bars", why), why,
+               "setSectionLength on a hold section");
+        editOk(thcGenEdit::renameSection(path, "a", "main", why), why,
+               "renameSection of the loop's target");
+
+        if (thcGenEdit::removeSection(path, "main", why) !=
+            thcGenEdit::REFUSED)
+            fail("removing the section 'section loop' names was allowed");
+
+        editOk(thcGenEdit::addSection(path, "outro", "1 bars", "", {}, why),
+               why, "addSection above section loop");
+
+        const std::string text = slurp(path);
+
+        if (text.find("section main") == std::string::npos ||
+            text.find("4 bars hold { kick = 0; };") == std::string::npos)
+            fail("the hold section was not renamed and resized in place");
+
+        if (text.find("section loop main;") == std::string::npos)
+            fail("a renamed section left 'section loop' naming the old "
+                 "one");
+
+        if (text.find("outro") == std::string::npos ||
+            text.find("outro") > text.find("section loop"))
+            fail("a new section should go above 'section loop', which "
+                 "closes the list");
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+            fail("the arrangement the editor wrote does not load");
+        else if (sched.sections().size() != 3 ||
+                 !sched.sections()[1].hold || sched.loopsFrom() != 1)
+            fail("the arrangement the editor wrote lost its hold or its "
+                 "loop");
+
+        remove(path.c_str());
+    }
+}
+
+/* ---- xform::follow ---------------------------------------------------------
+ *
+ * A figure written once over the first root moves with the progression by
+ * scale steps, so a D minor figure over Bb is a Bb major one; with the
+ * chromatic default it is a transposition that follows a timeline. And
+ * which root is under a note is read off the note's own time, so a
+ * grammar that emits ahead is moved bar by bar.
+ */
+static void
+checkFollow (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth)
+{
+    if (plugins.find("follow") == plugins.end())
+    {
+        fail("module 'follow' is missing; build the plugins first");
+        return;
+    }
+
+    const auto nothing = [](thcScheduler &) { };
+
+    {
+        std::vector<Heard> h = playCued(plugins, synth, "follow diatonic",
+            "tempo 120;\n"
+            "scale dmin \"D3 E3 F3 G3 A3 Bb3 C4\";\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 2; fills = 2; rotate = 0;\n"
+            "    notes = \"D3 A3\"; period = 1 beats; hold = 0.2 beats; };\n"
+            "  stage f xform::follow { roots = \"D3 Bb2\"; every = 4 beats;\n"
+            "    scale = dmin; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5.9, nothing);
+        std::string got;
+
+        for (const Heard &x : h)
+            got += std::to_string(x.note) + " ";
+
+        /* D A D A over D; Bb F Bb F over Bb; D A again. */
+        if (got != "50 57 50 57 46 53 46 53 50 57 50 57 ")
+            fail("follow: D A over D should be Bb F over Bb, by scale "
+                 "steps; got " + got);
+    }
+
+    {
+        std::vector<Heard> h = playCued(plugins, synth, "follow ahead",
+            "tempo 120;\n"
+            "chain c {\n"
+            "  stage src gen::lsystem { axiom = \"FFFFFFFF\"; rules = \"\";\n"
+            "    depth = 0; notes = \"E4\"; step = 1 beats;\n"
+            "    hold = 0.5 beats; };\n"
+            "  stage f xform::follow { roots = \"C4 D4\"; every = 4 beats; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 3.9, nothing);
+        std::string got;
+
+        for (const Heard &x : h)
+            got += std::to_string(x.note) + " ";
+
+        if (got != "64 64 64 64 66 66 66 66 ")
+            fail("follow: a phrase emitted in one piece should still move "
+                 "a tone at the second bar, chromatically by default; "
+                 "got " + got);
+    }
+}
+
 /* The live mute and solo (thcScheduler::setMuted, setSoloed), set
  * mid-piece the way the canvas's buttons set them: a solo silences every
  * chain not soloed, a mute wins over a solo on the same chain, clearing
@@ -13037,7 +13862,8 @@ checkChainStart (const std::map<std::string, thcPlugin *> &plugins,
     expectReject(plugins, synth, "chain-start-bars-then-meter",
         "chain c { start = 1 bars; stage s gen::eno_line { };"
         " sink { channel = 1; }; };\nmeter 3;",
-        "meter must come before the first section or chain start in bars");
+        "meter must come before the first section, cue or chain start in "
+        "bars");
 
     /* A start holds generators back, and a chain fed by live MIDI has
        none to hold. */
@@ -15056,6 +15882,8 @@ main (int argc, char *argv[])
         checkSeedReachesNoise(plugins, &synth);
         checkFloor(plugins, &synth);
         checkSections(plugins, &synth);
+        checkCues(plugins, &synth);
+        checkFollow(plugins, &synth);
         checkMuteSolo(plugins, &synth);
         checkChainIdentity(plugins, &synth);
         checkSectionEdits(plugins, &synth);
