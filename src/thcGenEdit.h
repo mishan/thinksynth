@@ -394,6 +394,18 @@ public:
                                 std::string> > &params,
                             std::string &why);
 
+    /* The same, with a sink that writes knob `knob' (no `@') rather
+       than playing notes: a chain that moves a piece knob over time. */
+    static Result addKnobChain (const std::string &filename,
+                                const std::string &name,
+                                const std::string &knob,
+                                const std::string &stageName,
+                                const std::string &category,
+                                const std::string &plugin,
+                                const std::vector<std::pair<std::string,
+                                    std::string> > &params,
+                                std::string &why);
+
     static Result removeChain (const std::string &filename,
                                const std::string &name, std::string &why);
     static Result renameChain (const std::string &filename,

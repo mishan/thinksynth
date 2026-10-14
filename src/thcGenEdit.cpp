@@ -1388,6 +1388,44 @@ validString (const std::string &s)
            s.find('\n') == std::string::npos;
 }
 
+/* Arithmetic on numbers and knobs -- `0.5 + @energy', `@pace * 2',
+ * `-(@a - 1)' -- which the loader evaluates (docs/GEN_FORMAT.md 5a): an
+ * operand and an operator in turn, parentheses that close. */
+static bool
+validArithmetic (const std::vector<Tok> &t)
+{
+    const size_t n = t.size() - 1;      /* END excluded                 */
+    bool operand = true;
+    int depth = 0;
+
+    for (size_t i = 0; i < n; i++)
+    {
+        const Tok &k = t[i];
+
+        if (operand)
+        {
+            if (isPunct(k, '('))
+                depth++;
+            else if (k.kind == Tok::NUMBER || k.kind == Tok::KNOB)
+                operand = false;
+            else if (!isPunct(k, '-'))
+                return false;
+        }
+        else if (isPunct(k, ')'))
+        {
+            if (--depth < 0)
+                return false;
+        }
+        else if (isPunct(k, '+') || isPunct(k, '-') || isPunct(k, '*') ||
+                 isPunct(k, '/'))
+            operand = true;
+        else
+            return false;
+    }
+
+    return n > 0 && !operand && depth == 0;
+}
+
 /* Is `rhs' one value the loader's grammar accepts? Tokenize it and
  * pattern-match, so the check and the language cannot drift apart. */
 static bool
@@ -1406,12 +1444,12 @@ validValueText (const std::string &rhs)
         return t[0].kind == Tok::NUMBER || t[0].kind == Tok::KNOB ||
                t[0].kind == Tok::STRING || t[0].kind == Tok::WORD;
 
-    if (n == 2)
-        return t[0].kind == Tok::NUMBER && t[1].kind == Tok::WORD &&
-               (t[1].text == "s" || t[1].text == "ms" ||
-                t[1].text == "beats" || t[1].text == "b");
+    if (n == 2 && t[0].kind == Tok::NUMBER && t[1].kind == Tok::WORD &&
+        (t[1].text == "s" || t[1].text == "ms" || t[1].text == "beats" ||
+         t[1].text == "b"))
+        return true;
 
-    return false;
+    return validArithmetic(t);
 }
 
 /* True if a param's current value is arithmetic (docs/GEN_FORMAT.md 5a).
@@ -3113,42 +3151,51 @@ thcGenEdit::removePreset (const std::string &filename,
     return finish(filename, text, edits, why);
 }
 
-R
-thcGenEdit::addChain (const std::string &filename, const std::string &name,
-                      int channel, const std::string &instrument,
-                      const std::string &stageName,
-                      const std::string &category, const std::string &plugin,
-                      const std::vector<std::pair<std::string,
-                          std::string> > &params,
-                      std::string &why)
+/* A new chain appended at the end of the file, its one stage and the
+   sink `sink' says: a note sink checked against what the file declares,
+   or a knob sink against its knobs. */
+static R
+appendChain (const std::string &filename, const std::string &name,
+             int channel, const std::string &instrument,
+             const std::string &knob, const std::string &stageName,
+             const std::string &category, const std::string &plugin,
+             const std::vector<std::pair<std::string, std::string> > &params,
+             std::string &why)
 {
-    if (!validName(name) || !validName(stageName))
+    if (!thcGenEdit::validName(name) || !thcGenEdit::validName(stageName))
     {
         why = "that is not a name the file format accepts";
-        return REFUSED;
+        return thcGenEdit::REFUSED;
     }
 
     if (!validParams(params, why))
-        return UNWRITABLE;
+        return thcGenEdit::UNWRITABLE;
 
     std::string text;
     Index ix;
     R r = loadIndexed(filename, text, ix, why);
 
-    if (r != OK)
+    if (r != thcGenEdit::OK)
         return r;
 
     /* npos: the block is appended at the end of the file, so anything
        the file declares is above it. */
-    r = checkSinkTarget(ix, channel, instrument, "", std::string::npos, why);
+    if (knob.empty())
+        r = checkSinkTarget(ix, channel, instrument, "", std::string::npos,
+                            why);
+    else if (findKnob(ix, knob) == NULL)
+    {
+        why = "there is no knob called @" + knob;
+        r = thcGenEdit::REFUSED;
+    }
 
-    if (r != OK)
+    if (r != thcGenEdit::OK)
         return r;
 
     if (findChain(ix, name) != NULL)
     {
         why = "there is already a chain called " + name;
-        return REFUSED;
+        return thcGenEdit::REFUSED;
     }
 
     if (!text.empty() && text[text.size() - 1] != '\n')
@@ -3158,7 +3205,8 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
 
     block << "\nchain " << name << " {\n"
           << stageText(stageName, category, plugin, params)
-          << sinkText(channel, instrument, "", true)
+          << (knob.empty() ? sinkText(channel, instrument, "", true)
+                           : "    sink { knob = @" + knob + "; };\n")
           << "};\n";
 
     std::vector<Edit> edits;
@@ -3166,6 +3214,33 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
     edits.push_back({ text.size(), text.size(), block.str() });
 
     return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::addChain (const std::string &filename, const std::string &name,
+                      int channel, const std::string &instrument,
+                      const std::string &stageName,
+                      const std::string &category, const std::string &plugin,
+                      const std::vector<std::pair<std::string,
+                          std::string> > &params,
+                      std::string &why)
+{
+    return appendChain(filename, name, channel, instrument, "", stageName,
+                       category, plugin, params, why);
+}
+
+R
+thcGenEdit::addKnobChain (const std::string &filename,
+                          const std::string &name, const std::string &knob,
+                          const std::string &stageName,
+                          const std::string &category,
+                          const std::string &plugin,
+                          const std::vector<std::pair<std::string,
+                              std::string> > &params,
+                          std::string &why)
+{
+    return appendChain(filename, name, 0, "", knob, stageName, category,
+                       plugin, params, why);
 }
 
 /* `instrument name { dsp "file"; value = ...; };' after the piece's last
