@@ -37,6 +37,12 @@ playing the same piece, and on a phone.
 <img src="docs/screenshots/web-phone.png" alt="The web page on a phone, the roll in front" width="24%">
 </p>
 
+And a piece played as a band, in the browser: `gen/village.gen`'s players
+as cards, each with a pad from calm to busy and steady to wandering, its
+octave, and the picture it plays from.
+
+![The web page's band, playing village.gen](docs/screenshots/web-band.png)
+
 The pictures are taken by `scripts/screenshots.py` (the desktop) and
 `wasm/web/screenshots.mjs` (the browser), with
 [shotbox](https://github.com/mishan/shotbox) in a sealed session: a

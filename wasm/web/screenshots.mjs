@@ -25,12 +25,13 @@
  * BUILD_DIR is the site (build-web/), OUT_DIR where the pictures go
  * (docs/screenshots/). The desktop's are scripts/screenshots.py's.
  *
- * A piece playing, at a desktop's size and on a phone. Chromium runs in shotbox's sealed() environment, so
+ * A piece playing, at a desktop's size and on a phone, and a band. Chromium runs in shotbox's sealed() environment, so
  * the fonts are the system's and not whoever runs this; and under
  * scripts/headless.sh, like the tests, so the audio that clocks a piece
  * goes to a null sink.
  *
  *   web-piece.png   mirrorball.gen playing: the canvas, knobs and roll
+ *   web-band.png    village.gen as a band: a card per player, playing
  *   web-phone.png   the same piece on a phone, the roll in front
  */
 
@@ -62,6 +63,7 @@ if (!fs.existsSync(path.join(build, 'index.html')))
 fs.mkdirSync(out, { recursive: true });
 
 const PIECE = 'mirrorball.gen';
+const BAND = 'village.gen';
 
 /* Long enough for the roll to have a few bars of every part on it. */
 const PLAY_MS = 20000;
@@ -125,6 +127,22 @@ try
     await desk.evaluate(() => window.solo.pane('present', 'composerview'));
     await play(desk);
     await shoot(desk, 'web-piece.png');
+
+    /* The band with two players moved off where they were written, so
+       the picture shows what the band is for. */
+    await desk.selectOption('#mode', 'band');
+    await desk.selectOption('#piece', BAND);
+    await desk.evaluate(() => window.solo.settled());
+    await desk.locator('.player[data-chain="tune"] button',
+                       { hasText: '▲' }).click();
+    await desk.locator('.player[data-chain="bass"] .bandpad').focus();
+
+    for (const key of ['ArrowRight', 'ArrowUp'])
+        await desk.keyboard.press(key);
+
+    await desk.evaluate(() => window.solo.settled());
+    await play(desk);
+    await shoot(desk, 'web-band.png');
 
     const phone = await open({
         viewport: { width: 412, height: 915 }, isMobile: true,
