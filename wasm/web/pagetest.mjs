@@ -3565,18 +3565,23 @@ try
               '...the kick\'s pad at busy fills its ring, and a ring with ' +
               `nothing random in it offers no Vary: ${/fills = \d+/.exec(busy)}`);
 
-        /* The bell an octave up: its note list respelled, as the panel
-           writes a list. */
+        /* The bell an octave up and up again: a transpose behind it, the
+           second ▲ its param, and the card saying where it is. The second
+           press comes while the first's stage is still on its way. */
         const bell = page.locator('.player[data-chain="bell"]');
+        const octaves = (n) => new RegExp('stage octave xform::transpose ' +
+                                          `\\{[^}]*semitones = ${n};`);
 
+        await bell.locator('button', { hasText: '▲' }).click();
         await bell.locator('button', { hasText: '▲' }).click();
 
         const up = await until(
             () => page.evaluate(() => window.solo.genText()),
-            (t) => /notes = "C6 Eb6 G6 Bb6";/.test(t));
+            (t) => octaves(24).test(t));
+        const at = await bell.locator('.octave .at').textContent();
 
-        check(/notes = "C6 Eb6 G6 Bb6";/.test(up),
-              '...and the bell\'s ▲ moves its notes up an octave');
+        check(octaves(24).test(up) && at === '+2 oct',
+              `...and the bell's ▲ twice moves it two octaves up: ${at}`);
     }
 
     /* Vary on a player with chance in it: ebb's tape loops get a seed of

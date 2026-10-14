@@ -1856,7 +1856,7 @@ const band = createBand({
         if (synth === null || was !== loadedText || loading > 0)
         {
             status('The text has changes that are not loaded; load them ' +
-                   'before moving a pad.', true);
+                   'first.', true);
             return false;
         }
 
@@ -1867,14 +1867,14 @@ const band = createBand({
 
             if (text === '')
             {
-                status(`Could not give ${p.name} a pad to move.`, true);
+                status(`Could not add ${a.plugin} to ${p.name}.`, true);
                 return false;
             }
         }
 
         if ($('gen').value !== was)
         {
-            status('The piece changed meanwhile; move the pad again.', true);
+            status('The piece changed meanwhile; try again.', true);
             return false;
         }
 

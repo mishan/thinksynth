@@ -217,27 +217,27 @@ function spell (num, unit, integer)
     return text + unit;
 }
 
-/* Every note name in a quoted list moved `by' octaves, unquoted -- what a
-   param edit is written as; null when one would leave 0..8, or there is
-   no quoted list (a scale's name, say). */
-export function shiftOctave (valueText, by)
+/* The band's own octave stage on a chain (an xform::transpose it adds,
+   which works on whatever the chain's notes come from), and how many
+   octaves it moves them; 0 with none. */
+const octaveStage = (stages) => stages.find((s) =>
+    s.plugin === 'transpose' && /^octave\d*$/.test(s.name) && s.live >= 0);
+
+export function octavesOf (stages)
 {
-    if (!/^"[^"]*"$/.test(valueText.trim()))
-        return null;
+    const s = octaveStage(stages);
+    const n = numberOf(s?.params.find((q) => q.name === 'semitones')
+                         ?.valueText ?? '');
 
-    let out = true;
-    const text = valueText.replace(/\b([A-G][#b]?)(-?\d)\b/g, (_, n, o) =>
-    {
-        const to = Number(o) + by;
-
-        if (to < 0 || to > 8)
-            out = false;
-
-        return n + to;
-    });
-
-    return out && text !== valueText ? text.trim().slice(1, -1) : null;
+    return n === null ? 0 : Math.round(n.num / 12);
 }
+
+/* How far either way the octave buttons go. */
+const OCTAVES = 3;
+
+const octaveWords = (n) => n === 0 ? 'as written'
+    : `${Math.abs(n)} octave${Math.abs(n) > 1 ? 's' : ''} ` +
+      (n > 0 ? 'up' : 'down');
 
 /* The players in a piece (worklet.js, piece: `chains' and `instruments'):
    every chain with a note sink, with its role, the instrument it plays
@@ -567,6 +567,18 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         if (adds.length === 0 || st.refused)
             return Promise.resolve();
 
+        return behind(p, st, adds).then((went) =>
+        {
+            if (!went)
+                st.refused = true;
+        });
+    }
+
+    /* Stages `adds' written in after `p''s others, and taken into its
+       state at once as the places they will have (ready). Resolves to
+       whether they went in. */
+    function behind (p, st, adds)
+    {
         const taken = new Set(st.base.map((s) => s.name));
 
         for (const a of adds)
@@ -585,7 +597,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         return touch(p, adds).then((went) =>
         {
             if (!went)
-                Object.assign(st, was, { refused: true });
+                Object.assign(st, was);
+
+            return went;
         });
     }
 
@@ -746,33 +760,54 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         return b;
     }
 
-    /* From the stages as the piece has them now (piece().chains, read
-       again after every param edit). */
-    function octave (p, by)
+    /* By the player's state, which a param edit is not read back into. */
+    function octave (p, st, by)
     {
-        const edits = [];
-        const now = piece()?.chains?.[p.index]?.stages ?? p.stages;
+        const s = octaveStage(st.base);
+        const to = octavesOf(st.base) + by;
 
-        for (const s of now)
-            for (const row of ['notes', 'fill'])
-            {
-                const q = s.params.find((v) => v.name === row);
-                const text = q === undefined || s.live < 0
-                    ? null : shiftOctave(q.valueText, by);
-
-                if (text !== null)
-                    edits.push({ stage: s.live, stageName: s.name, row,
-                                 text });
-            }
-
-        if (edits.length === 0)
-            say(`${nameOf(p)} plays a scale by its name, ` +
-                'or would leave the keyboard; its octave stays.');
-        else
+        /* A press while the stage is on its way is taken once it is in. */
+        if (st.octaving)
         {
-            params(p, edits);
-            tell(`${nameOf(p)} an octave ${by > 0 ? 'up' : 'down'}`);
+            st.octavesNext = (st.octavesNext ?? 0) + by;
+            return;
         }
+
+        if (Math.abs(to) > OCTAVES)
+            return;
+
+        const said = `${nameOf(p)}: ${octaveWords(to)}`;
+        const text = String(12 * to);
+
+        if (s !== undefined)
+        {
+            params(p, [{ stage: s.live, stageName: s.name, row: 'semitones',
+                         text }]);
+            st.base = st.base.map((b) => b !== s ? b : { ...s,
+                params: [{ name: 'semitones', valueText: text }] });
+            tell(said);
+            draw();
+            return;
+        }
+
+        st.octaving = true;
+        behind(p, st, [{ name: 'octave', plugin: 'transpose',
+                         params: { semitones: text } }])
+            .then((went) =>
+            {
+                const next = went ? st.octavesNext : 0;
+
+                st.octaving = false;
+                st.octavesNext = 0;
+                draw();
+
+                if (went)
+                    tell(said);
+
+                if (next)
+                    octave(p, st, next);
+            });
+        draw();
     }
 
     /* What plays the player, as a menu of the graphs its role is offered
@@ -998,12 +1033,27 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         octs.className = 'octave';
 
         if (p.role !== 'drums')
-            octs.append(button('▲', 'An octave up', () => octave(p, 1),
-                               `${p.name}:up`),
-                        button('▼', 'An octave down',
-                               () => octave(p, -1), `${p.name}:down`));
+        {
+            const n = octavesOf(st.base);
+            const at = document.createElement('span');
+            const up = button('▲', 'An octave up', () => octave(p, st, 1),
+                              `${p.name}:up`);
+            const down = button('▼', 'An octave down',
+                                () => octave(p, st, -1), `${p.name}:down`);
 
-        for (const b of octs.children)
+            at.className = 'at';
+            at.classList.toggle('moved', n !== 0);
+            at.textContent = n === 0 ? 'oct' : `${n > 0 ? '+' : '−'}` +
+                                               `${Math.abs(n)} oct`;
+            at.title = `Played ${octaveWords(n)}`;
+            /* Not `disabled', which would drop the focus of a key that
+               pressed it there. */
+            up.setAttribute('aria-disabled', String(n >= OCTAVES));
+            down.setAttribute('aria-disabled', String(n <= -OCTAVES));
+            octs.append(up, at, down);
+        }
+
+        for (const b of octs.querySelectorAll('button'))
             b.setAttribute('aria-label', b.title);
 
         const moves = document.createElement('div');
@@ -1291,6 +1341,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
             return [p.name, p.index, st.shape, p.role, p.sound, p.dsp,
                     p.idea, st.takes, st.take, st.resting, p.seeded,
+                    octavesOf(st.base),
                     levelIn(scene(), p),
                     p.picture?.live, p.picture?.params];
         }));
