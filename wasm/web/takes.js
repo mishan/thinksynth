@@ -28,12 +28,14 @@
 /* The longest take kept: ten minutes of 16-bit stereo is about 110 MB. */
 export const TAKE_MAX_SECONDS = 600;
 
-/* `chunks' of interleaved stereo 16-bit samples as a WAV file. */
+/* `chunks' of interleaved stereo 16-bit samples as a WAV file: a header
+   and the chunks themselves, not a copy of them all, which for a long
+   take would be another hundred megabytes. */
 export function wavOf (chunks, sampleRate)
 {
     const frames = chunks.reduce((n, c) => n + c.length, 0) / 2;
-    const bytes = new Uint8Array(44 + frames * 4);
-    const v = new DataView(bytes.buffer);
+    const header = new Uint8Array(44);
+    const v = new DataView(header.buffer);
     const text = (at, s) => [...s].forEach((ch, i) =>
         v.setUint8(at + i, ch.charCodeAt(0)));
 
@@ -51,15 +53,7 @@ export function wavOf (chunks, sampleRate)
     text(36, 'data');
     v.setUint32(40, frames * 4, true);
 
-    let at = 44;
-
-    for (const c of chunks)
-    {
-        bytes.set(new Uint8Array(c.buffer, c.byteOffset, c.byteLength), at);
-        at += c.byteLength;
-    }
-
-    return bytes;
+    return new Blob([header, ...chunks], { type: 'audio/wav' });
 }
 
 /* Floats to 16-bit, clipped. */
@@ -131,11 +125,21 @@ export function midiOf (notes, { tempo = 120, meter = 4, names = new Map() }
         const events = [{ tick: 0, order: 0,
                           bytes: [0xff, 0x03, ...vlq(name.length), ...name] }];
 
-        for (const n of notes.filter((m) => m.channel === ch))
+        const mine = notes.filter((m) => m.channel === ch)
+            .sort((a, b) => a.at - b.at);
+
+        for (const [i, n] of mine.entries())
         {
-            const on = ticksOf(n.at);
-            const off = Math.max(on + 1, ticksOf(n.at + n.duration));
             const key = Math.max(0, Math.min(127, n.note));
+            const on = ticksOf(n.at);
+            /* A key struck again while it still sounds: MIDI has one
+               note per key, so the first ends where the second starts,
+               or its off would end the second. */
+            const next = mine.slice(i + 1).find((m) =>
+                Math.max(0, Math.min(127, m.note)) === key);
+            const off = Math.max(on + 1, Math.min(
+                ticksOf(n.at + n.duration),
+                next === undefined ? Infinity : ticksOf(next.at)));
             const vel = Math.max(1, Math.min(127, n.velocity));
 
             /* An off before an on at the same tick: a note repeated
@@ -202,7 +206,9 @@ export function createTakes ({ button, list, synth, play, about, say })
     {
         const on = take !== null;
 
+        /* Named Record whatever it shows: pressed says it is on. */
         button.setAttribute('aria-pressed', String(on));
+        button.setAttribute('aria-label', 'Record');
         button.textContent = on ? `■ Stop  ${clockOf(take.frames /
                                              (take.sampleRate || 1))}`
                                 : '● Record';
@@ -213,6 +219,12 @@ export function createTakes ({ button, list, synth, play, about, say })
 
     function start ()
     {
+        if (synth() === null)
+        {
+            say('Press Start for sound first.');
+            return;
+        }
+
         take = { n: takes.length + 1, ...about(), sampleRate: 0, frames: 0,
                  chunks: [], marks: [], notes: [], keys: [], ran: false,
                  stopping: false };
@@ -287,7 +299,10 @@ export function createTakes ({ button, list, synth, play, about, say })
         show();
 
         if (t.frames === 0)
+        {
+            say('Nothing was recorded: nothing played.');
             return;
+        }
 
         /* In seconds from the top of the take, by the mark of the run
            each was in; one from before the take, or after it, is not in
@@ -310,8 +325,7 @@ export function createTakes ({ button, list, synth, play, about, say })
                        ...n, duration: Math.min(n.duration,
                                                 seconds - n.at) })),
                    ...keyNotes(place(t.keys), seconds)];
-        t.wav = URL.createObjectURL(new Blob([wavOf(t.chunks, t.sampleRate)],
-                                             { type: 'audio/wav' }));
+        t.wav = URL.createObjectURL(wavOf(t.chunks, t.sampleRate));
         t.chunks = null;
         takes.push(t);
         draw();

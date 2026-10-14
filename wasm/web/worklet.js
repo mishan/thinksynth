@@ -227,6 +227,12 @@ class ThinkProcessor extends AudioWorkletProcessor
                               marks: [] };
             else if (!m.on && this.take !== null)
             {
+                /* The notes it heard so far first: the page keeps the
+                   take on `done', and takes no notes after. */
+                if (this.M !== null &&
+                    (this.events.length > 0 || this.keys.length > 0))
+                    this.postTape();
+
                 this.postTake(true);
                 this.take = null;
             }
