@@ -78,6 +78,7 @@
 #include <fstream>
 
 #include "think.h"
+#include "thUnits.h"
 
 #include "ArgPanel.h"
 #include "KnobPanel.h"
@@ -2162,16 +2163,53 @@ static int dumpTo (const string &dir, const string &pluginPath,
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
-    string dumpDir;
+    string dumpDir, describe;
 
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "-p") && i + 1 < argc)
             pluginPath = argv[++i];
         else if (!strcmp(argv[i], "-j") && i + 1 < argc)
             dumpDir = argv[++i];
+        else if (!strcmp(argv[i], "--describe") && i + 1 < argc)
+            describe = argv[++i];
 
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
+
+    /* One instrument's panel as the program builds it -- every control with
+       its label, range, default and group -- for a program choosing values
+       for a piece's instrument block, and which of them a piece writes with
+       their unit (thUnitIsFolded), so it need not keep a list of its own.
+       No checks run. */
+    if (!describe.empty())
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(describe, 0, TH_DEFAULT_CHAN_AMP) == NULL)
+        {
+            fprintf(stderr, "panelcheck: %s did not load\n",
+                    describe.c_str());
+            return 1;
+        }
+
+        ArgPanel argPanel;
+        thPanel panel;
+
+        argPanel.setChannel(0);
+        argPanel.build(panel);
+
+        string folded;
+
+        for (const thPanelRow &row : panel.rows)
+            if (thUnitIsFolded(row.units))
+                folded += (folded.empty() ? "\"" : ",\"") + row.id + "\"";
+
+        printf("{\"panel\":%s,\"folded\":[%s]}\n",
+               thPanelToJson(panel).c_str(), folded.c_str());
+
+        return 0;
+    }
 
     const string instrument = scratchPath("panelcheck-scratch.dsp");
     const string effect = scratchPath("panelcheck-scratch-fx.dsp");

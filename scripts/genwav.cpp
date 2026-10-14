@@ -76,6 +76,19 @@
  * out, up to a few seconds, so a long release is in the file rather than
  * cut off at the length you asked for.
  *
+ * `--json FILE' writes what the summary, `--levels' and `--sections' say
+ * as one JSON object (`-' for stdout), with the load's errors and
+ * warnings, for a program to read rather than a person. `--check' loads
+ * the piece and describes it -- knobs, chains, instruments, sections --
+ * without rendering. `--knob-at T:NAME=V' moves a knob T seconds in, as a
+ * host would while the piece plays; give it as often as the timeline
+ * needs. `--stems DIR' writes each channel's own sound beside the mix,
+ * one WAV per instrument, as `--levels' measures it. `--stages' prints
+ * every composer plugin's params as JSON and needs no piece.
+ *
+ * With no `-p', a tree's own build is found beside this binary when the
+ * install prefix has no plugins, so a fresh build runs as it stands.
+ *
  * Exit status is 0; 3 if any sample reached full scale, which is the thing
  * this tool exists to catch; and 4, which wins, if the engine's per-voice
  * guard dropped a voice for going non-finite. Both are in the summary too.
@@ -111,6 +124,7 @@
 #include "thcMidiExport.h"
 #include "thcMidiFile.h"
 
+#include "JsonOut.h"
 #include "Loudness.h"
 
 /* Enough silence to call a tail finished, and the longest we will wait
@@ -144,6 +158,12 @@ static void usage (const char *argv0)
            "      --length N          and only N seconds of it, for a loop\n"
            "      --knob NAME=A[,B]   set a piece knob; with B, compare a "
            "render at B by channel\n"
+           "      --knob-at T:NAME=V  move a knob to V at T seconds; repeatable\n"
+           "      --json FILE         the summary, levels and sections as JSON "
+           "(- for stdout)\n"
+           "      --check             load and describe the piece; no render\n"
+           "      --stems DIR         one WAV per instrument channel, in DIR\n"
+           "      --stages            every composer plugin's params, as JSON\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -340,6 +360,257 @@ static std::string lufsText (const Loudness *loud)
     return text;
 }
 
+/* A WAV written as it renders, for --stems: a piece's channels held whole
+   in memory would be a gigabyte for a long one. The header's lengths are
+   filled in when it closes. Only the frames in [first, last) are kept, so
+   a stem covers what --from and --length leave of the mix. */
+struct Stem
+{
+    FILE  *file = NULL;
+    int    outputs = 0;
+    size_t samples = 0, seen = 0, first = 0, last = SIZE_MAX;
+
+    bool open (const std::string &path, int channels, int rate)
+    {
+        outputs = channels;
+
+        if (!writeWav(path, std::vector<float>(), channels, rate))
+            return false;
+
+        file = fopen(path.c_str(), "r+b");
+
+        return file != NULL && fseek(file, 0, SEEK_END) == 0;
+    }
+
+    void add (const float *frames, size_t n)
+    {
+        for (size_t i = 0; i < n; i++)
+        {
+            const size_t frame = seen + i / (size_t)outputs;
+
+            if (frame < first || frame >= last)
+                continue;
+
+            const float v = std::max(-1.0f, std::min(1.0f, frames[i]));
+            const int16_t s = (int16_t)lrintf(v * 32767);
+
+            fwrite(&s, 2, 1, file);
+            samples++;
+        }
+
+        seen += n / (size_t)outputs;
+    }
+
+    bool close (void)
+    {
+        const uint32_t data = (uint32_t)samples * 2, riff = 36 + data;
+
+        fseek(file, 4, SEEK_SET);
+        fwrite(&riff, 4, 1, file);
+        fseek(file, 40, SEEK_SET);
+        fwrite(&data, 4, 1, file);
+
+        return fclose(file) == 0;
+    }
+};
+
+static void jsonKey (std::string &out, const char *key)
+{
+    if (out.back() != '{')
+        out += ',';
+
+    jsonString(out, key);
+    out += ':';
+}
+
+static void jsonStrings (std::string &out, const std::vector<std::string> &v)
+{
+    out += '[';
+
+    for (size_t i = 0; i < v.size(); i++)
+    {
+        if (i)
+            out += ',';
+
+        jsonString(out, v[i]);
+    }
+
+    out += ']';
+}
+
+static bool writeText (const std::string &path, const std::string &text)
+{
+    FILE *f = path == "-" ? stdout : fopen(path.c_str(), "w");
+
+    if (f == NULL)
+        return false;
+
+    fputs(text.c_str(), f);
+    fputc('\n', f);
+
+    return f == stdout ? fflush(f) == 0 : fclose(f) == 0;
+}
+
+/* Every composer plugin and the params it registers, for a program that
+   writes stages and wants to know what each one takes. */
+static std::string stagesJson (const std::map<std::string, thcPlugin *> &plugins)
+{
+    static const char *types[] = { "float", "int", "note", "noteset",
+                                   "string", "preset", "instrset" };
+    std::string out = "[";
+
+    for (const auto &p : plugins)
+    {
+        const thcPlugin *pl = p.second;
+
+        if (out.size() > 1)
+            out += ',';
+
+        out += '{';
+        jsonKey(out, "name");
+        jsonString(out, pl->name());
+        jsonKey(out, "kind");
+        jsonString(out, pl->hasTick() && pl->hasReceive() ? "both"
+                        : pl->hasTick() ? "gen" : "xform");
+        jsonKey(out, "description");
+        jsonString(out, pl->desc());
+        jsonKey(out, "params");
+        out += '[';
+
+        for (int i = 0; i < pl->paramCount(); i++)
+        {
+            const thcPlugin::ParamInfo *in = pl->paramInfo(i);
+            const bool text = in->type == THC_PARAM_NOTESET ||
+                              in->type == THC_PARAM_STRING ||
+                              in->type == THC_PARAM_PRESET ||
+                              in->type == THC_PARAM_INSTRSET;
+
+            if (i)
+                out += ',';
+
+            out += '{';
+            jsonKey(out, "name");
+            jsonString(out, in->name);
+            jsonKey(out, "description");
+            jsonString(out, in->desc);
+            jsonKey(out, "type");
+            jsonString(out, (size_t)in->type < sizeof types / sizeof *types
+                            ? types[in->type] : "unknown");
+
+            if (text)
+            {
+                jsonKey(out, "default");
+                jsonString(out, in->defString);
+            }
+            else
+            {
+                jsonKey(out, "min");
+                jsonNumber(out, in->min);
+                jsonKey(out, "max");
+                jsonNumber(out, in->max);
+                jsonKey(out, "default");
+                jsonNumber(out, in->def);
+            }
+
+            if (!in->units.empty())
+            {
+                jsonKey(out, "units");
+                jsonString(out, in->units);
+            }
+
+            out += '}';
+        }
+
+        out += "]}";
+    }
+
+    return out + "]";
+}
+
+/* What a program writing a piece wants to know it said: its knobs, chains,
+   instruments and sections, as loaded. */
+static void describeJson (std::string &out, const thcGenLoader &loader,
+                          thcScheduler &sched)
+{
+    jsonKey(out, "name");
+    jsonString(out, loader.pieceName());
+    jsonKey(out, "category");
+    jsonString(out, loader.pieceCategory());
+    jsonKey(out, "description");
+    jsonString(out, loader.pieceDescription());
+    jsonKey(out, "tempo");
+    jsonNumber(out, sched.tempo());
+    jsonKey(out, "meter");
+    jsonNumber(out, sched.meter());
+    jsonKey(out, "knobs");
+    out += '[';
+
+    for (const auto &k : sched.knobs())
+    {
+        if (out.back() != '[')
+            out += ',';
+
+        out += '{';
+        jsonKey(out, "name");
+        jsonString(out, k.first);
+        jsonKey(out, "value");
+        jsonNumber(out, (*k.second)[0]);
+        jsonKey(out, "min");
+        jsonNumber(out, k.second->min());
+        jsonKey(out, "max");
+        jsonNumber(out, k.second->max());
+        jsonKey(out, "label");
+        jsonString(out, k.second->label());
+        out += '}';
+    }
+
+    out += ']';
+    jsonKey(out, "chains");
+
+    std::vector<std::string> chains;
+
+    for (size_t c = 0; c < sched.chainCount(); c++)
+        chains.push_back(sched.chain(c)->name);
+
+    jsonStrings(out, chains);
+    jsonKey(out, "instruments");
+    out += '[';
+
+    for (const thcInstrument &inst : sched.instruments())
+    {
+        if (out.back() != '[')
+            out += ',';
+
+        out += '{';
+        jsonKey(out, "name");
+        jsonString(out, inst.name);
+        jsonKey(out, "dsp");
+        jsonString(out, inst.dsp);
+        jsonKey(out, "engine");
+        jsonInt(out, inst.channel);
+        out += '}';
+    }
+
+    out += ']';
+    jsonKey(out, "sections");
+    out += '[';
+
+    for (const thcSection &sec : sched.sections())
+    {
+        if (out.back() != '[')
+            out += ',';
+
+        out += '{';
+        jsonKey(out, "name");
+        jsonString(out, sec.name);
+        jsonKey(out, "seconds");
+        jsonNumber(out, sched.sectionLength(sec));
+        out += '}';
+    }
+
+    out += ']';
+}
+
 int main (int argc, char **argv)
 {
     Glib::init();
@@ -354,11 +625,18 @@ int main (int argc, char **argv)
     std::string knobName;
     double knobA = 0, knobB = 0;
     bool compare = false;
+    bool pathGiven = false, checkOnly = false, listStages = false;
+    bool levelsText = false, sectionsText = false;
+    std::string jsonFile, stemsDir;
+
+    struct KnobMove { double at; std::string name; float value; };
+    std::vector<KnobMove> moves;
 
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--plugin-path"))
         {
+            pathGiven = true;
             if (++i >= argc) { usage(argv[0]); return 2; }
             pluginPath = argv[i];
         }
@@ -424,11 +702,50 @@ int main (int argc, char **argv)
             if (*end != '\0') { usage(argv[0]); return 2; }
 
             levels = levels || compare;
+            levelsText = levelsText || compare;
         }
+        else if (!strcmp(argv[i], "--knob-at"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+
+            const char *colon = strchr(argv[i], ':');
+            const char *eq = colon ? strchr(colon, '=') : NULL;
+            char *end = NULL;
+
+            if (eq == NULL || eq == colon + 1) { usage(argv[0]); return 2; }
+
+            KnobMove m;
+
+            m.at = strtod(argv[i], &end);
+
+            if (end != colon || m.at < 0) { usage(argv[0]); return 2; }
+
+            m.name.assign(colon + 1, eq - colon - 1);
+            m.value = (float)strtod(eq + 1, &end);
+
+            if (end == eq + 1 || *end != '\0') { usage(argv[0]); return 2; }
+
+            moves.push_back(m);
+        }
+        else if (!strcmp(argv[i], "--json"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            jsonFile = argv[i];
+            levels = sections = true;
+        }
+        else if (!strcmp(argv[i], "--check"))
+            checkOnly = true;
+        else if (!strcmp(argv[i], "--stems"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            stemsDir = argv[i];
+        }
+        else if (!strcmp(argv[i], "--stages"))
+            listStages = true;
         else if (!strcmp(argv[i], "--levels"))
-            levels = true;
+            levels = levelsText = true;
         else if (!strcmp(argv[i], "--sections"))
-            sections = true;
+            sections = sectionsText = true;
         else if (!strcmp(argv[i], "--profile"))
             profile = true;
         else if (!strcmp(argv[i], "-j") || !strcmp(argv[i], "--threads"))
@@ -452,14 +769,15 @@ int main (int argc, char **argv)
         }
     }
 
-    if (genFile.empty() || seconds <= 0)
+    if ((genFile.empty() && !listStages) || seconds <= 0)
     {
         usage(argv[0]);
         return 2;
     }
 
     if (wavFile.empty() && tapeFile.empty() && midiFile.empty() && quiet &&
-        !levels && !sections)
+        !levels && !sections && !checkOnly && !listStages &&
+        stemsDir.empty())
     {
         fprintf(stderr, "%s: nothing to write and nothing to say\n", argv[0]);
         return 2;
@@ -471,6 +789,20 @@ int main (int argc, char **argv)
     std::map<std::string, thcPlugin *> plugins;
 
     loadComposers(pluginPath, plugins);
+
+    if (plugins.empty() && !pathGiven)
+    {
+        std::error_code ec;
+        const std::filesystem::path beside = std::filesystem::weakly_canonical(
+            std::filesystem::absolute(argv[0]).parent_path() / ".." /
+            "plugins", ec);
+
+        if (!ec)
+        {
+            pluginPath = beside.string() + "/";
+            loadComposers(pluginPath, plugins);
+        }
+    }
 
     const HeldComposers held = { plugins };
 
@@ -503,7 +835,32 @@ int main (int argc, char **argv)
     sched.setAuditionSynchronous(true);
     thcGenLoader loader(plugins);
 
-    if (!loader.load(genFile, &sched))
+    if (listStages)
+        return writeText("-", stagesJson(plugins)) ? 0 : 1;
+
+    const bool loaded = loader.load(genFile, &sched);
+
+    if (!jsonFile.empty() && (!loaded || checkOnly))
+    {
+        std::string out = "{";
+
+        jsonKey(out, "ok");
+        out += loaded ? "true" : "false";
+        jsonKey(out, "errors");
+        jsonStrings(out, loader.errors());
+        jsonKey(out, "warnings");
+        jsonStrings(out, loader.warnings());
+
+        if (loaded)
+            describeJson(out, loader, sched);
+
+        out += '}';
+
+        if (!writeText(jsonFile, out))
+            return 1;
+    }
+
+    if (!loaded)
     {
         for (size_t k = 0; k < loader.errors().size(); k++)
             fprintf(stderr, "%s\n", loader.errors()[k].c_str());
@@ -513,6 +870,21 @@ int main (int argc, char **argv)
 
     for (size_t k = 0; k < loader.warnings().size(); k++)
         fprintf(stderr, "%s\n", loader.warnings()[k].c_str());
+
+    if (checkOnly)
+        return 0;
+
+    for (const KnobMove &m : moves)
+        if (sched.knob(m.name) == NULL)
+        {
+            fprintf(stderr, "%s: %s declares no knob @%s\n", argv[0],
+                    genFile.c_str(), m.name.c_str());
+            return 2;
+        }
+
+    std::stable_sort(moves.begin(), moves.end(),
+                     [] (const KnobMove &a, const KnobMove &b)
+                     { return a.at < b.at; });
 
     /* The same piece on a synth of its own, for --knob A,B: the same seed,
        so the knob is the only thing the two renders disagree on. */
@@ -610,6 +982,36 @@ int main (int argc, char **argv)
     std::vector<Level> channelDiffs(channelLevels.size());
     Level mixDiff;
 
+    /* A channel opened when it first sounds, with the windows before it
+       written as silence, so every stem starts where the mix does. */
+    std::vector<Stem> stems(stemsDir.empty() ? 0 : synth.midiChanCount());
+    size_t windowsRendered = 0;
+
+    /* The frames --from and --length keep. The meters read only these, so
+       what they say is what the files written hold. */
+    const size_t keepFirst = (size_t)(std::max(from, 0.0) *
+                                      TH_DEFAULT_SAMPLES);
+    const size_t keepLast = length < 0 ? SIZE_MAX :
+        keepFirst + (size_t)(length * TH_DEFAULT_SAMPLES);
+    const auto kept = [&] (size_t at) { return at >= keepFirst &&
+                                               at < keepLast; };
+
+    /* By the instrument declared on it, as the tape's header names it,
+       whatever a swap put on it since. */
+    const auto channelName = [&] (int ch) -> std::string
+    {
+        const thcInstrument *inst = sched.channelOf(ch);
+
+        return inst != NULL ? inst->name : sched.holding(ch);
+    };
+
+    if (!stemsDir.empty())
+    {
+        std::error_code ec;
+
+        std::filesystem::create_directories(stemsDir, ec);
+    }
+
     pcm.reserve((size_t)((seconds + TAIL_MAX) / dt + 1) * frame);
 
     /* --profile's: each window's seconds, where in the piece it started
@@ -627,6 +1029,7 @@ int main (int argc, char **argv)
     auto renderWindow = [&](bool transportWindow, double windowStart) -> float
     {
         const auto t0 = std::chrono::steady_clock::now();
+        const size_t at0 = windowsRendered * (size_t)window;
 
         synth.process();
 
@@ -660,17 +1063,62 @@ int main (int argc, char **argv)
                 if (signal == NULL)
                     continue;
 
-                for (int i = 0; i < outputs * window; i++)
-                    channelLevels[ch].add(signal[i]);
-
                 if (!channelLoudness[ch])
                     channelLoudness[ch].reset(
                         new Loudness(outputs, TH_DEFAULT_SAMPLES));
 
                 /* Interleaved, so a frame at a time as it stands. */
                 for (int i = 0; i < window; i++)
-                    channelLoudness[ch]->add(signal + i * outputs);
+                    if (kept(at0 + i))
+                    {
+                        for (int k = 0; k < outputs; k++)
+                            channelLevels[ch].add(signal[i * outputs + k]);
+
+                        channelLoudness[ch]->add(signal + i * outputs);
+                    }
             }
+
+        for (int ch = 0; ch < (int)stems.size(); ch++)
+        {
+            int outputs = 0;
+            const float *signal = synth.getChannelOutput(ch, &outputs);
+
+            if (stems[ch].file == NULL && signal != NULL &&
+                !channelName(ch).empty())
+            {
+                const std::string path = stemsDir + "/" +
+                    std::to_string(ch) + "-" + channelName(ch) + ".wav";
+
+                stems[ch].first = keepFirst;
+                stems[ch].last = keepLast;
+
+                if (stems[ch].open(path, outputs, TH_DEFAULT_SAMPLES))
+                {
+                    const std::vector<float> quiet(
+                        (size_t)outputs * window, 0.0f);
+
+                    for (size_t w = 0; w < windowsRendered; w++)
+                        stems[ch].add(quiet.data(), quiet.size());
+                }
+                else
+                    stems[ch].file = NULL;
+            }
+
+            if (stems[ch].file == NULL)
+                continue;
+
+            if (signal != NULL && outputs == stems[ch].outputs)
+                stems[ch].add(signal, (size_t)outputs * window);
+            else
+            {
+                const std::vector<float> quiet(
+                    (size_t)stems[ch].outputs * window, 0.0f);
+
+                stems[ch].add(quiet.data(), quiet.size());
+            }
+        }
+
+        windowsRendered++;
 
         if (other)
         {
@@ -708,7 +1156,7 @@ int main (int argc, char **argv)
                 const int section = sched.sectionAt(
                     windowStart + (i + 0.5) / (double)TH_DEFAULT_SAMPLES);
 
-                if (section >= 0)
+                if (section >= 0 && kept(at0 + i))
                     for (int ch = 0; ch < channels; ch++)
                         sectionLevels[section].add(buf[ch * window + i]);
             }
@@ -724,7 +1172,7 @@ int main (int argc, char **argv)
             for (int c = 0; c < channels; c++)
                 pcm.push_back(buf[(size_t)c * window + i]);
 
-            if (levels)
+            if (levels && kept(at0 + i))
                 mixLoudness.add(&pcm[pcm.size() - channels]);
         }
 
@@ -740,9 +1188,43 @@ int main (int argc, char **argv)
        whose arrangement closes with `section end;' stops its own
        transport, and a loop that only watched the clock would step a
        stopped scheduler for the rest of the render. */
+    size_t nextMove = 0;
+
+    /* Where each section began as it played, for --json: what the piece
+       did, whatever its arrangement says it does. A change is seen a
+       window late and found between the two windows by halving, so a
+       section starts where it does rather than up to a window after. */
+    std::vector<std::pair<double, int> > timeline;
+    double lastStart = 0;
+
     while (sched.now() < seconds && sched.running())
     {
         const double windowStart = sched.now();
+        const int section = sched.sectionAt(windowStart);
+
+        if (section >= 0 && (timeline.empty() || timeline.back().second !=
+                                                     section))
+        {
+            double lo = lastStart, hi = windowStart;
+
+            for (int k = 0; k < 40 && !timeline.empty(); k++)
+            {
+                const double mid = (lo + hi) / 2;
+
+                (sched.sectionAt(mid) == section ? hi : lo) = mid;
+            }
+
+            timeline.push_back(std::make_pair(timeline.empty() ? windowStart
+                                                               : hi,
+                                              section));
+        }
+
+        lastStart = windowStart;
+
+        for (; nextMove < moves.size() && moves[nextMove].at <= windowStart;
+             nextMove++)
+            sched.knob(moves[nextMove].name)->setValue(moves[nextMove].value);
+
         sched.stepTransport(dt);
 
         if (other)
@@ -769,6 +1251,30 @@ int main (int argc, char **argv)
 
     if (tape != NULL && tape != stdout)
         fclose(tape);
+
+    for (Stem &stem : stems)
+        if (stem.file != NULL && !stem.close())
+        {
+            fprintf(stderr, "%s: cannot write a stem in %s\n", argv[0],
+                    stemsDir.c_str());
+            return 1;
+        }
+
+    /* A loop is the second pass of a phrase rendered twice: by then the
+       first pass's tails are sounding under it, as they will be when it
+       wraps round onto itself. scripts/makekit.sh's loops. */
+    if (from > 0 || length >= 0)
+    {
+        from = std::max(from, 0.0);
+
+        const size_t first = std::min(pcm.size(),
+            (size_t)(from * TH_DEFAULT_SAMPLES) * (size_t)channels);
+        const size_t last = length < 0 ? pcm.size() : std::min(pcm.size(),
+            first + (size_t)(length * TH_DEFAULT_SAMPLES) *
+                    (size_t)channels);
+
+        pcm = std::vector<float>(pcm.begin() + first, pcm.begin() + last);
+    }
 
     float peak = 0;
     double sumsq = 0;
@@ -821,22 +1327,6 @@ int main (int argc, char **argv)
         outChannels = 1;
     }
 
-    /* A loop is the second pass of a phrase rendered twice: by then the
-       first pass's tails are sounding under it, as they will be when it
-       wraps round onto itself. scripts/makekit.sh's loops. */
-    if (from > 0 || length >= 0)
-    {
-        from = std::max(from, 0.0);
-
-        const size_t first = std::min(pcm.size(),
-            (size_t)(from * TH_DEFAULT_SAMPLES) * (size_t)outChannels);
-        const size_t last = length < 0 ? pcm.size() : std::min(pcm.size(),
-            first + (size_t)(length * TH_DEFAULT_SAMPLES) *
-                    (size_t)outChannels);
-
-        pcm = std::vector<float>(pcm.begin() + first, pcm.begin() + last);
-    }
-
     if (!wavFile.empty() &&
         !writeWav(wavFile, pcm, outChannels, TH_DEFAULT_SAMPLES))
     {
@@ -878,7 +1368,7 @@ int main (int argc, char **argv)
        the one-based number the application shows, `engine' the
        zero-based one the tape's event lines carry. Naming only one of
        them left the reader to discover the other by being wrong. */
-    if (levels)
+    if (levelsText)
     {
         fprintf(stderr,
                 "channel  engine  instrument               peak     RMS     "
@@ -891,7 +1381,7 @@ int main (int argc, char **argv)
             if (!level.count && !channelDiffs[ch].count)
                 continue;
 
-            const std::string name = sched.holding((int)ch);
+            const std::string name = channelName((int)ch);
 
             fprintf(stderr, "%7zu  %6zu  %-24s %.3f  %.4f  %s", ch + 1, ch,
                     name.empty() ? "-" : name.c_str(), level.peak,
@@ -913,7 +1403,7 @@ int main (int argc, char **argv)
         fputc('\n', stderr);
     }
 
-    if (sections)
+    if (sectionsText)
     {
         fprintf(stderr, "section                   mix RMS\n");
 
@@ -921,6 +1411,8 @@ int main (int argc, char **argv)
             fprintf(stderr, "%-24s  %.4f\n", sched.sections()[i].name.c_str(),
                     sectionLevels[i].rms());
     }
+
+    std::string profileJson;
 
     if (profile && !windowSeconds.empty())
     {
@@ -949,7 +1441,7 @@ int main (int argc, char **argv)
             if (ch == profiled - 1)
                 return "master effect";
 
-            const std::string held = sched.holding(ch);
+            const std::string held = channelName(ch);
 
             return held.empty() ? "channel " + std::to_string(ch + 1) : held;
         };
@@ -988,58 +1480,247 @@ int main (int argc, char **argv)
 
         const size_t worst = byCost[0];
 
-        fprintf(stderr, "profile: %zu windows of %d frames, %.2f ms each\n",
-                n, window, ms(dt));
-        fprintf(stderr, "window          mean %.2f ms, p99 %.2f ms, worst "
-                "%.2f ms (%.0f%% of its time) at %s\n", ms(sum / n),
-                ms(windowSeconds[byCost[n / 100]]), ms(windowSeconds[worst]),
-                100 * windowSeconds[worst] / dt, at(worst).c_str());
-        fprintf(stderr, "slowest second  %.2f ms a window, %.0f%% of real "
-                "time, from %s\n", ms(slowest / span),
-                100 * slowest / (span * dt), at(slowestAt).c_str());
-        fprintf(stderr, "worst windows\n");
-
-        for (size_t k = 0; k < std::min<size_t>(8, n); k++)
+        /* For --json: the same numbers, by channel. */
+        if (!jsonFile.empty())
         {
-            const size_t w = byCost[k];
-            const double *cost = &channelSeconds[w * profiled];
-            std::vector<int> heaviest(profiled);
+            profileJson = "{";
+            jsonKey(profileJson, "windowMs");
+            jsonNumber(profileJson, ms(dt));
+            jsonKey(profileJson, "meanMs");
+            jsonNumber(profileJson, ms(sum / n));
+            jsonKey(profileJson, "p99Ms");
+            jsonNumber(profileJson, ms(windowSeconds[byCost[n / 100]]));
+            jsonKey(profileJson, "worstMs");
+            jsonNumber(profileJson, ms(windowSeconds[worst]));
+            jsonKey(profileJson, "worstAt");
+            jsonString(profileJson, at(worst));
+            jsonKey(profileJson, "slowestSecondShare");
+            jsonNumber(profileJson, slowest / (span * dt));
+            jsonKey(profileJson, "slowestSecondAt");
+            jsonString(profileJson, at(slowestAt));
+            jsonKey(profileJson, "channels");
+            profileJson += '[';
 
             for (int ch = 0; ch < profiled; ch++)
-                heaviest[ch] = ch;
-
-            std::sort(heaviest.begin(), heaviest.end(), [&] (int a, int b)
-                      { return cost[a] > cost[b]; });
-            fprintf(stderr, "  %-28s %7.2f ms ", at(w).c_str(),
-                    ms(windowSeconds[w]));
-
-            for (int j = 0; j < 3 && cost[heaviest[j]] > 0; j++)
-                fprintf(stderr, "%s %s %.2f", j ? "," : "",
-                        name(heaviest[j]).c_str(), ms(cost[heaviest[j]]));
-
-            fputc('\n', stderr);
-        }
-
-        fprintf(stderr, "channel  instrument               mean ms  "
-                "worst ms  share\n");
-
-        for (int ch = 0; ch < profiled; ch++)
-        {
-            double total = 0, top = 0;
-
-            for (size_t w = 0; w < n; w++)
             {
-                total += channelSeconds[w * profiled + ch];
-                top = std::max(top, channelSeconds[w * profiled + ch]);
+                double total = 0, top = 0;
+
+                for (size_t w = 0; w < n; w++)
+                {
+                    total += channelSeconds[w * profiled + ch];
+                    top = std::max(top, channelSeconds[w * profiled + ch]);
+                }
+
+                if (total == 0)
+                    continue;
+
+                if (profileJson.back() != '[')
+                    profileJson += ',';
+
+                profileJson += '{';
+                jsonKey(profileJson, "name");
+                jsonString(profileJson, name(ch));
+                jsonKey(profileJson, "meanMs");
+                jsonNumber(profileJson, ms(total / n));
+                jsonKey(profileJson, "worstMs");
+                jsonNumber(profileJson, ms(top));
+                jsonKey(profileJson, "share");
+                jsonNumber(profileJson, total / sum);
+                profileJson += '}';
             }
 
-            if (total == 0)
+            profileJson += "]}";
+        }
+        else
+        {
+            fprintf(stderr, "profile: %zu windows of %d frames, %.2f ms each\n",
+                    n, window, ms(dt));
+            fprintf(stderr, "window          mean %.2f ms, p99 %.2f ms, worst "
+                    "%.2f ms (%.0f%% of its time) at %s\n", ms(sum / n),
+                    ms(windowSeconds[byCost[n / 100]]), ms(windowSeconds[worst]),
+                    100 * windowSeconds[worst] / dt, at(worst).c_str());
+            fprintf(stderr, "slowest second  %.2f ms a window, %.0f%% of real "
+                    "time, from %s\n", ms(slowest / span),
+                    100 * slowest / (span * dt), at(slowestAt).c_str());
+            fprintf(stderr, "worst windows\n");
+
+            for (size_t k = 0; k < std::min<size_t>(8, n); k++)
+            {
+                const size_t w = byCost[k];
+                const double *cost = &channelSeconds[w * profiled];
+                std::vector<int> heaviest(profiled);
+
+                for (int ch = 0; ch < profiled; ch++)
+                    heaviest[ch] = ch;
+
+                std::sort(heaviest.begin(), heaviest.end(), [&] (int a, int b)
+                          { return cost[a] > cost[b]; });
+                fprintf(stderr, "  %-28s %7.2f ms ", at(w).c_str(),
+                        ms(windowSeconds[w]));
+
+                for (int j = 0; j < 3 && cost[heaviest[j]] > 0; j++)
+                    fprintf(stderr, "%s %s %.2f", j ? "," : "",
+                            name(heaviest[j]).c_str(), ms(cost[heaviest[j]]));
+
+                fputc('\n', stderr);
+            }
+
+            fprintf(stderr, "channel  instrument               mean ms  "
+                    "worst ms  share\n");
+
+            for (int ch = 0; ch < profiled; ch++)
+            {
+                double total = 0, top = 0;
+
+                for (size_t w = 0; w < n; w++)
+                {
+                    total += channelSeconds[w * profiled + ch];
+                    top = std::max(top, channelSeconds[w * profiled + ch]);
+                }
+
+                if (total == 0)
+                    continue;
+
+                fprintf(stderr, "%7s  %-24s %7.3f  %8.2f  %4.1f%%\n",
+                        ch == profiled - 1 ? "-" : std::to_string(ch + 1).c_str(),
+                        name(ch).c_str(), ms(total / n), ms(top),
+                        100 * total / sum);
+            }
+    
+        }
+    }
+
+    if (!jsonFile.empty())
+    {
+        std::string out = "{";
+
+        jsonKey(out, "ok");
+        out += "true";
+        jsonKey(out, "errors");
+        jsonStrings(out, loader.errors());
+        jsonKey(out, "warnings");
+        jsonStrings(out, loader.warnings());
+        describeJson(out, loader, sched);
+        jsonKey(out, "rendered");
+        jsonNumber(out, pcm.size() / (double)outChannels / TH_DEFAULT_SAMPLES);
+        jsonKey(out, "stopped");
+        jsonNumber(out, stoppedAt);
+        jsonKey(out, "notes");
+        jsonInt(out, (long)notes);
+        jsonKey(out, "clipped");
+        jsonInt(out, (long)clipped);
+        jsonKey(out, "nonFinite");
+        jsonInt(out, (long)badVoices);
+        jsonKey(out, "mix");
+        out += '{';
+        jsonKey(out, "peak");
+        jsonNumber(out, peak);
+        jsonKey(out, "rms");
+        jsonNumber(out, pcm.empty() ? 0.0 : sqrt(sumsq / pcm.size()));
+        jsonKey(out, "lufs");
+        out += lufsText(&mixLoudness) == "-inf" ? "null"
+                                               : lufsText(&mixLoudness);
+
+        if (other)
+        {
+            jsonKey(out, "diffRms");
+            jsonNumber(out, mixDiff.rms());
+        }
+
+        out += '}';
+        jsonKey(out, "channels");
+        out += '[';
+
+        for (size_t ch = 0; ch < channelLevels.size(); ch++)
+        {
+            if (!channelLevels[ch].count && !channelDiffs[ch].count)
                 continue;
 
-            fprintf(stderr, "%7s  %-24s %7.3f  %8.2f  %4.1f%%\n",
-                    ch == profiled - 1 ? "-" : std::to_string(ch + 1).c_str(),
-                    name(ch).c_str(), ms(total / n), ms(top),
-                    100 * total / sum);
+            const std::string lufs = lufsText(channelLoudness[ch].get());
+
+            if (out.back() != '[')
+                out += ',';
+
+            out += '{';
+            jsonKey(out, "engine");
+            jsonInt(out, (long)ch);
+            jsonKey(out, "instrument");
+            jsonString(out, channelName((int)ch));
+            jsonKey(out, "peak");
+            jsonNumber(out, channelLevels[ch].peak);
+            jsonKey(out, "rms");
+            jsonNumber(out, channelLevels[ch].rms());
+            jsonKey(out, "lufs");
+            out += lufs == "-inf" ? "null" : lufs;
+
+            if (other)
+            {
+                jsonKey(out, "diffRms");
+                jsonNumber(out, channelDiffs[ch].rms());
+            }
+
+            out += '}';
+        }
+
+        out += ']';
+        /* In the written audio's time: what --from and --length cut away
+           is not in it, and the section playing at the cut begins it. One
+           that begins within a sample of the end -- a section edge is a
+           microsecond early, so a note on it is its own -- is not in it.
+           `pieceAt' is where it began in the piece, for bar numbers. */
+        const double cut = std::max(from, 0.0);
+
+        jsonKey(out, "from");
+        jsonNumber(out, cut);
+        jsonKey(out, "timeline");
+        out += '[';
+
+        for (size_t k = 0; k < timeline.size(); k++)
+        {
+            const double at = timeline[k].first - cut;
+
+            if ((k + 1 < timeline.size() && timeline[k + 1].first - cut <= 0) ||
+                (length >= 0 && at >= length - 1.0 / TH_DEFAULT_SAMPLES))
+                continue;
+
+            if (out.back() != '[')
+                out += ',';
+
+            out += '{';
+            jsonKey(out, "at");
+            jsonNumber(out, std::max(at, 0.0));
+            jsonKey(out, "pieceAt");
+            jsonNumber(out, timeline[k].first);
+            jsonKey(out, "section");
+            jsonString(out, sched.sections()[timeline[k].second].name);
+            out += '}';
+        }
+
+        out += ']';
+        jsonKey(out, "sectionRms");
+        out += '{';
+
+        for (size_t i = 0; i < sectionLevels.size(); i++)
+        {
+            jsonKey(out, sched.sections()[i].name.c_str());
+            jsonNumber(out, sectionLevels[i].rms());
+        }
+
+        out += '}';
+
+        if (!profileJson.empty())
+        {
+            jsonKey(out, "profile");
+            out += profileJson;
+        }
+
+        out += '}';
+
+        if (!writeText(jsonFile, out))
+        {
+            fprintf(stderr, "%s: cannot write %s\n", argv[0],
+                    jsonFile.c_str());
+            return 1;
         }
     }
 

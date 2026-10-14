@@ -141,6 +141,17 @@ jobs:
           sudo locale-gen de_DE.UTF-8
           locale -a | grep -qix 'de_DE.utf8'
 
+      # Before Configure: scripts/CMakeLists.txt adds the mcp test, which
+      # drives mcp/server.mjs through its npm SDK, only where mcp/node_modules
+      # is there.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: npm ci (mcp)
+        working-directory: mcp
+        run: npm ci
+
       # The audio plugins too (plugin/), and with them plugincheck and the
       # two format validators; see docs/PLUGIN.md. Here and not on every
       # job: the validators are Linux builds. Not every graph -- all 65 is

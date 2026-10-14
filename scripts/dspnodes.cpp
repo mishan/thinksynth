@@ -21,6 +21,7 @@
  *
  *     scripts/dspnodes -p plugins/ -o docs/NODES.md
  *     scripts/dspnodes -p plugins/ -c docs/NODES.md      # the CI gate
+ *     scripts/dspnodes -p plugins/ --json                 # for a program
  *
  * What a plugin's args are, what they are measured in and what range they
  * accept lives in the plugin -- setArgDesc, setArgRange, setArgUnits,
@@ -52,6 +53,7 @@
 
 #include "think.h"
 
+#include "JsonOut.h"
 #include "NodeCatalog.h"
 
 /* A cell's worth of float: %g, and nothing at all for an arg that declared
@@ -217,6 +219,108 @@ writeReference (std::ostream &o, const std::string &pluginPath)
     return true;
 }
 
+/* The same walk and the same facts as the reference, for a program that
+   writes graphs: a node per entry, its args with what the table shows. */
+static bool
+writeJson (std::string &o, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+    NodeCatalog cat;
+
+    if (pm == NULL || cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    o += '[';
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!NodeCatalog::isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            thPlugin *p = pm->getOrLoadPlugin(category + "/" + list[e].name);
+
+            if (p == NULL)
+                continue;
+
+            if (o.size() > 1)
+                o += ',';
+
+            o += "{\"node\":";
+            jsonString(o, list[e].spelling);
+            o += ",\"description\":";
+            jsonString(o, p->desc());
+            o += ",\"args\":[";
+
+            for (int k = 0; k < p->argCount(); k++)
+            {
+                o += k ? ",{\"name\":" : "{\"name\":";
+                jsonString(o, p->getArgName(k));
+                o += ",\"dir\":";
+                jsonString(o, dirName(p->getArgDir(k)));
+                o += ",\"description\":";
+                jsonString(o, p->getArgDesc(k));
+
+                if (p->argHasDefault(k))
+                {
+                    o += ",\"default\":";
+                    jsonNumber(o, p->getArgDefault(k));
+                }
+
+                if (p->argHasRange(k))
+                {
+                    o += ",\"min\":";
+                    jsonNumber(o, p->getArgMin(k));
+                    o += ",\"max\":";
+                    jsonNumber(o, p->getArgMax(k));
+                }
+
+                if (!p->getArgUnits(k).empty())
+                {
+                    o += ",\"units\":";
+                    jsonString(o, p->getArgUnits(k));
+                }
+
+                const vector<string> &names = p->getArgValues(k);
+
+                if (!names.empty())
+                {
+                    o += ",\"values\":{";
+
+                    bool first = true;
+
+                    for (size_t i = 0; i < names.size(); i++)
+                        if (!names[i].empty())
+                        {
+                            o += first ? "" : ",";
+                            jsonString(o, std::to_string(i));
+                            o += ':';
+                            jsonString(o, names[i]);
+                            first = false;
+                        }
+
+                    o += '}';
+                }
+
+                o += '}';
+            }
+
+            o += "]}";
+        }
+    }
+
+    o += ']';
+
+    return true;
+}
+
 /* Carriage returns out.
  *
  * GitHub's Windows runners set core.autocrlf, so the committed file arrives
@@ -286,13 +390,14 @@ compare (const std::string &fresh, const std::string &path)
 static void
 usage (const char *argv0)
 {
-    printf("usage: %s [-p PATH] [-o FILE | -c FILE]\n"
+    printf("usage: %s [-p PATH] [-o FILE | -c FILE | --json]\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
            "  -o, --output FILE       write the reference here (default "
            "stdout)\n"
            "  -c, --check FILE        compare FILE against a fresh one and "
-           "fail if they differ\n",
+           "fail if they differ\n"
+           "      --json              every node and its args, as JSON\n",
            argv0);
 }
 
@@ -312,6 +417,7 @@ main (int argc, char **argv)
 
     std::string pluginPath = PLUGIN_PATH;
     std::string outFile, checkFile;
+    bool json = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -325,6 +431,8 @@ main (int argc, char **argv)
             if (++i >= argc) { usage(argv[0]); return 2; }
             outFile = argv[i];
         }
+        else if (!strcmp(argv[i], "--json"))
+            json = true;
         else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--check"))
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
@@ -345,6 +453,20 @@ main (int argc, char **argv)
 
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
+
+    if (json)
+    {
+        std::string out;
+
+        if (!writeJson(out, pluginPath))
+        {
+            printf("FAIL  no plugins under %s\n", pluginPath.c_str());
+            return 1;
+        }
+
+        puts(out.c_str());
+        return 0;
+    }
 
     std::ostringstream text;
 

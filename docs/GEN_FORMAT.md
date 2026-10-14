@@ -1137,7 +1137,7 @@ effectside  : "side" "=" WORD ";"                      # at most one; an
                                                        #   instrument, and
                                                        #   not on the mix
 instrval    : WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
-argunit     : "ms" | "%"                               # what .dsp folds
+argunit     : "ms" | "%" | "s" | "dB" | "cents" | "beats"  # what .dsp folds
 chain       : "chain" WORD "{" (start | chainseed | input | stage)* sink+
               "}" ";"
 start       : "start" "=" NUMBER startunit ";"       # once per chain

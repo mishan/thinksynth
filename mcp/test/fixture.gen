@@ -1,0 +1,26 @@
+# Two bars at 120: a kick that carries the mix, and a pad far under it, so
+# the analysis has something to find.
+name "Fixture";
+tempo 120;
+meter 4;
+seed 7;
+
+@pad = 3;
+
+section a 1 bars { };
+section b 1 bars { pad = 0; };
+
+instrument kick { dsp "kit_kick.dsp"; amp = 30; };
+instrument pad { dsp "amb01.dsp"; amp = @pad; };
+
+chain kick {
+    stage s gen::euclid { steps = 4; fills = 4; notes = "C2";
+        period = 1 beats; hold = 0.2 beats; vel = 110; };
+    sink { instrument = kick; };
+};
+
+chain pad {
+    stage s gen::euclid { steps = 1; fills = 1; notes = "A3";
+        period = 4 beats; hold = 3.5 beats; vel = 90; };
+    sink { instrument = pad; };
+};
