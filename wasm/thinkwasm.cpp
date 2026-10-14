@@ -211,8 +211,10 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int i)
 EMSCRIPTEN_KEEPALIVE const char *tw_channel_name (int channel)
 {
     static std::string name;
+    const thcInstrument *inst = sched_->channelOf(channel);
 
-    name = sched_->holding(channel);
+    /* The declared instrument, as native genwav names a channel. */
+    name = inst != NULL ? inst->name : sched_->holding(channel);
     return name.c_str();
 }
 

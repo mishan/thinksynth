@@ -1152,3 +1152,44 @@ if(THINK_SANITIZE MATCHES "address")
         "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
   endforeach()
 endif()
+
+# The JSON the MCP server reads, a test per harness flag it uses, so a
+# broken flag fails here where node or mcp/node_modules is missing too.
+set(_fixture "${PROJECT_SOURCE_DIR}/mcp/test/fixture.gen")
+add_test(NAME genwav.json
+         COMMAND genwav -q -p "${PROJECT_BINARY_DIR}/plugins/" -s 2 --json -
+                 --stems "${PROJECT_BINARY_DIR}/genwav-json-stems"
+                 -o "${PROJECT_BINARY_DIR}/genwav-json.wav" "${_fixture}")
+add_test(NAME genwav.check
+         COMMAND genwav -p "${PROJECT_BINARY_DIR}/plugins/" --check --json -
+                 "${_fixture}")
+add_test(NAME dspnodes.json
+         COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/" --json)
+add_test(NAME panelcheck.describe
+         COMMAND panelcheck -p "${PROJECT_BINARY_DIR}/plugins/" --describe
+                 "${PROJECT_SOURCE_DIR}/dsp/kit_tom.dsp")
+set_tests_properties(genwav.json genwav.check PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  PASS_REGULAR_EXPRESSION "\"ok\":true")
+set_tests_properties(dspnodes.json PROPERTIES
+  PASS_REGULAR_EXPRESSION "\\[{\"node\":")
+set_tests_properties(panelcheck.describe PROPERTIES
+  PASS_REGULAR_EXPRESSION "\"folded\":")
+
+# The MCP server (mcp/), driven over stdio the way a client drives it, against
+# the harnesses this directory builds. Its SDK comes from npm, so like
+# rollcheck it runs where `npm ci' has been run in mcp/ and says so where not.
+find_program(THINK_NODE node)
+
+if(NOT THINK_NODE OR NOT EXISTS "${PROJECT_SOURCE_DIR}/mcp/node_modules")
+  message(STATUS
+    "scripts: no node or no mcp/node_modules, so no mcp test. Run `npm ci' "
+    "in mcp/ and configure again.")
+else()
+  add_test(NAME mcp
+           COMMAND ${THINK_NODE} --test test/server.test.mjs
+           WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/mcp")
+  set_tests_properties(mcp PROPERTIES
+    ENVIRONMENT "THINK_BUILD=${PROJECT_BINARY_DIR}"
+    TIMEOUT 900)
+endif()
