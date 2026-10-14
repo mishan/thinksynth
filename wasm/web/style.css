@@ -1618,6 +1618,9 @@ body.tiled .panelrows
 .player .sound, .player .idea { color: var(--dim); }
 .player .octave { grid-area: octave; display: flex; flex-direction: column;
                   gap: 0.2rem; }
+.player .octave .at { font-size: 0.75rem; text-align: center;
+                      color: var(--dim); }
+.player .octave .at.moved { color: var(--role-text); font-weight: bold; }
 .player .moves { grid-area: moves; display: flex; flex-wrap: wrap;
                  gap: 0.3rem; }
 .player .takes { grid-area: takes; display: flex; gap: 0.2rem;
