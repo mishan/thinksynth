@@ -1807,10 +1807,6 @@ async function freezeChain (chain, chainName)
         synth.transport('start');
 }
 
-/* The band (bandview.js): each of its moves an edit by the door the
- * canvas uses for the same thing -- a param, a chain's seed, a freeze, a
- * mute -- on the terms those doors set about text that was never loaded.
- */
 /* The band's Record and its takes (takes.js). */
 const takes = createTakes({
     button: $('bandrecord'), list: $('bandtakes'), synth: () => synth,
@@ -1829,6 +1825,10 @@ const takes = createTakes({
     say: (text) => status(text),
 });
 
+/* The band (bandview.js): each of its moves an edit by the door the
+ * canvas uses for the same thing -- a param, a chain's seed, a freeze, a
+ * mute -- on the terms those doors set about text that was never loaded.
+ */
 const band = createBand({
     piece: () => piece,
     params: (p, edits, passing = false) =>
