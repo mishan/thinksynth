@@ -766,7 +766,14 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         const s = octaveStage(st.base);
         const to = octavesOf(st.base) + by;
 
-        if (Math.abs(to) > OCTAVES || st.octaving)
+        /* A press while the stage is on its way is taken once it is in. */
+        if (st.octaving)
+        {
+            st.octavesNext = (st.octavesNext ?? 0) + by;
+            return;
+        }
+
+        if (Math.abs(to) > OCTAVES)
             return;
 
         const said = `${nameOf(p)}: ${octaveWords(to)}`;
@@ -786,8 +793,20 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         st.octaving = true;
         behind(p, st, [{ name: 'octave', plugin: 'transpose',
                          params: { semitones: text } }])
-            .then((went) => went && tell(said))
-            .finally(() => st.octaving = false);
+            .then((went) =>
+            {
+                const next = went ? st.octavesNext : 0;
+
+                st.octaving = false;
+                st.octavesNext = 0;
+                draw();
+
+                if (went)
+                    tell(said);
+
+                if (next)
+                    octave(p, st, next);
+            });
         draw();
     }
 
@@ -1027,8 +1046,10 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             at.textContent = n === 0 ? 'oct' : `${n > 0 ? '+' : '−'}` +
                                                `${Math.abs(n)} oct`;
             at.title = `Played ${octaveWords(n)}`;
-            up.disabled = n >= OCTAVES;
-            down.disabled = n <= -OCTAVES;
+            /* Not `disabled', which would drop the focus of a key that
+               pressed it there. */
+            up.setAttribute('aria-disabled', String(n >= OCTAVES));
+            down.setAttribute('aria-disabled', String(n <= -OCTAVES));
             octs.append(up, at, down);
         }
 

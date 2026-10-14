@@ -3566,14 +3566,13 @@ try
               `nothing random in it offers no Vary: ${/fills = \d+/.exec(busy)}`);
 
         /* The bell an octave up and up again: a transpose behind it, the
-           second ▲ its param, and the card saying where it is. */
+           second ▲ its param, and the card saying where it is. The second
+           press comes while the first's stage is still on its way. */
         const bell = page.locator('.player[data-chain="bell"]');
         const octaves = (n) => new RegExp('stage octave xform::transpose ' +
                                           `\\{[^}]*semitones = ${n};`);
 
         await bell.locator('button', { hasText: '▲' }).click();
-        await until(() => page.evaluate(() => window.solo.genText()),
-                    (t) => octaves(12).test(t));
         await bell.locator('button', { hasText: '▲' }).click();
 
         const up = await until(
