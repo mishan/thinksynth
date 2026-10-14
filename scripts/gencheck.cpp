@@ -4787,6 +4787,12 @@ checkKnobSink (const std::map<std::string, thcPlugin *> &plugins,
             thcGenEdit::OK)
             fail("'gain = 0.5 +' was written");
 
+        /* An instrument's values are a number or a knob, and no sum. */
+        if (thcGenEdit::addInstrument(sum, "pad", "rhodes.dsp",
+                                      { { "amp", "@lift * 2" } }, why) ==
+            thcGenEdit::OK)
+            fail("an instrument's 'amp = @lift * 2' was written");
+
         std::filesystem::remove(sum);
     }
 

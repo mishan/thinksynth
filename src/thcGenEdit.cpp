@@ -1427,9 +1427,10 @@ validArithmetic (const std::vector<Tok> &t)
 }
 
 /* Is `rhs' one value the loader's grammar accepts? Tokenize it and
- * pattern-match, so the check and the language cannot drift apart. */
+ * pattern-match, so the check and the language cannot drift apart. A stage
+ * param may be arithmetic; an instrument's value may not (`sums'). */
 static bool
-validValueText (const std::string &rhs)
+validValueText (const std::string &rhs, bool sums = true)
 {
     std::vector<Tok> t;
     std::string err;
@@ -1449,7 +1450,7 @@ validValueText (const std::string &rhs)
          t[1].text == "b"))
         return true;
 
-    return validArithmetic(t);
+    return sums && validArithmetic(t);
 }
 
 /* True if a param's current value is arithmetic (docs/GEN_FORMAT.md 5a).
@@ -2736,13 +2737,13 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
 
 static bool
 validParams (const std::vector<std::pair<std::string, std::string> > &params,
-             std::string &why)
+             std::string &why, bool sums = true)
 {
     for (size_t i = 0; i < params.size(); i++)
         if (params[i].second.empty())
             continue;
         else if (!validWord(params[i].first) ||
-                 !validValueText(params[i].second))
+                 !validValueText(params[i].second, sums))
         {
             why = "'" + params[i].first + " = " + params[i].second +
                   "' is not something the file format can say";
@@ -3266,7 +3267,7 @@ thcGenEdit::addInstrument (const std::string &filename,
         return REFUSED;
     }
 
-    if (!validParams(values, why))
+    if (!validParams(values, why, false))
         return UNWRITABLE;
 
     /* The words an instrument block reads as its own statements. */
