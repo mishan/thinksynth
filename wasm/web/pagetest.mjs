@@ -3629,6 +3629,53 @@ try
                                             null }));
     }
 
+    /* Record, from stopped: it starts the piece, and pressed again keeps
+       a take whose WAV is the seconds recorded, not silent, and whose
+       MIDI has the notes the players played. On pulse.gen, which plays
+       from its first beat, as ebb fades in for longer than this. */
+    {
+        await page.selectOption('#piece', 'pulse.gen');
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#bandrecord');
+        await page.waitForTimeout(4000);
+        await page.click('#bandrecord');
+
+        const row = page.locator('#bandtakes .take').first();
+
+        await row.waitFor({ timeout: 10000 });
+
+        const [wav] = await Promise.all([
+            page.waitForEvent('download'),
+            row.locator('button', { hasText: 'Save audio' }).click()]);
+        const [mid] = await Promise.all([
+            page.waitForEvent('download'),
+            row.locator('button', { hasText: 'Save MIDI' }).click()]);
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        const w = fs.readFileSync(await wav.path());
+        const m = fs.readFileSync(await mid.path());
+        const seconds = (w.length - 44) / 4 / w.readUInt32LE(24);
+        let peak = 0;
+
+        for (let i = 44; i < w.length; i += 2)
+            peak = Math.max(peak, Math.abs(w.readInt16LE(i)));
+
+        let ons = 0;
+
+        for (let i = 14; i < m.length - 2; i++)
+            if ((m[i] & 0xf0) === 0x90 && m[i + 2] > 0)
+                ons++;
+
+        check(w.toString('ascii', 0, 4) === 'RIFF' && seconds > 3 &&
+              seconds < 6 && peak > 100 &&
+              m.toString('ascii', 0, 4) === 'MThd' && ons > 0,
+              'Record keeps a take: its WAV is what was played and its ' +
+              'MIDI the notes: ' + JSON.stringify({
+                  seconds: +seconds.toFixed(2), peak, ons }));
+    }
+
     /* The pictures: a drawn Life board is offered Restart rather than
        Vary, and a grid player's picture is a sequencer track -- a click on
        it draws a note into the piece. */

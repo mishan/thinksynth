@@ -119,6 +119,7 @@ export async function createSynth (ctx, { windowlen = 128,
                                           onMidi = () => {},
                                           onMidiState = () => {},
                                           onEdited = () => {},
+                                          onRecorded = () => {},
                                           onMirror = null } = {})
 {
     /* A browser offers the worklet only in a secure context: https, or
@@ -414,6 +415,9 @@ export async function createSynth (ctx, { windowlen = 128,
 
             case 'edited':
                 onEdited(m);
+                break;
+            case 'recorded':
+                onRecorded(m);
                 break;
             case 'tape':
                 /* And the mirror is told how far this has got: it steps
@@ -1001,6 +1005,11 @@ export async function createSynth (ctx, { windowlen = 128,
            next window. Not written into the piece. */
         mute: ({ at = -1, chain, on, rev }) =>
             post({ type: 'mute', at, chain, on, rev }),
+
+        /* The output recorded from now, or no longer: a second at a time
+           to onRecorded, the last with `done'. The worklet's alone: the
+           mirror renders nothing to record. */
+        record: (on) => node.port.postMessage({ type: 'record', on }),
 
         solo: ({ at = -1, chain, on, rev }) =>
             post({ type: 'solo', at, chain, on, rev }),

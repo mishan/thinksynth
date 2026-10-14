@@ -1732,6 +1732,20 @@ body.tiled .panelrows
                padding: 0 0.4rem; border: 0; background: none;
                color: var(--dim); font-size: 1rem; }
 
+/* Record, red while it records, and the takes it has kept. */
+#bandrecord[aria-pressed="true"] { background: #b3261e; border-color: #b3261e;
+                                   color: #fff; font-variant-numeric:
+                                   tabular-nums; }
+#bandtakes { display: grid; gap: 0.3rem; margin-bottom: 0.5rem; }
+#bandtakes[hidden] { display: none; }
+#bandtakes .take { display: flex; flex-wrap: wrap; align-items: center;
+                   gap: 0.5rem; }
+#bandtakes .take span { color: var(--dim); font-variant-numeric:
+                        tabular-nums; }
+#bandtakes audio { height: 2rem; max-width: 18rem; }
+#bandtakes .take button[aria-label] { border: 0; background: none;
+                                      color: var(--dim); }
+
 /* The band's scenes: the piece's sections, the one playing lit. */
 .bandscenes { gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap;
               align-items: stretch; }

@@ -63,7 +63,8 @@
  */
 
 import { NEW_BAND, addOps, freeName, ideaNamed } from './bandideas.js';
-import { createBand } from './bandview.js';
+import { createBand, playersOf } from './bandview.js';
+import { createTakes } from './takes.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
 import { createGrow } from './growui.js';
@@ -1810,6 +1811,24 @@ async function freezeChain (chain, chainName)
  * canvas uses for the same thing -- a param, a chain's seed, a freeze, a
  * mute -- on the terms those doors set about text that was never loaded.
  */
+/* The band's Record and its takes (takes.js). */
+const takes = createTakes({
+    button: $('bandrecord'), list: $('bandtakes'), synth: () => synth,
+    play: () =>
+    {
+        if (lastTape?.running !== true)
+            $('play').click();
+    },
+    about: () => ({
+        name: piece?.name ?? '',
+        tempo: lastTape?.tempo ?? piece?.tempo ?? 120,
+        meter: lastTape?.meter ?? 4,
+        names: new Map(piece === null ? [] : playersOf(piece).map((p) =>
+            [p.channel, p.name.replace(/_/g, ' ')])),
+    }),
+    say: (text) => status(text),
+});
+
 const band = createBand({
     piece: () => piece,
     params: (p, edits, passing = false) =>
@@ -3085,6 +3104,7 @@ async function start ()
                                              micDropped = m.captureDropped ?? 0;
                                              lastTape = m;
                                              takeTapeNotes(m);
+                                             takes.tape(m);
 
                                              diff.take('worklet', m);
                                              showClock($('clock'), m);
@@ -3102,6 +3122,8 @@ async function start ()
                                          },
                                          onParamEdits: paramsEdited,
                                          onEdited: edited,
+                                         onRecorded: (m) =>
+                                             takes.recorded(m),
                                          onMidi: (msgs) => midiOutUI.take(msgs),
                                          onMidiState: (list) =>
                                              midiOutUI.state(list),
