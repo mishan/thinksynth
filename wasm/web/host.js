@@ -37,7 +37,10 @@
  * where the composer view's real composer instances live, and it draws
  * them (mirror.js). Everything it says comes back through `onMirror';
  * anything the page wants to tell it -- the view's size, a pointer, a
- * request for a frame -- goes through `toMirror'.
+ * request for a frame -- goes through `toMirror'. `mirrorScript' puts
+ * another worker in its place that is fed the same way: the SDK's
+ * look-ahead (lookahead.js), which steps ahead of the frame rather than
+ * to it.
  *
  * The tee is here and not at each call site on purpose: "the mirror is fed
  * the messages the worklet is fed" is then a property of one function
@@ -120,7 +123,8 @@ export async function createSynth (ctx, { windowlen = 128,
                                           onMidiState = () => {},
                                           onEdited = () => {},
                                           onRecorded = () => {},
-                                          onMirror = null } = {})
+                                          onMirror = null,
+                                          mirrorScript = 'mirror.js' } = {})
 {
     /* A browser offers the worklet only in a secure context: https, or
        localhost. A page opened as http:// from another machine -- a phone
@@ -165,7 +169,7 @@ export async function createSynth (ctx, { windowlen = 128,
        worklet is ready so that nothing posted in between is lost: the
        worker holds what arrives until its own module is up. */
     const mirror = onMirror !== null
-        ? new Worker(new URL('mirror.js', import.meta.url), { type: 'module' })
+        ? new Worker(new URL(mirrorScript, import.meta.url), { type: 'module' })
         : null;
 
     /* The ear worker (ear.js), made the first time either realm asks to

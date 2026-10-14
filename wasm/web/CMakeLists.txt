@@ -274,7 +274,8 @@ set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 mirror.js ear.js evolve.js evolveui.js growui.js
                 bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
-                layouts.js packs.js takes.js manifest.json)
+                layouts.js packs.js takes.js manifest.json
+                silent.js horizon.js lookahead.js thinksynth.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -689,3 +690,32 @@ add_custom_target(dist
     COMMENT "Packaging the site into ${DIST_DIR}"
     VERBATIM)
 add_dependencies(dist site thinkweb thinkevolve)
+
+# The SDK (docs/SDK.md): the modules a page that is not this one needs,
+# the module itself, and the graphs and samples a piece may name, as one
+# directory a game serves or installs as a package. Copied from the site
+# above rather than built again, so the two cannot differ.
+set(SDK_DIR "${PROJECT_BINARY_DIR}/sdk")
+set(SDK_FILES thinksynth.js host.js horizon.js lookahead.js silent.js
+              engine.js worklet.js mirror.js ear.js evolve.js tape.js
+              thinkweb.js thinkweb.wasm thinkevolve.js thinkevolve.wasm)
+list(TRANSFORM SDK_FILES PREPEND "${PROJECT_BINARY_DIR}/")
+configure_file(sdk/package.json.in "${PROJECT_BINARY_DIR}/sdk.package.json"
+               @ONLY)
+
+add_custom_target(sdk
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${SDK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${SDK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy ${SDK_FILES} "${SDK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${PROJECT_BINARY_DIR}/dsp" "${SDK_DIR}/dsp"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${PROJECT_BINARY_DIR}/gen" "${SDK_DIR}/gen"
+    COMMAND "${CMAKE_COMMAND}" -E copy
+            "${PROJECT_BINARY_DIR}/sdk.package.json"
+            "${SDK_DIR}/package.json"
+    COMMAND "${CMAKE_COMMAND}" -E copy
+            "${THINK_TOP}/docs/SDK.md" "${SDK_DIR}/README.md"
+    COMMENT "Packaging the SDK into ${SDK_DIR}"
+    VERBATIM)
+add_dependencies(sdk site thinkweb thinkevolve)

@@ -6302,6 +6302,7 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   knobchain   NAME KNOB STAGE CATEGORY PLUGIN [k=v ...]   -- writes @KNOB
  *   knob        NAME VALUE MIN MAX [LABEL]
  *   stage       CHAIN STAGE CATEGORY PLUGIN [k=v ...]
+ *   unstage     CHAIN STAGE   -- STAGE in the document's order
  *   unchain     NAME
  *   uninstrument NAME        -- unless a chain still plays it
  *   param       CHAIN STAGE ROW VALUE   -- STAGE in the document's order
@@ -6387,6 +6388,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                                             atof(f[3].c_str()),
                                             atof(f[4].c_str()),
                                             f.size() > 5 ? f[5] : "", why);
+                else if (f[0] == "unstage" && f.size() >= 3)
+                    r = thcGenEdit::removeStage(path, f[1],
+                                                atoi(f[2].c_str()), why);
                 else if (f[0] == "unchain" && f.size() >= 2)
                     r = thcGenEdit::removeChain(path, f[1], why);
                 else if (f[0] == "param" && f.size() >= 5)

@@ -12,6 +12,7 @@
     "relay": "node relay.mjs",
     "browsertest": "node browsertest.mjs",
     "pagetest": "node pagetest.mjs",
+    "sdkcheck": "node sdkcheck.mjs",
     "keycheck": "node keycheck.mjs",
     "patchcheck": "node patchcheck.mjs",
     "dspcatalogcheck": "node dspcatalogcheck.mjs",

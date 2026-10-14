@@ -564,6 +564,13 @@ jobs:
           cmake --build build-web --target dist
           node wasm/web/distcheck.mjs
 
+      # The SDK (docs/SDK.md), packaged from the site above, for sdkcheck
+      # in the browser jobs.
+      - name: The SDK's package
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          cmake --build build-web --target sdk
+
       # The site distcheck just passed, for `pages' below. Only from master:
       # a pull request's build is not what the demo should be. The room
       # page joins the relay the JAM_RELAY repository variable names
@@ -632,6 +639,7 @@ jobs:
             build-web/patches
             build-web/icons
             build-web/packs
+            build-web/sdk
             build-web/cairo2d/cairo2dtest.js
             build-web/cairo2d/cairo2dtest.wasm
 
@@ -950,6 +958,14 @@ jobs:
         if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
+
+      # The SDK as a game uses it, from its package alone: every note the
+      # worklet plays was announced by the look-ahead, through a mute, an
+      # unmute and a stage put in and taken out, each on the SDK's line.
+      - name: The SDK announces what it plays
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node sdkcheck.mjs ../../build-web/sdk
 
       # And the page tiled: every pane adopted into a layout and every one
       # of them put back where it was when the window narrows, which is

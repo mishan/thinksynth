@@ -51,8 +51,8 @@
  * which hears its own click at its time like everyone else (section 5).
  */
 
-import createThinkWeb from './thinkweb.js';
 import { apply } from './engine.js';
+import { answer, askToHear, createSilent } from './silent.js';
 import { drain } from './tape.js';
 
 /* thinkweb.cpp's CanvasContent::Key. */
@@ -78,34 +78,9 @@ let rollView = { w: 0, h: 0, dpr: 1 };
 const post = (m, transfer) => postMessage(m, transfer ?? []);
 const log = (text) => post({ type: 'log', text: `mirror: ${text}` });
 
-async function start ({ bytes, windowlen, sampleRate })
+async function start (m)
 {
-    M = await createThinkWeb({
-        instantiateWasm: (imports, done) =>
-        {
-            WebAssembly.instantiate(bytes, imports)
-                .then((r) => done(r.instance, r.module))
-                .catch((e) => log(`the wasm did not compile: ${e}`));
-
-            return {};
-        },
-        print: log,
-        printErr: log,
-    });
-
-    M._tw_create(sampleRate, windowlen, 128);
-
-    /* A worker can take a growth step's tenth of a second: this instance
-       grows its own, and the worklet's too (case 'growask' below). */
-    M._tw_grow_mode(1);
-
-    /* And hears through the page's ear worker, as the worklet does: a
-       render here would hold up what this draws. */
-    M._tw_ear_mode(2);
-
-    /* Before anything is loaded: it is a kind of synth and not a mode a
-       running one flips (thSynth::setSilent). */
-    M._tw_silent();
+    M = await createSilent(m, log);
 
     epoch = M._tw_epoch();
     post({ type: 'ready' });
@@ -553,7 +528,8 @@ function receive (m)
     /* The messages the worklet gets, applied the same way (engine.js).
        The piece is the one with something else to do: the canvas has to
        be shown what loaded. */
-    if (apply(M, m, { log, piece: (id, ok) => ok && showPiece() }))
+    if (apply(M, m, { log, piece: (id, ok) => ok && showPiece() }) ||
+        answer(M, m))
         return;
 
     /* The piano roll's half of the canvas-view protocol, told apart by
@@ -566,56 +542,6 @@ function receive (m)
 
     switch (m.type)
     {
-        /* A growth step the worklet's scheduler asked for, grown here and
-           sent back through the page (host.js). */
-        case 'growask':
-        {
-            const a = JSON.parse(m.ask);
-            const r = JSON.parse(M.ccall('tw_grow', 'string',
-                                         ['string', 'string', 'number',
-                                          'string', 'number'],
-                                         [a.text, a.base, a.choice,
-                                          a.kinds, a.want]));
-
-            postMessage({ type: 'grown', ticket: a.ticket, ...r });
-            break;
-        }
-
-        /* One for the page itself: an edit of a patch, asked for by hand
-           (growui.js). */
-        case 'grownow':
-        {
-            let r;
-
-            /* Answered whatever happens: the page waits on it. */
-            try
-            {
-                r = JSON.parse(M.ccall('tw_grow', 'string',
-                    ['string', 'string', 'number', 'string', 'number'],
-                    [m.text, m.base, m.choice, m.kinds, m.want]));
-            }
-            catch (e)
-            {
-                r = { grown: '', what: '', why: String(e) };
-            }
-
-            postMessage({ type: 'grownnow', id: m.id, ...r });
-            break;
-        }
-
-        /* What the ear worker heard for this instance's scheduler. */
-        case 'heard':
-            M.ccall('tw_ear_answer', null,
-                    ['number', 'number', 'number', 'string'],
-                    [m.ticket, m.ok ? 1 : 0, m.distance, m.tuned]);
-            break;
-
-        /* This instance's frames are the worklet's from here on
-           (thinkweb.cpp, tw_align). */
-        case 'align':
-            M._tw_align(m.frame);
-            break;
-
         /* As far as the worklet's last tape batch reached: the commands
            due, the transport, the queue drained, and the tape. */
         case 'step':
@@ -1014,7 +940,5 @@ function postTape ()
 onmessage = (e) =>
 {
     receive(e.data);
-
-    for (let ask; M !== null && (ask = M.UTF8ToString(M._tw_ear_next())); )
-        postMessage({ type: 'hear', ask });
+    askToHear(M);
 };
