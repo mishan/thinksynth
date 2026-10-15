@@ -91,6 +91,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.M = null;
         this.aligned = false;   /* the module's frames put on ours */
         this.early = [];        /* messages that arrived before the module */
+        this.handled = [];      /* [cmd, frame] for the mirror (host.js) */
         this.quanta = 0;        /* since the last post to the page */
         this.edits = 0;         /* tw_edit_count when last told */
         this.catchQuanta = 0;   /* ended with tw_catching set */
@@ -245,6 +246,9 @@ class ThinkProcessor extends AudioWorkletProcessor
             this.early.push(m);
             return;
         }
+
+        if (m.cmd !== undefined)
+            this.handled.push([m.cmd, this.M._tw_next_window()]);
 
         if (apply(this.M, m, {
                 loaded: (id, ok) =>
@@ -1259,6 +1263,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             origin: this.M._tw_origin(),
             speed: this.M._tw_speed_now(),
             late: this.M._tw_late(),
+            handled: this.handled.splice(0),
 
             /* process() since the last batch: how many calls ran past the
                quantum's budget, the slowest, and how many took each whole

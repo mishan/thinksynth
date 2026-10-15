@@ -68,8 +68,8 @@ class thSynthTree;
  *
  * Steps are counted off *transport time*, not off the wall clock and not
  * off the dt handed to the scheduler: the number of windows fired by the
- * time the transport reads t is floor(t * rate). So a pause freezes the
- * nodes with everything else, a reset replays them, and a frame that
+ * time the transport reads t is floor(t * rate) + 1. So a pause freezes
+ * the nodes with everything else, a reset replays them, and a frame that
  * arrived late does not change what a piece sounds like. The scheduler's
  * own dt jitters; this must not.
  *
@@ -180,9 +180,13 @@ public:
 
     std::vector<KnobUse> knobUses (void) const;
 
+    bool reads (const thArg *knob) const;
+
     /* Fire whatever windows the transport has earned since the last
-       call. Cheap and exact when nothing is due. */
-    void stepTo (double transport);
+       call. Cheap and exact when nothing is due. Not `capped', every
+       window however far the jump: a chain played again from its start,
+       whose wakes may lie further apart than the cap. */
+    void stepTo (double transport, bool capped = true);
 
     /* Back to the top: every node's state forgotten, the window count
        zeroed. What thcScheduler::reset means down here. */
@@ -255,8 +259,11 @@ private:
     std::vector<Value>    values_;
     std::vector<KnobBind> knobs_;
 
+    /* No node declares an ARG_STATE arg. */
+    bool stateless_ = false;
+
     /* Windows fired so far. The whole determinism story is that this is
-       floor(transport * rate) and nothing else. */
+       floor(transport * rate) + 1 and nothing else. */
     long steps_;
 };
 

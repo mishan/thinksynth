@@ -942,34 +942,104 @@ checkRecompose (const std::map<std::string, thcPlugin *> &plugins,
                 const std::string &pluginDir, const std::filesystem::path &dir)
 {
     const double at = 5.3, until = 12;
-    auto text = [](int vel)
+    const char *lfo =
+        "    stage lfo osc::simple { freq = 0.3; waveform = 0; amp = 1; };\n"
+        "    stage half math::mul { in0 = lfo->out; in1 = 0.5; };\n"
+        "    stage mid math::add { in0 = half->out; in1 = 0.5; };\n";
+
+    for (const std::string &nodes : { std::string(), std::string(lfo) })
     {
-        return "tempo 120;\nchain a {\n    stage src gen::lsystem { "
-               "axiom = \"FFFFFFFFFFFFFFFF\"; depth = 0; notes = \"C4 D4 "
-               "E4\"; step = 0.5 beats; hold = 0.25 beats; vel = " +
-               std::to_string(vel) + "; };\n    sink { channel = 1; };\n"
-               "};\n";
-    };
+        auto text = [&nodes](int vel)
+        {
+            return "tempo 120;\nchain a {\n" + nodes +
+                   "    stage src gen::lsystem { "
+                   "axiom = \"FFFFFFFFFFFFFFFF\"; depth = 0; notes = \"C4 D4 "
+                   "E4\"; step = 0.5 beats; hold = 0.25 beats; vel = " +
+                   std::to_string(vel) + "; };\n" +
+                   (nodes.empty() ? ""
+                                  : "    stage l xform::level { "
+                                    "gain = mid->out; };\n") +
+                   "    sink { channel = 1; };\n};\n";
+        };
+        const std::string what = nodes.empty() ? "" : ", through an LFO";
+        std::vector<std::string> errors;
+        Peer p(plugins, pluginDir, dir, "r"),
+             top(plugins, pluginDir, dir, "rt");
+
+        p.load(text(100), errors);
+        top.load(text(50), errors);
+        play(top, "recompose", {}, until, [] { return 1024.0 / 44100; });
+        play(p, "recompose", {}, at, [] { return 1024.0 / 44100; });
+
+        p.sched.chain(0)->stages[0]->params.set("vel", 50);
+        p.sched.recompose(0);
+        play(p, "recompose", {}, until, [] { return 1024.0 / 44100; });
+
+        const std::string want = notesBetween(top.tape, { 0 }, at, until);
+        const std::string got = notesBetween(p.tape, { 0 }, at, until);
+
+        if (want.empty() || got != want)
+            fail("recompose", "a param poked into a phrase" + what +
+                 " is not heard from then on: " +
+                 firstDifference(want, got));
+        else
+            printf("ok    a param poked into a phrase%s is heard from then "
+                   "on\n", what.c_str());
+    }
+}
+
+/* A knob moved under a chain that composes ahead, by a hand or by an edit
+   that declares it anew, is heard from then on, as the knob's new value
+   played from the top is. */
+static void
+checkKnobMoved (const std::map<std::string, thcPlugin *> &plugins,
+                const std::string &pluginDir, const std::filesystem::path &dir)
+{
+    const double at = 5.3, until = 12;
     std::vector<std::string> errors;
-    Peer p(plugins, pluginDir, dir, "r"), top(plugins, pluginDir, dir, "rt");
 
-    p.load(text(100), errors);
-    top.load(text(50), errors);
-    play(top, "recompose", {}, until, [] { return 1024.0 / 44100; });
-    play(p, "recompose", {}, at, [] { return 1024.0 / 44100; });
+    /* Read straight, and through arithmetic, which is a node. */
+    for (const std::string vel : { "@v", "@v / 2 + 25" })
+    for (const bool byEdit : { false, true })
+    {
+        auto text = [&vel](int v)
+        {
+            return "tempo 120;\n@v = " + std::to_string(v) +
+                   ";\n@v.max = 127;\nchain a {\n    stage src gen::lsystem "
+                   "{ axiom = \"FFFFFFFFFFFFFFFF\"; depth = 0; notes = "
+                   "\"C4 D4 E4\"; step = 0.5 beats; hold = 0.25 beats; "
+                   "vel = " + vel + "; };\n    sink { channel = 1; };\n};\n";
+        };
+        const std::string how = std::string(byEdit ? "an edit" : "a hand") +
+                                ", read as " + vel;
+        Peer p(plugins, pluginDir, dir, "k"),
+             top(plugins, pluginDir, dir, "kt");
 
-    p.sched.chain(0)->stages[0]->params.set("vel", 50);
-    p.sched.recompose(0);
-    play(p, "recompose", {}, until, [] { return 1024.0 / 44100; });
+        p.load(text(100), errors);
+        top.load(text(50), errors);
+        play(top, "knob moved", {}, until, [] { return 1024.0 / 44100; });
+        play(p, "knob moved", {}, at, [] { return 1024.0 / 44100; });
 
-    const std::string want = notesBetween(top.tape, { 0 }, at, until);
-    const std::string got = notesBetween(p.tape, { 0 }, at, until);
+        if (byEdit)
+            p.edit(text(50), errors);
+        else
+        {
+            p.sched.knob("v")->setValue(50);
+            p.sched.knobMoved(p.sched.knob("v"), false);
+        }
 
-    if (want.empty() || got != want)
-        fail("recompose", "a param poked into a phrase is not heard from "
-             "then on: " + firstDifference(want, got));
-    else
-        printf("ok    a param poked into a phrase is heard from then on\n");
+        play(p, "knob moved", {}, until, [] { return 1024.0 / 44100; });
+
+        const std::string want = notesBetween(top.tape, { 0 }, at, until);
+        const std::string got = notesBetween(p.tape, { 0 }, at, until);
+
+        if (want.empty() || got != want)
+            fail("knob moved", "a knob moved by " + how + " under a phrase "
+                 "is not heard from then on: " + firstDifference(want, got));
+        else
+            printf("ok    a knob moved by %s under a phrase is heard from "
+                   "then on\n", how.c_str());
+    }
 }
 
 /* A breeding population that listens, edited while it plays, through an
@@ -1222,6 +1292,18 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
                                      std::to_string(got);
         };
     };
+
+    /* A tune composed whole at its first tick, with a level reading @k
+       through arithmetic, which the loader builds as an embedded node. */
+    auto ahead = [](const std::string &note)
+    {
+        return "chain ahead {\n    stage src gen::lsystem { axiom = "
+               "\"F_F_F_F_F_F_F_F_F_F_F_F_\"; rules = \"\"; depth = 0; "
+               "notes = \"" + note + "\"; step = 0.5 beats; "
+               "hold = 0.25 beats; vel = 100; };\n"
+               "    stage l xform::level { gain = 0.5 + @k * 0; };\n"
+               "    sink { channel = 1; };\n};\n";
+    };
     StubMidiOut out;
     std::vector<std::string> errors;
 
@@ -1374,6 +1456,26 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
                          ? std::string()
                          : "note " + std::to_string(held.begin()->second) +
                                " was never released";
+          } },
+        { "a chain with nodes built again plays what its text plays from "
+          "the top",
+          head + ahead("C3"), head + ahead("D3"), 8.21, nullptr,
+          [&](Peer &p)
+          {
+              Peer top(plugins, pluginDir, dir, "top");
+
+              top.load(head + ahead("D3"), errors);
+              top.sched.start();
+              top.stepTo(12);
+              p.stepTo(12);
+
+              const std::string
+                  want = notesBetween(top.tape, { 0 }, 8.21, 12),
+                  got = notesBetween(p.tape, { 0 }, 8.21, 12);
+
+              return !want.empty() && got == want
+                         ? std::string()
+                         : firstDifference(want, got);
           } },
         { "a rewind puts a written knob at its edited declaration",
           head + "@w = 0.25;\n" + writer, head + "@w = 0.5;\n" + writer,
@@ -1532,6 +1634,7 @@ main (int argc, char *argv[])
                std::filesystem::path(genDir) / "airports.gen");
     checkCases(plugins, pluginDir, dir);
     checkRecompose(plugins, pluginDir, dir);
+    checkKnobMoved(plugins, pluginDir, dir);
     checkListener(plugins, pluginDir, dir);
     checkPainted(plugins, pluginDir, dir);
     checkCueEdit(plugins, pluginDir, dir);

@@ -347,6 +347,15 @@ thcParamStore::replay (void)
 void
 thcParamStore::pollNodes (void)
 {
+    if (nodesMoved() && rearm_)
+        rearm_();
+}
+
+bool
+thcParamStore::nodesMoved (void)
+{
+    bool moved = false;
+
     for (size_t i = 0; i < nodes_.size(); i++)
     {
         if (nodes_[i] == NULL)
@@ -358,10 +367,10 @@ thcParamStore::pollNodes (void)
             continue;
 
         lastNode_[i] = now;
-
-        if (rearm_)
-            rearm_();
+        moved = true;
     }
+
+    return moved;
 }
 
 void
@@ -3262,20 +3271,20 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             held_[n].chain = moved[held_[n].chain];
 
     /* The chains built again, which are played up to now below -- not
-       one with nodes, which are where the edit left them, and a node
-       does not step back, nor one played from a keyboard, whose keys a
-       replay has not got. What one of them, or a chain taken away, had
-       composed for after now is not played: the new chain composes its
-       own, and a chain taken away is silent. */
+       one played from a keyboard, whose keys a replay has not got. What
+       one of them, or a chain taken away, had composed for after now is
+       not played: the new chain composes its own, and a chain taken away
+       is silent. */
+    std::vector<bool> rebuilt(chains_.size(), true);
     std::vector<bool> replayed(chains_.size(), false);
-
-    for (size_t j = 0; j < chains_.size(); j++)
-        replayed[j] = started_ && !chains_[j].stages.empty() &&
-                      !chains_[j].nodes && !chains_[j].inputMidi;
 
     for (std::map<Slot, Slot>::iterator f = from.begin(); f != from.end();
          ++f)
-        replayed[f->first.first] = false;
+        rebuilt[f->first.first] = false;
+
+    for (size_t j = 0; j < chains_.size(); j++)
+        replayed[j] = rebuilt[j] && started_ &&
+                      !chains_[j].stages.empty() && !chains_[j].inputMidi;
 
     std::map<size_t, bool> marked;
 
@@ -3293,7 +3302,7 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
         {
             p.chain = moved[p.chain];
 
-            if ((p.chain < 0 || replayed[p.chain]) &&
+            if ((p.chain < 0 || rebuilt[p.chain]) &&
                 (p.ev.type == THC_EV_NOTE || p.ev.type == THC_EV_CHANARG))
                 continue;
         }
@@ -3331,7 +3340,15 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
        that will hear it. */
     for (const auto &v : next.pendingValues_)
         if (thArg *k = knob(v.first))
+        {
             k->setValue(v.second);
+            knobMoved(k, false);
+        }
+
+    /* Those played up to now below hear the new value already. */
+    for (size_t j = 0; j < chains_.size(); j++)
+        if (replayed[j])
+            recompose_.erase(j);
 
     next.pendingValues_.clear();
 
@@ -4210,8 +4227,18 @@ thcScheduler::catchUp (size_t chain)
     const double start = c.startBeats
         ? transportNow_ - (beat_ - c.start) * 60.0 / tempo_ : c.start;
 
+    /* Its nodes from the top too, each stage reading them where they
+       were at its wake. */
+    if (c.nodes)
+        c.nodes->reset();
+
     if (due.empty() || start >= transportNow_)
+    {
+        if (c.nodes)
+            c.nodes->stepTo(transportNow_, false);
+
         return;
+    }
 
     wakeups_.swap(rest);
     std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
@@ -4240,6 +4267,26 @@ thcScheduler::catchUp (size_t chain)
 
         s->awaitingStart = false;
 
+        if (c.nodes)
+        {
+            c.nodes->stepTo(w.at, false);
+
+            /* And a sleeper behind a node that moved woken, as runStep's
+               poll wakes it. */
+            for (size_t si = 0; si < c.stages.size(); si++)
+            {
+                thcStage *o = c.stages[si].get();
+
+                if (o->params.nodesMoved() && o->sleeping && o->ticks &&
+                    !o->awaitingStart)
+                {
+                    o->sleeping = false;
+                    due.push_back({ w.at, chain, si, heapSeq_++ });
+                    std::push_heap(due.begin(), due.end(), Later());
+                }
+            }
+        }
+
         struct Ctx { thcScheduler *self; size_t chain, stage; } ctx =
             { this, chain, w.stage };
         thcEventSink sink = { &ctx, [](void *p, const thcEvent *ev) {
@@ -4266,6 +4313,9 @@ thcScheduler::catchUp (size_t chain)
             for (size_t si = 0; si < c.stages.size(); si++)
                 remake(chain, si);
 
+            if (c.nodes)
+                c.nodes->stepTo(transportNow_, false);
+
             return;
         }
 
@@ -4290,6 +4340,9 @@ thcScheduler::catchUp (size_t chain)
     }
 
     catchingUp_ = false;
+
+    if (c.nodes)
+        c.nodes->stepTo(transportNow_, false);
 
     std::vector<Pending> last;
 
@@ -5473,6 +5526,26 @@ thcScheduler::recompose (size_t chain, bool passing)
     recompose_[chain] = passing && (m == recompose_.end() || m->second);
 }
 
+void
+thcScheduler::knobMoved (const thArg *knob, bool passing)
+{
+    for (size_t j = 0; j < chains_.size(); j++)
+    {
+        if (std::any_of(chains_[j].sinks.begin(), chains_[j].sinks.end(),
+                        [knob](const thcSink &s) { return s.knob == knob; }))
+            continue;
+
+        bool reads = chains_[j].nodes && chains_[j].nodes->reads(knob);
+
+        for (const auto &s : chains_[j].stages)
+            for (int i = 0; !reads && i < s->plugin->paramCount(); i++)
+                reads = s->params.knobBinding(i) == knob;
+
+        if (reads)
+            recompose(j, passing);
+    }
+}
+
 /* How often a chain may be played again from its start for values a drag
    passes through: the replay's cost grows with how long the piece has
    played, and a drag sends a value a frame. Those in between wait, and the
@@ -5503,8 +5576,7 @@ thcScheduler::recomposeMarked (void)
 void
 thcScheduler::composeAgain (size_t chain, bool passing)
 {
-    if (chain >= chains_.size() || !started_ || chains_[chain].nodes ||
-        chains_[chain].inputMidi ||
+    if (chain >= chains_.size() || !started_ || chains_[chain].inputMidi ||
         std::any_of(chains_[chain].stages.begin(),
                     chains_[chain].stages.end(),
                     [](const std::unique_ptr<thcStage> &s)
@@ -5539,6 +5611,10 @@ thcScheduler::composeAgain (size_t chain, bool passing)
     const std::set<int> one = { (int)chain };
 
     flushHeld(&one);
+
+    /* Made reading the nodes as a load does, before they have run. */
+    if (chains_[chain].nodes)
+        chains_[chain].nodes->reset();
 
     for (size_t si = 0; si < chains_[chain].stages.size(); si++)
         remake(chain, si);

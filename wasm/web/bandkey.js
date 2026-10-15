@@ -276,11 +276,13 @@ export function keyOps (piece, pitched, from, to)
                                                     : nameOf(move(p), to)))
                       .join(' ') + '"']);
 
+    /* A scale is a set of notes: two steps moved onto one are one. */
     for (const s of scalesUsed(piece, pitched))
         ops.push(['scale', s.name,
-                  wordsOf(s.notes).map((w) => (
+                  [...new Set(wordsOf(s.notes).map((w) => (
                       pitchOf(w) === null ? w
-                                          : nameOf(move(pitchOf(w)), to))).join(' ')]);
+                                          : nameOf(move(pitchOf(w)), to))))]
+                      .join(' ')]);
 
     return ops;
 }

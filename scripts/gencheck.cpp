@@ -5976,6 +5976,47 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
             else if ((*ao)[0] == 0)
                 fail("the clock check watched a signal that never moved");
         }
+
+        /* Past the guard when asked: a chain played again from its start
+           steps from one wake to the next, which may be further apart. */
+        thcNodeHost c(&control, 50);
+
+        c.addNode("lfo", "osc/simple", why);
+        c.setValue("lfo", "freq", 0.37, why);
+        c.setValue("lfo", "waveform", 0, why);
+        c.setValue("lfo", "amp", 1, why);
+
+        if (c.build(why))
+        {
+            for (int i = 150; i < 500; i++)
+                a.stepTo((i + 1) * 0.02);
+
+            c.stepTo(10.0, false);
+
+            if ((*a.output("lfo", "out", why))[0] !=
+                (*c.output("lfo", "out", why))[0])
+                fail("an uncapped jump does not land where stepping does");
+        }
+        else
+            fail("the uncapped check could not build its graph: " + why);
+
+        /* A stage ticking at zero reads the node's first window, not the
+           zero it was made with. */
+        thcNodeHost z(&control, 50);
+
+        z.addNode("sum", "math/add", why);
+        z.setValue("sum", "in0", 0.25, why);
+        z.setValue("sum", "in1", 0.25, why);
+
+        if (!z.build(why))
+            fail("the first-window check could not build its graph: " + why);
+        else
+        {
+            z.stepTo(0);
+
+            if ((*z.output("sum", "out", why))[0] != 0.5f)
+                fail("a node read at zero has not run yet");
+        }
     }
 
     /* A literal typed over a node-driven param actually takes.

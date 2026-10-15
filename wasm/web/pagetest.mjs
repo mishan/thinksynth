@@ -3567,11 +3567,18 @@ try
         const varied = await until(kickOf, (t) =>
             /stage take xform::vary/.test(t) && /seed \d+;/.test(t));
 
+        /* The mirror took the drag and the edit where the worklet did. */
+        await page.waitForTimeout(1500);
+        const tapes = await page.evaluate(() => window.solo.tapeDiff());
+
         await page.click('#stop');
         await page.evaluate(() => window.solo.settled());
 
         check(/stage take xform::vary/.test(varied) && /seed \d+;/.test(varied),
               '...and Vary on it puts a take behind it, with a seed');
+        check(tapes.compared > 0 && tapes.disagreements === 0,
+              '...and the mirror\'s tape is the worklet\'s through both: ' +
+              `${tapes.disagreements} of ${tapes.compared} differ`);
 
         /* The bell an octave up and up again: a transpose behind it, the
            second ▲ its param, and the card saying where it is. The second
@@ -4037,7 +4044,8 @@ try
         await page.focus('.player[data-chain="kick"] .out');
         await page.keyboard.press('Enter');
         const gone = await until(text, (t) => !/kick/.test(t));
-        const next = await focus();
+        /* The text is in before the cards are drawn from it. */
+        const next = await until(focus, (f) => f !== 'kick:out');
 
         check(!/kick/.test(gone) && /section scene /.test(gone),
               '...and a player resting in a scene can be taken out of ' +

@@ -318,6 +318,10 @@ export async function createSynth (ctx, { windowlen = 128,
     /* Collecting, inside batch() below. */
     let batching = null;
 
+    /* Numbered, so the worklet can say where in its output it took each
+       one and the mirror take it there too (mirror.js, `held'). */
+    let sent = 0;
+
     const post = (m) =>
     {
         if (batching !== null)
@@ -326,6 +330,7 @@ export async function createSynth (ctx, { windowlen = 128,
             return;
         }
 
+        m.cmd = ++sent;
         node.port.postMessage(m);
         mirror?.postMessage(m);
     };
@@ -430,7 +435,8 @@ export async function createSynth (ctx, { windowlen = 128,
                    desktop's 50 ms draw timer. The keys this one played
                    go with it, for the roll the mirror draws. */
                 mirror?.postMessage({ type: 'step', frame: m.frame,
-                                      epoch: m.epoch, keys: m.keys });
+                                      epoch: m.epoch, keys: m.keys,
+                                      handled: m.handled });
                 onTape(m);
 
                 /* After the tape, and only when the batch carries them: a

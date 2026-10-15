@@ -957,7 +957,7 @@ for (const name of names)
    it was, a pentatonic's third goes to a third, a note between steps keeps
    its distance, and a key is read from notes the way a person would. */
 {
-    const { retune, nameOf, pitchOf, keyOf } =
+    const { retune, nameOf, pitchOf, keyOf, keyOps } =
         await import(pathToFileURL(path.join(here, 'bandkey.js')).href);
     const key = (root, mood) => ({ root, mood });
     const line = (notes, from, to) => notes.split(' ').map((n) =>
@@ -1001,6 +1001,14 @@ for (const name of names)
         ['notes parted by commas', JSON.stringify(heard(
             'G3, A3, B3, C4, D4, E4, F#4')),
          JSON.stringify({ root: 7, mood: 'bright', written: false })],
+        ['a scale into fewer steps has each note once',
+         keyOps({ scales: [{ name: 'tune',
+                             notes: 'G3 A3 B3 C4 D4 E4 F#4' }],
+                  chains: [{ name: 'x', stages: [{ params: [
+                      { name: 'notes', valueText: 'tune' }] }] }] },
+                new Set(['x']), key(7, 'bright'), key(7, 'bluesy'))
+             .find(([op, name]) => op === 'scale' && name === 'tune')[2],
+         'G3 Bb3 C4 D4 F4'],
         ['no notes at all',
          JSON.stringify(keyOf({ scales: [], chains: [] }, new Set())),
          JSON.stringify({ root: 9, mood: 'dark', written: false })],

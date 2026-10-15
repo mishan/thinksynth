@@ -513,6 +513,13 @@ thcNodeHost::build (std::string &why)
             knobs_[i].dest = n->setArg(knobs_[i].arg, 0.0f);
     }
 
+    stateless_ = true;
+
+    for (const Decl &d : decls_)
+        for (int a = 0; d.plugin != NULL && a < d.plugin->argCount(); a++)
+            if (d.plugin->getArgDir(a) == thPlugin::ARG_STATE)
+                stateless_ = false;
+
     steps_ = 0;
 
     return true;
@@ -640,8 +647,18 @@ thcNodeHost::markAll (void)
     tree_->markAllNodes();
 }
 
+bool
+thcNodeHost::reads (const thArg *knob) const
+{
+    for (const KnobBind &k : knobs_)
+        if (k.knob == knob)
+            return true;
+
+    return false;
+}
+
 void
-thcNodeHost::stepTo (double transport)
+thcNodeHost::stepTo (double transport, bool capped)
 {
     /* `!(x >= 0)' rather than `x < 0', so a NaN is refused too: it
        would otherwise reach floor() and come back as LONG_MIN. */
@@ -651,20 +668,27 @@ thcNodeHost::stepTo (double transport)
     /* How many windows the transport has earned, as a pure function of
        the time it reads. Not "one per call": the scheduler's dt jitters
        with the frame, and a piece whose LFO advanced by however much
-       wall clock had passed would not replay. */
-    const long want = (long)std::floor(transport * (double)rate_);
+       wall clock had passed would not replay. Window k is the one at
+       k / rate, so the first is there for a stage ticking at zero. */
+    const long want = (long)std::floor(transport * (double)rate_) + 1;
 
     /* A reset moves the transport backwards. Catching up would fire
        nothing; the step count is put back where the time says. */
     if (want < steps_)
         steps_ = want;
 
+    /* A graph that keeps nothing between windows is its inputs now, so
+       the last window is all of them: what makes playing a chain again
+       from its start cheap for arithmetic on a knob. */
+    if (stateless_ && want - steps_ > 1)
+        steps_ = want - 1;
+
     /* A guard rather than a policy: a piece opened at an hour in has
        earned a hundred and eighty thousand windows, and firing them all
        inside one timer callback would stop the program. Nodes are
        *state over time*, so the honest thing is to accept that a jump
        is a jump -- the same thing pause and resume already do to them. */
-    if (want - steps_ > rate_ * 4)
+    if (capped && want - steps_ > rate_ * 4)
         steps_ = want - rate_ * 4;
 
     while (steps_ < want)

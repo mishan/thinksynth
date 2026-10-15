@@ -317,7 +317,7 @@ attached rather than without one.
 >   would reach into the audio thread's copy of it.
 > - **Determinism is a pure function of transport time**, not of how
 >   often the host was called: windows fired by time t is
->   `floor(t * rate)`, with one stated exception -- a forward jump of
+>   `floor(t * rate) + 1`, with one stated exception -- a forward jump of
 >   more than a few seconds is capped rather than caught up, because
 >   three thousand windows inside one timer callback would stop the
 >   program and a jump is honestly a jump. So a pause freezes the nodes, a rewind

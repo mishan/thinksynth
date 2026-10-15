@@ -61,6 +61,9 @@ const KEYS = { Escape: 1 };
 let M = null;
 const early = [];
 
+/* The page's commands by number, until the worklet says where it took them. */
+const held = new Map();
+
 let events = [];
 let epoch = 0;
 
@@ -525,6 +528,20 @@ function receive (m)
         return;
     }
 
+    /* Applied where the worklet applied it, which its next tape says:
+       a command takes effect at the top of the next window, and this
+       instance is stepped a batch behind that one. */
+    if (m.cmd !== undefined)
+    {
+        held.set(m.cmd, m);
+        return;
+    }
+
+    act(m);
+}
+
+function act (m)
+{
     /* The messages the worklet gets, applied the same way (engine.js).
        The piece is the one with something else to do: the canvas has to
        be shown what loaded. */
@@ -546,6 +563,23 @@ function receive (m)
            due, the transport, the queue drained, and the tape. */
         case 'step':
         {
+            /* A worklet from another build says nothing of where it took
+               them: each here and now, as before it did. */
+            const handled = m.handled ??
+                [...held.keys()].map((cmd) => [cmd, m.frame]);
+
+            for (const [cmd, frame] of handled)
+            {
+                const h = held.get(cmd);
+
+                if (h === undefined)
+                    continue;
+
+                held.delete(cmd);
+                M._tw_step(frame);
+                act(h);
+            }
+
             M._tw_step(m.frame);
 
             /* An edit moves chains and stages without a load, and the

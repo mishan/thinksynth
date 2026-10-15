@@ -321,6 +321,7 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (int k, double value)
         if (i++ == k)
         {
             knob.second->setValue((float)value);
+            sched_->knobMoved(knob.second);
             return;
         }
     }
