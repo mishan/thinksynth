@@ -14,6 +14,7 @@
 
 #include "config.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -574,6 +575,15 @@ thcNodeHost::output (const std::string &node, const std::string &arg,
         return NULL;
     }
 
+    if (std::find(read_.begin(), read_.end(), a) == read_.end())
+    {
+        read_.push_back(a);
+
+        /* The rows kept so far have no place for it. */
+        if (steps_ > 0)
+            forget();
+    }
+
     return a;
 }
 
@@ -675,13 +685,19 @@ thcNodeHost::stepTo (double transport, bool capped)
     /* A reset moves the transport backwards. Catching up would fire
        nothing; the step count is put back where the time says. */
     if (want < steps_)
+    {
         steps_ = want;
+        forget();
+    }
 
     /* A graph that keeps nothing between windows is its inputs now, so
        the last window is all of them: what makes playing a chain again
        from its start cheap for arithmetic on a knob. */
     if (stateless_ && want - steps_ > 1)
+    {
         steps_ = want - 1;
+        forget();
+    }
 
     /* A guard rather than a policy: a piece opened at an hour in has
        earned a hundred and eighty thousand windows, and firing them all
@@ -689,19 +705,107 @@ thcNodeHost::stepTo (double transport, bool capped)
        *state over time*, so the honest thing is to accept that a jump
        is a jump -- the same thing pause and resume already do to them. */
     if (capped && want - steps_ > rate_ * 4)
+    {
         steps_ = want - rate_ * 4;
+        forget();
+    }
 
     while (steps_ < want)
     {
         /* Where the knobs are now, before the window that reads them. */
         for (size_t i = 0; i < knobs_.size(); i++)
             if (knobs_[i].dest != NULL && knobs_[i].knob != NULL)
-                knobs_[i].dest->setValue((*knobs_[i].knob)[0]);
+            {
+                const float v = (*knobs_[i].knob)[0];
+
+                /* Moved since a window read it: the windows before were
+                   not what a replay at this value would fire. */
+                if (steps_ > 0 && (*knobs_[i].dest)[0] != v)
+                    forget();
+
+                knobs_[i].dest->setValue(v);
+            }
 
         markAll();
         tree_->process(THC_NODE_WINDOW);
         steps_++;
+        keep();
     }
+}
+
+/* Past this many floats -- a few hours of a few outputs -- nothing more
+   is kept, and a replay fires the windows again. */
+static const size_t TH_NODE_HISTORY_MAX = (size_t)1 << 24;
+
+void
+thcNodeHost::keep (void)
+{
+    if (!kept_ || stateless_)
+        return;
+
+    if (history_.size() + read_.size() > TH_NODE_HISTORY_MAX)
+    {
+        forget();
+        return;
+    }
+
+    for (const thArg *a : read_)
+        history_.push_back((*a)[0]);
+}
+
+void
+thcNodeHost::forget (void)
+{
+    kept_ = false;
+    history_.clear();
+}
+
+bool
+thcNodeHost::recorded (void) const
+{
+    return kept_ && !stateless_ && steps_ > 0 && !read_.empty() &&
+           history_.size() == (size_t)steps_ * read_.size();
+}
+
+void
+thcNodeHost::showLoad (void)
+{
+    for (thArg *a : read_)
+        a->setValue(0.0f);
+}
+
+void
+thcNodeHost::showAt (double transport)
+{
+    const long want = (long)std::floor(transport * (double)rate_) + 1;
+
+    if (want > steps_)
+    {
+        showNow();
+        stepTo(transport, false);
+        return;
+    }
+
+    showRow(want - 1);
+}
+
+void
+thcNodeHost::showNow (void)
+{
+    if (steps_ > 0)
+        showRow(steps_ - 1);
+}
+
+void
+thcNodeHost::showRow (long window)
+{
+    const size_t row = (size_t)window * read_.size();
+
+    if (row + read_.size() > history_.size())
+        return;
+
+    for (size_t i = 0; i < read_.size(); i++)
+        read_[i]->setValue(history_[row + i]);
 }
 
 /* Back to the top.
@@ -753,4 +857,6 @@ thcNodeHost::reset (void)
     }
 
     steps_ = 0;
+    history_.clear();
+    kept_ = true;
 }

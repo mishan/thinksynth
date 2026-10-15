@@ -4228,12 +4228,17 @@ thcScheduler::catchUp (size_t chain)
         ? transportNow_ - (beat_ - c.start) * 60.0 / tempo_ : c.start;
 
     /* Its nodes from the top too, each stage reading them where they
-       were at its wake. */
-    if (c.nodes)
+       were at its wake: as they were kept, if they were, or fired again. */
+    const bool kept = c.nodes && c.nodes->recorded();
+
+    if (c.nodes && !kept)
         c.nodes->reset();
 
     if (due.empty() || start >= transportNow_)
     {
+        if (kept)
+            c.nodes->showNow();
+
         if (c.nodes)
             c.nodes->stepTo(transportNow_, false);
 
@@ -4269,7 +4274,10 @@ thcScheduler::catchUp (size_t chain)
 
         if (c.nodes)
         {
-            c.nodes->stepTo(w.at, false);
+            if (kept)
+                c.nodes->showAt(w.at);
+            else
+                c.nodes->stepTo(w.at, false);
 
             /* And a sleeper behind a node that moved woken, as runStep's
                poll wakes it. */
@@ -4313,6 +4321,9 @@ thcScheduler::catchUp (size_t chain)
             for (size_t si = 0; si < c.stages.size(); si++)
                 remake(chain, si);
 
+            if (kept)
+                c.nodes->showNow();
+
             if (c.nodes)
                 c.nodes->stepTo(transportNow_, false);
 
@@ -4340,6 +4351,9 @@ thcScheduler::catchUp (size_t chain)
     }
 
     catchingUp_ = false;
+
+    if (kept)
+        c.nodes->showNow();
 
     if (c.nodes)
         c.nodes->stepTo(transportNow_, false);
@@ -5613,7 +5627,9 @@ thcScheduler::composeAgain (size_t chain, bool passing)
     flushHeld(&one);
 
     /* Made reading the nodes as a load does, before they have run. */
-    if (chains_[chain].nodes)
+    if (chains_[chain].nodes && chains_[chain].nodes->recorded())
+        chains_[chain].nodes->showLoad();
+    else if (chains_[chain].nodes)
         chains_[chain].nodes->reset();
 
     for (size_t si = 0; si < chains_[chain].stages.size(); si++)
