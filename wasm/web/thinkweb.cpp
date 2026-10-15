@@ -1118,26 +1118,30 @@ void applyScheduled (const Scheduled &given)
         }
 
         case TW_KNOB:
-            /* setValue is the whole knob path: every param bound to it
-               reads through it, and the scheduler has the changed signal
-               wired to whatever rebuilding or re-arming that implies
-               (thcScheduler::bindKnob). By index into the list the page
-               was handed at the load: a name would have to be copied into
-               the command, and a copy has a length, and a knob whose name
-               ran past it was silently never moved.
+            /* Every param bound to it reads through setValue, the
+               scheduler has the changed signal wired to whatever re-arming
+               that implies (thcScheduler::bindKnob), and knobMoved
+               composes again what was composed ahead of it. By index into
+               the list the page was handed at the load: a name would have
+               to be copied into the command, and a copy has a length, and a
+               knob whose name ran past it was silently never moved.
 
                By name when the command carries one, and looked up here,
                when it applies: an edit can add a knob or take one away, and
                an index made before that names a different knob after it. */
-            if (!c.row.empty())
+        {
+            thArg *k = !c.row.empty() ? sched_->knob(c.row)
+                     : c.knob >= 0 && c.knob < (int)knobs_.size()
+                         ? knobs_[c.knob] : NULL;
+
+            if (k != NULL)
             {
-                if (thArg *k = sched_->knob(c.row))
-                    k->setValue((float)c.value);
+                k->setValue((float)c.value);
+                sched_->knobMoved(k);
             }
-            else if (c.knob >= 0 && c.knob < (int)knobs_.size())
-                knobs_[c.knob]->setValue((float)c.value);
 
             break;
+        }
 
         case TW_MUTE:
         case TW_SOLO:
@@ -1382,6 +1386,7 @@ void applyScheduled (const Scheduled &given)
             }
 
             sched_->setKnobHome(knobs_[c.knob], (float)value);
+            sched_->knobMoved(knobs_[c.knob], false);
 
             if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
                 thcGenEdit::OK)
@@ -7120,6 +7125,14 @@ EMSCRIPTEN_KEEPALIVE double tw_dropped (void)
 EMSCRIPTEN_KEEPALIVE double tw_frame (void)
 {
     return rendered_;
+}
+
+/* The first frame of the next window made, which is where a command
+   arriving now is applied: the rest of the one being handed out is
+   already stepped. */
+EMSCRIPTEN_KEEPALIVE double tw_next_window (void)
+{
+    return rendered_ + source_->pending();
 }
 
 

@@ -3077,6 +3077,7 @@ Composer::onCanvasKnob (std::string name, double value, bool commit)
         return;
 
     arg->setValue((float)value);
+    sched_->knobMoved(arg, !commit);
 
     if (!commit)
         return;

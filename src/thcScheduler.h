@@ -133,6 +133,10 @@ public:
      * for and why it is read rather than pushed. */
     void pollNodes (void);
 
+    /* Whether a node this store reads has moved since it was last asked,
+       which pollNodes wakes a sleeper for. */
+    bool nodesMoved (void);
+
     /* ---- a rewind is a load ----
      *
      * What reset() owes a fresh instance is the load, done again. On a
@@ -1424,8 +1428,8 @@ public:
        rather than when the chain's next phrase begins, and a chain set
        back to what it said plays what it played. Done before the
        transport next moves, once however many of the chain's params were
-       set meanwhile. Not a chain with nodes, one played from a keyboard,
-       or one with a stage holding what its text does not.
+       set meanwhile. Not a chain played from a keyboard, or one with a
+       stage holding what its text does not.
 
        `passing': a value a gesture passes through on its way to the one
        it ends on. Only a chain that has composed further than a beat
@@ -1434,6 +1438,11 @@ public:
        and the whole chain played again for every value of a drag is more
        than the drag is worth. */
     void recompose (size_t chain, bool passing = false);
+
+    /* A hand moved `knob': every chain reading it, through a param or a
+       node, composed again (recompose), `passing' for a value a drag goes
+       on from. Not a chain writing it, which is part of the piece. */
+    void knobMoved (const thArg *knob, bool passing = true);
 
     /* A gesture on a stage's picture, into its instance now. */
     static void input (thcStage *s, const thcInputEvent &ev);

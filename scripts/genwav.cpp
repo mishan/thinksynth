@@ -1226,7 +1226,12 @@ int main (int argc, char **argv)
 
         for (; nextMove < moves.size() && moves[nextMove].at <= windowStart;
              nextMove++)
-            sched.knob(moves[nextMove].name)->setValue(moves[nextMove].value);
+        {
+            thArg *k = sched.knob(moves[nextMove].name);
+
+            k->setValue(moves[nextMove].value);
+            sched.knobMoved(k);
+        }
 
         sched.stepTransport(dt);
 
