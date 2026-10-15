@@ -22,6 +22,7 @@
 #include <math.h>
 
 #include "think.h"
+#include "impulselen.h"
 
 static const char desc[] = "Generates a sine impulse";
 thPlugin::State    mystate = thPlugin::PASSIVE;
@@ -72,7 +73,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     in_len = mod->getArg(node, args[IN_LEN]);
     in_cut = mod->getArg(node, args[IN_CUT]);
-    len = (int)(*in_len)[0];
+    len = impulseLen((*in_len)[0], samples);
     factor = (*in_cut)[0]/2;
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
