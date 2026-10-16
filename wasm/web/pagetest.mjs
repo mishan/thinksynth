@@ -3542,6 +3542,8 @@ try
         check(roles.length === 4 && roles.includes('kick:drums'),
               `the band shows pulse.gen's players: ${roles.join(' ')}`);
 
+        const tapesBefore = await page.evaluate(() => window.solo.tapeDiff());
+
         await page.click('#play');
 
         /* The page test's window is short: the pad has to be on it. */
@@ -3576,9 +3578,13 @@ try
 
         check(/stage take xform::vary/.test(varied) && /seed \d+;/.test(varied),
               '...and Vary on it puts a take behind it, with a seed');
-        check(tapes.compared > 0 && tapes.disagreements === 0,
+        const compared = tapes.compared - tapesBefore.compared;
+        const differ = tapes.disagreements - tapesBefore.disagreements;
+
+        check(compared > 0 && differ === 0,
               '...and the mirror\'s tape is the worklet\'s through both: ' +
-              `${tapes.disagreements} of ${tapes.compared} differ`);
+              `${differ} of ${compared} differ` +
+              (differ > 0 ? `: ${tapes.recent.join(', ')}` : ''));
 
         /* The bell an octave up and up again: a transpose behind it, the
            second ▲ its param, and the card saying where it is. The second

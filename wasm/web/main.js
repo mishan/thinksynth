@@ -3821,7 +3821,8 @@ window.solo = {
     /* The worklet's tape against the mirror's (tapediff.js): how many
        events both have delivered, and how many differ. */
     tapeDiff: () => ({ compared: diff.compared,
-                       disagreements: diff.disagreements }),
+                       disagreements: diff.disagreements,
+                       recent: [...diff.recent] }),
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
     chipOf: (chain, which) => composer?.chipOf(chain, which),
     mix: () => composer?.mix(),
