@@ -570,6 +570,12 @@ function act (m)
 
             for (const [cmd, frame] of handled)
             {
+                if (cmd === 'seek')
+                {
+                    M._tw_seek_release(frame);
+                    continue;
+                }
+
                 const h = held.get(cmd);
 
                 if (h === undefined)
