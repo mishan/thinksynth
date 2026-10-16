@@ -17,9 +17,9 @@ BUILD_DIR is a native build (build/), OUT_DIR where the pictures go
 Taken with shotbox (https://github.com/mishan/shotbox) in a sealed
 session: its own X display, D-Bus and scratch home, so the window comes
 up at a first run's size and layout, with GTK's own defaults rather than
-whoever runs this. Its Python module has to be importable: `pip install
-shotbox' into a venv made with --system-site-packages, for GTK's
-bindings.
+whoever runs this. Its Python module, 0.6.0 or later for play(), has to
+be importable: `pip install shotbox' into a venv made with
+--system-site-packages, for GTK's bindings.
 
 The audio is a real stream, into scripts/headless.sh's null sink, since a
 piece's transport is clocked by the device: -d none would draw a piano
@@ -94,28 +94,30 @@ def patch():
 def piece(name):
     with session() as s:
         start(s, "desktop-piece.log")
+        s.play("""
+            # Piece mode, then the menu's Open Piece... by its mnemonic.
+            key ctrl+2
+            wait stable --window ${WINDOW}
+            key F10
+            wait stable
+            key o
+            wait window ${BROWSER}
+            wait stable --window ${BROWSER}
 
-        # Piece mode, then the menu's Open Piece... by its mnemonic.
-        s.key("ctrl+2")
-        s.wait_stable(window=WINDOW)
-        s.key("F10")
-        s.wait_stable()
-        s.key("o")
-        s.wait_window(BROWSER)
-        s.wait_stable(window=BROWSER)
+            # The filter, then the one piece it leaves. A click first: there
+            # is no window manager to give the dialog the keyboard.
+            click 230 22 --window ${BROWSER}
+            type ${NAME}
+            wait stable --window ${BROWSER}
+            click 50 80 --window ${BROWSER} --double
+            wait stable --window ${WINDOW}
 
-        # The filter, then the one piece it leaves. A click first: there is
-        # no window manager to give the dialog the keyboard.
-        s.click(230, 22, window=BROWSER)
-        s.type(name)
-        s.wait_stable(window=BROWSER)
-        s.click(50, 80, window=BROWSER, double=True)
-        s.wait_stable(window=WINDOW)
-
-        s.click(*PLAY, window=WINDOW)
-        time.sleep(PLAY_SECONDS)
-        s.capture(os.path.join(OUT, "desktop-piece.png"), window=WINDOW,
-                  park=True)
+            click ${PLAY_X} ${PLAY_Y} --window ${WINDOW}
+            +${PLAY_SECONDS} capture ${OUT} --window ${WINDOW} --park
+        """, vars={"WINDOW": WINDOW, "BROWSER": BROWSER, "NAME": name,
+                   "PLAY_X": PLAY[0], "PLAY_Y": PLAY[1],
+                   "PLAY_SECONDS": PLAY_SECONDS,
+                   "OUT": os.path.join(OUT, "desktop-piece.png")})
 
 
 def sequence():
