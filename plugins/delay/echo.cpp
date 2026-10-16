@@ -189,13 +189,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if(myBufpos >= inOutLen) {
             myBufpos = 0;
         }
-        /* Into one ring's worth first, so the wrap below is a step or two
+        /* Whole rings off a delay of two or more, keeping its sign and so
+           the way the cast below rounds it, so the wrap is a step or two
            and not one per ring of a huge delay; a NaN reads the newest. */
         float behind = (*in_delay)[i];
+        const float ring = (float)inOutLen;
 
-        if(!(fabsf(behind) < (float)inOutLen))
-            behind = std::isfinite(behind)
-                ? fmodf(behind, (float)inOutLen) : 0;
+        if(!std::isfinite(behind))
+            behind = 0;
+        else if(fabsf(behind) >= 2 * ring)
+            behind -= ring * (truncf(behind / ring) - (behind > 0 ? 1 : -1));
 
         index = (int)(myBufpos - behind);
 
