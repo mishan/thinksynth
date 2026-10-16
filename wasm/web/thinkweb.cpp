@@ -432,13 +432,16 @@ bool   mirror_;             /* silent for good (tw_silent) */
  * is spread over windows, a slice of CPU each, and the windows it spans
  * are silent; it lands at the first frame of the window after it gets
  * there, and is heard from exactly where it was going. `seekLanded_' is
- * where each landed, for the mirror, which does the stepping in one go and
- * waits with its transport where it was going until told where the
- * worklet landed (tw_seek_release). A room's seek is stamped for a frame
+ * where each landed once stepped, for the mirror, which does the stepping
+ * in one go and waits with its transport where it was going until told
+ * where the worklet landed (tw_seek_release); one a transport command
+ * settled lands on the mirror where that command does, as it is. A room's
+ * seek is stamped for a frame
  * every peer applies it at, and is still taken whole. */
 bool   seekPending_;        /* begun, and not yet heard from */
 bool   seekStepped_;        /* and stepped to where it is going */
 std::deque<double> seekLanded_;
+double seekReleaseAt_ = -1;  /* the mirror's: where the next one lands */
 void settleSeek (double frame);
 void dropSeek (void);
 
@@ -846,12 +849,14 @@ bool seekStepFor (double budgetMs)
 }
 
 /* Heard from here: the transport's zero put where the window at `frame'
-   finds it where the seek was going. */
-void seekLand (double frame)
+   finds it where the seek was going. `told': for the mirror to land its
+   own there. */
+void seekLand (double frame, bool told)
 {
     sched_->seekEnd();
     seekPending_ = false;
     seekStepped_ = false;
+    seekReleaseAt_ = -1;
 
     if (sched_->running())
     {
@@ -863,22 +868,25 @@ void seekLand (double frame)
     if (!mirror_ && !catching_)
         synth_->setSilent(false);
 
-    if (!mirror_)
+    if (!mirror_ && told)
         seekLanded_.push_back(frame);
 }
 
 /* The window at `frame' about to be stepped, with a seek under way: true
    once it has landed and the window is to be heard. A mirror steps all the
-   way at once and lands only where the worklet says it did. */
+   way at once and lands only where the worklet says it did -- which can be
+   told before the mirror has begun it, when the worklet got there in the
+   window it began in. */
 bool seekOn (double frame, double budgetMs)
 {
     if (!seekStepped_)
         seekStepped_ = seekStepFor(budgetMs);
 
-    if (!seekStepped_ || mirror_)
+    if (!seekStepped_ ||
+        (mirror_ && (seekReleaseAt_ < 0 || frame < seekReleaseAt_)))
         return false;
 
-    seekLand(frame);
+    seekLand(frame, true);
     return true;
 }
 
@@ -893,7 +901,7 @@ void settleSeek (double frame)
     if (!seekStepped_)
         seekStepped_ = seekStepFor(-1);
 
-    seekLand(frame);
+    seekLand(frame, false);
 }
 
 /* A seek under way given up, for a load or a start from the top that
@@ -907,6 +915,7 @@ void dropSeek (void)
     sched_->halt();
     seekPending_ = false;
     seekStepped_ = false;
+    seekReleaseAt_ = -1;
 
     if (!mirror_ && !catching_)
         synth_->setSilent(false);
@@ -7261,16 +7270,15 @@ EMSCRIPTEN_KEEPALIVE double tw_seek_landed (void)
 }
 
 /* The mirror's seek, landed where the worklet's did: the windows up to
-   `frame' with the transport waiting, and heard from there. */
+   `frame' with the transport waiting, and heard from there -- or from the
+   window it begins in, if that is `frame' itself. */
 EMSCRIPTEN_KEEPALIVE void tw_seek_release (double frame)
 {
-    if (!seekPending_)
-        return;
-
+    seekReleaseAt_ = frame;
     tw_step(frame);
 
-    if (seekPending_ && seekStepped_)
-        seekLand(rendered_);
+    if (seekPending_ && seekStepped_ && rendered_ >= seekReleaseAt_)
+        seekLand(rendered_, true);
 }
 
 /* Commands this instance could not queue, which on a mirror is the number

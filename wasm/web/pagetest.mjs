@@ -4065,7 +4065,8 @@ try
        silently up to it, which in one process() call held the audio for
        as long as that took. It is spread over the worklet's windows, a
        slice each, and heard from where it was going -- on the worklet and
-       on the mirror alike. */
+       on the mirror alike, and alike again for one back to the top, which
+       gets there in the window it begins in. */
     {
         const SEEK_PIECE = [
             'tempo 120;',
@@ -4080,6 +4081,8 @@ try
         ].join('\n');
         const latest = () => page.evaluate(() =>
             Math.max(0, ...window.solo.notes().map((n) => n.at)));
+        const last = () => page.evaluate(() =>
+            window.solo.notes().at(-1)?.at ?? 0);
 
         await page.selectOption('#mode', 'piece');
         await page.evaluate(() => window.solo.settled());
@@ -4101,6 +4104,10 @@ try
         const load = await page.evaluate(() => window.solo.quanta());
 
         await page.waitForTimeout(1000);
+        await page.click('#bandscenes .scene:has-text("long")');
+        const back = await until(last, (t) => t < 10);
+
+        await page.waitForTimeout(1500);
         const tapes = await page.evaluate(() => window.solo.tapeDiff());
 
         await page.click('#stop');
@@ -4111,9 +4118,10 @@ try
         check(load.recent.slowestMs < 50,
               '...without a process() call that stalls for the seek: the ' +
               `slowest was ${load.recent.slowestMs} ms`);
+        check(back < 10, `...and one back to the top: ${back}`);
         check(tapes.compared > tapesBefore.compared &&
               tapes.disagreements === tapesBefore.disagreements,
-              '...and the mirror lands where the worklet did: ' +
+              '...and the mirror lands where the worklet did, both times: ' +
               `${tapes.disagreements - tapesBefore.disagreements} of ` +
               `${tapes.compared - tapesBefore.compared} differ` +
               (tapes.disagreements > tapesBefore.disagreements
