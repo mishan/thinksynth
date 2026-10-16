@@ -942,33 +942,49 @@ checkRecompose (const std::map<std::string, thcPlugin *> &plugins,
                 const std::string &pluginDir, const std::filesystem::path &dir)
 {
     const double at = 5.3, until = 12;
-    const char *lfo =
-        "    stage lfo osc::simple { freq = 0.3; waveform = 0; amp = 1; };\n"
-        "    stage half math::mul { in0 = lfo->out; in1 = 0.5; };\n"
-        "    stage mid math::add { in0 = half->out; in1 = 0.5; };\n";
-
-    for (const std::string &nodes : { std::string(), std::string(lfo) })
+    auto lfo = [](const std::string &freq)
     {
-        auto text = [&nodes](int vel)
+        return "    stage lfo osc::simple { freq = " + freq +
+               "; waveform = 0; amp = 1; };\n"
+               "    stage half math::mul { in0 = lfo->out; in1 = 0.5; };\n"
+               "    stage mid math::add { in0 = half->out; in1 = 0.5; };\n";
+    };
+
+    /* No nodes; an LFO; and an LFO whose rate is a knob moved after a
+       phrase was composed and before the param is set: the phrase played
+       again reads the LFO at the new rate, as a play from the top does,
+       and not as it was. */
+    for (const int nodes : { 0, 1, 2 })
+    {
+        auto text = [&](int vel, double rate)
         {
-            return "tempo 120;\nchain a {\n" + nodes +
-                   "    stage src gen::lsystem { "
-                   "axiom = \"FFFFFFFFFFFFFFFF\"; depth = 0; notes = \"C4 D4 "
+            return "tempo 120;\n@r = " + std::to_string(rate) +
+                   ";\nchain a {\n" +
+                   (nodes == 2 ? "    start = 1 s;\n" : "") +
+                   (nodes == 0 ? "" : lfo(nodes == 1 ? "0.3" : "@r")) +
+                   "    stage src gen::lsystem { axiom = " +
+                   (nodes == 2 ? "\"F_F_F_F_F_F_F_F_F_F_F_F_\""
+                               : "\"FFFFFFFFFFFFFFFF\"") +
+                   "; depth = 0; notes = \"C4 D4 "
                    "E4\"; step = 0.5 beats; hold = 0.25 beats; vel = " +
                    std::to_string(vel) + "; };\n" +
-                   (nodes.empty() ? ""
-                                  : "    stage l xform::level { "
-                                    "gain = mid->out; };\n") +
+                   (nodes == 0 ? ""
+                               : "    stage l xform::level { "
+                                 "gain = mid->out; };\n") +
                    "    sink { channel = 1; };\n};\n";
         };
-        const std::string what = nodes.empty() ? "" : ", through an LFO";
+        const std::string what = nodes == 0 ? ""
+                               : nodes == 1 ? ", through an LFO"
+                               : ", through an LFO whose rate was moved";
         std::vector<std::string> errors;
         Peer p(plugins, pluginDir, dir, "r"),
              top(plugins, pluginDir, dir, "rt");
 
-        p.load(text(100), errors);
-        top.load(text(50), errors);
+        p.load(text(100, 0.3), errors);
+        top.load(text(50, 0.7), errors);
         play(top, "recompose", {}, until, [] { return 1024.0 / 44100; });
+        play(p, "recompose", {}, 3, [] { return 1024.0 / 44100; });
+        p.sched.knob("r")->setValue(0.7f);
         play(p, "recompose", {}, at, [] { return 1024.0 / 44100; });
 
         p.sched.chain(0)->stages[0]->params.set("vel", 50);

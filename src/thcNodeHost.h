@@ -19,6 +19,7 @@
 #ifndef THCNODEHOST_H
 #define THCNODEHOST_H
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -192,6 +193,29 @@ public:
        zeroed. What thcScheduler::reset means down here. */
     void reset (void);
 
+    /* ---- a chain played again from its start ------------------------
+     *
+     * Its stages read the nodes as they were at each wake. Every window
+     * since zero is the same as it was as long as no knob the graph reads
+     * has moved since the last reset -- a replay reads its knobs as they
+     * are now, for the whole of the piece -- so while that holds what the
+     * outputs read was is kept, and a replay is shown it rather than
+     * firing every window again. A graph with an LFO in it costs a
+     * replay a lookup a wake, not fifty windows a second of the piece. */
+
+    /* Whether what the outputs read has been kept since zero. */
+    bool recorded (void) const;
+
+    /* The outputs as at load, before any window has fired. */
+    void showLoad (void);
+
+    /* The outputs as they were at `transport', or stepped there if it is
+       past what has fired. */
+    void showAt (double transport);
+
+    /* The outputs as they are now, after showLoad or showAt. */
+    void showNow (void);
+
 private:
     /* One node as the file declared it, kept until build(). The engine's
        nodes cannot be made until every name is known, because a wire may
@@ -261,6 +285,19 @@ private:
 
     /* No node declares an ARG_STATE arg. */
     bool stateless_ = false;
+
+    /* The outputs handed to readers, and what each window left in them,
+       a row of read_.size() a window, while `kept_'. A deque, which grows
+       without copying what it holds. */
+    std::vector<thArg *> read_;
+    std::deque<float>    history_;
+    bool                 kept_ = true;
+
+    /* What a window wrote, kept; or nothing kept from here, since the
+       history is no longer a play from zero. */
+    void keep (void);
+    void forget (void);
+    void showRow (long window);
 
     /* Windows fired so far. The whole determinism story is that this is
        floor(transport * rate) + 1 and nothing else. */
