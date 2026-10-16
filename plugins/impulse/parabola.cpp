@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "think.h"
+#include "impulselen.h"
 
 #define SQR(x) ((x)*(x))
 
@@ -77,7 +78,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_len = mod->getArg(node, args[IN_LEN]);
     in_max = mod->getArg(node, args[IN_MAX]);
     in_percent = mod->getArg(node, args[IN_PERCENT]);
-    len = (int)(*in_len)[0];
+    len = impulseLen((*in_len)[0], samples);
     max = (*in_max)[0];
     percent = (*in_percent)[0];
     half = len/2;

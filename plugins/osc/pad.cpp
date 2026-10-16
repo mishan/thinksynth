@@ -61,8 +61,12 @@
  * osc/sampleslot.h's reason, and a window that long on the first note of
  * each octave in a live synth -- so a knob swept under a sounding voice
  * must not ask for a new one every window. A sweep changes the next note.
- * At most PAD_TABLES tables are kept per synth; a new one past that
- * replaces the one used longest ago.
+ * PAD_TABLES tables are kept per synth; a new one past that replaces the
+ * one used longest ago, unless that one is still being read -- every
+ * voice reads its table every window -- and then the new one is kept as
+ * well. Replacing a table a voice reads built it again the next window,
+ * twelve milliseconds a window for as long as more than PAD_TABLES
+ * tables sounded.
  *
  * DETERMINISTIC. The phases come from a fixed seed through splitmix64,
  * written out below, and are turned into radians by hand: the same params
@@ -90,6 +94,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <chrono>
 #include <map>
 #include <vector>
 
@@ -143,7 +148,18 @@ struct PadTable
 {
     std::vector<float> wave;
     unsigned long used;
+    double seen;                /* seconds, on a clock that only goes up */
 };
+
+/* How long a table nobody has read is still taken to be sounding: a few
+   windows at any rate a host renders at. */
+#define PAD_IDLE_SEC 0.5
+
+static double padNow (void)
+{
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 struct PadSlot
 {
@@ -366,11 +382,13 @@ static const std::vector<float> *padTable (const thPlugin *plugin,
     if (slot == NULL || slot->tables == NULL)
         return NULL;
 
+    const double now = padNow();
     std::map<PadKey, PadTable>::iterator i = slot->tables->find(key);
 
     if (i != slot->tables->end())
     {
         i->second.used = ++slot->clock;
+        i->second.seen = now;
         return &i->second.wave;
     }
 
@@ -382,13 +400,15 @@ static const std::vector<float> *padTable (const thPlugin *plugin,
             if (i->second.used < oldest->second.used)
                 oldest = i;
 
-        slot->tables->erase(oldest);
+        if (now - oldest->second.seen > PAD_IDLE_SEC)
+            slot->tables->erase(oldest);
     }
 
     PadTable &t = (*slot->tables)[key];
 
     padBuild(key, rate, t.wave);
     t.used = ++slot->clock;
+    t.seen = now;
 
     return &t.wave;
 }

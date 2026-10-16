@@ -34,6 +34,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <cmath>
+
 #include "think.h"
 
 static const char desc[] = "Echo (echo echo echo)";
@@ -68,8 +70,9 @@ int module_init (thPlugin *plugin)
        straight through.
 
        Sixty seconds is allowed and used: fx/tapeloop.dsp's ring is that long,
-       2.6 million floats at 44.1 kHz, allocated on the first window. No cap
-       is enforced here; the browser builds grow their heap to fit. */
+       2.6 million floats at 44.1 kHz, allocated on the first window. It is
+       also the most: a negative size cast to unsigned asked the audio thread
+       for gigabytes, and the throw ended the process. */
     plugin->setArgStep(args[IN_SIZE], 1);
     plugin->setArgDesc(args[IN_SIZE],
                        "How long the ring is, up to sixty seconds; it has to be "
@@ -160,8 +163,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float hpOut = (*inout_loop)[2];
     float *loop = inout_loop->allocate(3);
 
+    const float maxSize = 60.0f * samples;
+
     for(i = 0; i < windowlen; i++) {
-        unsigned int mySize = (int)(*in_size)[i];
+        const float size = (*in_size)[i];
+        unsigned int mySize = !(size > 0) ? 0
+                            : size > maxSize ? (unsigned int)maxSize
+                            : (unsigned int)size;
         unsigned int myBufpos = (int)*bufpos;
 
         buffer = inout_buffer->allocate(mySize);
@@ -181,7 +189,18 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if(myBufpos >= inOutLen) {
             myBufpos = 0;
         }
-        index = (int)(myBufpos - (*in_delay)[i]);
+        /* Whole rings off a delay of two or more, keeping its sign and so
+           the way the cast below rounds it, so the wrap is a step or two
+           and not one per ring of a huge delay; a NaN reads the newest. */
+        float behind = (*in_delay)[i];
+        const float ring = (float)inOutLen;
+
+        if(!std::isfinite(behind))
+            behind = 0;
+        else if(fabsf(behind) >= 2 * ring)
+            behind -= ring * (truncf(behind / ring) - (behind > 0 ? 1 : -1));
+
+        index = (int)(myBufpos - behind);
 
         /* A negative delay walks index forward instead of back, so clamp both
            ends rather than only wrapping negatives. */

@@ -22,6 +22,7 @@
 #include <math.h>
 
 #include "think.h"
+#include "impulselen.h"
 
 static const char desc[] = "Generates a square wave impulse";
 thPlugin::State    mystate = thPlugin::PASSIVE;
@@ -88,7 +89,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_pw = mod->getArg(node, args[IN_PW]);
     in_num = mod->getArg(node, args[IN_NUM]);
 
-    len = (int)(*in_len)[0];
+    len = impulseLen((*in_len)[0], samples);
     num = (*in_num)[0];
     width = len/num;
     pwidth = (*in_width)[0];
@@ -100,6 +101,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(len);
+
+    /* No pulses, rather than a step of nothing or less that never gets
+       to the end; nor more pulses than there are samples. */
+    if(!(num > 0) || num > len)
+    {
+        memset(out, 0, len * sizeof(float));
+        return 0;
+    }
 
     for(i = 0; (i+width) < len; i += width)
     {

@@ -1193,6 +1193,14 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 /* Audio thread. See the header. */
 void thMidiChan::drain (thMidiChan *old)
 {
+    /* One graph finishing behind this one, and the one it was letting
+       finish faded out now: a patch stepped through under a held chord
+       stacked every graph on the way, each rendering with its effect for
+       as long as thirty seconds. */
+    if (old != NULL && old->draining_ != NULL && old->drainFade_ < 0)
+        old->drainFade_ =
+            (int)(old->samplerate_ / 10 / old->windowlength_) + 1;
+
     draining_ = old;
     drainQuiet_ = 0;
     drainSilentVoices_ = 0;

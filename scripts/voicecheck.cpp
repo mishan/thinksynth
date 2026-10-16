@@ -1458,6 +1458,31 @@ int main (int argc, char **argv)
                      "swap: taking the channel away still cuts it" + on, "");
         }
 
+        /* Two swaps under a held note: the graph it started on is two back,
+           and is faded out rather than left to finish. */
+        {
+            Session s(pluginPath);
+
+            if (s.load(file))
+            {
+                s.synth.addNote(0, 60, 100);
+
+                const double held = rms(s.settled(16));
+
+                s.synth.loadTree(octave, 0, 100);
+                s.settled(2);
+                s.synth.loadTree(file, 0, 100);
+
+                const double after = rms(s.settled(16));
+
+                okOrFail(after < held * 0.01,
+                         "swap: a graph two swaps back is faded out",
+                         num(after) + " against " + num(held));
+            }
+            else
+                fail("swap: the graph loads for the second swap", "");
+        }
+
         /* A key pressed again on the new graph is let go of on the old one:
            a sequencer re-pressing a held key sends one note-off, for the
            last press. After the old graph's release only the new one is
