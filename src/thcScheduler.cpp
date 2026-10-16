@@ -5241,12 +5241,21 @@ thcScheduler::seekSection (size_t section)
     if (section >= sections_.size())
         return;
 
-    /* Its place in the first time through, and a cue at the end of each
-       hold on the way, so the walk does not wait in one. */
     std::vector<std::pair<double, int> > keep;
+    const double at = sectionPlace(section, keep);
+
+    seekWith(at, keep);
+}
+
+/* Its place in the first time through, and a cue at the end of each hold
+   on the way, so the walk does not wait in one. */
+double
+thcScheduler::sectionPlace (size_t section,
+                            std::vector<std::pair<double, int> > &keep) const
+{
     double at = 0;
 
-    for (size_t k = 0; k < section; k++)
+    for (size_t k = 0; k < section && k < sections_.size(); k++)
     {
         at += sectionLength(sections_[k]);
 
@@ -5254,14 +5263,42 @@ thcScheduler::seekSection (size_t section)
             keep.push_back(std::make_pair(at, (int)k + 1));
     }
 
-    seekWith(at, keep);
+    return at;
 }
 
 void
 thcScheduler::seekWith (double t,
                         const std::vector<std::pair<double, int> > &keep)
 {
-    const bool was = running_;
+    seekWithBegin(t, keep);
+
+    while (!seekStep(1 << 20))
+        ;
+
+    seekEnd();
+}
+
+void
+thcScheduler::seekBegin (double t)
+{
+    seekWithBegin(t, std::vector<std::pair<double, int> >());
+}
+
+void
+thcScheduler::seekSectionBegin (size_t section)
+{
+    std::vector<std::pair<double, int> > keep;
+    const double at = section < sections_.size()
+        ? sectionPlace(section, keep) : transportNow_;
+
+    seekWithBegin(at, keep);
+}
+
+void
+thcScheduler::seekWithBegin (double t,
+                             const std::vector<std::pair<double, int> > &keep)
+{
+    seekWas_ = running_;
 
     halt();
     reset();
@@ -5283,22 +5320,39 @@ thcScheduler::seekWith (double t,
        node moving is woken at the end of the step it moved in. An ear a
        composer listens through answers at once, as a harness's does, or
        a breeding population would not breed on the way. */
-    const double to = t - 1e-6;
+    seekTo_ = t - 1e-6;
+    seekWasSync_ = auditionSync_;
 
-    if (to > 0)
+    if (seekTo_ > 0)
     {
-        const bool wasSync = auditionSync_;
-
-        if (!wasSync)
+        if (!seekWasSync_)
             setAuditionSynchronous(true);
 
         seekControls_.clear();
         seeking_ = true;
         start();
+    }
+}
 
-        while (running_ && transportNow_ < to - 1e-9)
-            stepTransportTo(std::min(to, transportNow_ + 0.02));
+bool
+thcScheduler::seekStep (int steps)
+{
+    for (int n = 0; n < steps; n++)
+    {
+        if (!seeking_ || !running_ || transportNow_ >= seekTo_ - 1e-9)
+            return true;
 
+        stepTransportTo(std::min(seekTo_, transportNow_ + 0.02));
+    }
+
+    return !seeking_ || !running_ || transportNow_ >= seekTo_ - 1e-9;
+}
+
+void
+thcScheduler::seekEnd (void)
+{
+    if (seeking_)
+    {
         seeking_ = false;
 
         for (const auto &c : seekControls_)
@@ -5309,7 +5363,7 @@ thcScheduler::seekWith (double t,
 
         seekControls_.clear();
 
-        if (!wasSync)
+        if (!seekWasSync_)
             setAuditionSynchronous(false);
     }
 
@@ -5319,7 +5373,7 @@ thcScheduler::seekWith (double t,
        clock the timer steps by from now, or its first tick would step
        the transport by however long the seek took; otherwise waiting
        there for Play. A piece that ends before `t' has stopped itself. */
-    if (was && !(endAfter_ && transportNow_ >= arrangementEnd()))
+    if (seekWas_ && !(endAfter_ && transportNow_ >= arrangementEnd()))
         start();
     else
         running_ = false;

@@ -425,6 +425,26 @@ bool   catching_;           /* the transport is behind the output */
 double catchFrame_;         /* how far the stepping has got */
 bool   mirror_;             /* silent for good (tw_silent) */
 
+/* A seek from the page, in pieces (thcScheduler::seekBegin): a seek is the
+ * piece played silently from the top to where it is going, and the whole
+ * of it inside one process() stalled the audio thread for as long as that
+ * takes, which grows with how far it goes. In the worklet the stepping
+ * is spread over windows, a slice of CPU each, and the windows it spans
+ * are silent; it lands at the first frame of the window after it gets
+ * there, and is heard from exactly where it was going. `seekLanded_' is
+ * where each landed once stepped, for the mirror, which does the stepping
+ * in one go and waits with its transport where it was going until told
+ * where the worklet landed (tw_seek_release); one a transport command
+ * settled lands on the mirror where that command does, as it is. A room's
+ * seek is stamped for a frame
+ * every peer applies it at, and is still taken whole. */
+bool   seekPending_;        /* begun, and not yet heard from */
+bool   seekStepped_;        /* and stepped to where it is going */
+std::deque<double> seekLanded_;
+double seekReleaseAt_ = -1;  /* the mirror's: where the next one lands */
+void settleSeek (double frame);
+void dropSeek (void);
+
 /* A MIDI channel's chanargs while catching up: the last of each, sent once
    it is over (midiCaughtUp), as a seek sends them. */
 std::map<std::pair<int, std::string>, double> catchControls_;
@@ -680,6 +700,8 @@ void applyDue (double start, int len)
             }
 
             case CMD_TRANSPORT:
+                settleSeek(start);
+
                 switch (c.op)
                 {
                     case TW_START:
@@ -713,6 +735,23 @@ void applyDue (double start, int len)
                        window's first frame, as a resume is. */
                     case TW_SEEK:
                     case TW_SEEKSECTION:
+                        /* The page's: stepped in pieces from this window
+                           on (seekOn). */
+                        if (c.frame < 0)
+                        {
+                            if (c.op == TW_SEEK)
+                                sched_->seekBegin(c.value);
+                            else
+                                sched_->seekSectionBegin((size_t)c.value);
+
+                            dropStamped();
+                            newEpoch();
+                            seekPending_ = true;
+                            seekStepped_ = false;
+                            synth_->setSilent(true);
+                            break;
+                        }
+
                         if (c.op == TW_SEEK)
                             sched_->seek(c.value);
                         else
@@ -747,6 +786,7 @@ void beginDue (double start, int len)
         return;
 
     armed_ = false;
+    dropSeek();
 
     /* From the top: the instances recreated from their seeds and the
        transport at zero. The queue is not touched: what is in it arrived
@@ -790,6 +830,95 @@ void beginDue (double start, int len)
         originFrame_ = armFrame_;
 
     sched_->start();
+}
+
+/* Twenty-millisecond steps between looks at the clock. */
+static const int TW_SEEK_STEPS = 16;
+
+/* The seek under way stepped on, for `budgetMs' or all the way below zero.
+   True once it has got there. */
+bool seekStepFor (double budgetMs)
+{
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+
+    while (!sched_->seekStep(TW_SEEK_STEPS))
+        if (budgetMs >= 0 && tw_clock_ms() - t0 >= budgetMs)
+            return false;
+
+    return true;
+}
+
+/* Heard from here: the transport's zero put where the window at `frame'
+   finds it where the seek was going. `told': for the mirror to land its
+   own there. */
+void seekLand (double frame, bool told)
+{
+    sched_->seekEnd();
+    seekPending_ = false;
+    seekStepped_ = false;
+    seekReleaseAt_ = -1;
+
+    if (sched_->running())
+    {
+        originAt_ = sched_->now();
+        originFrame_ = frame;
+        pinned_ = true;
+    }
+
+    if (!mirror_ && !catching_)
+        synth_->setSilent(false);
+
+    if (!mirror_ && told)
+        seekLanded_.push_back(frame);
+}
+
+/* The window at `frame' about to be stepped, with a seek under way: true
+   once it has landed and the window is to be heard. A mirror steps all the
+   way at once and lands only where the worklet says it did -- which can be
+   told before the mirror has begun it, when the worklet got there in the
+   window it began in. */
+bool seekOn (double frame, double budgetMs)
+{
+    if (!seekStepped_)
+        seekStepped_ = seekStepFor(budgetMs);
+
+    if (!seekStepped_ ||
+        (mirror_ && (seekReleaseAt_ < 0 || frame < seekReleaseAt_)))
+        return false;
+
+    seekLand(frame, true);
+    return true;
+}
+
+/* A command that moves the transport, arriving with a seek under way: the
+   seek is finished first and lands here, and the command applies to where
+   it went. */
+void settleSeek (double frame)
+{
+    if (!seekPending_)
+        return;
+
+    if (!seekStepped_)
+        seekStepped_ = seekStepFor(-1);
+
+    seekLand(frame, false);
+}
+
+/* A seek under way given up, for a load or a start from the top that
+   replaces everything it was stepping. */
+void dropSeek (void)
+{
+    if (!seekPending_)
+        return;
+
+    sched_->seekEnd();
+    sched_->halt();
+    seekPending_ = false;
+    seekStepped_ = false;
+    seekReleaseAt_ = -1;
+
+    if (!mirror_ && !catching_)
+        synth_->setSilent(false);
 }
 
 /* Not behind any more, or never was: the synth sounds again, unless it is
@@ -3438,6 +3567,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
        that forgot itself every time somebody chose a piece. */
     pinned_ = false;
     originAt_ = 0;
+    dropSeek();
     endCatching();
 
     tape_.clear();
@@ -5687,6 +5817,7 @@ EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from,
                                     int catchUp)
 {
     dropStamped();
+    dropSeek();
     endCatching();
     armed_ = true;
     armFrame_ = originFrame;
@@ -6963,7 +7094,10 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
             applyDue(rendered_, len);
             beginDue(rendered_, len);
 
-            if (!catching_ || catchUp(rendered_, len, catchBudget_))
+            /* A seek still on its way leaves the window silent and the
+               transport where it is going. */
+            if ((!seekPending_ || seekOn(rendered_, catchBudget_)) &&
+                (!catching_ || catchUp(rendered_, len, catchBudget_)))
                 step(rendered_, len);
 
             held = (unsigned)len;
@@ -7101,6 +7235,15 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
         applyDue(rendered_, len);
         beginDue(rendered_, len);
 
+        /* Stepped all the way to where it is going, and waiting there to
+           be told where the worklet landed. */
+        if (seekPending_ && !seekOn(rendered_, -1))
+        {
+            synth_->process();
+            rendered_ += len;
+            continue;
+        }
+
         if (catching_)
             catchUp(rendered_, len, -1);
 
@@ -7111,6 +7254,31 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
     }
 
     return rendered_;
+}
+
+/* Where the worklet's seeks landed since this was last asked, the oldest
+   first, one a call; -1 when there are none. */
+EMSCRIPTEN_KEEPALIVE double tw_seek_landed (void)
+{
+    if (seekLanded_.empty())
+        return -1;
+
+    const double frame = seekLanded_.front();
+
+    seekLanded_.pop_front();
+    return frame;
+}
+
+/* The mirror's seek, landed where the worklet's did: the windows up to
+   `frame' with the transport waiting, and heard from there -- or from the
+   window it begins in, if that is `frame' itself. */
+EMSCRIPTEN_KEEPALIVE void tw_seek_release (double frame)
+{
+    seekReleaseAt_ = frame;
+    tw_step(frame);
+
+    if (seekPending_ && seekStepped_ && rendered_ >= seekReleaseAt_)
+        seekLand(rendered_, true);
 }
 
 /* Commands this instance could not queue, which on a mirror is the number

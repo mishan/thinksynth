@@ -1276,6 +1276,16 @@ public:
        still somewhere a click can reach. */
     void seekSection (size_t section);
 
+    /* seek() and seekSection() in pieces a host spreads over its windows:
+       begun, stepped `steps' of its 20 ms at a time until stepping says it
+       has got there, and ended. What they leave is what the one call
+       leaves, however many pieces it took; the transport is not to be
+       stepped in between. */
+    void seekBegin (double t);
+    void seekSectionBegin (size_t section);
+    bool seekStep (int steps);
+    void seekEnd (void);
+
     /* Only effective before any stage exists: a seed that changed under
        running instances would be a lie about what they were created
        with. .gen files with a pinned seed call this first. */
@@ -1581,6 +1591,12 @@ private:
 
     /* seek(), with the cues `keep' put back after the rewind. */
     void seekWith (double t, const std::vector<std::pair<double, int> > &keep);
+    void seekWithBegin (double t,
+                        const std::vector<std::pair<double, int> > &keep);
+
+    /* Where seekSection goes, and the cues it keeps on the way. */
+    double sectionPlace (size_t section,
+                         std::vector<std::pair<double, int> > &keep) const;
 
     /* Where a cue made now lands: cueSection's `gridBeats'. */
     double cueTime (double gridBeats) const;
@@ -2007,6 +2023,12 @@ private:
     int deliveringChain_;
 
     bool seeking_ = false;     /* seek() is playing ahead, silently      */
+
+    /* A seek in pieces (seekBegin): whether it was playing, where it is
+       going, and whether the ear was synchronous before it. */
+    bool   seekWas_ = false;
+    double seekTo_ = 0;
+    bool   seekWasSync_ = false;
 
     /* seekSection() is replaying to a section the person chose: the cue
        knob is followed but cues nothing, or a cue it makes on the way

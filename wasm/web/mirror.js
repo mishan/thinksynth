@@ -570,17 +570,23 @@ function act (m)
 
             for (const [cmd, frame] of handled)
             {
+                if (cmd === 'seek')
+                {
+                    M._tw_seek_release(frame);
+                    continue;
+                }
+
                 const h = held.get(cmd);
 
                 if (h === undefined)
                     continue;
 
                 held.delete(cmd);
-                M._tw_step(frame);
+                stepTo(frame);
                 act(h);
             }
 
-            M._tw_step(m.frame);
+            stepTo(m.frame);
 
             /* An edit moves chains and stages without a load, and the
                sequencer finds its tracks by index. Not `piece', which the
@@ -959,6 +965,32 @@ function act (m)
         case 'settempo':
             M.ccall('tw_piece_set_tempo', 'string', ['number'], [m.bpm]);
             break;
+    }
+}
+
+/* A window at a time, as the worklet renders a quantum at a time: what
+   came before a rewind or a seek goes out under the run it was in, and
+   what a window delivered under the run it ended in -- the worklet's own
+   rule (worklet.js, process). Stepped a batch at once, the events of the
+   windows before a seek went out under the run after it, and the two
+   tapes were held against each other an event or more apart. */
+function stepTo (frame)
+{
+    for (let at = M._tw_frame(); at < frame; at = M._tw_frame())
+    {
+        M._tw_step(at + 1);
+
+        const now = M._tw_epoch();
+
+        if (now !== epoch)
+        {
+            if (events.length > 0)
+                postTape();
+
+            epoch = now;
+        }
+
+        drain(M, events);
     }
 }
 

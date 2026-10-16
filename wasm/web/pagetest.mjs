@@ -4061,6 +4061,73 @@ try
               `and going to the next card's pad: ${kept}, ${next}`);
     }
 
+    /* A scene fifty minutes in: the seek there is the piece played
+       silently up to it, which in one process() call held the audio for
+       as long as that took. It is spread over the worklet's windows, a
+       slice each, and heard from where it was going -- on the worklet and
+       on the mirror alike, and alike again for one back to the top, which
+       gets there in the window it begins in. */
+    {
+        const SEEK_PIECE = [
+            'tempo 120;',
+            'section long 3000 s { };',
+            'section late 30 s { };',
+            'instrument org { dsp "organ0.dsp"; };',
+            ...Array.from({ length: 40 }, (_, i) =>
+                `chain c${i} { stage src gen::euclid { steps = 8; ` +
+                `fills = ${1 + i % 7}; rotate = ${i % 8}; ` +
+                'notes = "C4 E4 G4"; period = 0.125 s; hold = 0.1 s; }; ' +
+                'sink { instrument = org; }; };'),
+        ].join('\n');
+        const latest = () => page.evaluate(() =>
+            Math.max(0, ...window.solo.notes().map((n) => n.at)));
+        const last = () => page.evaluate(() =>
+            window.solo.notes().at(-1)?.at ?? 0);
+
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, SEEK_PIECE);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+        await page.selectOption('#mode', 'band');
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#play');
+        await until(latest, (t) => t > 0.5);
+
+        const tapesBefore = await page.evaluate(() => window.solo.tapeDiff());
+
+        await page.click('#bandscenes .scene:has-text("late")');
+        const landed = await until(latest, (t) => t >= 3000);
+        const load = await page.evaluate(() => window.solo.quanta());
+
+        await page.waitForTimeout(1000);
+        await page.click('#bandscenes .scene:has-text("long")');
+        const back = await until(last, (t) => t < 10);
+
+        await page.waitForTimeout(1500);
+        const tapes = await page.evaluate(() => window.solo.tapeDiff());
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        check(landed >= 3000 && landed < 3010,
+              `a scene 50 minutes in is played from: ${landed}`);
+        check(load.recent.slowestMs < 50,
+              '...without a process() call that stalls for the seek: the ' +
+              `slowest was ${load.recent.slowestMs} ms`);
+        check(back < 10, `...and one back to the top: ${back}`);
+        check(tapes.compared > tapesBefore.compared &&
+              tapes.disagreements === tapesBefore.disagreements,
+              '...and the mirror lands where the worklet did, both times: ' +
+              `${tapes.disagreements - tapesBefore.disagreements} of ` +
+              `${tapes.compared - tapesBefore.compared} differ` +
+              (tapes.disagreements > tapesBefore.disagreements
+                  ? `: ${tapes.recent.join(', ')}` : ''));
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
