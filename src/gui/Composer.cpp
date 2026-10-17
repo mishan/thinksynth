@@ -287,6 +287,11 @@ Composer::start (void)
     started_ = true;
 
     sched_ = new thcScheduler(synth_);
+
+    /* 20 ms is far finer than anything musical happening here and
+       coarser than anything GTK minds. */
+    tick_ = Glib::signal_timeout().connect(
+        [this]() { sched_->tick(); return true; }, 20);
     sched_->setGrower(
         [this](const std::string &text, const std::string &base,
                unsigned int choice, const std::string &kinds, size_t want,
@@ -366,6 +371,7 @@ Composer::~Composer (void)
     evolvePoll_.disconnect();
     evolve_.reset();
     delete evolveWin_;
+    tick_.disconnect();
     drawTimer_.disconnect();
     settle_.disconnect();
     reloadIdle_.disconnect();

@@ -2160,18 +2160,18 @@ public:
     }
 
     void noteOn (int channel, int note, int velocity, float level,
-                 gint64 when) override
+                 int64_t when) override
     {
         router_.noteOn(channel, note, velocity, level, when);
     }
 
-    void noteOff (int channel, int note, gint64 when) override
+    void noteOff (int channel, int note, int64_t when) override
     {
         router_.noteOff(channel, note, when);
     }
 
     void control (int channel, const std::string &name, double value,
-                  gint64 when) override
+                  int64_t when) override
     {
         if (catching_)
             catchControls_[std::make_pair(channel, name)] = value;
@@ -2190,7 +2190,7 @@ public:
        page's. */
     bool wantsClock (void) const override { return clock_; }
 
-    void clock (int kind, int position, gint64 when) override
+    void clock (int kind, int position, int64_t when) override
     {
         if (catching_)
             return;
@@ -2214,14 +2214,14 @@ public:
 
     /* The context time of the frame about to be rendered, in the stamps'
        microseconds: what a message due now is stamped with. */
-    static gint64 now (void)
+    static int64_t now (void)
     {
-        return (gint64)llround(rendered_ / rate_ * 1e6);
+        return (int64_t)llround(rendered_ / rate_ * 1e6);
     }
 
-    static gint64 stamp (double at)
+    static int64_t stamp (double at)
     {
-        return (gint64)llround(frameOf(at) / rate_ * 1e6);
+        return (int64_t)llround(frameOf(at) / rate_ * 1e6);
     }
 
     void setPorts (const std::vector<std::string> &names, bool enabled,
@@ -2357,7 +2357,7 @@ void midiCaughtUp (void)
 void keyOnChannel (int channel, float note, float velocity, bool on,
                    double at)
 {
-    const gint64 when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
+    const int64_t when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
 
     playedKey(channel, (int)note, (int)velocity, on);
 

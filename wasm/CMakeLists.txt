@@ -63,9 +63,7 @@ add_executable(thinksynth
     ${THINK_COMPOSERHOST_SOURCES}
     thinkwasm.cpp)
 
-# shim/ stands in for glibmm; see shim/glibmm.h.
 target_include_directories(thinksynth PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/shim"
     "${THINK_TOP}"
     "${THINK_TOP}/src")
 

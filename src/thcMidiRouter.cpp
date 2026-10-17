@@ -124,7 +124,7 @@ thcMidiRouter::resolve (const std::string &pattern,
 
 void
 thcMidiRouter::attach (int channel, int port, const thcInstrument &inst,
-                       gint64 now)
+                       int64_t now)
 {
     Route r;
 
@@ -171,7 +171,7 @@ thcMidiRouter::midiChannelOf (int channel) const
 }
 
 void
-thcMidiRouter::emit (int channel, const Route &r, gint64 when,
+thcMidiRouter::emit (int channel, const Route &r, int64_t when,
                      uint8_t status, uint8_t d1, uint8_t d2, uint8_t len)
 {
     Msg m;
@@ -189,7 +189,7 @@ thcMidiRouter::emit (int channel, const Route &r, gint64 when,
 
 void
 thcMidiRouter::noteOn (int channel, int note, int velocity, float level,
-                       gint64 when)
+                       int64_t when)
 {
     auto r = routes_.find(channel);
 
@@ -214,7 +214,7 @@ thcMidiRouter::noteOn (int channel, int note, int velocity, float level,
 }
 
 void
-thcMidiRouter::noteOff (int channel, int note, gint64 when)
+thcMidiRouter::noteOff (int channel, int note, int64_t when)
 {
     auto r = routes_.find(channel);
 
@@ -226,7 +226,7 @@ thcMidiRouter::noteOff (int channel, int note, gint64 when)
 
 void
 thcMidiRouter::control (int channel, const std::string &name, double value,
-                        gint64 when)
+                        int64_t when)
 {
     auto r = routes_.find(channel);
 
@@ -271,7 +271,7 @@ thcMidiRouter::control (int channel, const std::string &name, double value,
 }
 
 void
-thcMidiRouter::forget (int channel, gint64 now)
+thcMidiRouter::forget (int channel, int64_t now)
 {
     for (auto &r : routes_)
         if (channel < 0 || r.first == channel)

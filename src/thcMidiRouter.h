@@ -48,7 +48,7 @@ class thcMidiRouter
 public:
     struct Msg
     {
-        gint64  when;
+        int64_t  when;
         int     channel;            /* engine channel                     */
         int     port;               /* index into the names attach saw    */
         uint8_t bytes[3];
@@ -87,7 +87,7 @@ public:
     /* Engine channel `channel' plays `inst' on port `port', from `now':
        the program change, if it names one, goes then. */
     void attach (int channel, int port, const thcInstrument &inst,
-                 gint64 now);
+                 int64_t now);
     void detach (int channel);
 
     /* The same route, at a new index: the port list was made again and
@@ -98,16 +98,16 @@ public:
     int  midiChannelOf (int channel) const;
 
     void noteOn (int channel, int note, int velocity, float level,
-                 gint64 when);
-    void noteOff (int channel, int note, gint64 when);
+                 int64_t when);
+    void noteOff (int channel, int note, int64_t when);
     void control (int channel, const std::string &name, double value,
-                  gint64 when);
+                  int64_t when);
 
     /* After a flush the device's expression and controllers are what it
        last heard, and the next note or value sends them again; a pitch
        wheel bent away from center is centered, stamped `now'. -1 is every
        channel. */
-    void forget (int channel, gint64 now);
+    void forget (int channel, int64_t now);
 
 private:
     struct Route
@@ -119,7 +119,7 @@ private:
         std::map<int, int> sent;        /* cc -> last value emitted       */
     };
 
-    void emit (int channel, const Route &r, gint64 when, uint8_t status,
+    void emit (int channel, const Route &r, int64_t when, uint8_t status,
                uint8_t d1, uint8_t d2, uint8_t len = 3);
 
     Emit                               emit_;

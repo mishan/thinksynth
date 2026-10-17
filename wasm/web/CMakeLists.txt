@@ -152,10 +152,8 @@ get_property(STATIC_SOURCES GLOBAL PROPERTY THINK_STATIC_SOURCES)
 # ---------------------------------------------------------------------------
 
 # The composer host is ../cmake/ThinkEmscripten.cmake's list, shared with
-# the Node build. shim/ stands in for glibmm -- see wasm/shim/glibmm.h; the
-# scheduler asks glib for a monotonic clock it does not use here and hangs a
-# timeout that never fires, because the audio clock steps it rather than the
-# main thread (docs/JAM.md). The composer canvas is the desktop's, compiled
+# the Node build. Nothing calls the scheduler's tick here: the audio clock
+# steps it rather than the main thread (docs/JAM.md). The composer canvas is the desktop's, compiled
 # again here: one drawing, one behaviour, two shells. CanvasContent is its
 # base; what it draws through is cairo2d's cairomm face, and what it never
 # sees is a toolkit -- the first Gtk:: that got into either would fail this
@@ -209,7 +207,6 @@ add_library(thinkweb_parts OBJECT
 set(THINKWEB_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${THINK_TOP}/wasm"
-    "${THINK_TOP}/wasm/shim"
     "${THINK_TOP}"
     "${THINK_TOP}/src")
 

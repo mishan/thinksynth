@@ -27,7 +27,10 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <glibmm.h>
+#include <stdint.h>
+
+#include <chrono>
+
 #include <sigc++/sigc++.h>
 
 #include "libthink/thcomposer.h"
@@ -57,10 +60,11 @@ class thcPlugin;
  * whole pipeline stays deterministic because nothing about transformer
  * order depends on wall-clock interleaving.
  *
- * Threading: everything here runs on the GUI thread off one Glib timeout,
- * exactly like MIDI input runs off its Dispatcher. The synth is only ever
- * touched through the same calls the on-screen keyboard already uses, so
- * the two-thread invariant and the command queue stay the whole story.
+ * Threading: everything here runs on the GUI thread off the one timer the
+ * app calls tick() from, exactly like MIDI input runs off its Dispatcher.
+ * The synth is only ever touched through the same calls the on-screen
+ * keyboard already uses, so the two-thread invariant and the command queue
+ * stay the whole story.
  */
 
 /* Backing store for one instance's params; implements the thcParams
@@ -383,13 +387,23 @@ struct thcInstrument
         : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}
 };
 
+/* The clock the scheduler paces itself by and stamps MIDI with, in
+ * microseconds. One function, so that whatever compares a stamp against
+ * now -- gthMidiOut's sending thread -- reads the same clock it was
+ * stamped on. */
+inline int64_t thcMonotonicUs (void)
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 /* Where the notes of an instrument played over MIDI go. The scheduler is
  * toolkit-free and knows no port; a host that can send MIDI implements
  * this and hands it to setMidiOut, and every instrument that names `midi'
  * is offered to it on apply. Without one -- a harness, genwav, the
  * browser -- such an instrument plays its `dsp', or nothing.
  *
- * Times are g_get_monotonic_time() microseconds at which the event is
+ * Times are thcMonotonicUs() microseconds at which the event is
  * due: the scheduler delivers on a 20 ms timer, so an event arrives up to
  * a step after its time, and the stamp is what lets an implementation
  * send it on a steady clock anyway (see gthMidiOut). A time already
@@ -410,12 +424,12 @@ public:
     virtual void detach (int channel) = 0;
 
     virtual void noteOn (int channel, int note, int velocity, float level,
-                         gint64 when) = 0;
-    virtual void noteOff (int channel, int note, gint64 when) = 0;
+                         int64_t when) = 0;
+    virtual void noteOff (int channel, int note, int64_t when) = 0;
 
     /* A chanarg. One the instrument maps with no `cc' is dropped. */
     virtual void control (int channel, const std::string &name,
-                          double value, gint64 when) = 0;
+                          double value, int64_t when) = 0;
 
     /* Stop: whatever is queued for the channel is dropped and every note
        sounding on it is ended now. -1 is every channel. */
@@ -431,7 +445,7 @@ public:
            CLOCK_POSITION };
 
     virtual bool wantsClock (void) const { return false; }
-    virtual void clock (int kind, int position, gint64 when)
+    virtual void clock (int kind, int position, int64_t when)
     {
         (void)kind;
         (void)position;
@@ -1034,10 +1048,10 @@ public:
        one: `at' turns a transport time into a stamp, `now' says what the
        stamp is now. The browser's, whose clock is the AudioContext's and
        whose transport runs at a speed of its own. Unset, a stamp is the
-       step's g_get_monotonic_time() moved by the event's distance from
+       step's thcMonotonicUs() moved by the event's distance from
        the transport. */
-    void setMidiClock (const std::function<gint64 (double at)> &at,
-                       const std::function<gint64 (void)> &now)
+    void setMidiClock (const std::function<int64_t (double at)> &at,
+                       const std::function<int64_t (void)> &now)
     {
         midiAt_ = at;
         midiNow_ = now;
@@ -1399,19 +1413,24 @@ public:
     double now (void) const { return transportNow_; }
     bool   running (void) const { return running_; }
 
-    /* Advance the musical clock by `dt' seconds without the Glib timer:
-       the virtual-clock spelling of one timerCallback, for harnesses.
+    /* One step of the app's ~20 ms timer, by however far thcMonotonicUs
+       moved since the last. Called while paused too, so composer_draw
+       views stay live; only the musical clock freezes. */
+    void tick (void);
+
+    /* Advance the musical clock by `dt' seconds without the app's timer:
+       the virtual-clock spelling of one tick, for harnesses.
        Deterministic because everything below is keyed in transport time:
        two renders with the same seed and the same step size deliver the
        same stream, which is what makes a replay gate writable at all.
        In the app the timer owns time and nothing calls this. */
     void stepTransport (double dt);
 
-    /* stepTransport, with `mono' the g_get_monotonic_time() the step
-       lands on: what timerCallback does, and what stamps the events a
+    /* stepTransport, with `mono' the thcMonotonicUs() the step
+       lands on: what tick does, and what stamps the events a
        thcMidiOut is handed. A harness passes a clock of its own to read
        the stamps back. */
-    void stepTransportAt (double dt, gint64 mono);
+    void stepTransportAt (double dt, int64_t mono);
 
     /* The same step, to an absolute transport time rather than by a
        length. A host that knows where the transport should be -- the
@@ -1554,7 +1573,6 @@ private:
        reliably happens again after the ring was full. */
     void retireStranded (void);
 
-    bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride,
                        int chain, thArg *knob = NULL);
     void setKnobFrom (thArg *knob, const thcEvent &ev, int chain);
@@ -1625,7 +1643,6 @@ private:
     thArg                   *cueKnob_;
     double                   cueGrid_;
     long                     cueKnobLast_; /* the section it named */
-    sigc::connection         timer_;
 
     /* Piece knobs, owned here; and the signal connections that carry a
        knob's movement to the params bound to it (param_changed forward
@@ -1898,11 +1915,11 @@ private:
     bool takeGraphOff (const thcInstrument &inst);
 
     /* The wall-clock moment transportNow_ is, for stamping what goes to
-       midiOut_: set by timerCallback before it steps. */
-    gint64 stampAt (double at) const;
-    gint64                     stepMono_ = 0;
-    std::function<gint64 (double)> midiAt_;
-    std::function<gint64 (void)>   midiNow_;
+       midiOut_: set by tick before it steps. */
+    int64_t stampAt (double at) const;
+    int64_t                     stepMono_ = 0;
+    std::function<int64_t (double)> midiAt_;
+    std::function<int64_t (void)>   midiNow_;
 
     /* Instruments whose channel would not go. Deliberately NOT cleared
        by clearChains: they do not belong to the piece any more -- the
@@ -1925,7 +1942,7 @@ private:
     double   tempoAt_;
     double   beatAtTempo_;
     double   tempo_;
-    gint64   lastMono_;        /* g_get_monotonic_time at last tick      */
+    int64_t   lastMono_;        /* thcMonotonicUs at last tick            */
     unsigned masterSeed_;      /* stage seeds derive from this           */
 
     /* seq is push order, Later's tie-break; see there. */

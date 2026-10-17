@@ -505,7 +505,7 @@ The composer can play an instrument on a device (`midi "port";` in a `.gen`,
 docs/GEN_FORMAT.md §4b). The scheduler stays toolkit-free: it talks to a
 `thcMidiOut` a host sets, and for a channel attached there it hands over
 notes, their offs and mapped chanargs instead of calling the synth. Each one
-carries the `g_get_monotonic_time()` it is due, worked out from the step's
+carries the `thcMonotonicUs()` it is due, worked out from the step's
 own clock (`stepTransportAt`) and the event's distance from the transport.
 
 ```

@@ -142,7 +142,6 @@ set(THINK_PKG_LIB_DIR "${CMAKE_INSTALL_LIBDIR}")
 # themselves -- wasm/ for Node and wasm/web/ for the worklet -- so the two
 # wasm hosts the tape gate compares cannot be built from different source
 # sets.
-# glib.cpp and shim/ stand in for glibmm; see shim/glibmm.h.
 set(THINK_COMPOSERHOST_SOURCES
     "${THINK_TOP}/src/thcPlugin.cpp"
     "${THINK_TOP}/src/thcScheduler.cpp"
@@ -154,8 +153,7 @@ set(THINK_COMPOSERHOST_SOURCES
     "${THINK_TOP}/src/thcFreeze.cpp"
     "${THINK_TOP}/src/thcMidiRouter.cpp"
     "${THINK_TOP}/src/thcMidiFile.cpp"
-    "${THINK_TOP}/src/thcMidiExport.cpp"
-    "${THINK_TOP}/wasm/glib.cpp")
+    "${THINK_TOP}/src/thcMidiExport.cpp")
 
 add_subdirectory("${THINK_TOP}/libthink" libthink EXCLUDE_FROM_ALL)
 add_subdirectory("${THINK_TOP}/plugins" plugins)

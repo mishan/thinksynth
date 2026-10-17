@@ -41,7 +41,6 @@
 
 #include <unistd.h>
 
-#include <glib.h>
 #include <RtMidi.h>
 
 #include "gthMidiOut.h"
@@ -60,7 +59,7 @@ static void check (bool ok, const char *what, const std::string &detail = "")
 struct Sent
 {
     std::string port;
-    gint64 at;
+    int64_t at;
     std::vector<uint8_t> bytes;
 };
 
@@ -86,7 +85,7 @@ public:
     {
         std::lock_guard<std::mutex> l(sentLock);
 
-        sent.push_back({ name_, g_get_monotonic_time(),
+        sent.push_back({ name_, thcMonotonicUs(),
                          std::vector<uint8_t>(msg, msg + len) });
     }
 
@@ -227,11 +226,11 @@ int main (void)
 
     /* A line of notes handed over late and unevenly -- as a 20 ms timer
        hands them -- comes out on its stamps plus the delay. */
-    const gint64 t0 = g_get_monotonic_time() + 20000;
+    const int64_t t0 = thcMonotonicUs() + 20000;
 
     for (int i = 0; i < 8; i++)
     {
-        const gint64 at = t0 + i * 25000;
+        const int64_t at = t0 + i * 25000;
 
         out.noteOn(5, 60 + i, 100, 1, at);
         out.noteOff(5, 60 + i, at + 12000);
@@ -242,14 +241,14 @@ int main (void)
     {
         const std::vector<Sent> s = take();
         size_t ons = 0;
-        gint64 early = 0, late = 0;
+        int64_t early = 0, late = 0;
         int prev = 59;
         bool ordered = true;
 
         for (const Sent &m : s)
             if ((m.bytes[0] & 0xf0) == 0x90)
             {
-                const gint64 want = t0 + (m.bytes[1] - 60) * 25000 + 30000;
+                const int64_t want = t0 + (m.bytes[1] - 60) * 25000 + 30000;
 
                 early = std::max(early, want - m.at);
                 late = std::max(late, m.at - want);
@@ -278,7 +277,7 @@ int main (void)
     /* ---- retrigger, stale off, expression ---- */
 
     {
-        const gint64 now = g_get_monotonic_time() - 30000;
+        const int64_t now = thcMonotonicUs() - 30000;
 
         out.noteOn(5, 64, 90, 1, now);
         out.noteOn(5, 64, 80, 0.7f, now);        /* the key again         */
@@ -301,7 +300,7 @@ int main (void)
     /* ---- controllers ---- */
 
     {
-        const gint64 now = g_get_monotonic_time() - 30000;
+        const int64_t now = thcMonotonicUs() - 30000;
 
         out.control(5, "cutoff", 600, now);      /* 64                    */
         out.control(5, "cutoff", 601, now);      /* still 64: not sent    */
@@ -333,7 +332,7 @@ int main (void)
         settle(250);
         take();
 
-        const gint64 now = g_get_monotonic_time() - 30000;
+        const int64_t now = thcMonotonicUs() - 30000;
 
         out.control(11, "wheel", 0, now);       /* centered: 8192        */
         out.control(11, "wheel", 2, now);       /* all the way up        */
@@ -357,10 +356,10 @@ int main (void)
         /* Bent and sent; then a center that is still queued when a flush
            drops it: the device never heard it, so the flush centers. */
         out.setDelay(200);
-        out.control(11, "wheel", 2, g_get_monotonic_time() - 200000);
+        out.control(11, "wheel", 2, thcMonotonicUs() - 200000);
         settle(100);
         take();
-        out.control(11, "wheel", 0, g_get_monotonic_time());
+        out.control(11, "wheel", 0, thcMonotonicUs());
         out.flush(11);
         settle(400);
         s = take();
@@ -376,7 +375,7 @@ int main (void)
     /* ---- flush ---- */
 
     {
-        const gint64 now = g_get_monotonic_time();
+        const int64_t now = thcMonotonicUs();
 
         out.noteOn(5, 67, 100, 1, now - 30000);  /* sounding              */
         out.noteOn(5, 69, 100, 1, now + 500000); /* queued for later      */
@@ -395,12 +394,12 @@ int main (void)
     /* ---- detach ---- */
 
     {
-        out.noteOn(5, 72, 100, 1, g_get_monotonic_time() - 30000);
+        out.noteOn(5, 72, 100, 1, thcMonotonicUs() - 30000);
         settle(250);
         take();
 
         out.detach(5);
-        out.noteOn(5, 74, 100, 1, g_get_monotonic_time() - 30000);
+        out.noteOn(5, 74, 100, 1, thcMonotonicUs() - 30000);
         settle(250);
 
         const std::vector<Sent> s = take();
@@ -423,7 +422,7 @@ int main (void)
                                       { "Digitakt:Digitakt MIDI 1" }),
               "a clock port, by its stable name, asks for clock");
 
-        const gint64 t = g_get_monotonic_time() + 50000;
+        const int64_t t = thcMonotonicUs() + 50000;
 
         out.clock(thcMidiOut::CLOCK_POSITION, 9, t);
         out.clock(thcMidiOut::CLOCK_CONTINUE, 0, t);
@@ -459,7 +458,7 @@ int main (void)
         settle(250);
         take();
 
-        const gint64 t0 = g_get_monotonic_time();
+        const int64_t t0 = thcMonotonicUs();
 
         out.noteOn(6, 50, 100, 1, t0);
         out.setDelay(0);                       /* turned down while it waits */
@@ -493,7 +492,7 @@ int main (void)
         settle(250);
         take();
 
-        const gint64 now = g_get_monotonic_time() - 30000;
+        const int64_t now = thcMonotonicUs() - 30000;
 
         out.noteOn(9, 64, 100, 1, now);         /* b holds 64            */
         out.noteOn(8, 67, 100, 1, now);         /* a holds 67            */
@@ -511,8 +510,8 @@ int main (void)
 
         /* a takes 64 over from b; b's off for its own 64 is stale. */
         out.attach(8, a, why);
-        out.noteOn(8, 64, 90, 1, g_get_monotonic_time() - 30000);
-        out.noteOff(9, 64, g_get_monotonic_time() - 30000);
+        out.noteOn(8, 64, 90, 1, thcMonotonicUs() - 30000);
+        out.noteOff(9, 64, thcMonotonicUs() - 30000);
         settle(250);
         s = take();
 
@@ -597,7 +596,7 @@ int main (void)
 
             if (ok)
             {
-                const gint64 now = g_get_monotonic_time();
+                const int64_t now = thcMonotonicUs();
 
                 real.noteOn(0, 36, 110, 1, now);
                 real.noteOff(0, 36, now + 10000);

@@ -24,6 +24,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <random>
 
 #include "think.h"
 #include "thUnits.h"
@@ -392,10 +393,6 @@ thcParamStore::announce (int index)
 
 /* ---- thcScheduler ----------------------------------------------------- */
 
-/* One timer drives everything. 20ms is far finer than anything musical
- * happening here and coarser than anything GTK minds. It keeps running
- * while paused so composer_draw views stay live; only the musical clock
- * freezes. */
 thcScheduler::thcScheduler (thSynth *synth)
     /* In declaration order, which is what -Wreorder is about:
        controlSynth_ is declared up beside the instrument table it
@@ -407,17 +404,14 @@ thcScheduler::thcScheduler (thSynth *synth)
       ownsControl_(true), ownsAuditioner_(true), started_(false),
       controlSynth_(NULL), auditioner_(NULL), running_(false),
       transportNow_(0), beat_(0), tempoAt_(0), beatAtTempo_(0), tempo_(120),
-      lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
+      lastMono_(thcMonotonicUs()),
+      masterSeed_(std::random_device()()), pendingSeq_(0), heapSeq_(0),
       injectingLive_(false), deliveringChain_(-1), passingThrough_(false)
 {
-    timer_ = Glib::signal_timeout().connect(
-        sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
 }
 
 thcScheduler::~thcScheduler (void)
 {
-    timer_.disconnect();
     flushNoteOffs();
     clearChains();
 
@@ -3943,10 +3937,10 @@ static const double MAX_TIMER_STEP_S = 0.25;
 
 /* Integrate time rather than derive it, so pause and tempo changes are
  * both trivially correct: seconds and beats just stop or change slope. */
-bool
-thcScheduler::timerCallback (void)
+void
+thcScheduler::tick (void)
 {
-    gint64 mono = g_get_monotonic_time();
+    int64_t mono = thcMonotonicUs();
 
     /* A main loop that stalled -- a reload, a dialog, a sanitizer -- is
        waited out rather than made up for. Composing the seconds it missed
@@ -3964,8 +3958,6 @@ thcScheduler::timerCallback (void)
     retireStranded();
 
     lastMono_ = mono;
-
-    return true;
 }
 
 /* One transport step, however time got measured -- the real timer above,
@@ -3974,7 +3966,7 @@ thcScheduler::timerCallback (void)
 void
 thcScheduler::stepTransport (double dt)
 {
-    /* Before the early return, so a harness -- which has no Glib timer
+    /* Before the early return, so a harness -- which has no timer
        and reaches the scheduler only through here -- still gets the
        retry it would otherwise never see. */
     retireStranded();
@@ -3991,7 +3983,7 @@ thcScheduler::stepTransport (double dt)
 }
 
 void
-thcScheduler::stepTransportAt (double dt, gint64 mono)
+thcScheduler::stepTransportAt (double dt, int64_t mono)
 {
     stepMono_ = mono;
     stepTransport(dt);
@@ -4996,19 +4988,19 @@ thcScheduler::endNote (int channel, int note, double at)
    moved by how far `at' is from where the step brought the transport.
    Anything outside a running step -- a paused transport, a seek, a
    harness stepping without a clock -- is now. */
-gint64
+int64_t
 thcScheduler::stampAt (double at) const
 {
     if (!running_ || seeking_)
-        return midiNow_ ? midiNow_() : g_get_monotonic_time();
+        return midiNow_ ? midiNow_() : thcMonotonicUs();
 
     if (midiAt_)
         return midiAt_(at);
 
     if (stepMono_ == 0)
-        return g_get_monotonic_time();
+        return thcMonotonicUs();
 
-    return stepMono_ + (gint64)llround((at - transportNow_) * 1e6);
+    return stepMono_ + (int64_t)llround((at - transportNow_) * 1e6);
 }
 
 void
@@ -5147,7 +5139,7 @@ thcScheduler::start (void)
     /* The DSP's random nodes re-roll with the piece's seed too. */
     synth_->setSeed(masterSeed_);
 
-    lastMono_ = g_get_monotonic_time();
+    lastMono_ = thcMonotonicUs();
     running_ = true;
     started_ = true;
     clockStart();
@@ -5170,7 +5162,7 @@ thcScheduler::clockStart (void)
     if (!clocking())
         return;
 
-    const gint64 now = stampAt(transportNow_);
+    const int64_t now = stampAt(transportNow_);
 
     if (beat_ < 1e-9)
     {
@@ -5359,7 +5351,7 @@ thcScheduler::seekEnd (void)
             if (playsOverMidi(c.first.first))
                 midiOut_->control(c.first.first, c.first.second, c.second,
                                   midiNow_ ? midiNow_()
-                                           : g_get_monotonic_time());
+                                           : thcMonotonicUs());
 
         seekControls_.clear();
 
