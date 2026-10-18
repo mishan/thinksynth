@@ -573,6 +573,7 @@ protected:
        managed: a popover parented to the canvas is not the canvas's
        child in the container sense, so nothing else would free it. */
     Gtk::Popover *paramPop_ = NULL;
+    sigc::connection tick_;
     sigc::connection drawTimer_;
 
     /* applyParam's chains, composed again as written once their edits

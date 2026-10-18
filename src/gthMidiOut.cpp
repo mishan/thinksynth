@@ -19,7 +19,6 @@
 #include <chrono>
 #include <cmath>
 
-#include <glib.h>
 #include <RtMidi.h>
 
 #include "gthMidiOut.h"
@@ -171,7 +170,7 @@ gthMidiOut::setDelay (int ms)
     {
         std::lock_guard<std::mutex> l(lock_);
 
-        delayUs_ = (gint64)std::max(0, ms) * 1000;
+        delayUs_ = (int64_t)std::max(0, ms) * 1000;
     }
 
     /* What the thread is waiting for is due at a different time now. */
@@ -291,7 +290,7 @@ gthMidiOut::attach (int channel, const thcInstrument &inst, std::string &why)
         return false;
 
     /* Stamped back by the delay, so the program change goes now. */
-    router_.attach(channel, port, inst, g_get_monotonic_time() - delayUs_);
+    router_.attach(channel, port, inst, thcMonotonicUs() - delayUs_);
     return true;
 }
 
@@ -333,7 +332,7 @@ gthMidiOut::queue (const thcMidiRouter::Msg &r)
 
 void
 gthMidiOut::noteOn (int channel, int note, int velocity, float level,
-                    gint64 when)
+                    int64_t when)
 {
     std::lock_guard<std::mutex> l(lock_);
 
@@ -341,7 +340,7 @@ gthMidiOut::noteOn (int channel, int note, int velocity, float level,
 }
 
 void
-gthMidiOut::noteOff (int channel, int note, gint64 when)
+gthMidiOut::noteOff (int channel, int note, int64_t when)
 {
     std::lock_guard<std::mutex> l(lock_);
 
@@ -350,7 +349,7 @@ gthMidiOut::noteOff (int channel, int note, gint64 when)
 
 void
 gthMidiOut::control (int channel, const std::string &name, double value,
-                     gint64 when)
+                     int64_t when)
 {
     std::lock_guard<std::mutex> l(lock_);
 
@@ -392,7 +391,7 @@ gthMidiOut::flush (int channel)
 
     /* Whatever the device heard last is still what it has; a route
        starting again sends expression and controllers afresh. */
-    router_.forget(channel, g_get_monotonic_time() - delayUs_);
+    router_.forget(channel, thcMonotonicUs() - delayUs_);
 }
 
 std::string
@@ -457,7 +456,7 @@ gthMidiOut::wantsClock (void) const
    clock and the notes it times have to arrive lined up. Channel -2, which
    no flush of an engine channel drops. */
 void
-gthMidiOut::clock (int kind, int position, gint64 when)
+gthMidiOut::clock (int kind, int position, int64_t when)
 {
     uint8_t bytes[3] = { 0, 0, 0 };
     const int len = thcMidiRouter::clockBytes(kind, position, bytes);
@@ -553,8 +552,8 @@ gthMidiOut::run (void)
             continue;
         }
 
-        const gint64 now = g_get_monotonic_time();
-        const gint64 due = heap_.front().when + delayUs_;
+        const int64_t now = thcMonotonicUs();
+        const int64_t due = heap_.front().when + delayUs_;
 
         if (due > now)
         {

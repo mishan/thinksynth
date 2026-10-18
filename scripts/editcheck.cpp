@@ -71,8 +71,6 @@
 #include <string>
 #include <vector>
 
-#include <glibmm.h>
-
 #include "think.h"
 
 #include "libthink/thDynLib.h"
@@ -1216,9 +1214,9 @@ struct StubMidiOut : public thcMidiOut
     }
 
     void detach (int) override {}
-    void noteOn (int, int, int, float, gint64) override {}
-    void noteOff (int, int, gint64) override {}
-    void control (int, const std::string &, double, gint64) override {}
+    void noteOn (int, int, int, float, int64_t) override {}
+    void noteOff (int, int, int64_t) override {}
+    void control (int, const std::string &, double, int64_t) override {}
     void flush (int) override {}
 };
 
@@ -1597,8 +1595,6 @@ checkCases (const std::map<std::string, thcPlugin *> &plugins,
 int
 main (int argc, char *argv[])
 {
-    Glib::init();
-
     std::string pluginDir, genDir;
 
     for (int i = 1; i < argc; i++)

@@ -110,8 +110,6 @@
 #include <string>
 #include <vector>
 
-#include <glibmm.h>
-
 #include "think.h"
 #include "thPhoneme.h"
 
@@ -613,8 +611,6 @@ static void describeJson (std::string &out, const thcGenLoader &loader,
 
 int main (int argc, char **argv)
 {
-    Glib::init();
-
     std::string pluginPath = PLUGIN_PATH;
     std::string genFile, wavFile, tapeFile, midiFile;
     bool mono = false, midiFine = false;

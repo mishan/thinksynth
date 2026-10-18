@@ -127,10 +127,10 @@ public:
                  std::string &why) override;
     void detach (int channel) override;
     void noteOn (int channel, int note, int velocity, float level,
-                 gint64 when) override;
-    void noteOff (int channel, int note, gint64 when) override;
+                 int64_t when) override;
+    void noteOff (int channel, int note, int64_t when) override;
     void control (int channel, const std::string &name, double value,
-                  gint64 when) override;
+                  int64_t when) override;
     void flush (int channel) override;
 
     /* Where engine channel `channel' is sent, "port name, channel N", or
@@ -144,12 +144,12 @@ public:
     std::vector<std::string> clockPorts (void) const;
 
     bool wantsClock (void) const override;
-    void clock (int kind, int position, gint64 when) override;
+    void clock (int kind, int position, int64_t when) override;
 
 private:
     struct Msg
     {
-        gint64        when;
+        int64_t        when;
         unsigned long seq;
         int           channel;          /* engine channel, for flush      */
         int           port;
@@ -173,7 +173,7 @@ private:
 
     Lister   lister_;
     Opener   opener_;
-    gint64   delayUs_ = 40000;
+    int64_t   delayUs_ = 40000;
 
     std::function<void (void)>         changed_;
 

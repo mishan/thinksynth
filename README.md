@@ -113,6 +113,7 @@ Useful options:
 | `-DTHINK_ENABLE_DEBUG=ON` | the tree's own debug logging |
 | `-DTHINK_SANITIZE=address,undefined` | applied to libthink and the plugins too, not just the harnesses |
 | `-DTHINK_SANITIZE=thread` | needs its own build tree; cannot be combined with the above |
+| `-DTHINK_GUI=OFF` | libthink, the plugins, the composer host and the harnesses that need no display; asks for only flex, pkg-config and libsigc++, with no GTK, glib, cairo or audio backend |
 
 Running an uninstalled build works: thinksynth tries `./plugins` first and then
 the directories around its own binary, and `THINK_PLUGIN_PATH` overrides both.

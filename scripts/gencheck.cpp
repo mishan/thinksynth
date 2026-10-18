@@ -51,9 +51,8 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
-
-#include <glibmm.h>
 
 #include "think.h"
 #include "thPhoneme.h"
@@ -6720,7 +6719,7 @@ grownToward (const std::map<std::string, thcPlugin *> &plugins,
                             i < 2000 && !sched.auditioner()->idle(); i++)
             {
                 sched.stepTransport(0);
-                g_usleep(5000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
 
             if (!sync)
@@ -9946,7 +9945,7 @@ struct FakeMidiOut : public thcMidiOut
         int channel, note, velocity;
         std::string name;
         double value;
-        gint64 when;
+        int64_t when;
     };
 
     bool answer = true;
@@ -9971,18 +9970,18 @@ struct FakeMidiOut : public thcMidiOut
     }
 
     void noteOn (int channel, int note, int velocity, float level,
-                 gint64 when) override
+                 int64_t when) override
     {
         calls.push_back({ "on", channel, note, velocity, "", level, when });
     }
 
-    void noteOff (int channel, int note, gint64 when) override
+    void noteOff (int channel, int note, int64_t when) override
     {
         calls.push_back({ "off", channel, note, 0, "", 0, when });
     }
 
     void control (int channel, const std::string &name, double value,
-                  gint64 when) override
+                  int64_t when) override
     {
         calls.push_back({ "cc", channel, 0, 0, name, value, when });
     }
@@ -9997,7 +9996,7 @@ struct FakeMidiOut : public thcMidiOut
     bool wantsClock (void) const override { return clockOn; }
 
     /* `note' is the kind, `velocity' the position. */
-    void clock (int kind, int position, gint64 when) override
+    void clock (int kind, int position, int64_t when) override
     {
         calls.push_back({ "clock", -1, kind, position, "", 0, when });
     }
@@ -10091,7 +10090,7 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
 
     /* Loads `text' with `out' as the host's output, steps it `seconds'
        on a clock of whole microseconds from `base', and stops. */
-    const gint64 base = 1000000000;
+    const int64_t base = 1000000000;
 
     auto play = [&](const std::string &text, thcMidiOut *out,
                     double seconds, thcScheduler &sched) -> bool
@@ -10124,7 +10123,7 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
         sched.start();
 
         for (int step = 1; step * 0.02 <= seconds + 1e-9; step++)
-            sched.stepTransportAt(0.02, base + (gint64)step * 20000);
+            sched.stepTransportAt(0.02, base + (int64_t)step * 20000);
 
         sched.stop();
         drainSynth();
@@ -10168,7 +10167,7 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
 
             /* Notes at 0, 1, 2 s, each 0.5 s long; stamps on the step's
                clock, whatever step delivered them. */
-            std::vector<gint64> ons, offs;
+            std::vector<int64_t> ons, offs;
 
             for (const FakeMidiOut::Call &c : out.calls)
                 if (c.what == "on" && c.channel == ch && c.note == 60)
@@ -10179,16 +10178,16 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
             bool stamped = ons.size() == 3 && offs.size() >= 2;
 
             for (size_t i = 0; stamped && i < 2; i++)
-                stamped = ons[i] == base + (gint64)i * 1000000 &&
+                stamped = ons[i] == base + (int64_t)i * 1000000 &&
                           offs[i] == ons[i] + 500000;
 
             if (!stamped)
             {
                 std::string got;
 
-                for (gint64 w : ons)
+                for (int64_t w : ons)
                     got += " on " + std::to_string(w - base);
-                for (gint64 w : offs)
+                for (int64_t w : offs)
                     got += " off " + std::to_string(w - base);
 
                 fail("notes to a device were not stamped at their times:" +
@@ -10466,7 +10465,7 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
             sched.start();
 
             for (int step = 1; step <= 51; step++)    /* to 1.02 s */
-                sched.stepTransportAt(0.02, base + (gint64)step * 20000);
+                sched.stepTransportAt(0.02, base + (int64_t)step * 20000);
 
             sched.stop();
             take();
@@ -10479,7 +10478,7 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
             for (int k = 0; stamped && k < 49; k++)
                 stamped = clocks[k + 1].note == thcMidiOut::CLOCK_TICK &&
                           clocks[k + 1].when ==
-                              base + (gint64)llround(k * 1e6 / 48);
+                              base + (int64_t)llround(k * 1e6 / 48);
 
             if (!stamped)
                 fail("MIDI clock: not Start, 49 ticks at their beats and Stop "
@@ -10500,7 +10499,7 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
                 clocks[1].note == thcMidiOut::CLOCK_CONTINUE &&
                 clocks[2].note == thcMidiOut::CLOCK_TICK &&
                 clocks[2].when == base + 1220000 -
-                                  (gint64)llround((2.44 - 54 / 24.0) *
+                                  (int64_t)llround((2.44 - 54 / 24.0) *
                                                   0.5 * 1e6);
 
             if (!resumed)
@@ -15800,8 +15799,6 @@ checkSilent (const std::map<std::string, thcPlugin *> &plugins,
 int
 main (int argc, char *argv[])
 {
-    Glib::init();
-
     std::string pluginDir;
     std::string genFile;
     std::string part;

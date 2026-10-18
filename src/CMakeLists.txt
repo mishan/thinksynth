@@ -33,26 +33,26 @@ target_link_libraries(think_nodemodel PUBLIC think Threads::Threads)
 # none of the 62 DSP plugins sees cairo, and a visual *module* links neither
 # libthink nor sigc++, which is what stops a visualizer reaching into the graph
 # it is drawing.
-add_library(think_visualhost OBJECT thVisual.cpp)
+if(THINK_GUI)
+  add_library(think_visualhost OBJECT thVisual.cpp)
 
-target_include_directories(think_visualhost PUBLIC
-    "${PROJECT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_include_directories(think_visualhost PUBLIC
+      "${PROJECT_SOURCE_DIR}"
+      "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
+  target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
+endif()
 
 # The host side of the composer framework: the dlopen wrapper for composer
 # modules and the scheduler that drives them. Its own object library for the
-# same reason the other two are -- it needs glibmm (the scheduler runs off a
-# Glib timeout and the monotonic clock) but not gtkmm, and the replay-
-# determinism harness (scripts/gencheck) links exactly this, headlessly,
-# without a toolkit.
+# same reason the other two are: it needs neither glib nor a toolkit -- the
+# application's timer calls tick(), a harness or a game steps the transport
+# itself -- and the replay-determinism harness (scripts/gencheck) links
+# exactly this.
 #
 # Deliberately in src/ rather than libthink/: composers are loaded by the
 # GUI and never by the parser, and the scheduler touches the synth only
-# through the same GUI-thread calls the on-screen keyboard uses. libthink
-# stays main-loop-free; this cannot. Same reasoning as think_visualhost,
-# with glibmm standing where cairo stood.
+# through the same GUI-thread calls the on-screen keyboard uses.
 add_library(think_composerhost OBJECT
     thcPlugin.cpp
     thcScheduler.cpp
@@ -71,7 +71,7 @@ target_include_directories(think_composerhost PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
 find_package(Threads REQUIRED)
-target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM Threads::Threads)
+target_link_libraries(think_composerhost PUBLIC think Threads::Threads)
 
 # The three canvases' content -- what they draw and what a click on them
 # means -- with no toolkit in it, so the same classes compile to wasm and run
@@ -130,24 +130,28 @@ target_link_libraries(think_dspcatalog PUBLIC think)
 # And the same for what a .gen says (src/GenCatalog.h). Not a member of the
 # one above, because it reads its headers through thcGenEdit -- the .gen
 # reader, which is the composer host's -- where the DSP side runs the lexer
-# itself. So this one links think_composerhost's dependencies and that one
-# links nothing beyond libthink, which is what keeps the cheap half cheap.
+# itself.
 add_library(think_gencatalog OBJECT GenCatalog.cpp)
 target_include_directories(think_gencatalog PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(think_gencatalog PUBLIC think PkgConfig::GLIBMM)
+target_link_libraries(think_gencatalog PUBLIC think)
 # The fourth provider, on its own because of what it needs: a composer
 # stage's parameters are the plugin's registered ParamInfo crossed with the
 # .gen's own text and the running stage's param store, so this is the one
-# that wants the composer host and glibmm behind it. Same argument the
+# that wants the composer host behind it. Same argument the
 # canvases are three libraries for -- a harness drawing a channel's
 # parameters should not have to link the scheduler to get them.
 add_library(think_stagepanel OBJECT StagePanel.cpp)
 target_include_directories(think_stagepanel PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(think_stagepanel PUBLIC think PkgConfig::GLIBMM)
+target_link_libraries(think_stagepanel PUBLIC think)
+
+# Everything below draws, and is the application.
+if(NOT THINK_GUI)
+  return()
+endif()
 
 add_library(think_canvas OBJECT CanvasContent.cpp)
 target_include_directories(think_canvas PUBLIC
@@ -161,25 +165,21 @@ target_include_directories(think_nodecanvas PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(think_nodecanvas PUBLIC think PkgConfig::CAIROMM)
 
-# glibmm for the scheduler's header, which the composer canvas reads its
-# live stages through; still no gtkmm.
 add_library(think_composercanvas OBJECT ComposerCanvas.cpp)
 target_include_directories(think_composercanvas PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(think_composercanvas PUBLIC think PkgConfig::CAIROMM
-                                                  PkgConfig::GLIBMM)
+target_link_libraries(think_composercanvas PUBLIC think PkgConfig::CAIROMM)
 
-# And the piano roll, whose whole input is a scheduler -- so glibmm for the
-# same header, and still no gtkmm. Its own object library rather than a
-# member of think_composercanvas: the two share a channel colour and
-# nothing else, and a harness that wants one should not link the other.
+# And the piano roll, whose whole input is a scheduler; still no gtkmm. Its
+# own object library rather than a member of think_composercanvas: the two
+# share a channel colour and nothing else, and a harness that wants one
+# should not link the other.
 add_library(think_rollcanvas OBJECT RollCanvas.cpp)
 target_include_directories(think_rollcanvas PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(think_rollcanvas PUBLIC think PkgConfig::CAIROMM
-                                              PkgConfig::GLIBMM)
+target_link_libraries(think_rollcanvas PUBLIC think PkgConfig::CAIROMM)
 
 set(THINKSYNTH_SOURCES
     main.cpp

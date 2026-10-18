@@ -220,6 +220,38 @@ jobs:
             build/package/*.dmg
           if-no-files-found: error
 
+  # libthink, the plugins and the composer host with THINK_GUI off, on an
+  # image that has nothing but what that build asks for. A glib, GTK or cairo
+  # include or link that creeps into the headless half fails here, because
+  # there is none to find.
+  headless:
+    name: linux without the GUI
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+
+    steps:
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libsigc++-3.0-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DTHINK_GUI=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
+
   # The GTK runtime data checks, beside the linux job rather than at the end
   # of it: each reconfigures with THINK_BUNDLE_GTK and rebuilds, which was
   # five of that job's eleven minutes, and none of it needs the linux job's

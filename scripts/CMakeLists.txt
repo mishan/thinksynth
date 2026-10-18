@@ -97,22 +97,17 @@ function(think_harness name)
     target_link_libraries(${name} PRIVATE PkgConfig::CAIRO)
   endif()
 
-  # The composer host runs off the Glib main loop in the app, but the
-  # scheduler's virtual clock (stepTransport) is exactly what lets a harness
-  # drive it with no loop at all -- glibmm links for g_get_monotonic_time and
-  # sigc, not for a running loop.
   if(H_COMPOSERHOST)
     target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
-    target_link_libraries(${name} PRIVATE PkgConfig::GLIBMM)
   endif()
 
   if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
     target_link_libraries(${name} PRIVATE PkgConfig::CAIROMM)
   endif()
 
-  # $<TARGET_OBJECTS:> carries no link requirements, and the node model
-  # starts threads.
-  if(H_THREADS OR H_NODEMODEL)
+  # $<TARGET_OBJECTS:> carries no link requirements, and the node model and
+  # the composer host start threads.
+  if(H_THREADS OR H_NODEMODEL OR H_COMPOSERHOST)
     find_package(Threads REQUIRED)
     target_link_libraries(${name} PRIVATE Threads::Threads)
   endif()
@@ -135,14 +130,17 @@ endfunction()
 think_harness(pathcheck)
 
 # MIDI output through recording ports: routing, timing, retriggers,
-# controllers and flushes, with no device or MIDI system needed.
-think_harness(midioutcheck COMPOSERHOST
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp")
-target_link_libraries(midioutcheck PRIVATE ${THINK_RTMIDI_LIB})
+# controllers and flushes, with no device or MIDI system needed. RtMidi is
+# the application's, so this comes with THINK_GUI.
+if(THINK_GUI)
+  think_harness(midioutcheck COMPOSERHOST
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp")
+  target_link_libraries(midioutcheck PRIVATE ${THINK_RTMIDI_LIB})
 
-# gthMidiOut's timeBeginPeriod, in every harness that compiles it.
-if(WIN32)
-  target_link_libraries(midioutcheck PRIVATE winmm)
+  # gthMidiOut's timeBeginPeriod, in every harness that compiles it.
+  if(WIN32)
+    target_link_libraries(midioutcheck PRIVATE winmm)
+  endif()
 endif()
 
 # Which libthink headers stand on their own. The test is the compile; see the
@@ -152,10 +150,12 @@ think_harness(includecheck)
 # The first-run configuration. Needs gthPrefs and gthPatchfile, which live in
 # the binary rather than in libthink, and glibmm for the config directory --
 # but not gtkmm: none of this draws anything.
-think_harness(configcheck PATCH
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp")
-target_link_libraries(configcheck PRIVATE PkgConfig::GLIBMM PkgConfig::SIGC)
+if(THINK_GUI)
+  think_harness(configcheck PATCH
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp")
+  target_link_libraries(configcheck PRIVATE PkgConfig::GLIBMM PkgConfig::SIGC)
+endif()
 
 # The light/dark decision. Only the Linux half of the platform readers can be
 # run here at all, so what gets pinned is the part that is the same on all
@@ -288,8 +288,10 @@ think_harness(ratecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp"
 
 # The MIDI thread handoff, without a MIDI device. gthMidiQueue needs glibmm
 # for Glib::Dispatcher but not gtkmm, so this stays headless.
-think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
-target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
+if(THINK_GUI)
+  think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
+  target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
+endif()
 
 # thSampleRing on its own, with no synth around it. Header-only, so this links
 # libthink only for the include path.
@@ -298,121 +300,125 @@ think_harness(ringcheck THREADS)
 # The visual plugins, drawn to a cairo image surface. No toolkit and no
 # display, which is the practical reason the visual ABI takes a cairo_t rather
 # than a widget -- it means these gate on all three CI runners.
-think_harness(visualcheck VISUALHOST)
+if(THINK_GUI)
+  think_harness(visualcheck VISUALHOST)
+endif()
 
 # dspprobe uses NodeGraph to enumerate output ports, so that what it checks is
 # what the editor would offer rather than a second opinion about which args are
 # outputs.
 think_harness(dspprobe  NODEMODEL)
 
-# The one harness here that needs a display, because what it measures is a real
-# widget's real draw path. A measuring instrument rather than a gate, so it is
-# not in the ctest list below -- run it by hand, under xvfb-run if need be.
-think_harness(canvasbench NODEMODEL VISUALHOST NODECANVAS
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp")
-target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
+if(THINK_GUI)
+  # The one harness here that needs a display, because what it measures is a real
+  # widget's real draw path. A measuring instrument rather than a gate, so it is
+  # not in the ctest list below -- run it by hand, under xvfb-run if need be.
+  think_harness(canvasbench NODEMODEL VISUALHOST NODECANVAS
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp")
+  target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 
-# editorcheck joins up what the other harnesses cover separately: the tap, the
-# module and the panel are three things, and NodeEditor is the only thing that
-# holds them together. It needs a display for the same reason canvasbench does
-# -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
-# list below, guarded by whether a display can be had.
-# The panel and gthPatchfile join the list for the channel-effect panel: a
-# channel has two chanarg maps and one lookup reaches both, so the panel over
-# the second differs from the panel over the first by a prefix -- and the way
-# that fails is a slider that moves and changes nothing.
-think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS PANEL PATCH
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParamsView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
-target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
+  # editorcheck joins up what the other harnesses cover separately: the tap, the
+  # module and the panel are three things, and NodeEditor is the only thing that
+  # holds them together. It needs a display for the same reason canvasbench does
+  # -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
+  # list below, guarded by whether a display can be had.
+  # The panel and gthPatchfile join the list for the channel-effect panel: a
+  # channel has two chanarg maps and one lookup reaches both, so the panel over
+  # the second differs from the panel over the first by a prefix -- and the way
+  # that fails is a slider that moves and changes nothing.
+  think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS PANEL PATCH
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeParamsView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
+  target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 
-# The composer window, driven the way editorcheck drives the node editor.
-# Its own harness rather than more EXTRA on that one: the two share no code
-# and a link chain that pulls the whole GUI into one binary makes a failure
-# harder to attribute, which is the reason the levels in dspstress exist too.
-#
-# gthPatchfile joins the list because a piece carries its own instruments now,
-# and the window brings one up the way the Patch Selector does. Linking it is
-# what makes that path real here rather than stubbed: the harness gets an
-# actual patch manager and the instrument actually lands on a tab.
-think_harness(composercheck NODEMODEL COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
-              PATCH GENCATALOG PANEL STAGEPANEL
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/GrowthView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
-target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM ${THINK_RTMIDI_LIB})
+  # The composer window, driven the way editorcheck drives the node editor.
+  # Its own harness rather than more EXTRA on that one: the two share no code
+  # and a link chain that pulls the whole GUI into one binary makes a failure
+  # harder to attribute, which is the reason the levels in dspstress exist too.
+  #
+  # gthPatchfile joins the list because a piece carries its own instruments now,
+  # and the window brings one up the way the Patch Selector does. Linking it is
+  # what makes that path real here rather than stubbed: the harness gets an
+  # actual patch manager and the instrument actually lands on a tab.
+  think_harness(composercheck NODEMODEL COMPOSERHOST VISUALHOST COMPOSERCANVAS ROLLCANVAS
+                PATCH GENCATALOG PANEL STAGEPANEL
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/GrowthView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
+  target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM ${THINK_RTMIDI_LIB})
 
-if(WIN32)
-  target_link_libraries(composercheck PRIVATE winmm)
-endif()
+  if(WIN32)
+    target_link_libraries(composercheck PRIVATE winmm)
+  endif()
 
-# The main window, tiled: the whole GUI less main(), since the window is
-# made of all of it. Its own harness for composercheck's reason -- a failure
-# here is about how the window puts its panes together, and one binary for
-# everything would make that harder to see.
-think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
-              COMPOSERCANVAS ROLLCANVAS PANEL STAGEPANEL PATCH DSPCATALOG
-              GENCATALOG
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthTheme.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/AboutBox.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Keyboard.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/KeyboardPanel.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/MainSynthWindow.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/MidiMap.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParamsView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Panes.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/PatchSelPanel.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/GrowthView.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp")
-target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB}
-                                          ${THINK_RTMIDI_LIB})
+  # The main window, tiled: the whole GUI less main(), since the window is
+  # made of all of it. Its own harness for composercheck's reason -- a failure
+  # here is about how the window puts its panes together, and one binary for
+  # everything would make that harder to see.
+  think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
+                COMPOSERCANVAS ROLLCANVAS PANEL STAGEPANEL PATCH DSPCATALOG
+                GENCATALOG
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthTheme.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/AboutBox.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ArgPanelView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Composer.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gthMidiOut.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ItemBrowser.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Keyboard.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/KeyboardPanel.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/MainSynthWindow.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/MidiMap.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/NodeParamsView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/PanelView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/Panes.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/PatchSelPanel.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/SeqView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/GrowthView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/StageParamsView.cpp")
+  target_link_libraries(windowcheck PRIVATE PkgConfig::GTKMM ${THINK_MULLION_LIB}
+                                            ${THINK_RTMIDI_LIB})
 
-if(WIN32)
-  target_link_libraries(windowcheck PRIVATE winmm)
-endif()
+  if(WIN32)
+    target_link_libraries(windowcheck PRIVATE winmm)
+  endif()
 
-# gthTheme reads the macOS appearance through CoreFoundation; see
-# src/CMakeLists.txt.
-if(APPLE)
-  find_library(THINK_COREFOUNDATION CoreFoundation REQUIRED)
-  target_link_libraries(windowcheck PRIVATE ${THINK_COREFOUNDATION})
+  # gthTheme reads the macOS appearance through CoreFoundation; see
+  # src/CMakeLists.txt.
+  if(APPLE)
+    find_library(THINK_COREFOUNDATION CoreFoundation REQUIRED)
+    target_link_libraries(windowcheck PRIVATE ${THINK_COREFOUNDATION})
+  endif()
 endif()
 
 # The piano roll's drawing, with no window around it: that the future half is
@@ -818,7 +824,9 @@ add_test(NAME dsplevel
 # Rendering each patch eight times over is slow, so this runs on a
 # representative handful rather than the whole corpus: what is being tested is
 # gthSynthSource, not the DSPs.
-add_test(NAME dspmidi COMMAND dspmidi 200000)
+if(THINK_GUI)
+  add_test(NAME dspmidi COMMAND dspmidi 200000)
+endif()
 
 add_test(NAME dspblock
          COMMAND dspblock -q -p "${PROJECT_BINARY_DIR}/plugins/"
@@ -852,23 +860,27 @@ add_test(NAME genwav.midi
                  -DOUT=${PROJECT_BINARY_DIR}/genwav-midi.mid
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMidi.cmake")
 
-add_test(NAME midioutcheck COMMAND midioutcheck)
+if(THINK_GUI)
+  add_test(NAME midioutcheck COMMAND midioutcheck)
+endif()
 
-# Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
-# its own config directory and points HOME at it, so it neither reads nor
-# writes the preferences of whoever runs it.
-#
-# THINK_PATCH_PATH and THINK_DSP_PATH for the reason RunHarness.cmake gives at
-# length: without them the only thing left pointing at a corpus is the
-# compiled-in PATCH_PATH, and on a development machine that is answered by
-# whatever was last installed to /usr/local. This test was registered without
-# them and passed here and failed on every clean runner, which is the same way
-# round the patch gate got it wrong before.
-add_test(NAME configcheck
-         COMMAND configcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+if(THINK_GUI)
+  # Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
+  # its own config directory and points HOME at it, so it neither reads nor
+  # writes the preferences of whoever runs it.
+  #
+  # THINK_PATCH_PATH and THINK_DSP_PATH for the reason RunHarness.cmake gives at
+  # length: without them the only thing left pointing at a corpus is the
+  # compiled-in PATCH_PATH, and on a development machine that is answered by
+  # whatever was last installed to /usr/local. This test was registered without
+  # them and passed here and failed on every clean runner, which is the same way
+  # round the patch gate got it wrong before.
+  add_test(NAME configcheck
+           COMMAND configcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
-set_tests_properties(configcheck PROPERTIES
-    ENVIRONMENT "THINK_PATCH_PATH=${PROJECT_SOURCE_DIR}/patches;THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+  set_tests_properties(configcheck PROPERTIES
+      ENVIRONMENT "THINK_PATCH_PATH=${PROJECT_SOURCE_DIR}/patches;THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+endif()
 
 add_test(NAME themecheck COMMAND themecheck)
 
@@ -927,9 +939,11 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/tapeloop.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/autotune.dsp")
 
-# Needs no corpus and no display -- it draws to an image surface.
-add_test(NAME visualcheck
-         COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+if(THINK_GUI)
+  # Needs no corpus and no display -- it draws to an image surface.
+  add_test(NAME visualcheck
+           COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+endif()
 
 # The .gen loader and the replay gate. Needs the composer plugins from the
 # build tree and the shipped piece; no display, no audio, no main loop.
@@ -999,46 +1013,50 @@ add_test(NAME dspprobe
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
 
-# Needs a display for the same reason editorcheck does, and skips itself the
-# same way.
-add_test(NAME composercheck
-         COMMAND composercheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+if(THINK_GUI)
+  # Needs a display for the same reason editorcheck does, and skips itself the
+  # same way.
+  add_test(NAME composercheck
+           COMMAND composercheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                   "${PROJECT_SOURCE_DIR}/gen/airports.gen")
 
-# Same reason as gencheck: the window opens a piece that carries its own
-# instrument, and an instrument that cannot be found is a piece that does not
-# load.
-set_tests_properties(composercheck PROPERTIES
-    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+  # Same reason as gencheck: the window opens a piece that carries its own
+  # instrument, and an instrument that cannot be found is a piece that does not
+  # load.
+  set_tests_properties(composercheck PROPERTIES
+      ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
-# Needs a display too. THINK_DSP_PATH for editorcheck's reason below: the
-# patch's .dsp is named bare and resolved against a corpus.
-add_test(NAME windowcheck
-         COMMAND windowcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
+  # Needs a display too. THINK_DSP_PATH for editorcheck's reason below: the
+  # patch's .dsp is named bare and resolved against a corpus.
+  add_test(NAME windowcheck
+           COMMAND windowcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                   "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
 
-set_tests_properties(windowcheck PROPERTIES
-    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+  set_tests_properties(windowcheck PROPERTIES
+      ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
-# Skips itself, loudly, where there is no display -- see the comment in
-# editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
-add_test(NAME editorcheck
-         COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
+  # Skips itself, loudly, where there is no display -- see the comment in
+  # editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
+  add_test(NAME editorcheck
+           COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                   "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
 
-# THINK_DSP_PATH for the channel-effect panel: it loads dsp/fx/echo.dsp, and
-# without this the only thing left pointing at a corpus is the compiled-in
-# DSP_PATH, which on a development machine is answered by whatever was last
-# installed to /usr/local -- the same way round the configcheck registration
-# got it wrong.
-set_tests_properties(editorcheck PROPERTIES
-    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+  # THINK_DSP_PATH for the channel-effect panel: it loads dsp/fx/echo.dsp, and
+  # without this the only thing left pointing at a corpus is the compiled-in
+  # DSP_PATH, which on a development machine is answered by whatever was last
+  # installed to /usr/local -- the same way round the configcheck registration
+  # got it wrong.
+  set_tests_properties(editorcheck PROPERTIES
+      ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
-# Alone under `ctest -j': both pump the main loop a fixed number of times
-# and then read what GTK mapped, and with every core busy a popover can be
-# built but not yet shown when composercheck looks.
-set_tests_properties(composercheck editorcheck windowcheck PROPERTIES
-    RUN_SERIAL TRUE)
+  # Alone under `ctest -j': both pump the main loop a fixed number of times
+  # and then read what GTK mapped, and with every core busy a popover can be
+  # built but not yet shown when composercheck looks.
+  set_tests_properties(composercheck editorcheck windowcheck PROPERTIES
+      RUN_SERIAL TRUE)
+
+  set_tests_properties(dspmidi visualcheck editorcheck PROPERTIES TIMEOUT 900)
+endif()
 
 # What a few instruments cost, in instructions under Valgrind, against
 # instrcount.json. The counts belong to the compiler as much as to the code,
@@ -1114,8 +1132,8 @@ if(Python3_Interpreter_FOUND AND NOT THINK_SANITIZE)
   add_dependencies(corpushash-update dsphash plugins)
 endif()
 
-set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock dspmidi
-                     ringcheck visualcheck dspprobe editorcheck argtype
+set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock
+                     ringcheck dspprobe argtype
                      exprcheck statecheck voicecheck poolcheck fxcheck
                      ${GENCHECK_PARTS} panelcheck
                      dspsweep dspsweep.guard
@@ -1146,7 +1164,7 @@ set_tests_properties(${GENCHECK_PARTS} poolcheck editcheck PROPERTIES
 # path meant the .dsp did not resolve, the piece did not load, and seven checks
 # failed on the runner while every one of them passed locally. A gate that
 # disagrees with CI about what it is testing is worse than no gate.
-if(THINK_SANITIZE MATCHES "address")
+if(THINK_GUI AND THINK_SANITIZE MATCHES "address")
   foreach(_t composercheck editorcheck windowcheck)
     set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT
         "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")

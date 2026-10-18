@@ -66,8 +66,6 @@
 #include <string>
 #include <vector>
 
-#include <glibmm.h>
-
 #include "think.h"
 
 #include "cairo2d.h"
@@ -334,8 +332,6 @@ walk (const std::vector<float> &ops, std::string &why, int &count)
 int
 main (int argc, char *argv[])
 {
-    Glib::init();
-
     std::string pluginDir, genFile;
     bool dumping = false;
 
