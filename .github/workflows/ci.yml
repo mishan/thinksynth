@@ -1400,6 +1400,23 @@ jobs:
           pacman -U --noconfirm \
             https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-cairo-1.18.4-4-any.pkg.tar.zst
 
+      # The mingw-w64 runtime at r426. With r495 (crt, headers and
+      # winpthreads, 2026-10-17) dspmidi hangs, past its own 30 s watchdog,
+      # until ctest kills it at the 900 s TIMEOUT -- on master as on any
+      # branch. r426 passes it in 0.1 s. The range between them rewrote winpthreads' nanosleep and
+      # clock_nanosleep, which std::this_thread::sleep_for calls; the exact
+      # fault is not pinned down. Drop this once a newer ucrt64 runtime
+      # passes dspmidi.
+      - name: Hold the mingw-w64 runtime where dspmidi finishes
+        run: |
+          set -e
+          r=https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64
+          pacman -U --noconfirm \
+            $r-crt-14.0.0.r426.g4564ee4b5-1-any.pkg.tar.zst \
+            $r-headers-14.0.0.r426.g4564ee4b5-1-any.pkg.tar.zst \
+            $r-libwinpthread-14.0.0.r426.g4564ee4b5-2-any.pkg.tar.zst \
+            $r-winpthreads-14.0.0.r426.g4564ee4b5-2-any.pkg.tar.zst
+
       - uses: actions/cache/restore@v4
         with:
           path: .ccache
