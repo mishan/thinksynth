@@ -308,9 +308,11 @@ int main (int argc, char *argv[])
 
     /* A few threads beside the audio thread, not every core: the GUI
        drawing the roll keeps one, and a piece has only so many channels to
-       spread across them. */
+       spread across them. The workers run at the audio thread's priority,
+       so a core that they and it fill under load is one the GUI cannot
+       have. */
     int threads = std::min(4, std::max(0, (int)std::thread::hardware_concurrency()
-                                          - 1));
+                                          - 2));
 
     /* seed the random number generator */
     srand(time(NULL));

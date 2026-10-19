@@ -138,6 +138,24 @@ struct Sched
 #endif
     }
 
+    bool operator== (const Sched &o) const
+    {
+        return
+#ifndef __EMSCRIPTEN__
+            policy == o.policy &&
+            param.sched_priority == o.param.sched_priority &&
+#endif
+#ifdef __APPLE__
+            constrained == o.constrained &&
+            (!constrained ||
+             (constraint.period == o.constraint.period &&
+              constraint.computation == o.constraint.computation &&
+              constraint.constraint == o.constraint.constraint &&
+              constraint.preemptible == o.constraint.preemptible)) &&
+#endif
+            true;
+    }
+
     /* On the calling thread. Best effort: a process that may not raise a
        thread's priority renders as it did, at the default one. */
     void apply (void) const
@@ -162,12 +180,11 @@ struct Sched
 
 /* setThreads' threads. Each window, process() publishes the window's
  * lanes as one word -- the window's number, its lane count and the next
- * lane to take -- and posts as many workers awake as there are lanes
- * beyond the one it takes itself. Every thread, the caller among them,
- * claims lanes by compare-and-swap on that word until there are none, and
- * the caller waits for `done' to count them all. A claim names its window,
- * so a thread late out of one window cannot take a lane of the next under
- * the last one's count.
+ * lane to take -- and posts every worker awake. Every thread, the caller
+ * among them, claims lanes by compare-and-swap on that word until there
+ * are none, and the caller waits for `done' to count them all. A claim
+ * names its window, so a thread late out of one window cannot take a lane
+ * of the next under the last one's count.
  *
  * Nothing the audio thread does takes a lock: a post is lock-free, and the
  * caller spins while the last lane finishes, since a window's wait is a
@@ -203,32 +220,35 @@ struct thSynth::RenderPool
 
     void run (int lanes)
     {
-        /* Every worker, when the scheduling to follow has changed, so
-           that each one has taken it before it next renders. */
-        int wake = followCaller() ? (int)workers_.size()
-                                  : std::min((int)workers_.size(), lanes - 1);
+        followCaller();
 
-        window_++;
+        const uint64_t window = (work_.load(std::memory_order_relaxed) >> 32) + 1;
+
         done_.store(0, std::memory_order_relaxed);
-        work_.store((uint64_t)window_ << 32 | (uint64_t)lanes << 16,
+        work_.store(window << 32 | (uint64_t)lanes << 16,
                     std::memory_order_release);
 
-        for (int i = 0; i < wake; i++)
-            workers_[i]->wake.post();
+        for (auto &w : workers_)
+            w->wake.post();
 
-        drain();
+        drain(NULL);
 
         while (done_.load(std::memory_order_acquire) < lanes)
             std::this_thread::yield();
     }
 
 private:
-    void drain (void)
+    /* A worker passes the scheduling it has taken, and stops claiming once
+       there is a newer one: it takes that before it renders again. */
+    void drain (const unsigned *applied)
     {
         uint64_t w = work_.load(std::memory_order_acquire);
 
         while ((w & 0xffff) < (w >> 16 & 0xffff))
-            if (work_.compare_exchange_weak(w, w + 1,
+            if (applied != NULL &&
+                schedGen_.load(std::memory_order_acquire) != *applied)
+                return;
+            else if (work_.compare_exchange_weak(w, w + 1,
                                             std::memory_order_acq_rel,
                                             std::memory_order_acquire))
             {
@@ -238,23 +258,37 @@ private:
             }
     }
 
-    /* A new thread rendering -- the first window, or a stream started
-       again -- has its scheduling read once and handed on. Under a
-       try_lock, so the audio thread never waits on a worker for it; a
-       miss is taken again next window. */
-    bool followCaller (void)
+    /* The rendering thread's scheduling, read when a new thread renders
+       -- the first window, or a stream started again -- and every
+       REREAD_WINDOWS windows besides, since a thread started after
+       another ended can be given its id. Handed on the first time, since
+       a worker starts with whatever its creator had, and after that only
+       when it has changed. Under a try_lock, so the audio thread never waits on a
+       worker for it; a miss is taken again next window. */
+    static const int REREAD_WINDOWS = 256;
+
+    void followCaller (void)
     {
         const std::thread::id self = std::this_thread::get_id();
 
-        if (self == caller_ || !schedMutex_.try_lock())
-            return false;
+        if ((self == caller_ && ++sinceRead_ < REREAD_WINDOWS) ||
+            !schedMutex_.try_lock())
+            return;
 
-        sched_.read();
+        Sched now;
+
+        now.read();
         caller_ = self;
-        schedGen_.fetch_add(1, std::memory_order_release);
-        schedMutex_.unlock();
+        sinceRead_ = 0;
 
-        return true;
+        if (!followed_ || !(now == sched_))
+        {
+            followed_ = true;
+            sched_ = now;
+            schedGen_.fetch_add(1, std::memory_order_release);
+        }
+
+        schedMutex_.unlock();
     }
 
     struct Worker
@@ -290,18 +324,19 @@ private:
                 sched.apply();
             }
 
-            drain();
+            drain(&applied);
         }
     }
 
     thSynth *synth_;
     std::vector<std::unique_ptr<Worker> > workers_;
     std::atomic<bool> quit_{false};
-    uint32_t window_ = 0;
     std::atomic<uint64_t> work_{0};
     std::atomic<int> done_{0};
 
     std::thread::id caller_;
+    int sinceRead_ = 0;
+    bool followed_ = false;
     std::mutex schedMutex_;
     Sched sched_;
     std::atomic<unsigned> schedGen_{0};
