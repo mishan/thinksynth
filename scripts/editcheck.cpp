@@ -1056,6 +1056,177 @@ checkKnobMoved (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* Deferred replays (setReplayDeferred), stepped as the browser's worklet
+ * steps them: at the top of each window, a few ticks on, landed in the
+ * window that finds them caught up. `chain a' reads @v and @h; `chain b'
+ * reads neither. */
+static std::string
+replayPiece (int v)
+{
+    return "tempo 120;\n@v = " + std::to_string(v) + ";\n@v.max = 127;\n"
+           "@h = 0.0125;\n"
+           "chain a {\n    stage src gen::lsystem { axiom = "
+           "\"FFFFFFFFFFFFFFFF\"; depth = 0; notes = \"C4 D4 E4 G4 A4\"; "
+           "step = 0.05 beats; hold = @h; vel = @v; };\n"
+           "    sink { channel = 1; };\n};\n"
+           "chain b {\n    stage src gen::lsystem { axiom = \"FFFF\"; "
+           "depth = 0; notes = \"C3 G3\"; step = 0.5 beats; "
+           "hold = 0.25 beats; vel = 90; };\n    sink { channel = 2; };\n};\n";
+}
+
+/* `p' from now to `until', its replays advanced `ticks' a window and landed
+   in the first window that finds them caught up -- or, with `landAt', in
+   the first window starting at or after it, however early they caught up.
+   `between' runs at the top of each window. Where they landed. */
+static double
+playReplaying (Peer &p, double until, unsigned ticks, double landAt = -1,
+               const std::function<void (Peer &)> &between = nullptr)
+{
+    const double window = 1024.0 / 44100;
+    double landed = -1;
+
+    p.sched.start();
+
+    while (p.sched.now() < until)
+    {
+        const double from = p.sched.now();
+
+        if (between)
+            between(p);
+
+        if (p.sched.replaying() && p.sched.replayAdvance(ticks) &&
+            (landAt < 0 || from >= landAt))
+        {
+            p.sched.replayLand();
+            landed = from;
+        }
+
+        p.stepTo(std::min(until, from + window));
+    }
+
+    p.sched.stop();
+    p.drain();
+
+    return landed;
+}
+
+/* The chain the knob moved under plays what it had queued until its replay
+   lands, and from there what it would have had the knob been there from the
+   top; the chain beside it plays on as if nothing had happened. */
+static void
+checkReplayDeferred (const std::map<std::string, thcPlugin *> &plugins,
+                     const std::string &pluginDir,
+                     const std::filesystem::path &dir)
+{
+    const double at = 20.3, until = 30, window = 1024.0 / 44100;
+    std::vector<std::string> errors;
+    Peer deferred(plugins, pluginDir, dir, "rd"),
+         top(plugins, pluginDir, dir, "rt"),
+         still(plugins, pluginDir, dir, "rn");
+
+    deferred.sched.setReplayDeferred(true);
+
+    if (!deferred.load(replayPiece(100), errors) ||
+        !still.load(replayPiece(100), errors) ||
+        !top.load(replayPiece(50), errors))
+    {
+        fail("replay deferred", "the piece does not load: " +
+             (errors.empty() ? std::string() : errors[0]));
+        return;
+    }
+
+    play(still, "replay deferred", {}, until, [=] { return window; });
+    play(top, "replay deferred", {}, until, [=] { return window; });
+    play(deferred, "replay deferred", {}, at, [=] { return window; });
+
+    deferred.sched.knob("v")->setValue(50);
+    deferred.sched.knobMoved(deferred.sched.knob("v"), false);
+
+    const double landed = playReplaying(deferred, until, 2);
+    const std::string want = notesBetween(top.tape, { 0 }, landed, until);
+    const std::string got = notesBetween(deferred.tape, { 0 }, landed, until);
+    const std::vector<std::string> waiting =
+        lines(notesBetween(deferred.tape, { 0 }, at, landed));
+    const std::string queued = notesBetween(still.tape, { 0 }, at, landed);
+
+    if (landed < at + 3 * window)
+        fail("replay deferred", "the replay was not spread over windows: "
+             "it landed at " + std::to_string(landed));
+    else if (!std::all_of(waiting.begin(), waiting.end(),
+                          [&](const std::string &l)
+                          { return queued.find(l) != std::string::npos; }))
+        fail("replay deferred", "before it landed the chain played what it "
+             "had not queued");
+    else if (want.empty() || got != want)
+        fail("replay deferred", "a deferred replay is not heard from where "
+             "it landed as the piece from the top: " +
+             firstDifference(want, got));
+    else if (notesBetween(deferred.tape, { 1 }, 0, until) !=
+             notesBetween(still.tape, { 1 }, 0, until))
+        fail("replay deferred", "the chain beside it did not play on");
+    else
+        printf("ok    a deferred replay is heard from where it landed, "
+               "%.2f s after the knob moved, and the chain beside it plays "
+               "on\n", landed - at);
+}
+
+/* What the mirror and the worklet do: one replay advanced all at once and
+   one a few ticks a window, landed in the same window, compose the same
+   piece -- with a knob the replaying chain reads moved under both on the
+   way, and the tempo, neither of which asks for a replay. */
+static void
+checkReplayHeld (const std::map<std::string, thcPlugin *> &plugins,
+                 const std::string &pluginDir,
+                 const std::filesystem::path &dir)
+{
+    const double at = 20.3, until = 30, window = 1024.0 / 44100;
+    std::vector<std::string> errors;
+    Peer pieces(plugins, pluginDir, dir, "rp"),
+         held(plugins, pluginDir, dir, "rh");
+    int w = 0;
+    auto meddle = [&w](Peer &q)
+    {
+        if (++w == 4)
+        {
+            q.sched.knob("h")->setValue(0.005f);
+            q.sched.setTempo(132);
+        }
+    };
+
+    for (Peer *p : { &pieces, &held })
+    {
+        p->sched.setReplayDeferred(true);
+
+        if (!p->load(replayPiece(100), errors))
+        {
+            fail("replay held", "the piece does not load");
+            return;
+        }
+
+        play(*p, "replay held", {}, at, [=] { return window; });
+        p->sched.knob("v")->setValue(50);
+        p->sched.knobMoved(p->sched.knob("v"), false);
+    }
+
+    /* The one in pieces lands when it has caught up; the other is advanced
+       all at once and held to land in the same window. */
+    const double landAt = playReplaying(pieces, until, 2, -1, meddle);
+
+    w = 0;
+    playReplaying(held, until, ~0u, landAt, meddle);
+
+    if (landAt < at + 4 * window)
+        fail("replay held", "the replay in pieces landed before anything "
+             "moved under it: " + std::to_string(landAt));
+    else if (held.tape != pieces.tape)
+        fail("replay held", "a replay advanced in pieces is not the one "
+             "advanced at once, with a knob and the tempo moved on the way: " +
+             firstDifference(held.tape, pieces.tape));
+    else
+        printf("ok    a replay advanced in pieces is the one advanced at "
+               "once, with a knob and the tempo moved on the way\n");
+}
+
 /* A breeding population that listens, edited while it plays, through an
    ear that answers at once as the browser's does: what it would have heard
    until then is not rendered again, which would be every generation of it
@@ -1647,6 +1818,8 @@ main (int argc, char *argv[])
     checkCases(plugins, pluginDir, dir);
     checkRecompose(plugins, pluginDir, dir);
     checkKnobMoved(plugins, pluginDir, dir);
+    checkReplayDeferred(plugins, pluginDir, dir);
+    checkReplayHeld(plugins, pluginDir, dir);
     checkListener(plugins, pluginDir, dir);
     checkPainted(plugins, pluginDir, dir);
     checkCueEdit(plugins, pluginDir, dir);

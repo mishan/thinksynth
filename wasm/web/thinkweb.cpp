@@ -445,6 +445,19 @@ double seekReleaseAt_ = -1;  /* the mirror's: where the next one lands */
 void settleSeek (double frame);
 void dropSeek (void);
 
+/* A chain's replay from its start (thcScheduler::setReplayDeferred), which
+ * a knob, a param or an edit asks for and which half an hour into a piece
+ * was up to 27 ms of ticks inside the one window that applied it. In the
+ * worklet it is advanced a slice of CPU a window, the chain playing what it
+ * had queued, and heard from the top of the first window that finds it
+ * caught up -- where it landed goes to the mirror (`replayLanded_'), which
+ * advances its own all at once and lands it there (`replayRelease_'). The
+ * replay reads what it reads as it stood when it began, so the two are the
+ * same replay. A room's stamped commands replay whole (applyScheduled). */
+std::deque<double> replayLanded_;
+std::deque<double> replayRelease_;
+void replayOn (double frame, double budgetMs);
+
 /* A MIDI channel's chanargs while catching up: the last of each, sent once
    it is over (midiCaughtUp), as a seek sends them. */
 std::map<std::pair<int, std::string>, double> catchControls_;
@@ -921,6 +934,45 @@ void dropSeek (void)
         synth_->setSilent(false);
 }
 
+/* Ticks between looks at the clock. */
+static const unsigned TW_REPLAY_TICKS = 32;
+
+/* The top of the window at `frame', with a replay under way: advanced for
+   `budgetMs', or all the way below zero, and landed if it has caught up --
+   on a mirror, only where the worklet said its own landed. */
+void replayOn (double frame, double budgetMs)
+{
+    if (!sched_->replaying())
+        return;
+
+    if (mirror_)
+    {
+        sched_->replayAdvance(~0u);
+
+        if (!replayRelease_.empty() && replayRelease_.front() <= frame)
+        {
+            replayRelease_.pop_front();
+            sched_->replayLand();
+        }
+
+        return;
+    }
+
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+    bool caught;
+
+    while (!(caught = sched_->replayAdvance(budgetMs >= 0 ? TW_REPLAY_TICKS
+                                                          : ~0u)) &&
+           tw_clock_ms() - t0 < budgetMs)
+        ;
+
+    if (caught)
+    {
+        sched_->replayLand();
+        replayLanded_.push_back(frame);
+    }
+}
+
 /* Not behind any more, or never was: the synth sounds again, unless it is
    a mirror's, which never does. */
 void endCatching (void)
@@ -1159,9 +1211,34 @@ bool namedStage (Scheduled &c)
     return false;
 }
 
+void applyScheduledAt (const Scheduled &given);
+
+/* A stamped command (a room's) replays what it touches whole: the peers
+   step windows of their own, and only a replay done where the command
+   lands is heard in the same place by all of them. */
 void applyScheduled (const Scheduled &given)
 {
+    const bool stamped = given.at >= 0;
+
+    sched_->setReplayWhole(stamped);
+    applyScheduledAt(given);
+    sched_->setReplayWhole(false);
+}
+
+void applyScheduledAt (const Scheduled &given)
+{
     Scheduled c = given;
+
+    /* What reaches into a stage or builds chains again, rather than moving
+       a value a replay holds: the replay is played through first and heard
+       from here, as it is on the mirror for the same command. */
+    switch (c.op)
+    {
+        case TW_INPUT: case TW_EDIT: case TW_PICK: case TW_GROWBACK:
+        case TW_TRYGRAPH:
+            sched_->settleReplays();
+            break;
+    }
 
     /* A command that names its stage is found by name (namedStage), so an
        edit since it was made moves nothing it depends on. */
@@ -2688,6 +2765,7 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     openComposers();
 
     sched_ = new thcScheduler(synth_);
+    sched_->setReplayDeferred(true);
     sched_->setMidiOut(&midiOut_);
     sched_->setMidiClock(twMidiOut::stamp, twMidiOut::now);
     loader_ = new thcGenLoader(plugins_);
@@ -7091,6 +7169,7 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
            frame is the next one handed out. */
         if (held == 0)
         {
+            replayOn(rendered_, catchBudget_);
             applyDue(rendered_, len);
             beginDue(rendered_, len);
 
@@ -7232,6 +7311,7 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
 
     while (rendered_ < toFrame)
     {
+        replayOn(rendered_, -1);
         applyDue(rendered_, len);
         beginDue(rendered_, len);
 
@@ -7254,6 +7334,33 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
     }
 
     return rendered_;
+}
+
+/* Where the worklet's replays landed since this was last asked, the oldest
+   first, one a call; -1 when there are none. */
+EMSCRIPTEN_KEEPALIVE double tw_replay_landed (void)
+{
+    if (replayLanded_.empty())
+        return -1;
+
+    const double frame = replayLanded_.front();
+
+    replayLanded_.pop_front();
+    return frame;
+}
+
+/* The mirror's replay, landed at the top of the window at `frame' -- where
+   the worklet's did. */
+EMSCRIPTEN_KEEPALIVE void tw_replay_release (double frame)
+{
+    replayRelease_.push_back(frame);
+    tw_step(frame);
+    replayOn(rendered_, -1);
+
+    /* One with no replay under way to land is a mirror that has parted
+       from its worklet already; it is not left to land the next early. */
+    while (!replayRelease_.empty() && replayRelease_.front() <= rendered_)
+        replayRelease_.pop_front();
 }
 
 /* Where the worklet's seeks landed since this was last asked, the oldest

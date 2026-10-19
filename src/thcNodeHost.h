@@ -183,6 +183,11 @@ public:
 
     bool reads (const thArg *knob) const;
 
+    /* For a replay in pieces (thcScheduler::catchUp): the knobs read as
+       they stand now, however they move after, until released. */
+    void holdKnobs (void);
+    void releaseKnobs (void) { held_.clear(); }
+
     /* Fire whatever windows the transport has earned since the last
        call. Cheap and exact when nothing is due. Not `capped', every
        window however far the jump: a chain played again from its start,
@@ -282,6 +287,7 @@ private:
     std::vector<Wire>     wires_;
     std::vector<Value>    values_;
     std::vector<KnobBind> knobs_;
+    std::vector<float>    held_;   /* holdKnobs's, by knobs_ index */
 
     /* No node declares an ARG_STATE arg. */
     bool stateless_ = false;

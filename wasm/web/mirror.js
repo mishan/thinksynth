@@ -576,6 +576,12 @@ function act (m)
                     continue;
                 }
 
+                if (cmd === 'replay')
+                {
+                    M._tw_replay_release(frame);
+                    continue;
+                }
+
                 const h = held.get(cmd);
 
                 if (h === undefined)

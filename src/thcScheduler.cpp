@@ -96,6 +96,9 @@ thcParamStore::get (int index) const
        Binding one releases the other (see bindKnob), so the order
        these are tried in is not a precedence rule anybody has to
        remember: at most one of them is ever set. */
+    if (held_ && nodes_[index] == NULL)
+        return heldValues_[index];
+
     double v = values_[index];
 
     if (knobs_[index] != NULL)
@@ -108,7 +111,7 @@ thcParamStore::get (int index) const
        survive tempo automation mid-piece. */
     if (beats_[index] && tempo_)
     {
-        double bpm = tempo_();
+        double bpm = held_ ? heldTempo_ : tempo_();
 
         if (bpm > 0)
             v = v * 60.0 / bpm;
@@ -122,6 +125,9 @@ thcParamStore::getString (int index) const
 {
     if (index < 0 || index >= (int)strings_.size())
         return "";
+
+    if (held_)
+        return heldStrings_[index].c_str();
 
     return strings_[index].c_str();
 }
@@ -384,11 +390,45 @@ thcParamStore::notifyChanged (int index)
 void
 thcParamStore::announce (int index)
 {
+    if (held_)
+        return;
+
     if (instance_ != NULL)
         plugin_->paramChanged(instance_, index);
 
     if (rearm_)
         rearm_();
+}
+
+void
+thcParamStore::hold (void)
+{
+    if (held_)
+        return;
+
+    heldValues_.resize(values_.size());
+    heldStrings_.assign(strings_.begin(), strings_.end());
+    heldTempo_ = tempo_ ? tempo_() : 0;
+
+    for (size_t i = 0; i < values_.size(); i++)
+        heldValues_[i] = get((int)i);
+
+    held_ = true;
+}
+
+void
+thcParamStore::release (void)
+{
+    if (!held_)
+        return;
+
+    held_ = false;
+
+    for (size_t i = 0; i < values_.size(); i++)
+        if (nodes_[i] == NULL &&
+            (get((int)i) != heldValues_[i] ||
+             (i < strings_.size() && strings_[i] != heldStrings_[i])))
+            announce((int)i);
 }
 
 /* ---- thcScheduler ----------------------------------------------------- */
@@ -659,6 +699,7 @@ thcScheduler::clearChains (void)
             s->state = NULL;
         }
 
+    replays_.clear();
     chains_.clear();
     soloCount_ = 0;
     meter_ = 4;
@@ -2967,6 +3008,9 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
 {
     typedef std::pair<size_t, size_t> Slot;
 
+    /* The chains move under a replay, so none is left under way. */
+    settleReplays();
+
     /* Which live stage each slot of the new piece keeps, by name. A
      * chain with embedded nodes is kept whole or not at all: a stage
      * bound to `lfo->out' holds a pointer into its chain's node host, so
@@ -3287,6 +3331,14 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
             marked[moved[m.first]] = m.second;
 
     recompose_.swap(marked);
+
+    std::set<size_t> whole;
+
+    for (size_t m : wholeMarked_)
+        if (moved[m] >= 0)
+            whole.insert(moved[m]);
+
+    wholeMarked_.swap(whole);
 
     std::vector<Pending> left;
 
@@ -4020,8 +4072,10 @@ thcScheduler::runStep (void)
     takeHeardGrowth();
     runDueTicks(transportNow_);
 
+    /* Not a chain being replayed, whose nodes are where its replay has
+       got to. */
     for (size_t i = 0; i < chains_.size(); i++)
-        if (chains_[i].nodes)
+        if (chains_[i].nodes && !replaying(i))
         {
             chains_[i].nodes->stepTo(transportNow_);
 
@@ -4208,11 +4262,20 @@ thcScheduler::runDueTicks (double now)
 void
 thcScheduler::catchUp (size_t chain)
 {
+    dropReplays(chain);
+
     thcChain &c = chains_[chain];
-    std::vector<Wakeup> due, rest;
+    Replay r;
+    std::vector<Wakeup> rest;
+
+    r.chain = chain;
+    r.now0 = transportNow_;
+    r.beat0 = beat_;
+    r.tempo0 = tempo_;
+    r.audible = audible(c);
 
     for (const Wakeup &w : wakeups_)
-        (w.chain == chain ? due : rest).push_back(w);
+        (w.chain == chain ? r.due : rest).push_back(w);
 
     /* From the chain's start as a load computes it: in beats, on the
        beat grid the piece is on now, whatever tempo it got there at. */
@@ -4221,14 +4284,14 @@ thcScheduler::catchUp (size_t chain)
 
     /* Its nodes from the top too, each stage reading them where they
        were at its wake: as they were kept, if they were, or fired again. */
-    const bool kept = c.nodes && c.nodes->recorded();
+    r.kept = c.nodes && c.nodes->recorded();
 
-    if (c.nodes && !kept)
+    if (c.nodes && !r.kept)
         c.nodes->reset();
 
-    if (due.empty() || start >= transportNow_)
+    if (r.due.empty() || start >= transportNow_)
     {
-        if (kept)
+        if (r.kept)
             c.nodes->showNow();
 
         if (c.nodes)
@@ -4240,26 +4303,133 @@ thcScheduler::catchUp (size_t chain)
     wakeups_.swap(rest);
     std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
 
-    for (Wakeup &w : due)
+    for (Wakeup &w : r.due)
         if (c.stages[w.stage]->awaitingStart)
             w.at = start;
 
-    std::make_heap(due.begin(), due.end(), Later());
+    std::make_heap(r.due.begin(), r.due.end(), Later());
+
+    const bool whole = wholeReplay(chain);
+
+    if (!whole)
+    {
+        r.held = true;
+
+        for (auto &st : c.stages)
+            st->params.hold();
+
+        if (c.nodes)
+            c.nodes->holdKnobs();
+    }
+
+    replays_.push_back(std::move(r));
+
+    if (whole)
+    {
+        unsigned all = ~0u;
+
+        replayRun(replays_.size() - 1, all);
+        landReplay(replays_.back());
+        replays_.pop_back();
+    }
+}
+
+/* The replays under way given up -- every one, or `chain's -- with
+   their stores and nodes reading live again. */
+void
+thcScheduler::dropReplays (long chain)
+{
+    for (size_t i = replays_.size(); i-- > 0; )
+    {
+        Replay &r = replays_[i];
+
+        if (chain >= 0 && r.chain != (size_t)chain)
+            continue;
+
+        if (r.held)
+        {
+            for (auto &st : chains_[r.chain].stages)
+                st->params.release();
+
+            if (chains_[r.chain].nodes)
+                chains_[r.chain].nodes->releaseKnobs();
+        }
+
+        replays_.erase(replays_.begin() + (long)i);
+    }
+}
+
+/* Played through in the call that asked for it. On a stopped transport
+   too: a replay in pieces moves only while it runs, and would come in at
+   each peer's own window once a room started. */
+bool
+thcScheduler::wholeReplay (size_t chain) const
+{
+    return !replayDeferred_ || replayWhole_ || !running_ ||
+           wholeMarked_.count(chain) > 0;
+}
+
+bool
+thcScheduler::replaying (size_t chain) const
+{
+    return std::any_of(replays_.begin(), replays_.end(),
+                       [chain](const Replay &r) { return r.chain == chain; });
+}
+
+bool
+thcScheduler::replayAdvance (unsigned ticks)
+{
+    bool caught = true;
+
+    for (size_t i = 0; i < replays_.size(); i++)
+        caught = replayRun(i, ticks) && caught;
+
+    return caught;
+}
+
+void
+thcScheduler::replayLand (void)
+{
+    for (size_t i = 0; i < replays_.size(); i++)
+    {
+        unsigned all = ~0u;
+
+        replayRun(i, all);
+        landReplay(replays_[i]);
+    }
+
+    replays_.clear();
+}
+
+bool
+thcScheduler::replayRun (size_t i, unsigned &budget)
+{
+    Replay &r = replays_[i];
+    const size_t chain = r.chain;
+    thcChain &c = chains_[chain];
+    std::vector<Wakeup> &due = r.due;
+    const bool kept = r.kept;
+
+    if (r.bailed)
+        return true;
 
     catchingUp_ = true;
-    caughtUp_.clear();
+    replay_ = &r;
 
-    const unsigned long queued = pendingSeq_;
-
-    while (!due.empty() && due.front().at < transportNow_)
+    while (budget > 0 && !due.empty() && due.front().at < transportNow_)
     {
+        budget--;
+
         std::pop_heap(due.begin(), due.end(), Later());
         Wakeup w = due.back();
         due.pop_back();
 
         thcStage *s = c.stages[w.stage].get();
+
+        /* The beat it falls on, on the tempo as it was when the replay
+           began. */
         const thcTransport t = {
-            w.at, tempo_, beat_ - (transportNow_ - w.at) * tempo_ / 60.0,
+            w.at, r.tempo0, r.beat0 - (r.now0 - w.at) * r.tempo0 / 60.0,
             true };
 
         s->awaitingStart = false;
@@ -4297,29 +4467,14 @@ thcScheduler::catchUp (size_t chain)
 
         const double next = s->plugin->tick(s->state, &t, &sink);
 
-        /* What it would have heard cannot be heard again now: it starts
-           from now instead, as made, with nothing it composed here. */
+        /* What it would have heard cannot be heard again: it starts from
+           where it lands instead, as made, with nothing it composed
+           here. */
         if (s->unwritten)
         {
-            catchingUp_ = false;
-            caughtUp_.clear();
-            pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-                               [chain, queued](const Pending &p)
-                               { return p.chain == (int)chain &&
-                                        p.seq >= queued; }),
-                           pending_.end());
-            std::make_heap(pending_.begin(), pending_.end(), LaterPending());
-
-            for (size_t si = 0; si < c.stages.size(); si++)
-                remake(chain, si);
-
-            if (kept)
-                c.nodes->showNow();
-
-            if (c.nodes)
-                c.nodes->stepTo(transportNow_, false);
-
-            return;
+            r.bailed = true;
+            r.heard.clear();
+            break;
         }
 
         if (next == THC_NEVER)
@@ -4328,34 +4483,128 @@ thcScheduler::catchUp (size_t chain)
             continue;
         }
 
-        /* Held to now past runDueTicks's cap, as it holds one to a
-           step. */
+        /* Held to where it began past runDueTicks's cap, as that holds one
+           to a step. */
         double at = next;
 
         if (next > w.at)
             s->stalled = 0;
         else
-            at = ++s->stalled > TH_MAX_STALLED_WAKES ? transportNow_
-                                                    : w.at + 0.001;
+            at = ++s->stalled > TH_MAX_STALLED_WAKES
+                 ? std::max(r.now0, w.at + 0.001) : w.at + 0.001;
 
         due.push_back({ at, chain, w.stage, heapSeq_++ });
         std::push_heap(due.begin(), due.end(), Later());
     }
 
     catchingUp_ = false;
+    replay_ = NULL;
 
-    if (kept)
+    return r.bailed || due.empty() || due.front().at >= transportNow_;
+}
+
+/* What a recomposed chain had queued, which played on while it replayed. */
+void
+thcScheduler::dropOldSounds (const Replay &r)
+{
+    if (!r.dropOld)
+        return;
+
+    const int chain = (int)r.chain;
+    const unsigned long before = r.oldBefore;
+
+    pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                       [chain, before](const Pending &p)
+                       { return p.chain == chain && p.seq < before &&
+                                (p.ev.type == THC_EV_NOTE ||
+                                 p.ev.type == THC_EV_CHANARG); }),
+                   pending_.end());
+    std::make_heap(pending_.begin(), pending_.end(), LaterPending());
+}
+
+/* Heard from now: what it composed queued as queuePending queues it, its
+   wakes back among the rest, and its stores and nodes reading live. */
+void
+thcScheduler::landReplay (Replay &r)
+{
+    const size_t chain = r.chain;
+    thcChain &c = chains_[chain];
+
+    if (r.held)
+    {
+        for (auto &st : c.stages)
+            st->params.release();
+
+        if (c.nodes)
+            c.nodes->releaseKnobs();
+    }
+
+    dropOldSounds(r);
+
+    if (r.bailed)
+    {
+        for (size_t si = 0; si < c.stages.size(); si++)
+            remake(chain, si);
+
+        if (r.kept)
+            c.nodes->showNow();
+
+        if (c.nodes)
+            c.nodes->stepTo(transportNow_, false);
+
+        return;
+    }
+
+    if (r.kept)
         c.nodes->showNow();
 
     if (c.nodes)
         c.nodes->stepTo(transportNow_, false);
 
+    /* A note before now would never have been heard, but a value or a
+       structure edit is where the chain left its target, as a seek leaves
+       it -- so the last for each target is delivered now. */
+    std::map<std::string, Pending> caught;
+
+    for (Pending &p : r.heard)
+    {
+        if (p.at >= transportNow_)
+        {
+            p.seq = pendingSeq_++;
+            pending_.push_back(p);
+            std::push_heap(pending_.begin(), pending_.end(), LaterPending());
+            continue;
+        }
+
+        if (p.ev.type == THC_EV_NOTE || p.ev.type == THC_EV_NOTEOFF)
+            continue;
+
+        if (!sectionGate(p.ev, p.chain))
+            continue;
+
+        char key[64];
+
+        snprintf(key, sizeof(key), "%d %d %p ", (int)p.ev.type, p.ev.channel,
+                 (void *)p.knob);
+
+        std::string k = key;
+
+        if (p.chanargName)
+            k += *p.chanargName;
+        else if (p.ev.type == THC_EV_NODEARG)
+            k += *p.text + "->" + *p.text2;
+        else if (p.ev.type == THC_EV_GROW)
+            k += std::to_string(pendingSeq_);
+
+        p.seq = pendingSeq_++;
+        caught[k] = p;
+    }
+
     std::vector<Pending> last;
 
-    for (auto &e : caughtUp_)
+    for (auto &e : caught)
         last.push_back(e.second);
 
-    caughtUp_.clear();
     std::sort(last.begin(), last.end(), [](const Pending &a,
                                            const Pending &b)
               { return a.seq < b.seq; });
@@ -4367,8 +4616,15 @@ thcScheduler::catchUp (size_t chain)
         std::push_heap(pending_.begin(), pending_.end(), LaterPending());
     }
 
-    for (const Wakeup &w : due)
+    /* Numbered afresh, in the order they are due: what they were given
+       on the way depends on what else was woken meanwhile. */
+    std::sort(r.due.begin(), r.due.end(), [](const Wakeup &a,
+                                             const Wakeup &b)
+              { return Later()(b, a); });
+
+    for (Wakeup w : r.due)
     {
+        w.seq = heapSeq_++;
         wakeups_.push_back(w);
         std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
     }
@@ -4503,7 +4759,11 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &in)
          */
         const thcEvent *gated = &ev;
 
-        if (!audible(c) && ev.type != THC_EV_NOTEOFF &&
+        /* A replay hears the chain as it was heard when it began. */
+        const bool heard = replay_ != NULL && &c == &chains_[replay_->chain]
+                           ? replay_->audible : audible(c);
+
+        if (!heard && ev.type != THC_EV_NOTEOFF &&
             !isStructureEdit(ev.type))
         {
             /* At the event's own time, which is when it would have been
@@ -4650,34 +4910,11 @@ thcScheduler::queuePending (const thcEvent &ev,
         p.ev.u.nodearg.arg = p.text2->c_str();
     }
 
-    /* A chain played up to now: a note before now would never have been
-       heard, but a value or a structure edit is where the chain left its
-       target, as a seek leaves it -- so the last for each target is
-       delivered now (catchUp). */
-    if (catchingUp_ && p.at < transportNow_)
+    /* A chain being played up to now: held until it has caught up, and
+       queued then (replayRun). */
+    if (replay_ != NULL)
     {
-        if (ev.type == THC_EV_NOTE || ev.type == THC_EV_NOTEOFF)
-            return;
-
-        if (!sectionGate(p.ev, chain))
-            return;
-
-        char key[64];
-
-        snprintf(key, sizeof(key), "%d %d %p ", (int)ev.type, ev.channel,
-                 (void *)knob);
-
-        std::string k = key;
-
-        if (p.chanargName)
-            k += *p.chanargName;
-        else if (ev.type == THC_EV_NODEARG)
-            k += *p.text + "->" + *p.text2;
-        else if (ev.type == THC_EV_GROW)
-            k += std::to_string(pendingSeq_);
-
-        p.seq = pendingSeq_++;
-        caughtUp_[k] = p;
+        replay_->heard.push_back(p);
         return;
     }
 
@@ -5409,6 +5646,8 @@ thcScheduler::reset (void)
     pending_.clear();
     wakeups_.clear();
     recompose_.clear();
+    dropReplays();
+    wholeMarked_.clear();
     started_ = false;
 
     /* A growth still being heard was asked for by a play that is over. */
@@ -5584,6 +5823,9 @@ thcScheduler::recompose (size_t chain, bool passing)
     const auto m = recompose_.find(chain);
 
     recompose_[chain] = passing && (m == recompose_.end() || m->second);
+
+    if (replayWhole_)
+        wholeMarked_.insert(chain);
 }
 
 void
@@ -5643,10 +5885,11 @@ thcScheduler::composeAgain (size_t chain, bool passing)
                     { return s->unwritten; }))
         return;
 
-    auto sound = [chain](const Pending &p)
+    const unsigned long before = pendingSeq_;
+    auto sound = [chain, before](const Pending &p)
     {
-        return p.chain == (int)chain && (p.ev.type == THC_EV_NOTE ||
-                                         p.ev.type == THC_EV_CHANARG);
+        return p.chain == (int)chain && p.seq < before &&
+               (p.ev.type == THC_EV_NOTE || p.ev.type == THC_EV_CHANARG);
     };
 
     const double beat = transportNow_ + 60.0 / tempo_;
@@ -5656,15 +5899,28 @@ thcScheduler::composeAgain (size_t chain, bool passing)
                                                     p.at > beat; }))
         return;
 
-    pending_.erase(std::remove_if(pending_.begin(), pending_.end(), sound),
-                   pending_.end());
-    std::make_heap(pending_.begin(), pending_.end(), LaterPending());
+    auto dropSound = [this, sound]
+    {
+        pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                      sound),
+                       pending_.end());
+        std::make_heap(pending_.begin(), pending_.end(), LaterPending());
+    };
+
+    /* In pieces, what it had queued plays on until the replay lands. */
+    const bool whole = wholeReplay(chain);
+
+    if (whole)
+        dropSound();
 
     wakeups_.erase(std::remove_if(wakeups_.begin(), wakeups_.end(),
                                   [chain](const Wakeup &w)
                                   { return w.chain == chain; }),
                    wakeups_.end());
     std::make_heap(wakeups_.begin(), wakeups_.end(), Later());
+
+    /* One still under way is begun again, over stages made again. */
+    dropReplays((long)chain);
 
     /* A key held through it would be released into stages that never
        saw it pressed, as in adopt(). */
@@ -5682,6 +5938,21 @@ thcScheduler::composeAgain (size_t chain, bool passing)
         remake(chain, si);
 
     catchUp(chain);
+    wholeMarked_.erase(chain);
+
+    if (whole)
+        return;
+
+    auto r = std::find_if(replays_.begin(), replays_.end(),
+                          [chain](const Replay &x) { return x.chain == chain; });
+
+    if (r == replays_.end())
+        dropSound();
+    else
+    {
+        r->dropOld = true;
+        r->oldBefore = before;
+    }
 }
 
 void

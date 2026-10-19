@@ -898,10 +898,12 @@ class ThinkProcessor extends AudioWorkletProcessor
         const p = this.M._tw_render(frames) >> 2;
         const heap = this.M.HEAPF32;
 
-        /* Where a seek landed, among the commands, for the mirror to land
-           its own there (mirror.js). */
+        /* Where a seek or a replay landed, among the commands, for the
+           mirror to land its own there (mirror.js). */
         for (let f; (f = this.M._tw_seek_landed()) >= 0; )
             this.handled.push(['seek', f]);
+        for (let f; (f = this.M._tw_replay_landed()) >= 0; )
+            this.handled.push(['replay', f]);
 
         /* Interleaved stereo in the heap; planar channels out. A mono
            destination gets the left. */
