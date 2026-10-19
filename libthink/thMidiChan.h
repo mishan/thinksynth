@@ -34,8 +34,8 @@ public:
                 long samplerate = TH_DEFAULT_SAMPLES);
     ~thMidiChan (void);
 
-    typedef map<int, thMidiNote*> NoteMap;
-    typedef list<thMidiNote*> NoteList;
+    typedef thNoteList<&thMidiNote::byKey> NoteMap;
+    typedef thNoteList<&thMidiNote::onList> NoteList;
 
     typedef thRing<thRetired, TH_RETIRE_QUEUE_SIZE> RetireQueue;
 
@@ -313,7 +313,15 @@ private:
        what has to happen to any voice that is no longer the one a new note
        will be keyed as. Was the body of insertNote's same-pitch collision
        case; mono needs it for a collision on any pitch. */
-    void decayNote (NoteMap::iterator i);
+    void decayNote (thMidiNote *note);
+
+    /* Audio thread. The held voice keyed `id', or NULL; and a voice put
+       among the held ones, in key order, which is the order they mix in. */
+    thMidiNote *findNote (int id);
+    void keyNote (thMidiNote *note);
+
+    /* Audio thread. The voice's `trigger', by index rather than by name. */
+    void setTrigger (thMidiNote *note, float value);
 
     /* Audio thread. Steals a voice: starts its ramp and moves it to
        fading_, where it is mixed until the ramp runs out and then retired.
@@ -348,7 +356,7 @@ private:
     thArgMap args_;
     thArg *send_;
     float lastSend_;
-    NoteMap notes_;
+    NoteMap notes_;      /* the held voices, by key */
     NoteList decaying_;  /* linked list for decaying notes */
     NoteList noteorder_; /* order of the notes for polyphony limits */
 

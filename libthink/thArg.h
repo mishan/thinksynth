@@ -170,6 +170,10 @@ public:
 
     float *allocate (unsigned int elements);
 
+    /* Room for `elements' without changing the length or the values, so a
+       later allocate() up to that size is a memset and not a new[]. */
+    void reserve (unsigned int elements);
+
     /* GUI thread. Back to what `thArg(proto)' makes -- its length, its
        values, its pointer -- in the buffer this arg already has, growing
        it only if it is too small. How a pooled voice starts over; see

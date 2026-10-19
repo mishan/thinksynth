@@ -21,6 +21,13 @@
 
 #include "thExport.h"
 
+class thMidiNote;
+
+/* A voice's place on one of its channel's lists. */
+struct thNoteLink {
+    thMidiNote *prev, *next;
+};
+
 class THINK_API thMidiNote {
 public:
     /* `aux' is TH_NOTE_AUX floats, or NULL for all zeros; see AUXPREFIX.
@@ -104,6 +111,12 @@ public:
     void setArg (const string &name, float value);
     void setArg (const string &name, const float *value, int len);
 
+    /* The channel's lists run through the voices themselves, so moving one
+       between them on the audio thread allocates nothing. `byKey' is its
+       place among the held voices; `onList' its place on whichever one of
+       the order, release and fade lists it is on. */
+    thNoteLink byKey, onList;
+
 private:
     void start (float note, float velocity, float level, const float *aux,
                 const unsigned char *say);
@@ -120,6 +133,47 @@ private:
     /* The steal ramp: how long it is, and how much of it is left. Both zero
        on a voice nothing has stolen, which is what fading() reads. */
     int fadelen_, faderemaining_;
+};
+
+/* A doubly linked list of voices through link `L'. A voice is on at most one
+   list per link; clear() forgets the members without touching them. */
+template <thNoteLink thMidiNote::*L>
+class thNoteList {
+public:
+    thNoteList (void) : head_(NULL), tail_(NULL) {}
+
+    bool empty (void) const { return head_ == NULL; }
+    thMidiNote *front (void) const { return head_; }
+    thMidiNote *back (void) const { return tail_; }
+    static thMidiNote *next (thMidiNote *note) { return (note->*L).next; }
+
+    /* Before `at', or at the back when `at' is NULL. */
+    void insert (thMidiNote *at, thMidiNote *note)
+    {
+        thNoteLink &link = note->*L;
+
+        link.next = at;
+        link.prev = at ? (at->*L).prev : tail_;
+        (link.prev ? (link.prev->*L).next : head_) = note;
+        (at ? (at->*L).prev : tail_) = note;
+    }
+
+    void push_back (thMidiNote *note) { insert(NULL, note); }
+    void push_front (thMidiNote *note) { insert(head_, note); }
+
+    void remove (thMidiNote *note)
+    {
+        thNoteLink &link = note->*L;
+
+        (link.prev ? (link.prev->*L).next : head_) = link.next;
+        (link.next ? (link.next->*L).prev : tail_) = link.prev;
+        link.prev = link.next = NULL;
+    }
+
+    void clear (void) { head_ = tail_ = NULL; }
+
+private:
+    thMidiNote *head_, *tail_;
 };
 
 #endif /* TH_MIDINOTE_H */

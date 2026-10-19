@@ -44,6 +44,11 @@
  * A file fails if it restarted no voice in either sequence, which would
  * show nothing.
  *
+ * And the audio thread's side of both renders, synth.process(), allocates
+ * nothing: a voice is built and sized on the calling thread, and moving it
+ * between the channel's lists is pointer work. A graph that uses a plugin
+ * sizing its own buffers on the first window is excused (see render).
+ *
  * Then, once, the fallback: a voice whose args no longer match its
  * prototype's -- one invented on the voice by name -- is not restarted, and
  * the note it would have served gets a fresh copy without that arg.
@@ -58,9 +63,39 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
+#include <new>
 #include <vector>
 
 #include "think.h"
+
+/* Every allocation made while `counting' is set: the audio thread's share
+   of a render, which is synth.process(). */
+static std::atomic<bool> counting(false);
+static std::atomic<unsigned long> allocations(0);
+
+void *operator new (size_t size)
+{
+    if (counting.load(std::memory_order_relaxed))
+        allocations++;
+
+    if (void *p = malloc(size ? size : 1))
+        return p;
+
+    throw std::bad_alloc();
+}
+
+void *operator new[] (size_t size) { return operator new(size); }
+
+/* GCC pairs a new-expression with delete and not with the free() these
+   resolve to. */
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+void operator delete (void *p) noexcept { free(p); }
+void operator delete[] (void *p) noexcept { free(p); }
+void operator delete (void *p, size_t) noexcept { free(p); }
+void operator delete[] (void *p, size_t) noexcept { free(p); }
 
 #define WINDOWS 160
 
@@ -88,7 +123,8 @@ static void setPedal (thSynth &synth, float value)
 }
 
 static bool render (const string &plugins, const char *file, Sequence seq,
-                    bool pool, vector<float> &out, unsigned long *restarts)
+                    bool pool, vector<float> &out, unsigned long *restarts,
+                    unsigned long *allocated, bool *excused)
 {
     thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thSynthTree *tree = synth.loadTree(file, 0, 100);
@@ -97,6 +133,8 @@ static bool render (const string &plugins, const char *file, Sequence seq,
 
     out.clear();
     *restarts = 0;
+    *allocated = 0;
+    allocations = 0;
 
     if (tree == NULL || tree->takesInput() || synth.getChannel(0) == NULL)
         return false;
@@ -132,7 +170,9 @@ static bool render (const string &plugins, const char *file, Sequence seq,
                 setAmp(synth, swell, 1);
         }
 
+        counting = true;
         synth.process();
+        counting = false;
 
         const float *buf = synth.getOutput();
 
@@ -140,6 +180,25 @@ static bool render (const string &plugins, const char *file, Sequence seq,
     }
 
     *restarts = synth.getChannel(0)->restarts();
+    *allocated = allocations;
+
+    /* Plugins that still size their own buffers, or find their files, on a
+       voice's first window: a graph using one is not held to none. */
+    static const char *const sizing[] = { "comb", "echo", "pianostring",
+                                          "pad", "sample", "grain",
+                                          "stretch" };
+    const thSynthTree::NodeMap &nodes = tree->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
+         n != nodes.end(); ++n)
+    {
+        const thPlugin *plug = n->second ? n->second->plugin() : NULL;
+        const string path = plug ? plug->path() : string();
+        const string stem = path.substr(path.find_last_of("/\\") + 1);
+
+        for (size_t k = 0; plug && k < sizeof(sizing) / sizeof(*sizing); k++)
+            *excused |= stem.compare(0, stem.find('.'), sizing[k]) == 0;
+    }
 
     return true;
 }
@@ -155,13 +214,15 @@ static bool playable (const string &plugins, const char *file)
 
 /* Pooled and fresh for one sequence; true if they match. */
 static bool compare (const string &plugins, const char *file, Sequence seq,
-                     unsigned long *restarts, size_t *first)
+                     unsigned long *restarts, size_t *first,
+                     unsigned long *allocated, bool *excused)
 {
     vector<float> pooled, fresh;
-    unsigned long none;
+    unsigned long none, more;
 
-    render(plugins, file, seq, true, pooled, restarts);
-    render(plugins, file, seq, false, fresh, &none);
+    render(plugins, file, seq, true, pooled, restarts, allocated, excused);
+    render(plugins, file, seq, false, fresh, &none, &more, excused);
+    *allocated += more;
 
     if (pooled.size() == fresh.size() &&
         !memcmp(pooled.data(), fresh.data(), pooled.size() * sizeof(float)))
@@ -231,8 +292,9 @@ int main (int argc, char **argv)
             continue;
         }
 
-        unsigned long restarts[2] = { 0, 0 };
+        unsigned long restarts[2] = { 0, 0 }, allocated[2] = { 0, 0 };
         size_t first = 0;
+        bool excused = false;
 
         if (!playable(plugins, argv[i]))
         {
@@ -250,7 +312,8 @@ int main (int argc, char **argv)
 
         for (int s = 0; s < 2 && ok; s++)
         {
-            if (!compare(plugins, argv[i], seqs[s], &restarts[s], &first))
+            if (!compare(plugins, argv[i], seqs[s], &restarts[s], &first,
+                         &allocated[s], &excused))
             {
                 printf("DIFF  %-34s %s: %lu restarted, first differing "
                        "sample %zu\n", argv[i], names[s], restarts[s],
@@ -263,6 +326,13 @@ int main (int argc, char **argv)
         {
             printf("FAIL  %-34s no voice was restarted, so nothing was "
                    "shown\n", argv[i]);
+            ok = false;
+        }
+
+        if (ok && !excused && allocated[0] + allocated[1] > 0)
+        {
+            printf("FAIL  %-34s %lu + %lu allocations in process()\n",
+                   argv[i], allocated[0], allocated[1]);
             ok = false;
         }
 
