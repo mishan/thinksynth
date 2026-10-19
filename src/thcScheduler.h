@@ -191,6 +191,14 @@ public:
        scheduler when the transport first starts. */
     void freeze (void) { recording_ = false; }
 
+    /* For a replay in pieces: get() answers what it answers now, whatever
+       a knob or the tempo does after, and what would be announced in the
+       meantime waits. A node binding still reads the node, which the
+       replay is moving. release() reads live again and announces each
+       value that has moved since. */
+    void hold (void);
+    void release (void);
+
     /* What the .gen loader calls after composer_create to push a fresh
        value at a module that caches (a NOTESET reparse), without
        changing anything -- and what a knob's changed signal funnels
@@ -255,6 +263,11 @@ private:
     void                    *instance_;
     std::function<void()>    rearm_;
     std::function<double()>  tempo_;
+
+    bool                      held_ = false;
+    std::vector<double>       heldValues_;
+    std::vector<std::string>  heldStrings_;
+    double                    heldTempo_ = 0;
 };
 
 /* One value an instrument sets on top of its graph.
@@ -1014,6 +1027,35 @@ public:
        live host leaves it off and takes the answers as they come. */
     void setAuditionSynchronous (bool on);
 
+    /* A chain made again while the piece plays is played from its start
+       up to now (see catchUp). By default all of it happens inside the
+       call that asked. Deferred, the host plays it on in pieces --
+       replayAdvance, as much of a window as it can spare -- and says
+       where it is heard again: replayLand, at the top of a window.
+       Meanwhile the chain plays what it had queued, and the replay reads
+       its knobs, the tempo and its mute as they stood when it began, so
+       that two hosts advancing it in different pieces and landing it at
+       the same time hear the same chain. */
+    void setReplayDeferred (bool on) { replayDeferred_ = on; }
+    bool replaying (void) const { return !replays_.empty(); }
+
+    /* At most `ticks' more of the replays' ticks; true once every one has
+       caught up with the transport and can land. */
+    bool replayAdvance (unsigned ticks);
+
+    /* Every replay heard from here, played through first if it has not
+       caught up. settleReplays is the same, for a change that has to find
+       none under way. */
+    void replayLand (void);
+    void settleReplays (void) { replayLand(); }
+
+    /* While on, a replay asked for -- now, or by a recompose() marked now
+       and run at a later step -- is played through whole, as if it were
+       not deferred. For a host whose peers step different windows: a
+       room's stamped commands, which every peer has to hear land in the
+       same place. */
+    void setReplayWhole (bool on) { replayWhole_ = on; }
+
     /* NULL where there is no ear. A harness reads answered() off it. */
     thcAuditioner *auditioner (void) const { return auditioner_; }
     void setInstrumentUnloader (const InstrumentUnloader &fn)
@@ -1591,6 +1633,16 @@ private:
     /* A chain made again while the piece plays, played silently from its
        start up to now: see adopt(). */
     void catchUp (size_t chain);
+
+    /* replays_[i] on for at most `budget' ticks, which it spends; true
+       once it has caught up. */
+    bool replayRun (size_t i, unsigned &budget);
+    struct Replay;
+    void landReplay (Replay &r);
+    void dropReplays (long chain = -1);
+    void dropOldSounds (const Replay &r);
+    bool replaying (size_t chain) const;
+    bool wholeReplay (size_t chain) const;
     void remake (size_t chain, size_t stage);
     void recomposeMarked (void);
     void composeAgain (size_t chain, bool passing);
@@ -2053,9 +2105,38 @@ private:
     bool cuesPinned_ = false;
     bool catchingUp_ = false;  /* catchUp(): what is due before now goes */
 
-    /* What catchUp() delivers now: the last value or edit it composed
-       before now for each target. */
-    std::map<std::string, Pending> caughtUp_;
+    /* catchUp's replays still under way (setReplayDeferred): each one's
+       chain, the wakes it has still to run, whether its nodes are a
+       kept history, and what it has composed so far, held until it has
+       caught up and then queued as one replay done in a single call
+       queues it. A chain recomposed plays what it had queued until then
+       (composeAgain), and that goes when the replay lands: the sounds it
+       queued before `oldBefore'. */
+    struct Replay
+    {
+        size_t chain;
+        std::vector<Wakeup> due;
+        bool kept;
+        std::vector<Pending> heard;
+        bool dropOld = false;
+        unsigned long oldBefore = 0;
+
+        /* As it all stood when it began: the transport, and whether the
+           chain was heard. And whether its stores and nodes are held. */
+        double now0, beat0, tempo0;
+        bool audible;
+        bool held = false;
+
+        /* A stage it cannot play again (unwritten): the chain starts from
+           where it lands instead, as made. */
+        bool bailed = false;
+    };
+
+    std::vector<Replay> replays_;
+    Replay  *replay_ = NULL;    /* the one whose ticks are running */
+    bool     replayDeferred_ = false;
+    bool     replayWhole_ = false;
+    std::set<size_t> wholeMarked_;  /* recompose()'d under replayWhole_ */
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
 
     /* recompose()'s chains, each with whether only values passing by

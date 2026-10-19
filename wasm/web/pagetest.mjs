@@ -4128,6 +4128,85 @@ try
                   ? `: ${tapes.recent.join(', ')}` : ''));
     }
 
+    /* A knob fifty minutes into a piece of forty chains that read it:
+       each plays again from its start, which in one process() call held
+       the audio for as long as that took. It is advanced a slice of CPU a
+       window, each chain playing what it had queued, and heard from where
+       it caught up -- on the worklet and on the mirror alike. */
+    {
+        const KNOB_PIECE = [
+            'tempo 120;',
+            '@fills = 3;',
+            '@fills.min = 1;',
+            '@fills.max = 7;',
+            '@fills.step = 1;',
+            'section long 3000 s { };',
+            'section late 300 s { };',
+            'instrument org { dsp "organ0.dsp"; };',
+            ...Array.from({ length: 40 }, (_, i) =>
+                `chain c${i} { stage src gen::euclid { steps = 8; ` +
+                `fills = @fills; rotate = ${i % 8}; ` +
+                'notes = "C4 E4 G4"; period = 0.125 s; hold = 0.1 s; }; ' +
+                'sink { instrument = org; }; };'),
+        ].join('\n');
+        const lane = () => page.evaluate(() => window.solo.lane());
+        const heard = () => page.evaluate(() => window.solo.transport());
+        const knob = '#knobs .panelrow input[type="range"]';
+
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, KNOB_PIECE);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#play');
+        await until(heard, (t) => t !== null && t.now > 0.5);
+
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+
+        const heads = (await lane()).heads;
+        const headAt = await scroller();
+
+        await page.mouse.click(headAt.x + heads[1].x, headAt.y + heads[1].y);
+
+        const there = await until(heard, (t) => t !== null && t.now > 3000);
+
+        await page.waitForTimeout(500);
+
+        const tapesBefore = await page.evaluate(() => window.solo.tapeDiff());
+        const was = await page.inputValue(knob);
+
+        await page.focus(knob);
+        await page.keyboard.press('ArrowRight');
+        await page.waitForTimeout(1000);
+
+        const load = await page.evaluate(() => window.solo.quanta());
+        const now = await page.inputValue(knob);
+
+        await page.waitForTimeout(1500);
+
+        const tapes = await page.evaluate(() => window.solo.tapeDiff());
+
+        await page.click('#stop');
+        await page.evaluate(() => window.solo.settled());
+
+        check(there.now > 3000 && Number(now) === Number(was) + 1,
+              `a knob forty chains read, moved fifty minutes in: ${was} -> ` +
+              `${now} at ${there.now.toFixed(1)} s`);
+        check(load.recent.slowestMs < 50,
+              '...without a process() call that stalls for the chains it ' +
+              `plays again: the slowest was ${load.recent.slowestMs} ms`);
+        check(tapes.compared > tapesBefore.compared &&
+              tapes.disagreements === tapesBefore.disagreements,
+              '...and the mirror hears them again where the worklet did: ' +
+              `${tapes.disagreements - tapesBefore.disagreements} of ` +
+              `${tapes.compared - tapesBefore.compared} differ` +
+              (tapes.disagreements > tapesBefore.disagreements
+                  ? `: ${tapes.recent.join(', ')}` : ''));
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

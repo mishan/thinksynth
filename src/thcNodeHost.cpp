@@ -716,7 +716,8 @@ thcNodeHost::stepTo (double transport, bool capped)
         for (size_t i = 0; i < knobs_.size(); i++)
             if (knobs_[i].dest != NULL && knobs_[i].knob != NULL)
             {
-                const float v = (*knobs_[i].knob)[0];
+                const float v = held_.empty() ? (*knobs_[i].knob)[0]
+                                              : held_[i];
 
                 /* Moved since a window read it: the windows before were
                    not what a replay at this value would fire. */
@@ -736,6 +737,15 @@ thcNodeHost::stepTo (double transport, bool capped)
 /* Past this many floats -- a few hours of a few outputs -- nothing more
    is kept, and a replay fires the windows again. */
 static const size_t TH_NODE_HISTORY_MAX = (size_t)1 << 24;
+
+void
+thcNodeHost::holdKnobs (void)
+{
+    held_.resize(knobs_.size());
+
+    for (size_t i = 0; i < knobs_.size(); i++)
+        held_[i] = knobs_[i].knob != NULL ? (*knobs_[i].knob)[0] : 0.0f;
+}
 
 void
 thcNodeHost::keep (void)
