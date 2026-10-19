@@ -28,8 +28,20 @@
 
 #include <algorithm>
 #include <chrono>
-#include <condition_variable>
 #include <thread>
+
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#include <mach/mach.h>
+#include <mach/thread_policy.h>
+#else
+#include <semaphore.h>
+#endif
+
+#ifndef __EMSCRIPTEN__
+#include <pthread.h>
+#include <sched.h>
+#endif
 
 #if !defined(__EMSCRIPTEN__) && (defined(__SSE__) || defined(_M_X64))
 #include <xmmintrin.h>
@@ -73,50 +85,137 @@ struct FlushDenormals
 };
 }
 
-/* setThreads' threads. Each window, process() publishes the lanes and
- * bumps `generation'; every thread, the caller among them, takes lanes off
- * `next' until there are none, and the caller waits for `done' to count
- * them all. A thread late out of one window can only take a lane of the
- * next, which is published whole before `next' is reset, so it renders
- * that lane rightly.
+/* What the pool needs of the platform: a semaphore the audio thread can
+ * post without taking a lock -- sem_t, and dispatch's on macOS, where an
+ * unnamed sem_t does not exist -- and a thread's scheduling, read off the
+ * thread that renders and given to the workers. */
+namespace {
+struct Wake
+{
+#ifdef __APPLE__
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+
+    ~Wake (void) { dispatch_release(sem); }
+    void post (void) { dispatch_semaphore_signal(sem); }
+    void wait (void) { dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER); }
+#else
+    sem_t sem;
+
+    Wake (void) { sem_init(&sem, 0, 0); }
+    ~Wake (void) { sem_destroy(&sem); }
+    void post (void) { sem_post(&sem); }
+    void wait (void) { while (sem_wait(&sem) != 0 && errno == EINTR) { } }
+#endif
+};
+
+struct Sched
+{
+#ifndef __EMSCRIPTEN__
+    int policy = SCHED_OTHER;
+    sched_param param = {};
+#endif
+#ifdef __APPLE__
+    /* CoreAudio's I/O thread is a time-constraint thread, which is what
+       keeps it on time; its pthread policy alone says much less. */
+    thread_time_constraint_policy_data_t constraint = {};
+    bool constrained = false;
+#endif
+
+    void read (void)
+    {
+#ifndef __EMSCRIPTEN__
+        pthread_getschedparam(pthread_self(), &policy, &param);
+#endif
+#ifdef __APPLE__
+        mach_msg_type_number_t count = THREAD_TIME_CONSTRAINT_POLICY_COUNT;
+        boolean_t isDefault = FALSE;
+
+        constrained =
+            thread_policy_get(pthread_mach_thread_np(pthread_self()),
+                              THREAD_TIME_CONSTRAINT_POLICY,
+                              (thread_policy_t)&constraint, &count,
+                              &isDefault) == KERN_SUCCESS && !isDefault;
+#endif
+    }
+
+    /* On the calling thread. Best effort: a process that may not raise a
+       thread's priority renders as it did, at the default one. */
+    void apply (void) const
+    {
+#ifndef __EMSCRIPTEN__
+        pthread_setschedparam(pthread_self(), policy, &param);
+#endif
+#ifdef __APPLE__
+        if (constrained)
+        {
+            thread_time_constraint_policy_data_t c = constraint;
+
+            thread_policy_set(pthread_mach_thread_np(pthread_self()),
+                              THREAD_TIME_CONSTRAINT_POLICY,
+                              (thread_policy_t)&c,
+                              THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+        }
+#endif
+    }
+};
+}
+
+/* setThreads' threads. Each window, process() publishes the window's
+ * lanes as one word -- the window's number, its lane count and the next
+ * lane to take -- and posts as many workers awake as there are lanes
+ * beyond the one it takes itself. Every thread, the caller among them,
+ * claims lanes by compare-and-swap on that word until there are none, and
+ * the caller waits for `done' to count them all. A claim names its window,
+ * so a thread late out of one window cannot take a lane of the next under
+ * the last one's count.
  *
- * A worker sleeps between windows and the caller spins while the last lane
- * finishes: a window's wait is a fraction of a millisecond, and a sleep on
- * the audio thread is a dropout's worth of risk for nothing. */
+ * Nothing the audio thread does takes a lock: a post is lock-free, and the
+ * caller spins while the last lane finishes, since a window's wait is a
+ * fraction of a millisecond and a sleep on the audio thread is a dropout's
+ * worth of risk for nothing. That spin waits on the workers, so they run
+ * with the scheduling of the thread that renders -- realtime under RtAudio
+ * -- or anything at all could preempt the lane the audio thread is waiting
+ * on. */
 struct thSynth::RenderPool
 {
     RenderPool (thSynth *synth, int threads) : synth_(synth)
     {
         for (int i = 0; i < threads; i++)
-            threads_.emplace_back([this] { work(); });
+        {
+            workers_.emplace_back(new Worker);
+
+            Worker *w = workers_.back().get();
+
+            w->thread = std::thread([this, w] { work(*w); });
+        }
     }
 
     ~RenderPool (void)
     {
+        quit_.store(true, std::memory_order_release);
+
+        for (auto &w : workers_)
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-
-            quit_ = true;
+            w->wake.post();
+            w->thread.join();
         }
-
-        wake_.notify_all();
-
-        for (std::thread &t : threads_)
-            t.join();
     }
 
     void run (int lanes)
     {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
+        /* Every worker, when the scheduling to follow has changed, so
+           that each one has taken it before it next renders. */
+        int wake = followCaller() ? (int)workers_.size()
+                                  : std::min((int)workers_.size(), lanes - 1);
 
-            lanes_.store(lanes, std::memory_order_relaxed);
-            done_.store(0, std::memory_order_relaxed);
-            next_.store(0, std::memory_order_release);
-            generation_++;
-        }
+        window_++;
+        done_.store(0, std::memory_order_relaxed);
+        work_.store((uint64_t)window_ << 32 | (uint64_t)lanes << 16,
+                    std::memory_order_release);
 
-        wake_.notify_all();
+        for (int i = 0; i < wake; i++)
+            workers_[i]->wake.post();
+
         drain();
 
         while (done_.load(std::memory_order_acquire) < lanes)
@@ -126,33 +225,69 @@ struct thSynth::RenderPool
 private:
     void drain (void)
     {
-        int lane;
+        uint64_t w = work_.load(std::memory_order_acquire);
 
-        while ((lane = next_.fetch_add(1, std::memory_order_acq_rel)) <
-               lanes_.load(std::memory_order_relaxed))
-        {
-            synth_->renderLane(lane);
-            done_.fetch_add(1, std::memory_order_acq_rel);
-        }
+        while ((w & 0xffff) < (w >> 16 & 0xffff))
+            if (work_.compare_exchange_weak(w, w + 1,
+                                            std::memory_order_acq_rel,
+                                            std::memory_order_acquire))
+            {
+                synth_->renderLane((int)(w & 0xffff));
+                done_.fetch_add(1, std::memory_order_release);
+                w = work_.load(std::memory_order_acquire);
+            }
     }
 
-    void work (void)
+    /* A new thread rendering -- the first window, or a stream started
+       again -- has its scheduling read once and handed on. Under a
+       try_lock, so the audio thread never waits on a worker for it; a
+       miss is taken again next window. */
+    bool followCaller (void)
+    {
+        const std::thread::id self = std::this_thread::get_id();
+
+        if (self == caller_ || !schedMutex_.try_lock())
+            return false;
+
+        sched_.read();
+        caller_ = self;
+        schedGen_.fetch_add(1, std::memory_order_release);
+        schedMutex_.unlock();
+
+        return true;
+    }
+
+    struct Worker
+    {
+        std::thread thread;
+        Wake wake;
+    };
+
+    void work (Worker &self)
     {
         /* Set once, for the thread's life: it does nothing but render. */
         FlushDenormals flush;
-        unsigned long seen = 0;
+        unsigned applied = 0;
 
         for (;;)
         {
+            self.wake.wait();
+
+            if (quit_.load(std::memory_order_acquire))
+                return;
+
+            if (schedGen_.load(std::memory_order_acquire) != applied)
             {
-                std::unique_lock<std::mutex> lock(mutex_);
+                Sched sched;
 
-                wake_.wait(lock, [&] { return quit_ || generation_ != seen; });
+                {
+                    std::lock_guard<std::mutex> lock(schedMutex_);
 
-                if (quit_)
-                    return;
+                    sched = sched_;
+                    applied = schedGen_.load(std::memory_order_relaxed);
+                }
 
-                seen = generation_;
+                sched.apply();
             }
 
             drain();
@@ -160,12 +295,16 @@ private:
     }
 
     thSynth *synth_;
-    std::vector<std::thread> threads_;
-    std::mutex mutex_;
-    std::condition_variable wake_;
-    unsigned long generation_ = 0;
-    bool quit_ = false;
-    std::atomic<int> lanes_{0}, next_{0}, done_{0};
+    std::vector<std::unique_ptr<Worker> > workers_;
+    std::atomic<bool> quit_{false};
+    uint32_t window_ = 0;
+    std::atomic<uint64_t> work_{0};
+    std::atomic<int> done_{0};
+
+    std::thread::id caller_;
+    std::mutex schedMutex_;
+    Sched sched_;
+    std::atomic<unsigned> schedGen_{0};
 };
 
 /* The plugins that keep one table for a whole synth, keyed by their
