@@ -84,6 +84,15 @@
 #include <string>
 #include <vector>
 
+#ifdef __linux__
+#include <pthread.h>
+#include <sched.h>
+
+#include <chrono>
+#include <set>
+#include <thread>
+#endif
+
 #include "think.h"
 #include "thPhoneme.h"
 
@@ -1397,6 +1406,80 @@ int main (int argc, char **argv)
                      num(pitch(stepped, rate)) + " Hz");
         }
     }
+
+#ifdef __linux__
+    /* threads: the render pool's workers run with the scheduling of the
+       thread that renders. Under RtAudio that is SCHED_FIFO, and the audio
+       thread spins on the workers' lanes, so a worker left at the default
+       could be preempted by anything while it waits. SCHED_BATCH stands in
+       for it, being a policy any process may move a thread to. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        auto tasks = []
+        {
+            std::set<long> ids;
+            std::error_code ec;
+
+            for (const auto &e :
+                 std::filesystem::directory_iterator("/proc/self/task", ec))
+                ids.insert(std::stol(e.path().filename().string()));
+
+            return ids;
+        };
+
+        const std::set<long> before = tasks();
+        Session s(pluginPath);
+
+        s.synth.setThreads(3);
+
+        /* Every thread that came with it, which under a sanitizer
+           includes the sanitizer's own: the three workers are the ones
+           expected to follow. */
+        std::set<long> workers;
+
+        for (long id : tasks())
+            if (before.find(id) == before.end())
+                workers.insert(id);
+
+        if (!s.load(file))
+            fail("threads: the graph loads", "");
+        else
+        {
+            std::thread audio([&s]
+            {
+                sched_param p = {};
+
+                pthread_setschedparam(pthread_self(), SCHED_BATCH, &p);
+                s.run(4);
+            });
+
+            audio.join();
+
+            /* A worker takes it when it next wakes, which is its own
+               business; give it a while. */
+            size_t following = 0;
+
+            for (int tries = 0; tries < 200; tries++)
+            {
+                following = 0;
+
+                for (long id : workers)
+                    if (sched_getscheduler((pid_t)id) == SCHED_BATCH)
+                        following++;
+
+                if (following == 3)
+                    break;
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+
+            okOrFail(following == 3,
+                     "threads: every render worker runs with the rendering "
+                     "thread's scheduling",
+                     num((double)following) + " of 3");
+        }
+    }
+#endif
 
     /* swap: loading a graph onto a channel that is sounding replaces the
        graph for the notes to come and lets the ones already playing finish
