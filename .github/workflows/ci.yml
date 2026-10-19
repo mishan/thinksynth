@@ -59,11 +59,16 @@ concurrency:
 # cmake/RunHarness.cmake, which reads each file rather than matching names.
 
 jobs:
-  # What a PR needs built. Anything but the Markdown and the docs' pictures
-  # is code, and a PR with none builds and tests nothing; anything outside
-  # wasm/ as well is the desktop's, and a change to the browser page alone
-  # skips the jobs that only build and test the desktop. Skipped, which a
-  # required check counts as passed. A push to master builds everything.
+  # What a change needs built. Anything but the docs -- the Markdown, the
+  # docs' pictures, TODO, AUTHORS and COPYING -- is code, and a change with
+  # none builds and tests nothing; anything outside wasm/ as well is the
+  # desktop's, and a change to the browser page alone skips the jobs that
+  # only build and test the desktop. Skipped, which a required check counts
+  # as passed. Three Markdown files are code all the same, because a build
+  # or a gate reads them: docs/NODES.md (dspnodes), gen/README.md (gencheck,
+  # gencatalogcheck) and docs/SDK.md (the SDK's package). A PR is held
+  # against its base and a push against the commit it moved the branch
+  # from; with neither -- a dispatch, a new branch -- everything builds.
   changes:
     name: what changed
     runs-on: ubuntu-latest
@@ -78,18 +83,19 @@ jobs:
 
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" != pull_request ]; then
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             printf 'code=true\ndesktop=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           files=$(git diff --name-only "$BASE" HEAD)
-          code=$(grep -qvE '\.md$|^docs/screenshots/' <<< "$files" &&
-                 echo true || echo false)
-          desktop=$(grep -qvE '^wasm/|\.md$|^docs/screenshots/' \
-                        <<< "$files" && echo true || echo false)
+          docs='\.md$|^docs/screenshots/|^(TODO|AUTHORS|COPYING)$'
+          gated='^(docs/NODES\.md|gen/README\.md|docs/SDK\.md)$'
+          built=$({ grep -vE "$docs" <<< "$files"; grep -E "$gated" <<< "$files"; } || true)
+          code=$(grep -q . <<< "$built" && echo true || echo false)
+          desktop=$(grep -qvE '^wasm/|^$' <<< "$built" && echo true || echo false)
           printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
 
   linux:
