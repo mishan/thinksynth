@@ -42,10 +42,6 @@ Never heard
 - No MIDI has ever been played through the RtMidi path, on any platform. The
   headless checks pass; that is not the same thing.
 
-- Latency, underrun behaviour under load, and whether RtAudio's JACK path is as
-  good as the hand-written one are all open and want an ear. JACK users are the
-  audience that will notice.
-
 
 The corpus
 ----------
