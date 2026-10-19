@@ -372,14 +372,14 @@ void thMidiChan::setArg (thArg *arg, thArg *old, RetireQueue *retire)
        before that -- and points at the old arg -- or after, and points at
        this one already. Only the old pointers move: a pointer compare an arg,
        and no lookups. */
-    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
-        repoint(i->second, old, arg);
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+        repoint(n, old, arg);
 
-    for (NoteList::iterator i = decaying_.begin(); i != decaying_.end(); ++i)
-        repoint(*i, old, arg);
+    for (thMidiNote *n = decaying_.front(); n; n = NoteList::next(n))
+        repoint(n, old, arg);
 
-    for (NoteList::iterator i = fading_.begin(); i != fading_.end(); ++i)
-        repoint(*i, old, arg);
+    for (thMidiNote *n = fading_.front(); n; n = NoteList::next(n))
+        repoint(n, old, arg);
 
     /* Only now is nothing left pointing at it. */
     if (old)
@@ -489,6 +489,29 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
 
     voice->setChannel(serial_);
 
+    /* Every plugin output and state arg, and every smoothing ramp, grows to
+       the window on the voice's first one; done here, that is a memset on
+       the audio thread. */
+    const thSynthTree::NodeMap &nodes = voice->synthTree()->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        thPlugin *plug = i->second ? i->second->plugin() : NULL;
+
+        for (size_t k = 0; plug && k < i->second->smoothing().size(); k++)
+            i->second->smoothing()[k].ramp->reserve(windowlength_);
+
+        for (int a = 0; plug && a < plug->argCount(); a++)
+        {
+            thArg *arg = i->second->getArg(a);
+
+            if (arg && arg->type() == thArg::ARG_VALUE &&
+                plug->getArgDir(a) != thPlugin::ARG_IN)
+                arg->reserve(windowlength_);
+        }
+    }
+
     return voice;
 }
 
@@ -543,14 +566,14 @@ void thMidiChan::pointPrototype (const string &name, thArg *arg)
 /* Audio thread. Takes a voice out of notes_ and leaves it sounding in
    decaying_: it is no longer anybody's pitch, but its release still has to be
    heard. Was written out inside insertNote's same-pitch case. */
-void thMidiChan::decayNote (NoteMap::iterator i)
+void thMidiChan::decayNote (thMidiNote *note)
 {
     /* Make sure to turn off the old note, or it will hang! */
-    i->second->setArg("trigger", 0);
+    setTrigger(note, 0);
 
-    noteorder_.remove(i->second);
-    decaying_.push_front(i->second);
-    notes_.erase(i);
+    notes_.remove(note);
+    noteorder_.remove(note);
+    decaying_.push_front(note);
     notecount_decay_++; /* we are keeping track of polyphony this way until
                           the advanced cool method is implemented */
 
@@ -580,20 +603,53 @@ void thMidiChan::fadeNote (thMidiNote *note)
     fading_.push_back(note);
 }
 
+/* Audio thread. See the header. */
+thMidiNote *thMidiChan::findNote (int id)
+{
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+        if (n->id() == id)
+            return n;
+
+    return NULL;
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::keyNote (thMidiNote *note)
+{
+    thMidiNote *at = notes_.front();
+
+    while (at && at->id() < note->id())
+        at = NoteMap::next(at);
+
+    notes_.insert(at, note);
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::setTrigger (thMidiNote *note, float value)
+{
+    thNode *io = note->synthTree()->IONode();
+    thArg *trigger = io ? io->getArg(triggerindex_) : NULL;
+
+    if (trigger)
+        trigger->setArg(trigger->name(), value);
+    else
+        note->setArg("trigger", value);
+}
+
 /* Audio thread. The one voice a mono channel is playing, or NULL. See the
    header for why a releasing voice does not count. */
 thMidiNote *thMidiChan::monoVoice (void)
 {
-    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
     {
-        thArg *trigger = resolveIOArg(i->second->synthTree(), triggerindex_);
+        thArg *trigger = resolveIOArg(n->synthTree(), triggerindex_);
 
         /* `> 0' and not `!= 0': 1 is a key down and 2 is the pedal holding
            one, and both are voices to slide into. A negative one is a voice
            the choke has cut, which is not this channel's mode but is a value
            this arg now carries. */
         if (trigger && (*trigger)[0] > 0)
-            return i->second;
+            return n;
     }
 
     return NULL;
@@ -686,16 +742,16 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
                its velocity -- only the pitch moves, and a misc::slew on the
                frequency inside the graph is what turns that move into a
                glide. */
-            notes_.erase(voice->id());
+            notes_.remove(voice);
             voice->retune(midinote->note());
             voice->setLevel(midinote->level());
             voice->takeSay(midinote);
-            notes_[voice->id()] = voice;
+            keyNote(voice);
 
             /* A key is down again, so the pedal no longer owns this voice.
                Without this, releasing the new key with the pedal up would
                leave a 2 that nothing turns into a 0. */
-            voice->setArg("trigger", 1);
+            setTrigger(voice, 1);
 
             retireNote(midinote, retire);
             return;
@@ -705,12 +761,8 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
            release, and a rest between two notes is a retrigger. It has to
            leave notes_ first -- mono keys that map by pitch, and the new
            voice may be at the same one. */
-        for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); )
-        {
-            NoteMap::iterator dead = i++;
-
-            decayNote(dead);
-        }
+        while (!notes_.empty())
+            decayNote(notes_.front());
     }
 
     /* The choke: every voice that is keyed, not only the one at this pitch.
@@ -729,24 +781,21 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
        inside the graph is that distinction and nothing else. */
     if (choke_)
     {
-        for (NoteMap::iterator c = notes_.begin(); c != notes_.end(); )
+        while (!notes_.empty())
         {
-            NoteMap::iterator dead = c++;
-            thMidiNote *cut = dead->second;
+            thMidiNote *cut = notes_.front();
 
-            decayNote(dead);
-            cut->setArg("trigger", -1);
+            decayNote(cut);
+            setTrigger(cut, -1);
         }
     }
 
-    NoteMap::iterator i = notes_.find(id);
-
-    if (i != notes_.end()) {
-        decayNote(i);
+    if (thMidiNote *same = findNote(id)) {
+        decayNote(same);
     }
     notecount_++; /* see notecount_decay_++ comment */
 
-    notes_[id] = midinote;
+    keyNote(midinote);
     noteorder_.push_back(midinote);
 
     (void)retire;
@@ -785,31 +834,31 @@ void thMidiChan::releaseNote (int note)
             /* Another key is still down: fall back to the newest of them.
                That is the same pitch again when the key released was not the
                one sounding, in which case the retune is a no-op. */
-            notes_.erase(voice->id());
+            notes_.remove(voice);
             voice->retune(monoStack_[monoCount_ - 1]);
             voice->setLevel(monoLevels_[monoCount_ - 1]);
-            notes_[voice->id()] = voice;
+            keyNote(voice);
 
             return;
         }
 
         /* 2 means "released but held by the pedal"; process() turns it into 0
            when the pedal comes up. */
-        voice->setArg("trigger", sustain ? 2 : 0);
+        setTrigger(voice, sustain ? 2 : 0);
 
         return;
     }
 
-    NoteMap::iterator i = notes_.find(note);
+    thMidiNote *voice = findNote(note);
 
     /* find() returning end() was not checked, so an unknown note dereferenced
        the past-the-end iterator. */
-    if (i == notes_.end())
+    if (voice == NULL)
     {
         return;
     }
 
-    i->second->setArg("trigger", sustain ? 2 : 0);
+    setTrigger(voice, sustain ? 2 : 0);
 }
 
 /* Audio thread (or the destructor, once the audio thread has stopped). */
@@ -828,22 +877,25 @@ void thMidiChan::clearAll (RetireQueue *retire)
      * noteorder_ was never cleared either, so it was left holding pointers to
      * every note this function had just freed.
      */
-    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
+    for (thMidiNote *n = notes_.front(), *next; n; n = next)
     {
-        retireNote(i->second, retire);
+        next = NoteMap::next(n);
+        retireNote(n, retire);
     }
     notes_.clear();
 
-    for (NoteList::iterator j = decaying_.begin(); j != decaying_.end(); ++j)
+    for (thMidiNote *n = decaying_.front(), *next; n; n = next)
     {
-        retireNote(*j, retire);
+        next = NoteList::next(n);
+        retireNote(n, retire);
     }
     decaying_.clear();
 
     /* Mid-ramp, and there is no window left to finish the ramp in. */
-    for (NoteList::iterator k = fading_.begin(); k != fading_.end(); ++k)
+    for (thMidiNote *n = fading_.front(), *next; n; n = next)
     {
-        retireNote(*k, retire);
+        next = NoteList::next(n);
+        retireNote(n, retire);
     }
     fading_.clear();
 
@@ -875,33 +927,34 @@ void thMidiChan::clearAll (RetireQueue *retire)
    would release it. */
 void thMidiChan::releaseHeld (void)
 {
-    std::vector<int> keys;
+    /* Oldest first. Each release pops the bottom of the stack and leaves the
+       voice keyed at the top, so the walk below sees the keys it had. */
+    while (monoCount_ > 0)
+        releaseNote((int)monoStack_[0]);
 
-    for (int i = 0; i < monoCount_; i++)
-        keys.push_back((int)monoStack_[i]);
-
-    for (NoteMap::const_iterator i = notes_.begin(); i != notes_.end(); ++i)
-        keys.push_back(i->first);
-
-    for (size_t k = 0; k < keys.size(); k++)
-        releaseNote(keys[k]);
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+        releaseNote(n->id());
 }
 
 /* Audio thread. See the header. */
 void thMidiChan::silence (int samples)
 {
-    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
+    /* The held voices leave noteorder_ for fading_ on the same link. */
+    noteorder_.clear();
+
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
     {
-        i->second->beginFade(samples);
-        fading_.push_back(i->second);
+        n->beginFade(samples);
+        fading_.push_back(n);
     }
 
     notes_.clear();
 
-    for (NoteList::iterator j = decaying_.begin(); j != decaying_.end(); ++j)
+    for (thMidiNote *n = decaying_.front(), *next; n; n = next)
     {
-        (*j)->beginFade(samples);
-        fading_.push_back(*j);
+        next = NoteList::next(n);
+        n->beginFade(samples);
+        fading_.push_back(n);
     }
 
     decaying_.clear();
@@ -909,7 +962,6 @@ void thMidiChan::silence (int samples)
     /* Those already fading keep the ramp they have, which is shorter:
        beginFade does not restart one. */
 
-    noteorder_.clear();
     notecount_ = 0;
     notecount_decay_ = 0;
     monoCount_ = 0;
@@ -923,21 +975,13 @@ void thMidiChan::silence (int samples)
 
 thMidiNote *thMidiChan::getNote (int note)
 {
-    NoteMap::iterator i = notes_.find(note);
-
-    if (i != notes_.end()) {
-        return i->second;
-    }
-
-    return NULL;
+    return findNote(note);
 }
 
 int thMidiChan::setNoteArg (int note, const string &name, float value)
 {
-    NoteMap::iterator i = notes_.find(note);
-
-    if (i != notes_.end()) {
-        i->second->setArg(name, value);
+    if (thMidiNote *voice = findNote(note)) {
+        voice->setArg(name, value);
         return 1;
     }
 
@@ -947,10 +991,8 @@ int thMidiChan::setNoteArg (int note, const string &name, float value)
 int thMidiChan::setNoteArg (int note, const string &name, const float *value,
                             int len)
 {
-    NoteMap::iterator i = notes_.find(note);
-
-    if (i != notes_.end()) {
-        i->second->setArg(name, value, len);
+    if (thMidiNote *voice = findNote(note)) {
+        voice->setArg(name, value, len);
         return 1;
     }
 
@@ -1064,19 +1106,22 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
             while (!decaying_.empty() && notecount_decay_ > 0 &&
                    notecount_ + notecount_decay_ > polymax_)
             {
-                fadeNote(decaying_.back());
-                decaying_.pop_back();
+                thMidiNote *oldest = decaying_.back();
+
+                decaying_.remove(oldest);
+                fadeNote(oldest);
                 notecount_decay_--;
             }
         }
         if (notecount_ > polymax_) /* too many notes held down */
         {
-            NoteList::iterator iter = noteorder_.begin();
-            while (iter != noteorder_.end() && notecount_ > polymax_)
+            while (!noteorder_.empty() && notecount_ > polymax_)
             {
-                notes_.erase((*iter)->id());
-                fadeNote(*iter);
-                iter = noteorder_.erase(iter);
+                thMidiNote *oldest = noteorder_.front();
+
+                notes_.remove(oldest);
+                noteorder_.remove(oldest);
+                fadeNote(oldest);
                 notecount_--;
             }
         }
@@ -1086,22 +1131,20 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
     notecount_ = 0;
     notecount_decay_ = 0;
 
-    NoteMap::iterator iter = notes_.begin();
-    while (iter != notes_.end())
+    thMidiNote *next;
+
+    for (data = notes_.front(); data; data = next)
     {
         notecount_++;
 
-        data = iter->second;
+        next = NoteMap::next(data);
 
         play = mixNote(data, sustain, probes, nprobes);
-
-        NoteMap::iterator olditer = iter++;  /* a copy of the
-                                                old iterator to erase */
 
         if (play && (*play)[windowlength_ - 1] == 0)
         {
             noteorder_.remove(data);
-            notes_.erase(olditer);
+            notes_.remove(data);
             notecount_--;  /* polyphony stuff */
 
             /* Hand it to the GUI thread: this frees an entire synth tree. */
@@ -1112,24 +1155,18 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
     /* Now, the [almost] exact same thing for the list of decaying notes -- the
        `almost' being only the bookkeeping below, which is why the rest of it is
        mixNote() rather than a second copy. */
-    NoteList::iterator diter = decaying_.begin();
-
-    while (diter != decaying_.end())
+    for (data = decaying_.front(); data; data = next)
     {
         notecount_decay_++;
-        data = *diter;
+        next = NoteList::next(data);
 
         play = mixNote(data, sustain, probes, nprobes);
 
         if (play && (*play)[windowlength_ - 1] == 0)
         {
-            diter = decaying_.erase(diter);
+            decaying_.remove(data);
             retireNote(data, retire);
             notecount_decay_--;  /* more polyphony stuff */
-        }
-        else
-        {
-            diter++;
         }
     }
 
@@ -1140,23 +1177,17 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
        Retired early on `play' as well, because a voice whose graph has
        finished anyway has nothing left to ramp. */
-    NoteList::iterator fiter = fading_.begin();
-
-    while (fiter != fading_.end())
+    for (data = fading_.front(); data; data = next)
     {
-        data = *fiter;
+        next = NoteList::next(data);
 
         play = mixNote(data, sustain, probes, nprobes);
 
         if (data->advanceFade(windowlength_) ||
             (play && (*play)[windowlength_ - 1] == 0))
         {
-            fiter = fading_.erase(fiter);
+            fading_.remove(data);
             retireNote(data, retire);
-        }
-        else
-        {
-            fiter++;
         }
     }
 

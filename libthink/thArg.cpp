@@ -273,6 +273,21 @@ float *thArg::allocate (unsigned int elements)
     return values_;
 }
 
+void thArg::reserve (unsigned int elements)
+{
+    if (values_ != NULL && elements <= cap_)
+        return;
+
+    float *grown = new float[elements]();
+
+    if (values_ != NULL)
+        memcpy(grown, values_, len_ * sizeof(float));
+
+    delete[] values_;
+    values_ = grown;
+    cap_ = elements;
+}
+
 /* What `thArg(proto)' would have made, in this arg's own buffer. See the
    header. */
 void thArg::restore (const thArg *proto)
