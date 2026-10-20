@@ -584,7 +584,12 @@ Parser::control (void)
     }
     else if (field == "widget")
     {
-        chanarg->setWidgetType((thArg::WidgetType)v.num);
+        if (v.num == thArg::HIDE || v.num == thArg::SLIDER ||
+            v.num == thArg::CHANARG)
+            chanarg->setWidgetType((thArg::WidgetType)v.num);
+        else
+            printf("ERROR:  '@%s.widget = %g' is not a widget; ignoring\n",
+                   name.c_str(), v.num);
     }
     else if (field == "step")
     {
