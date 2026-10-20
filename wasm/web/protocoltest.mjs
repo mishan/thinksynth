@@ -68,7 +68,9 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { drain, tapeBefore, tapeLine } from '../tape.mjs';
@@ -88,6 +90,16 @@ const build = path.resolve(process.argv[2] ?? path.join(top, 'build-web'));
 const nodeBuild = path.resolve(process.argv[3] ??
                                process.env.THINK_WASM_BUILD ??
                                path.join(top, 'build-wasm'));
+
+/* `--shard I/N' after the two build directories: the seeded pieces whose
+   index is I modulo N, and nothing else. Given none, the pieces go to one
+   shard per core, each its own process -- the module is wasm on one
+   thread -- and this process does the rest while they run. */
+const shardAt = process.argv.indexOf('--shard');
+const shardOf = shardAt > 0 ? /^(\d+)\/(\d+)$/.exec(process.argv[shardAt + 1])
+                            : null;
+const shard = shardOf === null ? null : { index: Number(shardOf[1]),
+                                          count: Number(shardOf[2]) };
 
 /* How long the transport runs, in transport seconds. */
 const SECONDS = 30;
@@ -1574,6 +1586,47 @@ function originError (peer, startCmd)
     return (originFrame - trueFrame) / peer.spec.rate * 1000;
 }
 
+/* The pieces' shards, at once. A shard's exit status is its failures.
+   Its output is passed on a line at a time, since it arrives in chunks
+   that do not respect lines: two shards' lines interleave but never
+   split. */
+function fanOut (count)
+{
+    return Promise.all(Array.from({ length: count }, (_, i) =>
+    {
+        const child = spawn(process.execPath,
+                            [fileURLToPath(import.meta.url), build, nodeBuild,
+                             '--shard', `${i}/${count}`],
+                            { stdio: ['ignore', 'pipe', 'inherit'],
+                              env: process.env });
+        let rest = '';
+
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (d) =>
+        {
+            const parts = (rest + d).split('\n');
+
+            rest = parts.pop();
+
+            for (const line of parts)
+                process.stdout.write(line + '\n');
+        });
+
+        /* A shard that could not start is a failure, like one killed. */
+        return new Promise((resolve) =>
+        {
+            child.on('error', () => resolve(null));
+            child.on('close', (status) =>
+            {
+                if (rest !== '')
+                    process.stdout.write(rest + '\n');
+
+                resolve(status);
+            });
+        });
+    }));
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href)
 {
     if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
@@ -1603,13 +1656,22 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
     };
     let failures = 0;
 
-    process.stdout.write(
-        `two peers, ${PEERS.map((p) => `${p.rate / 1000}k/${p.windowlen}`)
-                           .join(' and ')}, over a network of ` +
-        `${NETWORKS.lan.delay} ms with ${NETWORKS.lan.jitter} ms of jitter ` +
-        `and ${NETWORKS.lan.loss * 100}% loss; ${SECONDS} s of transport\n\n`);
+    if (shard === null)
+        process.stdout.write(
+            `two peers, ${PEERS.map((p) => `${p.rate / 1000}k/${p.windowlen}`)
+                               .join(' and ')}, over a network of ` +
+            `${NETWORKS.lan.delay} ms with ${NETWORKS.lan.jitter} ms of ` +
+            `jitter and ${NETWORKS.lan.loss * 100}% loss; ${SECONDS} s of ` +
+            'transport\n\n');
 
-    for (const piece of all)
+    /* Eight at most: each holds the module twice, and a desktop's every
+       core at once is more memory than the run is worth. */
+    const shards = Math.min(os.availableParallelism(), 8, all.length);
+
+    const fanned = shard === null && shards > 1 ? fanOut(shards) : null;
+
+    for (const piece of all.filter((_, i) =>
+             shard === null ? shards <= 1 : i % shard.count === shard.index))
     {
         const r = await session(createThinkWeb, piece, dsps, 'lan', 1,
                                 await nudged(createThinkWeb, piece, dsps));
@@ -1675,6 +1737,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
                 `origins ${r.peers.map((p) => originError(p, r.stamped[0])
                                                   .toFixed(2) + ' ms')
                                     .join(' and ')} off\n`);
+    }
+
+    if (shard !== null)
+    {
+        process.exitCode = failures;
+        await new Promise((resolve) => process.stdout.write('', resolve));
+        process.exit();
     }
 
     /* The hazard, shown. Over a network slower than the knob lead the
@@ -2122,6 +2191,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             process.stdout.write('ok    only a pong to our own ping is a ' +
                                  'round trip\n');
     }
+
+    /* A shard killed by a signal exits without a tally: one failure. */
+    if (fanned !== null)
+        failures += (await fanned).reduce((n, s) => n + (s ?? 1), 0);
 
     process.stdout.write(
         `\n${failures === 0
