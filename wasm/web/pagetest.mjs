@@ -3743,11 +3743,15 @@ try
         await page.click('#play');
         await until(lit, (l) => l.startsWith('*scene'));
 
-        /* Just past a bar line, so the cue waits most of a bar: pulse.gen
-           is 96 to the minute, four to the bar. */
+        /* Just past the second bar line, so the piece is surely playing,
+           which a click needs to cue rather than seek, and the cue waits
+           most of a bar: pulse.gen is 96 to the minute, four to the bar. */
         await page.waitForFunction(() =>
-            (window.solo.transport()?.now ?? 0) % 2.5 < 0.4, null,
-            { polling: 20, timeout: 10000 });
+        {
+            const now = window.solo.transport()?.now ?? 0;
+
+            return now > 2.5 && now % 2.5 < 0.4;
+        }, null, { polling: 20, timeout: 15000 });
         await page.click('#bandscenes .scene >> nth=1');
 
         const marked = await lit();
