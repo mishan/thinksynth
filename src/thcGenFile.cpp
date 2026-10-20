@@ -1033,7 +1033,16 @@ thcGenLoader::parseKnobStatement (thcScheduler *sched)
             else if (meta.text == "max")
                 knob->setMax((float)n.num);
             else if (meta.text == "widget")
-                knob->setWidgetType((thArg::WidgetType)(int)n.num);
+            {
+                if (n.num != thArg::HIDE && n.num != thArg::SLIDER &&
+                    n.num != thArg::CHANARG)
+                {
+                    error(n.line, "'@" + kname + ".widget' is not a widget");
+                    return false;
+                }
+
+                knob->setWidgetType((thArg::WidgetType)n.num);
+            }
             else if (meta.text == "step")
                 knob->setStep((float)n.num, true);
             else

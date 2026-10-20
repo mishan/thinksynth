@@ -6428,6 +6428,9 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
     expectReject(plugins, synth, "tempo-huge", "tempo 999999999;\n",
                  ":1: tempo must be above 0 and at most 1000");
 
+    expectReject(plugins, synth, "knob-widget", "@k = 1;\n@k.widget = 7;\n",
+                 ":2: '@k.widget' is not a widget");
+
     /* Rules that never match leave the axiom as it is, at any depth. */
     {
         auto piece = [](const char *depth) {
