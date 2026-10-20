@@ -199,13 +199,15 @@ rowFor (TestWindow *win, int chan)
 }
 
 /* The controls showing under `w' that a screen reader would read with no
-   name, and those Tab cannot reach, by type and tooltip. A check button
+   name, those Tab cannot reach, and the rows Tab stops on before their
+   control, by type and tooltip. A check button
    with text, like any button, is named by it. Only the window's own: a
    widget gtkmm made has a gtkmm__ type, and the parts GTK builds inside
    one (a spin button's own buttons) are GTK's to name. */
 static void
 inaccessible (Gtk::Widget *w, std::vector<std::string> &unnamed,
-              std::vector<std::string> &unreachable, bool canFocus = true)
+              std::vector<std::string> &unreachable,
+              std::vector<std::string> &doubled, bool canFocus = true)
 {
     for (Gtk::Widget *c = w->get_first_child(); c != NULL;
          c = c->get_next_sibling())
@@ -239,7 +241,11 @@ inaccessible (Gtk::Widget *w, std::vector<std::string> &unnamed,
             (!reaches || (button != NULL && !button->get_focusable())))
             unreachable.push_back(what);
 
-        inaccessible(c, unnamed, unreachable, reaches);
+        if (reaches && c->get_focusable() &&
+            dynamic_cast<Gtk::FlowBoxChild *>(c) != NULL)
+            doubled.push_back(what);
+
+        inaccessible(c, unnamed, unreachable, doubled, reaches);
     }
 }
 
@@ -279,13 +285,14 @@ described (Gtk::Widget *w, const char *want)
 static void
 checkAccessible (TestWindow *win, const char *where)
 {
-    std::vector<std::string> unnamed, unreachable;
+    std::vector<std::string> unnamed, unreachable, doubled;
 
-    inaccessible(win, unnamed, unreachable);
+    inaccessible(win, unnamed, unreachable, doubled);
 
     for (const auto &[list, what] :
          { std::pair(&unnamed, "has a name"),
-           std::pair(&unreachable, "can be reached by Tab") })
+           std::pair(&unreachable, "can be reached by Tab"),
+           std::pair(&doubled, "is one Tab stop, not its row and it") })
     {
         std::string msg = std::string("every control in ") + where + " " +
                           what;
