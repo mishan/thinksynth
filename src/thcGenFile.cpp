@@ -863,7 +863,17 @@ thcGenLoader::parseStatement (thcScheduler *sched)
         Token n = take();
 
         if (key.text == "tempo")
+        {
+            /* Every note a chain plays is due that much sooner; a tempo
+               of millions plays millions a second and the room waits. */
+            if (!(n.num > 0 && n.num <= 1000))
+            {
+                error(n.line, "tempo must be above 0 and at most 1000");
+                return false;
+            }
+
             sched->setTempo(n.num);
+        }
         else
         {
             /* Stage seeds derive from the master seed at addStage time,

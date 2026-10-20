@@ -6424,6 +6424,31 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                  "instrument pad {\n    dsp {\n        node o osc::simple "
                  "{ freq = gone->out; };\n    };\n};\n",
                  ":3: no node called 'gone'");
+
+    expectReject(plugins, synth, "tempo-huge", "tempo 999999999;\n",
+                 ":1: tempo must be above 0 and at most 1000");
+
+    /* Rules that never match leave the axiom as it is, at any depth. */
+    {
+        auto piece = [](const char *depth) {
+            return std::string("seed 7;\nchain c {\n"
+                "    stage src gen::lsystem { axiom = \"F+F\"; "
+                "rules = \"X=Y\"; depth = ") + depth + "; notes = \"C3 E3\"; "
+                "step = 0.25 s; hold = 0.2 s; };\n"
+                "    sink { channel = 1; };\n};\n";
+        };
+        const std::string a = renderBody(plugins, synth, "lsystem-depth-0",
+                                         piece("0"), 2.0);
+        const std::string b = renderBody(plugins, synth, "lsystem-depth-huge",
+                                         piece("999999999"), 2.0);
+
+        if (!a.empty() && a != b)
+        {
+            fail("an lsystem whose rules never match plays differently at "
+                 "depth 999999999");
+            showDivergence(a, b, "depth 0", "depth 999999999");
+        }
+    }
 }
 
 /* One mistake, one error. Four here, each inside a block -- an instrument,

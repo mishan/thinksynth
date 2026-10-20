@@ -225,7 +225,11 @@ State::derive (void)
 
     derived = axiom != NULL ? axiom : "";
 
-    int depth = (int)params->get(params->ctx, paramIndex[P_DEPTH]);
+    /* A file can ask for any depth. Rules that stop growing the string
+       would rewrite it that many times, so past MAX_DERIVED rewrites,
+       which a growing one has hit, stop. */
+    int depth = (int)fmin(params->get(params->ctx, paramIndex[P_DEPTH]),
+                          MAX_DERIVED);
 
     for (int d = 0; d < depth; d++)
     {
