@@ -668,6 +668,14 @@ thcNodeHost::reads (const thArg *knob) const
 }
 
 void
+thcNodeHost::stepToward (double transport)
+{
+    if (transport >= 0 &&
+        (long)std::floor(transport * (double)rate_) + 1 > steps_)
+        stepTo(transport);
+}
+
+void
 thcNodeHost::stepTo (double transport, bool capped)
 {
     /* `!(x >= 0)' rather than `x < 0', so a NaN is refused too: it

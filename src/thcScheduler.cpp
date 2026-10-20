@@ -3601,7 +3601,10 @@ thcScheduler::applySectionKnobs (void)
        one at or before the section's start. So the section's knobs are
        written there, after every window and tick before it -- on every
        peer, wherever its steps happen to end. The slop takes up the
-       rounding between a sum of section lengths and a sum of periods. */
+       rounding between a sum of section lengths and a sum of periods.
+       A start that moved behind what has played -- a tempo change
+       rescales them all, and a cue can land inside the window just
+       fired -- leaves the nodes where they are. */
     const double slop = 1e-9;
     const double rate = (double)controlRate();
     SectionSpan span, next;
@@ -3625,7 +3628,7 @@ thcScheduler::applySectionKnobs (void)
 
         for (size_t i = 0; i < chains_.size(); i++)
             if (chains_[i].nodes && !replaying(i))
-                chains_[i].nodes->stepTo(at - slop);
+                chains_[i].nodes->stepToward(at - slop);
     }
 
     knobSpanStart_ = span.start;

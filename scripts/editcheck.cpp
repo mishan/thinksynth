@@ -1565,6 +1565,69 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
             printf("ok    a section's knob reaches a node by its first "
                    "beat, at any step size\n");
     }
+
+    /* Sections that set nothing, against the same run without them: a
+       tempo change moves every start behind the transport, and a cue
+       lands inside the control window just fired. An LFO through
+       arithmetic hears any window fired twice. */
+    {
+        const auto lfo = [](const std::string &sections)
+        {
+            return "tempo 104;\nmeter 4;\n" + sections +
+                   "chain beat { stage lfo osc::simple { freq = 0.37;\n"
+                   "    waveform = 0; amp = 1; };\n"
+                   "    stage s gen::euclid { steps = 4; fills = 4;\n"
+                   "    notes = \"C2\"; period = 0.25 beats;\n"
+                   "    hold = 0.1 beats; };\n"
+                   "    stage up xform::level { gain = lfo->out * 0.5 + 0.5; };\n"
+                   "    sink { channel = 1; }; };\n";
+        };
+        const struct
+        {
+            const char *label, *sections, *plain;
+            bool both;
+            double at;
+            std::function<void (thcScheduler &)> move;
+        } cases[] = {
+            { "a tempo change", "section x 1 bars { };\nsection y 1 bars { };\n",
+              "", true, 5.1, [](thcScheduler &s) { s.setTempo(121); } },
+            { "a cue into the window just fired",
+              "section x 2 bars hold { };\nsection y 2 bars { };\n",
+              "section x 2 bars hold { };\nsection y 2 bars { };\n", false,
+              2.303,
+              [](thcScheduler &s) { s.cueSection(1, 1.0); } },
+        };
+
+        for (const auto &c : cases)
+        {
+            Peer with(plugins, pluginDir, dir, "sknone1"),
+                 without(plugins, pluginDir, dir, "sknone2");
+            bool moved = false;
+            const auto once = [&c, &moved](Peer &q, double t)
+            {
+                if (!moved && t >= c.at)
+                {
+                    moved = true;
+                    c.move(q.sched);
+                }
+            };
+
+            with.load(lfo(c.sections), errors);
+            without.load(lfo(c.plain), errors);
+            play(with, what, {}, 6, [] { return 0.005; }, once);
+
+            moved = !c.both;
+            play(without, what, {}, 6, [] { return 0.005; }, once);
+
+            if (with.tape != without.tape || with.tape.empty())
+                fail(what, std::string(c.label) + " under sections that set "
+                     "nothing changed what a node heard: " +
+                     firstDifference(without.tape, with.tape));
+            else
+                printf("ok    %s under sections that set nothing leaves the "
+                       "nodes alone\n", c.label);
+        }
+    }
 }
 
 /* A Life board painted on while it plays, and then a param of its chain
