@@ -489,6 +489,35 @@ int main (int argc, char **argv)
         }
     }
 
+    /* And in an effect's graph: a gain of @nowhere silences the voice. */
+    {
+        const string fx =
+            "node ionode { channels = 1; in0 = 0; out0 = g->out; };\n"
+            "node g math::mul { in0 = ionode->in0; in1 = @nowhere; };\n"
+            "io ionode;\n";
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (!writeFile(file, graph("", "freq->out", "")) ||
+            synth.loadTree(file, 0, 100) == NULL ||
+            synth.loadEffectText("nowhere-fx", fx, 0) == NULL)
+            fail("an effect reading an undeclared chan arg loads", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            const float *o = synth.getChannel(0)->output();
+            const double r = rms(vector<float>(o, o + synth.getWindowlen()));
+
+            okOrFail(r == 0, "an undeclared chan arg in an effect reads as 0",
+                     "rms " + num(r));
+        }
+    }
+
     /* ---- a note's aux reaches its own voice, and no other ------------- */
 
     /* A graph whose oscillator's amplitude is `ionode->aux1', so what a note
