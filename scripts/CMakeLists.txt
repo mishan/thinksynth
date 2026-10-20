@@ -850,6 +850,9 @@ add_test(NAME dspcapture
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 add_test(NAME lufscheck COMMAND lufscheck)
 add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")
+# A second normally; a chunk length read as a backwards seek is a loop, and
+# this makes it a failure in half a minute rather than ten.
+set_tests_properties(wavcheck PROPERTIES TIMEOUT 30)
 
 add_test(NAME pathcheck COMMAND pathcheck)
 

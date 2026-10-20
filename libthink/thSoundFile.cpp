@@ -17,7 +17,6 @@
 #include <string.h>
 
 #include <algorithm>
-#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -243,7 +242,7 @@ bool readWav (const string &path, vector<float> &mono, string &why, double outRa
 
                         /* A NaN or an infinity in the target would be one
                            in every distance measured from it. */
-                        acc += std::isfinite(x) ? x : 0;
+                        acc += thIsFinite(x) ? x : 0;
                     }
                     else
                     {

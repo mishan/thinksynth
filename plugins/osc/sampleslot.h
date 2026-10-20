@@ -339,12 +339,13 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
 
             haveFmt = true;
 
-            /* Chunks are padded to an even length, and a `fmt ' of 18 is
-               common enough that skipping the pad matters. */
-            /* A `fmt ' as long as the guard on the skip below allows. */
+            /* Past 2^31 a skip goes backwards where long is 32 bits; see
+               the skip at the end of the loop. */
             if (len >= 0x7ffffffful)
                 break;
 
+            /* Chunks are padded to an even length, and a `fmt ' of 18 is
+               common enough that skipping the pad matters. */
             if (want < len)
                 in.skip((long)(len - want));
 

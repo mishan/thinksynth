@@ -250,7 +250,7 @@ static bool
 allFinite (const std::vector<float> &v)
 {
     for (float x : v)
-        if (!std::isfinite(x))
+        if (!thIsFinite(x))
             return false;
 
     return true;
