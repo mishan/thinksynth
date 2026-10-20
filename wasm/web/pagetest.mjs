@@ -3759,7 +3759,12 @@ try
 
         const band = await until(text, (t) => /chain chords/.test(t));
 
+        /* Use it plays on once the band is in, after the text has it; and
+           a load does not rewind, so the next piece would go on from
+           here. */
+        await page.waitForSelector('#bandphrasebox', { state: 'hidden' });
         await page.click('#stop');
+        await page.click('#rewind');
         await page.evaluate(() => window.solo.settled());
 
         check(/chain phrase \{\s*stage frozen gen::grid/.test(band) &&
