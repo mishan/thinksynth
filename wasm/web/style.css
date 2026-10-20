@@ -1787,3 +1787,7 @@ body.tiled .panelrows
                         color: #fff; }
 .bandscenes .scene.on small { color: inherit; }
 .bandscenes .scene.add { justify-content: center; color: var(--dim); }
+/* Cued: coming in at the next bar. */
+.bandscenes .scene.cued { border: 2px dashed var(--held); }
+.bandscenes .toggle[aria-pressed="true"] { background: var(--fg);
+                                           color: var(--bg); }

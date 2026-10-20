@@ -173,7 +173,7 @@ enum CmdType
    TW_SOLO, TW_SECTION, TW_KNOBWRITE, TW_GROWBACK and TW_TRYGRAPH have entry
    points of their own and never arrive as an op from there. TW_SEEK and
    TW_SEEKSECTION are a solo page's, framed; a room's seek is a begin
-   from a time (tw_begin). */
+   from a time (tw_begin). So is TW_CUE. */
 enum TransportOp
 {
     TW_START,
@@ -196,6 +196,7 @@ enum TransportOp
     TW_GROWBACK,
     TW_TRYGRAPH,
     TW_SEEKSECTION,
+    TW_CUE,
 };
 
 struct Command
@@ -783,6 +784,13 @@ void applyDue (double start, int len)
 
                     case TW_TEMPO:
                         sched_->setTempo(c.value);
+                        break;
+
+                    /* A hand on the arrangement, as a game's: section
+                       `value' from the next bar line, the one playing
+                       finishing its phrase first. */
+                    case TW_CUE:
+                        sched_->cueSection((size_t)c.value, sched_->meter());
                         break;
                 }
                 break;
