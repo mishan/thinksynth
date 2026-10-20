@@ -184,6 +184,17 @@ also gates the guard itself over the two graphs in `scripts/guard/`: one
 instrument that cannot help producing a NaN and one that behaves, on two
 channels at once, with the good channel keeping its peak.
 
+A fifth of the nodes the palette offers are in no shipped graph, so the
+`plugsweep` gate sweeps every node. `dspnodes -g DIR` writes a graph
+per node: a saw into each signal input, a shipped sample into each file
+input, and each other input a control. A control's range is the input's
+declared one, every value of a list, 0 to four times its default, or failing
+all three a span chosen by its units (`Hz`, `samples`, ...) with 0 in it,
+since 0 is where an envelope's segment divides. `dspsweep` then sweeps those
+graphs the same way. Its first run found `impulse::blackman` dividing by zero
+at a cutoff of 0, and `env::map` and `env::dynmap` doing so on a range of no
+width.
+
 Measured against the same corpus with the filters as they were: **205 of the
 3840 cases went non-finite, across 24 of the 82 graphs the gate covers** — the
 corpus less the eleven that reference a plugin the build does not make. (That

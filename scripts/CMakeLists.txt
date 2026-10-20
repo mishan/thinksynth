@@ -753,6 +753,24 @@ add_test(NAME dspnodes
          COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
                  -c "${PROJECT_SOURCE_DIR}/docs/NODES.md")
 
+# The sweep above over a graph per node the palette offers, most of which no
+# shipped graph uses: each one's controls from its declared range, and its
+# signal inputs fed a saw. See dspnodes -g.
+add_test(NAME plugsweep.graphs
+         COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
+                 -g "${PROJECT_BINARY_DIR}/plugsweep")
+add_test(NAME plugsweep
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspsweep>
+                 -DCORPUS=${PROJECT_BINARY_DIR}/plugsweep
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -DEXTRA_ARGS=-q
+                 -P "${_runner}")
+set_tests_properties(plugsweep.graphs PROPERTIES FIXTURES_SETUP plugsweep)
+set_tests_properties(plugsweep PROPERTIES FIXTURES_REQUIRED plugsweep)
+
 # The guard's own claim, which no corpus file can make: one instrument that
 # cannot help going non-finite and one that behaves, on two channels at once.
 # Its own test rather than more EXTRA_ARGS on the sweep above, because a path

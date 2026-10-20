@@ -46,6 +46,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -387,17 +389,270 @@ compare (const std::string &fresh, const std::string &path)
     return 1;
 }
 
+/* A number as a .dsp writes one: no exponent, which its grammar has none
+   of. */
+static std::string
+plain (float v)
+{
+    char buf[64];
+
+    snprintf(buf, sizeof(buf), "%.9f", v);
+
+    std::string s = buf;
+
+    s.erase(s.find_last_not_of('0') + 1);
+
+    if (s.back() == '.')
+        s.pop_back();
+
+    return s;
+}
+
+/* The first line of every graph -g writes, and the only .dsp files it will
+   delete: pointed at a directory of somebody's own graphs, it refuses. */
+static const char GRAPH_MARK[] = "# Written by dspnodes -g; written again "
+                                 "on every run.";
+
+/* Where an input that declares neither a range nor a default is swept,
+   by what it says it measures: wide enough to reach where a node does
+   something odd, 0 among it, since 0 is where an envelope's segment
+   divides. One that says nothing is swept over 0 to 1. */
+static const struct { const char *units; float min, max; } BY_UNITS[] = {
+    { "Hz", 0, 20000 },          { "samples", 0, 48000 },
+    { "seconds", 0, 10 },        { "MIDI note", 0, 127 },
+    { "ratio", 0, 8 },           { "dB", -60, 24 },
+    { "cents", -1200, 1200 },    { "semitones", -24, 24 },
+    { "octaves", -4, 4 },        { "exponent", 0, 8 },
+    { "radians", -7, 7 },        { "bits", 1, 24 },
+    { "fraction of the rate", 0, 0.5 },
+};
+
+/* An input a node documents as non-finite at 0, and what it is held at
+   instead: x/0 is the guard's own deliberate NaN (scripts/guard), and
+   every expression's `/'. */
+static const struct { const char *node, *arg, *value; } HELD[] = {
+    { "math::div", "in1", "1" },
+};
+
+/* A graph per node for dspsweep to drive (scripts/CMakeLists.txt,
+ * plugsweep), every input of it one of:
+ *
+ *   a signal -- `full scale' over -1 to 1 or no range, or no units and
+ *     named like one (in, in0, side, mod, fm) -- fed a saw at the note;
+ *   a file, named `file' -- a shipped sample;
+ *   a list of values -- a control over every index;
+ *   anything else -- a control over its declared range; with none, from 0
+ *     to four times its default, or by its units (BY_UNITS) with none of
+ *     that either.
+ *
+ * dspsweep then moves each control to its ends and three points between,
+ * one at a time. A fifth of what a palette offers is in no shipped graph,
+ * so without these nothing would ever have run it. A node that does not
+ * load is a failure, not a node left out. */
+static bool
+writeGraphs (const std::string &dir, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+    NodeCatalog cat;
+
+    if (pm == NULL || cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    /* Fresh, so a graph for a node since taken out is not swept as though
+       it were still there; but only what this wrote. */
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir, ec);
+
+    for (const auto &f : std::filesystem::directory_iterator(dir, ec))
+    {
+        if (f.path().extension() != ".dsp")
+            continue;
+
+        std::ifstream in(f.path());
+        std::string first;
+
+        std::getline(in, first);
+        in.close();
+
+        if (first != GRAPH_MARK)
+        {
+            printf("FAIL  %s was not written by -g; not writing graphs "
+                   "beside it\n", f.path().string().c_str());
+            return false;
+        }
+
+        if (!std::filesystem::remove(f.path(), ec))
+        {
+            printf("FAIL  cannot remove %s\n", f.path().string().c_str());
+            return false;
+        }
+    }
+
+    bool ok = true;
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!NodeCatalog::isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            const std::string &spelling = list[e].spelling;
+            thPlugin *p = pm->getOrLoadPlugin(category + "/" + list[e].name);
+            int out = -1;
+
+            if (p == NULL)
+            {
+                printf("FAIL  %s does not load\n", spelling.c_str());
+                ok = false;
+                continue;
+            }
+
+            for (int k = 0; k < p->argCount() && out < 0; k++)
+                if (p->getArgDir(k) == thPlugin::ARG_OUT)
+                    out = k;
+
+            if (out < 0)
+            {
+                printf("skip  %s: no output to hear\n", spelling.c_str());
+                continue;
+            }
+
+            std::ostringstream controls, wires;
+
+            for (int k = 0; k < p->argCount(); k++)
+            {
+                if (p->getArgDir(k) != thPlugin::ARG_IN)
+                    continue;
+
+                const std::string &name = p->getArgName(k);
+                const std::string &units = p->getArgUnits(k);
+                const bool ranged = p->argHasRange(k);
+                const bool defaulted = p->argHasDefault(k);
+                const float lo = ranged ? p->getArgMin(k) : 0;
+                const float hi = ranged ? p->getArgMax(k) : 0;
+                const char *held = NULL;
+
+                for (const auto &h : HELD)
+                    if (spelling == h.node && name == h.arg)
+                        held = h.value;
+
+                if (held != NULL)
+                {
+                    wires << "    " << name << " = " << held << ";\n";
+                    continue;
+                }
+
+                if (name.rfind("file", 0) == 0)
+                {
+                    wires << "    " << name << " = \"kick909.wav\";\n";
+                    continue;
+                }
+
+                const bool signal =
+                    (units == "full scale" && (!ranged || (lo < 0 && hi > 0))) ||
+                    (units.empty() && !ranged && !defaulted &&
+                     (name.rfind("in", 0) == 0 || name == "side" ||
+                      name == "mod" || name == "fm"));
+
+                if (signal)
+                {
+                    wires << "    " << name << " = src->out;\n";
+                    continue;
+                }
+
+                const vector<string> &values = p->getArgValues(k);
+                float min = lo, max = hi;
+
+                if (!values.empty())
+                {
+                    min = 0;
+                    max = (float)values.size() - 1;
+                }
+                else if (!ranged && defaulted && p->getArgDefault(k) != 0)
+                {
+                    min = std::min(0.0f, 4 * p->getArgDefault(k));
+                    max = std::max(0.0f, 4 * p->getArgDefault(k));
+                }
+                else if (!ranged)
+                {
+                    min = 0;
+                    max = 1;
+
+                    for (const auto &u : BY_UNITS)
+                        if (units == u.units)
+                        {
+                            min = u.min;
+                            max = u.max;
+                        }
+                }
+
+                const float d = defaulted && p->getArgDefault(k) >= min &&
+                                p->getArgDefault(k) <= max
+                    ? p->getArgDefault(k) : (min + max) / 2;
+
+                /* Prefixed: a channel replaces a chan arg named as one of
+                   its own, amp or SusPedal, and leaks the graph's. */
+                const std::string knob = "k_" + name;
+
+                controls << "@" << knob << " = " << plain(d) << ";\n"
+                         << "@" << knob << ".widget = 1;\n"
+                         << "@" << knob << ".min = " << plain(min) << ";\n"
+                         << "@" << knob << ".max = " << plain(max) << ";\n";
+                wires << "    " << name << " = @" << knob << ";\n";
+            }
+
+            std::string file = spelling;
+
+            for (char &ch : file)
+                if (ch == ':')
+                    ch = '_';
+
+            std::ofstream o((dir + "/" + file + ".dsp").c_str(),
+                            std::ios::binary | std::ios::trunc);
+
+            o << GRAPH_MARK << "\n"
+              << "name \"" << spelling << "\";\n\n"
+              << controls.str() << "\n"
+              << "node ionode {\n    channels = 1;\n    out0 = n->"
+              << p->getArgName(out) << ";\n};\n\n"
+              << "node pitch misc::midi2freq {\n    note = ionode->note;\n"
+              << "};\n\n"
+              << "node src osc::simple {\n    freq = pitch->out;\n"
+              << "    waveform = 1;\n};\n\n"
+              << "node n " << spelling << " {\n" << wires.str()
+              << "};\n\nio ionode;\n";
+
+            if (!o)
+            {
+                printf("FAIL  cannot write %s\n", file.c_str());
+                ok = false;
+            }
+        }
+    }
+
+    return ok;
+}
+
 static void
 usage (const char *argv0)
 {
-    printf("usage: %s [-p PATH] [-o FILE | -c FILE | --json]\n"
+    printf("usage: %s [-p PATH] [-o FILE | -c FILE | --json | -g DIR]\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
            "  -o, --output FILE       write the reference here (default "
            "stdout)\n"
            "  -c, --check FILE        compare FILE against a fresh one and "
            "fail if they differ\n"
-           "      --json              every node and its args, as JSON\n",
+           "      --json              every node and its args, as JSON\n"
+           "  -g, --graphs DIR        a .dsp per node in DIR, for dspsweep\n",
            argv0);
 }
 
@@ -418,6 +673,7 @@ main (int argc, char **argv)
     std::string pluginPath = PLUGIN_PATH;
     std::string outFile, checkFile;
     bool json = false;
+    std::string graphDir;
 
     for (int i = 1; i < argc; i++)
     {
@@ -433,6 +689,11 @@ main (int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--json"))
             json = true;
+        else if (!strcmp(argv[i], "-g") || !strcmp(argv[i], "--graphs"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            graphDir = argv[i];
+        }
         else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--check"))
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
@@ -445,7 +706,9 @@ main (int argc, char **argv)
         }
     }
 
-    if (!outFile.empty() && !checkFile.empty())
+    if ((!outFile.empty() && !checkFile.empty()) ||
+        (!graphDir.empty() && (json || !outFile.empty() ||
+                               !checkFile.empty())))
     {
         usage(argv[0]);
         return 2;
@@ -453,6 +716,17 @@ main (int argc, char **argv)
 
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
+
+    if (!graphDir.empty())
+    {
+        if (!writeGraphs(graphDir, pluginPath))
+        {
+            printf("FAIL  cannot write graphs to %s\n", graphDir.c_str());
+            return 1;
+        }
+
+        return 0;
+    }
 
     if (json)
     {
