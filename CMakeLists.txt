@@ -87,6 +87,10 @@ option(THINK_FAST_MATH "Build with -ffast-math (as autotools did)" OFF)
 set(THINK_SANITIZE "" CACHE STRING
     "Sanitizers to build everything with, e.g. address,undefined or thread")
 
+# Global for the same reason: a line the harnesses run in a plugin counts
+# only if the plugin was built to record it. Reports: scripts/coverage.sh.
+option(THINK_COVERAGE "Build everything to record line coverage (gcov)" OFF)
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   # autotools defaulted to -O2 with no -g; RelWithDebInfo is -O2 plus symbols.
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
@@ -135,6 +139,13 @@ endif()
 if(THINK_SANITIZE)
   add_compile_options(-fsanitize=${THINK_SANITIZE} -fno-omit-frame-pointer)
   add_link_options(-fsanitize=${THINK_SANITIZE})
+endif()
+
+# Atomic, because the audio and composer threads run the same lines at once
+# and a torn count reads as a negative one.
+if(THINK_COVERAGE)
+  add_compile_options(--coverage -fprofile-update=atomic)
+  add_link_options(--coverage)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -558,6 +569,7 @@ message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")
 message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
 message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")
 message(STATUS "  sanitizers ............: ${THINK_SANITIZE}")
+message(STATUS "  coverage ..............: ${THINK_COVERAGE}")
 message(STATUS "  libthink soversion ....: ${THINK_LIB_MAJOR}")
 message(STATUS "  think_embedded ........: ${THINK_EMBEDDED}")
 message(STATUS "  audio plugin ..........: ${THINK_BUILD_PLUGIN}")
