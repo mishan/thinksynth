@@ -173,7 +173,8 @@ weight (const State *st, double at)
     /* The same nudge form makes at a bar line: a note written on the
        step belongs to the step it opens. */
     const double q = floor(at / grid + 1e-6);
-    const long n = q > 0 ? (long)fmod(q, len) : 0;
+    /* A subnormal grid makes q infinite, and fmod of that a NaN. */
+    const long n = q > 0 && q < 1e15 ? (long)fmod(q, len) : 0;
 
     return pattern[n] == 'x' || pattern[n] == 'X'
         ? p->get(p->ctx, paramIndex[P_STRONG])
@@ -230,7 +231,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
             const double q =
                 floor((ev->at < 0 ? 0 : ev->at) / grid + 1e-6);
 
-            st->lastStep = q > 0 ? (int)fmod(q, len) : 0;
+            st->lastStep = q > 0 && q < 1e15 ? (int)fmod(q, len) : 0;
         }
     }
 
