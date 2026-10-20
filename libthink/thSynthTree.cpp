@@ -398,6 +398,18 @@ void thSynthTree::followTempo (const string &chanarg, bool beats)
     }
 }
 
+/* See the header. */
+void thSynthTree::prepare (void)
+{
+    if (synth_ == NULL)
+        return;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+        if (i->second != NULL && i->second->plugin() != NULL)
+            i->second->plugin()->prepare(i->second, this,
+                                         synth_->getSampleRate());
+}
+
 void thSynthTree::retempo (double bpm, const thArgMap &chanargs)
 {
     if (beatFolds_.empty() || bpm == beatsAt_ || bpm <= 0)

@@ -86,9 +86,7 @@
  * mid-wave. `loop' and `xfade' are for a whole file played forward.
  *
  * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
- * of a kit share one copy of the kick. See osc/sampleslot.h, which also
- * says why the read happens on the first window that asks for it rather
- * than at load.
+ * of a kit share one copy of the kick, read at load. See osc/sampleslot.h.
  */
 
 #include <stdio.h>
@@ -133,6 +131,20 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 void module_cleanup (thPlugin *plugin)
 {
     thSampleRelease(plugin);
+}
+
+/* Every file a layer may play, so a note reads none. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples)
+{
+    const int layers[3] = { IN_FILE, IN_FILE2, IN_FILE3 };
+
+    for (int k = 0; k < 3; k++)
+    {
+        const thArg *file = mod->getArg(node, args[layers[k]]);
+
+        if (file != NULL && (k == 0 || !file->text().empty()))
+            thSamplePrime(node->plugin(), file->text(), samples);
+    }
 }
 
 int module_init (thPlugin *plugin)

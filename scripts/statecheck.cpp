@@ -6163,7 +6163,8 @@ static void checkSampleZones (const string &pluginPath)
     }
 
     /* One synth throughout: a file missing on its first read is cached as
-       silence, and read again only once the host says files have changed. */
+       silence, and read again only once the host says files have changed
+       and prepares the graph, as thSynth does at a load. */
     {
         thSynth synth(pluginPath, 256, TH_DEFAULT_SAMPLES);
         thSynthTree tree("statecheck", &synth);
@@ -6188,6 +6189,7 @@ static void checkSampleZones (const string &pluginPath)
             const float cached = window();
 
             thUtil::dataFilesChanged();
+            tree.prepare();
 
             const float after = window();
 
@@ -6207,6 +6209,7 @@ static void checkSampleZones (const string &pluginPath)
             const float stale = window();
 
             thUtil::dataFileChanged("samples/late.wav");
+            tree.prepare();
 
             const float fresh = window();
 

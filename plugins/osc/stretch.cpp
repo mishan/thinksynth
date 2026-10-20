@@ -132,6 +132,14 @@ void module_cleanup (thPlugin *plugin)
     thSampleRelease(plugin);
 }
 
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples)
+{
+    const thArg *file = mod->getArg(node, args[IN_FILE]);
+
+    if (file != NULL && !file->text().empty())
+        thSamplePrime(node->plugin(), file->text(), samples);
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);

@@ -211,6 +211,11 @@ public:
        they are now. */
     void retempo (double bpm, const thArgMap &chanargs);
 
+    /* Every node's thPlugin::prepare, on the thread that built the tree.
+       thSynth calls it on each tree it builds, and on every tree it holds
+       when data files change. */
+    void prepare (void);
+
     /* A chanarg a piece wrote in `beats' (or stopped writing in them),
        so it follows the tempo whatever the .dsp declared it in. */
     void followTempo (const string &chanarg, bool beats);

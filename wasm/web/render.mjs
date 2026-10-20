@@ -44,9 +44,8 @@ export async function renderDirect (createThinkWeb,
     const took = M._tw_create(rate, windowlen, block);
 
     /* Before the load, because a graph with an osc::sample node in it
-       reads its file on the first window that asks and a file that is
-       not there is silence. Keyed the way the index is,
-       `samples/kick909.wav'. */
+       reads its files when it loads and a file that is not there is
+       silence. Keyed the way the index is, `samples/kick909.wav'. */
     for (const [name, bytes] of Object.entries(samples))
         M.ccall('tw_sample', 'number', ['string', 'array', 'number'],
                 [name, bytes, bytes.length]);

@@ -48,18 +48,25 @@ namespace thp_${id} {
   set_property(GLOBAL APPEND PROPERTY THINK_STATIC_SOURCES "${wrapper}")
   set_property(GLOBAL APPEND PROPERTY THINK_STATIC_PLUGINS "${category}/${name}")
 
-  # module_reset is optional, and the table can only point at one the
-  # plugin defines: a row naming a function that does not exist fails the
-  # link. A weak declaration would let the linker decide, as it does for
-  # the composers, but a weak reference to an undefined C++ function is
-  # not a thing MinGW does reliably. So the source is read for it instead.
-  # A definition this misses leaves the row out, which is what
-  # dsphash.embedded's second pass is there to notice.
+  # module_reset and module_prepare are optional, and the table can only
+  # point at ones the plugin defines: a row naming a function that does not
+  # exist fails the link. A weak declaration would let the linker decide, as
+  # it does for the composers, but a weak reference to an undefined C++
+  # function is not a thing MinGW does reliably. So the source is read for
+  # them instead. A module_reset this misses leaves the row out, which is
+  # what dsphash.embedded's second pass is there to notice.
   file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/${category}/${name}.cpp" reset
        REGEX "^[ \t]*void[ \t]+module_reset[ \t]*\\(")
 
   if(reset)
     set_property(GLOBAL APPEND PROPERTY THINK_STATIC_RESETS "${category}/${name}")
+  endif()
+
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/${category}/${name}.cpp" prepare
+       REGEX "^[ \t]*void[ \t]+module_prepare[ \t]*\\(")
+
+  if(prepare)
+    set_property(GLOBAL APPEND PROPERTY THINK_STATIC_PREPARES "${category}/${name}")
   endif()
 endfunction()
 
@@ -77,6 +84,7 @@ function(think_static_registry output)
   get_property(THINK_STATIC_PRELUDE GLOBAL PROPERTY THINK_STATIC_PRELUDE)
   get_property(STATIC_PLUGINS   GLOBAL PROPERTY THINK_STATIC_PLUGINS)
   get_property(STATIC_RESETS    GLOBAL PROPERTY THINK_STATIC_RESETS)
+  get_property(STATIC_PREPARES  GLOBAL PROPERTY THINK_STATIC_PREPARES)
   get_property(STATIC_COMPOSERS GLOBAL PROPERTY THINK_STATIC_COMPOSERS)
   get_property(STATIC_VISUALS   GLOBAL PROPERTY THINK_STATIC_VISUALS)
 
@@ -110,6 +118,13 @@ function(think_static_registry output)
       set(reset_decl "    void module_reset (thPlugin *);\n")
       set(reset_row
           "    { \"module_reset\",    (void *)&thp_${id}::module_reset },\n")
+    endif()
+
+    if(p IN_LIST STATIC_PREPARES)
+      string(APPEND reset_decl
+             "    void module_prepare (thNode *, thSynthTree *, unsigned int);\n")
+      string(APPEND reset_row
+             "    { \"module_prepare\",  (void *)&thp_${id}::module_prepare },\n")
     endif()
 
     string(APPEND decls

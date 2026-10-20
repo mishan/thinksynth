@@ -36,6 +36,7 @@ thPlugin::thPlugin (const string &path)
 
     callback_ = NULL;
     reset_ = NULL;
+    prepare_ = NULL;
 
     args_.reserve(ARGCHUNK);
 
@@ -65,6 +66,13 @@ void thPlugin::reset (void)
 {
     if (reset_) {
         reset_(this);
+    }
+}
+
+void thPlugin::prepare (thNode *node, thSynthTree *mod, unsigned int samples)
+{
+    if (prepare_) {
+        prepare_(node, mod, samples);
     }
 }
 
@@ -235,6 +243,7 @@ int thPlugin::moduleLoad (void)
 
     /* Optional: most plugins keep nothing per synth. */
     reset_ = (ModuleReset)thDynLib::symbol(handle_, "module_reset");
+    prepare_ = (ModulePrepare)thDynLib::symbol(handle_, "module_prepare");
 
     return 0;
 
@@ -273,4 +282,5 @@ void thPlugin::moduleUnload (void)
     thDynLib::close(handle_);
     handle_ = NULL;
     reset_ = NULL;
+    prepare_ = NULL;
 }

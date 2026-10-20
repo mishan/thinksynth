@@ -3590,7 +3590,12 @@ EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
     /* A pack downloaded while an instrument naming it is loaded, or
        updated while one plays: osc::sample reads this file again. */
     if (ok)
+    {
         thUtil::dataFileChanged(name);
+
+        if (synth_ != NULL)
+            synth_->prepareTrees();
+    }
 
     return ok ? 1 : 0;
 }
