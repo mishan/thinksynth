@@ -69,25 +69,6 @@ endif()
 
 list(SORT files)
 
-# SHARD of SHARDS: every SHARDS'th file from the SHARD'th, so a sweep too
-# long for one core is registered as several tests that ctest runs at once.
-if(SHARDS)
-  if(NOT DEFINED SHARD)
-    message(FATAL_ERROR "RunHarness.cmake: SHARDS needs SHARD")
-  endif()
-  set(_mine "")
-  set(_i 0)
-  foreach(f IN LISTS files)
-    math(EXPR _k "${_i} % ${SHARDS}")
-    if(_k EQUAL SHARD)
-      list(APPEND _mine "${f}")
-    endif()
-    math(EXPR _i "${_i} + 1")
-  endforeach()
-  set(files ${_mine})
-  list(LENGTH files count)
-endif()
-
 separate_arguments(extra NATIVE_COMMAND "${EXTRA_ARGS}")
 
 message(STATUS "${MODE}: ${count} files")

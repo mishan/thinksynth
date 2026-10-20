@@ -2081,30 +2081,18 @@ int
 main (int argc, char *argv[])
 {
     std::string pluginDir, genDir;
-    unsigned shard = 0, shards = 1;
-    bool bad = false;
 
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
             pluginDir = argv[++i];
-        else if (strcmp(argv[i], "--shard") == 0 && i + 1 < argc)
-        {
-            if (sscanf(argv[++i], "%u/%u", &shard, &shards) != 2 ||
-                shards == 0 || shard >= shards)
-                bad = true;
-        }
         else
             genDir = argv[i];
     }
 
-    if (bad || pluginDir.empty() || genDir.empty())
+    if (pluginDir.empty() || genDir.empty())
     {
-        fprintf(stderr, "usage: editcheck -p <plugindir> [--shard I/N] "
-                "<gendir>\n"
-                "  --shard I/N  every Nth piece from the Ith; the checks "
-                "that are not\n"
-                "               a piece run in shard 0\n");
+        fprintf(stderr, "usage: editcheck -p <plugindir> <gendir>\n");
         return 2;
     }
 
@@ -2133,26 +2121,23 @@ main (int argc, char *argv[])
 
     std::sort(pieces.begin(), pieces.end());
 
-    for (size_t i = shard; i < pieces.size(); i += shards)
-        checkPiece(plugins, pluginDir, dir, pieces[i]);
+    for (const std::filesystem::path &p : pieces)
+        checkPiece(plugins, pluginDir, dir, p);
 
-    if (shard == 0)
-    {
-        checkKnobsAndRefusal(plugins, pluginDir, dir,
-                             std::filesystem::path(genDir) / "orrery.gen");
-        checkTempo(plugins, pluginDir, dir,
-                   std::filesystem::path(genDir) / "orrery.gen",
-                   std::filesystem::path(genDir) / "airports.gen");
-        checkCases(plugins, pluginDir, dir);
-        checkRecompose(plugins, pluginDir, dir);
-        checkKnobMoved(plugins, pluginDir, dir);
-        checkReplayDeferred(plugins, pluginDir, dir);
-        checkReplayHeld(plugins, pluginDir, dir);
-        checkListener(plugins, pluginDir, dir);
-        checkPainted(plugins, pluginDir, dir);
-        checkCueEdit(plugins, pluginDir, dir);
-        checkSectionKnobs(plugins, pluginDir, dir);
-    }
+    checkKnobsAndRefusal(plugins, pluginDir, dir,
+                         std::filesystem::path(genDir) / "orrery.gen");
+    checkTempo(plugins, pluginDir, dir,
+               std::filesystem::path(genDir) / "orrery.gen",
+               std::filesystem::path(genDir) / "airports.gen");
+    checkCases(plugins, pluginDir, dir);
+    checkRecompose(plugins, pluginDir, dir);
+    checkKnobMoved(plugins, pluginDir, dir);
+    checkReplayDeferred(plugins, pluginDir, dir);
+    checkReplayHeld(plugins, pluginDir, dir);
+    checkListener(plugins, pluginDir, dir);
+    checkPainted(plugins, pluginDir, dir);
+    checkCueEdit(plugins, pluginDir, dir);
+    checkSectionKnobs(plugins, pluginDir, dir);
 
     std::error_code ec;
 
