@@ -248,6 +248,10 @@ think_harness(statecheck)
 # layout each claims, on malformed files, and on files of changed bytes.
 think_harness(wavcheck)
 
+# The .gen and .dsp readers, and what a room does with what they read, on
+# changed copies of every shipped file.
+think_harness(parsecheck COMPOSERHOST)
+
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
 # See the header of dspsweep.cpp for why the corners are swept one control at
@@ -871,6 +875,14 @@ add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")
 # A second normally; a chunk length read as a backwards seek is a loop, and
 # this makes it a failure in half a minute rather than ten.
 set_tests_properties(wavcheck PROPERTIES TIMEOUT 30)
+
+add_test(NAME parsecheck
+         COMMAND parsecheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/gen" "${PROJECT_SOURCE_DIR}/dsp"
+                 "${PROJECT_BINARY_DIR}/parsecheck")
+# A hang is a text that stalls the room; fail it rather than wait.
+set_tests_properties(parsecheck PROPERTIES TIMEOUT 300
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 add_test(NAME pathcheck COMMAND pathcheck)
 
