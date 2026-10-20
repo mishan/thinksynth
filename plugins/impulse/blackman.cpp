@@ -81,7 +81,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     
     for(i = 0; i <= (unsigned int)len; i++)
     {
-        if(i == len/2)
+        /* At a cutoff of 0 every tap of the sinc is 0 and the sum below
+           would divide by it. The sinc's limit there is flat, which
+           leaves the window alone: an average, all that passes being DC. */
+        if (factor <= 0)
+        {
+            out[i] = 0.42-0.5*cos((2*M_PI*i)/len)+0.08*cos((4*M_PI*i)/len);
+        }
+        else if(i == len/2)
         {
             out[i] = 2*M_PI*factor;
         } 
