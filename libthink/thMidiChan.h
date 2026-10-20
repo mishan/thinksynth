@@ -354,6 +354,11 @@ private:
     /* The channel's effect, or NULL. Owned here, installed by setEffect. */
     thChanEffect *effect_;
     thArgMap args_;
+
+    /* A graph's chan arg named as one of the channel's own, amp or
+       SusPedal: out of args_, but its nodes still point at it. */
+    std::vector<thArg *> shadowed_;
+    void ownArg (thArg *arg);
     thArg *send_;
     float lastSend_;
     NoteMap notes_;      /* the held voices, by key */

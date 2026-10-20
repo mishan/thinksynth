@@ -413,6 +413,54 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a graph's own @amp and @SusPedal ----------------------------- */
+
+    /* The channel's args by those names take their place in its map, but
+       the graph's nodes still read the graph's: two channels, @amp 0.5
+       and 0.25, sound a factor of two apart at one channel amp. Under
+       ASan this is also the check that the channel frees them. */
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        const char *const amps[] = { "0.5", "0.25" };
+        bool loaded = true;
+
+        for (int c = 0; c < 2; c++)
+        {
+            string g = graph("", "freq->out", string("@amp = ") + amps[c] +
+                             ";\n@SusPedal = 0.5;\n\n");
+
+            g.replace(g.find("amp = ionode->velocity"),
+                      strlen("amp = ionode->velocity"), "amp = @amp");
+            loaded = loaded && writeFile(file, g) &&
+                     synth.loadTree(file, c, 100) != NULL;
+        }
+
+        if (!loaded)
+            fail("graphs declaring @amp load", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1);
+            synth.addNote(1, 60, 100, 1);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            const int len = synth.getWindowlen();
+            const float *a = synth.getChannel(0)->output();
+            const float *b = synth.getChannel(1)->output();
+            const double ra = rms(vector<float>(a, a + len));
+            const double rb = rms(vector<float>(b, b + len));
+            thArg *amp = synth.getChanArg(0, "amp");
+
+            okOrFail(ra > 0 && near(rb, ra * 0.5, 0.01) && amp &&
+                     amp->max() == MIDIVALMAX,
+                     "a graph's @amp drives its node while the channel "
+                     "keeps its own amp",
+                     "@amp 0.5 " + num(ra) + ", 0.25 " + num(rb));
+        }
+    }
+
     /* ---- a note's aux reaches its own voice, and no other ------------- */
 
     /* A graph whose oscillator's amplitude is `ionode->aux1', so what a note
