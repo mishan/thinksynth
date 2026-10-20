@@ -201,6 +201,9 @@ void PanelView::setPanel (const thPanel &panel)
 
         Gtk::Expander *exp = manage(new Gtk::Expander(order[g]));
 
+        /* Or GTK names it by everything inside: every row's name, twice. */
+        nameAs(*exp, order[g]);
+
         /* Groups wrap like everything else. A group is a row of a front
            panel -- attack, decay, sustain, release across -- and holding it
            to one column so it read as a list only made sense while it had a
@@ -275,8 +278,13 @@ Gtk::FlowBox *PanelView::makeFlow (const std::vector<size_t> &rows)
     flow->set_margin_bottom(4);
     flow->set_valign(Gtk::Align::START);
 
+    /* The row itself is no Tab stop: its control is, and the row would
+       only say the name again before it. */
     for (size_t i = 0; i < rows.size(); i++)
+    {
         flow->append(*makeRow(rows[i]));
+        flow->get_child_at_index(i)->set_focusable(false);
+    }
 
     return flow;
 }
@@ -424,6 +432,7 @@ Gtk::Widget *PanelView::makeControl (size_t at, Gtk::Label &label)
     }
 
     control->add_mnemonic_label(label);
+    describeAs(*control, panel_.rows[at].desc);
     return control;
 }
 
@@ -500,6 +509,8 @@ Gtk::Widget *PanelView::makeSlider (size_t at, Gtk::Label &label)
     box->append(*valEntry);
     slider->add_mnemonic_label(label);
     valEntry->add_mnemonic_label(label);
+    describeAs(*slider, row.desc);
+    describeAs(*valEntry, row.desc);
 
     return box;
 }

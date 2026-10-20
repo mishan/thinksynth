@@ -40,4 +40,14 @@ nameAs (Gtk::Widget &w, const Glib::ustring &name)
                                    name.c_str(), -1);
 }
 
+/* What a control is for, said after its name; empty says nothing. */
+inline void
+describeAs (Gtk::Widget &w, const Glib::ustring &text)
+{
+    if (!text.empty())
+        gtk_accessible_update_property(GTK_ACCESSIBLE(w.gobj()),
+                                       GTK_ACCESSIBLE_PROPERTY_DESCRIPTION,
+                                       text.c_str(), -1);
+}
+
 #endif /* GTH_ACCESS_H */
