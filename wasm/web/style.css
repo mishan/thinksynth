@@ -1614,7 +1614,9 @@ body.tiled .panelrows
     /* The role's color as text, far enough from the card's to read. */
     --role-text: color-mix(in srgb, var(--role) 55%, var(--fg));
     display: grid;
-    grid-template-columns: 8rem auto 1fr;
+    /* The octave's column kept where a drum has none, so every card's
+       picture starts at one place. */
+    grid-template-columns: 8rem minmax(2.2rem, auto) 1fr;
     /* The picture beside the pad rather than under it, for twice the
        players in the same room. */
     grid-template-areas: "who who who" "pad octave moves"
@@ -1676,7 +1678,6 @@ body.tiled .panelrows
 .player .bandpic { grid-area: pic; display: block; width: 100%;
                    border-radius: 4px; background: #14161a; }
 .player .bandpic.control { touch-action: none; }
-.player .bandpic.euclid { max-width: 8rem; }
 
 /* The pad: across calm to busy, up steady to wandering. */
 .bandpad
