@@ -1412,10 +1412,48 @@ thcGenLoader::parseSection (thcScheduler *sched)
             return false;
         }
 
+        /* `@energy = 0.8;': a knob set as the section begins. */
+        if (t.kind == Token::KNOB)
+        {
+            Token k = take();
+
+            if (sched->knob(k.text) == NULL)
+            {
+                error(k.line, "section " + sec.name + ": no knob called @" +
+                      k.text + " is declared above it");
+                return false;
+            }
+
+            for (const auto &e : sec.knobs)
+                if (e.first == k.text)
+                {
+                    error(k.line, "section " + sec.name + " sets @" +
+                          k.text + " twice");
+                    return false;
+                }
+
+            if (!expectPunct('='))
+                return false;
+
+            if (peek().kind != Token::NUMBER)
+            {
+                error(peek().line, "section " + sec.name + ": @" + k.text +
+                      " wants a number");
+                return false;
+            }
+
+            sec.knobs.push_back(std::make_pair(k.text, take().num));
+
+            if (!expectPunct(';'))
+                return false;
+
+            continue;
+        }
+
         if (t.kind != Token::WORD)
         {
             error(t.line, "section " + sec.name +
-                  ": expected a chain name");
+                  ": expected a chain name or a knob");
             return false;
         }
 

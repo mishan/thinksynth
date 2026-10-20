@@ -3912,7 +3912,23 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
             sectionsJson_ += ":" + exact(s.levels[k].second);
         }
 
-        sectionsJson_ += "}}";
+        /* The knobs it sets, whether it holds, and whether the list goes
+           round to it rather than to the first, which it does anyway. */
+        sectionsJson_ += "},\"knobs\":{";
+
+        for (size_t k = 0; k < s.knobs.size(); k++)
+        {
+            if (k > 0)
+                sectionsJson_ += ",";
+
+            jsonString(sectionsJson_, s.knobs[k].first);
+            sectionsJson_ += ":" + exact(s.knobs[k].second);
+        }
+
+        sectionsJson_ += std::string("},\"hold\":") +
+                         (s.hold ? "true" : "false") + ",\"loopTo\":" +
+                         (i > 0 && sched_->loopsFrom() == i ? "true"
+                                                             : "false") + "}";
     }
 
     sectionsJson_ += "]";
@@ -6531,7 +6547,11 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   unsection   NAME
  *   resection   NAME NEWNAME
  *   sectionlength NAME LENGTH
- *   level       SECTION CHAIN LEVEL   -- 1 takes the chain out of it
+ *   sectionhold NAME 0|1
+ *   sectionloop [NAME]       -- closes the list round to NAME; none: out
+ *   cue         KNOB GRID    -- `cue @KNOB GRID;', unless KNOB has one
+ *   level       SECTION CHAIN LEVEL   -- 1 takes the chain out of it;
+ *                            -- CHAIN @KNOB is the value the section sets
  *
  * Values as the file would write them. "" when one was refused. */
 /* Why the last tw_gen_ops wrote nothing. */
@@ -6645,6 +6665,15 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                     r = thcGenEdit::renameSection(path, f[1], f[2], why);
                 else if (f[0] == "sectionlength" && f.size() >= 3)
                     r = thcGenEdit::setSectionLength(path, f[1], f[2], why);
+                else if (f[0] == "sectionhold" && f.size() >= 3)
+                    r = thcGenEdit::setSectionHold(path, f[1], f[2] == "1",
+                                                   why);
+                else if (f[0] == "sectionloop")
+                    r = thcGenEdit::setSectionLoop(path,
+                                                   f.size() > 1 ? f[1] : "",
+                                                   why);
+                else if (f[0] == "cue" && f.size() >= 3)
+                    r = thcGenEdit::addCue(path, f[1], f[2], why);
                 else if (f[0] == "level" && f.size() >= 4)
                     r = thcGenEdit::setSectionLevel(path, f[1], f[2],
                                                     atof(f[3].c_str()), why);

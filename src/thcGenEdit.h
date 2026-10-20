@@ -431,8 +431,9 @@ public:
     /* ---- the arrangement ---------------------------------------------- */
 
     /* A section of `length' (`16 bars', `8 beats', `30 s') after section
-       `after', or last for "", with the chains in `levels' at theirs; one
-       taken out, renamed, or made another length. */
+       `after', or last for "", with the chains in `levels' at theirs --
+       and a knob, named with its `@', at the value it sets; one taken
+       out, renamed, or made another length. */
     static Result addSection (const std::string &filename,
                               const std::string &name,
                               const std::string &length,
@@ -451,10 +452,28 @@ public:
                                     const std::string &length,
                                     std::string &why);
 
+    /* `hold' on a section, or taken off: it plays again until cued. */
+    static Result setSectionHold (const std::string &filename,
+                                  const std::string &name, bool hold,
+                                  std::string &why);
+
+    /* `section loop <name>;' closing the list, in place of `section end;'
+       or of another loop; "" takes it out, and the list goes round from
+       the first. */
+    static Result setSectionLoop (const std::string &filename,
+                                  const std::string &name,
+                                  std::string &why);
+
+    /* `cue @knob <grid>;' (`1 bars'), unless knob already has one. */
+    static Result addCue (const std::string &filename,
+                          const std::string &knob, const std::string &grid,
+                          std::string &why);
+
     /* A chain's level in one section: 0 mutes it, 1 is as written --
        which removes the chain from the section, since a section that
        does not name a chain plays it as written -- and anything else
-       scales its notes' level. */
+       scales its notes' level. `chain' "@name" is the value the section
+       sets knob `name' to, which stays at 1 too. */
     static Result setSectionLevel (const std::string &filename,
                                    const std::string &section,
                                    const std::string &chain, double level,

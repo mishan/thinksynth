@@ -11458,6 +11458,151 @@ barsText (const std::vector<int> &n)
     return s;
 }
 
+/* A section sets a knob as it begins, however it was reached: in order,
+ * round a loop, again under a hold, cued -- and a rewind is the first
+ * section's. Heard as the level xform::level reads off the knob, a bar at
+ * a time; and written by the editor, with a hold, a loop and a cue. */
+static void
+checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string kick =
+        "@lift = 0.5;\n"
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  stage up xform::level { gain = @lift; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+    /* The level of each two-second bar's notes, all one value or -1. */
+    const auto levels = [](const std::vector<Heard> &h, int bars)
+    {
+        std::string s;
+
+        for (int bar = 0; bar < bars; bar++)
+        {
+            double v = -1;
+
+            for (const Heard &x : h)
+                if ((int)(x.at / 2.0 + 1e-9) == bar)
+                    v = v < 0 || std::fabs(v - x.level) < 1e-6 ? x.level
+                                                               : -2;
+
+            char b[16];
+
+            snprintf(b, sizeof b, "%s%g", bar ? "/" : "", v);
+            s += b;
+        }
+
+        return s;
+    };
+    const auto nothing = [](thcScheduler &) { };
+
+    {
+        const std::vector<Heard> h = playCued(plugins, synth,
+            "section knobs", "tempo 120;\nmeter 4;\n" + kick +
+            "section intro 1 bars { @lift = 1; };\n"
+            "section a     1 bars { @lift = 0.25; };\n"
+            "section b     1 bars { };\n"
+            "section loop a;\n", 9.9, nothing);
+
+        if (levels(h, 5) != "1/0.25/0.25/0.25/0.25")
+            fail("a section's knob should be set as it begins, and kept "
+                 "through a section that does not set it: " +
+                 levels(h, 5));
+    }
+
+    /* b holds until it is cued on to c; a rewind is a's again. */
+    {
+        double rewound = -1;
+        const std::vector<Heard> h = playCued(plugins, synth,
+            "section knobs held", "tempo 120;\nmeter 4;\n" + kick +
+            "section a 1 bars { @lift = 0.25; };\n"
+            "section b 1 bars hold { @lift = 1; };\n"
+            "section c 1 bars { @lift = 0.75; };\n",
+            9.9, [&rewound](thcScheduler &s)
+            {
+                if (s.now() > 4.9 && s.now() < 4.93)
+                    s.cueSection(2, 4);
+
+                if (s.now() > 7.9)
+                {
+                    s.reset();
+                    rewound = (*s.knob("lift"))[0];
+                }
+            });
+
+        if (levels(h, 4) != "0.25/1/1/0.75" || rewound != 0.25f)
+            fail("a held section's knob should stay, a cued one's be set, "
+                 "and a rewind's be the first section's: " + levels(h, 4) +
+                 ", rewound to " + std::to_string(rewound));
+    }
+
+    /* Written by the editor: the knob in a section, a hold, the loop and
+       the cue, into a file that loads with all of them. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-sknob-");
+        std::string why;
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "tempo 120;\nmeter 4;\n@go = 0;\n" << kick
+                << "section a 1 bars { };\nsection b 1 bars { };\n";
+        }
+
+        editOk(thcGenEdit::setSectionLevel(path, "b", "@lift", 1, why), why,
+               "a section's knob");
+        editOk(thcGenEdit::addSection(path, "c", "2 bars", "b",
+                                      { { "@lift", 0.75 } }, why), why,
+               "a section copied with its knob");
+        editOk(thcGenEdit::setSectionHold(path, "b", true, why), why,
+               "setSectionHold");
+        editOk(thcGenEdit::setSectionLoop(path, "b", why), why,
+               "setSectionLoop");
+        editOk(thcGenEdit::addCue(path, "go", "1 bars", why), why, "addCue");
+
+        int rewritten = 0;
+
+        if (thcGenEdit::removeKnob(path, "lift", 0.5, rewritten, why) !=
+            thcGenEdit::REFUSED)
+            fail("a knob a section sets was removed from under it");
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        const auto &secs = sched.sections();
+
+        if (!loader.load(path, &sched))
+            fail("the section knobs the editor wrote do not load: " +
+                 (loader.errors().empty() ? std::string()
+                                          : loader.errors()[0]));
+        else if (secs.size() != 3 || secs[1].knobs.size() != 1 ||
+                 secs[1].knobs[0].second != 1 || !secs[1].hold ||
+                 secs[2].knobs.size() != 1 ||
+                 secs[2].knobs[0].second != 0.75 || sched.loopsFrom() != 1)
+            fail("the editor's section knobs, hold or loop did not read "
+                 "back");
+
+        editOk(thcGenEdit::setSectionHold(path, "b", false, why), why,
+               "setSectionHold off");
+        editOk(thcGenEdit::setSectionLoop(path, "", why), why,
+               "setSectionLoop out");
+
+        thcScheduler again(synth);
+        thcGenLoader reader(plugins);
+
+        if (!reader.load(path, &again) || again.sections()[1].hold ||
+            again.loopsFrom() != 0)
+            fail("a hold and a loop taken out are still there");
+
+        remove(path.c_str());
+    }
+}
+
 static void
 checkCues (const std::map<std::string, thcPlugin *> &plugins,
            thSynth *synth)
@@ -12086,6 +12231,8 @@ checkCues (const std::map<std::string, thcPlugin *> &plugins,
 
         remove(path.c_str());
     }
+
+    checkSectionKnobs(plugins, synth);
 }
 
 /* ---- xform::follow ---------------------------------------------------------

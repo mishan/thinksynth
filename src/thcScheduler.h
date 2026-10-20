@@ -646,6 +646,11 @@ struct thcSection
 
     std::vector<std::pair<std::string, double> > levels;
 
+    /* A piece knob, by name, and what it is set to as the section begins
+       however it was reached -- in order, round a loop or a hold, cued or
+       sought: `@energy = 0.8;'. */
+    std::vector<std::pair<std::string, double> > knobs;
+
     bool        hold;
 
     thcSection (void) : length(0), beats(false), hold(false) { }
@@ -1650,6 +1655,13 @@ private:
     void deliverDue (double now);
     void sendDueNoteOffs (double now);
     void propagate (thcChain &c, size_t fromStage, const thcEvent &ev);
+
+    /* The knobs the section covering the transport sets, set when it is
+       not the one they were last set for; `moved', and the chains reading
+       each knob are composed again, as for a hand on it. */
+    void applySectionKnobs (bool moved);
+    double knobSpanStart_ = -1;
+    int    knobSpanSection_ = -1;
 
     /* What the section covering `at' does to this chain: 1 where there
        are no sections, or where none of them names it. */

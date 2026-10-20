@@ -371,6 +371,7 @@ struct SectionIdx
     std::string name;
     size_t nameA, nameB;
     size_t lenA, lenB;           /* `16 bars'                            */
+    size_t holdA, holdB;         /* `hold', or npos                      */
     size_t stmtA, stmtB;
     size_t bodyClose;            /* the block's '}'                      */
     std::vector<SectionRefIdx> refs;
@@ -414,6 +415,10 @@ struct Index
     /* The name `section loop' goes round to, and where it sits. */
     std::string loopTo;
     size_t loopToA, loopToB;
+
+    /* The knobs a `cue @knob ...;' follows, and where the last cue ends. */
+    std::vector<std::string> cues;
+    size_t lastCueB;
 
     /* The piece's own `effect "<file>" ...;', whole statement. */
     std::string masterEffect;
@@ -517,6 +522,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.masterA = ix.masterB = 0;
     ix.sectionEndA = ix.sectionEndB = std::string::npos;
     ix.loopToA = ix.loopToB = std::string::npos;
+    ix.lastCueB = std::string::npos;
     ix.meterB = std::string::npos;
 
     size_t i = 0;
@@ -740,6 +746,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             se.nameA = t[i + 1].off;
             se.nameB = t[i + 1].end;
             se.stmtA = t[i].off;
+            se.holdA = se.holdB = std::string::npos;
 
             size_t j = i + 2;
 
@@ -757,11 +764,19 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             {
                 se.lenA = t[j].off;
                 se.lenB = t[j + 1].end;
+
+                if (hold)
+                {
+                    se.holdA = t[j + 2].off;
+                    se.holdB = t[j + 2].end;
+                }
+
                 j += hold ? 4 : 3;
 
                 while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
                 {
-                    if (t[j].kind != Tok::WORD || !isPunct(t[j + 1], '=') ||
+                    if ((t[j].kind != Tok::WORD && t[j].kind != Tok::KNOB) ||
+                        !isPunct(t[j + 1], '=') ||
                         t[j + 2].kind != Tok::NUMBER ||
                         !isPunct(t[j + 3], ';'))
                     {
@@ -771,7 +786,10 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
                     SectionRefIdx ref;
 
-                    ref.chain = t[j].text;
+                    /* A knob the section sets is its name with the `@',
+                       which no chain's has. */
+                    ref.chain = (t[j].kind == Tok::KNOB ? "@" : "") +
+                                t[j].text;
                     ref.nameA = t[j].off;
                     ref.nameB = t[j].end;
                     ref.levelA = t[j + 2].off;
@@ -792,6 +810,14 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             }
 
             i = skipStmt(t, i);
+            continue;
+        }
+
+        if (kw == "cue" && t[i + 1].kind == Tok::KNOB)
+        {
+            ix.cues.push_back(t[i + 1].text);
+            i = skipStmt(t, i);
+            ix.lastCueB = t[i - 1].end;
             continue;
         }
 
@@ -2173,6 +2199,16 @@ thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
             {
                 why = "chain " + ix.chains[ci].name + " writes @" + name +
                       "; remove that sink first";
+                return REFUSED;
+            }
+
+    /* Nor for one a section sets, which is the knob's and no number's. */
+    for (const SectionIdx &se : ix.sections)
+        for (const SectionRefIdx &ref : se.refs)
+            if (ref.chain == "@" + name)
+            {
+                why = "section " + se.name + " sets @" + name +
+                      "; take it out of the section first";
                 return REFUSED;
             }
 
@@ -3635,19 +3671,22 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
                 return REFUSED;
             }
 
-        if (findChain(ix, l.first) == NULL)
+        const bool knob = !l.first.empty() && l.first[0] == '@';
+
+        if (knob ? findKnob(ix, l.first.substr(1)) == NULL
+                 : findChain(ix, l.first) == NULL)
         {
-            why = "no chain called " + l.first;
+            why = (knob ? "no knob called " : "no chain called ") + l.first;
             return NOT_FOUND;
         }
 
-        if (!(l.second >= 0) || !format(l.second, num))
+        if ((!knob && !(l.second >= 0)) || !format(l.second, num))
         {
             why = "that level cannot be written";
             return UNWRITABLE;
         }
 
-        if (l.second != 1)
+        if (l.second != 1 || knob)
             stmt += " " + l.first + " = " + num + ";";
     }
 
@@ -3854,12 +3893,122 @@ thcGenEdit::setSectionLength (const std::string &filename,
 }
 
 R
+thcGenEdit::setSectionHold (const std::string &filename,
+                            const std::string &name, bool hold,
+                            std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    if (hold == (se->holdA != std::string::npos))
+        return OK;
+
+    std::vector<Edit> edits;
+
+    if (hold)
+        edits.push_back({ se->lenB, se->lenB, " hold" });
+    else
+        edits.push_back({ se->lenB, se->holdB, "" });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSectionLoop (const std::string &filename,
+                            const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (!name.empty() && findSection(ix, name) == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+    const std::string stmt = "section loop " + name + ";";
+
+    if (!ix.loopTo.empty())
+        edits.push_back(name.empty()
+            ? eraseStmt(text, ix.sectionEndA, ix.sectionEndB)
+            : Edit{ ix.loopToA, ix.loopToB, name });
+    else if (name.empty())
+        return OK;
+    else if (ix.sectionEndA != std::string::npos)
+        edits.push_back({ ix.sectionEndA, ix.sectionEndB, stmt });
+    else
+        edits.push_back({ ix.sections.back().stmtB,
+                          ix.sections.back().stmtB, "\n" + stmt });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::addCue (const std::string &filename, const std::string &knob,
+                    const std::string &grid, std::string &why)
+{
+    if (!validSectionLength(grid, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findKnob(ix, knob) == NULL)
+    {
+        why = "no knob called @" + knob;
+        return NOT_FOUND;
+    }
+
+    if (ix.sections.empty())
+    {
+        why = "there are no sections to cue";
+        return REFUSED;
+    }
+
+    if (std::find(ix.cues.begin(), ix.cues.end(), knob) != ix.cues.end())
+        return OK;
+
+    /* Below the sections it names, and their end. */
+    const size_t at = ix.lastCueB != std::string::npos ? ix.lastCueB
+                    : ix.sectionEndB != std::string::npos ? ix.sectionEndB
+                    : ix.sections.back().stmtB;
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at, "\ncue @" + knob + " " + grid + ";" });
+
+    return finish(filename, text, edits, why);
+}
+
+R
 thcGenEdit::setSectionLevel (const std::string &filename,
                              const std::string &section,
                              const std::string &chain, double level,
                              std::string &why)
 {
-    if (!(level >= 0))
+    const bool knob = !chain.empty() && chain[0] == '@';
+
+    if (!knob && !(level >= 0))
     {
         why = "a section's level cannot be negative";
         return REFUSED;
@@ -3884,9 +4033,10 @@ thcGenEdit::setSectionLevel (const std::string &filename,
         return NOT_FOUND;
     }
 
-    if (findChain(ix, chain) == NULL)
+    if (knob ? findKnob(ix, chain.substr(1)) == NULL
+             : findChain(ix, chain) == NULL)
     {
-        why = "no chain called " + chain;
+        why = (knob ? "no knob called " : "no chain called ") + chain;
         return NOT_FOUND;
     }
 
@@ -3906,8 +4056,9 @@ thcGenEdit::setSectionLevel (const std::string &filename,
 
     /* 1 is "as written", which is what a section that does not name the
        chain already says: the entry goes, rather than staying as a line
-       that says nothing. With the line it was on, if it had one. */
-    if (level == 1)
+       that says nothing. With the line it was on, if it had one. A knob's
+       1 is a value like any other. */
+    if (level == 1 && !knob)
     {
         if (ref == NULL)
             return OK;

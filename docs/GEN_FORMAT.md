@@ -1066,6 +1066,13 @@ The composer view draws the sections as a lane above the chains, and a click
 on a chain's cell in a section steps its level there (1, 0, 0.5); the edit is
 written into the section as `chain = level;`, or taken out of it at 1.
 
+A section may also set a piece knob as it begins: `section chorus 8 bars {
+@energy = 0.8; };`. It is set at the section's start however the piece got
+there — in order, round a loop, again under a hold, by a cue or a seek — and
+the chains that read the knob are composed again from there, as for a hand on
+it. A section that does not name the knob leaves it where it was, and a rewind
+puts it where the first section says. The knob has to be declared above.
+
 The live mute and solo — the M and S on a chain in the composer view — close
 the same gate: a chain they silence is at level 0 whatever the section says.
 Unlike a section they are read when an event reaches the end of the chain, not
@@ -1169,6 +1176,7 @@ cue         : "cue" CHANARG (NUMBER ("bars" | "beats" | "b"))? ";"
                                                        # at most one
 seclen      : "bars" | "beats" | "b" | "s"
 seclevel    : WORD "=" NUMBER ";"                      # chain = level
+            | KNOB "=" NUMBER ";"                      # @knob = value
 knob        : CHANARG "=" NUMBER ";"
 knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
