@@ -3596,16 +3596,37 @@ thcScheduler::addSection (const thcSection &s)
 void
 thcScheduler::applySectionKnobs (void)
 {
-    SectionSpan span;
+    /* A knob reaches a node only when the node's next control window
+       reads it, and the window a section's first tick reads is the last
+       one at or before the section's start. So the section's knobs are
+       written there, after every window and tick before it -- on every
+       peer, wherever its steps happen to end. The slop takes up the
+       rounding between a sum of section lengths and a sum of periods. */
+    const double slop = 1e-9;
+    const double rate = (double)controlRate();
+    SectionSpan span, next;
 
-    if (!sectionSpanAt(transportNow_, span))
+    if (!sectionSpanAt(transportNow_ + slop, span))
         return;
+
+    if (sectionSpanAt(transportNow_ + 1 / rate, next) &&
+        next.start > span.start &&
+        std::floor(next.start * rate + slop) / rate <= transportNow_ + slop)
+        span = next;
 
     if (span.start == knobSpanStart_ && span.section == knobSpanSection_)
         return;
 
-    if (span.start > 0)
-        runDueTicks(span.start - 1e-9);
+    const double at = std::floor(span.start * rate + slop) / rate;
+
+    if (at > 0)
+    {
+        runDueTicks(at - slop);
+
+        for (size_t i = 0; i < chains_.size(); i++)
+            if (chains_[i].nodes && !replaying(i))
+                chains_[i].nodes->stepTo(at - slop);
+    }
 
     knobSpanStart_ = span.start;
     knobSpanSection_ = span.section;
@@ -3617,7 +3638,7 @@ thcScheduler::applySectionKnobs (void)
         if (a == NULL || (*a)[0] == (float)k.second)
             continue;
 
-        knobWriteAt_ = span.start;
+        knobWriteAt_ = at;
         a->setValue((float)k.second);
         knobWriteAt_ = -1;
     }

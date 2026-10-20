@@ -1525,6 +1525,46 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
         else
             printf("ok    sections in seconds set their knobs\n");
     }
+
+    /* Through arithmetic, which is a node that reads the knob at its
+       control window, with bars at 104 that start between windows. */
+    {
+        const std::string text =
+            "tempo 104;\nmeter 4;\n@lift = 0.5;\n"
+            "section a 1 bars { @lift = 0.25; };\n"
+            "section b 1 bars { @lift = 1; };\n"
+            "section loop a;\n"
+            "chain beat { stage s gen::euclid { steps = 4; fills = 4;\n"
+            "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats; };\n"
+            "    stage up xform::level { gain = @lift * 1; };\n"
+            "    sink { channel = 1; }; };\n";
+        Peer one(plugins, pluginDir, dir, "sknode1"),
+             two(plugins, pluginDir, dir, "sknode2");
+
+        one.load(text, errors);
+        two.load(text, errors);
+        play(one, what, {}, 9.9, windows);
+
+        /* Fine enough that a step ends between a bar's window and its
+           first beat. */
+        play(two, what, {}, 9.9, [] { return 0.005; });
+
+        const double bar = 4 * 60 / 104.0;
+        const std::string a = joined(levelsIn(one.tape, 0, 2 * bar,
+                                              3 * bar - 0.01)),
+                          b = joined(levelsIn(one.tape, 0, 3 * bar - 0.01,
+                                              4 * bar - 0.01)),
+                          fine = joined(levelsIn(two.tape, 0, 3 * bar - 0.01,
+                                                 4 * bar - 0.01));
+
+        if (one.tape != two.tape || a != "0.25" || b != "1")
+            fail(what, "a section's knob through a node should be heard "
+                 "from its first beat at any step size: " + a + ", then " +
+                 b + "; in fine steps, then " + fine);
+        else
+            printf("ok    a section's knob reaches a node by its first "
+                   "beat, at any step size\n");
+    }
 }
 
 /* A Life board painted on while it plays, and then a param of its chain
