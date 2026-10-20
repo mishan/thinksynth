@@ -290,9 +290,11 @@ parseLadder (State *st, const char *text)
 static void
 refresh (State *st)
 {
-    /* A param's range is the panel's; a file can say anything. */
-    const int w = (int)fmin(fmax(getp(st, P_WIDTH), 3), 64);
-    const int h = (int)fmin(fmax(getp(st, P_HEIGHT), 3), 32);
+    /* A file can say anything. Past the panel's maximum the board is an
+       allocation nobody asked for; below it, even below its minimum, it is
+       what the file wrote, and 0 or less is no board. */
+    const int w = (int)fmin(fmax(getp(st, P_WIDTH), 0), 64);
+    const int h = (int)fmin(fmax(getp(st, P_HEIGHT), 0), 32);
 
     const char *board =
         st->params->get_string(st->params->ctx, paramIndex[P_BOARD]);

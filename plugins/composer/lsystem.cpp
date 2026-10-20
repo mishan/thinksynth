@@ -225,10 +225,12 @@ State::derive (void)
 
     derived = axiom != NULL ? axiom : "";
 
-    /* A file can ask for any depth. Rules that stop growing the string
-       would rewrite it that many times, so past MAX_DERIVED rewrites,
-       which a growing one has hit, stop. */
-    int depth = (int)fmin(params->get(params->ctx, paramIndex[P_DEPTH]),
+    /* A file can ask for any depth, and rules that stop growing the
+       string would rewrite it that many times. So stop at MAX_DERIVED
+       rewrites: a growing derivation is capped by then, and one that
+       cycles stops where it stands rather than at depth's phase. */
+    int depth = (int)fmin(fmax(params->get(params->ctx,
+                                           paramIndex[P_DEPTH]), 0),
                           MAX_DERIVED);
 
     for (int d = 0; d < depth; d++)
