@@ -30,13 +30,14 @@
 
 import { MOODS, nameOf, pitchOf } from './bandkey.js';
 
-const stepsOf = (key) => MOODS.find(([m]) => m === key.mood)[1];
+const moodOf = (key) => MOODS.find(([m]) => m === key.mood);
+const stepsOf = (key) => moodOf(key)[1];
 
 /* Which steps of the key a chord on step `d' has. */
 const chordOf = (d, n) => [d, (d + 2) % n, (d + 4) % n];
 
 /* Between chords that fit equally: home, then the two either side of it,
-   then the rest. */
+   then the rest -- by degree, which a pentatonic's steps are not. */
 const PREFER = [0, 3, 4, 5, 1, 6, 2];
 
 /* A kept grid -- its `notes', `cells' and `steps' as the piece writes
@@ -69,12 +70,19 @@ export function fitChords (grid, key, meter)
             while (cells[s + len] === '-' || cells[s + len] === '_')
                 len++;
 
-            const at = s % perBar;
-            const weight = at === 0 ? 2 : at % 4 === 0 ? 1.5 : 1;
-            const bar = Math.floor(s / perBar);
+            /* Held into the next bar, it is in that bar too, from its
+               first beat. */
+            for (let t = s; t < s + len; t = (Math.floor(t / perBar) + 1) *
+                                             perBar)
+            {
+                const at = t % perBar;
+                const weight = at === 0 ? 2 : at % 4 === 0 ? 1.5 : 1;
+                const bar = Math.floor(t / perBar);
+                const held = Math.min(s + len, (bar + 1) * perBar) - t;
 
-            if (bar < bars)
-                heard[bar][((pitch % 12) + 12) % 12] += len * weight;
+                if (bar < bars)
+                    heard[bar][((pitch % 12) + 12) % 12] += held * weight;
+            }
         }
     });
 
@@ -96,9 +104,13 @@ export function fitChords (grid, key, meter)
         {
             const pcs = chordOf(d, n).map((k) => (key.root + steps[k]) % 12);
             const inside = pcs.reduce((a, pc) => a + w[pc], 0);
+            /* No perfect fifth: a diminished chord, which a bar has to
+               spell out to be given. */
+            const odd = (pcs[2] - pcs[0] + 12) % 12 !== 7;
             const score = inside - 0.5 * (total - inside) +
-                          0.25 * w[pcs[0]] +
-                          0.01 * (PREFER.length - PREFER.indexOf(d % 7));
+                          0.25 * w[pcs[0]] - (odd ? 0.3 * total : 0) +
+                          0.01 * (PREFER.length -
+                                  PREFER.indexOf(moodOf(key)[2][d]));
 
             if (score > bestScore)
             {
@@ -125,7 +137,10 @@ function cellsOf (rungs, length, hits)
     return '"' + rows.map((r) => r.join('')).join('/') + '"';
 }
 
-/* The two players for chords `chords' (fitChords's), as band ideas. */
+/* The two players for chords `chords' (fitChords's), as band ideas. The
+   chords' own `thin' and `take', for the pad and for Vary, come before
+   the chord is stacked, so a note left out or played twice is a chord;
+   behind it, the band's would take a voice at a time. */
 export function followers (chords, key, meter)
 {
     const steps = stepsOf(key);
@@ -137,7 +152,8 @@ export function followers (chords, key, meter)
 
     /* The bass's two octaves, so a fifth is above its root; the fifth is
        the step nearest seven semitones up, which in a pentatonic is not
-       four steps. */
+       four steps. Its root from Eb1 to D2, as Root pulse's is. */
+    const base = 24 + key.root < 27 ? 36 + key.root : 24 + key.root;
     const low = [...steps, ...steps.map((s) => s + 12)];
     const fifth = (d) => low.reduce((best, s, i) =>
         (Math.abs(s - steps[d] - 7) < Math.abs(low[best] - steps[d] - 7)
@@ -157,6 +173,9 @@ export function followers (chords, key, meter)
                       cells: cellsOf(n, bars, chords.map((d, b) => [b, d])),
                       period: `${meter} beats`,
                       hold: `${meter - 0.2} beats`, vel: '72' }],
+                           ['xform', 'chance', { prob: '1' }, 'thin'],
+                           ['xform', 'vary', { rest: '0', double: '0',
+                                               leap: '0' }, 'take'],
                            ['xform', 'harmonize', { scale: 'key',
                                                     voices: '3',
                                                     step: '2' }]] },
@@ -165,7 +184,7 @@ export function followers (chords, key, meter)
                 sound: 'ebass.dsp', amp: '26',
                 stages: [['gen', 'grid', {
                     notes: '"' + low.map((s) =>
-                        nameOf(24 + key.root + s, key)).join(' ') + '"',
+                        nameOf(base + s, key)).join(' ') + '"',
                     steps: String(bars * eighths), rows: String(low.length),
                     cells: cellsOf(low.length, bars * eighths, bass),
                     period: '0.5 beats', hold: '0.4 beats',

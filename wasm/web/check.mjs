@@ -1128,9 +1128,16 @@ for (const name of names)
          'A3 D4'],
         ['the bass, root, root and fifth',
          played(both.bass.stages[0][2]), 'A1 A1 E2 D2 D2 A2'],
-        ['a pentatonic bass\'s fifth', played(followers(
-             [1], { root: 0, mood: 'open' }, 4).bass.stages[0][2]),
-         'D1 D1 A1'],
+        ['a pentatonic bass\'s fifth, in C an octave up',
+         played(followers([1], { root: 0, mood: 'open' }, 4)
+             .bass.stages[0][2]), 'D2 D2 A2'],
+        ['a note held into the next bar is in it', fitChords({
+             notes: '"C4 G4"', steps: '32',
+             cells: `"${'.'.repeat(24)}x${'.'.repeat(7)}/` +
+                    `x${'-'.repeat(31)}"` },
+             { root: 0, mood: 'bright' }, 4).join(' '), '0 0'],
+        ['a lone leading note is not a diminished chord',
+         fit(['B3 B3 B3 B3'], { root: 0, mood: 'bright' }), '4'],
     ];
 
     for (const [what, got, want] of cases)

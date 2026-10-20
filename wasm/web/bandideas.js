@@ -175,8 +175,8 @@ export function addOps (idea, name)
         ['instrument', name, idea.sound, `amp=${idea.amp}`],
         ['chain', name, name, 'src', first[0], first[1],
          ...pairs(first[2])],
-        ...rest.map((s, i) => ['stage', name, `s${i + 2}`, s[0], s[1],
-                               ...pairs(s[2])]),
+        ...rest.map((s, i) => ['stage', name, s[3] ?? `s${i + 2}`, s[0],
+                               s[1], ...pairs(s[2])]),
     ];
 }
 
