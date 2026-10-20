@@ -290,8 +290,9 @@ parseLadder (State *st, const char *text)
 static void
 refresh (State *st)
 {
-    const int w = (int)getp(st, P_WIDTH);
-    const int h = (int)getp(st, P_HEIGHT);
+    /* A param's range is the panel's; a file can say anything. */
+    const int w = (int)fmin(fmax(getp(st, P_WIDTH), 3), 64);
+    const int h = (int)fmin(fmax(getp(st, P_HEIGHT), 3), 32);
 
     const char *board =
         st->params->get_string(st->params->ctx, paramIndex[P_BOARD]);
