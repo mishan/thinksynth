@@ -1411,6 +1411,16 @@ async function openText (label, text, menuValue = '#opened')
     forgetHistory();
     $('gen').value = text;
     await loadPiece();
+    fromTheTop();
+}
+
+/* Another piece, chosen or opened, is played from its top. A load is
+   made over the transport where it stood, which is right for an edit to
+   the piece playing and not for a different one. */
+function fromTheTop ()
+{
+    if (synth !== null && piece !== null)
+        synth.transport('rewind');
 }
 
 /* ---- the last session ----
@@ -2465,6 +2475,7 @@ async function pickPiece ()
         forgetHistory();
 
         await loadPiece();
+        fromTheTop();
         showLiveIn();
     })();
 
