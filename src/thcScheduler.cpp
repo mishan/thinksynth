@@ -4221,7 +4221,8 @@ static const unsigned TH_MAX_STALLED_WAKES = 8;
 void
 thcScheduler::runDueTicks (double now)
 {
-    thcTransport t = { now, tempo_, beat_, running_ };
+    thcTransport t = { now, tempo_, beat_, running_,
+                       usesBeats() ? meter_ : 0 };
     const double beatAtNow = beat_;
 
     for (size_t i = 0; i < chains_.size(); i++)
@@ -4493,7 +4494,7 @@ thcScheduler::replayRun (size_t i, unsigned &budget)
            began. */
         const thcTransport t = {
             w.at, r.tempo0, r.beat0 - (r.now0 - w.at) * r.tempo0 / 60.0,
-            true };
+            true, usesBeats() ? meter_ : 0 };
 
         s->awaitingStart = false;
 

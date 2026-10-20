@@ -78,8 +78,11 @@ extern "C" {
  * 40 and the union with it -- a bump for version 2's reason.
  * 4: and `say', THC_NOTE_SAY phoneme codes, for version 2's reason again.
  * 5: thcEvent gained `reserved', room for what comes next, so that the next
- * field is not a bump: see thcEvent. */
-#define COMPOSER_IFACE_VER 5
+ * field is not a bump: see thcEvent.
+ * 6: thcTransport gained `meter'. Appended, so a composer built for 5 still
+ * reads the rest; but one built for 6 under a host for 5 would read past the
+ * struct, and that is what the byte is for. */
+#define COMPOSER_IFACE_VER 6
 
 typedef struct _cairo cairo_t;  /* drawing is optional; no hard cairo dep */
 
@@ -259,6 +262,8 @@ typedef struct {
     double tempo;     /* beats per minute                                 */
     double beat;      /* now, expressed in beats                          */
     int    running;   /* 0 while paused; ticks still fire for UI updates  */
+    double meter;     /* beats to the bar; 0 in a piece timed in seconds,
+                         which has no bar                                */
 } thcTransport;
 
 /* ---- parameters ------------------------------------------------------ */
