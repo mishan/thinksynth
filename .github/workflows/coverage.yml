@@ -1,5 +1,5 @@
-# What the native gates run: scripts/coverage.sh on Linux, once a week and
-# on demand from the Actions tab. Not on PRs or merges -- it is a report,
+# How much of the native tree its gates run: scripts/coverage.sh on Linux,
+# once a week and on demand from the Actions tab. Not on PRs or merges -- it is a report,
 # not a gate, and the PR gauntlet is long enough already.
 #
 # The summary is on the run's page; the per-file pages are the `coverage'
@@ -40,6 +40,7 @@ jobs:
             adwaita-icon-theme librsvg2-common \
             xvfb locales
           sudo locale-gen de_DE.UTF-8
+          locale -a | grep -qix 'de_DE.utf8'
           # Pinned: the report's options are 8's, and Ubuntu's is older.
           pipx install gcovr==8.6
 
@@ -47,7 +48,7 @@ jobs:
         run: xvfb-run -a scripts/coverage.sh build-coverage
 
       - name: Summary
-        if: always()
+        if: ${{ !cancelled() && hashFiles('build-coverage/coverage/summary.txt') != '' }}
         run: |
           {
             echo '```'

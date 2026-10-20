@@ -28,7 +28,8 @@ cmake --build "$build"
 find "$build" -name '*.gcda' -delete
 
 status=0
-ctest --test-dir "$build" --timeout 900 -j "$(nproc)" || status=$?
+ctest --test-dir "$build" --output-on-failure --timeout 900 -j "$(nproc)" ||
+    status=$?
 
 mkdir -p "$build/coverage"
 gcovr --root "$top" --object-directory "$build" \
