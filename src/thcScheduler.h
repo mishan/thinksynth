@@ -1657,9 +1657,12 @@ private:
     void propagate (thcChain &c, size_t fromStage, const thcEvent &ev);
 
     /* The knobs the section covering the transport sets, set when it is
-       not the one they were last set for; `moved', and the chains reading
-       each knob are composed again, as for a hand on it. */
-    void applySectionKnobs (bool moved);
+       not the one they were last set for: the stages due before the
+       section begins ticked first, as they read what came before it.
+       What a chain composed ahead is not composed again, as it is not
+       for a chain writing a knob: a seek, which composes nothing again,
+       has to hear what straight play does. */
+    void applySectionKnobs (void);
     double knobSpanStart_ = -1;
     int    knobSpanSection_ = -1;
 

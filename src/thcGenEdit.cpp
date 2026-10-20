@@ -3989,13 +3989,20 @@ thcGenEdit::addCue (const std::string &filename, const std::string &knob,
     if (std::find(ix.cues.begin(), ix.cues.end(), knob) != ix.cues.end())
         return OK;
 
-    /* Below the sections it names, and their end. */
-    const size_t at = ix.lastCueB != std::string::npos ? ix.lastCueB
-                    : ix.sectionEndB != std::string::npos ? ix.sectionEndB
-                    : ix.sections.back().stmtB;
-    std::vector<Edit> edits;
+    if (!ix.cues.empty())
+    {
+        why = "the piece follows @" + ix.cues[0] + " already, and a piece "
+              "follows one cue knob";
+        return REFUSED;
+    }
 
-    edits.push_back({ at, at, "\ncue @" + knob + " " + grid + ";" });
+    /* Last, below the knob, which may be declared below the sections. */
+    std::vector<Edit> edits;
+    const bool ended = !text.empty() && text.back() == '\n';
+
+    edits.push_back({ text.size(), text.size(),
+                      std::string(ended ? "" : "\n") + "cue @" + knob + " " +
+                      grid + ";\n" });
 
     return finish(filename, text, edits, why);
 }
@@ -4013,6 +4020,10 @@ thcGenEdit::setSectionLevel (const std::string &filename,
         why = "a section's level cannot be negative";
         return REFUSED;
     }
+
+    /* A knob's entry goes for a NaN: it has no value that says "as
+       written". */
+    const bool out = knob ? std::isnan(level) : level == 1;
 
     std::string text, num;
     Index ix;
@@ -4040,7 +4051,7 @@ thcGenEdit::setSectionLevel (const std::string &filename,
         return NOT_FOUND;
     }
 
-    if (!format(level, num))
+    if (!out && !format(level, num))
     {
         why = "that level cannot be written";
         return UNWRITABLE;
@@ -4056,9 +4067,8 @@ thcGenEdit::setSectionLevel (const std::string &filename,
 
     /* 1 is "as written", which is what a section that does not name the
        chain already says: the entry goes, rather than staying as a line
-       that says nothing. With the line it was on, if it had one. A knob's
-       1 is a value like any other. */
-    if (level == 1 && !knob)
+       that says nothing. With the line it was on, if it had one. */
+    if (out)
     {
         if (ref == NULL)
             return OK;

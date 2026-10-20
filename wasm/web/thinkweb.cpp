@@ -3920,8 +3920,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
             sectionsJson_ += ":" + exact(s.levels[k].second);
         }
 
-        /* The knobs it sets, whether it holds, and whether the list goes
-           round to it rather than to the first, which it does anyway. */
+        /* The knobs it sets, whether it holds, whether the song ends after
+           its last, and whether the list goes round to it rather than to
+           the first, which it does anyway. */
         sectionsJson_ += "},\"knobs\":{";
 
         for (size_t k = 0; k < s.knobs.size(); k++)
@@ -3934,7 +3935,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
         }
 
         sectionsJson_ += std::string("},\"hold\":") +
-                         (s.hold ? "true" : "false") + ",\"loopTo\":" +
+                         (s.hold ? "true" : "false") + ",\"ends\":" +
+                         (sched_->endsAfterSections() ? "true" : "false") +
+                         ",\"loopTo\":" +
                          (i > 0 && sched_->loopsFrom() == i ? "true"
                                                              : "false") + "}";
     }
@@ -6559,7 +6562,8 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
  *   sectionloop [NAME]       -- closes the list round to NAME; none: out
  *   cue         KNOB GRID    -- `cue @KNOB GRID;', unless KNOB has one
  *   level       SECTION CHAIN LEVEL   -- 1 takes the chain out of it;
- *                            -- CHAIN @KNOB is the value the section sets
+ *                            -- CHAIN @KNOB is the value the section sets,
+ *                            -- LEVEL - takes it out
  *
  * Values as the file would write them. "" when one was refused. */
 /* Why the last tw_gen_ops wrote nothing. */
@@ -6684,7 +6688,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
                     r = thcGenEdit::addCue(path, f[1], f[2], why);
                 else if (f[0] == "level" && f.size() >= 4)
                     r = thcGenEdit::setSectionLevel(path, f[1], f[2],
-                                                    atof(f[3].c_str()), why);
+                                                    f[3] == "-" ? NAN
+                                                    : atof(f[3].c_str()),
+                                                    why);
                 else if (f[0] == "uninstrument" && f.size() >= 2)
                 {
                     r = thcGenEdit::removeInstrument(path, f[1], why);

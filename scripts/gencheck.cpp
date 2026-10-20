@@ -11513,6 +11513,58 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
                  levels(h, 5));
     }
 
+    /* A seek hears what playing straight there does, on a chain that
+       composes a phrase ahead: what it composed before a section set the
+       knob plays as composed either way. */
+    {
+        const std::string ahead =
+            "tempo 120;\nmeter 4;\n"
+            "section a 1 bars { @lift = 0.25; };\n"
+            "section b 1 bars { @lift = 1; };\n"
+            "@lift = 0.5;\n"
+            "chain line {\n"
+            "  stage src gen::lsystem { axiom = \"F+F+F-F+F+F-F-F+F-F+F\";\n"
+            "    rules = \"\"; depth = 0; notes = \"C4 D4 E4 G4 A4\";\n"
+            "    step = 0.5 beats; hold = 0.4 beats; vel = 90; };\n"
+            "  stage up xform::level { gain = @lift; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n";
+        const auto from = [](const std::vector<Heard> &h, double t)
+        {
+            std::string s;
+
+            for (const Heard &x : h)
+                if (x.at >= t)
+                {
+                    char b[64];
+
+                    snprintf(b, sizeof b, "%.3f:%d:%g ", x.at, x.note,
+                             x.level);
+                    s += b;
+                }
+
+            return s;
+        };
+        bool sought = false;
+        const std::vector<Heard> straight = playCued(plugins, synth,
+            "section knobs straight", ahead, 7.9, nothing);
+        const std::vector<Heard> jumped = playCued(plugins, synth,
+            "section knobs sought", ahead, 7.9, [&sought](thcScheduler &s)
+            {
+                if (!sought)
+                {
+                    sought = true;
+                    s.seek(5);
+                }
+            });
+
+        if (from(straight, 5.5).empty() ||
+            from(straight, 5.5) != from(jumped, 5.5))
+            fail("a seek into a section that sets a knob should hear what "
+                 "playing straight there does:\n  straight " +
+                 from(straight, 5.5) + "\n  sought   " + from(jumped, 5.5));
+    }
+
     /* b holds until it is cued on to c; a rewind is a's again. */
     {
         double rewound = -1;
@@ -11563,6 +11615,10 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
                "setSectionLoop");
         editOk(thcGenEdit::addCue(path, "go", "1 bars", why), why, "addCue");
 
+        if (thcGenEdit::addCue(path, "lift", "1 bars", why) !=
+            thcGenEdit::REFUSED)
+            fail("a second cue knob was written, which does not load");
+
         int rewritten = 0;
 
         if (thcGenEdit::removeKnob(path, "lift", 0.5, rewritten, why) !=
@@ -11589,6 +11645,9 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
 
         editOk(thcGenEdit::setSectionHold(path, "b", false, why), why,
                "setSectionHold off");
+        editOk(thcGenEdit::setSectionLevel(path, "c", "@lift", std::nan(""),
+                                           why), why,
+               "a section's knob taken out");
         editOk(thcGenEdit::setSectionLoop(path, "", why), why,
                "setSectionLoop out");
 
@@ -11596,8 +11655,8 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
         thcGenLoader reader(plugins);
 
         if (!reader.load(path, &again) || again.sections()[1].hold ||
-            again.loopsFrom() != 0)
-            fail("a hold and a loop taken out are still there");
+            again.loopsFrom() != 0 || !again.sections()[2].knobs.empty())
+            fail("a hold, a loop and a knob taken out are still there");
 
         remove(path.c_str());
     }

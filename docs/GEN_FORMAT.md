@@ -1068,9 +1068,10 @@ written into the section as `chain = level;`, or taken out of it at 1.
 
 A section may also set a piece knob as it begins: `section chorus 8 bars {
 @energy = 0.8; };`. It is set at the section's start however the piece got
-there — in order, round a loop, again under a hold, by a cue or a seek — and
-the chains that read the knob are composed again from there, as for a hand on
-it. A section that does not name the knob leaves it where it was, and a rewind
+there — in order, round a loop, again under a hold, by a cue or a seek. What a
+chain had already composed ahead plays as it was composed, as it does when a
+chain writes a knob, so a seek hears what playing straight there does. A
+section that does not name the knob leaves it where it was, and a rewind
 puts it where the first section says. The knob may be declared anywhere in the
 file.
 

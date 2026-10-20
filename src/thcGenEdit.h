@@ -464,7 +464,9 @@ public:
                                   const std::string &name,
                                   std::string &why);
 
-    /* `cue @knob <grid>;' (`1 bars'), unless knob already has one. */
+    /* `cue @knob <grid>;' (`1 bars') at the end of the file, unless knob
+       has one already; refused where another knob has, as a piece
+       follows one. */
     static Result addCue (const std::string &filename,
                           const std::string &knob, const std::string &grid,
                           std::string &why);
@@ -473,7 +475,7 @@ public:
        which removes the chain from the section, since a section that
        does not name a chain plays it as written -- and anything else
        scales its notes' level. `chain' "@name" is the value the section
-       sets knob `name' to, which stays at 1 too. */
+       sets knob `name' to, 1 like any other, and a NaN takes it out. */
     static Result setSectionLevel (const std::string &filename,
                                    const std::string &section,
                                    const std::string &chain, double level,

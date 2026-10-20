@@ -3594,7 +3594,7 @@ thcScheduler::addSection (const thcSection &s)
 }
 
 void
-thcScheduler::applySectionKnobs (bool moved)
+thcScheduler::applySectionKnobs (void)
 {
     SectionSpan span;
 
@@ -3603,6 +3603,9 @@ thcScheduler::applySectionKnobs (bool moved)
 
     if (span.start == knobSpanStart_ && span.section == knobSpanSection_)
         return;
+
+    if (span.start > 0)
+        runDueTicks(span.start - 1e-9);
 
     knobSpanStart_ = span.start;
     knobSpanSection_ = span.section;
@@ -3617,9 +3620,6 @@ thcScheduler::applySectionKnobs (bool moved)
         knobWriteAt_ = span.start;
         a->setValue((float)k.second);
         knobWriteAt_ = -1;
-
-        if (moved)
-            knobMoved(a, false);
     }
 }
 
@@ -4106,10 +4106,9 @@ thcScheduler::runStep (void)
      * many times this was called or how late a frame was. */
     takeHeardGrowth();
 
-    /* Before the stages tick, so one woken at the section's first beat
-       reads what the section says. Seeking, what is composed is being
-       replayed already. */
-    applySectionKnobs(!seeking_);
+    /* Before the stages due from the section's start tick, so one woken
+       at its first beat reads what the section says. */
+    applySectionKnobs();
     runDueTicks(transportNow_);
 
     /* Not a chain being replayed, whose nodes are where its replay has
@@ -5686,7 +5685,7 @@ thcScheduler::reset (void)
     /* And the first section's, which is what the top of the piece is. */
     knobSpanStart_ = -1;
     knobSpanSection_ = -1;
-    applySectionKnobs(false);
+    applySectionKnobs();
 
     /* The arrangement as written, from the top: a cue was a hand on the
        piece that played, and a replay is not that play. The knob is
