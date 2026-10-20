@@ -4031,9 +4031,20 @@ try
             return at < 0 ? '' : t.slice(at, t.indexOf('};', at));
         };
 
+        /* Another piece chosen after this one stopped partway is played
+           from its top, not from where this one stopped. */
         await page.selectOption('#mode', 'band');
+        await page.click('#play');
+        await page.waitForTimeout(1500);
+        await page.click('#stop');
         await page.selectOption('#piece', 'mirrorball.gen');
         await page.evaluate(() => window.solo.settled());
+
+        const top = await until(() => page.textContent('#clock'),
+                                (c) => c.startsWith('0:00.0'));
+
+        check(top.startsWith('0:00.0'),
+              `a piece chosen after another stopped starts at the top: ${top}`);
         await page.click('#play');
         const lit = await until(scenes, (s) => s.startsWith('*intro'));
         const sounding = await (await page.waitForFunction(() =>

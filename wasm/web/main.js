@@ -1412,6 +1412,27 @@ async function openText (label, text, menuValue = '#opened')
     forgetHistory();
     $('gen').value = text;
     await loadPiece();
+    fromTheTop();
+}
+
+/* Another piece, chosen or opened, is played from its top. A load is
+   made over the transport where it stood, which is right for an edit to
+   the piece playing and not for a different one; and it drops what was
+   asked before it, so the rewind comes after. A Play pressed while it
+   loaded is made again after the rewind, which would stop it. */
+let playedLoading = false;
+
+function fromTheTop ()
+{
+    if (synth === null)
+        return;
+
+    synth.transport('rewind');
+
+    if (playedLoading && piece !== null)
+        synth.transport('start');
+
+    playedLoading = false;
 }
 
 /* ---- the last session ----
@@ -2367,12 +2388,15 @@ function sequenceVoices ()
    at a patch and came back expects to find. */
 async function loadSequence ()
 {
-    holdText('seq');
+    const other = holdText('seq');
 
     if (!$('gen').value.includes(SEQ_MARK))
         $('gen').value = sequenceText();
 
     await loadPiece();
+
+    if (other)
+        fromTheTop();
 
     if (piece !== null)
         status(`${TAP} cells to draw a pattern, then press Play.`);
@@ -2392,10 +2416,11 @@ async function loadSequence ()
 const modeText = { seq: null, piece: null };
 let textMode = null;             /* whose text the box is holding now */
 
+/* Whether the box changed hands: the sequence for the piece, or back. */
 function holdText (which)
 {
     if (textMode === which)
-        return;
+        return false;
 
     if (textMode !== null)
         modeText[textMode] = $('gen').value;
@@ -2406,14 +2431,18 @@ function holdText (which)
         $('gen').value = modeText[which];
 
     showUndo();
+    return true;
 }
 
 /* The piece mode, entered: its own text back in the box, then loaded. */
 async function loadPieceMode ()
 {
-    holdText('piece');
+    const other = holdText('piece');
 
     await loadPiece();
+
+    if (other)
+        fromTheTop();
 }
 
 /* A choice from the menu, in flight. The fetch comes before the load and
@@ -2496,6 +2525,7 @@ async function pickPiece ()
         forgetHistory();
 
         await loadPiece();
+        fromTheTop();
         showLiveIn();
     })();
 
@@ -4369,7 +4399,11 @@ async function init ()
        picture rather than the one that sounds. */
     setInterval(() => composer?.pollParams(), 250);
 
-    $('play').addEventListener('click', () => synth.transport('start'));
+    $('play').addEventListener('click', () =>
+    {
+        playedLoading ||= loading > 0;
+        synth.transport('start');
+    });
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
 
