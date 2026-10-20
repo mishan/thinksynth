@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Forty-six `.gen` files, each of which is meant to be read as well as heard.
+Forty-seven `.gen` files, each of which is meant to be read as well as heard.
 Some of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
 being impressive; the rest are pieces first and lessons second. The
@@ -22,7 +22,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `nightdrive.gen`, `transmission.gen`, `pearl.gen`,
-`riviera.gen`, `cumulus.gen`, `kodachrome.gen`, `lighthouse.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
+`riviera.gen`, `cumulus.gen`, `kodachrome.gen`, `lighthouse.gen`, `lantern.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
 else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -157,7 +157,7 @@ typo in it.
 
 ## Pieces
 
-Nine files where the idea is the music and the mechanism is in service of
+Ten files where the idea is the music and the mechanism is in service of
 it. Each carries its own instruments; each header says how it is put
 together, in the same detail as the others.
 
@@ -172,6 +172,7 @@ together, in the same detail as the others.
 | [`shimmer.gen`](shimmer.gen) | **Five long notes into a reverb that climbs.** `glass.dsp` and `pad.dsp` on five `gen::eno_line` loops of their own lengths, into `fx/shimmer.dsp` on the mix -- `delay::fdn` with a pitch shifter in its feedback, so everything comes back an octave up, and again. A `misc::drift` at control rate, read by a `gen::walk`, writes the `Interval` knob, taking the climb between a fifth and an octave. Sections in minutes. |
 | [`kodachrome.gen`](kodachrome.gen) | **A summer remembered off a worn tape.** In the way of Boards of Canada: `fx/cassette.dsp` is the master effect, so one motor's wow bends everything and its hiss and dropouts are the room. Drifting `analog.dsp` chords from `xform::harmonize`, a thin lead through a dotted-eighth echo, the kit swung behind the beat and crushed to 12 bits by `fx/crush.dsp`, and a child's voice from `speak.dsp` arriving through `fx/reverse.dsp`, each word swelling in backwards. |
 | [`lighthouse.gen`](lighthouse.gen) | **Arpeggios turning against each other, and builds that drop.** In the way of Orbital: three `gen::euclid` arpeggios in cycles of three, five and seven sixteenths, an acid line under `fx/sweep.dsp` ridden a bar at a time by a `gen::steps` row, and the break cut into sixteenths by `slicer.dsp`, played in a new order and caught by `fx/stutter.dsp` on the last two beats of every four bars. Each build is `riser.dsp` climbing, and `revcymbal.dsp` lands on the drop; both repeat every eight bars and are muted everywhere else, which is what keeps them in place. |
+| [`lantern.gen`](lantern.gen) | **One knob, and the arrangement is where it is set.** Every part listens to `@energy`: `xform::chance` thins the arpeggio and the hats, a glass line and a clap come in only above a threshold written as arithmetic on the param, and `xform::level` lifts the pad. Each section sets `@energy` as it begins, so the form is a list of numbers; after the first pass it goes round from `kindle` with `section loop`. Move the knob by hand and it holds until the next section sets it. |
 
 ## Game music
 
@@ -354,7 +355,8 @@ hands), `input midi` (hands), clicks on a
 plugin's draw (glider), note sinks, named chanarg sinks (airports,
 weather), the `chanarg = "*"` wildcard (tide, bloom), fan-out to several sinks
 (weather, tide), `meter` and `section` -- the arrangement, with `section end`
-closing it (warehouse, anthem, pearl, riviera), two channels of one graph so
+closing it (warehouse, anthem, pearl, riviera), a section setting a knob
+and `section loop` (lantern), two channels of one graph so
 that each can carry its own effect (pearl), pinned and unpinned seeds (all of
 them, both ways).
 
