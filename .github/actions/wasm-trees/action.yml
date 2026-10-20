@@ -22,9 +22,8 @@
 #
 #   The execute bit, which upload-artifact has not always carried.
 #
-# The browser gates need neither -- they run no native binary -- and this
-# is the longest job of the four, so it does not pay for an apt install it
-# has no use for.
+# The browser gates and the Node peers need neither -- they run no native
+# binary -- so they do not pay for an apt install they have no use for.
 
 name: The built wasm trees
 description: Download build/, build-wasm/ and build-web/ from the wasm-build job
