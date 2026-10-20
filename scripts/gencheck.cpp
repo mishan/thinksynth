@@ -6415,6 +6415,12 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                  "instrument pad {\n    dsp {\n        node o osc::simple "
                  "{ amp = 5 ms + 1; };\n    };\n};\n",
                  ":3: 'ms' cannot be used in arithmetic");
+
+    /* Refused, rather than read as a NULL arg once it plays. */
+    expectReject(plugins, synth, "inline-graph-no-node",
+                 "instrument pad {\n    dsp {\n        node o osc::simple "
+                 "{ freq = gone->out; };\n    };\n};\n",
+                 ":3: no node called 'gone'");
 }
 
 /* One mistake, one error. Four here, each inside a block -- an instrument,
