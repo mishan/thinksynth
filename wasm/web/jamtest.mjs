@@ -75,6 +75,10 @@
  * tabs and the menu follow the text, and a graph it names that the room
  * lacks comes in at the Play.
  *
+ * Then a room on lantern.gen, whose sections set a knob: a knob moved by
+ * hand holds until the next section sets it, on both pages and on a page
+ * that joins between the two, and every tape is genwav's.
+ *
  * Then the two pages talk: a line each way through the room's chat, and
  * a Play from one reported in the other's feed.
  *
@@ -171,6 +175,10 @@ const FREE_PIECE = 'free.gen';
    both, and the rest only in this. */
 const SWITCH_PIECE = 'village.gen';
 const SWITCH_SECONDS = 10;
+
+/* Past kindle, at 18.5 s. */
+const SECTIONS_PIECE = 'lantern.gen';
+const SECTIONS_SECONDS = 22;
 
 let failures = 0;
 
@@ -1246,6 +1254,101 @@ async function switchTogether (pages, browser)
     else
         fail(`after the stopped switch, ${PAINT_PIECE}'s tape differs: ` +
              firstDifference(colony, theirs[theirs[0] === colony ? 1 : 0]));
+}
+
+/* A piece whose sections set a knob, in a room. B moves @energy in dusk,
+ * which holds until kindle sets its own at 18.5 s, and a page joining at
+ * 8 s catches up through both. All three tapes are genwav's under the same
+ * commands, which are not the tape of the run nobody moved the knob in. */
+async function sectionsTogether (pages, browser)
+{
+    const [A, B] = pages;
+
+    await enter(pages, 'jamsections', SECTIONS_PIECE);
+    await A.page.evaluate(() => window.jam.play());
+
+    const t0 = Date.now();
+    const at = (ms) => new Promise((r) =>
+        setTimeout(r, Math.max(0, t0 + ms - Date.now())));
+
+    await at(4000);
+    await B.page.evaluate(() => window.jam.knob(0, 0.9));
+    await at(8000);
+
+    let C = null;
+
+    {
+        const label = 'sectionsjoiner';
+        const page = await browser.newPage();
+
+        await page.goto(`${url}&room=jamsections&name=${label}` +
+                        `&piece=${SECTIONS_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+
+        if (await page.waitForFunction(
+                () => window.jam.ready() && !window.jam.catching() &&
+                      window.jam.probe().running,
+                null, { timeout: 15000 }).then(() => true, () => false))
+            C = { label, page };
+        else
+        {
+            fail(`the joiner to ${SECTIONS_PIECE} never caught up -- ` +
+                 `${await why(page)}`);
+            await page.close();
+        }
+    }
+
+    await at(SECTIONS_SECONDS * 1000);
+    await A.page.evaluate(() => window.jam.stop());
+    await at(SECTIONS_SECONDS * 1000 + 3000);
+
+    const everyone = C === null ? pages : [...pages, C];
+    const results = [];
+
+    for (const { label, page } of everyone)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+        }))) });
+
+    await C?.page.close();
+
+    const sent = results.flatMap((r) => r.sent)
+        .filter((c) => (c.type === 'knob' || c.type === 'transport') &&
+                       c.at >= 0)
+        .sort((a, b) => a.at - b.at);
+    const stop = sent.find((c) => c.op === 'stop');
+
+    if (stop === undefined)
+    {
+        fail(`nothing stopped the room on ${SECTIONS_PIECE}`);
+        return;
+    }
+
+    const knobs = { 0: 'energy' };
+    const want = reference(SECTIONS_PIECE, nodeBuild,
+                           { commands: sent, knobs, stopAt: stop.at });
+    const unmoved = reference(SECTIONS_PIECE, nodeBuild,
+                              { commands: [stop], stopAt: stop.at });
+
+    if (want === unmoved)
+        fail(`moving @energy in dusk changed nothing in ${SECTIONS_PIECE}`);
+
+    for (const r of results)
+    {
+        const tape = tapeBefore(r.tape, stop.at);
+
+        if (tape === want)
+            ok(`${r.label}'s tape on ${SECTIONS_PIECE} is genwav's under ` +
+               `a knob held until a section sets it: ` +
+               `${want.split('\n').length - 1} events`);
+        else
+            fail(`${r.label}'s tape on ${SECTIONS_PIECE} differs from ` +
+                 `genwav's: ${firstDifference(want, tape)}`);
+    }
 }
 
 /* Two switches at once while the room plays: A to ebb.gen and B to
@@ -3419,6 +3522,7 @@ try
     await switchRacePlaying(pages);
     await passedTogether(pages);
     await switchTogether(pages, browsers[0]);
+    await sectionsTogether(pages, browsers[0]);
     await pasteTogether(pages);
 
     /* ---- and talks ---- */
