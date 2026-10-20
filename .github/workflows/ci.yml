@@ -384,14 +384,16 @@ jobs:
           xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/kegrelocated/bin/thinksynth -G
 
   # The heavier jobs wait for the gcc build, so a push that breaks it
-  # holds a few runners rather than a dozen while other PRs queue. The wasm
-  # build is the exception: it builds no faster than the gcc build does, and
-  # waiting for it put five minutes on every PR; the gates after it wait for
-  # both, so a broken push holds one runner more and not six.
+  # holds a few runners rather than a dozen while other PRs queue. Two are
+  # exceptions, each a runner more on a broken push. The wasm build builds
+  # no faster than the gcc build does, and waiting for it put five minutes
+  # on every PR; the gates after it wait for both, so it is one runner and
+  # not six. And this one, the longest job there is: waiting made it the
+  # last to finish by five minutes.
   asan:
     name: linux asan + ubsan
     timeout-minutes: 40
-    needs: [linux, changes]
+    needs: changes
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
 
