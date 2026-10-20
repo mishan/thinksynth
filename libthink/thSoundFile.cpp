@@ -191,7 +191,9 @@ bool readWav (const string &path, vector<float> &mono, string &why, double outRa
         const size_t size = le(d + at + 4, 4);
         const unsigned char *body = d + at + 8;
 
-        if (at + 8 + size > data.size())
+        /* Against what is left rather than as a sum, which a length near
+           4 GB wraps where size_t is 32 bits, as in the browser's build. */
+        if (size > data.size() - at - 8)
             break;
 
         if (!memcmp(d + at, "fmt ", 4) && size >= 16)
@@ -237,7 +239,10 @@ bool readWav (const string &path, vector<float> &mono, string &why, double outRa
                         float x;
 
                         memcpy(&x, p, 4);
-                        acc += x;
+
+                        /* A NaN or an infinity in the target would be one
+                           in every distance measured from it. */
+                        acc += thIsFinite(x) ? x : 0;
                     }
                     else
                     {
