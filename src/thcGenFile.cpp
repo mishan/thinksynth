@@ -120,8 +120,15 @@ thcGenLoader::parseNoteList (const std::string &text, std::vector<int> &out,
 
         int octave = 0;
 
+        /* Past 99 it is out of range either way, and stops growing
+           before it overflows. */
         while (i < text.size() && text[i] >= '0' && text[i] <= '9')
-            octave = octave * 10 + (text[i++] - '0');
+        {
+            if (octave < 100)
+                octave = octave * 10 + (text[i] - '0');
+
+            i++;
+        }
 
         if (neg)
             octave = -octave;
@@ -856,7 +863,17 @@ thcGenLoader::parseStatement (thcScheduler *sched)
         Token n = take();
 
         if (key.text == "tempo")
+        {
+            /* Said here; setTempo would only ignore it. */
+            if (!(n.num > 0 && n.num <= thcScheduler::MAX_TEMPO_BPM))
+            {
+                error(n.line, "tempo must be above 0 and at most " +
+                      std::to_string((int)thcScheduler::MAX_TEMPO_BPM));
+                return false;
+            }
+
             sched->setTempo(n.num);
+        }
         else
         {
             /* Stage seeds derive from the master seed at addStage time,
@@ -1016,7 +1033,16 @@ thcGenLoader::parseKnobStatement (thcScheduler *sched)
             else if (meta.text == "max")
                 knob->setMax((float)n.num);
             else if (meta.text == "widget")
-                knob->setWidgetType((thArg::WidgetType)(int)n.num);
+            {
+                if (n.num != thArg::HIDE && n.num != thArg::SLIDER &&
+                    n.num != thArg::CHANARG)
+                {
+                    error(n.line, "'@" + kname + ".widget' is not a widget");
+                    return false;
+                }
+
+                knob->setWidgetType((thArg::WidgetType)n.num);
+            }
             else if (meta.text == "step")
                 knob->setStep((float)n.num, true);
             else

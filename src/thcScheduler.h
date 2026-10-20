@@ -1439,6 +1439,10 @@ public:
      * stop() delivers them. */
     void   halt (void);
     void   reset (void);         /* rewind to 0 and reseed -- a replay   */
+    /* Every note a chain plays is due that much sooner; a tempo of
+       millions plays millions a second and a room waits on it. A tempo
+       past this, or not above 0, is ignored. */
+    static constexpr double MAX_TEMPO_BPM = 1000;
     void   setTempo (double bpm);
     double tempo (void) const { return tempo_; }
 

@@ -6041,7 +6041,7 @@ thcScheduler::setTempo (double bpm)
     if (staging_)
         return;
 
-    if (bpm > 0)
+    if (bpm > 0 && bpm <= MAX_TEMPO_BPM)
     {
         /* The line beat_ is read off turns here. */
         beatAtTempo_ = beat_;

@@ -167,6 +167,10 @@ private:
     size_t                          pos_;
     int                             depth_; /* factor nesting, for the stack */
 
+    /* Every `node->arg' read, checked once every node is declared: a
+       reference to none would be read as a NULL arg while playing. */
+    std::vector<std::pair<Tok, std::string> > refs_;
+
     /* Classified as it is looked at rather than up front: another language
        hands over one expression at a time from a file it has lexed once. */
     Tok peek (size_t ahead = 0) const
@@ -294,6 +298,14 @@ Parser::statements (void)
         if (!expect(";"))
             return false;
     }
+
+    for (size_t i = 0; i < refs_.size(); i++)
+        if (tree_->findNode(refs_[i].second) == NULL)
+        {
+            error(refs_[i].first, "no node called '" + refs_[i].second +
+                  "'");
+            return false;
+        }
 
     return true;
 }
@@ -572,7 +584,12 @@ Parser::control (void)
     }
     else if (field == "widget")
     {
-        chanarg->setWidgetType((thArg::WidgetType)v.num);
+        if (v.num == thArg::HIDE || v.num == thArg::SLIDER ||
+            v.num == thArg::CHANARG)
+            chanarg->setWidgetType((thArg::WidgetType)v.num);
+        else
+            printf("ERROR:  '@%s.widget = %g' is not a widget; ignoring\n",
+                   name.c_str(), v.num);
     }
     else if (field == "step")
     {
@@ -819,6 +836,9 @@ Parser::factor (Value &out)
 
         if (!word(arg, "an arg name after '->'"))
             return false;
+
+        if (tree_)
+            refs_.push_back(std::make_pair(t, t.src->text));
 
         out.expr = thExprNodeRef(t.src->text, arg);
         return true;

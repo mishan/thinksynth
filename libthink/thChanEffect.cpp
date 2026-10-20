@@ -162,6 +162,10 @@ void thChanEffect::assignChanArgPointers (void)
                 fprintf(stderr, "thChanEffect: node '%s' arg '%s' references "
                         "undeclared chanarg '@%s'\n", node->name().c_str(),
                         arg->name().c_str(), arg->argPtrName().c_str());
+
+                /* As thMidiChan: the node reads a 0, not NULL. */
+                target = new thArg(arg->argPtrName(), 0);
+                args_[target->name()] = target;
             }
 
             arg->setArgPtr(target);
