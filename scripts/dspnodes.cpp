@@ -598,11 +598,15 @@ writeGraphs (const std::string &dir, const std::string &pluginPath)
                                 p->getArgDefault(k) <= max
                     ? p->getArgDefault(k) : (min + max) / 2;
 
-                controls << "@" << name << " = " << plain(d) << ";\n"
-                         << "@" << name << ".widget = 1;\n"
-                         << "@" << name << ".min = " << plain(min) << ";\n"
-                         << "@" << name << ".max = " << plain(max) << ";\n";
-                wires << "    " << name << " = @" << name << ";\n";
+                /* Prefixed: a channel replaces a chan arg named as one of
+                   its own, amp or SusPedal, and leaks the graph's. */
+                const std::string knob = "k_" + name;
+
+                controls << "@" << knob << " = " << plain(d) << ";\n"
+                         << "@" << knob << ".widget = 1;\n"
+                         << "@" << knob << ".min = " << plain(min) << ";\n"
+                         << "@" << knob << ".max = " << plain(max) << ";\n";
+                wires << "    " << name << " = @" << knob << ";\n";
             }
 
             std::string file = spelling;
