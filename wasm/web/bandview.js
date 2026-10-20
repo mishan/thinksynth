@@ -1290,10 +1290,18 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                            ...(s.loopTo ? ['the song goes round to here']
                                         : [])];
 
+            const isCued = running && cued === i && sc?.index !== i;
+
             b.className = 'scene';
             b.classList.toggle('on', sc !== null && sc.index === i);
-            b.classList.toggle('cued', running && cued === i &&
-                                       sc?.index !== i);
+            b.classList.toggle('cued', isCued);
+
+            if (isCued)
+            {
+                notes.push('coming in at the next bar');
+                b.setAttribute('aria-description',
+                               'coming in at the next bar');
+            }
 
             if (energies !== null)
             {
@@ -1342,7 +1350,11 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         /* The scene as it is when used, which an edit since this was
            drawn -- a rename -- may have changed. */
         const now = () => scene()?.name ?? sc.name;
-        const next = (sc.index + 1) % all.length;
+        /* After the one cued, if one is; round to where the song goes
+           round to after the last. */
+        const from = running && cued >= 0 ? cued : sc.index;
+        const next = from + 1 < all.length ? from + 1
+            : Math.max(0, all.findIndex((s) => s.loopTo));
 
         if (running && all.length > 1)
             box.append(button(`Next: ${all[next].name}`,
@@ -1367,8 +1379,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                 .then((went) => went && tell(sc.hold
                     ? `${name} goes on to the next` : `${name} holds`));
         });
-        /* Round to the first is what a song does anyway. */
-        const round = sc.index === 0 ? [] : [toggle('Round to here',
+        /* Round to the first is what a song does anyway, and a song that
+           ends goes round to nothing. */
+        const round = sc.index === 0 || sc.ends ? [] : [toggle('Round to here',
             `After the last scene, back to ${sc.name} rather than the ` +
             'first', sc.loopTo === true, '@loop', () =>
         {

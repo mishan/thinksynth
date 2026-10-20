@@ -3742,6 +3742,12 @@ try
         await page.click('#rewind');
         await page.click('#play');
         await until(lit, (l) => l.startsWith('*scene'));
+
+        /* Just past a bar line, so the cue waits most of a bar: pulse.gen
+           is 96 to the minute, four to the bar. */
+        await page.waitForFunction(() =>
+            (window.solo.transport()?.now ?? 0) % 2.5 < 0.4, null,
+            { polling: 20, timeout: 10000 });
         await page.click('#bandscenes .scene >> nth=1');
 
         const marked = await lit();
