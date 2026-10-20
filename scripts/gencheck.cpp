@@ -11501,11 +11501,11 @@ checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
 
     {
         const std::vector<Heard> h = playCued(plugins, synth,
-            "section knobs", "tempo 120;\nmeter 4;\n" + kick +
+            "section knobs", "tempo 120;\nmeter 4;\n"
             "section intro 1 bars { @lift = 1; };\n"
             "section a     1 bars { @lift = 0.25; };\n"
             "section b     1 bars { };\n"
-            "section loop a;\n", 9.9, nothing);
+            "section loop a;\n" + kick, 9.9, nothing);
 
         if (levels(h, 5) != "1/0.25/0.25/0.25/0.25")
             fail("a section's knob should be set as it begins, and kept "

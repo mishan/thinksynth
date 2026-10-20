@@ -1071,7 +1071,8 @@ A section may also set a piece knob as it begins: `section chorus 8 bars {
 there — in order, round a loop, again under a hold, by a cue or a seek — and
 the chains that read the knob are composed again from there, as for a hand on
 it. A section that does not name the knob leaves it where it was, and a rewind
-puts it where the first section says. The knob has to be declared above.
+puts it where the first section says. The knob may be declared anywhere in the
+file.
 
 The live mute and solo — the M and S on a chain in the composer view — close
 the same gate: a chain they silence is at level 0 whatever the section says.

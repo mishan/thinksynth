@@ -3591,12 +3591,6 @@ void
 thcScheduler::addSection (const thcSection &s)
 {
     sections_.push_back(s);
-
-    /* A rewind puts each back where the text declares it, and the first
-       section then sets it again. */
-    for (const auto &k : s.knobs)
-        if (thArg *a = knob(k.first))
-            knobHome_.emplace(a, (*knobMeta(k.first))[0]);
 }
 
 void
@@ -5677,6 +5671,14 @@ thcScheduler::reset (void)
        it, and through setValue, so an instrument bound to it is pushed.
        And before the wakes are cleared: a sleeper bound to it is re-armed
        by the move, and the loop below arms every stage again. */
+    /* A knob a section sets is put back where the text declares it, and
+       the first section then sets it again. Here and not as the section
+       is read: the knob may be declared below it. */
+    for (const auto &s : sections_)
+        for (const auto &k : s.knobs)
+            if (thArg *a = knob(k.first))
+                knobHome_.emplace(a, (*knobMeta(k.first))[0]);
+
     for (const auto &h : knobHome_)
         if ((*h.first)[0] != h.second)
             h.first->setValue(h.second);

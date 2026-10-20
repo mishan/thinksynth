@@ -697,6 +697,12 @@ thcGenLoader::checkSections (thcScheduler *sched)
                 error(line, "section '" + secs[i].name + "' names '" +
                       want + "', which is not a chain in this piece");
         }
+
+        /* And the knobs it sets, which may be declared below it. */
+        for (const auto &k : secs[i].knobs)
+            if (sched->knob(k.first) == NULL)
+                error(line, "section '" + secs[i].name + "' sets @" +
+                      k.first + ", which is not a knob in this piece");
     }
 }
 
@@ -1416,13 +1422,6 @@ thcGenLoader::parseSection (thcScheduler *sched)
         if (t.kind == Token::KNOB)
         {
             Token k = take();
-
-            if (sched->knob(k.text) == NULL)
-            {
-                error(k.line, "section " + sec.name + ": no knob called @" +
-                      k.text + " is declared above it");
-                return false;
-            }
 
             for (const auto &e : sec.knobs)
                 if (e.first == k.text)
