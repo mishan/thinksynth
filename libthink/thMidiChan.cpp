@@ -100,7 +100,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
         a->setLabel("Amplitude");
         a->setWidgetType(thArg::SLIDER);
 
-        args_[string("amp")] = a;
+        ownArg(a);
         amp_ = a;
     }
 
@@ -195,7 +195,17 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
     argSustain_ = new thArg(string("SusPedal"), 0);
     argSustain_->setWidgetType(thArg::CHANARG);
     argSustain_->setLabel(string("Sustain Pedal"));
-    args_["SusPedal"] = argSustain_;
+    ownArg(argSustain_);
+}
+
+void thMidiChan::ownArg (thArg *arg)
+{
+    thArg *&slot = args_[arg->name()];
+
+    if (slot)
+        shadowed_.push_back(slot);
+
+    slot = arg;
 }
 
 thMidiChan::~thMidiChan (void)
@@ -210,6 +220,9 @@ thMidiChan::~thMidiChan (void)
     clearAll(NULL);
 
     DestroyMap(args_);
+
+    for (thArg *a : shadowed_)
+        delete a;
 
     delete send_;
     send_ = NULL;

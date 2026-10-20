@@ -413,6 +413,45 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a graph's own @amp and @SusPedal ----------------------------- */
+
+    /* The channel's args by those names take their place in its map, but
+       the graph's nodes still read the graph's; under ASan this is also
+       the check that the channel frees them. */
+    {
+        string g = graph("", "freq->out", "@amp = 0.5;\n@SusPedal = 0.5;\n\n");
+
+        g.replace(g.find("amp = ionode->velocity"),
+                  strlen("amp = ionode->velocity"), "amp = @amp");
+
+        if (writeFile(file, g))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a graph declaring @amp loads", "");
+            else
+            {
+                synth.addNote(0, 60, 100, 1);
+
+                for (int i = 0; i < 8; i++)
+                    synth.process();
+
+                thMidiChan *chan = synth.getChannel(0);
+                const int len = synth.getWindowlen();
+                const vector<float> out(chan->output(),
+                                        chan->output() + len);
+                thArg *amp = synth.getChanArg(0, "amp");
+
+                okOrFail(rms(out) > 0 && amp && amp->max() == MIDIVALMAX,
+                         "a graph's @amp drives its node while the channel "
+                         "keeps its own amp",
+                         "rms " + num(rms(out)));
+            }
+        }
+    }
+
     /* ---- a note's aux reaches its own voice, and no other ------------- */
 
     /* A graph whose oscillator's amplitude is `ionode->aux1', so what a note
