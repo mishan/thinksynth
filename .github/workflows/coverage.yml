@@ -1,0 +1,64 @@
+# How much of the native tree its gates run: scripts/coverage.sh on Linux,
+# once a week and on demand from the Actions tab. Not on PRs or merges -- it is a report,
+# not a gate, and the PR gauntlet is long enough already.
+#
+# The summary is on the run's page; the per-file pages are the `coverage'
+# artifact (open index.html).
+
+name: coverage
+
+on:
+  # Mondays, 06:17 UTC: off the hour, when scheduled runs pile up.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: native line coverage
+    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb locales
+          sudo locale-gen de_DE.UTF-8
+          locale -a | grep -qix 'de_DE.utf8'
+          # Pinned: the report's options are 8's, and Ubuntu's is older.
+          pipx install gcovr==8.6
+
+      - name: Build, test and report
+        run: xvfb-run -a scripts/coverage.sh build-coverage
+
+      - name: Summary
+        if: ${{ !cancelled() && hashFiles('build-coverage/coverage/summary.txt') != '' }}
+        run: |
+          {
+            echo '```'
+            awk 'NF >= 4 && $4 ~ /%$/ { print $1, $2, $3, $4 }' \
+                build-coverage/coverage/summary.txt | column -t
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: build-coverage/coverage/
