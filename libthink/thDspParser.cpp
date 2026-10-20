@@ -402,9 +402,18 @@ Parser::nodeStatement (void)
     take();
 
     std::string name;
+    const Tok nameAt = peek();
 
     if (!word(name, "a node name"))
         return false;
+
+    /* A second one would replace the first in the tree's map, which
+       nothing then frees. */
+    if (tree_->findNode(name) != NULL)
+    {
+        error(nameAt, "a node called '" + name + "' is already in this graph");
+        return false;
+    }
 
     /* `osc::simple' is the plugin at `osc/simple'. */
     std::string plugName;

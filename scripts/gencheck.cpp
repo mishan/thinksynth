@@ -6425,6 +6425,11 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                  "{ freq = gone->out; };\n    };\n};\n",
                  ":3: no node called 'gone'");
 
+    expectReject(plugins, synth, "inline-graph-twice",
+                 "instrument pad {\n    dsp {\n        node o osc::simple { };\n"
+                 "        node o osc::simple { };\n    };\n};\n",
+                 ":4: a node called 'o' is already in this graph");
+
     expectReject(plugins, synth, "tempo-huge", "tempo 999999999;\n",
                  ":1: tempo must be above 0 and at most 1000");
 
