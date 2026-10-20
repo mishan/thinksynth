@@ -214,6 +214,11 @@ if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
 const ENGINES = { chromium, firefox };
 const wanted = (process.env.BROWSERS ?? 'chromium,firefox').split(',');
 
+/* Pages per browser, for the pieces. Four at most: each holds a module and
+   a minute of audio, and two browsers on a desktop are eight. */
+const PAGES = Math.max(1, Math.min(4, Math.floor(
+    os.availableParallelism() / wanted.length)));
+
 for (const w of wanted)
     if (!(w in ENGINES))
     {
@@ -331,59 +336,83 @@ async function runBrowser (label, type)
                                  `identical, peak ${peak.toFixed(3)}\n`);
     }
 
-    for (const piece of seededPieces)
+    /* The pieces a few pages at a time. Each renders offline, as fast as
+       one core goes, and one page left the rest of the runner idle for
+       six minutes; a page's tape cannot depend on what another is doing. */
+    const pages = [page];
+
+    while (pages.length < PAGES)
     {
-        const want = references.get(piece.name);
-        const cells = [];
+        const more = await browser.newPage();
 
-        for (const windowlen of WINDOWS)
-        {
-            let got;
-
-            try
-            {
-                got = await pieceInBrowser(page, piece.text, dsps, windowlen);
-            }
-            catch (e)
-            {
-                cells.push(`${windowlen}: ${e.message.split('\n')[0]}`);
-                continue;
-            }
-
-            if (!got.ok)
-            {
-                cells.push(`${windowlen}: did not load -- ` +
-                           got.errors.join('; '));
-                continue;
-            }
-
-            const tape = tapeBefore(got.events.map(tapeLine).join(''),
-                                    SECONDS);
-
-            /* Every quantum timed once: one lost or counted twice where a
-               batch is posted is a load figure that means nothing. */
-            const load = got.load;
-
-            cells.push(tape !== want
-                       ? `${windowlen} DIFFERS -- ` +
-                         firstDifference(want, tape)
-                       : load.calls !== got.rendered
-                       ? `${windowlen} timed ${load.calls} of ${got.rendered} ` +
-                         `quanta, ${load.overBudget} over, p99 ` +
-                         `${load.p99Ms} ms, slowest ${load.slowestMs} ms`
-                       : `${windowlen} ok`);
-        }
-
-        const bad = cells.some((c) => !c.endsWith('ok'));
-
-        if (bad)
-            ok = false;
-
-        process.stdout.write(
-            `${bad ? 'FAIL' : 'ok  '}  ${label} ${piece.name.padEnd(14)} ` +
-            `${String(want.split('\n').length - 1).padStart(5)} events   ` +
-            `${cells.join('   ')}\n`);
+        more.on('pageerror', (e) => errors.push(e.message));
+        await more.goto(url);
+        pages.push(more);
     }
+
+    let nextPiece = 0;
+
+    await Promise.all(pages.map(async (page) =>
+    {
+        while (nextPiece < seededPieces.length)
+        {
+            const piece = seededPieces[nextPiece++];
+            const want = references.get(piece.name);
+            const cells = [];
+
+            for (const windowlen of WINDOWS)
+            {
+                let got;
+
+                try
+                {
+                    got = await pieceInBrowser(page, piece.text, dsps,
+                                               windowlen);
+                }
+                catch (e)
+                {
+                    cells.push(`${windowlen}: ${e.message.split('\n')[0]}`);
+                    continue;
+                }
+
+                if (!got.ok)
+                {
+                    cells.push(`${windowlen}: did not load -- ` +
+                               got.errors.join('; '));
+                    continue;
+                }
+
+                const tape = tapeBefore(got.events.map(tapeLine).join(''),
+                                        SECONDS);
+
+                /* Every quantum timed once: one lost or counted twice where a
+                   batch is posted is a load figure that means nothing. */
+                const load = got.load;
+
+                cells.push(tape !== want
+                           ? `${windowlen} DIFFERS -- ` +
+                             firstDifference(want, tape)
+                           : load.calls !== got.rendered
+                           ? `${windowlen} timed ${load.calls} of ` +
+                             `${got.rendered} quanta, ${load.overBudget} ` +
+                             `over, p99 ` +
+                             `${load.p99Ms} ms, slowest ${load.slowestMs} ms`
+                           : `${windowlen} ok`);
+            }
+
+            const bad = cells.some((c) => !c.endsWith('ok'));
+
+            if (bad)
+                ok = false;
+
+            process.stdout.write(
+                `${bad ? 'FAIL' : 'ok  '}  ${label} ` +
+                `${piece.name.padEnd(14)} ` +
+                `${String(want.split('\n').length - 1).padStart(5)} ` +
+                'events   ' +
+                `${cells.join('   ')}\n`);
+        }
+    }));
 
     for (const e of errors)
     {
