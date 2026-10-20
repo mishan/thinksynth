@@ -404,6 +404,19 @@ typedef struct {
     const thcAudition *audition;
 } thcParams;
 
+/* A param as an int in [lo, hi]. A piece's value is not held to the
+   declared range -- a file or a peer can write any number -- and a huge
+   double or a NaN has no int to be, so anything used as a count, a size
+   or an operand is bounded here first. A NaN fails both comparisons and
+   is `lo'. */
+static inline int
+thcParamInt (const thcParams *p, int index, int lo, int hi)
+{
+    const double v = p->get(p->ctx, index);
+
+    return v >= lo ? (v <= hi ? (int)v : hi) : lo;
+}
+
 /* tick()'s "do not wake me again" -- sleep until composer_param_changed
    re-arms the composer. */
 #define THC_NEVER (-1.0)

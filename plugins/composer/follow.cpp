@@ -252,7 +252,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
            it opens. */
         double slot = every > 0 ? std::floor(ev->at / every + 1e-6) : 0;
 
-        if (slot < 0)
+        if (slot < 0 || !std::isfinite(slot))
             slot = 0;
 
         const int root = st->roots[(size_t)std::fmod(slot, (double)n)];

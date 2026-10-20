@@ -80,7 +80,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
         copy.at += uni(st->rng) * get(P_TIME);
 
-        int vj = (int)get(P_VEL);
+        int vj = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
 
         if (vj)
         {

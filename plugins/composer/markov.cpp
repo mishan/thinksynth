@@ -97,8 +97,7 @@ struct State {
 
     int  orderNow (void) const
     {
-        return (int)params->get(params->ctx, paramIndex[P_ORDER]) >= 2
-            ? 2 : 1;
+        return thcParamInt(params, paramIndex[P_ORDER], 1, 2);
     }
 
     MarkovState key (int prev, int prevPrev) const
@@ -151,7 +150,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
        whatever else is sounding at that pitch on that channel, quite
        possibly another chain's note. Eat both or pass both. */
     if ((ev->type != THC_EV_NOTE && ev->type != THC_EV_NOTEOFF) ||
-        (int)p->get(p->ctx, paramIndex[P_PASS]) != 0)
+        thcParamInt(p, paramIndex[P_PASS], -1, 1) != 0)
         out->emit(out->ctx, ev);
 }
 
@@ -210,7 +209,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
                 ev.at = t->now;
                 ev.channel = 0;          /* the sink routes             */
                 ev.u.note.note = note;
-                ev.u.note.velocity = (int)get(P_VEL);
+                ev.u.note.velocity =
+                    thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
                 ev.u.note.duration = get(P_HOLD);
 
                 out->emit(out->ctx, &ev);

@@ -175,19 +175,21 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     if (ev->type != THC_EV_NOTE)
     {
-        if (ev->type != THC_EV_NOTEOFF || (int)get(P_PASS))
+        if (ev->type != THC_EV_NOTEOFF ||
+            thcParamInt(p, paramIndex[P_PASS], -1, 1))
             out->emit(out->ctx, ev);
 
         return;
     }
 
-    if ((int)get(P_PASS))
+    if (thcParamInt(p, paramIndex[P_PASS], -1, 1))
         out->emit(out->ctx, ev);
 
     const char *pattern = p->get_string(p->ctx, paramIndex[P_PATTERN]);
     const double step = get(P_STEP);
     const double hold = get(P_HOLD);
-    const int root = ev->u.note.note + 12 * (int)get(P_OCTAVE);
+    const int root = ev->u.note.note
+        + 12 * thcParamInt(p, paramIndex[P_OCTAVE], -10000, 10000);
 
     if (pattern == NULL || step <= 0)
         return;
@@ -226,7 +228,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
             copy.at = pendingAt;
             copy.u.note.note = pending;
-            copy.u.note.velocity = (int)get(P_VEL);
+            copy.u.note.velocity =
+                thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
             copy.u.note.duration = hold + (pendingLen - 1) * step;
 
             out->emit(out->ctx, &copy);

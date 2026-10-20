@@ -114,7 +114,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         const double rise  = get(P_RISE) > 0 ? get(P_RISE) : 0.01;
         const double level = get(P_LEVEL);
         const double curve = get(P_CURVE);
-        const int    steps = (int)get(P_STEPS) < 2 ? 2 : (int)get(P_STEPS);
+        const int    steps = thcParamInt(p, paramIndex[P_STEPS], 2, 64);
 
         for (int i = 0; i < steps; i++)
         {

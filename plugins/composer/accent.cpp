@@ -172,12 +172,8 @@ weight (const State *st, double at)
 
     /* The same nudge form makes at a bar line: a note written on the
        step belongs to the step it opens. */
-    long n = (long)floor(at / grid + 1e-6);
-
-    if (n < 0)
-        n = 0;
-
-    n %= len;
+    const double q = floor(at / grid + 1e-6);
+    const long n = q > 0 ? (long)fmod(q, len) : 0;
 
     return pattern[n] == 'x' || pattern[n] == 'X'
         ? p->get(p->ctx, paramIndex[P_STRONG])
@@ -231,18 +227,19 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
         if (len > 0 && grid > 0)
         {
-            long n = (long)floor((ev->at < 0 ? 0 : ev->at) / grid + 1e-6);
+            const double q =
+                floor((ev->at < 0 ? 0 : ev->at) / grid + 1e-6);
 
-            st->lastStep = (int)(n % len);
+            st->lastStep = q > 0 ? (int)fmod(q, len) : 0;
         }
     }
-    const int i = (int)floor(v + 0.5);
 
     /* Quieter or louder, never absent: a stage that weights a line
        still plays every note of it. Dropping one is what xform::chance
        is for, and a velocity of nothing would be a note deleted by a
        multiplication. */
-    copy.u.note.velocity = i < 1 ? 1 : i > 127 ? 127 : i;
+    copy.u.note.velocity = !(v >= 0.5) ? 1
+                         : v < 127 ? (int)floor(v + 0.5) : 127;
 
     out->emit(out->ctx, &copy);
 }

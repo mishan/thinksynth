@@ -102,7 +102,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         return;
     }
 
-    const int    count = (int)get(P_COUNT_);
+    const int    count = thcParamInt(p, paramIndex[P_COUNT_], 1, 8);
     const double decay = get(P_DECAY);
 
     /* A declared range is what a slider is drawn against, not a bound
@@ -124,11 +124,13 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     for (int i = 0; i < count; i++)
     {
         thcEvent copy = *ev;
-        const int v = (int)floor(vel + 0.5);
+        /* A decay past 1 can grow `vel' out of int range; a NaN is 1. */
+        const int v = !(vel >= 1) ? 1
+                    : vel < 1e9 ? (int)floor(vel + 0.5) : 1000000000;
 
         copy.at = ev->at + i * each;
         copy.u.note.duration = each;
-        copy.u.note.velocity = v < 1 ? 1 : v;
+        copy.u.note.velocity = v;
 
         out->emit(out->ctx, &copy);
 

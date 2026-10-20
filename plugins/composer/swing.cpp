@@ -107,7 +107,7 @@ lateness (const State *st, double at)
     if (fabs(pos - near) > 0.05)
         return 0;
 
-    if (((long)near) % 2 == 0)
+    if (fmod(near, 2) == 0)
         return 0;
 
     return amount * grid / 3;

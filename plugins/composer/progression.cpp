@@ -141,7 +141,7 @@ State::reparse (void)
 void
 State::reseed (void)
 {
-    const int own = (int)params->get(params->ctx, paramIndex[P_SEED]);
+    const int own = thcParamInt(params, paramIndex[P_SEED], 0, 0x7fffffff);
 
     rng.seed(own > 0 ? (unsigned)own : params->seed);
     count = 0;
@@ -218,7 +218,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
     if (t->running && st->poolLen > 0)
     {
-        const int phrase = (int)get(P_PHRASE) < 1 ? 1 : (int)get(P_PHRASE);
+        const int phrase = thcParamInt(p, paramIndex[P_PHRASE], 1, 0x7fffffff);
         const int k = st->count % phrase;
         int degree;
 
@@ -236,7 +236,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         ev.at = t->now;
         ev.channel = 0;                          /* the sink routes     */
         ev.u.note.note = st->pool[degree % st->poolLen];
-        ev.u.note.velocity = (int)get(P_VEL);
+        ev.u.note.velocity = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
         ev.u.note.duration = get(P_HOLD);
 
         out->emit(out->ctx, &ev);

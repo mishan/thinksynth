@@ -137,9 +137,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         ev.channel = 0;                    /* the sink routes            */
         ev.u.note.note = st->pool[st->rng() % st->poolLen];
 
-        int vj = (int)get(P_VELJIT);
-        int v  = (int)get(P_VEL) + (vj ? (int)(st->rng() % (2 * vj + 1)) - vj
-                                       : 0);
+        int vj = thcParamInt(p, paramIndex[P_VELJIT], -10000, 10000);
+        int v  = thcParamInt(p, paramIndex[P_VEL], -10000, 10000)
+                 + (vj ? (int)(st->rng() % (2 * vj + 1)) - vj : 0);
 
         ev.u.note.velocity = v < 1 ? 1 : v > 127 ? 127 : v;
         ev.u.note.duration = get(P_HOLD);

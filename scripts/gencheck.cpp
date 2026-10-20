@@ -6467,6 +6467,71 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
             showDivergence(a, b, "depth 0", "depth 999999999");
         }
     }
+
+    /* A param far outside its range, either way, is a piece that plays:
+       not one that hangs, runs out of memory or overflows. `V' is the
+       value; a note source comes first for the stages that take notes. */
+    {
+        static const char *const cases[][2] = {
+            { "evolve-length", "gen::evolve { length = V; step = 0.05 s; }" },
+            { "evolve-pop", "gen::evolve { population = V; step = 0.05 s; }" },
+            { "euclid-steps", "gen::euclid { steps = V; period = 0.05 s; }" },
+            { "euclid-fills", "gen::euclid { fills = V; rotate = V; "
+                              "period = 0.05 s; }" },
+            { "euclid-ahead", "gen::euclid { steps = V; ahead = 1; "
+                              "period = 0.05 s; }" },
+            { "pump-steps", "gen::pump { steps = V; }" },
+            { "morph-steps", "gen::morph { from = a; to = b; time = 1 s; "
+                             "steps = V; mode = V; }" },
+            { "breed-pop", "gen::breed { from = a; toward = b; "
+                           "population = V; elites = V; period = 0.5 s; }" },
+            { "grid-size", "gen::grid { steps = V; rows = V; vel = V; "
+                           "accent = V; }" },
+            { "ca-width", "gen::ca { width = V; rule = V; vel = V; }" },
+            { "lsystem-vel", "gen::lsystem { axiom = \"F>F<F\"; vel = V; "
+                             "accent = V; step = 0.1 s; }" },
+            { "progression", "gen::progression { phrase = V; seed = V; }" },
+            { "arp-octaves", "gen::arp { octaves = V; pattern = V; "
+                             "period = 0.05 s; }" },
+            { "echo", "xform::echo { repeats = V; shift = V; decay = V; }" },
+            { "cloud", "xform::cloud { count = V; pitch = V; }" },
+            { "ratchet", "xform::ratchet { count = V; prob = 1; "
+                         "decay = V; }" },
+            { "harmonize", "xform::harmonize { voices = V; step = V; "
+                           "span = V; lead = 1; taper = V; }" },
+            { "bassline", "xform::bassline { octave = V; }" },
+            { "humanize", "xform::humanize { vel = V; }" },
+            { "transpose", "xform::transpose { semitones = V; }" },
+            { "counterpoint", "xform::counterpoint { taper = V; }" },
+            { "accent", "xform::accent { pattern = \"x.\"; strong = V; }" },
+            { "xmorph-steps", "xform::morph { from = a; to = b; "
+                              "retrigger = 1; time = 1 s; steps = V; }" },
+        };
+
+        for (const auto &c : cases)
+            for (const char *v : { "999999999", "-999999999" })
+            {
+                std::string stage = c[1];
+
+                size_t at;
+
+                while ((at = stage.find(" V;")) != std::string::npos)
+                    stage.replace(at + 1, 1, v);
+
+                const bool notes = stage.compare(0, 7, "xform::") == 0 ||
+                                   stage.compare(0, 8, "gen::arp") == 0;
+                const std::string label = std::string(c[0]) + v;
+
+                renderBody(plugins, synth, label.c_str(),
+                    "seed 7;\npreset a { x = 0.1; };\npreset b { x = 0.9; };\n"
+                    "chain c {\n" +
+                    std::string(notes ? "    stage n gen::eno_line { notes = "
+                                        "\"C4 E4\"; period = 0.1 s; "
+                                        "hold = 0.05 s; };\n" : "") +
+                    "    stage s " + stage + ";\n"
+                    "    sink { channel = 1; chanarg = \"*\"; };\n};\n", 2.0);
+            }
+    }
 }
 
 /* One mistake, one error. Four here, each inside a block -- an instrument,

@@ -107,10 +107,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     if (!t->running)
         return t->now + every;
 
-    int steps = (int)get(P_STEPS);
-
-    if (steps < 2)
-        steps = 2;
+    const int steps = thcParamInt(p, paramIndex[P_STEPS], 2, 0x7fffffff);
 
     const char *node = p->get_string(p->ctx, paramIndex[P_NODE]);
     const char *arg  = p->get_string(p->ctx, paramIndex[P_ARG]);

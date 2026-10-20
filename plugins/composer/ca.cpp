@@ -152,10 +152,7 @@ State::degreeToMidi (int degree) const
 void
 State::reinit (void)
 {
-    int width = (int)params->get(params->ctx, paramIndex[P_WIDTH]);
-
-    if (width < 3) width = 3;
-    if (width > MAX_WIDTH) width = MAX_WIDTH;
+    const int width = thcParamInt(params, paramIndex[P_WIDTH], 3, MAX_WIDTH);
 
     double scatter = params->get(params->ctx, paramIndex[P_SCATTER]);
 
@@ -211,8 +208,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
     if (t->running && width > 0 && st->poolLen > 0)
     {
-        int rule = (int)get(P_RULE) & 0xff;
-        bool births = (int)get(P_TRIGGER) == 0;
+        int rule = thcParamInt(p, paramIndex[P_RULE], -10000, 10000) & 0xff;
+        bool births = thcParamInt(p, paramIndex[P_TRIGGER], -1, 1) == 0;
 
         /* Advance the ring. */
         std::vector<char> next(width);
@@ -247,7 +244,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             ev.at = t->now;
             ev.channel = 0;              /* the sink routes             */
             ev.u.note.note = midi;
-            ev.u.note.velocity = (int)get(P_VEL);
+            ev.u.note.velocity =
+                thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
             ev.u.note.duration = get(P_HOLD);
 
             out->emit(out->ctx, &ev);

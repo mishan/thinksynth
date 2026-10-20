@@ -381,8 +381,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             /* A tied note holds for its extra steps on top of `hold', so
                the gap `hold' leaves before the next step is the same gap
                whatever the length. */
-            int vel = (int)get(P_VEL) +
-                      st->phrase[i].accent * (int)get(P_ACCENT);
+            int vel = thcParamInt(p, paramIndex[P_VEL], -10000, 10000) +
+                      st->phrase[i].accent *
+                      thcParamInt(p, paramIndex[P_ACCENT], -10000, 10000);
 
             ev.type = THC_EV_NOTE;
             ev.u.note.level = 1;

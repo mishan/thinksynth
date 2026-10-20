@@ -452,7 +452,7 @@ fitness (State *st, const Genome &g,
 static void
 scatter (State *st)
 {
-    const int want = (int)getp(st, P_POPULATION);
+    const int want = thcParamInt(st->params, paramIndex[P_POPULATION], 0, 128);
 
     std::uniform_real_distribution<double> uni(0.0, 1.0);
 
@@ -563,7 +563,8 @@ generation (State *st, const std::vector<double> &heard)
 
     /* Elites first, unchanged: a champion may be dethroned but never
        lost to an unlucky crossover. */
-    const int elites = std::min((int)getp(st, P_ELITES),
+    const int elites = std::min(thcParamInt(st->params, paramIndex[P_ELITES],
+                                            0, 128),
                                 (int)st->pop.size());
 
     std::vector<Genome> next;

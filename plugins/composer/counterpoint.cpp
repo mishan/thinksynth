@@ -252,7 +252,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     }
 
     const int  root = ev->u.note.note;
-    const bool pass = (int)get(P_PASS) != 0;
+    const bool pass = thcParamInt(p, paramIndex[P_PASS], -1, 1) != 0;
 
     if (ev->type == THC_EV_NOTEOFF)
     {
@@ -274,15 +274,16 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     if (pass)
         out->emit(out->ctx, ev);
 
-    const int c = choose(st, root, (int)get(P_BELOW) != 0);
+    const int c = choose(st, root,
+                         thcParamInt(p, paramIndex[P_BELOW], -1, 1) != 0);
 
     if (c >= 0)
     {
         thcEvent copy = *ev;
-        const int v = (int)(ev->u.note.velocity * get(P_TAPER) + 0.5);
+        const double v = ev->u.note.velocity * get(P_TAPER) + 0.5;
 
         copy.u.note.note = c;
-        copy.u.note.velocity = v < 1 ? 1 : v > 127 ? 127 : v;
+        copy.u.note.velocity = !(v >= 1) ? 1 : v < 128 ? (int)v : 127;
 
         out->emit(out->ctx, &copy);
 

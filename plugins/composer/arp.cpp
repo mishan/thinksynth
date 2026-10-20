@@ -153,7 +153,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
        whatever else is sounding at that pitch on that channel, quite
        possibly another chain's note. Eat both or pass both. */
     if ((ev->type != THC_EV_NOTE && ev->type != THC_EV_NOTEOFF) ||
-        (int)p->get(p->ctx, paramIndex[P_PASS]) != 0)
+        thcParamInt(p, paramIndex[P_PASS], -1, 1) != 0)
         out->emit(out->ctx, ev);
 }
 
@@ -182,7 +182,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
                          [](const Held &a, const Held &b)
                          { return a.note < b.note; });
 
-        int octaves = (int)get(P_OCTAVES);
+        /* Twelve octaves up is past note 127 from anything held. */
+        int octaves = thcParamInt(p, paramIndex[P_OCTAVES], 0, 11);
         size_t base = seq.size();
 
         for (int o = 1; o < octaves; o++)
@@ -199,7 +200,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         int len = (int)seq.size();
         int pick;
 
-        switch ((int)get(P_PATTERN))
+        switch (thcParamInt(p, paramIndex[P_PATTERN], -1, 4))
         {
             default:
             case 0:  pick = st->pos % len;                    break;
@@ -233,7 +234,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         ev.channel = 0;                  /* the sink routes             */
         ev.u.note.note = seq[pick].note;
 
-        int vel = (int)get(P_VEL);
+        int vel = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
 
         ev.u.note.velocity = vel > 0 ? vel : seq[pick].velocity;
         ev.u.note.duration = get(P_HOLD);

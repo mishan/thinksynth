@@ -486,21 +486,16 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
        before the second goes up, so every on has exactly one off. */
     release(st, root, *ev, ev->at, out);
 
-    int voices = (int)p->get(p->ctx, paramIndex[P_VOICES]);
-    int step   = (int)p->get(p->ctx, paramIndex[P_STEP]);
-
-    if (voices < 1)
-        voices = 1;
-
-    if (step < 1)
-        step = 1;
+    const int voices = thcParamInt(p, paramIndex[P_VOICES], 1, 6);
+    /* A walk of 128 steps is off the keyboard from any root. */
+    const int step   = thcParamInt(p, paramIndex[P_STEP], 1, 128);
 
     const double spread = p->get(p->ctx, paramIndex[P_SPREAD]);
     const double taper  = p->get(p->ctx, paramIndex[P_TAPER]);
     const bool   keep   = p->get(p->ctx, paramIndex[P_ROOT]) != 0;
     const bool   down   = p->get(p->ctx, paramIndex[P_BELOW]) != 0;
     const bool   led    = p->get(p->ctx, paramIndex[P_LEAD]) != 0;
-    const int    span   = (int)p->get(p->ctx, paramIndex[P_SPAN]);
+    const int    span   = thcParamInt(p, paramIndex[P_SPAN], -10000, 10000);
 
     /* Which notes are in the chord: the root, and the scale tones the
        walk lands on away from it. Settled here and not touched again --
@@ -549,10 +544,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         thcEvent copy = *ev;
 
         copy.u.note.note = note;
-        copy.u.note.velocity = (int)(vel + 0.5) < 1 ? 1 : (int)(vel + 0.5);
-
-        if (copy.u.note.velocity > 127)
-            copy.u.note.velocity = 127;
+        copy.u.note.velocity = !(vel >= 1) ? 1
+                             : vel < 127 ? (int)(vel + 0.5) : 127;
 
         /* A roll, if asked for. Later voices arrive later; the durations
            are untouched, so a spread chord ends ragged the way a rolled

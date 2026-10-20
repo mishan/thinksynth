@@ -137,7 +137,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     if (ev->type == THC_EV_NOTEOFF)
     {
-        if ((int)get(P_PASS))
+        if (thcParamInt(p, paramIndex[P_PASS], -1, 1))
             out->emit(out->ctx, ev);
 
         release(st, ev->u.note.note, *ev, out);
@@ -150,7 +150,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         return;
     }
 
-    if ((int)get(P_PASS))
+    if (thcParamInt(p, paramIndex[P_PASS], -1, 1))
         out->emit(out->ctx, ev);
 
     /* This pitch already held? Its repeats go down as the new ones go up.
@@ -159,10 +159,10 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
        not the press. */
     release(st, ev->u.note.note, *ev, out);
 
-    const int    repeats = (int)get(P_REPEATS);
+    const int    repeats = thcParamInt(p, paramIndex[P_REPEATS], 0, 16);
     const double time    = get(P_TIME);
     const double decay   = get(P_DECAY);
-    const int    shift   = (int)get(P_SHIFT);
+    const int    shift   = thcParamInt(p, paramIndex[P_SHIFT], -10000, 10000);
     const bool   isHeld  = ev->u.note.duration <= 0;
 
     std::vector<std::pair<int, double> > down;
@@ -172,11 +172,11 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     {
         vel *= decay;
 
-        const int v = (int)floor(vel + 0.5);
-        const int note = ev->u.note.note + i * shift;
-
-        if (v < 1)
+        if (!(vel >= 0.5))
             break;                       /* and every later one quieter */
+
+        const int v = vel < 1e9 ? (int)floor(vel + 0.5) : 1000000000;
+        const int note = ev->u.note.note + i * shift;
 
         if (note < 0 || note > 127)
             continue;

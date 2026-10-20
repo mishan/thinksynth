@@ -164,11 +164,8 @@ State::degreeToMidi (int degree) const
 void
 State::reseedPopulation (void)
 {
-    int len = (int)params->get(params->ctx, paramIndex[P_LENGTH]);
-    int n = (int)params->get(params->ctx, paramIndex[P_POP]);
-
-    if (len < 1) len = 1;
-    if (n < 2) n = 2;
+    const int len = thcParamInt(params, paramIndex[P_LENGTH], 1, 64);
+    const int n = thcParamInt(params, paramIndex[P_POP], 2, 64);
 
     pop.assign(n, Genome());
 
@@ -433,7 +430,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
                 ev.at = t->now + i * step;
                 ev.channel = 0;          /* the sink routes             */
                 ev.u.note.note = midi;
-                ev.u.note.velocity = (int)get(P_VEL);
+                ev.u.note.velocity =
+                    thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
                 ev.u.note.duration =
                     get(P_HOLD) + (run - 1) * step;
 
