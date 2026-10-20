@@ -1333,6 +1333,7 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
     tree->typeChanArgs();
 
     tree->buildSynthTree();
+    tree->prepare();
 
     if (registerTree)
     {
@@ -1716,6 +1717,24 @@ thSynthTree *thSynth::loadTreeText (const string &name, const string &text,
     return loadChannel(name, &text, channum, amp);
 }
 
+/* GUI thread. See the header. */
+void thSynth::prepareTrees (void)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+
+    for (int i = 0; i < midiChannelCnt_; i++)
+    {
+        if (guiChannels_[i] != NULL && guiChannels_[i]->modnode() != NULL)
+            guiChannels_[i]->modnode()->prepare();
+
+        if (guiEffects_[i] != NULL && guiEffects_[i]->tree() != NULL)
+            guiEffects_[i]->tree()->prepare();
+    }
+
+    if (guiMaster_ != NULL && guiMaster_->tree() != NULL)
+        guiMaster_->tree()->prepare();
+}
+
 /* GUI thread. loadTree and loadTreeText: `text' is the graph, or NULL to
    read the file `filename' names. Nothing after the parse can tell which. */
 thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
@@ -1731,6 +1750,7 @@ thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
        found: a sample pack installed since the last load is read now,
        rather than the silence cached for it then. */
     thUtil::dataFilesChanged();
+    prepareTrees();
 
     string graph;
 

@@ -25,45 +25,32 @@
  * loaded -- osc/noiseslot.h's arrangement, for osc/noiseslot.h's reason.
  * Every synth loads its own thPlugin for a given file and every node
  * built from it reaches that pointer through node->plugin(), so a slot
- * claimed in module_init and keyed on it is a table that one synth owns,
- * on the one thread that synth renders on. Sixteen voices of a drum
+ * claimed in module_init and keyed on it is a table that one synth owns.
+ * Sixteen voices of a drum
  * graph share one copy of the drum; two synths do not share anything,
  * which is what keeps a render reproducible.
  *
- * WHERE THE READ HAPPENS, and why it is not at load. A missing .dsp node
- * fails the file at parse, and a missing wav ought to as well -- but
- * nothing between the grammar and the graph knows that a quoted name is
- * a filename. thArg::ARG_TEXT says "this is a name", not "this is a
- * file"; only the plugin knows that, and the plugin's first chance to
- * say anything is its first callback. Teaching the engine would mean a
- * field on thPlugin::ArgInfo, which changes the stride of a vector whose
- * accessors are inlined into every host -- a soname bump, which is a
- * bigger thing than this. So the read is on the first window that asks
- * for it, cached either way, and a failure is one line on stderr naming
- * the file and then silence with `play' at 0, which ends the note rather
- * than hanging it.
- *
- * WHAT THAT COSTS, said plainly because the paragraph above is an
- * argument about when and not about how much. The first window to name a
- * file does a fopen, a whole decode, an O(n) resample and a map insert,
- * all on the thread that is supposed to be handing back a buffer -- so
- * the first note on a long sample is a dropout in the live synth, and
- * free under genwav, which has no deadline. It is a one-off per file per
- * synth and the kit this tree ships is six short drums, which is why it
- * is worth paying rather than worth a soname bump. If it ever stops
- * being worth paying, the fix is a pass over the graph at load that asks
- * each osc::sample node for its `file' and primes the table off the
- * audio thread; nothing here would have to change for that to work.
+ * WHERE THE READ HAPPENS: at load, on the loading thread. Each plugin's
+ * module_prepare primes the table with every file its node names, and the
+ * synth prepares every graph again when the host says data files have
+ * changed (thSynth::prepareTrees). The audio thread only looks the table
+ * up, without a lock: it is published whole and never changed after, so
+ * an addition is a new table, and the old ones are kept until the synth
+ * releases the plugin. A name nobody primed -- a graph built without a
+ * synth's load -- is still read on the first window that asks for it,
+ * which is a fopen, a whole decode and a resample on the thread that is
+ * supposed to be handing back a buffer.
  *
  * A FAILURE IS CACHED TOO. Without that, a graph naming a file that is
  * not there would stat() once per window per voice forever and print a
  * line each time. The entry is remembered with no frames in it, which is
  * the same thing the reader returns for an empty file, and both play as
  * silence -- until the host says new files have arrived
- * (thUtil::dataFilesChanged), when it is read once more. That is a
- * sample pack downloaded while an instrument naming it is loaded. A file
- * the host says it wrote over (thUtil::dataFileChanged) is read again
- * even if it was found: a pack updated while it plays.
+ * (thUtil::dataFilesChanged) and the graph is prepared again, when it is
+ * read once more. That is a sample pack downloaded while an instrument
+ * naming it is loaded. A file the host says it wrote over
+ * (thUtil::dataFileChanged) is read again even if it was found: a pack
+ * updated while it plays.
  *
  * ZONES. A `file' of the form "a.wav@48 b.wav@55 c.wav@62" is a set of
  * recordings with the MIDI note each was made at; thSampleZoneFor picks
@@ -81,6 +68,7 @@
 #include <atomic>
 #include <map>
 #include <math.h>
+#include <mutex>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,7 +84,7 @@
 struct thSampleData
 {
     std::vector<float> frames;
-    unsigned generation = 0;    /* thUtil::dataFilesGeneration at the read */
+    unsigned generation = 0;    /* thUtil::dataFilesGeneration, checked at */
 };
 
 /* One recording of a zoned `file', and the frequency it was made at. */
@@ -106,15 +94,36 @@ struct thSampleZone
     double root;
 };
 
+/* A `file' text as a node names it: its zones, none for a plain name, and
+   the next velocity layer of the voices playing it. All voices in a synth
+   reach the same one, so alternate hits do not restart at layer one. */
+struct thSampleText
+{
+    std::vector<thSampleZone> zones;
+    std::atomic<unsigned char> next{0};
+};
+
+/* What the audio thread reads, without a lock: never changed once it is
+   published, so an addition is a new table. */
+struct thSampleTable
+{
+    std::map<std::string, thSampleData *> files;
+    std::map<std::string, thSampleText *> texts;
+};
+
 struct thSampleSlot
 {
-    std::atomic<const thPlugin *>        owner;
-    std::map<std::string, thSampleData> *table;  /* owner's thread only */
-    /* The next velocity layer for each primary file. All voices in a synth
-       reach the same slot, so alternate hits do not restart at layer one. */
-    std::map<std::string, unsigned char> alternates;
-    /* Zoned `file' texts, parsed. Owner's thread only. */
-    std::map<std::string, std::vector<thSampleZone>> zones;
+    std::atomic<const thPlugin *>      owner;
+    std::atomic<const thSampleTable *> table;
+
+    /* Held by whoever adds to the table: the loading thread priming it, or
+       the audio thread on a name nobody primed. Everything below is the
+       holder's, and lives until the synth releases the plugin -- a table
+       or a file replaced may still be read by the window rendering. */
+    std::mutex adding;
+    std::vector<thSampleTable *> tables;
+    std::vector<thSampleData *> files;
+    std::vector<thSampleText *> texts;
 };
 
 static thSampleSlot thSampleSlots[THINK_SAMPLE_SLOTS];
@@ -128,6 +137,31 @@ static inline thSampleSlot *thSampleSlotFor (const thPlugin *plugin)
     return NULL;
 }
 
+/* Holding `adding'. */
+static inline void thSampleFree (thSampleSlot *slot)
+{
+    for (thSampleTable *t : slot->tables)
+        delete t;
+
+    for (thSampleData *d : slot->files)
+        delete d;
+
+    for (thSampleText *t : slot->texts)
+        delete t;
+
+    slot->tables.clear();
+    slot->files.clear();
+    slot->texts.clear();
+    slot->table.store(NULL, std::memory_order_release);
+}
+
+/* Holding `adding': `next' is what the audio thread reads from now. */
+static inline void thSamplePublish (thSampleSlot *slot, thSampleTable *next)
+{
+    slot->tables.push_back(next);
+    slot->table.store(next, std::memory_order_release);
+}
+
 static inline void thSampleClaim (const thPlugin *plugin)
 {
     for (int i = 0; i < THINK_SAMPLE_SLOTS; i++)
@@ -137,10 +171,10 @@ static inline void thSampleClaim (const thPlugin *plugin)
         if (thSampleSlots[i].owner.compare_exchange_strong(
                 none, plugin, std::memory_order_acq_rel))
         {
-            delete thSampleSlots[i].table;
-            thSampleSlots[i].table = new std::map<std::string, thSampleData>();
-            thSampleSlots[i].alternates.clear();
-            thSampleSlots[i].zones.clear();
+            std::lock_guard<std::mutex> hold(thSampleSlots[i].adding);
+
+            thSampleFree(&thSampleSlots[i]);
+            thSamplePublish(&thSampleSlots[i], new thSampleTable());
             return;
         }
     }
@@ -151,31 +185,15 @@ static inline void thSampleRelease (const thPlugin *plugin)
     for (int i = 0; i < THINK_SAMPLE_SLOTS; i++)
         if (thSampleSlots[i].owner.load(std::memory_order_acquire) == plugin)
         {
-            delete thSampleSlots[i].table;
-            thSampleSlots[i].table = NULL;
-            thSampleSlots[i].alternates.clear();
-            thSampleSlots[i].zones.clear();
+            {
+                std::lock_guard<std::mutex> hold(thSampleSlots[i].adding);
+
+                thSampleFree(&thSampleSlots[i]);
+            }
+
             thSampleSlots[i].owner.store(NULL, std::memory_order_release);
             return;
         }
-}
-
-/* Count a trigger once across every voice using this primary file. The slot
-   belongs to one synth and is cleared when that synth releases its plugin. */
-static inline unsigned thSampleNextLayer (const thPlugin *plugin,
-                                           const std::string &name)
-{
-    thSampleSlot *slot = thSampleSlotFor(plugin);
-
-    if (slot == NULL)
-        return 0;
-
-    unsigned char &next = slot->alternates[name];
-    const unsigned chosen = next;
-
-    next = (unsigned char)((next + 1) % 3);
-
-    return chosen;
 }
 
 /* ---- the reader ---------------------------------------------------------
@@ -526,47 +544,14 @@ static inline bool thWavReadMemory (const unsigned char *data, size_t size,
     return thWavParse(in, (long)size, rate, out, why);
 }
 
-/* The frames for `name', reading it the first time it is asked for. NULL
-   only when the plugin has no table, which cannot happen for a node the
-   synth built. An entry with no frames in it is a file that would not
-   read; the caller plays silence. */
-static inline const thSampleData *
-thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
+/* `name' read into `entry', saying why on stderr if it would not. */
+static inline void thSampleRead (const std::string &name, unsigned rate,
+                                 thSampleData &entry)
 {
-    thSampleSlot *slot = thSampleSlotFor(plugin);
-
-    if (slot == NULL || slot->table == NULL)
-        return NULL;
-
-    std::map<std::string, thSampleData>::iterator i =
-        slot->table->find(name);
-
-    const unsigned generation = thUtil::dataFilesGeneration();
-
-    /* Kept unless the count has moved since it was read, and then kept
-       only if it was found and nothing has written over it since. */
-    if (i != slot->table->end())
-    {
-        thSampleData &kept = i->second;
-
-        if (kept.generation == generation)
-            return &kept;
-
-        if (!kept.frames.empty() &&
-            thUtil::dataFileGeneration("samples/" + name) <= kept.generation)
-        {
-            kept.generation = generation;
-            return &kept;
-        }
-    }
-
-    thSampleData &entry = (*slot->table)[name];
-    entry.generation = generation;
-
     if (name.empty())
     {
         fprintf(stderr, "osc::sample: no `file' was named\n");
-        return &entry;
+        return;
     }
 
     /* Found the way a .dsp is, which is what makes a piece sendable: a
@@ -587,7 +572,7 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
             fprintf(stderr, "osc::sample: '%s' (embedded) %s\n",
                     name.c_str(), why.c_str());
 
-        return &entry;
+        return;
     }
 
     const std::string path =
@@ -599,8 +584,70 @@ thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
                 "under samples/\n", name.c_str());
     else if (!thWavRead(path, rate, entry, why))
         fprintf(stderr, "osc::sample: '%s' %s\n", path.c_str(), why.c_str());
+}
 
-    return &entry;
+/* Holding `adding'. The table's entry for `name', read now if there is
+   none, or if data files have changed since it was checked and it was
+   not found or has been written over. */
+static inline thSampleData *thSampleFile (thSampleSlot *slot,
+                                          const std::string &name,
+                                          unsigned rate)
+{
+    const thSampleTable *table = slot->table.load(std::memory_order_relaxed);
+    const auto i = table->files.find(name);
+    const unsigned generation = thUtil::dataFilesGeneration();
+
+    if (i != table->files.end())
+    {
+        thSampleData *kept = i->second;
+
+        if (kept->generation == generation)
+            return kept;
+
+        if (!kept->frames.empty() &&
+            thUtil::dataFileGeneration("samples/" + name) <= kept->generation)
+        {
+            kept->generation = generation;
+            return kept;
+        }
+    }
+
+    thSampleData *entry = new thSampleData();
+
+    entry->generation = generation;
+    slot->files.push_back(entry);
+    thSampleRead(name, rate, *entry);
+
+    thSampleTable *next = new thSampleTable(*table);
+
+    next->files[name] = entry;
+    thSamplePublish(slot, next);
+
+    return entry;
+}
+
+/* Audio thread. The frames for `name'. NULL only when the plugin has no
+   table, which cannot happen for a node the synth built. An entry with no
+   frames in it is a file that would not read; the caller plays silence.
+   A name nobody primed is read here, on the audio thread. */
+static inline const thSampleData *
+thSampleGet (const thPlugin *plugin, const std::string &name, unsigned rate)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+    const thSampleTable *table =
+        slot ? slot->table.load(std::memory_order_acquire) : NULL;
+
+    if (table == NULL)
+        return NULL;
+
+    const auto i = table->files.find(name);
+
+    if (i != table->files.end())
+        return i->second;
+
+    std::lock_guard<std::mutex> hold(slot->adding);
+
+    return thSampleFile(slot, name, rate);
 }
 
 /* Zoned if some word ends in `@' and a note number: a plain file name may
@@ -627,58 +674,135 @@ static inline bool thSampleIsZoned (const std::string &text)
     return false;
 }
 
+/* Holding `adding'. The table's entry for the text `text', its zones
+   parsed if it has them. */
+static inline thSampleText *thSampleTextFor (thSampleSlot *slot,
+                                             const std::string &text)
+{
+    const thSampleTable *table = slot->table.load(std::memory_order_relaxed);
+    const auto i = table->texts.find(text);
+
+    if (i != table->texts.end())
+        return i->second;
+
+    thSampleText *entry = new thSampleText();
+    size_t at = thSampleIsZoned(text) ? 0 : text.size();
+
+    slot->texts.push_back(entry);
+
+    while (at < text.size())
+    {
+        const size_t end = text.find_first_of(" \t\n,", at);
+        const std::string word =
+            text.substr(at, end == std::string::npos ? std::string::npos
+                                                     : end - at);
+        const size_t mark = word.rfind('@');
+
+        if (mark != std::string::npos && mark > 0)
+        {
+            const double midi = atof(word.c_str() + mark + 1);
+            entry->zones.push_back({word.substr(0, mark),
+                                    440.0 * pow(2.0, (midi - 69) / 12.0)});
+        }
+        else if (!word.empty())
+        {
+            fprintf(stderr, "osc::sample: zone '%s' has no @note\n",
+                    word.c_str());
+        }
+
+        if (end == std::string::npos)
+            break;
+        at = end + 1;
+    }
+
+    thSampleTable *next = new thSampleTable(*table);
+
+    next->texts[text] = entry;
+    thSamplePublish(slot, next);
+
+    return entry;
+}
+
+/* Audio thread. The table's entry for `text', made here if nobody primed
+   it. NULL when the plugin has no table. */
+static inline thSampleText *thSampleTextGet (const thPlugin *plugin,
+                                             const std::string &text)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+    const thSampleTable *table =
+        slot ? slot->table.load(std::memory_order_acquire) : NULL;
+
+    if (table == NULL)
+        return NULL;
+
+    const auto i = table->texts.find(text);
+
+    if (i != table->texts.end())
+        return i->second;
+
+    std::lock_guard<std::mutex> hold(slot->adding);
+
+    return thSampleTextFor(slot, text);
+}
+
+/* Loading thread: every file the text `text' names, read into the table
+   or checked again, so that the voices playing it read nothing. */
+static inline void thSamplePrime (const thPlugin *plugin,
+                                  const std::string &text, unsigned rate)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+
+    if (slot == NULL)
+        return;
+
+    std::lock_guard<std::mutex> hold(slot->adding);
+
+    if (slot->table.load(std::memory_order_relaxed) == NULL)
+        return;
+
+    const thSampleText *entry = thSampleTextFor(slot, text);
+
+    if (entry->zones.empty())
+        thSampleFile(slot, text, rate);
+
+    for (const thSampleZone &zone : entry->zones)
+        thSampleFile(slot, zone.file, rate);
+}
+
+/* Audio thread. Counts a trigger once across every voice using this
+   primary file. */
+static inline unsigned thSampleNextLayer (const thPlugin *plugin,
+                                          const std::string &name)
+{
+    thSampleText *entry = thSampleTextGet(plugin, name);
+
+    if (entry == NULL)
+        return 0;
+
+    const unsigned chosen = entry->next.load(std::memory_order_relaxed);
+
+    entry->next.store((unsigned char)((chosen + 1) % 3),
+                      std::memory_order_relaxed);
+
+    return chosen;
+}
+
 /* The zone of a zoned `file' nearest `note', or NULL for a list with no
    zones in it. */
 static inline const thSampleZone *
 thSampleZoneFor (const thPlugin *plugin, const std::string &text,
                  double note)
 {
-    thSampleSlot *slot = thSampleSlotFor(plugin);
+    const thSampleText *entry = thSampleTextGet(plugin, text);
 
-    if (slot == NULL)
+    if (entry == NULL)
         return NULL;
-
-    std::map<std::string, std::vector<thSampleZone>>::iterator i =
-        slot->zones.find(text);
-
-    if (i == slot->zones.end())
-    {
-        std::vector<thSampleZone> &list = slot->zones[text];
-        size_t at = 0;
-
-        while (at < text.size())
-        {
-            const size_t end = text.find_first_of(" \t\n,", at);
-            const std::string word =
-                text.substr(at, end == std::string::npos ? std::string::npos
-                                                         : end - at);
-            const size_t mark = word.rfind('@');
-
-            if (mark != std::string::npos && mark > 0)
-            {
-                const double midi = atof(word.c_str() + mark + 1);
-                list.push_back({word.substr(0, mark),
-                                440.0 * pow(2.0, (midi - 69) / 12.0)});
-            }
-            else if (!word.empty())
-            {
-                fprintf(stderr, "osc::sample: zone '%s' has no @note\n",
-                        word.c_str());
-            }
-
-            if (end == std::string::npos)
-                break;
-            at = end + 1;
-        }
-
-        i = slot->zones.find(text);
-    }
 
     const thSampleZone *best = NULL;
     double bestDistance = 0;
     const double freq = 440.0 * pow(2.0, (note - 69) / 12.0);
 
-    for (const thSampleZone &zone : i->second)
+    for (const thSampleZone &zone : entry->zones)
     {
         const double distance = fabs(log2(freq / zone.root));
 

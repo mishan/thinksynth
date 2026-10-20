@@ -198,6 +198,58 @@ for (const name of names)
                              `${applied}, first sound at ${first}\n`);
 }
 
+/* A sample pack downloaded while an instrument naming it is loaded: the
+ * note before it arrives is silent, and the one after plays it, with no
+ * load in between (tw_sample, thSynth::prepareTrees). */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const graph =
+        'node ionode { channels = 1; out0 = smp->out; play = smp->play; };\n' +
+        'io ionode;\n' +
+        'node smp osc::sample { file = "checklate.wav"; freq = 261.63;\n' +
+        '    trigger = ionode->trigger; };\n';
+
+    M._tw_create(RATE, 256, 128);
+
+    const loaded = M.ccall('tw_load', 'number', ['number', 'string'],
+                           [0, graph]) !== 0;
+    const peakOf = (at) =>
+    {
+        let peak = 0;
+
+        M._tw_note_on(at, 0, 60, 100);
+
+        for (let done = 0; done < 4096; done += 128)
+        {
+            const p = M._tw_render(128) >> 2;
+
+            for (let i = 0; i < 256; i++)
+                peak = Math.max(peak, Math.abs(M.HEAPF32[p + i]));
+        }
+
+        M._tw_note_off(at + 4096, 0, 60);
+
+        return peak;
+    };
+
+    const before = peakOf(0);
+    const bytes = standIn();
+    const at = M._tw_alloc(bytes.length);
+
+    M.HEAPU8.set(bytes, at);
+    M.ccall('tw_sample', 'number', ['string', 'number', 'number'],
+            ['samples/checklate.wav', at, bytes.length]);
+    M._tw_free(at);
+
+    const after = peakOf(4096);
+
+    if (!loaded || before !== 0 || !(after > 0))
+        fail(`late pack: loaded ${loaded}, before ${before}, after ${after}`);
+    else
+        process.stdout.write('ok    late pack      a file that arrives after ' +
+                             'its instrument plays on the next note\n');
+}
+
 /* Played keys (tw_keys): a key is recorded where it is played, and one
  * played in the window a rewind lands in, ahead of it, is the old run's
  * and goes with it -- the page would draw it at the old run's time on the

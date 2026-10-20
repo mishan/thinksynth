@@ -446,6 +446,11 @@ public:
     void collectRetired (void);
     void recycleNote (thMidiNote *note);
 
+    /* GUI thread: thSynthTree::prepare on every tree the synth holds, so
+       data files the host has said changed (thUtil::dataFilesChanged,
+       dataFileChanged) are read here and not on the audio thread. */
+    void prepareTrees (void);
+
     /* ---- probes ----
      *
      * A tap on one node's arg on one channel, summed across every sounding

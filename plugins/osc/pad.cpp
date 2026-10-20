@@ -56,11 +56,14 @@
  * in one octave with the same params share one table.
  *
  * THE PARAMS ARE READ ONCE, when a voice starts. A table is an FFT of a
- * quarter of a million points, about twelve milliseconds natively, and it
- * happens on the thread that renders -- osc/sampleslot.h's trade for
- * osc/sampleslot.h's reason, and a window that long on the first note of
- * each octave in a live synth -- so a knob swept under a sounding voice
- * must not ask for a new one every window. A sweep changes the next note.
+ * quarter of a million points, about twelve milliseconds natively, so a
+ * knob swept under a sounding voice must not ask for a new one every
+ * window. A sweep changes the next note. That note's table is built as
+ * its voice is (module_prepare), from the note and the params as they
+ * stand -- off the audio thread on the desktop, where voices are built on
+ * the GUI thread. A voice whose params come from other nodes, or whose
+ * `freq' is not its note's pitch, builds its own on its first window, on
+ * the thread that renders.
  * PAD_TABLES tables are kept per synth; a new one past that replaces the
  * one used longest ago, unless that one is still being read -- every
  * voice reads its table every window -- and then the new one is kept as
@@ -96,6 +99,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <mutex>
 #include <vector>
 
 #include "think.h"
@@ -131,8 +135,11 @@ enum { S_STARTED, S_OCTAVE, S_PARTIALS, S_BANDWIDTH, S_BWSCALE, S_TILT,
 /* ---- the tables ---------------------------------------------------------
  *
  * Keyed on the plugin, for osc/sampleslot.h's reason: one thPlugin per
- * file per synth, so a slot keyed on it belongs to one synth and one
- * rendering thread. */
+ * file per synth, so a slot keyed on it belongs to one synth. Published
+ * the way that table is, too: the audio thread reads a map that is never
+ * changed once it is out, and whoever adds -- the thread that builds
+ * voices, or the audio thread on a key nobody built -- takes `adding' and
+ * publishes a new one. */
 
 struct PadKey
 {
@@ -147,13 +154,20 @@ struct PadKey
 struct PadTable
 {
     std::vector<float> wave;
-    unsigned long used;
-    double seen;                /* seconds, on a clock that only goes up */
+    std::atomic<unsigned long> used{0};
+    std::atomic<double> seen{0};   /* seconds, on a clock that only goes up */
 };
+
+typedef std::map<PadKey, PadTable *> PadMap;
 
 /* How long a table nobody has read is still taken to be sounding: a few
    windows at any rate a host renders at. */
 #define PAD_IDLE_SEC 0.5
+
+/* How long a map or a table taken out of the published one is kept. A
+   reader holds a map for one lookup and a table for one window, and marks
+   a table seen as it takes it; this is far longer than either. */
+#define PAD_KEEP_SEC 2.0
 
 static double padNow (void)
 {
@@ -161,11 +175,25 @@ static double padNow (void)
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+/* Something no longer published, and when it stopped being. */
+template <typename T> struct PadGone
+{
+    T *what;
+    double at;
+};
+
 struct PadSlot
 {
     std::atomic<const thPlugin *> owner;
-    std::map<PadKey, PadTable> *tables;
-    unsigned long clock;
+    std::atomic<const PadMap *> map;
+    std::atomic<unsigned long> clock;
+
+    /* Held by whoever adds. The published map, and what has been taken
+       out of it and is not yet freed. */
+    std::mutex adding;
+    PadMap *current;
+    std::vector<PadGone<PadMap> > oldMaps;
+    std::vector<PadGone<PadTable> > oldTables;
 };
 
 #define PAD_SLOTS 64
@@ -374,43 +402,120 @@ static bool padBuild (const PadKey &key, unsigned rate,
     return true;
 }
 
+/* Holding `adding'. Frees what has been out of the published map for
+   PAD_KEEP_SEC, or everything when `all'. */
+static void padSweep (PadSlot *slot, double now, bool all)
+{
+    for (size_t i = 0; i < slot->oldMaps.size(); )
+        if (all || now - slot->oldMaps[i].at > PAD_KEEP_SEC)
+        {
+            delete slot->oldMaps[i].what;
+            slot->oldMaps[i] = slot->oldMaps.back();
+            slot->oldMaps.pop_back();
+        }
+        else
+            i++;
+
+    for (size_t i = 0; i < slot->oldTables.size(); )
+        if (all || (now - slot->oldTables[i].at > PAD_KEEP_SEC &&
+                    now - slot->oldTables[i].what->seen > PAD_KEEP_SEC))
+        {
+            delete slot->oldTables[i].what;
+            slot->oldTables[i] = slot->oldTables.back();
+            slot->oldTables.pop_back();
+        }
+        else
+            i++;
+}
+
+/* Holding `adding'. The table for `key', built and published if the
+   published map has none. */
+static PadTable *padAdd (PadSlot *slot, const PadKey &key, unsigned rate)
+{
+    const double now = padNow();
+    PadMap::const_iterator i = slot->current->find(key);
+
+    if (i != slot->current->end())
+        return i->second;
+
+    padSweep(slot, now, false);
+
+    PadMap *next = new PadMap(*slot->current);
+
+    if (next->size() >= PAD_TABLES)
+    {
+        PadMap::iterator oldest = next->begin();
+
+        for (PadMap::iterator j = next->begin(); j != next->end(); j++)
+            if (j->second->used < oldest->second->used)
+                oldest = j;
+
+        if (now - oldest->second->seen > PAD_IDLE_SEC)
+        {
+            slot->oldTables.push_back({ oldest->second, now });
+            next->erase(oldest);
+        }
+    }
+
+    PadTable *t = new PadTable();
+
+    padBuild(key, rate, t->wave);
+    t->used = ++slot->clock;
+    t->seen = now;
+    (*next)[key] = t;
+
+    slot->oldMaps.push_back({ slot->current, now });
+    slot->current = next;
+    slot->map.store(next, std::memory_order_release);
+
+    return t;
+}
+
+/* The table for `key', built here if nobody has: on the audio thread from
+   module_callback, which is the twelve milliseconds module_prepare is for
+   taking off it. */
 static const std::vector<float> *padTable (const thPlugin *plugin,
                                            const PadKey &key, unsigned rate)
 {
     PadSlot *slot = padSlotFor(plugin);
+    const PadMap *map = slot ? slot->map.load(std::memory_order_acquire)
+                             : NULL;
 
-    if (slot == NULL || slot->tables == NULL)
+    if (map == NULL)
         return NULL;
 
-    const double now = padNow();
-    std::map<PadKey, PadTable>::iterator i = slot->tables->find(key);
+    PadMap::const_iterator i = map->find(key);
+    PadTable *t;
 
-    if (i != slot->tables->end())
+    if (i != map->end())
+        t = i->second;
+    else
     {
-        i->second.used = ++slot->clock;
-        i->second.seen = now;
-        return &i->second.wave;
+        std::lock_guard<std::mutex> hold(slot->adding);
+
+        t = padAdd(slot, key, rate);
     }
 
-    if (slot->tables->size() >= PAD_TABLES)
-    {
-        std::map<PadKey, PadTable>::iterator oldest = slot->tables->begin();
+    t->used = ++slot->clock;
+    t->seen = padNow();
 
-        for (i = slot->tables->begin(); i != slot->tables->end(); i++)
-            if (i->second.used < oldest->second.used)
-                oldest = i;
+    return &t->wave;
+}
 
-        if (now - oldest->second.seen > PAD_IDLE_SEC)
-            slot->tables->erase(oldest);
-    }
+/* What a voice's first sample makes of its params: see the callback. */
+static PadKey padKeyOf (double freq, float partials, float bandwidth,
+                        float bwscale, float tilt, float stretch)
+{
+    const PadKey key = {
+        (float)thClampArg((float)floor(log2(freq / PAD_BASE) + 0.5), -6, 6),
+        partials == 0 ? 32 : floorf(thClampArg(partials, 1, PAD_PARTIALS_MAX)),
+        thClampArg(bandwidth, 0, 1200),
+        thClampArg(bwscale, 0, 2),
+        thClampArg(tilt, -60, 24),
+        thClampArg(stretch, 0, 0.1f),
+    };
 
-    PadTable &t = (*slot->tables)[key];
-
-    padBuild(key, rate, t.wave);
-    t.used = ++slot->clock;
-    t.seen = now;
-
-    return &t.wave;
+    return key;
 }
 
 void module_cleanup (thPlugin *plugin)
@@ -418,11 +523,66 @@ void module_cleanup (thPlugin *plugin)
     for (int i = 0; i < PAD_SLOTS; i++)
         if (padSlots[i].owner.load(std::memory_order_acquire) == plugin)
         {
-            delete padSlots[i].tables;
-            padSlots[i].tables = NULL;
+            std::lock_guard<std::mutex> hold(padSlots[i].adding);
+
+            padSweep(&padSlots[i], 0, true);
+
+            for (PadMap::iterator j = padSlots[i].current->begin();
+                 j != padSlots[i].current->end(); j++)
+                delete j->second;
+
+            delete padSlots[i].current;
+            padSlots[i].current = NULL;
+            padSlots[i].map.store(NULL, std::memory_order_release);
             padSlots[i].owner.store(NULL, std::memory_order_release);
             return;
         }
+}
+
+/* A voice about to start: its table, built here and not in its first
+   window. The params are read as that window would read them, which this
+   can do only for those that are numbers or controls -- one fed by another
+   node has no value until the voice runs, and is left to the callback.
+   `freq' fed by a node is taken to be the note's own pitch, which is what
+   it is in every graph that plays its notes; one that is not finds the
+   octave it guessed wrong and builds its own. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const int params[5] = { IN_PARTIALS, IN_BANDWIDTH, IN_BWSCALE, IN_TILT,
+                            IN_STRETCH };
+    float value[5];
+
+    if (!voice)
+        return;
+
+    for (int k = 0; k < 5; k++)
+    {
+        const thArg *raw = node->getArg(args[params[k]]);
+        thArg *arg = mod->getArg(node, args[params[k]]);
+
+        if (raw == NULL || raw->type() == thArg::ARG_POINTER || arg == NULL)
+            return;
+
+        value[k] = (*arg)[0];
+    }
+
+    const thArg *raw = node->getArg(args[IN_FREQ]);
+    thArg *in_freq = mod->getArg(node, args[IN_FREQ]);
+    thArg *note = mod->IONode() ? mod->IONode()->getArg("note") : NULL;
+    double freq;
+
+    if (raw != NULL && raw->type() != thArg::ARG_POINTER && in_freq != NULL)
+        freq = (*in_freq)[0];
+    else if (note != NULL)
+        freq = 440.0 * pow(2.0, ((*note)[0] - 69) / 12.0);
+    else
+        return;
+
+    padTable(node->plugin(),
+             padKeyOf(thBoundFreq(freq, samples), value[0], value[1],
+                      value[2], value[3], value[4]),
+             samples);
 }
 
 int module_init (thPlugin *plugin)
@@ -438,9 +598,12 @@ int module_init (thPlugin *plugin)
         if (padSlots[i].owner.compare_exchange_strong(
                 none, plugin, std::memory_order_acq_rel))
         {
-            delete padSlots[i].tables;
-            padSlots[i].tables = new std::map<PadKey, PadTable>();
+            std::lock_guard<std::mutex> hold(padSlots[i].adding);
+
+            padSlots[i].current = new PadMap();
             padSlots[i].clock = 0;
+            padSlots[i].map.store(padSlots[i].current,
+                                  std::memory_order_release);
             break;
         }
     }
@@ -514,17 +677,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
        half an octave either side of its base. */
     if (state[S_STARTED] == 0)
     {
-        const double freq = thBoundFreq((*in_freq)[0], samples);
-        const float partials = (*in_partials)[0];
+        const PadKey first =
+            padKeyOf(thBoundFreq((*in_freq)[0], samples), (*in_partials)[0],
+                     (*in_bandwidth)[0], (*in_bwscale)[0], (*in_tilt)[0],
+                     (*in_stretch)[0]);
 
-        state[S_OCTAVE] = (float)thClampArg(
-            (float)floor(log2(freq / PAD_BASE) + 0.5), -6, 6);
-        state[S_PARTIALS] = partials == 0 ? 32 :
-            floorf(thClampArg(partials, 1, PAD_PARTIALS_MAX));
-        state[S_BANDWIDTH] = thClampArg((*in_bandwidth)[0], 0, 1200);
-        state[S_BWSCALE] = thClampArg((*in_bwscale)[0], 0, 2);
-        state[S_TILT] = thClampArg((*in_tilt)[0], -60, 24);
-        state[S_STRETCH] = thClampArg((*in_stretch)[0], 0, 0.1f);
+        state[S_OCTAVE] = first.octave;
+        state[S_PARTIALS] = first.partials;
+        state[S_BANDWIDTH] = first.bandwidth;
+        state[S_BWSCALE] = first.bwscale;
+        state[S_TILT] = first.tilt;
+        state[S_STRETCH] = first.stretch;
         state[S_WHOLE] = 0;
         state[S_FRAC] = 0;
         state[S_STARTED] = 1;

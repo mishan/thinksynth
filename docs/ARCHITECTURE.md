@@ -41,7 +41,9 @@ node, arg or tree.
   Emits a sigc++ signal on change — this is how GUI sliders talk to the engine.
 - **`thPlugin`** — the `dlopen` wrapper. Plugins export `module_init`
   (registers named args, returns integer indices), `module_callback` (the
-  per-window DSP) and `module_cleanup`.
+  per-window DSP) and `module_cleanup`; optionally `module_reset` and
+  `module_prepare`, which reads what a node needs from disk on the loading
+  thread instead of in its first window.
 - **`thExprNode`** — an arithmetic expression over signals, alive only between
   the parse and `thSynthTree::desugarExprs`. `freq->out * exp2(@cents / 1200)`
   becomes `math::` nodes at load and the audio path sees a graph like any

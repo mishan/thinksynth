@@ -478,6 +478,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
         if (voice->restart(modnode_, note, velocity, level, aux, say))
         {
             restarts_++;
+            voice->synthTree()->prepare(true);
             return voice;
         }
 
@@ -511,6 +512,8 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
                 arg->reserve(windowlength_);
         }
     }
+
+    voice->synthTree()->prepare(true);
 
     return voice;
 }
