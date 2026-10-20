@@ -6531,6 +6531,14 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
                     "    stage s " + stage + ";\n"
                     "    sink { channel = 1; chanarg = \"*\"; };\n};\n", 2.0);
             }
+
+        /* And a period no stage could mean, which the scheduler holds to
+           the step rather than waking it ten million times a second: a
+           minute of that is hours, and the test's timeout. */
+        renderBody(plugins, synth, "tiny-period",
+                   "seed 7;\nchain c {\n    stage s gen::eno_line { "
+                   "notes = \"C4\"; period = 0.0000001 s; hold = 0.05 s; };\n"
+                   "    sink { channel = 1; };\n};\n", 60.0);
     }
 }
 
