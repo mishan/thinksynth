@@ -3690,8 +3690,10 @@ try
     }
 
     /* Energy: let go of at 0, the knob is written and every player
-       follows it; with two scenes, it is the chosen scene's place on a
-       curve a chain writes into the knob, the other's as written. */
+       follows it; with two scenes, it is the chosen scene's own, which
+       the section sets. Then the scenes played live: the one lit held,
+       and another clicked while the piece plays cued for the next bar
+       rather than jumped to, marked until it comes in. */
     {
         const energy = async (v) =>
         {
@@ -3704,6 +3706,10 @@ try
             await page.evaluate(() => window.solo.settled());
         };
         const text = () => page.evaluate(() => window.solo.genText());
+        const lit = () => page.$$eval('#bandscenes .scene:not(.add)',
+            (b) => b.map((e) => (e.classList.contains('on') ? '*' : '') +
+                                (e.classList.contains('cued') ? '>' : '') +
+                                e.firstChild.textContent).join(' '));
 
         await energy(0);
 
@@ -3717,16 +3723,48 @@ try
         await until(text, (t) => /^section scene2 /m.test(t));
         await energy(0.8);
 
-        const curve = await until(text, (t) =>
-            /chain energy \{[^}]*values = "0\.5 [_ ]*0\.8[_ ]*"/.test(t));
+        const scened = await until(text, (t) =>
+            /^section scene2 .*\{ @energy = 0\.8; \};/m.test(t));
 
         check(following === 4 &&
-              /chain energy \{[^}]*values = "0\.5 [_ ]*0\.8[_ ]*"/
-                  .test(curve) && /sink \{ knob = @energy; \}/.test(curve),
-              'Energy is a knob every player follows, and with scenes a ' +
-              'curve of each scene\'s: ' + JSON.stringify({ following,
-                  row: /values = "([^"]{0,40})/.exec(
-                      curve.slice(curve.indexOf('chain energy')))?.[1] }));
+              /^section scene2 .*\{ @energy = 0\.8; \};/m.test(scened) &&
+              !/chain energy/.test(scened),
+              'Energy is a knob every player follows, and with scenes each ' +
+              'scene\'s own: ' + JSON.stringify({ following,
+                  sections: scened.match(/^section .*$/gm) }));
+
+        await page.click('#bandscenes button:has-text("Hold")');
+
+        const held = await until(text,
+            (t) => /^section scene2 \S+ \S+ hold /m.test(t));
+
+        await page.click('#bandscenes .scene >> nth=0');
+        await page.click('#rewind');
+        await page.click('#play');
+        await until(lit, (l) => l.startsWith('*scene'));
+
+        /* Just past the second bar line, so the piece is surely playing,
+           which a click needs to cue rather than seek, and the cue waits
+           most of a bar: pulse.gen is 96 to the minute, four to the bar. */
+        await page.waitForFunction(() =>
+        {
+            const now = window.solo.transport()?.now ?? 0;
+
+            return now > 2.5 && now % 2.5 < 0.4;
+        }, null, { polling: 20, timeout: 15000 });
+        await page.click('#bandscenes .scene >> nth=1');
+
+        const marked = await lit();
+        const came = await until(lit, (l) => l.includes('*scene2'), 15000);
+
+        await page.click('#stop');
+        await page.click('#rewind');
+        await page.evaluate(() => window.solo.settled());
+
+        check(/^section scene2 \S+ \S+ hold /m.test(held) &&
+              /^\*scene >scene2/.test(marked) && /\*scene2/.test(came),
+              '...a scene held, and one clicked while it plays cued and ' +
+              `marked until it comes in: ${marked}, then ${came}`);
     }
 
     /* Start from a phrase: what the keys play goes into the piece, and
@@ -4120,12 +4158,13 @@ try
               `and going to the next card's pad: ${kept}, ${next}`);
     }
 
-    /* A scene fifty minutes in: the seek there is the piece played
-       silently up to it, which in one process() call held the audio for
-       as long as that took. It is spread over the worklet's windows, a
-       slice each, and heard from where it was going -- on the worklet and
-       on the mirror alike, and alike again for one back to the top, which
-       gets there in the window it begins in. */
+    /* A section fifty minutes in, its block pressed in the lane while it
+       plays: the seek there is the piece played silently up to it, which
+       in one process() call held the audio for as long as that took. It
+       is spread over the worklet's windows, a slice each, and heard from
+       where it was going -- on the worklet and on the mirror alike, and
+       alike again for one back to the top, which gets there in the
+       window it begins in. (The band's scenes cue rather than seek.) */
     {
         const SEEK_PIECE = [
             'tempo 120;',
@@ -4151,19 +4190,22 @@ try
         }, SEEK_PIECE);
         await page.click('#loadpiece');
         await page.evaluate(() => window.solo.settled());
-        await page.selectOption('#mode', 'band');
-        await page.evaluate(() => window.solo.settled());
         await page.click('#play');
         await until(latest, (t) => t > 0.5);
+        await page.evaluate(() => window.solo.pane('present', 'composerview'));
+        await page.locator('#composerscroll').scrollIntoViewIfNeeded();
 
+        const lane = () => page.evaluate(() => window.solo.lane());
+        const heads = (await lane()).heads;
+        const headAt = await scroller();
         const tapesBefore = await page.evaluate(() => window.solo.tapeDiff());
 
-        await page.click('#bandscenes .scene:has-text("late")');
+        await page.mouse.click(headAt.x + heads[1].x, headAt.y + heads[1].y);
         const landed = await until(latest, (t) => t >= 3000);
         const load = await page.evaluate(() => window.solo.quanta());
 
         await page.waitForTimeout(1000);
-        await page.click('#bandscenes .scene:has-text("long")');
+        await page.mouse.click(headAt.x + heads[0].x, headAt.y + heads[0].y);
         const back = await until(last, (t) => t < 10);
 
         await page.waitForTimeout(1500);
@@ -4173,7 +4215,7 @@ try
         await page.evaluate(() => window.solo.settled());
 
         check(landed >= 3000 && landed < 3010,
-              `a scene 50 minutes in is played from: ${landed}`);
+              `a section 50 minutes in is played from: ${landed}`);
         check(load.recent.slowestMs < 50,
               '...without a process() call that stalls for the seek: the ' +
               `slowest was ${load.recent.slowestMs} ms`);

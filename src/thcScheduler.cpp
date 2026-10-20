@@ -3165,6 +3165,11 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
     knobHome_.swap(next.knobHome_);
     next.knobHome_.clear();
 
+    /* The new text's sections may set the knobs otherwise: set again, as
+       written now, at the next step. */
+    knobSpanStart_ = -1;
+    knobSpanSection_ = -1;
+
     /* A kept knob's metadata is the new text's, and what it no longer
        says goes back to a fresh knob's. */
     for (const auto &m : next.pendingMeta_)
@@ -3586,6 +3591,36 @@ void
 thcScheduler::addSection (const thcSection &s)
 {
     sections_.push_back(s);
+}
+
+void
+thcScheduler::applySectionKnobs (void)
+{
+    SectionSpan span;
+
+    if (!sectionSpanAt(transportNow_, span))
+        return;
+
+    if (span.start == knobSpanStart_ && span.section == knobSpanSection_)
+        return;
+
+    if (span.start > 0)
+        runDueTicks(span.start - 1e-9);
+
+    knobSpanStart_ = span.start;
+    knobSpanSection_ = span.section;
+
+    for (const auto &k : sections_[(size_t)span.section].knobs)
+    {
+        thArg *a = knob(k.first);
+
+        if (a == NULL || (*a)[0] == (float)k.second)
+            continue;
+
+        knobWriteAt_ = span.start;
+        a->setValue((float)k.second);
+        knobWriteAt_ = -1;
+    }
 }
 
 void
@@ -4070,6 +4105,10 @@ thcScheduler::runStep (void)
      * has travelled is a function of where the transport is, not of how
      * many times this was called or how late a frame was. */
     takeHeardGrowth();
+
+    /* Before the stages due from the section's start tick, so one woken
+       at its first beat reads what the section says. */
+    applySectionKnobs();
     runDueTicks(transportNow_);
 
     /* Not a chain being replayed, whose nodes are where its replay has
@@ -5631,9 +5670,22 @@ thcScheduler::reset (void)
        it, and through setValue, so an instrument bound to it is pushed.
        And before the wakes are cleared: a sleeper bound to it is re-armed
        by the move, and the loop below arms every stage again. */
+    /* A knob a section sets is put back where the text declares it, and
+       the first section then sets it again. Here and not as the section
+       is read: the knob may be declared below it. */
+    for (const auto &s : sections_)
+        for (const auto &k : s.knobs)
+            if (thArg *a = knob(k.first))
+                knobHome_.emplace(a, (*knobMeta(k.first))[0]);
+
     for (const auto &h : knobHome_)
         if ((*h.first)[0] != h.second)
             h.first->setValue(h.second);
+
+    /* And the first section's, which is what the top of the piece is. */
+    knobSpanStart_ = -1;
+    knobSpanSection_ = -1;
+    applySectionKnobs();
 
     /* The arrangement as written, from the top: a cue was a hand on the
        piece that played, and a replay is not that play. The knob is

@@ -454,8 +454,9 @@ const energyOps = (name, drums, stages = []) => energyStages(drums)
                   ...Object.entries(st.params).map(([k, v]) =>
                       `${k}=${v}`)]);
 
-/* And with scenes, the knob moved by a chain of its own: a gen::steps a
-   beat a step, each scene's energy on its first beat and held. */
+/* A chain an earlier band wrote to move the knob a scene at a time --
+   a gen::steps a beat a step, each scene's energy on its first beat --
+   which a scene now does itself (`@energy = 0.8;' in the section). */
 const CURVE = 'energy';
 
 /* An idea's notes moved into `key'; a drum's are which drum it is. */
@@ -497,7 +498,7 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
    and `newBand' starts a band over. */
 export function createBand ({ piece, params, vary, keep, rest, say, tell,
                               touch, toMirror, onGesture, edit, sounds,
-                              sound, newBand, seek, seekSection, level,
+                              sound, newBand, seek, seekSection, cue, level,
                               clock, knob, knobValue, phrase, keepPhrase,
                               play })
 {
@@ -505,7 +506,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
        chosen, while it does not: the one a Rest is written into. */
     let playing = -1;
     let running = false;
-    let transportNow = 0;
+
+    /* A scene cued while the piece plays, until it begins. */
+    let cued = -1;
     let chosen = 0;
 
     /* Where the scene playing began and how long it lasts, as played. */
@@ -542,74 +545,65 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
     /* ---- the energy (ENERGY) ---- */
 
-    /* The scenes, when each is a whole number of beats: what a curve a
-       beat a step can follow. */
-    function curveScenes ()
+    /* Each scene's energy, by name: what it sets, or what it keeps from
+       the scene before, from the knob's as written at the top. */
+    function sceneEnergies ()
     {
-        const all = sectionsOf();
+        const out = new Map();
+        let v = knobValue(ENERGY) ?? 0.5;
 
-        return all.length > 0 && all.every((s) => s.unit === 'beats' &&
-                                                  Number.isInteger(s.length))
-            ? all : null;
+        for (const s of sectionsOf())
+            out.set(s.name, v = s.knobs?.[ENERGY] ?? v);
+
+        return out;
+    }
+
+    /* The playing or chosen scene's; else the knob's. */
+    function energyNow ()
+    {
+        const sc = scene();
+
+        return sc !== null ? sceneEnergies().get(sc.name) ?? 0.5
+                           : knobValue(ENERGY) ?? 0.5;
     }
 
     const curveChain = () => piece()?.chains?.find((c) =>
         c.name === CURVE && c.stages[0]?.plugin === 'steps') ?? null;
 
-    /* Each scene's energy, by name, as the curve has it. */
-    function sceneEnergies ()
+    /* What an earlier band's curve said each scene was: its row read at
+       each scene's first beat, `_' holding the one before. */
+    function curveOps ()
     {
         const row = (curveChain()?.stages[0].params.find((q) =>
             q.name === 'values')?.valueText ?? '').replace(/"/g, '').trim()
             .split(/\s+/);
-        const out = new Map();
+        const ops = [['unchain', CURVE]];
         let at = 0;
 
-        for (const sc of curveScenes() ?? [])
+        for (const sc of sectionsOf())
         {
-            let i = Math.min(at, row.length - 1);
+            let i = Math.min(Math.round(at), row.length - 1);
 
             while (i > 0 && row[i] === '_')
                 i--;
 
-            const v = Number(row[i]);
+            if (sc.unit === 'beats' && Number.isFinite(Number(row[i])))
+                ops.push(['level', sc.name, `@${ENERGY}`, row[i]]);
 
-            out.set(sc.name, Number.isFinite(v) ? v : 0.5);
             at += sc.length;
         }
 
-        return out;
+        return ops;
     }
 
-    const curveRow = (all, energies) => '"' + all.flatMap((sc) =>
-        [String(+(energies.get(sc.name) ?? 0.5).toFixed(2)),
-         ...Array(sc.length - 1).fill('_')]).join(' ') + '"';
-
-    /* The playing or chosen scene's on a curve; else the knob's. */
-    function energyNow ()
-    {
-        const sc = scene();
-
-        if (sc !== null && curveChain() !== null)
-            return sceneEnergies().get(sc.name) ?? 0.5;
-
-        return knobValue(ENERGY) ?? 0.5;
-    }
-
-    /* What the energy needs and the piece has not got: the knob, the
+    /* What the energy needs and the piece has not got: the knob, and the
        stages of each player the band plays -- not one that is played by
-       hand, whose notes are yours -- and with scenes the curve, at `value'
-       for the scene there is now and as written for the others; and a
-       curve with no scenes left to follow, taken out. A chain of that
-       name the band did not write is left alone, and the energy is the
-       knob's. */
+       hand, whose notes are yours -- and an earlier band's curve made the
+       scenes' own. */
     function energyMissing (value)
     {
         const now = piece();
         const ops = [];
-        const all = curveScenes();
-        const clash = curveChain() === null &&
-                      now.chains.some((c) => c.name === CURVE);
 
         if (!(now.knobs ?? []).some((k) => k.name === ENERGY) &&
             knobValue(ENERGY) === null)
@@ -619,29 +613,15 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             if (!p.input)
                 ops.push(...energyOps(p.name, p.role === 'drums', p.stages));
 
-        if (all !== null && curveChain() === null && !clash)
-            ops.push(['knobchain', CURVE, ENERGY, 'src', 'gen', 'steps',
-                      `values=${curveRow(all, new Map([[scene().name,
-                                                        value]]))}`,
-                      'period=1 beats']);
-        else if (all === null && curveChain() !== null)
-            ops.push(['unchain', CURVE]);
+        if (curveChain() !== null)
+            ops.push(...curveOps());
 
         return ops;
     }
 
-    /* A curve made or changed while the piece plays, put in step with
-       the scenes: a chain added mid-piece starts its row where the
-       transport is, and one edited goes on with the row it had sent. */
-    function realign ()
-    {
-        if (running)
-            seek(transportNow);
-    }
-
-    /* Live as it moves; let go of, into the piece -- into the scene's
-       place on the curve where there is one. A move while what is
-       missing goes in is made once it is in. */
+    /* Live as it moves; let go of, into the piece -- into the scene there
+       is one, which sets it whenever the scene begins. A move while what
+       is missing goes in is made once it is in. */
     let energyAdding = false;
     let energyNext = null;
 
@@ -664,9 +644,10 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
             const went = await edit(ops);
             const next = energyNext;
-            /* What was written with `value' in it need not be again. */
-            const wrote = ops.some(([op]) => op === 'knob' ||
-                                             op === 'knobchain');
+            /* A knob written at `value' need not be again, but for a
+               scene, which sets its own. */
+            const wrote = scene() === null &&
+                          ops.some(([op]) => op === 'knob');
 
             energyAdding = false;
             energyNext = null;
@@ -677,81 +658,17 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                 return;
             }
 
-            realign();
             setEnergy(next?.value ?? value,
                       next?.commit ?? (commit && !wrote));
             return;
         }
 
-        const all = curveScenes();
+        const sc = scene();
 
-        knob(ENERGY, value, commit && curveChain() === null);
+        knob(ENERGY, value, commit && sc === null);
 
-        if (commit && all !== null && curveChain() !== null)
-        {
-            const energies = sceneEnergies();
-
-            energies.set(scene().name, value);
-
-            if (await edit([['param', CURVE, '0', 'values',
-                             curveRow(all, energies)]]))
-                realign();
-        }
-    }
-
-    /* The scenes `ops' leave, as curveScenes says them. */
-    function scenesAfter (ops)
-    {
-        const meter = clock().meter;
-        const lengthOf = (text) =>
-        {
-            const m = /^([\d.]+)\s*(bars|beats|b|s)$/.exec(text.trim());
-            const n = Number(m?.[1]);
-
-            return m === null ? { length: 0, unit: '' }
-                : m[2] === 's' ? { length: n, unit: 's' }
-                : { length: m[2] === 'bars' ? n * meter : n, unit: 'beats' };
-        };
-        let all = sectionsOf().map((s) => ({ name: s.name, length: s.length,
-                                            unit: s.unit }));
-
-        for (const [op, name, length, after] of ops)
-            if (op === 'section')
-                all.splice(after ? all.findIndex((s) => s.name === after) + 1
-                                 : all.length, 0,
-                           { name, ...lengthOf(length) });
-            else if (op === 'sectionlength')
-                all = all.map((s) => s.name === name
-                    ? { name, ...lengthOf(length) } : s);
-            else if (op === 'unsection')
-                all = all.filter((s) => s.name !== name);
-
-        return all.length > 0 && all.every((s) =>
-            s.unit === 'beats' && Number.isInteger(s.length)) ? all : null;
-    }
-
-    /* A scene edit, with the curve made again for the scenes it leaves in
-       the same edit, one undo: each scene's energy as it was, a new one
-       `to' at that of `from'; or taken out with no scenes to follow. */
-    async function sceneEdit (ops, from = null, to = null)
-    {
-        if (curveChain() === null)
-            return edit(ops);
-
-        const energies = sceneEnergies();
-        const after = scenesAfter(ops);
-
-        if (to !== null)
-            energies.set(to, energies.get(from) ?? 0.5);
-
-        const went = await edit([...ops, after === null
-            ? ['unchain', CURVE]
-            : ['param', CURVE, '0', 'values', curveRow(after, energies)]]);
-
-        if (went)
-            realign();
-
-        return went;
+        if (commit && sc !== null)
+            await edit([['level', sc.name, `@${ENERGY}`, String(value)]]);
     }
 
     function showEnergy ()
@@ -764,7 +681,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         box.setAttribute('aria-valuetext',
                          `${Math.round(Number(box.value) * 100)}%`);
-        box.title = sc !== null && curveScenes() !== null
+        box.title = sc !== null
             ? `How much is going on in ${sc.name}: calm to full, as ` +
               'written in the middle'
             : 'How much the whole band plays: calm to full, as written ' +
@@ -1331,23 +1248,60 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
        played or chosen lit; chosen, the transport goes to it. + Scene
        copies the scene after it. The one lit can be named, sized and
        taken out. */
+    /* Scene `i': while the piece plays, from the next bar line, the
+       scene playing going on to it there; stopped, played from. */
+    function goTo (i)
+    {
+        const s = sectionsOf()[i];
+
+        chosen = i;
+
+        if (running)
+        {
+            cued = i;
+            cue(i);
+            tell(`${s.name} from the next bar`);
+        }
+        else
+            seekSection(i);
+
+        draw();
+    }
+
+    /* The scenes: the piece's sections, a button each, the one being
+       played or chosen lit, one cued marked until it begins; each with
+       its length, whether it holds, and its energy as a bar up its edge,
+       so the row is the song's shape. + Scene copies the scene lit, and
+       the one lit can be held, made where the song goes round to after
+       its last, sized, named and taken out; playing, Next cues the one
+       after it. */
     function scenes ()
     {
         const box = $('bandscenes');
         const all = sectionsOf();
         const sc = scene();
-        const energies = curveChain() === null ? null : sceneEnergies();
+        const energies = (piece()?.knobs ?? []).some((k) =>
+            k.name === ENERGY) ? sceneEnergies() : null;
         const row = all.map((s, i) =>
         {
-            const b = button(s.name, sizeOf(s), () =>
-                {
-                    chosen = i;
-                    seekSection(i);
-                    draw();
-                }, `@scene=${s.name}`);
+            const b = button(s.name, sizeOf(s), () => goTo(i),
+                             `@scene=${s.name}`);
+            const notes = [sizeOf(s), ...(s.hold ? ['holds'] : []),
+                           ...(s.loopTo ? ['the song goes round to here']
+                                        : [])];
+
+            const isCued = running && cued === i && sc?.index !== i;
 
             b.className = 'scene';
             b.classList.toggle('on', sc !== null && sc.index === i);
+            b.classList.toggle('cued', isCued);
+
+            if (isCued)
+            {
+                notes.push('coming in at the next bar');
+                b.setAttribute('aria-description',
+                               'coming in at the next bar');
+            }
 
             if (energies !== null)
             {
@@ -1355,14 +1309,17 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
                 b.style.setProperty('--energy', String(e));
                 b.classList.add('energized');
-                b.title += `, energy ${Math.round(e * 100)}%`;
+                notes.push(`energy ${Math.round(e * 100)}%`);
             }
 
             if (sc !== null && sc.index === i)
                 b.setAttribute('aria-current', 'true');
 
+            b.title = notes.join(', ');
             b.append(' ', Object.assign(document.createElement('small'),
-                { textContent: b.title }));
+                { textContent: [sizeOf(s), ...(s.hold ? ['↻ holds'] : []),
+                                ...(s.loopTo ? ['↺ round to here'] : [])]
+                    .join(' · ') }));
             return b;
         });
         const add = button('+ Scene', sc === null
@@ -1371,14 +1328,16 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         {
             const taken = new Set(all.map((s) => s.name));
             const length = sc === null ? '8 bars' : `${sc.length} ${sc.unit}`;
-            const levels = Object.entries(sc?.levels ?? {})
-                .map(([c, l]) => `${c}=${l}`);
+            const levels = [
+                ...Object.entries(sc?.levels ?? {}).map(([c, l]) =>
+                    `${c}=${l}`),
+                ...Object.entries(sc?.knobs ?? {}).map(([k, v]) =>
+                    `@${k}=${v}`)];
 
             const name = freeName('scene', taken);
 
             chosen = sc === null ? 0 : indexOf(sc.name) + 1;
-            sceneEdit([['section', name, length, sc?.name ?? '', ...levels]],
-                      sc?.name ?? null, name)
+            edit([['section', name, length, sc?.name ?? '', ...levels]])
                 .then((went) => went && tell(`A scene called ${name}`));
         }, '@add');
 
@@ -1387,6 +1346,52 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
         if (sc === null)
             return;
+
+        /* The scene as it is when used, which an edit since this was
+           drawn -- a rename -- may have changed. */
+        const now = () => scene()?.name ?? sc.name;
+        /* After the one cued, if one is; round to where the song goes
+           round to after the last. */
+        const from = running && cued >= 0 ? cued : sc.index;
+        const next = from + 1 < all.length ? from + 1
+            : Math.max(0, all.findIndex((s) => s.loopTo));
+
+        if (running && all.length > 1)
+            box.append(button(`Next: ${all[next].name}`,
+                              `${all[next].name} from the next bar`,
+                              () => goTo(next), '@next'));
+
+        const toggle = (text, title, on, f, change) =>
+        {
+            const b = button(text, title, change, f);
+
+            b.classList.add('toggle');
+            b.setAttribute('aria-pressed', String(on));
+            return b;
+        };
+        const hold = toggle('Hold', `Play ${sc.name} again until another ` +
+                                    'scene is picked',
+                            sc.hold === true, '@hold', () =>
+        {
+            const name = now();
+
+            edit([['sectionhold', name, sc.hold ? '0' : '1']])
+                .then((went) => went && tell(sc.hold
+                    ? `${name} goes on to the next` : `${name} holds`));
+        });
+        /* Round to the first is what a song does anyway, and a song that
+           ends goes round to nothing. */
+        const round = sc.index === 0 || sc.ends ? [] : [toggle('Round to here',
+            `After the last scene, back to ${sc.name} rather than the ` +
+            'first', sc.loopTo === true, '@loop', () =>
+        {
+            const name = now();
+
+            edit([['sectionloop', ...(sc.loopTo ? [] : [name])]])
+                .then((went) => went && tell(sc.loopTo
+                    ? 'The song goes round to the first scene'
+                    : `The song goes round to ${name}`));
+        })];
 
         const size = document.createElement('select');
 
@@ -1404,16 +1409,13 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             size.prepend(new Option(sizeOf(sc), ''));
 
         size.value = listed ? String(barsOf(sc)) : '';
-        /* The scene as it is when used, which an edit since this was
-           drawn -- a rename -- may have changed. */
-        const now = () => scene()?.name ?? sc.name;
 
         size.addEventListener('change', () =>
         {
             const name = now();
 
             if (size.value !== '')
-                sceneEdit([['sectionlength', name, `${size.value} bars`]])
+                edit([['sectionlength', name, `${size.value} bars`]])
                     .then((went) => went &&
                           tell(`${name} lasts ${size.value} bars`));
         });
@@ -1432,12 +1434,12 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         {
             const name = now();
 
-            sceneEdit([['unsection', name]]).then((went) =>
+            edit([['unsection', name]]).then((went) =>
                 went && tell(`${name} is out of the song`));
         }, '@out');
 
         out.setAttribute('aria-label', out.title);
-        box.append(size, name, out);
+        box.append(hold, ...round, size, name, out);
     }
 
     function card (p)
@@ -1965,7 +1967,6 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
            the scenes drawn again when it moves on. */
         at (section, isRunning, now, start = 0, length = 0)
         {
-            transportNow = now;
             span = { start, length };
 
             if (section === playing && isRunning === running)
@@ -1976,6 +1977,9 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
 
             playing = section;
             running = isRunning;
+
+            if (!running || playing === cued)
+                cued = -1;
 
             if (running && playing >= 0)
                 chosen = playing;

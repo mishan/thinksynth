@@ -1956,6 +1956,7 @@ const band = createBand({
        command the composer view's lane sends, written into the piece. */
     seek: (at) => synth?.transport('seek', at),
     seekSection: (section) => synth?.transport('seekSection', section),
+    cue: (section) => synth?.transport('cue', section),
     clock: () => ({ tempo: lastTape?.tempo ?? piece?.tempo ?? 120,
                     meter: lastTape?.meter ?? 4 }),
     level: (section, chain, level) =>
