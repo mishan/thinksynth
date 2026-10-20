@@ -259,6 +259,9 @@ typedef struct {
     double tempo;     /* beats per minute                                 */
     double beat;      /* now, expressed in beats                          */
     int    running;   /* 0 while paused; ticks still fire for UI updates  */
+    double meter;     /* beats to the bar; 0 where the host has none.
+                         Last, so a composer built before it reads the
+                         rest where they always were                     */
 } thcTransport;
 
 /* ---- parameters ------------------------------------------------------ */

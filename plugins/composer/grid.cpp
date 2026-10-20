@@ -183,6 +183,10 @@ struct State {
     int    posStep;
     double posAt;
 
+    /* A step in beats and a bar in beats, as the last tick heard them,
+       for the picture's beat and bar lines; 0 before one has. */
+    double stepBeats = 0, meter = 0;
+
     /* Set by a click or by a note landing, cleared once the param has
        been re-read: the grid and the text no longer agree, and the one
        in front of somebody is the grid. */
@@ -512,6 +516,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     refresh(st);
 
     const double period = getp(st, P_PERIOD);
+
+    st->stepBeats = period * t->tempo / 60.0;
+    st->meter = t->meter;
 
     if (st->steps <= 0 || st->rows <= 0 || !t->running)
         return t->now + period;
@@ -991,32 +998,42 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         }
     }
 
-    /* The column the playhead is on is the one about to sound: pos has
-       already been advanced past the step that just did. Washed over
-       the cells rather than laid under them, because a drum track is a
-       row with every cell filled and a highlight behind those is a
-       highlight nobody sees. */
-    cairo_set_source_rgba(cr, 1, 1, 1, 0.16);
-    cairo_rectangle(cr, st->pos * cw, 0, cw, h);
-    cairo_fill(cr);
+    /* Beats faint and bars bright, over the cells rather than under
+       them: drawn first, the empty cells' own outlines covered them.
+       Where a step is in beats is the last tick's tempo and meter; before
+       one, and for a step that is no whole fraction of a beat, every
+       fourth step, as a sixteenth is. */
+    const double eps = 1e-6;
+    const bool timed = st->stepBeats > 0 && st->meter > 0;
 
-    /* Every fourth step, over the cells rather than under them: drawn
-       first, the empty cells' own outlines covered them and sixteen
-       columns were sixteen identical columns. Beats and not bars,
-       because the grid does not know what a bar is -- its steps may be
-       seconds. */
-    if (cw >= 3)
+    for (int x = 1; x < st->steps; x++)
     {
-        cairo_set_source_rgba(cr, 1, 1, 1, 0.35);
-        cairo_set_line_width(cr, 1);
+        const double beats = x * st->stepBeats;
+        const bool bar = timed &&
+            std::fabs(beats / st->meter - std::round(beats / st->meter)) <
+                eps;
+        const bool beat = timed
+            ? st->stepBeats < 1 &&
+              std::fabs(beats - std::round(beats)) < eps
+            : x % 4 == 0;
 
-        for (int x = 4; x < st->steps; x += 4)
-        {
-            cairo_move_to(cr, x * cw + 0.5, 0);
-            cairo_line_to(cr, x * cw + 0.5, h);
-        }
+        if (!bar && !(beat && cw >= 3))
+            continue;
 
+        cairo_set_source_rgba(cr, 1, 1, 1, bar ? 0.55 : 0.2);
+        cairo_set_line_width(cr, bar ? 1.5 : 1);
+        cairo_move_to(cr, x * cw + 0.5, 0);
+        cairo_line_to(cr, x * cw + 0.5, h);
         cairo_stroke(cr);
     }
+
+    /* The playhead, at the left of the column about to sound -- pos has
+       already moved past the step that just did -- in a color no cell or
+       line is, so it cannot be read as part of the pattern. */
+    cairo_set_source_rgba(cr, 1.0, 0.45, 0.35, 0.95);
+    cairo_set_line_width(cr, 2);
+    cairo_move_to(cr, st->pos * cw + 1, 0);
+    cairo_line_to(cr, st->pos * cw + 1, h);
+    cairo_stroke(cr);
 }
 #endif
