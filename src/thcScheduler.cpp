@@ -4201,8 +4201,10 @@ static const unsigned TH_MAX_STALLED_WAKES = 8;
 
 /* A wake this close counts toward that cap too: a piece can give a period
    of 1e-7 s, and a stage that asks for one every time is ten million
-   wakes a transport second. Nothing in the tree ticks this fast. */
-static const double TH_MIN_WAKE_S = 1e-4;
+   wakes a transport second. The fastest a stage ticks within its declared
+   ranges is morph's 0.01 s over 512 steps, 2e-5 s, which must not count:
+   held to the step, its sweep would last as long as the steps did. */
+static const double TH_MIN_WAKE_S = 1e-6;
 
 /* The stages whose time has come, each ticked at the time it asked for.
  *
