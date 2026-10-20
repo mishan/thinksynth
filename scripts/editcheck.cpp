@@ -1316,6 +1316,217 @@ checkCueEdit (const std::map<std::string, thcPlugin *> &plugins,
         printf("ok    an edit to the cue knob's declaration cues nothing\n");
 }
 
+/* The levels a channel's notes were delivered at, in [from, to), each
+   once: what a level reading a knob was set to there. */
+static std::set<std::string>
+levelsIn (const std::string &tape, int channel, double from, double to)
+{
+    std::set<std::string> out;
+    std::istringstream lines(tape);
+
+    for (std::string l; std::getline(lines, l); )
+    {
+        double at, dur, level;
+        int ch, note, vel;
+        char kind;
+
+        if (sscanf(l.c_str(), "%c %lf %d %d %d %lf %lf", &kind, &at, &ch,
+                   &note, &vel, &dur, &level) == 7 && kind == 'N' &&
+            ch == channel && at >= from && at < to)
+        {
+            char b[32];
+
+            snprintf(b, sizeof b, "%g", level);
+            out.insert(b);
+        }
+    }
+
+    return out;
+}
+
+static std::string
+joined (const std::set<std::string> &s)
+{
+    std::string out;
+
+    for (const auto &x : s)
+        out += (out.empty() ? "" : " ") + x;
+
+    return out.empty() ? "none" : out;
+}
+
+/* A section that sets a knob as it begins (`@lift = 1;' in its block),
+ * where the knob drives xform::level on a chain that plays a step at a
+ * time (channel 1), one that composes a phrase ahead across the bar lines
+ * (channel 2) and one on no beat, which ticks at 1.99 s, just before a
+ * bar line, inside a step of the jittered peer's (channel 3). At 120, a
+ * bar is two seconds.
+ *
+ *   1. Two peers, one in windows of 1024 and one in jittered steps, deliver
+ *      one tape: where the knob lands does not hang on the step.
+ *   2. A rewind after the edit plays what a fresh load of its text does.
+ *   3. An edit to the value of the section playing is heard from the next
+ *      notes, on both peers alike.
+ *   4. A hand on the knob holds until the next section sets it.
+ *   5. A cue by a knob into a section sets that section's knob.
+ *   6. Sections in seconds set it as well.
+ */
+static void
+checkSectionKnobs (const std::map<std::string, thcPlugin *> &plugins,
+                   const std::string &pluginDir,
+                   const std::filesystem::path &dir)
+{
+    const std::string what = "section knobs";
+    const auto piece = [](const std::string &sections)
+    {
+        return "tempo 120;\nmeter 4;\n@lift = 0.5;\n@act = 0;\n" +
+               sections +
+               "chain beat { stage s gen::euclid { steps = 4; fills = 4;\n"
+               "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats; };\n"
+               "    stage up xform::level { gain = @lift; };\n"
+               "    sink { channel = 1; }; };\n"
+               "chain line { stage s gen::lsystem {\n"
+               "    axiom = \"F+F+F-F+F+F-F-F+F-F+F\"; rules = \"\";\n"
+               "    depth = 0; notes = \"C4 D4 E4 G4 A4\";\n"
+               "    step = 0.5 beats; hold = 0.4 beats; };\n"
+               "    stage up xform::level { gain = @lift; };\n"
+               "    sink { channel = 2; }; };\n"
+               "chain off { stage s gen::euclid { steps = 1; fills = 1;\n"
+               "    notes = \"E2\"; period = 0.199 s; hold = 0.1 s; };\n"
+               "    stage up xform::level { gain = @lift; };\n"
+               "    sink { channel = 3; }; };\n";
+    };
+    const auto lift = [&piece](const std::string &b)
+    {
+        return piece("section a 1 bars { @lift = 0.25; };\n"
+                     "section b 1 bars { @lift = " + b + "; };\n");
+    };
+    const auto windows = [] { return 1024.0 / 44100.0; };
+    Rng rng = { 7 };
+    const auto jittered = [&rng] { return 0.002 + 0.058 * rng(); };
+    std::vector<std::string> errors;
+
+    {
+        Peer one(plugins, pluginDir, dir, "sk1"), two(plugins, pluginDir,
+                                                      dir, "sk2");
+        const std::vector<Edit> edits = { { 2.61, lift("0.4") } };
+
+        if (!one.load(lift("1"), errors) || !two.load(lift("1"), errors))
+        {
+            fail(what, "did not load: " + (errors.empty() ? "" : errors[0]));
+            return;
+        }
+
+        play(one, what, edits, 7.9, windows);
+        play(two, what, edits, 7.9, jittered);
+
+        if (one.tape != two.tape || one.tape.empty())
+            fail(what, "two step sizes delivered two tapes: " +
+                 joined(levelsIn(one.tape, 2, 1.9, 2.3)) + " against " +
+                 joined(levelsIn(two.tape, 2, 1.9, 2.3)));
+        else
+            printf("ok    a section's knob lands alike at any step size, "
+                   "through an edit to it\n");
+
+        /* B from the bar after the edit, and a's as written. */
+        const std::string edited = joined(levelsIn(one.tape, 0, 3, 4)),
+                          a = joined(levelsIn(one.tape, 0, 4, 6));
+
+        if (edited != "0.4" || a != "0.25")
+            fail(what, "an edit to the section's value should be heard from "
+                 "the next notes: " + edited + ", then " + a);
+        else
+            printf("ok    an edit to the section playing is heard from its "
+                   "next notes\n");
+
+        Peer fresh(plugins, pluginDir, dir, "skfresh");
+
+        fresh.load(lift("0.4"), errors);
+        play(fresh, what, {}, 7.9, windows);
+        one.sched.reset();
+        one.tape.clear();
+        play(one, what, {}, 7.9, windows);
+
+        if (one.tape != fresh.tape)
+            fail(what, "a rewind after the edit did not play what a fresh "
+                 "load of its text does");
+        else
+            printf("ok    a rewind after the edit plays what a fresh load "
+                   "does\n");
+    }
+
+    /* A hand at 0.5 s, in a: it holds through a, and b sets its own. */
+    {
+        Peer p(plugins, pluginDir, dir, "skhand");
+        bool moved = false;
+
+        p.load(lift("1"), errors);
+        play(p, what, {}, 3.9, windows, [&moved](Peer &q, double t)
+        {
+            if (!moved && t >= 0.5)
+            {
+                moved = true;
+                q.sched.knob("lift")->setValue(0.6f);
+                q.sched.knobMoved(q.sched.knob("lift"), false);
+            }
+        });
+
+        const std::string held = joined(levelsIn(p.tape, 0, 1, 2)),
+                          b = joined(levelsIn(p.tape, 0, 2, 4));
+
+        if (held != "0.6" || b != "1")
+            fail(what, "a hand on the knob should hold until the next "
+                 "section sets it: " + held + ", then " + b);
+        else
+            printf("ok    a hand on the knob holds until the next section "
+                   "sets it\n");
+    }
+
+    /* @act moved to 3 in a: c, cued at the next bar, sets its value. */
+    {
+        Peer p(plugins, pluginDir, dir, "skcue");
+        bool cued = false;
+
+        p.load(piece("section a 1 bars hold { @lift = 0.25; };\n"
+                     "section b 1 bars { @lift = 1; };\n"
+                     "section c 1 bars hold { @lift = 0.75; };\n"
+                     "cue @act 1 bars;\n"), errors);
+        play(p, what, {}, 5.9, windows, [&cued](Peer &q, double t)
+        {
+            if (!cued && t >= 0.5)
+            {
+                cued = true;
+                q.sched.knob("act")->setValue(3);
+            }
+        });
+
+        const std::string c = joined(levelsIn(p.tape, 0, 2, 6));
+
+        if (c != "0.75")
+            fail(what, "a section cued by a knob should set its knob: " + c);
+        else
+            printf("ok    a section cued by a knob sets its knob\n");
+    }
+
+    /* In seconds: 1.5 s each. */
+    {
+        Peer p(plugins, pluginDir, dir, "sksec");
+
+        p.load(piece("section a 1.5 s { @lift = 0.25; };\n"
+                     "section b 1.5 s { @lift = 1; };\n"), errors);
+        play(p, what, {}, 2.9, windows);
+
+        const std::string a = joined(levelsIn(p.tape, 0, 0, 1.5)),
+                          b = joined(levelsIn(p.tape, 0, 1.5, 2.9));
+
+        if (a != "0.25" || b != "1")
+            fail(what, "sections in seconds should set the knob: " + a +
+                 ", then " + b);
+        else
+            printf("ok    sections in seconds set their knobs\n");
+    }
+}
+
 /* A Life board painted on while it plays, and then a param of its chain
    set: what was painted is still on the board, which a chain played again
    from its text would have lost. */
@@ -1823,6 +2034,7 @@ main (int argc, char *argv[])
     checkListener(plugins, pluginDir, dir);
     checkPainted(plugins, pluginDir, dir);
     checkCueEdit(plugins, pluginDir, dir);
+    checkSectionKnobs(plugins, pluginDir, dir);
 
     std::error_code ec;
 
