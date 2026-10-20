@@ -33,7 +33,7 @@
  * and SCRATCHDIR/case.txt says how to run it again (-r, and -e for an
  * edit).
  *
- * Exit status is the number of failures.
+ * Exit status is 0 when nothing failed.
  */
 
 #include "config.h"
@@ -193,9 +193,11 @@ loadComposers (const std::string &pluginDir,
     }
 }
 
+/* Each case on a synth of its own, so -r runs it as it ran here. */
 struct Run
 {
     std::map<std::string, thcPlugin *> plugins;
+    std::string pluginDir;
     thSynth *synth;
     fs::path scratch;
 };
@@ -219,6 +221,11 @@ play (Run &run, thcScheduler &sched, double seconds)
 static void
 dspCase (Run &run, const std::string &text, const std::string &label)
 {
+    thSynth synth(run.pluginDir, TH_DEFAULT_WINDOW_LENGTH,
+                  TH_DEFAULT_SAMPLES);
+
+    run.synth = &synth;
+
     std::vector<thLexToken> tokens;
     bool said = false;
 
@@ -251,6 +258,11 @@ static void
 genCase (Run &run, const fs::path &from, const std::string &text,
          const std::string &label)
 {
+    thSynth synth(run.pluginDir, TH_DEFAULT_WINDOW_LENGTH,
+                  TH_DEFAULT_SAMPLES);
+
+    run.synth = &synth;
+
     const fs::path file = run.scratch / "case.gen";
 
     if (!spill(file, text))
@@ -262,6 +274,9 @@ genCase (Run &run, const fs::path &from, const std::string &text,
     thcScheduler sched(run.synth);
 
     sched.setAuditionSynchronous(true);
+
+    /* A piece without a seed line would otherwise take a random one. */
+    sched.setMasterSeed(1);
 
     std::vector<std::string> errors;
     bool ok;
@@ -349,7 +364,7 @@ main (int argc, char *argv[])
         else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc)
             iterations = atoi(argv[++i]);
         else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc)
-            state *= strtoull(argv[++i], NULL, 0) + 1;
+            state ^= strtoull(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "-r") == 0 && i + 1 < argc)
             replay = argv[++i];
         else if (strcmp(argv[i], "-e") == 0 && i + 1 < argc)
@@ -368,11 +383,9 @@ main (int argc, char *argv[])
 
     if (!replay.empty())
     {
-        thSynth synth(pluginDir, TH_DEFAULT_WINDOW_LENGTH,
-                      TH_DEFAULT_SAMPLES);
         Run run;
 
-        run.synth = &synth;
+        run.pluginDir = pluginDir;
         run.scratch = fs::path(replay).parent_path() / "replay";
         fs::create_directories(run.scratch);
         loadComposers(pluginDir, run.plugins);
@@ -401,10 +414,9 @@ main (int argc, char *argv[])
         return 2;
     }
 
-    thSynth synth(pluginDir, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     Run run;
 
-    run.synth = &synth;
+    run.pluginDir = pluginDir;
     run.scratch = dirs[2];
     loadComposers(pluginDir, run.plugins);
 
