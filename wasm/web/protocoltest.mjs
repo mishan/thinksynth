@@ -1612,9 +1612,10 @@ function fanOut (count)
                 process.stdout.write(line + '\n');
         });
 
-        return new Promise((resolve, reject) =>
+        /* A shard that could not start is a failure, like one killed. */
+        return new Promise((resolve) =>
         {
-            child.on('error', reject);
+            child.on('error', () => resolve(null));
             child.on('close', (status) =>
             {
                 if (rest !== '')
@@ -1663,7 +1664,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             `jitter and ${NETWORKS.lan.loss * 100}% loss; ${SECONDS} s of ` +
             'transport\n\n');
 
-    const shards = Math.min(os.availableParallelism(), all.length);
+    /* Eight at most: each holds the module twice, and a desktop's every
+       core at once is more memory than the run is worth. */
+    const shards = Math.min(os.availableParallelism(), 8, all.length);
 
     const fanned = shard === null && shards > 1 ? fanOut(shards) : null;
 

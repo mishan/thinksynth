@@ -72,6 +72,9 @@ list(SORT files)
 # SHARD of SHARDS: every SHARDS'th file from the SHARD'th, so a sweep too
 # long for one core is registered as several tests that ctest runs at once.
 if(SHARDS)
+  if(NOT DEFINED SHARD)
+    message(FATAL_ERROR "RunHarness.cmake: SHARDS needs SHARD")
+  endif()
   set(_mine "")
   set(_i 0)
   foreach(f IN LISTS files)
