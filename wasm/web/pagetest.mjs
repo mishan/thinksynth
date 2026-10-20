@@ -3729,6 +3729,54 @@ try
                       curve.slice(curve.indexOf('chain energy')))?.[1] }));
     }
 
+    /* Start from a phrase: what the keys play goes into the piece, and
+       Use it keeps the last bars as a player, with a band in its key. */
+    {
+        const text = () => page.evaluate(() => window.solo.genText());
+        /* Yes to putting away the piece the checks above changed. */
+        const away = (d) => d.accept();
+
+        page.on('dialog', away);
+        await page.click('#bandphrase');
+        await page.waitForSelector('#bandphrasebox:not([hidden])');
+        page.off('dialog', away);
+        await page.evaluate(() => window.solo.settled());
+        await page.keyboard.press('Escape');
+
+        /* E, G, A and B an eighth apart, round and round for two bars at
+           the piece's 100. */
+        for (let i = 0; i < 16; i++)
+        {
+            const k = ['KeyC', 'KeyB', 'KeyN', 'KeyM'][i % 4];
+
+            await page.keyboard.down(k);
+            await page.waitForTimeout(280);
+            await page.keyboard.up(k);
+            await page.waitForTimeout(20);
+        }
+
+        await page.click('#bandphraseuse');
+
+        const band = await until(text, (t) => /chain chords/.test(t));
+
+        /* Use it plays on once the band is in, after the text has it; and
+           a load does not rewind, so the next piece would go on from
+           here. */
+        await page.waitForSelector('#bandphrasebox', { state: 'hidden' });
+        await page.click('#stop');
+        await page.click('#rewind');
+        await page.evaluate(() => window.solo.settled());
+
+        check(/chain phrase \{\s*stage frozen gen::grid/.test(band) &&
+              /notes = "E3 G3 A3 B3"/.test(band) &&
+              /scale key "E3 /.test(band) && !/chain count/.test(band) &&
+              /chain kick/.test(band) && /chain bass/.test(band),
+              'Start from a phrase keeps what was played as a player and ' +
+              'adds a band in its key: ' + JSON.stringify({
+                  chains: band.match(/^chain \w+/gm),
+                  key: /scale key "[^"]*"/.exec(band)?.[0] }));
+    }
+
     /* The pictures: a drawn Life board is offered Restart rather than
        Vary, and a grid player's picture is a sequencer track -- a click on
        it draws a note into the piece. */

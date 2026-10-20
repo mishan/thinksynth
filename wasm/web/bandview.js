@@ -31,8 +31,8 @@
  * tightly rather than rewriting it.
  */
 
-import { IDEAS as GALLERY, SOUNDS, addOps, freeName, removeOps }
-    from './bandideas.js';
+import { IDEAS as GALLERY, PHRASE, SOUNDS, addOps, freeName, ideaNamed,
+         removeOps } from './bandideas.js';
 import { MOODS, ROOTS, inKey, keyNotes, keyOf, keyOps } from './bandkey.js';
 import { replay } from './replay.js';
 import { gestureOn } from './seqview.js';
@@ -458,6 +458,29 @@ const energyOps = (name, drums, stages = []) => energyStages(drums)
    beat a step, each scene's energy on its first beat and held. */
 const CURVE = 'energy';
 
+/* An idea's notes moved into `key'; a drum's are which drum it is. */
+const tunedTo = (idea, role, key) => role === 'drums' ? idea : {
+    ...idea,
+    stages: idea.stages.map(([c, p, params]) =>
+        [c, p, Object.fromEntries(Object.entries(params).map(([k, v]) =>
+            [k, inKey(v, key)]))]) };
+
+/* A kept grid's notes as often as each was struck: its ladder is a pitch
+   a row, the lowest row last, and a cell `x' a note struck. What a key
+   is fitted to, so that a passing note counts for less than the tonic. */
+function struck (stage)
+{
+    const row = (name) => (stage.params.find((q) => q.name === name)
+        ?.valueText ?? '').replace(/"/g, '').trim();
+    const notes = row('notes').split(/\s+/);
+    const rows = row('cells').split('/');
+
+    return rows.flatMap((cells, r) =>
+        Array(cells.split('x').length - 1)
+            .fill(notes[rows.length - 1 - r]))
+        .filter((n) => n !== undefined).join(' ');
+}
+
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
 
@@ -475,7 +498,8 @@ const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
 export function createBand ({ piece, params, vary, keep, rest, say, tell,
                               touch, toMirror, onGesture, edit, sounds,
                               sound, newBand, seek, seekSection, level,
-                              clock, knob, knobValue })
+                              clock, knob, knobValue, phrase, keepPhrase,
+                              play })
 {
     /* The scene being played, while the piece plays, and the one last
        chosen, while it does not: the one a Rest is written into. */
@@ -1595,6 +1619,80 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             showKey(piece());
     }
 
+    /* ---- start from a phrase (PHRASE) ---- */
+
+    async function startPhrase ()
+    {
+        if (!(await phrase()))
+            return;
+
+        /* The keys to the keys, not to a button they would type into. */
+        $('bandphrasebox').hidden = false;
+        document.activeElement?.blur();
+        tell('Play a phrase on the keys');
+    }
+
+    /* The last bars played kept as the player `phrase', the piece's
+       count and its live input taken out, and a band added in the key the
+       phrase is in. */
+    async function usePhrase ()
+    {
+        const bars = Number($('bandphrasebars').value);
+        const before = new Set(playersOf(piece()).map((p) => p.name));
+        const taker = playersOf(piece()).find((p) => p.name === 'phrase');
+
+        if (taker === undefined || !(await keepPhrase(taker, bars)))
+            return;
+
+        const now = piece();
+        const kept = playersOf(now).find((p) => !before.has(p.name));
+
+        if (kept === undefined)
+            return;
+
+        const key = keyOf({
+            chains: [{ name: kept.name, stages: [{ ...kept.stages[0],
+                params: [{ name: 'notes',
+                           valueText: `"${struck(kept.stages[0])}"` }] }] }],
+        }, new Set([kept.name]));
+        const taken = new Set(['phrase', 'keys']);
+        const ops = [['unchain', 'phrase'], ['unchain', 'count'],
+                     ['uninstrument', 'count'],
+                     ['rechain', kept.name, 'phrase'],
+                     ['scale', 'key', keyNotes(key)]];
+
+        for (const [role, name] of PHRASE.ideas)
+        {
+            const idea = ideaNamed(role, name);
+            const call = freeName(idea.call, taken);
+
+            taken.add(call);
+            ops.push(...addOps(tunedTo(idea, role, key), call));
+        }
+
+        /* Refused, the keys are heard again for another go: the freeze
+           rested what takes them. */
+        if (!(await edit(ops)))
+        {
+            const live = playersOf(piece()).find((p) => p.name === 'phrase');
+
+            if (live !== undefined)
+            {
+                stateOf(live).resting = false;
+                rest(live, false);
+                draw();
+            }
+        }
+        else
+        {
+            /* A load, where the edit could not be made live, stops it. */
+            play();
+            $('bandphrasebox').hidden = true;
+            tell(`Your phrase, in ${ROOTS[key.root]} ${key.mood}, with a ` +
+                 'band around it');
+        }
+    }
+
     /* An idea for each role, a button each: chosen, it is a player of
        its own, on its own instrument. */
     function gallery ()
@@ -1637,12 +1735,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                     /* In the band's key, which a chord player names and so
                        must be written if the piece has none of its own. */
                     const key = keyOf(now, pitchedOf(now));
-                    const tuned = role === 'drums' ? idea : {
-                        ...idea,
-                        stages: idea.stages.map(([c, p, params]) =>
-                            [c, p, Object.fromEntries(
-                                Object.entries(params).map(([k, v]) =>
-                                    [k, inKey(v, key)]))]) };
+                    const tuned = tunedTo(idea, role, key);
 
                     const name = freeName(idea.call, taken);
 
@@ -1907,6 +2000,13 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             $('bandroot').addEventListener('change', chooseKey);
             $('bandmood').addEventListener('change', chooseKey);
             $('bandnew').addEventListener('click', () => newBand());
+            $('bandphrase').addEventListener('click', startPhrase);
+            $('bandphraseuse').addEventListener('click', usePhrase);
+            $('bandphrasecancel').addEventListener('click', () =>
+            {
+                $('bandphrasebox').hidden = true;
+                $('bandphrase').focus();
+            });
             $('bandenergy').addEventListener('input', () =>
             {
                 const box = $('bandenergy');
