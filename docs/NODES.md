@@ -344,7 +344,7 @@ Maps a stream to a new value range (dynamic)
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `inmin` | in | Bottom of the range coming in |  |  |  |  |
-| `inmax` | in | Top of the range coming in; must differ from inmin |  |  |  |  |
+| `inmax` | in | Top of the range coming in; equal to inmin, all of it comes out at outmin |  |  |  |  |
 | `outmin` | in | What inmin comes out as |  |  |  |  |
 | `outmax` | in | What inmax comes out as |  |  |  |  |
 | `in` | in | Signal in |  |  |  |  |
@@ -379,7 +379,7 @@ Maps a stream to a new value range
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `inmin` | in | Bottom of the range coming in |  |  |  |  |
-| `inmax` | in | Top of the range coming in; must differ from inmin |  |  |  |  |
+| `inmax` | in | Top of the range coming in; equal to inmin, all of it comes out at outmin |  |  |  |  |
 | `outmin` | in | What inmin comes out as |  |  |  |  |
 | `outmax` | in | What inmax comes out as |  |  |  |  |
 | `in` | in | Signal in |  |  |  |  |
