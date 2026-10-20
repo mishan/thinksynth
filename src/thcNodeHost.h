@@ -194,6 +194,10 @@ public:
        whose wakes may lie further apart than the cap. */
     void stepTo (double transport, bool capped = true);
 
+    /* stepTo, but a time behind the last window fired is left alone
+       rather than taken for a reset. */
+    void stepToward (double transport);
+
     /* Back to the top: every node's state forgotten, the window count
        zeroed. What thcScheduler::reset means down here. */
     void reset (void);
