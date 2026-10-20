@@ -478,8 +478,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         st->born = st->cells;
     }
 
-    const bool births = (int)getp(st, P_TRIGGER) == 0;
-    const int  vel = (int)getp(st, P_VEL);
+    const bool births =
+        thcParamInt(st->params, paramIndex[P_TRIGGER], -1, 1) == 0;
+    const int  vel = thcParamInt(st->params, paramIndex[P_VEL], -10000, 10000);
     const double hold = getp(st, P_HOLD);
 
     /* Columns are time within the generation, so a glider walking right
@@ -565,7 +566,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 {
     State *st = static_cast<State *>(state);
 
-    const int listen = (int)getp(st, P_LISTEN);
+    const int listen =
+        thcParamInt(st->params, paramIndex[P_LISTEN], -10000, 10000);
 
     if (ev->type == THC_EV_NOTE && listen != 0 && st->w > 0 && st->h > 0)
     {
@@ -596,7 +598,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
                to be days wide for a real column to reach it -- and
                anything outside it draws in column 0, which is a cell in
                the right row at the wrong time rather than a crash. */
-            if (slot > 0 && into > -1e9 && into < 1e9)
+            if (slot > 0 && into > -1e9 && into < 1e9 &&
+                std::fabs(into / slot) < 1e15)
             {
                 const long col = (long)std::floor(into / slot);
 
@@ -630,7 +633,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
        whatever else is sounding at that pitch on that channel, quite
        possibly another chain's note. Eat both or pass both. */
     if ((ev->type != THC_EV_NOTE && ev->type != THC_EV_NOTEOFF) ||
-        (int)getp(st, P_PASS) != 0)
+        thcParamInt(st->params, paramIndex[P_PASS], -1, 1) != 0)
         out->emit(out->ctx, ev);
 }
 

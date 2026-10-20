@@ -312,9 +312,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     refresh(st);
 
     const double time = getp(st, P_TIME);
-    const int    steps = (int)getp(st, P_STEPS);
+    const int    steps = thcParamInt(st->params, paramIndex[P_STEPS], 0, 512);
     const double curve = getp(st, P_CURVE);
-    const int    mode = (int)getp(st, P_MODE);
+    const int    mode = thcParamInt(st->params, paramIndex[P_MODE], -1, 3);
 
     const double dt = time / (steps > 1 ? (steps - 1) : 1);
 
@@ -392,7 +392,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     refresh(st);
 
     const double time = getp(st, P_TIME);
-    const int    steps = (int)getp(st, P_STEPS);
+    const int    steps = thcParamInt(st->params, paramIndex[P_STEPS], 0, 512);
     const double curve = getp(st, P_CURVE);
     const double dt = time / (steps > 1 ? (steps - 1) : 1);
 

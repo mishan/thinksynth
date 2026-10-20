@@ -117,7 +117,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         return;
     }
 
-    const int shift = (int)p->get(p->ctx, paramIndex[P_SEMITONES]);
+    const int shift = thcParamInt(p, paramIndex[P_SEMITONES], -10000, 10000);
     const int to = pitch + shift;
 
     st->seen.insert(pitch);

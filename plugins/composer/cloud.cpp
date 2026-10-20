@@ -171,12 +171,13 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         return;
     }
 
-    if ((int)get(P_PASS))
+    if (thcParamInt(p, paramIndex[P_PASS], -1, 1))
         out->emit(out->ctx, ev);
 
-    const int    count = (int)get(P_COUNT_);
+    const int    count = thcParamInt(p, paramIndex[P_COUNT_], 0, 32);
     const double time = get(P_TIME);
-    const int    reach = (int)get(P_PITCH);
+    /* 127 already reaches every note from any note. */
+    const int    reach = thcParamInt(p, paramIndex[P_PITCH], -1, 127);
     const double taper = get(P_TAPER);
     const double spread = get(P_SPREAD);
     const int    note = ev->u.note.note;

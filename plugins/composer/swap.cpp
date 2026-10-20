@@ -173,7 +173,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         return t->now + (every > 0 ? every : 1);
     }
 
-    if ((int)p->get(p->ctx, paramIndex[P_ORDER]) == 1)
+    if (thcParamInt(p, paramIndex[P_ORDER], -1, 2) == 1)
     {
         /* Picked, but never the one already sounding -- a swap to what
            is already there is an event that rebuilds a channel to look

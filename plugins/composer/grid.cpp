@@ -335,13 +335,9 @@ parseLadder (State *st, const char *text)
 static void
 refresh (State *st)
 {
-    int steps = (int)getp(st, P_STEPS);
-    int rows = (int)getp(st, P_ROWS);
-
-    if (steps < 1) steps = 1;
-    if (steps > MAX_STEPS) steps = MAX_STEPS;
-    if (rows < 1) rows = 1;
-    if (rows > MAX_ROWS) rows = MAX_ROWS;
+    const thcParams *p = st->params;
+    const int steps = thcParamInt(p, paramIndex[P_STEPS], 1, MAX_STEPS);
+    const int rows = thcParamInt(p, paramIndex[P_ROWS], 1, MAX_ROWS);
 
     const char *cells =
         st->params->get_string(st->params->ctx, paramIndex[P_CELLS]);
@@ -523,8 +519,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     if (st->steps <= 0 || st->rows <= 0 || !t->running)
         return t->now + period;
 
-    const int vel = (int)getp(st, P_VEL);
-    const int accent = (int)getp(st, P_ACCENT);
+    const thcParams *p = st->params;
+    const int vel = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
+    const int accent = thcParamInt(p, paramIndex[P_ACCENT], -10000, 10000);
     const double hold = getp(st, P_HOLD);
 
     /* Which step this is and where it started, for receive to measure
@@ -600,7 +597,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 {
     State *st = static_cast<State *>(state);
 
-    const int listen = (int)getp(st, P_LISTEN);
+    const int listen =
+        thcParamInt(st->params, paramIndex[P_LISTEN], -10000, 10000);
 
     if (ev->type == THC_EV_NOTE && listen != 0 &&
         st->steps > 0 && st->rows > 0)
@@ -635,7 +633,8 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
             int x = st->posStep;
             const double into = ev->at - st->posAt;
 
-            if (period > 0 && into > -1e9 && into < 1e9)
+            if (period > 0 && into > -1e9 && into < 1e9 &&
+                std::fabs(into / period) < 1e15)
             {
                 const long col = st->posStep
                                  + (long)std::floor(into / period + 0.5);
@@ -663,7 +662,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
        scheduler hands an unmatched off to delNote and that silences
        whatever else is sounding at that pitch. */
     if ((ev->type != THC_EV_NOTE && ev->type != THC_EV_NOTEOFF) ||
-        (int)getp(st, P_PASS) != 0)
+        thcParamInt(st->params, paramIndex[P_PASS], -1, 1) != 0)
         out->emit(out->ctx, ev);
 }
 

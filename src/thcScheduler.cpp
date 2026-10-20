@@ -4199,6 +4199,13 @@ thcScheduler::runStep (void)
    wakes per transport second. */
 static const unsigned TH_MAX_STALLED_WAKES = 8;
 
+/* A wake this close counts toward that cap too: a piece can give a period
+   of 1e-7 s, and a stage that asks for one every time is ten million
+   wakes a transport second. The fastest a stage ticks within its declared
+   ranges is morph's 0.01 s over 512 steps, 2e-5 s, which must not count:
+   held to the step, its sweep would last as long as the steps did. */
+static const double TH_MIN_WAKE_S = 1e-6;
+
 /* The stages whose time has come, each ticked at the time it asked for.
  *
  * `now' is where the transport got to; a wake at or before it runs with the
@@ -4286,8 +4293,13 @@ thcScheduler::runDueTicks (double now)
 
         double at = next;
 
-        if (next > t.now)
+        if (next > t.now + TH_MIN_WAKE_S)
             s->stalled = 0;
+        else if (next > t.now)
+        {
+            if (++s->stalled > TH_MAX_STALLED_WAKES && at <= now)
+                at = now + 0.001;
+        }
         else
         {
             /* Not in the future. Nudged from the stage's own clock rather
@@ -4551,11 +4563,16 @@ thcScheduler::replayRun (size_t i, unsigned &budget)
            to a step. */
         double at = next;
 
-        if (next > w.at)
+        if (next > w.at + TH_MIN_WAKE_S)
             s->stalled = 0;
         else
-            at = ++s->stalled > TH_MAX_STALLED_WAKES
-                 ? std::max(r.now0, w.at + 0.001) : w.at + 0.001;
+        {
+            if (next <= w.at)
+                at = w.at + 0.001;
+
+            if (++s->stalled > TH_MAX_STALLED_WAKES)
+                at = std::max(r.now0, at);
+        }
 
         due.push_back({ at, chain, w.stage, heapSeq_++ });
         std::push_heap(due.begin(), due.end(), Later());

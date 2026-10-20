@@ -189,21 +189,22 @@ int
 State::fills (void) const
 {
     return fillsSet >= 0 ? fillsSet
-                         : (int)params->get(params->ctx, paramIndex[P_FILLS]);
+                         : thcParamInt(params, paramIndex[P_FILLS],
+                                       -10000, 10000);
 }
 
 int
 State::rotate (void) const
 {
     return rotateSet >= 0 ? rotateSet
-                          : (int)params->get(params->ctx,
-                                             paramIndex[P_ROTATE]);
+                          : thcParamInt(params, paramIndex[P_ROTATE],
+                                        -10000, 10000);
 }
 
 bool
 State::filling (void) const
 {
-    const int every = (int)params->get(params->ctx, paramIndex[P_EVERY]);
+    const int every = thcParamInt(params, paramIndex[P_EVERY], 0, 0x7fffffff);
 
     return every > 0 && fillLen > 0 && (cycle + 1) % every == 0;
 }
@@ -270,15 +271,12 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     const thcParams *p = st->params;
     auto get = [&](int i) { return p->get(p->ctx, paramIndex[i]); };
 
-    int steps = (int)get(P_STEPS);
-
-    if (steps < 1)
-        steps = 1;
+    const int steps = thcParamInt(p, paramIndex[P_STEPS], 1, 64);
 
     if (st->pos >= steps)
         st->pos = 0;
 
-    if ((int)get(P_AHEAD) != 0)
+    if (thcParamInt(p, paramIndex[P_AHEAD], -1, 1) != 0)
     {
         /* A change to ahead during a stepwise cycle sends only the steps
            still to come. All of their params are sampled at this wake. */
@@ -288,7 +286,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             ? rawPeriod : 0.001;
         const int fills = st->fills();
         const int rotate = st->rotate();
-        const int velocity = (int)get(P_VEL);
+        const int velocity = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
         const double hold = get(P_HOLD);
         const bool onFill = st->filling();
         const int poolLen = onFill ? st->fillLen : st->poolLen;
@@ -357,7 +355,8 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             ev.at = t->now;
             ev.channel = 0;                /* the sink routes            */
             ev.u.note.note = note;
-            ev.u.note.velocity = (int)get(P_VEL);
+            ev.u.note.velocity =
+                thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
             ev.u.note.duration = get(P_HOLD);
 
             out->emit(out->ctx, &ev);
@@ -380,15 +379,11 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
 {
     State *st = static_cast<State *>(state);
     const thcParams *p = st->params;
-    auto get = [&](int i) { return p->get(p->ctx, paramIndex[i]); };
 
-    int steps = (int)get(P_STEPS);
+    const int steps = thcParamInt(p, paramIndex[P_STEPS], 1, 64);
     int fills = st->fills();
     int rotate = st->rotate();
-    const bool ahead = (int)get(P_AHEAD) != 0;
-
-    if (steps < 1)
-        steps = 1;
+    const bool ahead = thcParamInt(p, paramIndex[P_AHEAD], -1, 1) != 0;
 
     double cx = w / 2, cy = h / 2;
     double radius = (w < h ? w : h) / 2 - 8;
@@ -478,10 +473,7 @@ composer_input (void *state, const thcInputEvent *ev)
 {
     State *st = static_cast<State *>(state);
     const thcParams *p = st->params;
-    int steps = (int)p->get(p->ctx, paramIndex[P_STEPS]);
-
-    if (steps < 1)
-        steps = 1;
+    const int steps = thcParamInt(p, paramIndex[P_STEPS], 1, 64);
 
     const double cx = ev->w / 2, cy = ev->h / 2;
     const double radius = (ev->w < ev->h ? ev->w : ev->h) / 2 - 8;

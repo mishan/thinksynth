@@ -120,15 +120,14 @@ open (const State *st, double at)
 
     /* A note written on the bar line is in the bar it starts, not the
        one it ends; the nudge is smaller than anything a scheduler
-       resolves. */
-    long n = (long)floor(at / bar + 1e-6);
-
-    if (n < 0)
-        n = 0;
+       resolves. Bounded before the cast, which a tiny `bar' would
+       otherwise overflow. */
+    const double q = floor(at / bar + 1e-6);
+    long n = q > 0 ? (long)fmin(q, 1e15) : 0;
 
     if (n >= len)
     {
-        switch ((int)p->get(p->ctx, paramIndex[P_MODE]))
+        switch (thcParamInt(p, paramIndex[P_MODE], -1, 3))
         {
             case 1:  return true;
             case 2:  return false;

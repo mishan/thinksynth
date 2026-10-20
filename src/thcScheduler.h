@@ -503,7 +503,8 @@ struct thcStage
     bool           awaitingStart; /* first tick still pending           */
 
     /* How many times inside the current transport step this stage has
-       asked to be woken at a time that has already passed. Re-arming
+       asked to be woken at a time that has already passed, or within
+       TH_MIN_WAKE_S of its wake (thcScheduler.cpp). Re-arming
        such a wake from the stage's own clock rather than the step's is
        what keeps a piece independent of the step size, and it is also
        what would let a stage that does it every time spin; see the cap
