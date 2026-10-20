@@ -864,11 +864,11 @@ thcGenLoader::parseStatement (thcScheduler *sched)
 
         if (key.text == "tempo")
         {
-            /* Every note a chain plays is due that much sooner; a tempo
-               of millions plays millions a second and the room waits. */
-            if (!(n.num > 0 && n.num <= 1000))
+            /* Said here; setTempo would only ignore it. */
+            if (!(n.num > 0 && n.num <= thcScheduler::MAX_TEMPO_BPM))
             {
-                error(n.line, "tempo must be above 0 and at most 1000");
+                error(n.line, "tempo must be above 0 and at most " +
+                      std::to_string((int)thcScheduler::MAX_TEMPO_BPM));
                 return false;
             }
 

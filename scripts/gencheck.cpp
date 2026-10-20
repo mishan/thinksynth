@@ -6431,6 +6431,16 @@ checkInlineGraph (const std::map<std::string, thcPlugin *> &plugins,
     expectReject(plugins, synth, "knob-widget", "@k = 1;\n@k.widget = 7;\n",
                  ":2: '@k.widget' is not a widget");
 
+    /* And from a room's transport, which does not go through a file. */
+    {
+        thcScheduler sched(synth);
+
+        sched.setTempo(999999999);
+
+        if (sched.tempo() == 999999999)
+            fail("the scheduler took a tempo of 999999999");
+    }
+
     /* Rules that never match leave the axiom as it is, at any depth. */
     {
         auto piece = [](const char *depth) {
