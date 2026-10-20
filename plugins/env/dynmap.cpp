@@ -45,12 +45,15 @@ int module_init (thPlugin *plugin)
        does not clamp, so an input outside inmin..inmax is extrapolated rather
        than held -- which is how scripts/guard/divergent.dsp gets a
        cutoff a hundred times full scale out of a range declared 30 to 90,
-       and why it diverges. And inmax == inmin divides by zero. */
+       and why it diverges. A range of no width -- inmax == inmin, as a
+       node fresh from the palette has -- puts everything at outmin rather
+       than dividing by zero. */
     args[IN_INMIN] = plugin->regArg("inmin", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_INMIN], "Bottom of the range coming in");
     args[IN_INMAX] = plugin->regArg("inmax", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_INMAX],
-                       "Top of the range coming in; must differ from inmin");
+                       "Top of the range coming in; equal to inmin, all of "
+                       "it comes out at outmin");
     args[IN_OUTMIN] = plugin->regArg("outmin", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_OUTMIN], "What inmin comes out as");
     args[IN_OUTMAX] = plugin->regArg("outmax", thPlugin::ARG_IN);
@@ -90,7 +93,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         val_omin = (*out_min)[i];
         val_omax = (*out_max)[i];
 
-        percent = (val_arg-val_imin)/(val_imax-val_imin);
+        percent = val_imax != val_imin
+            ? (val_arg-val_imin)/(val_imax-val_imin) : 0;
         out[i] = (percent*(val_omax-val_omin))+val_omin;
     }
 
