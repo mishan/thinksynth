@@ -186,10 +186,14 @@ channels at once, with the good channel keeping its peak.
 
 A fifth of the nodes the palette offers are in no shipped graph, so the
 `plugsweep` gate sweeps every node. `dspnodes -g DIR` writes a graph
-per node: a saw into each signal input, each other input a control over its
-declared range (or from 0 to four times its default where it declares none).
-`dspsweep` then sweeps those graphs the same way. Its first run found
-`impulse::blackman` dividing by zero at a cutoff of 0.
+per node: a saw into each signal input, a shipped sample into each file
+input, and each other input a control. A control's range is the input's
+declared one, every value of a list, 0 to four times its default, or failing
+all three a span chosen by its units (`Hz`, `samples`, ...) with 0 in it,
+since 0 is where an envelope's segment divides. `dspsweep` then sweeps those
+graphs the same way. Its first run found `impulse::blackman` dividing by zero
+at a cutoff of 0, and `env::map` and `env::dynmap` doing so on a range of no
+width.
 
 Measured against the same corpus with the filters as they were: **205 of the
 3840 cases went non-finite, across 24 of the 82 graphs the gate covers** — the
