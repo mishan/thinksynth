@@ -295,6 +295,7 @@ and requires the two renders to be bitwise equal.
 | `dspcheck` | yes | loads every DSP and patch, plays a chord, overruns polyphony, releases, reloads onto the same channel, tears down; renders each note twice and compares bitwise |
 | `dsplevel` | yes | peak, proportion shaped, gain reduction; exit status is the number of measurements over `TH_MAX` |
 | `dspsweep` | yes | every control of every DSP at both ends of its range and three points between, at both ends of the keyboard; exit status is the number of cases the per-voice guard fired on. With `-g` it also gates the guard itself |
+| `wavcheck` | yes | both wav readers (`osc::sample`'s and `thsound::readWav`) on every PCM width and float, mono and stereo, plain, 18-byte and extensible `fmt ` chunks and an odd chunk before the data; malformed files; non-finite floats; and 20000 files of changed bytes |
 | `poolcheck` | yes | every DSP played twice, with finished voices restarted and with every note a fresh copy, compared bitwise |
 | `dsphash` | yes | a hash of a short phrase through every DSP, effects over an instrument; built twice, and the `dsphash.embedded` gate requires `think_embedded`'s compiled-in plugins to hash the same as the dlopened ones, `dsphash.text` a graph loaded from text the same as its file |
 | `localecheck` | yes | every DSP parsed, printed and played under a comma-decimal `LC_NUMERIC` and under `C`, compared bitwise, and four threads converting at once under it; skipped where no such locale is installed |
