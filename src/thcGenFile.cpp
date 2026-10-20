@@ -120,8 +120,15 @@ thcGenLoader::parseNoteList (const std::string &text, std::vector<int> &out,
 
         int octave = 0;
 
+        /* Past 99 it is out of range either way, and stops growing
+           before it overflows. */
         while (i < text.size() && text[i] >= '0' && text[i] <= '9')
-            octave = octave * 10 + (text[i++] - '0');
+        {
+            if (octave < 100)
+                octave = octave * 10 + (text[i] - '0');
+
+            i++;
+        }
 
         if (neg)
             octave = -octave;

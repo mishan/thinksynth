@@ -175,6 +175,9 @@ checkNotes (void)
     if (thcGenLoader::parseNoteList("H3", out, bad))
         fail("'H3' was accepted; H is not a note");
 
+    if (thcGenLoader::parseNoteList("C1000000000", out, bad))
+        fail("'C1000000000' was accepted");
+
     if (thcGenLoader::parseNoteList("C", out, bad))
         fail("'C' with no octave was accepted");
 
