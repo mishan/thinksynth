@@ -115,13 +115,15 @@ extern "C" {
        synth, and a module_init of everything, per render. */
     THINK_PLUGIN_API void module_reset (thPlugin *plugin);
 
-    /* Optional: `node' is in a graph the synth has just built, on the
-       loading thread. What a node will need from disk or a long build --
-       a file, a table -- is made here rather than on the first window
-       that asks, which is on the audio thread. Called again when the host
-       says data files have changed. */
+    /* Optional: what a node will need from disk or a long build -- a
+       file, a table -- made off the audio thread rather than on the first
+       window that asks. `voice' 0: `node' is in a graph the synth has just
+       built, on the loading thread, or in one it holds when the host says
+       data files have changed. `voice' 1: `node' is in a voice about to
+       start, its io node holding the note, on the thread that builds
+       voices -- which in the browser is the audio thread. */
     THINK_PLUGIN_API void module_prepare (thNode *node, thSynthTree *mod,
-                                          unsigned int samples);
+                                          unsigned int samples, int voice);
 }
 #endif
 
@@ -259,7 +261,8 @@ public:
     typedef int (*ModuleInit)(thPlugin *);
     typedef void (*ModuleCleanup)(thPlugin *);
     typedef void (*ModuleReset)(thPlugin *);
-    typedef void (*ModulePrepare)(thNode *, thSynthTree *, unsigned int);
+    typedef void (*ModulePrepare)(thNode *, thSynthTree *, unsigned int,
+                                  int);
 
     const string &path (void) const { return path_; };
     const string &desc (void) const { return desc_; };
@@ -392,7 +395,8 @@ public:
 
     /* The plugin's module_prepare, if it has one. On the thread that built
        `mod'. */
-    void prepare (thNode *node, thSynthTree *mod, unsigned int samples);
+    void prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                  bool voice);
 private:
     int moduleLoad (void);
     void moduleUnload (void);

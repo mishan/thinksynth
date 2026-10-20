@@ -141,11 +141,12 @@ void module_cleanup (thPlugin *plugin)
     thSampleRelease(plugin);
 }
 
-void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples)
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
 {
     const thArg *file = mod->getArg(node, args[IN_FILE]);
 
-    if (file != NULL && !file->text().empty())
+    if (!voice && file != NULL && !file->text().empty())
         thSamplePrime(node->plugin(), file->text(), samples);
 }
 

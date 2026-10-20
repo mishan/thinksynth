@@ -69,10 +69,11 @@ void thPlugin::reset (void)
     }
 }
 
-void thPlugin::prepare (thNode *node, thSynthTree *mod, unsigned int samples)
+void thPlugin::prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                        bool voice)
 {
     if (prepare_) {
-        prepare_(node, mod, samples);
+        prepare_(node, mod, samples, voice ? 1 : 0);
     }
 }
 

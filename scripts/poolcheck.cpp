@@ -182,10 +182,9 @@ static bool render (const string &plugins, const char *file, Sequence seq,
     *restarts = synth.getChannel(0)->restarts();
     *allocated = allocations;
 
-    /* Plugins that still size their own buffers or build their tables on a
-       voice's first window: a graph using one is not held to none. */
-    static const char *const sizing[] = { "comb", "echo", "pianostring",
-                                          "pad" };
+    /* Plugins that still size their own buffers on a voice's first window:
+       a graph using one is not held to none. */
+    static const char *const sizing[] = { "comb", "echo", "pianostring" };
     const thSynthTree::NodeMap &nodes = tree->nodes();
 
     for (thSynthTree::NodeMap::const_iterator n = nodes.begin();

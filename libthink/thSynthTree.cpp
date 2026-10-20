@@ -399,7 +399,7 @@ void thSynthTree::followTempo (const string &chanarg, bool beats)
 }
 
 /* See the header. */
-void thSynthTree::prepare (void)
+void thSynthTree::prepare (bool voice)
 {
     if (synth_ == NULL)
         return;
@@ -407,7 +407,7 @@ void thSynthTree::prepare (void)
     for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
         if (i->second != NULL && i->second->plugin() != NULL)
             i->second->plugin()->prepare(i->second, this,
-                                         synth_->getSampleRate());
+                                         synth_->getSampleRate(), voice);
 }
 
 void thSynthTree::retempo (double bpm, const thArgMap &chanargs)

@@ -122,7 +122,8 @@ function(think_static_registry output)
 
     if(p IN_LIST STATIC_PREPARES)
       string(APPEND reset_decl
-             "    void module_prepare (thNode *, thSynthTree *, unsigned int);\n")
+             "    void module_prepare (thNode *, thSynthTree *, unsigned int, "
+             "int);\n")
       string(APPEND reset_row
              "    { \"module_prepare\",  (void *)&thp_${id}::module_prepare },\n")
     endif()

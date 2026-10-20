@@ -134,9 +134,13 @@ void module_cleanup (thPlugin *plugin)
 }
 
 /* Every file a layer may play, so a note reads none. */
-void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples)
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
 {
     const int layers[3] = { IN_FILE, IN_FILE2, IN_FILE3 };
+
+    if (voice)
+        return;
 
     for (int k = 0; k < 3; k++)
     {
