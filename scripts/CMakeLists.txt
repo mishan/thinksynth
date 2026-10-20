@@ -719,14 +719,22 @@ add_test(NAME dspgraph
 # be the same edit. It was never a ctest gate because it takes a corpus
 # argument; RunHarness.cmake is what that objection was about, and dspcheck
 # has used it all along.
-add_test(NAME dspwrite
-         COMMAND "${CMAKE_COMMAND}"
-                 -DHARNESS=$<TARGET_FILE:dspwrite>
-                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
-                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
-                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
-                 -DMODE=dsp
-                 -P "${_runner}")
+#
+# This and poolcheck in shards, run side by side by `ctest -j': whole, each
+# was three to five minutes of one core at the tail of the sanitizer run.
+set(DSPWRITE_SHARDS dspwrite.0 dspwrite.1)
+
+foreach(test IN LISTS DSPWRITE_SHARDS)
+  string(REPLACE "dspwrite." "" shard "${test}")
+  add_test(NAME ${test}
+           COMMAND "${CMAKE_COMMAND}"
+                   -DHARNESS=$<TARGET_FILE:dspwrite>
+                   -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                   -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                   -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                   -DMODE=dsp -DSHARD=${shard} -DSHARDS=2
+                   -P "${_runner}")
+endforeach()
 
 # The non-finite gate over the whole corpus: every control at its .min, its
 # .max and three points between, a note at each end of the keyboard, and the
@@ -802,14 +810,19 @@ add_test(NAME genwav.retrigger
 
 # A voice started over from the channel's pool renders as a new copy would,
 # sample for sample, for every graph in the corpus.
-add_test(NAME poolcheck
-         COMMAND "${CMAKE_COMMAND}"
-                 -DHARNESS=$<TARGET_FILE:poolcheck>
-                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
-                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
-                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
-                 -DMODE=dsp
-                 -P "${_runner}")
+set(POOLCHECK_SHARDS poolcheck.0 poolcheck.1 poolcheck.2)
+
+foreach(test IN LISTS POOLCHECK_SHARDS)
+  string(REPLACE "poolcheck." "" shard "${test}")
+  add_test(NAME ${test}
+           COMMAND "${CMAKE_COMMAND}"
+                   -DHARNESS=$<TARGET_FILE:poolcheck>
+                   -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                   -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                   -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                   -DMODE=dsp -DSHARD=${shard} -DSHARDS=3
+                   -P "${_runner}")
+endforeach()
 
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"
@@ -970,12 +983,18 @@ set_tests_properties(${GENCHECK_PARTS} PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 # Every seeded piece in gen/, edited four times while it plays. THINK_DSP_PATH
-# for gencheck's reason: the pieces carry their own instruments.
-add_test(NAME editcheck
-         COMMAND editcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 "${PROJECT_SOURCE_DIR}/gen")
+# for gencheck's reason: the pieces carry their own instruments. In three
+# shards of the pieces, for gencheck's other reason.
+set(EDITCHECK_SHARDS editcheck.0 editcheck.1 editcheck.2)
 
-set_tests_properties(editcheck PROPERTIES
+foreach(test IN LISTS EDITCHECK_SHARDS)
+  string(REPLACE "editcheck." "" shard "${test}")
+  add_test(NAME ${test}
+           COMMAND editcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                   --shard ${shard}/3 "${PROJECT_SOURCE_DIR}/gen")
+endforeach()
+
+set_tests_properties(${EDITCHECK_SHARDS} PROPERTIES
     ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 # Needs the plugins and nothing else: it writes its own .dsp files, and the
@@ -1134,7 +1153,7 @@ endif()
 
 set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspblock
                      ringcheck dspprobe argtype
-                     exprcheck statecheck voicecheck poolcheck fxcheck
+                     exprcheck statecheck voicecheck ${POOLCHECK_SHARDS} fxcheck
                      ${GENCHECK_PARTS} panelcheck
                      dspsweep dspsweep.guard
                      genwav.nonfinite
@@ -1143,7 +1162,8 @@ set_tests_properties(dspcheck.dsp dspcheck.guard dspcheck.patch dsplevel dspbloc
 # The longest gates, started first. With no timing history -- which a fresh CI
 # runner never has -- `ctest -j' starts tests in declaration order, and these
 # started late are the whole tail of the run, worst under the sanitizers.
-set_tests_properties(${GENCHECK_PARTS} poolcheck editcheck PROPERTIES
+set_tests_properties(${GENCHECK_PARTS} ${POOLCHECK_SHARDS}
+                     ${EDITCHECK_SHARDS} ${DSPWRITE_SHARDS} PROPERTIES
                      COST 1000)
 
 # The two harnesses that build real widgets need LeakSanitizer told which
