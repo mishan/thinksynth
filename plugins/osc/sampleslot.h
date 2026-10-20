@@ -199,7 +199,7 @@ static inline void thSampleRelease (const thPlugin *plugin)
 /* ---- the reader ---------------------------------------------------------
  *
  * Sixty-odd lines of RIFF walk rather than a library, because what is
- * needed is two formats and a chunk loop, and a dependency that has to
+ * needed is PCM, float and a chunk loop, and a dependency that has to
  * be present on four platforms and in an emscripten build is a bigger
  * commitment than that.
  *
@@ -341,6 +341,10 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
 
             /* Chunks are padded to an even length, and a `fmt ' of 18 is
                common enough that skipping the pad matters. */
+            /* A `fmt ' as long as the guard on the skip below allows. */
+            if (len >= 0x7ffffffful)
+                break;
+
             if (want < len)
                 in.skip((long)(len - want));
 
@@ -366,11 +370,12 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
                 return false;
             }
 
-            if (!((format == 1 && (bits == 8 || bits == 16 || bits == 32)) ||
+            if (!((format == 1 && (bits == 8 || bits == 16 || bits == 24 ||
+                                   bits == 32)) ||
                   (format == 3 && bits == 32)))
             {
                 in.close();
-                why = "is not 8-, 16- or 32-bit PCM or 32-bit float";
+                why = "is not 8-, 16-, 24- or 32-bit PCM or 32-bit float";
                 return false;
             }
 
@@ -435,12 +440,20 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
                         float v;
 
                         memcpy(&v, &bitsv, sizeof(v));
-                        sum += v;
+
+                        /* A NaN or an infinity costs the voice that
+                           plays it; silence costs a sample. */
+                        sum += thIsFinite(v) ? v : 0;
                     }
                     else if (bits == 8)
                         sum += ((int)p[0] - 128) / 128.0;    /* unsigned */
                     else if (bits == 16)
                         sum += (double)(int16_t)thWavU16(p) / 32768.0;
+                    else if (bits == 24)
+                        sum += (double)(int32_t)((uint32_t)p[0] << 8 |
+                                                 (uint32_t)p[1] << 16 |
+                                                 (uint32_t)p[2] << 24) /
+                               2147483648.0;
                     else
                         sum += (double)(int32_t)thWavU32(p) / 2147483648.0;
                 }
@@ -490,8 +503,11 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
         }
 
         /* Anything else -- LIST, fact, cue, a DAW's own -- skipped, plus
-           the pad byte an odd length carries. */
-        if (!in.skip((long)(len + (len & 1))))
+           the pad byte an odd length carries. A length a long cannot hold
+           -- 2 GB, where long is 32 bits, as on Windows -- would be a skip
+           backwards into the chunk just read, and round again for ever;
+           a chunk that long is past the end of any file this reads. */
+        if (len >= 0x7ffffffful || !in.skip((long)(len + (len & 1))))
             break;
     }
 
