@@ -1073,5 +1073,72 @@ for (const name of names)
             process.stdout.write(`ok    band key       ${what}\n`);
 }
 
+/* Chords that follow a phrase (bandchords.js): each bar's chord is the one
+   that holds what the bar plays, a passing note does not move it, an empty
+   bar keeps the chord before it, and the bass plays each chord's root and
+   fifth. A phrase is written a bar a string, a note a beat, `.' a rest. */
+{
+    const { fitChords, followers } =
+        await import(pathToFileURL(path.join(here, 'bandchords.js')).href);
+    const { pitchOf } =
+        await import(pathToFileURL(path.join(here, 'bandkey.js')).href);
+    const aMinor = { root: 9, mood: 'dark' };
+    /* Beats as cells: a note a beat, held to the next. */
+    const grid = (bars) =>
+    {
+        const beats = bars.flatMap((b) => b.split(' '));
+        const ladder = [...new Set(beats.filter((n) => n !== '.'))]
+            .sort((a, b) => pitchOf(a) - pitchOf(b));
+        const rows = ladder.map((n) => beats.map((b) =>
+            (b === n ? 'x---' : '....')).join('')).reverse();
+
+        return { notes: `"${ladder.join(' ')}"`, cells: `"${rows.join('/')}"`,
+                 steps: String(beats.length * 4) };
+    };
+    /* A grid player's notes in the order they play. */
+    const played = (stage) =>
+    {
+        const ladder = stage.notes.replace(/"/g, '').split(' ');
+        const rows = stage.cells.replace(/"/g, '').split('/');
+        const out = [];
+
+        for (let s = 0; s < rows[0].length; s++)
+            rows.forEach((r, i) =>
+            {
+                if (r[s] === 'x')
+                    out.push(ladder[rows.length - 1 - i]);
+            });
+
+        return out.join(' ');
+    };
+    const fit = (bars, key = aMinor) =>
+        fitChords(grid(bars), key, 4).join(' ');
+    const both = followers([0, 3], aMinor, 4);
+    const cases = [
+        ['i iv v III', fit(['A4 C5 E5 C5', 'D4 F4 A4 F4', 'E4 G4 B4 G4',
+                            'C5 E5 G5 E5']), '0 3 4 2'],
+        ['a passing note', fit(['C4 D4 E4 G4']), '2'],
+        ['an empty bar keeps its chord', fit(['A3 C4 E4 A4', '. . . .']),
+         '0 0'],
+        ['an empty first bar is home', fit(['. . . .', 'G3 B3 D4 G4']),
+         '0 6'],
+        ['in a pentatonic, the chords it can make',
+         fit(['G4 C5 E5 C5'], { root: 0, mood: 'open' }), '3'],
+        ['the chords, a bar each', played(both.chords.stages[0][2]),
+         'A3 D4'],
+        ['the bass, root, root and fifth',
+         played(both.bass.stages[0][2]), 'A1 A1 E2 D2 D2 A2'],
+        ['a pentatonic bass\'s fifth', played(followers(
+             [1], { root: 0, mood: 'open' }, 4).bass.stages[0][2]),
+         'D1 D1 A1'],
+    ];
+
+    for (const [what, got, want] of cases)
+        if (got !== want)
+            fail(`band chords: ${what}: ${got}, not ${want}`);
+        else
+            process.stdout.write(`ok    band chords    ${what}\n`);
+}
+
 process.stdout.write(`\n${failures === 0 ? 'all passed' : failures + ' failed'}\n`);
 process.exitCode = failures;

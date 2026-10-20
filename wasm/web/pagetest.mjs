@@ -3808,9 +3808,12 @@ try
         check(/chain phrase \{\s*stage frozen gen::grid/.test(band) &&
               /notes = "E3 G3 A3 B3"/.test(band) &&
               /scale key "E3 /.test(band) && !/chain count/.test(band) &&
-              /chain kick/.test(band) && /chain bass/.test(band),
+              /chain kick/.test(band) &&
+              /chain bass \{\s*stage src gen::grid/.test(band) &&
+              /chain chords \{\s*stage src gen::grid/.test(band),
               'Start from a phrase keeps what was played as a player and ' +
-              'adds a band in its key: ' + JSON.stringify({
+              'adds a band in its key, its chords and bass fitted to the ' +
+              'phrase: ' + JSON.stringify({
                   chains: band.match(/^chain \w+/gm),
                   key: /scale key "[^"]*"/.exec(band)?.[0] }));
     }

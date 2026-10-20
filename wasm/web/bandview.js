@@ -34,6 +34,7 @@
 import { IDEAS as GALLERY, PHRASE, SOUNDS, addOps, freeName, ideaNamed,
          removeOps } from './bandideas.js';
 import { MOODS, ROOTS, inKey, keyNotes, keyOf, keyOps } from './bandkey.js';
+import { fitChords, followers } from './bandchords.js';
 import { replay } from './replay.js';
 import { gestureOn } from './seqview.js';
 
@@ -481,6 +482,10 @@ function struck (stage)
             .fill(notes[rows.length - 1 - r]))
         .filter((n) => n !== undefined).join(' ');
 }
+
+/* A stage's params by name, as written. */
+const paramsOf = (stage) => Object.fromEntries(
+    stage.params.map((q) => [q.name, q.valueText]));
 
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
@@ -1663,13 +1668,18 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                      ['rechain', kept.name, 'phrase'],
                      ['scale', 'key', keyNotes(key)]];
 
-        for (const [role, name] of PHRASE.ideas)
+        const meter = clock().meter;
+        const fitted = followers(fitChords(paramsOf(kept.stages[0]), key,
+                                           meter), key, meter);
+
+        for (const idea of [...PHRASE.ideas.map(([role, name]) =>
+                                ideaNamed(role, name)),
+                            fitted.bass, fitted.chords])
         {
-            const idea = ideaNamed(role, name);
             const call = freeName(idea.call, taken);
 
             taken.add(call);
-            ops.push(...addOps(tunedTo(idea, role, key), call));
+            ops.push(...addOps(idea, call));
         }
 
         /* Refused, the keys are heard again for another go: the freeze
@@ -1691,7 +1701,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             play();
             $('bandphrasebox').hidden = true;
             tell(`Your phrase, in ${ROOTS[key.root]} ${key.mood}, with a ` +
-                 'band around it');
+                 'band around it and chords that follow it');
         }
     }
 
