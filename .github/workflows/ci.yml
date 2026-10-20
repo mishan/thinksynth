@@ -384,7 +384,10 @@ jobs:
           xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/kegrelocated/bin/thinksynth -G
 
   # The heavier jobs wait for the gcc build, so a push that breaks it
-  # holds a single runner rather than a dozen while other PRs queue.
+  # holds a few runners rather than a dozen while other PRs queue. The wasm
+  # build is the exception: it builds no faster than the gcc build does, and
+  # waiting for it put five minutes on every PR; the gates after it wait for
+  # both, so a broken push holds one runner more and not six.
   asan:
     name: linux asan + ubsan
     timeout-minutes: 40
@@ -466,7 +469,7 @@ jobs:
   # which is macOS as well as wasm, and this is the one job that has both
   # libraries in front of it at once.
   #
-  # This was one job and is now five: a build, and four sets of gates that
+  # This was one job and is now six: a build, and five sets of gates that
   # run at once on what it made. It was the slowest thing in this workflow
   # by a factor of two, and compiling was a fifth of it -- the rest was
   # fifteen independent test scripts run back to back on a four-core runner
@@ -476,7 +479,8 @@ jobs:
   wasm-build:
     name: wasm (emscripten) build
     timeout-minutes: 30
-    needs: linux
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     env:
@@ -687,7 +691,7 @@ jobs:
     name: wasm (emscripten) against native
     timeout-minutes: 20
     runs-on: ubuntu-latest
-    needs: wasm-build
+    needs: [wasm-build, linux]
 
     steps:
       - uses: actions/checkout@v4
@@ -726,7 +730,7 @@ jobs:
   wasm-pieces:
     name: wasm (emscripten) pieces and draws
     runs-on: ubuntu-latest
-    needs: wasm-build
+    needs: [wasm-build, linux]
 
     # See wasm-browsers: minutes, not hours.
     timeout-minutes: 45
@@ -897,7 +901,7 @@ jobs:
   wasm-browsers:
     name: wasm (emscripten) in ${{ matrix.browser }}
     runs-on: ubuntu-latest
-    needs: wasm-build
+    needs: [wasm-build, linux]
 
     strategy:
       fail-fast: false
@@ -1046,35 +1050,17 @@ jobs:
 
   # Two peers agreeing on one piece: the mirror, the protocol, the relay,
   # and two real browsers in one room.
-  wasm-jam:
-    name: wasm (emscripten) two peers
+  # The room without a browser: the scripts that drive the module and the
+  # relay from Node. Apart from the browsers below so the two run at once;
+  # one after the other they were the slowest job in this workflow.
+  wasm-peers:
+    name: wasm (emscripten) peers in Node
     runs-on: ubuntu-latest
-    needs: wasm-build
-
-    # See wasm-browsers: minutes, not hours.
-    timeout-minutes: 45
+    needs: [wasm-build, linux]
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
-
-      # A sound card, of sorts, for jamtest below. It opens a live
-      # AudioContext in both browsers, because two peers agreeing on a
-      # clock is the thing under test and an offline context has no clock
-      # -- and a runner has no audio device at all. Chromium falls back to
-      # a null sink by itself; Firefox's AudioContext.resume() never
-      # resolves without a backend, so Start never returns and the page
-      # waits for ever with nothing to say about why. One null sink is
-      # enough: nothing here listens to anything.
-      - name: An audio sink for the live-context tests
-        run: |
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=jamtest
-          pactl set-default-sink jamtest
-          pactl info
 
       - uses: actions/setup-node@v4
         with:
@@ -1120,6 +1106,49 @@ jobs:
         working-directory: wasm/web
         run: node accountstest.mjs
 
+  wasm-jam:
+    name: wasm (emscripten) two peers
+    runs-on: ubuntu-latest
+    needs: [wasm-build, linux]
+
+    # See wasm-browsers: minutes, not hours.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+
+      # A sound card, of sorts, for jamtest below. It opens a live
+      # AudioContext in both browsers, because two peers agreeing on a
+      # clock is the thing under test and an offline context has no clock
+      # -- and a runner has no audio device at all. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never
+      # resolves without a backend, so Start never returns and the page
+      # waits for ever with nothing to say about why. One null sink is
+      # enough: nothing here listens to anything.
+      - name: An audio sink for the live-context tests
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=jamtest
+          pactl set-default-sink jamtest
+          pactl info
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
+        with:
+          native: 'true'
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
       # The room's second gate: a Chromium page and a Firefox page in one
       # room on a relay, each with a live AudioContext, one pressing Play, a
       # knob moved from each side, and one tape between them -- genwav's,
@@ -1157,7 +1186,8 @@ jobs:
     timeout-minutes: 15
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    needs: [wasm-build, wasm-compare, wasm-pieces, wasm-browsers, wasm-jam]
+    needs: [wasm-build, wasm-compare, wasm-pieces, wasm-browsers, wasm-peers,
+            wasm-jam]
 
     permissions:
       pages: write
