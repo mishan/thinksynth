@@ -1000,11 +1000,16 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
 
     /* Beats faint and bars bright, over the cells rather than under
        them: drawn first, the empty cells' own outlines covered them.
-       Where a step is in beats is the last tick's tempo and meter; before
-       one, and for a step that is no whole fraction of a beat, every
-       fourth step, as a sixteenth is. */
+       Where they fall is the last tick's tempo and meter, when a step
+       is a whole fraction of a beat or a beat or more; otherwise -- no
+       tick yet, a piece in seconds, a step of 0.3 beats -- a line every
+       fourth step, as a sixteenth's beat is. */
     const double eps = 1e-6;
-    const bool timed = st->stepBeats > 0 && st->meter > 0;
+    const double perBeat = st->stepBeats > 0 ? 1 / st->stepBeats : 0;
+    const bool long_ = st->stepBeats > 1 - eps;
+    const bool timed = st->meter > 0 &&
+        (long_ || (perBeat > 0 &&
+                   std::fabs(perBeat - std::round(perBeat)) < eps));
 
     for (int x = 1; x < st->steps; x++)
     {
@@ -1013,8 +1018,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
             std::fabs(beats / st->meter - std::round(beats / st->meter)) <
                 eps;
         const bool beat = timed
-            ? st->stepBeats < 1 &&
-              std::fabs(beats - std::round(beats)) < eps
+            ? !long_ && std::fabs(beats - std::round(beats)) < eps
             : x % 4 == 0;
 
         if (!bar && !(beat && cw >= 3))
