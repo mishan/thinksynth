@@ -46,6 +46,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -387,17 +389,170 @@ compare (const std::string &fresh, const std::string &path)
     return 1;
 }
 
+/* A number as a .dsp writes one: no exponent, which its grammar has none
+   of. */
+static std::string
+plain (float v)
+{
+    char buf[64];
+
+    snprintf(buf, sizeof(buf), "%.9f", v);
+
+    std::string s = buf;
+
+    s.erase(s.find_last_not_of('0') + 1);
+
+    if (s.back() == '.')
+        s.pop_back();
+
+    return s;
+}
+
+/* A graph per node for dspsweep to drive (scripts/CMakeLists.txt,
+ * plugsweep): the node fed a saw at the note's pitch on every input that
+ * is a signal -- `full scale', and -1 to 1 or no range -- and every other
+ * input a control from its range's ends. An input with no range is swept
+ * from 0 to four times its default, 0 included: a segment of no length is
+ * where an envelope divides by zero.
+ *
+ * An input with neither is set to where it stands among those, from 1, so
+ * no two are equal and none is 0: math::div's divisor and env::map's two
+ * ends are documented to go non-finite at 0 and at equal, and left at 0 a
+ * node is not set up, which is no finding.
+ *
+ * A fifth of what a palette offers is in no shipped graph, so without
+ * these nothing would ever have run it. */
+static bool
+writeGraphs (const std::string &dir, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+    NodeCatalog cat;
+
+    if (pm == NULL || cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    /* Fresh: a graph left from a node since taken out would be swept as
+       though the node were still there. */
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir, ec);
+
+    for (const auto &f : std::filesystem::directory_iterator(dir, ec))
+        if (f.path().extension() == ".dsp")
+            std::filesystem::remove(f.path(), ec);
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!NodeCatalog::isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            thPlugin *p = pm->getOrLoadPlugin(category + "/" + list[e].name);
+            int out = -1;
+
+            for (int k = 0; p != NULL && k < p->argCount() && out < 0; k++)
+                if (p->getArgDir(k) == thPlugin::ARG_OUT)
+                    out = k;
+
+            if (out < 0)
+                continue;
+
+            std::ostringstream controls, wires;
+            int unset = 0;
+
+            for (int k = 0; k < p->argCount(); k++)
+            {
+                if (p->getArgDir(k) != thPlugin::ARG_IN)
+                    continue;
+
+                const std::string &name = p->getArgName(k);
+                const bool ranged = p->argHasRange(k);
+                const float lo = ranged ? p->getArgMin(k) : 0;
+                const float hi = ranged ? p->getArgMax(k) : 0;
+
+                if (p->getArgUnits(k) == "full scale" &&
+                    (!ranged || (lo < 0 && hi > 0)))
+                {
+                    wires << "    " << name << " = src->out;\n";
+                    continue;
+                }
+
+                float min = lo, max = hi;
+
+                if (!ranged && !p->argHasDefault(k))
+                {
+                    wires << "    " << name << " = " << ++unset << ";\n";
+                    continue;
+                }
+
+                if (!ranged)
+                {
+                    if (p->getArgDefault(k) == 0)
+                        continue;
+
+                    min = std::min(0.0f, 4 * p->getArgDefault(k));
+                    max = std::max(0.0f, 4 * p->getArgDefault(k));
+                }
+
+                const float d = p->argHasDefault(k) &&
+                                p->getArgDefault(k) >= min &&
+                                p->getArgDefault(k) <= max
+                    ? p->getArgDefault(k) : (min + max) / 2;
+
+                controls << "@" << name << " = " << plain(d) << ";\n"
+                         << "@" << name << ".widget = 1;\n"
+                         << "@" << name << ".min = " << plain(min) << ";\n"
+                         << "@" << name << ".max = " << plain(max) << ";\n";
+                wires << "    " << name << " = @" << name << ";\n";
+            }
+
+            std::string file = list[e].spelling;
+
+            for (char &ch : file)
+                if (ch == ':')
+                    ch = '_';
+
+            std::ofstream o((dir + "/" + file + ".dsp").c_str(),
+                            std::ios::binary | std::ios::trunc);
+
+            o << "name \"" << list[e].spelling << "\";\n\n"
+              << controls.str() << "\n"
+              << "node ionode {\n    channels = 1;\n    out0 = n->"
+              << p->getArgName(out) << ";\n};\n\n"
+              << "node pitch misc::midi2freq {\n    note = ionode->note;\n"
+              << "};\n\n"
+              << "node src osc::simple {\n    freq = pitch->out;\n"
+              << "    waveform = 2;\n};\n\n"
+              << "node n " << list[e].spelling << " {\n" << wires.str()
+              << "};\n\nio ionode;\n";
+
+            if (!o)
+                return false;
+        }
+    }
+
+    return true;
+}
+
 static void
 usage (const char *argv0)
 {
-    printf("usage: %s [-p PATH] [-o FILE | -c FILE | --json]\n"
+    printf("usage: %s [-p PATH] [-o FILE | -c FILE | --json | -g DIR]\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
            "  -o, --output FILE       write the reference here (default "
            "stdout)\n"
            "  -c, --check FILE        compare FILE against a fresh one and "
            "fail if they differ\n"
-           "      --json              every node and its args, as JSON\n",
+           "      --json              every node and its args, as JSON\n"
+           "  -g, --graphs DIR        a .dsp per node in DIR, for dspsweep\n",
            argv0);
 }
 
@@ -418,6 +573,7 @@ main (int argc, char **argv)
     std::string pluginPath = PLUGIN_PATH;
     std::string outFile, checkFile;
     bool json = false;
+    std::string graphDir;
 
     for (int i = 1; i < argc; i++)
     {
@@ -433,6 +589,11 @@ main (int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--json"))
             json = true;
+        else if (!strcmp(argv[i], "-g") || !strcmp(argv[i], "--graphs"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            graphDir = argv[i];
+        }
         else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--check"))
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
@@ -453,6 +614,17 @@ main (int argc, char **argv)
 
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
+
+    if (!graphDir.empty())
+    {
+        if (!writeGraphs(graphDir, pluginPath))
+        {
+            printf("FAIL  cannot write graphs to %s\n", graphDir.c_str());
+            return 1;
+        }
+
+        return 0;
+    }
 
     if (json)
     {
