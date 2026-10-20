@@ -1659,6 +1659,11 @@ void thMidiChan::assignChanArgPointers (thSynthTree *tree)
                             "undeclared chanarg '@%s'\n",
                             curnode->name().c_str(), curarg->name().c_str(),
                             curarg->argPtrName().c_str());
+
+                    /* A node reads its args without asking whether
+                       they are there, so it reads a 0. */
+                    target = new thArg(curarg->argPtrName(), 0);
+                    shadowed_.push_back(target);
                 }
 
                 curarg->setArgPtr(target);

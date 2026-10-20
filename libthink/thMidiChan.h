@@ -355,8 +355,9 @@ private:
     thChanEffect *effect_;
     thArgMap args_;
 
-    /* A graph's chan arg named as one of the channel's own, amp or
-       SusPedal: out of args_, but its nodes still point at it. */
+    /* Args the graph's nodes point at that are not in args_: a graph's
+       chan arg named as one of the channel's own, amp or SusPedal, and
+       a 0 for one the graph reads and never declared. */
     std::vector<thArg *> shadowed_;
     void ownArg (thArg *arg);
     thArg *send_;
