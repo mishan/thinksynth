@@ -1068,8 +1068,6 @@ jobs:
 
       - uses: ./.github/actions/wasm-trees
         timeout-minutes: 10
-        with:
-          native: 'true'
 
       - name: npm ci
         working-directory: wasm/web
