@@ -3808,11 +3808,31 @@ try
         check(/chain phrase \{\s*stage frozen gen::grid/.test(band) &&
               /notes = "E3 G3 A3 B3"/.test(band) &&
               /scale key "E3 /.test(band) && !/chain count/.test(band) &&
-              /chain kick/.test(band) && /chain bass/.test(band),
+              /chain kick/.test(band) &&
+              /chain bass \{\s*stage src gen::grid/.test(band) &&
+              /chain chords \{\s*stage src gen::grid/.test(band),
               'Start from a phrase keeps what was played as a player and ' +
-              'adds a band in its key: ' + JSON.stringify({
+              'adds a band in its key, its chords and bass fitted to the ' +
+              'phrase: ' + JSON.stringify({
                   chains: band.match(/^chain \w+/gm),
                   key: /scale key "[^"]*"/.exec(band)?.[0] }));
+
+        /* Vary on the chords takes whole chords: its take is before the
+           chord is stacked, and nothing goes in behind it. */
+        await page.locator('.player[data-chain="chords"] .moves button',
+                           { hasText: 'Vary' }).click();
+
+        const varied = await until(text, (t) =>
+            /stage take xform::vary \{[^}]*rest = 0\.1/.test(t));
+        const chords = /chain chords \{[\s\S]*?\n\};/.exec(varied)?.[0] ?? '';
+        const stages = [...chords.matchAll(/stage (\w+) (\w+::\w+)/g)]
+            .map((m) => m[2]);
+
+        check(stages.at(-1) === 'xform::harmonize' &&
+              stages.indexOf('xform::vary') <
+                  stages.indexOf('xform::harmonize'),
+              'Vary on chords fitted to a phrase varies whole chords: ' +
+              stages.join(' '));
     }
 
     /* The pictures: a drawn Life board is offered Restart rather than

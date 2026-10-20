@@ -175,8 +175,8 @@ export function addOps (idea, name)
         ['instrument', name, idea.sound, `amp=${idea.amp}`],
         ['chain', name, name, 'src', first[0], first[1],
          ...pairs(first[2])],
-        ...rest.map((s, i) => ['stage', name, `s${i + 2}`, s[0], s[1],
-                               ...pairs(s[2])]),
+        ...rest.map((s, i) => ['stage', name, s[3] ?? `s${i + 2}`, s[0],
+                               s[1], ...pairs(s[2])]),
     ];
 }
 
@@ -202,7 +202,8 @@ export const NEW_BAND = {
 /* Start from a phrase (bandview.js): a piece that takes what is played
    on the keys, on its first instrument's channel, which is where the keys
    go, with a quiet hat on every beat to play against; and the band that
-   joins the phrase once it is kept, in its key. */
+   joins the phrase once it is kept, in its key -- these drums, and the
+   chords and bass bandchords.js fits to it. */
 export const PHRASE = {
     text: 'name "A phrase";\ntempo 100;\n\n' +
           'instrument keys { dsp "rhodes.dsp"; amp = 21; };\n' +
@@ -214,8 +215,7 @@ export const PHRASE = {
           '        period = 1 beats; hold = 0.1 beats; vel = 60;\n' +
           '    };\n    sink { instrument = count; };\n};\n',
     ideas: [['drums', 'Four on the floor'], ['drums', 'Backbeat'],
-            ['drums', 'Eighth hats'], ['bass', 'Root pulse'],
-            ['chords', 'Slow changes']],
+            ['drums', 'Eighth hats']],
 };
 
 export function ideaNamed (role, name)

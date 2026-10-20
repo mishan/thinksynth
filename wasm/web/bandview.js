@@ -34,6 +34,7 @@
 import { IDEAS as GALLERY, PHRASE, SOUNDS, addOps, freeName, ideaNamed,
          removeOps } from './bandideas.js';
 import { MOODS, ROOTS, inKey, keyNotes, keyOf, keyOps } from './bandkey.js';
+import { fitChords, followers } from './bandchords.js';
 import { replay } from './replay.js';
 import { gestureOn } from './seqview.js';
 
@@ -192,23 +193,10 @@ export function seededAs (stages)
         ? 'restart' : null;
 }
 
-/* How tall a picture is drawn at `w' CSS pixels wide: a grid's rows big
-   enough to hit, a board's cells square, a ring room to be a ring. A param
-   the piece does not write is at the plugin's default. */
-function pictureHeight (s, w)
-{
-    const n = (row, or) => valueOf(s, row, or);
-
-    switch (s.plugin)
-    {
-        case 'grid': return Math.min(160, Math.max(26, n('rows', 8) * 16));
-        case 'life':
-            return Math.round(Math.max(40, Math.min(16, w / n('width', 10)) *
-                                           n('height', 8)));
-        case 'euclid': return 70;
-        default: return 64;
-    }
-}
+/* How tall every picture is drawn, whatever it draws, so the cards line
+   up: a grid's rows still big enough to hit at the band's fourteen, and
+   a ring room to be a ring. */
+const PICTURE_HEIGHT = 112;
 
 /* By whole words of a chain's, instrument's and graph's names; chords
    before bass, so a `pad_low' is a pad. */
@@ -482,6 +470,10 @@ function struck (stage)
         .filter((n) => n !== undefined).join(' ');
 }
 
+/* A stage's params by name, as written. */
+const paramsOf = (stage) => Object.fromEntries(
+    stage.params.map((q) => [q.name, q.valueText]));
+
 const shapeOfStages = (stages) => JSON.stringify(stages.map((s) =>
     [s.plugin, s.name, s.live]));
 
@@ -722,10 +714,10 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
         const canvas = document.createElement('canvas');
         const pic = { chain: p.index, stage: s.live, canvas,
                       ctx: canvas.getContext('2d'), w: 0, h: 0, dpr: 0,
-                      height: (w) => pictureHeight(s, w), asked: false };
+                      height: () => PICTURE_HEIGHT, asked: false };
 
         canvas.className = `bandpic ${s.plugin}`;
-        canvas.style.height = `${pic.height(320)}px`;
+        canvas.style.height = `${PICTURE_HEIGHT}px`;
         pic.drop = () => {};
 
         if (CONTROLS.has(s.plugin))
@@ -1663,13 +1655,18 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
                      ['rechain', kept.name, 'phrase'],
                      ['scale', 'key', keyNotes(key)]];
 
-        for (const [role, name] of PHRASE.ideas)
+        const meter = clock().meter;
+        const fitted = followers(fitChords(paramsOf(kept.stages[0]), key,
+                                           meter), key, meter);
+
+        for (const idea of [...PHRASE.ideas.map(([role, name]) =>
+                                ideaNamed(role, name)),
+                            fitted.bass, fitted.chords])
         {
-            const idea = ideaNamed(role, name);
             const call = freeName(idea.call, taken);
 
             taken.add(call);
-            ops.push(...addOps(tunedTo(idea, role, key), call));
+            ops.push(...addOps(idea, call));
         }
 
         /* Refused, the keys are heard again for another go: the freeze
@@ -1691,7 +1688,7 @@ export function createBand ({ piece, params, vary, keep, rest, say, tell,
             play();
             $('bandphrasebox').hidden = true;
             tell(`Your phrase, in ${ROOTS[key.root]} ${key.mood}, with a ` +
-                 'band around it');
+                 'band around it and chords that follow it');
         }
     }
 
