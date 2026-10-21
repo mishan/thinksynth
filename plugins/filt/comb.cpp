@@ -211,7 +211,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
        a new line, including its write head and the lowpass in its loop. */
     len = lineOf(in_size, samples);
     oldlen = inout_buffer->len();
-    buffer = inout_buffer->resize(len);
+    buffer = inout_buffer->resize(len, samples * 10);
 
     if (oldlen != len)
     {

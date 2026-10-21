@@ -196,7 +196,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         /* A changed size starts a fresh, zeroed ring. */
         if (mySize != inout_buffer->len())
         {
-            buffer = inout_buffer->resize(mySize);
+            buffer = inout_buffer->resize(mySize,
+                                          ringOf(INFINITY, samples));
             memset(buffer, 0, mySize * sizeof(float));
         }
 

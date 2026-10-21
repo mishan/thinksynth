@@ -163,7 +163,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         /* A changed length starts a fresh, zeroed line. */
         if (len != inout_buffer->len())
         {
-            buffer = inout_buffer->resize(len);
+            buffer = inout_buffer->resize(len, samples);
             memset(buffer, 0, len * sizeof(float));
         }
 

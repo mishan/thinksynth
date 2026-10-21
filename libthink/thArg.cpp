@@ -288,11 +288,13 @@ void thArg::reserve (unsigned int elements)
     cap_ = elements;
 }
 
-float *thArg::resize (unsigned int elements)
+float *thArg::resize (unsigned int elements, unsigned int most)
 {
     if (values_ == NULL || elements > cap_)
         reserve((values_ == NULL || elements > 2 * cap_) ? elements
-                                                          : 2 * cap_);
+                : 2 * cap_ < most                         ? 2 * cap_
+                : elements > most                         ? elements
+                                                          : most);
 
     if (elements > len_)
         memset(values_ + len_, 0, (elements - len_) * sizeof(float));

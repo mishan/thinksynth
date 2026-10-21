@@ -135,9 +135,10 @@ void module_cleanup (thPlugin *plugin)
 
 /* The line at `want' samples, `len' and `at' moved to match, keeping what
    it held: the sample `k' back from the write head is still `k' back. A
-   line of one is a prototype's placeholder and is not history. */
-static float *grow (thArg *line, unsigned int want, unsigned int &len,
-                    unsigned int &at)
+   line of one is a prototype's placeholder and is not history. `most' is
+   the longest `want' can be. */
+static float *grow (thArg *line, unsigned int want, unsigned int most,
+                    unsigned int &len, unsigned int &at)
 {
     const unsigned int had = len > 1 ? len : 0;
 
@@ -146,7 +147,7 @@ static float *grow (thArg *line, unsigned int want, unsigned int &len,
         std::rotate(line->values(), line->values() + at % had,
                     line->values() + had);
 
-    float *buffer = line->resize(want);
+    float *buffer = line->resize(want, most);
 
     memmove(buffer + (want - had), buffer, had * sizeof(float));
     memset(buffer, 0, (want - had) * sizeof(float));
@@ -306,7 +307,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if ((unsigned int)(delay + depth) + 3 > len)
             buffer = grow(inout_buffer, (unsigned int)(delay + depth) + 3,
-                          len, at);
+                          samples / 2 + 3, len, at);
 
         if (at >= len)
             at = 0;

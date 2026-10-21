@@ -175,10 +175,11 @@ public:
     void reserve (unsigned int elements);
 
     /* `elements' long, keeping the values it has and zeroing any it gains.
-       Growth past the capacity at least doubles it, so a delay line whose
-       length is modulated upward reallocates a few times per voice, not on
-       every sample that reaches a new longest. */
-    float *resize (unsigned int elements);
+       Growth past the capacity at least doubles it, up to `most', so a delay
+       line whose length is modulated upward reallocates a few times per
+       voice, not on every sample that reaches a new longest, and never
+       holds more than its longest. */
+    float *resize (unsigned int elements, unsigned int most);
 
     /* GUI thread. Back to what `thArg(proto)' makes -- its length, its
        values, its pointer -- in the buffer this arg already has, growing
