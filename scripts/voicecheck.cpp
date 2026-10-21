@@ -1784,12 +1784,55 @@ int main (int argc, char **argv)
             for (int w = 0; w < 60; w++)
                 synth.process();
 
+            const auto waiting = [&] {
+                int n = 0;
+
+                for (int c = 0; c < chans; c++)
+                    n += !synth.getChannel(c)->retiring()->empty();
+
+                return n;
+            };
+            const int held = waiting();
+
+            for (int w = 0; w < 4; w++)
+            {
+                synth.collect();
+                synth.process();
+            }
+
+            okOrFail(held > 0 && waiting() == 0,
+                     "burst: what the queue cannot take waits in the "
+                     "channels until it can (" + pool + ")",
+                     std::to_string(held) + " channels waiting, then " +
+                     std::to_string(waiting()));
             okOrFail(thSynth::retireFrees() == before,
                      "burst: no voice is freed on the audio thread (" +
                      pool + ")",
                      std::to_string(thSynth::retireFrees() - before) +
                      " freed there");
         }
+    }
+
+    /* A silent synth renders nothing, but what a command displaces is
+       still handed back: the web page's mirror is silent for good. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        synth.loadTree(file, 0, 100);
+        synth.setSilent(true);
+        const float two[2] = { 1, 2 };
+
+        /* A change of length cannot be made in place, so the second is a
+           replacement the audio thread retires. */
+        synth.setChanArg(0, new thArg(string("silent"), 1.0f));
+        synth.process();
+        synth.setChanArg(0, new thArg(string("silent"), two, 2));
+        synth.process();
+
+        okOrFail(synth.getChannel(0)->retiring()->empty(),
+                 "silent: a replaced chanarg is handed back", "");
     }
 
     remove(octave.c_str());

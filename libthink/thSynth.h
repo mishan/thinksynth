@@ -696,6 +696,7 @@ private:
     int buildLanes (const int *order, int norder);
     void renderLane (int lane);
     void renderChannel (int i);
+    void handBack (void);
 };
 
 #endif /* TH_SYNTH_H */

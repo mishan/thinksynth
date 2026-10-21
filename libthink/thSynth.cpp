@@ -2578,6 +2578,21 @@ void thSynth::renderChannel (int i)
                           .count();
 }
 
+/* Audio thread: what each channel retired, onto the one queue the GUI
+   thread empties. What that queue cannot take waits in the channel's for a
+   later window rather than being freed here: a burst, or a GUI that has
+   stopped calling in, is then held per channel and not torn down inside
+   the callback. */
+void thSynth::handBack (void)
+{
+    thRetired item;
+
+    for (int i = 0; i < midiChannelCnt_; i++)
+        while (midiChannels_[i] && !retired_.full() &&
+               midiChannels_[i]->retiring()->pop(item))
+            retired_.push(item);
+}
+
 /* Audio thread. */
 void thSynth::process (void)
 {
@@ -2593,9 +2608,13 @@ void thSynth::process (void)
 
     /* The queue applied is the whole of a silent synth's window: no
        voices to mix, no probes to publish, and the output stays the
-       silence setSilent() left in it. */
+       silence setSilent() left in it. Less what the queue retired, which
+       is still the GUI's to free. */
     if (silent_)
+    {
+        handBack();
         return;
+    }
 
     memset(output_, 0,
            thOutputSamples(channels_, windowlen_) * sizeof(float));
@@ -2698,21 +2717,7 @@ void thSynth::process (void)
     else
         renderPool_->run(buildLanes(order, norder));
 
-    /* What each channel retired, onto the one queue the GUI thread empties,
-       in channel order whoever rendered them. What that queue cannot take
-       waits in the channel's for a later window rather than being freed
-       here: a burst, or a GUI that has stopped calling in, is then held
-       per channel and not torn down inside the callback. */
-    for (int o = 0; o < norder; o++)
-    {
-        if ((chan = midiChannels_[order[o]]) == NULL)
-            continue;
-
-        thRetired item;
-
-        while (!retired_.full() && chan->retiring()->pop(item))
-            retired_.push(item);
-    }
+    handBack();
 
     /* The mix, in `order', whoever rendered the channels: the same floats
        added in the same order, so the same samples. */
