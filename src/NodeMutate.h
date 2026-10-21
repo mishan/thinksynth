@@ -164,13 +164,15 @@ int argIndex (thPlugin *plugin, const string &arg);
 void buildPool (thPluginManager *pm, vector<Splice> &pool);
 
 /* The three edits, each on `source' in place; false if the text would not
-   take it. `name' and `what' say what was added. */
+   take it. `name' and `what' say what was added, and a `tag' goes in the
+   names of the nodes it adds. */
 bool splice (string &source, const Shape &shape, const Wire &wire,
-             const Splice &sp, string &name);
+             const Splice &sp, string &name, const string &tag = "");
 bool addVoice (string &source, Shape &shape, const Wire &wire,
-               const Voice &voice, int kind, string &what);
+               const Voice &voice, int kind, string &what,
+               const string &tag = "");
 bool modulate (string &source, Shape &shape, const vector<Slot> &slots,
-               int kind, string &what);
+               int kind, string &what, const string &tag = "");
 
 vector<Slot> siblings (const Shape &shape, const Slot &one);
 vector<const Gene *> selectorsOf (const vector<Gene> &genes,
@@ -215,8 +217,13 @@ bool grow (thSynth *synth, const string &text, const string &base,
 
 /* `op' made on `source', parsed on `synth', and its tuned values written
    into what it added; false, `source' untouched, if the graph no longer
-   has where it goes. `what' says what was done. */
+   has where it goes. `what' says what was done. apply() names what it
+   adds as the edit it came from did; applyTagged() and replay() put the
+   op's own tag in the names, so an op made on a node an earlier op added
+   finds that node whatever else its lineage has done or passed over. */
 bool apply (thSynth *synth, string &source, const Op &op, string &what);
+bool applyTagged (thSynth *synth, string &source, const Op &op,
+                  string &what);
 
 /* `ops' made on `base' in turn into `text'; one that no longer fits is
    passed over, and `kept', if given, gets the ones that were made. False

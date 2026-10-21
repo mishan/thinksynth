@@ -22,6 +22,8 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <map>
 #include <random>
 
@@ -556,12 +558,18 @@ void buildPool (thPluginManager *pm, vector<Splice> &pool)
 }
 
 /* `sp' spliced into `wire'. */
+/* A node's name with an op's tag, if it has one. */
+static string tagged (const string &name, const string &tag)
+{
+    return tag.empty() ? name : name + "_" + tag;
+}
+
 bool splice (string &source, const Shape &shape, const Wire &wire,
-                    const Splice &sp, string &name)
+                    const Splice &sp, string &name, const string &tag)
 {
     string why;
 
-    name = NodeCatalog::suggestName(sp.name, shape.names);
+    name = NodeCatalog::suggestName(tagged(sp.name, tag), shape.names);
 
     return NodeEdit::Text::addNode(source, name, sp.spelling, sp.initial, why) == NodeEdit::OK &&
            NodeEdit::Text::connect(source, name, sp.in, wire.srcNode, wire.srcPort, why) == NodeEdit::OK &&
@@ -573,15 +581,18 @@ bool splice (string &source, const Shape &shape, const Wire &wire,
    and its ratio are choice genes from then on, so what it starts as is
    only where the race begins. */
 bool addVoice (string &source, Shape &shape, const Wire &wire,
-                      const Voice &voice, int kind, string &what)
+                      const Voice &voice, int kind, string &what,
+                      const string &tag)
 {
     string why;
     vector<pair<string, double> > init;
-    const string osc = NodeCatalog::suggestName("voice", shape.names);
+    const string osc = NodeCatalog::suggestName(tagged("voice", tag),
+                                                shape.names);
 
     shape.names.push_back(osc);
 
-    const string sum = NodeCatalog::suggestName("sum", shape.names);
+    const string sum = NodeCatalog::suggestName(tagged("sum", tag),
+                                                shape.names);
 
     shape.names.push_back(sum);
 
@@ -613,20 +624,23 @@ bool addVoice (string &source, Shape &shape, const Wire &wire,
    of the range otherwise, and is a constant the search then tunes, as
    are the base and the modulator's own args. */
 bool modulate (string &source, Shape &shape, const vector<Slot> &slots,
-                      int kind, string &what)
+                      int kind, string &what, const string &tag)
 {
     const Slot &slot = slots[0];
     string why;
     vector<pair<string, double> > init;
-    const string mod = NodeCatalog::suggestName(kind ? "lfo" : "env", shape.names);
+    const string mod = NodeCatalog::suggestName(tagged(kind ? "lfo" : "env", tag),
+                                                shape.names);
 
     shape.names.push_back(mod);
 
-    const string mul = NodeCatalog::suggestName("depth", shape.names);
+    const string mul = NodeCatalog::suggestName(tagged("depth", tag),
+                                                shape.names);
 
     shape.names.push_back(mul);
 
-    const string add = NodeCatalog::suggestName("base", shape.names);
+    const string add = NodeCatalog::suggestName(tagged("base", tag),
+                                                shape.names);
 
     shape.names.push_back(add);
 
@@ -1061,7 +1075,27 @@ static vector<string> added (const Shape &before, const Shape &after)
     return out;
 }
 
-bool apply (thSynth *synth, string &source, const Op &op, string &what)
+/* An op's tag: a name for what it adds that is the op's own, so an op
+   made on a node an earlier one added finds it whatever else the lineage
+   has done or passed over. FNV-1a over its key, which names those nodes
+   by their tags in turn. */
+static string tagOf (const Op &op)
+{
+    uint32_t h = 2166136261u;
+
+    for (unsigned char c : key(op))
+        h = (h ^ c) * 16777619u;
+
+    char hex[16];
+
+    snprintf(hex, sizeof hex, "%08x", (unsigned)h);
+
+    return hex;
+}
+
+static bool applyWith (thSynth *synth, string &source, const Op &op,
+                       string &what, const vector<Splice> &pool,
+                       const string &tag)
 {
     vector<Gene> genes;
     Shape shape;
@@ -1074,10 +1108,6 @@ bool apply (thSynth *synth, string &source, const Op &op, string &what)
 
     if (op.kind == "splice")
     {
-        vector<Splice> pool;
-
-        buildPool(synth->getPluginManager(), pool);
-
         for (const Wire &w : shape.wires)
             for (const Splice &sp : pool)
                 if (!done && sameWire(w, op.wire) &&
@@ -1085,7 +1115,7 @@ bool apply (thSynth *synth, string &source, const Op &op, string &what)
                 {
                     string name;
 
-                    done = splice(text, shape, w, sp, name);
+                    done = splice(text, shape, w, sp, name, tag);
                     what = sp.spelling + "->" + sp.out + " into " + w.node +
                            "." + w.arg + " = " + w.srcNode + "->" + w.srcPort;
                 }
@@ -1108,7 +1138,8 @@ bool apply (thSynth *synth, string &source, const Op &op, string &what)
             for (size_t i = 0; done && op.selected && i < sel.size(); i++)
                 done = write(text, *sel[i], op.selector);
 
-            done = done && modulate(text, shape, slots, op.variant, what);
+            done = done && modulate(text, shape, slots, op.variant, what,
+                                    tag);
 
             if (done && op.selected)
             {
@@ -1131,7 +1162,8 @@ bool apply (thSynth *synth, string &source, const Op &op, string &what)
                 {
                     Shape scratch = shape;
 
-                    done = addVoice(text, scratch, w, v, op.variant, what);
+                    done = addVoice(text, scratch, w, v, op.variant, what,
+                                    tag);
                 }
     }
 
@@ -1160,12 +1192,37 @@ bool apply (thSynth *synth, string &source, const Op &op, string &what)
     return true;
 }
 
+static vector<Splice> poolOf (thSynth *synth, const Op &op)
+{
+    vector<Splice> pool;
+
+    if (synth != NULL && op.kind == "splice")
+        buildPool(synth->getPluginManager(), pool);
+
+    return pool;
+}
+
+bool apply (thSynth *synth, string &source, const Op &op, string &what)
+{
+    return applyWith(synth, source, op, what, poolOf(synth, op), "");
+}
+
+bool applyTagged (thSynth *synth, string &source, const Op &op,
+                  string &what)
+{
+    return applyWith(synth, source, op, what, poolOf(synth, op),
+                     tagOf(op));
+}
+
 bool replay (thSynth *synth, const string &base, const vector<Op> &ops,
              string &text, vector<Op> *kept)
 {
     if (synth == NULL || !parsed(synth, base, NULL, NULL))
         return false;
 
+    vector<Splice> pool;
+
+    buildPool(synth->getPluginManager(), pool);
     text = base;
 
     if (kept != NULL)
@@ -1175,7 +1232,8 @@ bool replay (thSynth *synth, const string &base, const vector<Op> &ops,
     {
         string what;
 
-        if (apply(synth, text, op, what) && kept != NULL)
+        if (applyWith(synth, text, op, what, pool, tagOf(op)) &&
+            kept != NULL)
             kept->push_back(op);
     }
 
@@ -1211,8 +1269,10 @@ string key (const Op &op)
     for (const auto &sl : op.slots)
         k += " " + sl.first + "." + sl.second;
 
+    /* In millionths, which no locale spells differently: the key names
+       nodes every host has to agree on. */
     if (op.selected)
-        k += " =" + std::to_string(op.selector);
+        k += " =" + std::to_string(std::llround(op.selector * 1e6));
 
     if (op.kind == "voice")
         k += " " + op.pitch.freqNode + "->" + op.pitch.freqPort + " @" +
@@ -1243,7 +1303,7 @@ vector<Op> cross (const vector<Op> &fitter, const vector<Op> &other,
 
         if (m != inFitter.end())
         {
-            last = m->second + 1;
+            last = std::max(last, m->second + 1);
             continue;
         }
 
