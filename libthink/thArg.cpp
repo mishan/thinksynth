@@ -288,6 +288,20 @@ void thArg::reserve (unsigned int elements)
     cap_ = elements;
 }
 
+float *thArg::resize (unsigned int elements)
+{
+    if (values_ == NULL || elements > cap_)
+        reserve((values_ == NULL || elements > 2 * cap_) ? elements
+                                                          : 2 * cap_);
+
+    if (elements > len_)
+        memset(values_ + len_, 0, (elements - len_) * sizeof(float));
+
+    len_ = elements;
+
+    return values_;
+}
+
 /* What `thArg(proto)' would have made, in this arg's own buffer. See the
    header. */
 void thArg::restore (const thArg *proto)

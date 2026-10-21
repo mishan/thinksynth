@@ -140,6 +140,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
+    buffer = inout_buffer->values();
 
     for (i = 0; i < windowlen; i++)
     {
@@ -159,12 +160,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             continue;
         }
 
-        buffer = inout_buffer->allocate(len);
+        /* A changed length starts a fresh, zeroed line. */
+        if (len != inout_buffer->len())
+        {
+            buffer = inout_buffer->resize(len);
+            memset(buffer, 0, len * sizeof(float));
+        }
+
         at = (unsigned int)*bufpos;
 
         /* The length can have changed under it -- `delay' is an arg like
-           any other and allocate() hands back a fresh, zeroed line when
-           it does -- so the position is bounded here rather than trusted
+           any other -- so the position is bounded here rather than trusted
            from the last window. */
         if (at >= len)
             at = 0;

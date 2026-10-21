@@ -88,6 +88,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <algorithm>
+
 #include "think.h"
 
 enum {IN_ARG, IN_RATE, IN_DEPTH, IN_DELAY, IN_MIX, IN_TAPS, IN_PHASE,
@@ -137,25 +139,17 @@ void module_cleanup (thPlugin *plugin)
 static float *grow (thArg *line, unsigned int want, unsigned int &len,
                     unsigned int &at)
 {
-    const unsigned int had = len;
-    float *old = NULL;
+    const unsigned int had = len > 1 ? len : 0;
 
-    if (had > 1)
-    {
-        old = new float[had];
+    /* Oldest first: `at' is the next sample to be overwritten. */
+    if (had > 0)
+        std::rotate(line->values(), line->values() + at % had,
+                    line->values() + had);
 
-        /* Oldest first: `at' is the next sample to be overwritten. */
-        for (unsigned int j = 0; j < had; j++)
-            old[j] = line->values()[(at + j) % had];
-    }
+    float *buffer = line->resize(want);
 
-    float *buffer = line->allocate(want);
-
-    if (old != NULL)
-    {
-        memcpy(buffer + (want - had), old, had * sizeof(float));
-        delete [] old;
-    }
+    memmove(buffer + (want - had), buffer, had * sizeof(float));
+    memset(buffer, 0, (want - had) * sizeof(float));
 
     len = want;
     at = 0;

@@ -329,6 +329,32 @@ void module_cleanup (thPlugin *plugin)
 {
 }
 
+/* Room for the flattest string: FREQ_MIN's period, and the widest unison's
+   outer string a whole UNISON_MAX below it. */
+static unsigned int lineOf (unsigned int samples)
+{
+    return (unsigned int)(samples / FREQ_MIN * pow(2.0, UNISON_MAX / 1200.0)) +
+           8;
+}
+
+/* The near end's loop is at most half the string's. */
+static unsigned int nearOf (unsigned int len)
+{
+    return len / 2 + 8;
+}
+
+/* A voice about to start: its lines, which are as long as the rate makes
+   them whatever the note, sized here and not in its first window. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const unsigned int len = lineOf(samples);
+
+    if (voice)
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(STRINGS_MAX *
+                                                       (len + nearOf(len)));
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);
@@ -1060,13 +1086,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_position;
     thArg *out_arg, *out_play, *out_force, *inout_buffer, *inout_state;
     float *out, *play, *force, *buffer, *state;
-    /* Room for the flattest string: FREQ_MIN's period, and the widest
-       unison's outer string a whole UNISON_MAX below it. */
-    const unsigned int len =
-        (unsigned int)(samples / FREQ_MIN * pow(2.0, UNISON_MAX / 1200.0)) +
-        8;
-    /* The near end's loop is at most half the string's. */
-    const unsigned int lenA = len / 2 + 8;
+    const unsigned int len = lineOf(samples);
+    const unsigned int lenA = nearOf(len);
     const double rate = samples;
     const double fade = 1.0 - exp(-1.0 / (DAMPER_FADE * rate));
     const double release = exp(-1.0 / (PLAY_RELEASE * rate));
