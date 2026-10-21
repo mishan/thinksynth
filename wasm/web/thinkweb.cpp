@@ -454,7 +454,8 @@ void dropSeek (void);
  * caught up -- where it landed goes to the mirror (`replayLanded_'), which
  * advances its own all at once and lands it there (`replayRelease_'). The
  * replay reads what it reads as it stood when it began, so the two are the
- * same replay. A room's stamped commands replay whole (applyScheduled). */
+ * same replay. A room's stamped commands land theirs at a time of their own
+ * (applyScheduled). */
 std::deque<double> replayLanded_;
 std::deque<double> replayRelease_;
 void replayOn (double frame, double budgetMs);
@@ -982,11 +983,8 @@ void replayOn (double frame, double budgetMs)
            tw_clock_ms() - t0 < budgetMs)
         ;
 
-    if (caught)
-    {
-        sched_->replayLand();
+    if (caught && sched_->replayLand())
         replayLanded_.push_back(frame);
-    }
 }
 
 /* Not behind any more, or never was: the synth sounds again, unless it is
@@ -1228,16 +1226,17 @@ bool namedStage (Scheduled &c)
 
 void applyScheduledAt (const Scheduled &given);
 
-/* A stamped command (a room's) replays what it touches whole: the peers
-   step windows of their own, and only a replay done where the command
-   lands is heard in the same place by all of them. */
+/* A stamped command (a room's) lands what it replays a fixed time after its
+   stamp: the peers step windows of their own and advance the replay as
+   they can spare, and only the landing has to agree. At 48 kHz that is
+   eighteen windows' slices of catchBudget_, more than the 27 ms above. */
 void applyScheduled (const Scheduled &given)
 {
-    const bool stamped = given.at >= 0;
-
-    sched_->setReplayWhole(stamped);
+    sched_->setReplayLandAt(given.at >= 0
+                            ? given.at + thcScheduler::ROOM_REPLAY_LAND_S
+                            : -1);
     applyScheduledAt(given);
-    sched_->setReplayWhole(false);
+    sched_->setReplayLandAt(-1);
 }
 
 void applyScheduledAt (const Scheduled &given)

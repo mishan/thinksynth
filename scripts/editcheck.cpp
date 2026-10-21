@@ -1061,13 +1061,13 @@ checkKnobMoved (const std::map<std::string, thcPlugin *> &plugins,
  * window that finds them caught up. `chain a' reads @v and @h; `chain b'
  * reads neither. */
 static std::string
-replayPiece (int v)
+replayPiece (int v, const std::string &step = "0.05")
 {
     return "tempo 120;\n@v = " + std::to_string(v) + ";\n@v.max = 127;\n"
            "@h = 0.0125;\n"
            "chain a {\n    stage src gen::lsystem { axiom = "
            "\"FFFFFFFFFFFFFFFF\"; depth = 0; notes = \"C4 D4 E4 G4 A4\"; "
-           "step = 0.05 beats; hold = @h; vel = @v; };\n"
+           "step = " + step + " beats; hold = @h; vel = @v; };\n"
            "    sink { channel = 1; };\n};\n"
            "chain b {\n    stage src gen::lsystem { axiom = \"FFFF\"; "
            "depth = 0; notes = \"C3 G3\"; step = 0.5 beats; "
@@ -1080,9 +1080,9 @@ replayPiece (int v)
    `between' runs at the top of each window. Where they landed. */
 static double
 playReplaying (Peer &p, double until, unsigned ticks, double landAt = -1,
-               const std::function<void (Peer &)> &between = nullptr)
+               const std::function<void (Peer &)> &between = nullptr,
+               double window = 1024.0 / 44100)
 {
-    const double window = 1024.0 / 44100;
     double landed = -1;
 
     p.sched.start();
@@ -1225,6 +1225,87 @@ checkReplayHeld (const std::map<std::string, thcPlugin *> &plugins,
     else
         printf("ok    a replay advanced in pieces is the one advanced at "
                "once, with a knob and the tempo moved on the way\n");
+}
+
+/* A room's peers, each stepping windows of its own and advancing a replay
+   as it can spare: a knob dragged under stamped commands, each value's
+   replay given a landing of its own (setReplayLandAt), is heard from there
+   on both -- caught up early, or finished whole on arrival, and the values
+   a drag passes through held back to the same place. */
+static void
+checkReplayLandAt (const std::map<std::string, thcPlugin *> &plugins,
+                   const std::string &pluginDir,
+                   const std::filesystem::path &dir)
+{
+    /* A phrase two seconds long, which a value passing by is worth playing
+       again for; and a note 110 ms after the drag begins, between the
+       peers' first windows after its passing values come due. */
+    const double at = 19.89, until = 30;
+
+    for (const double after : { 0.005, 0.5 })
+    {
+        const std::string name = "replay landed at " + std::to_string(after) +
+                                 " s";
+        std::vector<std::string> errors;
+        Peer slow(plugins, pluginDir, dir, "ls"),
+             fast(plugins, pluginDir, dir, "lf");
+        const struct { Peer *p; unsigned ticks; double window; } peers[] = {
+            { &slow, 1, 1024.0 / 44100 }, { &fast, ~0u, 1000.0 / 48000 } };
+
+        for (const auto &q : peers)
+        {
+            q.p->sched.setReplayDeferred(true);
+
+            if (!q.p->load(replayPiece(100, "0.25"), errors))
+            {
+                fail(name, "the piece does not load");
+                return;
+            }
+
+            play(*q.p, name, {}, at, [&q] { return q.window; });
+
+            const std::pair<double, float> drag[] = {
+                { at, 50 }, { at + 0.02, 60 }, { at + 0.04, 70 },
+                { at + 0.17, 40 } };
+            size_t m = 0;
+
+            q.p->sched.start();
+
+            while (q.p->sched.now() < until)
+            {
+                const double to = std::min(until,
+                                           q.p->sched.now() + q.window);
+
+                if (q.p->sched.replaying() &&
+                    q.p->sched.replayAdvance(q.ticks))
+                    q.p->sched.replayLand();
+
+                for (; m < std::size(drag) && drag[m].first <= to; m++)
+                {
+                    thArg *v = q.p->sched.knob("v");
+
+                    q.p->stepTo(drag[m].first);
+                    q.p->sched.setReplayLandAt(drag[m].first + after);
+                    v->setValue(drag[m].second);
+                    q.p->sched.knobMoved(v, true);
+                    q.p->sched.setReplayLandAt(-1);
+                }
+
+                q.p->stepTo(to);
+            }
+
+            q.p->sched.stop();
+            q.p->drain();
+        }
+
+        if (slow.tape != fast.tape)
+            fail(name, "two peers stepping different windows hear the "
+                 "replay land in different places: " +
+                 firstDifference(slow.tape, fast.tape));
+        else
+            printf("ok    a knob dragged with each replay landing %g s on is "
+                   "heard the same whatever windows step it\n", after);
+    }
 }
 
 /* A breeding population that listens, edited while it plays, through an
@@ -2134,6 +2215,7 @@ main (int argc, char *argv[])
     checkKnobMoved(plugins, pluginDir, dir);
     checkReplayDeferred(plugins, pluginDir, dir);
     checkReplayHeld(plugins, pluginDir, dir);
+    checkReplayLandAt(plugins, pluginDir, dir);
     checkListener(plugins, pluginDir, dir);
     checkPainted(plugins, pluginDir, dir);
     checkCueEdit(plugins, pluginDir, dir);
