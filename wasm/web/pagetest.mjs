@@ -4298,6 +4298,7 @@ try
 
         const tapesBefore = await page.evaluate(() => window.solo.tapeDiff());
         const was = await page.inputValue(knob);
+        const loadBefore = await page.evaluate(() => window.solo.quanta());
 
         await page.focus(knob);
         await page.keyboard.press('ArrowRight');
@@ -4316,11 +4317,16 @@ try
         check(there.now > 3000 && Number(now) === Number(was) + 1,
               `a knob forty chains read, moved fifty minutes in: ${was} -> ` +
               `${now} at ${there.now.toFixed(1)} s`);
-        /* Two quanta on a millisecond clock: a slice of the replay is a
-           2 ms budget, and landing it used to take 9 ms more. */
-        check(load.recent.slowestMs < 6,
+        /* Since the press only, and none in the histogram's last bin, 7 ms
+           or more: a slice of the replay is a 2 ms budget, and landing it
+           took 9 ms more before a past note was dropped as it was heard. */
+        const slowBin = load.took.length - 1;
+        const stalls = (load.took[slowBin] ?? 0) -
+                       (loadBefore.took[slowBin] ?? 0);
+
+        check(stalls === 0,
               '...without a process() call that stalls for the chains it ' +
-              `plays again: the slowest was ${load.recent.slowestMs} ms`);
+              `plays again: ${stalls} took ${slowBin} ms or more`);
         check(tapes.compared > tapesBefore.compared &&
               tapes.disagreements === tapesBefore.disagreements,
               '...and the mirror hears them again where the worklet did: ' +
