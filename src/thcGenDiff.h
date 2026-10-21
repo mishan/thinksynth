@@ -85,14 +85,20 @@ public:
 
        `beforeAdopt' runs once the new text has loaded and before anything
        changes: where a host puts the edit's other files, which a text
-       that does not load must not leave behind. */
+       that does not load must not leave behind.
+
+       `was', when given, is `oldPath' already described, which a host
+       that holds it need not have read again; `now', when given, is
+       where `newPath' described is left, the same way. */
     static bool apply (thcScheduler &live,
                        const std::map<std::string, thcPlugin *> &plugins,
                        const std::string &oldPath, const std::string &newPath,
                        const std::set<std::string> &changedFiles,
                        std::vector<std::string> &errors,
                        const std::function<void (void)> &beforeAdopt =
-                           nullptr);
+                           nullptr,
+                       const thcGenEdit::Doc *was = nullptr,
+                       thcGenEdit::Doc *now = nullptr);
 };
 
 #endif /* THCGENDIFF_H */

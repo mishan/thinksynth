@@ -105,18 +105,11 @@ sameContext (const Doc &a, const Doc &b, bool seedToo = true)
     return true;
 }
 
-bool
-thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
-                  const std::set<std::string> &changedFiles,
-                  thcScheduler::EditPlan &plan,
-                  std::set<std::string> &keepKnobValues, std::string &why)
+static void
+planOf (const Doc &was, const Doc &now,
+        const std::set<std::string> &changedFiles,
+        thcScheduler::EditPlan &plan, std::set<std::string> &keepKnobValues)
 {
-    Doc was, now;
-
-    if (thcGenEdit::describe(oldPath, was, why) != thcGenEdit::OK ||
-        thcGenEdit::describe(newPath, now, why) != thcGenEdit::OK)
-        return false;
-
     plan = thcScheduler::EditPlan();
     plan.changedFiles = changedFiles;
     keepKnobValues.clear();
@@ -132,7 +125,7 @@ thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
     /* A new piece seed is another take of every chain but those with a
        seed of their own. */
     if (!sameContext(was, now, false))
-        return true;
+        return;
 
     const bool sameSeed = sameContext(was, now);
 
@@ -173,6 +166,21 @@ thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
             break;
         }
     }
+}
+
+bool
+thcGenDiff::plan (const std::string &oldPath, const std::string &newPath,
+                  const std::set<std::string> &changedFiles,
+                  thcScheduler::EditPlan &plan,
+                  std::set<std::string> &keepKnobValues, std::string &why)
+{
+    Doc was, now;
+
+    if (thcGenEdit::describe(oldPath, was, why) != thcGenEdit::OK ||
+        thcGenEdit::describe(newPath, now, why) != thcGenEdit::OK)
+        return false;
+
+    planOf(was, now, changedFiles, plan, keepKnobValues);
 
     return true;
 }
@@ -183,7 +191,8 @@ thcGenDiff::apply (thcScheduler &live,
                    const std::string &oldPath, const std::string &newPath,
                    const std::set<std::string> &changedFiles,
                    std::vector<std::string> &errors,
-                   const std::function<void (void)> &beforeAdopt)
+                   const std::function<void (void)> &beforeAdopt,
+                   const Doc *was, Doc *now)
 {
     errors.clear();
 
@@ -191,11 +200,29 @@ thcGenDiff::apply (thcScheduler &live,
     std::set<std::string> keepKnobValues;
     std::string why;
 
-    if (!plan(oldPath, newPath, changedFiles, edit, keepKnobValues, why))
+    Doc read, described;
+
+    if (was == nullptr)
+    {
+        if (thcGenEdit::describe(oldPath, read, why) != thcGenEdit::OK)
+        {
+            errors.push_back(why);
+            return false;
+        }
+
+        was = &read;
+    }
+
+    if (now == nullptr)
+        now = &described;
+
+    if (thcGenEdit::describe(newPath, *now, why) != thcGenEdit::OK)
     {
         errors.push_back(why);
         return false;
     }
+
+    planOf(*was, *now, changedFiles, edit, keepKnobValues);
 
     thcScheduler next(live.synth());
     thcGenLoader loader(plugins);

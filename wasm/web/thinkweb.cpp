@@ -487,6 +487,14 @@ EM_JS(double, tw_clock_ms, (), {
  * without ever having drawn anything. */
 thcGenEdit::Doc canvasDoc_;
 
+/* The text canvasDoc_ was read from, so an edit can tell whether the piece's
+   file has been written since and reuse it if not (applyEdit); empty when it
+   would not read. */
+std::string canvasText_;
+
+/* canvasDoc_ and canvasText_ from the piece's file. */
+bool describePiece (std::string &why);
+
 /* The param edits TW_PARAM has written to the piece since the page last
  * asked (tw_param_edits_json), each as the command named it and as it was
  * written.
@@ -1062,8 +1070,7 @@ writeParam (const Scheduled &c, const Scheduled &sent, const std::string &row,
     /* Described again rather than patched in place: the splice is what
        happened, and reading it back is the only account of it that cannot
        drift from the file. */
-    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-        thcGenEdit::OK)
+    if (!describePiece(why))
         fprintf(stderr, "the piece will not read back: %s\n", why.c_str());
 
     AppliedParam done;
@@ -1602,8 +1609,7 @@ void applyScheduledAt (const Scheduled &given)
             sched_->setKnobHome(knobs_[c.knob], (float)value);
             sched_->knobMoved(knobs_[c.knob], false);
 
-            if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-                thcGenEdit::OK)
+            if (!describePiece(why))
                 fprintf(stderr, "the piece will not read back: %s\n",
                         why.c_str());
 
@@ -2531,6 +2537,38 @@ bool installDsp (const std::string &name, const std::string &text)
     return writeFile(path.c_str(), text.c_str());
 }
 
+std::string readText (const char *path)
+{
+    std::string text;
+    FILE *f = fopen(path, "rb");
+
+    if (f == NULL)
+        return text;
+
+    char buf[4096];
+    size_t got;
+
+    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+        text.append(buf, got);
+
+    fclose(f);
+
+    return text;
+}
+
+bool describePiece (std::string &why)
+{
+    canvasText_.clear();
+
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+        return false;
+
+    canvasText_ = readText(TW_PIECE_FILE);
+
+    return true;
+}
+
 /* A new text for the piece, at the time the command was stamped for
  * (thcGenDiff): what it keeps and what it builds is the same answer on
  * every instance handed the same two texts at the same time. The piece's
@@ -2563,6 +2601,10 @@ void applyEdit (const Scheduled &c)
         return;
     }
 
+    const bool described = !canvasText_.empty() &&
+                           readText(TW_PIECE_FILE) == canvasText_;
+    thcGenEdit::Doc now;
+
     /* The files it carries go in only once its text has loaded: a refused
        edit leaves every instrument's .dsp as it was, so the next Apply
        still finds them changed. */
@@ -2572,7 +2614,8 @@ void applyEdit (const Scheduled &c)
                            {
                                for (const auto &f : c.files)
                                    installDsp(f.first, f.second);
-                           }))
+                           },
+                           described ? &canvasDoc_ : NULL, &now))
     {
         editResults_.push_back(std::make_pair(c.tie, 0));
         edits_++;
@@ -2583,13 +2626,8 @@ void applyEdit (const Scheduled &c)
 
     writeFile(TW_PIECE_FILE, c.text.c_str());
 
-    canvasDoc_ = thcGenEdit::Doc();
-
-    std::string why;
-
-    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-        thcGenEdit::OK)
-        editErrors_.push_back("the edit cannot be read back: " + why);
+    canvasDoc_ = std::move(now);
+    canvasText_ = c.text;
 
     knobs_.clear();
 
@@ -2603,25 +2641,6 @@ void applyEdit (const Scheduled &c)
                           sched_);
 
     edits_++;
-}
-
-std::string readText (const char *path)
-{
-    std::string text;
-    FILE *f = fopen(path, "rb");
-
-    if (f == NULL)
-        return text;
-
-    char buf[4096];
-    size_t got;
-
-    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
-        text.append(buf, got);
-
-    fclose(f);
-
-    return text;
 }
 
 /* Instrument `name' put on graph `dsp' in the piece at `path', from the
@@ -3724,8 +3743,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     {
         std::string why;
 
-        if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
-            thcGenEdit::OK)
+        if (!describePiece(why))
             fprintf(stderr, "the piece loaded but cannot be read back: "
                     "%s\n", why.c_str());
     }
