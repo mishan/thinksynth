@@ -4316,7 +4316,9 @@ try
         check(there.now > 3000 && Number(now) === Number(was) + 1,
               `a knob forty chains read, moved fifty minutes in: ${was} -> ` +
               `${now} at ${there.now.toFixed(1)} s`);
-        check(load.recent.slowestMs < 50,
+        /* Two quanta on a millisecond clock: a slice of the replay is a
+           2 ms budget, and landing it used to take 9 ms more. */
+        check(load.recent.slowestMs < 6,
               '...without a process() call that stalls for the chains it ' +
               `plays again: the slowest was ${load.recent.slowestMs} ms`);
         check(tapes.compared > tapesBefore.compared &&

@@ -4995,6 +4995,14 @@ thcScheduler::queuePending (const thcEvent &ev,
        queued then (replayRun). */
     if (replay_ != NULL)
     {
+        /* A note already past is one landReplay would drop: the transport
+           only moves on while a replay is under way, since reset() drops
+           them. Kept, half an hour of forty chains' notes was stored to be
+           thrown away in the one window that landed them. */
+        if ((p.ev.type == THC_EV_NOTE || p.ev.type == THC_EV_NOTEOFF) &&
+            p.at < transportNow_)
+            return;
+
         replay_->heard.push_back(p);
         return;
     }
