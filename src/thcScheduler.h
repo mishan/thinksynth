@@ -2170,7 +2170,8 @@ private:
     Replay  *replay_ = NULL;    /* the one whose ticks are running */
     bool     replayDeferred_ = false;
     double   replayLandAt_ = -1;
-    std::map<size_t, double> landMarked_;  /* recompose()'d under it */
+    /* recompose()'d under it: when, and where it was to land. */
+    std::map<size_t, std::pair<double, double>> landMarked_;
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
 
     /* recompose()'s chains, each with whether only values passing by

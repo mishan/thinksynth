@@ -3337,7 +3337,7 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
 
     recompose_.swap(marked);
 
-    std::map<size_t, double> landing;
+    std::map<size_t, std::pair<double, double>> landing;
 
     for (const auto &m : landMarked_)
         if (moved[m.first] >= 0)
@@ -4101,18 +4101,40 @@ thcScheduler::stepTransportAt (double dt, int64_t mono)
     stepMono_ = 0;
 }
 
+/* How often a chain may be played again from its start for values a drag
+   passes through: the replay's cost grows with how long the piece has
+   played, and a drag sends a value a frame. Those in between wait, and the
+   one let go at is not held. */
+static const double PASSING_EVERY_SEC = 0.1;
+
 void
 thcScheduler::stepTransportTo (double t)
 {
-    /* Each replay with a landing of its own up to `t' landed there, on a
-       step split at it as a stamped command splits one. */
-    while (running_ && t >= transportNow_)
+    /* The step split where a replay with a landing of its own lands, and
+       where values a drag passed through come due, as a stamped command
+       splits one: on transport time, so every host that steps windows of
+       its own lands and begins them in the same place. */
+    for (;;)
     {
+        retireStranded();
+        recomposeMarked();
+
+        if (!running_ || t < transportNow_)
+            return;
+
         double at = -1;
 
         for (const Replay &r : replays_)
             if (r.landAt >= 0 && r.landAt <= t && (at < 0 || r.landAt < at))
                 at = r.landAt;
+
+        const double due = passedAt_ + PASSING_EVERY_SEC;
+
+        if (due > transportNow_ && due <= t && (at < 0 || due < at) &&
+            std::any_of(recompose_.begin(), recompose_.end(),
+                        [](const std::pair<const size_t, bool> &m)
+                        { return m.second; }))
+            at = due;
 
         if (at < 0)
             break;
@@ -4130,12 +4152,6 @@ thcScheduler::stepTransportTo (double t)
 void
 thcScheduler::advanceTo (double t)
 {
-    retireStranded();
-    recomposeMarked();
-
-    if (!running_ || t < transportNow_)
-        return;
-
     transportNow_ = t;
     beat_ = beatAtTempo_ + (transportNow_ - tempoAt_) * tempo_ / 60.0;
 
@@ -4482,9 +4498,12 @@ thcScheduler::landingOf (size_t chain) const
     if (replayLandAt_ >= 0)
         return replayLandAt_;
 
+    /* As far after its stamp as it would have been, however long a drag
+       held it back. */
     const auto m = landMarked_.find(chain);
 
-    return m == landMarked_.end() ? -1 : m->second;
+    return m == landMarked_.end()
+        ? -1 : m->second.second + (transportNow_ - m->second.first);
 }
 
 bool
@@ -5991,7 +6010,7 @@ thcScheduler::recompose (size_t chain, bool passing)
     recompose_[chain] = passing && (m == recompose_.end() || m->second);
 
     if (replayLandAt_ >= 0)
-        landMarked_.emplace(chain, replayLandAt_);
+        landMarked_[chain] = { transportNow_, replayLandAt_ };
 }
 
 void
@@ -6014,12 +6033,6 @@ thcScheduler::knobMoved (const thArg *knob, bool passing)
     }
 }
 
-/* How often a chain may be played again from its start for values a drag
-   passes through: the replay's cost grows with how long the piece has
-   played, and a drag sends a value a frame. Those in between wait, and the
-   one let go at is not held. */
-static const double PASSING_EVERY_SEC = 0.1;
-
 void
 thcScheduler::recomposeMarked (void)
 {
@@ -6038,6 +6051,7 @@ thcScheduler::recomposeMarked (void)
             passedAt_ = transportNow_;
 
         composeAgain(m.first, m.second);
+        landMarked_.erase(m.first);
     }
 }
 
@@ -6104,7 +6118,6 @@ thcScheduler::composeAgain (size_t chain, bool passing)
         remake(chain, si);
 
     catchUp(chain);
-    landMarked_.erase(chain);
 
     if (whole)
         return;
