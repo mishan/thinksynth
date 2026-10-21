@@ -54,6 +54,30 @@ std::atomic<int> args[INOUT_LOOP + 1];
    `drive' has to be up to hold. */
 #define ECHO_BOOST_MAX 0.5f
 
+static unsigned int ringOf (float size, unsigned int samples)
+{
+    const float maxSize = 60.0f * samples;
+
+    return !(size > 0) ? 0
+         : size > maxSize ? (unsigned int)maxSize
+         : (unsigned int)size;
+}
+
+/* A voice about to start: its ring, sized here and not in its first
+   window. Only a `size' that is a number or a control has a value yet; one
+   fed by another node is left to the callback. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const thArg *raw = node->getArg(args[IN_SIZE]);
+    thArg *in_size = mod->getArg(node, args[IN_SIZE]);
+
+    if (voice && raw != NULL && raw->type() != thArg::ARG_POINTER &&
+        in_size != NULL)
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(
+            ringOf((*in_size)[0], samples));
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);
@@ -66,7 +90,7 @@ int module_init (thPlugin *plugin)
     args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
     /* `(int)(*in_size)[i]' -- a delay line is a whole number of samples.
        Read every sample and used to size the ring, so changing it mid-note
-       reallocates and loses what was in it. A size of 0 passes the input
+       clears what was in it. A size of 0 passes the input
        straight through.
 
        Sixty seconds is allowed and used: fx/tapeloop.dsp's ring is that long,
@@ -163,16 +187,20 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float hpOut = (*inout_loop)[2];
     float *loop = inout_loop->allocate(3);
 
-    const float maxSize = 60.0f * samples;
+    buffer = inout_buffer->values();
 
     for(i = 0; i < windowlen; i++) {
-        const float size = (*in_size)[i];
-        unsigned int mySize = !(size > 0) ? 0
-                            : size > maxSize ? (unsigned int)maxSize
-                            : (unsigned int)size;
+        unsigned int mySize = ringOf((*in_size)[i], samples);
         unsigned int myBufpos = (int)*bufpos;
 
-        buffer = inout_buffer->allocate(mySize);
+        /* A changed size starts a fresh, zeroed ring. */
+        if (mySize != inout_buffer->len())
+        {
+            buffer = inout_buffer->resize(mySize,
+                                          ringOf(INFINITY, samples));
+            memset(buffer, 0, mySize * sizeof(float));
+        }
+
         in = (*in_arg)[i];
         feedback = (*in_feedback)[i];
         dry = (*in_dry)[i];

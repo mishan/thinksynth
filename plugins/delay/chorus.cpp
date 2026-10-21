@@ -88,6 +88,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <algorithm>
+
 #include "think.h"
 
 enum {IN_ARG, IN_RATE, IN_DEPTH, IN_DELAY, IN_MIX, IN_TAPS, IN_PHASE,
@@ -133,29 +135,22 @@ void module_cleanup (thPlugin *plugin)
 
 /* The line at `want' samples, `len' and `at' moved to match, keeping what
    it held: the sample `k' back from the write head is still `k' back. A
-   line of one is a prototype's placeholder and is not history. */
-static float *grow (thArg *line, unsigned int want, unsigned int &len,
-                    unsigned int &at)
+   line of one is a prototype's placeholder and is not history. `most' is
+   the longest `want' can be. */
+static float *grow (thArg *line, unsigned int want, unsigned int most,
+                    unsigned int &len, unsigned int &at)
 {
-    const unsigned int had = len;
-    float *old = NULL;
+    const unsigned int had = len > 1 ? len : 0;
 
-    if (had > 1)
-    {
-        old = new float[had];
+    /* Oldest first: `at' is the next sample to be overwritten. */
+    if (had > 0)
+        std::rotate(line->values(), line->values() + at % had,
+                    line->values() + had);
 
-        /* Oldest first: `at' is the next sample to be overwritten. */
-        for (unsigned int j = 0; j < had; j++)
-            old[j] = line->values()[(at + j) % had];
-    }
+    float *buffer = line->resize(want, most);
 
-    float *buffer = line->allocate(want);
-
-    if (old != NULL)
-    {
-        memcpy(buffer + (want - had), old, had * sizeof(float));
-        delete [] old;
-    }
+    memmove(buffer + (want - had), buffer, had * sizeof(float));
+    memset(buffer, 0, (want - had) * sizeof(float));
 
     len = want;
     at = 0;
@@ -312,7 +307,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if ((unsigned int)(delay + depth) + 3 > len)
             buffer = grow(inout_buffer, (unsigned int)(delay + depth) + 3,
-                          len, at);
+                          samples / 2 + 3, len, at);
 
         if (at >= len)
             at = 0;

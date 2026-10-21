@@ -92,6 +92,27 @@ void module_cleanup (thPlugin *plugin)
 {
 }
 
+static unsigned int lineOf (const thArg *in_size, unsigned int samples)
+{
+    return (unsigned int)thClampArg((*in_size)[0], COMB_SIZE_MIN,
+                                    (float)samples * 10);
+}
+
+/* A voice about to start: its line, sized here and not in its first
+   window. Only a `size' that is a number or a control has a value yet; one
+   fed by another node is left to the callback. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const thArg *raw = node->getArg(args[IN_SIZE]);
+    thArg *in_size = mod->getArg(node, args[IN_SIZE]);
+
+    if (voice && raw != NULL && raw->type() != thArg::ARG_POINTER &&
+        in_size != NULL)
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(lineOf(in_size,
+                                                              samples));
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);
@@ -188,13 +209,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     /* Size is sampled once per window: reallocating per sample would put
        repeated heap operations on the audio thread. A changed length starts
        a new line, including its write head and the lowpass in its loop. */
-    len = (unsigned int)thClampArg((*in_size)[0], COMB_SIZE_MIN,
-                                   (float)samples * 10);
+    len = lineOf(in_size, samples);
     oldlen = inout_buffer->len();
-    buffer = inout_buffer->allocate(len);
+    buffer = inout_buffer->resize(len, samples * 10);
 
     if (oldlen != len)
     {
+        memset(buffer, 0, len * sizeof(float));
         at = 0;
         damped = 0;
     }

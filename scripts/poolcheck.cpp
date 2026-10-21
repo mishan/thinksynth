@@ -46,8 +46,8 @@
  *
  * And the audio thread's side of both renders, synth.process(), allocates
  * nothing: a voice is built and sized on the calling thread, and moving it
- * between the channel's lists is pointer work. A graph that uses a plugin
- * sizing its own buffers on the first window is excused (see render).
+ * between the channel's lists is pointer work. A graph with a delay line
+ * whose size another node feeds is excused (see render).
  *
  * Then, once, the fallback: a voice whose args no longer match its
  * prototype's -- one invented on the voice by name -- is not restarted, and
@@ -182,9 +182,10 @@ static bool render (const string &plugins, const char *file, Sequence seq,
     *restarts = synth.getChannel(0)->restarts();
     *allocated = allocations;
 
-    /* Plugins that still size their own buffers on a voice's first window:
-       a graph using one is not held to none. */
-    static const char *const sizing[] = { "comb", "echo", "pianostring" };
+    /* Lines sized by an arg another node feeds: it has no value until the
+       voice runs, so the line is sized on its first window and a graph
+       with one is not held to none. */
+    static const char *const sizing[] = { "comb", "echo" };
     const thSynthTree::NodeMap &nodes = tree->nodes();
 
     for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
@@ -193,9 +194,11 @@ static bool render (const string &plugins, const char *file, Sequence seq,
         const thPlugin *plug = n->second ? n->second->plugin() : NULL;
         const string path = plug ? plug->path() : string();
         const string stem = path.substr(path.find_last_of("/\\") + 1);
+        const thArg *size = plug ? n->second->getArg("size") : NULL;
 
-        for (size_t k = 0; plug && k < sizeof(sizing) / sizeof(*sizing); k++)
-            *excused |= stem.compare(0, stem.find('.'), sizing[k]) == 0;
+        for (size_t k = 0; size && k < sizeof(sizing) / sizeof(*sizing); k++)
+            *excused |= stem.compare(0, stem.find('.'), sizing[k]) == 0 &&
+                        size->type() == thArg::ARG_POINTER;
     }
 
     return true;
