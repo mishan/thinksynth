@@ -703,6 +703,45 @@ bool thSynth::postCommand (const thSynthCommand &cmd)
     return false;
 }
 
+static std::atomic<unsigned long> retireFrees_(0);
+
+unsigned long thSynth::retireFrees (void)
+{
+    return retireFrees_.load(std::memory_order_relaxed);
+}
+
+void thRetired::destroy (void)
+{
+    switch (kind)
+    {
+        case NOTE:    delete note;    break;
+        case CHANNEL: delete channel; break;
+        case EFFECT:  delete effect;  break;
+        case ARG:     delete arg;     break;
+        case PROBE:   delete probe;   break;
+    }
+}
+
+void thRetire (thRetireQueue *queue, thRetired &item)
+{
+    if (queue != NULL)
+    {
+        if (queue->push(item))
+            return;
+
+        retireFrees_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    item.destroy();
+}
+
+/* GUI thread. */
+void thSynth::collect (void)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+}
+
 /* GUI thread. */
 void thSynth::collectRetired (void)
 {
@@ -760,9 +799,7 @@ void thSynth::installProbe (int slot, thProbe *probe)
 
             item.kind = thRetired::PROBE;
             item.probe = probe;
-
-            if (!retired_.push(item))
-                delete probe;
+            thRetire(&retired_, item);
         }
 
         return;
@@ -779,9 +816,7 @@ void thSynth::installProbe (int slot, thProbe *probe)
 
         item.kind = thRetired::PROBE;
         item.probe = old;
-
-        if (!retired_.push(item))
-            delete old;
+        thRetire(&retired_, item);
     }
 }
 
@@ -807,9 +842,7 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         {
             item.kind = thRetired::EFFECT;
             item.effect = master_;
-
-            if (!retired_.push(item))
-                delete master_;
+            thRetire(&retired_, item);
         }
 
         master_ = cmd.effect;
@@ -822,11 +855,13 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         /* Should not happen -- the GUI side range-checks -- but the payload
            still has to go somewhere. */
         if (cmd.note)    { item.kind = thRetired::NOTE;    item.note = cmd.note;
-                           retired_.push(item); }
+                           thRetire(&retired_, item); }
         if (cmd.channel) { item.kind = thRetired::CHANNEL; item.channel = cmd.channel;
-                           retired_.push(item); }
+                           thRetire(&retired_, item); }
+        if (cmd.effect)  { item.kind = thRetired::EFFECT;  item.effect = cmd.effect;
+                           thRetire(&retired_, item); }
         if (cmd.replaced) { item.kind = thRetired::ARG;    item.arg = cmd.replaced;
-                           retired_.push(item); }
+                           thRetire(&retired_, item); }
         return;
     }
 
@@ -837,14 +872,13 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         case thSynthCommand::NOTE_ON:
             if (chan)
             {
-                chan->insertNote(cmd.note, &retired_);
+                chan->insertNote(cmd.note, chan->retiring());
             }
             else if (cmd.note)
             {
                 item.kind = thRetired::NOTE;
                 item.note = cmd.note;
-                if (!retired_.push(item))
-                    delete cmd.note;
+                thRetire(&retired_, item);
             }
             break;
 
@@ -857,7 +891,7 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
             for (int i = 0; i < midiChannelCnt_; i++)
             {
                 if (midiChannels_[i])
-                    midiChannels_[i]->clearAll(&retired_);
+                    midiChannels_[i]->clearAll(midiChannels_[i]->retiring());
             }
             break;
 
@@ -905,8 +939,7 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
             {
                 item.kind = thRetired::CHANNEL;
                 item.channel = chan;
-                if (!retired_.push(item))
-                    delete chan;
+                thRetire(&retired_, item);
             }
             break;
 
@@ -920,28 +953,26 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         case thSynthCommand::SET_EFFECT:
             if (chan)
             {
-                chan->setEffect(cmd.effect, &retired_);
+                chan->setEffect(cmd.effect, chan->retiring());
             }
             else if (cmd.effect)
             {
                 item.kind = thRetired::EFFECT;
                 item.effect = cmd.effect;
-                if (!retired_.push(item))
-                    delete cmd.effect;
+                thRetire(&retired_, item);
             }
             break;
 
         case thSynthCommand::SET_CHAN_ARG:
             if (chan)
             {
-                chan->setArg(cmd.arg, cmd.replaced, &retired_);
+                chan->setArg(cmd.arg, cmd.replaced, chan->retiring());
             }
             else if (cmd.replaced)
             {
                 item.kind = thRetired::ARG;
                 item.arg = cmd.replaced;
-                if (!retired_.push(item))
-                    delete cmd.replaced;
+                thRetire(&retired_, item);
             }
             break;
     }
@@ -2526,30 +2557,40 @@ int thSynth::buildLanes (const int *order, int norder)
 void thSynth::renderLane (int lane)
 {
     for (int k = laneStart_[lane]; k < laneStart_[lane + 1]; k++)
-    {
-        const int i = laneChannels_[k];
-
-        renderChannel(i, midiChannels_[i]->retiring());
-    }
+        renderChannel(laneChannels_[k]);
 }
 
 /* Whichever thread renders it: channel `i''s window, timed for a profiler
    into its own slot of profile_. */
-void thSynth::renderChannel (int i,
-                             thRing<thRetired, TH_RETIRE_QUEUE_SIZE> *retire)
+void thSynth::renderChannel (int i)
 {
     using Clock = std::chrono::steady_clock;
     const ChannelJob &job = jobs_[i];
     const Clock::time_point t0 = profiling_ ? Clock::now()
                                             : Clock::time_point();
 
-    midiChannels_[i]->process(retire, job.taps, job.ntaps, job.side,
+    midiChannels_[i]->process(midiChannels_[i]->retiring(), job.taps, job.ntaps, job.side,
                               job.sidechannels, job.drainSide,
                               job.drainSidechannels);
 
     if (profiling_)
         profile_[i] = std::chrono::duration<double>(Clock::now() - t0)
                           .count();
+}
+
+/* Audio thread: what each channel retired, onto the one queue the GUI
+   thread empties. What that queue cannot take waits in the channel's for a
+   later window rather than being freed here: a burst, or a GUI that has
+   stopped calling in, is then held per channel and not torn down inside
+   the callback. */
+void thSynth::handBack (void)
+{
+    thRetired item;
+
+    for (int i = 0; i < midiChannelCnt_; i++)
+        while (midiChannels_[i] && !retired_.full() &&
+               midiChannels_[i]->retiring()->pop(item))
+            retired_.push(item);
 }
 
 /* Audio thread. */
@@ -2567,9 +2608,13 @@ void thSynth::process (void)
 
     /* The queue applied is the whole of a silent synth's window: no
        voices to mix, no probes to publish, and the output stays the
-       silence setSilent() left in it. */
+       silence setSilent() left in it. Less what the queue retired, which
+       is still the GUI's to free. */
     if (silent_)
+    {
+        handBack();
         return;
+    }
 
     memset(output_, 0,
            thOutputSamples(channels_, windowlen_) * sizeof(float));
@@ -2667,32 +2712,12 @@ void thSynth::process (void)
     {
         for (int o = 0; o < norder; o++)
             if (midiChannels_[order[o]] != NULL)
-                renderChannel(order[o], &retired_);
+                renderChannel(order[o]);
     }
     else
-    {
         renderPool_->run(buildLanes(order, norder));
 
-        /* What each channel retired, onto the one queue the GUI thread
-           empties, in the order a single thread would have put it there. */
-        for (int o = 0; o < norder; o++)
-        {
-            if ((chan = midiChannels_[order[o]]) == NULL)
-                continue;
-
-            thRetired item;
-
-            /* A queue too full to take it is a free here, as SET_CHANNEL's
-               own fallback is: a channel retired by the one draining it
-               crosses this loop as well as notes do. */
-            while (chan->retiring()->pop(item))
-                if (!retired_.push(item))
-                {
-                    delete item.note;
-                    delete item.channel;
-                }
-        }
-    }
+    handBack();
 
     /* The mix, in `order', whoever rendered the channels: the same floats
        added in the same order, so the same samples. */

@@ -177,6 +177,10 @@ public:
        stepping. */
     unsigned long droppedCommands (void) const { return dropped_; }
 
+    /* What thRetire freed on the audio thread because the queue it was
+       handed was full, across every synth in the process. */
+    static unsigned long retireFrees (void);
+
     /* Voices thMidiChan's guard dropped for going non-finite, since
      * construction. What lets a render report `non-finite voices: 3' rather
      * than hand back a file that is quiet for no stated reason.
@@ -446,6 +450,10 @@ public:
     void collectRetired (void);
     void recycleNote (thMidiNote *note);
 
+    /* GUI thread: collectRetired() for a host's timer, so what an idle GUI
+       leaves retired is freed without waiting for its next call. */
+    void collect (void);
+
     /* GUI thread: thSynthTree::prepare on every tree the synth holds, so
        data files the host has said changed (thUtil::dataFilesChanged,
        dataFileChanged) are read here and not on the audio thread. */
@@ -687,7 +695,8 @@ private:
 
     int buildLanes (const int *order, int norder);
     void renderLane (int lane);
-    void renderChannel (int i, thRing<thRetired, TH_RETIRE_QUEUE_SIZE> *retire);
+    void renderChannel (int i);
+    void handBack (void);
 };
 
 #endif /* TH_SYNTH_H */

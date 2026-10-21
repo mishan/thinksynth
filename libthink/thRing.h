@@ -73,6 +73,13 @@ public:
         return true;
     }
 
+    /* Producer side only: a push now would fail. */
+    bool full (void) const
+    {
+        return (head_.load(std::memory_order_relaxed) + 1) % CAPACITY ==
+               tail_.load(std::memory_order_acquire);
+    }
+
     bool empty (void) const
     {
         return head_.load(std::memory_order_acquire) ==

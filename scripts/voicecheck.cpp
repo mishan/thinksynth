@@ -1746,6 +1746,95 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a burst the retire queue cannot hold ---------------------------- */
+
+    /* 1536 voices released together finish while nothing on the GUI side
+       calls in to collect them, which is more than the synth's retire
+       queue holds. What it cannot take waits for a collect rather than
+       being freed on the audio thread, with the render pool off and on. */
+    if (writeFile(file, graph("    poly = 0;\n", "freq->out", "", "100 ms")))
+    {
+        const int chans = 12, keys = 128;
+
+        for (int threads = 0; threads <= 2; threads += 2)
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned long before = thSynth::retireFrees();
+            const string pool = threads ? "pool on" : "pool off";
+
+            synth.setThreads(threads);
+
+            for (int c = 0; c < chans; c++)
+                synth.loadTree(file, c, 100);
+
+            for (int pass = 0; pass < 2; pass++)
+                for (int c = 0; c < chans; c++)
+                {
+                    for (int k = 0; k < keys; k++)
+                        if (pass == 0)
+                            synth.addNote(c, (float)k, 100);
+                        else
+                            synth.delNote(c, (float)k);
+
+                    if (c % 4 == 3)
+                        synth.process();
+                }
+
+            for (int w = 0; w < 60; w++)
+                synth.process();
+
+            const auto waiting = [&] {
+                int n = 0;
+
+                for (int c = 0; c < chans; c++)
+                    n += !synth.getChannel(c)->retiring()->empty();
+
+                return n;
+            };
+            const int held = waiting();
+
+            for (int w = 0; w < 4; w++)
+            {
+                synth.collect();
+                synth.process();
+            }
+
+            okOrFail(held > 0 && waiting() == 0,
+                     "burst: what the queue cannot take waits in the "
+                     "channels until it can (" + pool + ")",
+                     std::to_string(held) + " channels waiting, then " +
+                     std::to_string(waiting()));
+            okOrFail(thSynth::retireFrees() == before,
+                     "burst: no voice is freed on the audio thread (" +
+                     pool + ")",
+                     std::to_string(thSynth::retireFrees() - before) +
+                     " freed there");
+        }
+    }
+
+    /* A silent synth renders nothing, but what a command displaces is
+       still handed back: the web page's mirror is silent for good. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        synth.loadTree(file, 0, 100);
+        synth.setSilent(true);
+        const float two[2] = { 1, 2 };
+
+        /* A change of length cannot be made in place, so the second is a
+           replacement the audio thread retires. */
+        synth.setChanArg(0, new thArg(string("silent"), 1.0f));
+        synth.process();
+        synth.setChanArg(0, new thArg(string("silent"), two, 2));
+        synth.process();
+
+        okOrFail(synth.getChannel(0)->retiring()->empty(),
+                 "silent: a replaced chanarg is handed back", "");
+    }
+
     remove(octave.c_str());
     remove(file.c_str());
 

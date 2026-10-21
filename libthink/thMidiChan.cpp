@@ -219,6 +219,13 @@ thMidiChan::~thMidiChan (void)
        hand the notes to and they are freed directly. */
     clearAll(NULL);
 
+    /* What the synth's queue had no room for when this channel last
+       rendered, or what was retired into it after it was swapped out. */
+    thRetired item;
+
+    while (retiring_.pop(item))
+        item.destroy();
+
     DestroyMap(args_);
 
     for (thArg *a : shadowed_)
@@ -357,8 +364,7 @@ void thMidiChan::retireNote (thMidiNote *note, RetireQueue *retire)
 
     /* Destroying a note tears down a whole synth tree, so hand it to the GUI
        thread. If the queue is backed up, take the hit here rather than leak. */
-    if (retire == NULL || !retire->push(item))
-        delete note;
+    thRetire(retire, item);
 }
 
 void thMidiChan::setArg (thArg *arg, thArg *old, RetireQueue *retire)
@@ -401,9 +407,7 @@ void thMidiChan::setArg (thArg *arg, thArg *old, RetireQueue *retire)
 
         item.kind = thRetired::ARG;
         item.arg = old;
-
-        if (retire == NULL || !retire->push(item))
-            delete old;
+        thRetire(retire, item);
     }
 }
 
@@ -457,9 +461,7 @@ void thMidiChan::setEffect (thChanEffect *effect, RetireQueue *retire)
 
         item.kind = thRetired::EFFECT;
         item.effect = old;
-
-        if (retire == NULL || !retire->push(item))
-            delete old;
+        thRetire(retire, item);
     }
 
     /* An effect runs on silence as readily as on a voice, and the buffer it
@@ -931,9 +933,7 @@ void thMidiChan::clearAll (RetireQueue *retire)
 
         item.kind = thRetired::CHANNEL;
         item.channel = draining_;
-
-        if (retire == NULL || !retire->push(item))
-            delete draining_;
+        thRetire(retire, item);
 
         draining_ = NULL;
     }

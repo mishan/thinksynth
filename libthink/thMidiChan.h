@@ -144,8 +144,9 @@ public:
        what `drainSide' to process() is. */
     thMidiChan *draining (void) const { return draining_; }
 
-    /* Where process() retires to when it runs beside other channels, which
-       share no queue: thSynth hands this on to its own after the window. */
+    /* Where the audio thread retires this channel's voices, args and
+       effects to: thSynth moves them onto its own queue after the window,
+       as far as that queue has room. */
     RetireQueue *retiring (void) { return &retiring_; }
 
     /* Whether the graph has a plugin that keeps one table for the whole
