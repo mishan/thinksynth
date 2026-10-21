@@ -39,6 +39,7 @@
 #include <chrono>
 #include <thread>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -199,6 +200,144 @@ int main (int argc, char **argv)
              std::to_string(parsed) + " of " + std::to_string(all.size()));
     okOrFail(back, "a graph with its saturator taken out is offered it back, "
              "between the filter and the vca", "");
+
+    /* Each edit made again from where it goes rather than from its text. */
+    int again = 0;
+
+    for (size_t e = 0; e < all.size(); e++)
+    {
+        string text = ablated, what;
+
+        again += apply(&synth, text, all[e].op, what) &&
+                 text == all[e].source && what == all[e].what;
+    }
+
+    okOrFail(again == (int)all.size(), "every edit made again from its op "
+             "is the same graph", std::to_string(again) + " of " +
+             std::to_string(all.size()));
+
+    /* Two lineages of three edits from bass.dsp sharing their first, the
+       last of each with a constant it added moved as a tune would. */
+    auto lineage = [&](const vector<size_t> &picks, vector<Op> &ops,
+                       string &text)
+    {
+        text = bass;
+        ops.clear();
+
+        for (size_t k = 0; k < picks.size(); k++)
+        {
+            thSynthTree *t = parse(synth, text);
+            vector<Gene> g;
+            Shape s;
+
+            if (t == NULL)
+                return false;
+
+            read(t, text, &g, &s);
+            delete t;
+
+            const vector<Edit> can = edits(text, s, g, pool);
+
+            if (can.empty())
+                return false;
+
+            const Edit &e = can[picks[k] % can.size()];
+            string next = e.source;
+            Op op = e.op;
+
+            if (k + 1 == picks.size())
+            {
+                thSynthTree *u = parse(synth, next);
+                vector<Gene> ng;
+                Shape ns;
+
+                if (u == NULL)
+                    return false;
+
+                read(u, next, &ng, &ns);
+                delete u;
+
+                for (const Gene &one : ng)
+                    if (std::find(s.names.begin(), s.names.end(), one.node) ==
+                        s.names.end())
+                    {
+                        write(next, one, moved(one, one.value, 3));
+                        break;
+                    }
+            }
+
+            tunedOf(&synth, text, next, op);
+            ops.push_back(op);
+            text = next;
+        }
+
+        return true;
+    };
+    vector<Op> a, b;
+    string aText, bText, made;
+
+    const bool built = lineage({ 5, 40, 77 }, a, aText) &&
+                       lineage({ 5, 13 }, b, bText);
+
+    okOrFail(built && replay(&synth, bass, a, made) && made == aText &&
+                 !a.back().tuned.empty(),
+             "a lineage made again on the declared graph is the graph it "
+             "made, tuning and all", "");
+
+    vector<Op> kept;
+    Op nowhere = a.back();
+
+    nowhere.wire.node = "nowhere";
+    a.insert(a.begin() + 1, nowhere);
+
+    okOrFail(replay(&synth, bass, a, made, &kept) && made == aText &&
+                 kept.size() == a.size() - 1,
+             "an op whose wire the graph does not have is passed over",
+             std::to_string(kept.size()) + " of " + std::to_string(a.size()));
+    a.erase(a.begin() + 1);
+
+    /* Crossed: each key once, only the parents', `a''s all there and in
+       its order, and the same child from the same dice. */
+    std::set<string> parents;
+
+    for (const Op &op : a)
+        parents.insert(key(op));
+
+    for (const Op &op : b)
+        parents.insert(key(op));
+
+    bool crossed = built;
+    std::set<string> fromB;
+
+    for (unsigned int seed = 1; crossed && seed <= 8; seed++)
+    {
+        const vector<Op> child = cross(a, b, seed);
+        std::set<string> seen;
+        size_t next = 0;
+
+        for (const Op &op : child)
+        {
+            crossed &= parents.count(key(op)) && seen.insert(key(op)).second;
+
+            if (next < a.size() && key(op) == key(a[next]))
+                next++;
+            else
+                fromB.insert(key(op));
+        }
+
+        const vector<Op> twin = cross(a, b, seed);
+
+        crossed &= next == a.size() && twin.size() == child.size() &&
+                   std::equal(twin.begin(), twin.end(), child.begin(),
+                              [](const Op &x, const Op &y)
+                              { return key(x) == key(y); }) &&
+                   replay(&synth, bass, child, made);
+    }
+
+    okOrFail(crossed && !fromB.empty(),
+             "a child has its fitter parent's ops in order, the other's at "
+             "even odds, each once, and the same child from the same dice",
+             std::to_string(fromB.size()) + " of the other's taken");
 
     /* And the search that uses it, on a thread of its own: an enveloped
        sine with its sustain moved, searched toward itself as written,
