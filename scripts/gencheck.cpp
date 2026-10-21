@@ -8896,7 +8896,8 @@ checkPhrasing (const std::map<std::string, thcPlugin *> &plugins,
 {
     {
         const char *need[] = { "lsystem", "euclid", "form", "swing", "echo",
-                               "chance", "ratchet", "level", NULL };
+                               "chance", "ratchet", "level", "humanize",
+                               "eno_line", NULL };
 
         for (int i = 0; need[i] != NULL; i++)
             if (plugins.find(need[i]) == plugins.end())
@@ -8936,6 +8937,42 @@ checkPhrasing (const std::map<std::string, thcPlugin *> &plugins,
                 fail("ties: a five-step phrase should repeat at 5 s, not "
                      "at " + std::to_string(h[2].at));
         }
+    }
+
+    /* A velocity spread is +/- its size, whichever sign it is written
+       with: twenty notes at 64 stay within ten of it. */
+    {
+        static const char *const cases[][2] = {
+            { "eno_line", "gen::eno_line { notes = \"C4\"; period = 0.1 s;"
+                          " hold = 0.05 s; vel = 64; vel_jitter = V; }" },
+            { "humanize", "xform::humanize { time = 0 s; vel = V; }" },
+        };
+
+        for (const auto &c : cases)
+            for (const char *v : { "10", "-10" })
+            {
+                std::string stage = c[1];
+
+                stage.replace(stage.find(" V;") + 1, 1, v);
+
+                const bool xform = stage.compare(0, 7, "xform::") == 0;
+                const std::string label = std::string(c[0]) + " vel " + v;
+                std::vector<Heard> h = playBody(plugins, synth,
+                    label.c_str(),
+                    "seed 7;\nchain c {\n" +
+                    std::string(xform ? "  stage n gen::eno_line { notes = "
+                                        "\"C4\"; period = 0.1 s; hold = "
+                                        "0.05 s; vel = 64; };\n" : "") +
+                    "  stage s " + stage + ";\n"
+                    "  sink { channel = 1; };\n};\n", 2.0);
+                bool within = h.size() >= 10;
+
+                for (const Heard &n : h)
+                    within = within && n.vel >= 54 && n.vel <= 74;
+
+                if (!within)
+                    fail(label + ": expected velocities 54 to 74");
+            }
     }
 
     /* A rest in a cycled pool takes an onset and sounds nothing. */

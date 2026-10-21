@@ -21,6 +21,7 @@
  * looseness being asked for.
  */
 
+#include <cstdlib>
 #include <random>
 
 #include "thcomposer.h"
@@ -80,7 +81,9 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
         copy.at += uni(st->rng) * get(P_TIME);
 
-        int vj = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
+        /* A spread is a size either way: a negative one made `2 * vj + 1'
+           negative, which as the generator's unsigned type is enormous. */
+        int vj = abs(thcParamInt(p, paramIndex[P_VEL], -10000, 10000));
 
         if (vj)
         {
