@@ -1050,17 +1050,26 @@ public:
     bool replayAdvance (unsigned ticks);
 
     /* Every replay heard from here, played through first if it has not
-       caught up. settleReplays is the same, for a change that has to find
-       none under way. */
-    void replayLand (void);
-    void settleReplays (void) { replayLand(); }
+       caught up -- but one with a landing of its own (setReplayLandAt);
+       true if there was one. settleReplays lands every one, for a change
+       that has to find none under way. */
+    bool replayLand (void);
+    void settleReplays (void);
 
-    /* While on, a replay asked for -- now, or by a recompose() marked now
-       and run at a later step -- is played through whole, as if it were
-       not deferred. For a host whose peers step different windows: a
-       room's stamped commands, which every peer has to hear land in the
-       same place. */
-    void setReplayWhole (bool on) { replayWhole_ = on; }
+    /* While at or above zero, a replay asked for -- now, or by a
+       recompose() marked now and run at a later step -- is heard from
+       transport time `at', deferred or not, rather than where the host
+       lands it: the host may advance it, and stepping the transport to
+       `at' plays the rest through and lands it there. For a host whose
+       peers step different windows: a room's stamped commands, which every
+       peer has to hear land in the same place. One asked for at or after
+       `at' is played through whole. */
+    void setReplayLandAt (double at) { replayLandAt_ = at; }
+
+    /* How long after its stamp a room's command lands what it replays. The
+       browser host and the room's reference (genwav.mjs -c) both land
+       there, or their tapes part. */
+    static constexpr double ROOM_REPLAY_LAND_S = 0.05;
 
     /* NULL where there is no ear. A harness reads answered() off it. */
     thcAuditioner *auditioner (void) const { return auditioner_; }
@@ -1649,10 +1658,13 @@ private:
     bool replayRun (size_t i, unsigned &budget);
     struct Replay;
     void landReplay (Replay &r);
+    bool landReplays (const std::function<bool (const Replay &)> &which);
+    void advanceTo (double t);
     void dropReplays (long chain = -1);
     void dropOldSounds (const Replay &r);
     bool replaying (size_t chain) const;
     bool wholeReplay (size_t chain) const;
+    double landingOf (size_t chain) const;
     void remake (size_t chain, size_t stage);
     void recomposeMarked (void);
     void composeAgain (size_t chain, bool passing);
@@ -2150,13 +2162,15 @@ private:
         /* A stage it cannot play again (unwritten): the chain starts from
            where it lands instead, as made. */
         bool bailed = false;
+
+        double landAt = -1;  /* setReplayLandAt's, or the host lands it */
     };
 
     std::vector<Replay> replays_;
     Replay  *replay_ = NULL;    /* the one whose ticks are running */
     bool     replayDeferred_ = false;
-    bool     replayWhole_ = false;
-    std::set<size_t> wholeMarked_;  /* recompose()'d under replayWhole_ */
+    double   replayLandAt_ = -1;
+    std::map<size_t, double> landMarked_;  /* recompose()'d under it */
     bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
 
     /* recompose()'s chains, each with whether only values passing by

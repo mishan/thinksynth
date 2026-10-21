@@ -3337,13 +3337,13 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
 
     recompose_.swap(marked);
 
-    std::set<size_t> whole;
+    std::map<size_t, double> landing;
 
-    for (size_t m : wholeMarked_)
-        if (moved[m] >= 0)
-            whole.insert(moved[m]);
+    for (const auto &m : landMarked_)
+        if (moved[m.first] >= 0)
+            landing[moved[m.first]] = m.second;
 
-    wholeMarked_.swap(whole);
+    landMarked_.swap(landing);
 
     std::vector<Pending> left;
 
@@ -4104,6 +4104,32 @@ thcScheduler::stepTransportAt (double dt, int64_t mono)
 void
 thcScheduler::stepTransportTo (double t)
 {
+    /* Each replay with a landing of its own up to `t' landed there, on a
+       step split at it as a stamped command splits one. */
+    while (running_ && t >= transportNow_)
+    {
+        double at = -1;
+
+        for (const Replay &r : replays_)
+            if (r.landAt >= 0 && r.landAt <= t && (at < 0 || r.landAt < at))
+                at = r.landAt;
+
+        if (at < 0)
+            break;
+
+        if (at > transportNow_)
+            advanceTo(at);
+
+        landReplays([at](const Replay &r)
+                    { return r.landAt >= 0 && r.landAt <= at; });
+    }
+
+    advanceTo(t);
+}
+
+void
+thcScheduler::advanceTo (double t)
+{
     retireStranded();
     recomposeMarked();
 
@@ -4349,6 +4375,7 @@ thcScheduler::catchUp (size_t chain)
     r.beat0 = beat_;
     r.tempo0 = tempo_;
     r.audible = audible(c);
+    r.landAt = landingOf(chain);
 
     for (const Wakeup &w : wakeups_)
         (w.chain == chain ? r.due : rest).push_back(w);
@@ -4441,8 +4468,23 @@ thcScheduler::dropReplays (long chain)
 bool
 thcScheduler::wholeReplay (size_t chain) const
 {
-    return !replayDeferred_ || replayWhole_ || !running_ ||
-           wholeMarked_.count(chain) > 0;
+    const double at = landingOf(chain);
+
+    if (!running_)
+        return true;
+
+    return at >= 0 ? at <= transportNow_ : !replayDeferred_;
+}
+
+double
+thcScheduler::landingOf (size_t chain) const
+{
+    if (replayLandAt_ >= 0)
+        return replayLandAt_;
+
+    const auto m = landMarked_.find(chain);
+
+    return m == landMarked_.end() ? -1 : m->second;
 }
 
 bool
@@ -4463,18 +4505,40 @@ thcScheduler::replayAdvance (unsigned ticks)
     return caught;
 }
 
-void
+bool
 thcScheduler::replayLand (void)
 {
-    for (size_t i = 0; i < replays_.size(); i++)
+    return landReplays([](const Replay &r) { return r.landAt < 0; });
+}
+
+void
+thcScheduler::settleReplays (void)
+{
+    landReplays([](const Replay &) { return true; });
+}
+
+bool
+thcScheduler::landReplays (const std::function<bool (const Replay &)> &which)
+{
+    bool any = false;
+
+    for (size_t i = 0; i < replays_.size(); )
     {
+        if (!which(replays_[i]))
+        {
+            i++;
+            continue;
+        }
+
         unsigned all = ~0u;
 
         replayRun(i, all);
         landReplay(replays_[i]);
+        replays_.erase(replays_.begin() + (long)i);
+        any = true;
     }
 
-    replays_.clear();
+    return any;
 }
 
 bool
@@ -5749,7 +5813,7 @@ thcScheduler::reset (void)
     wakeups_.clear();
     recompose_.clear();
     dropReplays();
-    wholeMarked_.clear();
+    landMarked_.clear();
     started_ = false;
 
     /* A growth still being heard was asked for by a play that is over. */
@@ -5926,8 +5990,8 @@ thcScheduler::recompose (size_t chain, bool passing)
 
     recompose_[chain] = passing && (m == recompose_.end() || m->second);
 
-    if (replayWhole_)
-        wholeMarked_.insert(chain);
+    if (replayLandAt_ >= 0)
+        landMarked_.emplace(chain, replayLandAt_);
 }
 
 void
@@ -6040,7 +6104,7 @@ thcScheduler::composeAgain (size_t chain, bool passing)
         remake(chain, si);
 
     catchUp(chain);
-    wholeMarked_.erase(chain);
+    landMarked_.erase(chain);
 
     if (whole)
         return;

@@ -1080,9 +1080,9 @@ replayPiece (int v)
    `between' runs at the top of each window. Where they landed. */
 static double
 playReplaying (Peer &p, double until, unsigned ticks, double landAt = -1,
-               const std::function<void (Peer &)> &between = nullptr)
+               const std::function<void (Peer &)> &between = nullptr,
+               double window = 1024.0 / 44100)
 {
-    const double window = 1024.0 / 44100;
     double landed = -1;
 
     p.sched.start();
@@ -1225,6 +1225,55 @@ checkReplayHeld (const std::map<std::string, thcPlugin *> &plugins,
     else
         printf("ok    a replay advanced in pieces is the one advanced at "
                "once, with a knob and the tempo moved on the way\n");
+}
+
+/* A room's peers, each stepping windows of its own and advancing a replay
+   as it can spare: given a landing of its own (setReplayLandAt), it is
+   heard from there on both -- caught up early, or finished whole on
+   arrival. */
+static void
+checkReplayLandAt (const std::map<std::string, thcPlugin *> &plugins,
+                   const std::string &pluginDir,
+                   const std::filesystem::path &dir)
+{
+    const double at = 20.3, until = 30;
+
+    for (const double after : { 0.005, 0.5 })
+    {
+        const std::string name = "replay landed at " + std::to_string(after) +
+                                 " s";
+        std::vector<std::string> errors;
+        Peer slow(plugins, pluginDir, dir, "ls"),
+             fast(plugins, pluginDir, dir, "lf");
+        const struct { Peer *p; unsigned ticks; double window; } peers[] = {
+            { &slow, 1, 1024.0 / 44100 }, { &fast, ~0u, 1000.0 / 48000 } };
+
+        for (const auto &q : peers)
+        {
+            q.p->sched.setReplayDeferred(true);
+
+            if (!q.p->load(replayPiece(100), errors))
+            {
+                fail(name, "the piece does not load");
+                return;
+            }
+
+            play(*q.p, name, {}, at, [&q] { return q.window; });
+            q.p->sched.setReplayLandAt(at + after);
+            q.p->sched.knob("v")->setValue(50);
+            q.p->sched.knobMoved(q.p->sched.knob("v"), false);
+            q.p->sched.setReplayLandAt(-1);
+            playReplaying(*q.p, until, q.ticks, -1, nullptr, q.window);
+        }
+
+        if (slow.tape != fast.tape)
+            fail(name, "two peers stepping different windows hear the "
+                 "replay land in different places: " +
+                 firstDifference(slow.tape, fast.tape));
+        else
+            printf("ok    a replay with a landing %g s on is heard from there "
+                   "whatever windows step it\n", after);
+    }
 }
 
 /* A breeding population that listens, edited while it plays, through an
@@ -2134,6 +2183,7 @@ main (int argc, char *argv[])
     checkKnobMoved(plugins, pluginDir, dir);
     checkReplayDeferred(plugins, pluginDir, dir);
     checkReplayHeld(plugins, pluginDir, dir);
+    checkReplayLandAt(plugins, pluginDir, dir);
     checkListener(plugins, pluginDir, dir);
     checkPainted(plugins, pluginDir, dir);
     checkCueEdit(plugins, pluginDir, dir);

@@ -98,6 +98,19 @@ static void loadComposers (const std::string &pluginDir,
     }
 }
 
+/* A command the caller has stepped to the stamp of: what it replays lands
+   where the browser host's applyScheduled lands it. */
+struct Stamped
+{
+    Stamped ()
+    {
+        sched_->setReplayLandAt(sched_->now() +
+                                thcScheduler::ROOM_REPLAY_LAND_S);
+    }
+
+    ~Stamped () { sched_->setReplayLandAt(-1); }
+};
+
 extern "C" {
 
 /* The composers under pluginPath, and a synth built on the same path.
@@ -130,6 +143,8 @@ EMSCRIPTEN_KEEPALIVE int tw_load (const char *genFile)
    if any, through tw_edit_error. */
 EMSCRIPTEN_KEEPALIVE int tw_edit (const char *genFile)
 {
+    const Stamped stamped;
+
     if (!thcGenDiff::apply(*sched_, plugins_, current_, genFile,
                            std::set<std::string>(), editErrors_))
         return 0;
@@ -314,6 +329,7 @@ EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
 
 EMSCRIPTEN_KEEPALIVE void tw_knob (int k, double value)
 {
+    const Stamped stamped;
     int i = 0;
 
     for (const auto &knob : sched_->knobs())
@@ -336,6 +352,7 @@ static std::map<std::pair<int, int>, bool> keyIntoPiece_;
 EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
                                    int on)
 {
+    const Stamped stamped;
     thcEvent ev = {};
 
     ev.type = on ? THC_EV_NOTE : THC_EV_NOTEOFF;
@@ -364,6 +381,8 @@ EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
 
 EMSCRIPTEN_KEEPALIVE void tw_tempo (double bpm)
 {
+    const Stamped stamped;
+
     sched_->setTempo(bpm);
 }
 
