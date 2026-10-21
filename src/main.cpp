@@ -453,6 +453,10 @@ int main (int argc, char *argv[])
        imperceptible for a ^C and costs nothing when idle. */
     Glib::signal_timeout().connect(sigc::ptr_fun(&checkShutdown), 200);
 
+    /* Every GUI call frees what the audio thread retired, but a GUI left
+       alone makes none, and a playing synth keeps retiring voices. */
+    Glib::signal_timeout().connect([] { Synth->collect(); return true; }, 100);
+
     /* The source primes the synth in prepare(); no need to render a window
        here as well. */
     asource = new gthSynthSource(Synth);

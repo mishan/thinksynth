@@ -106,11 +106,23 @@ struct thRetired {
     thRetired (void)
         : kind(NOTE), note(NULL), channel(NULL), effect(NULL), arg(NULL),
           probe(NULL) { }
+
+    /* Deletes what `kind' names, and only that: an item reused for a second
+       kind still holds the first one's pointer. */
+    void destroy (void);
 };
 
 /* Usable capacity is one less than this. Sized for a burst of note-ons and for
    clearAll() retiring an entire channel's polyphony at once. */
 #define TH_COMMAND_QUEUE_SIZE 1024
 #define TH_RETIRE_QUEUE_SIZE  1024
+
+typedef thRing<thRetired, TH_RETIRE_QUEUE_SIZE> thRetireQueue;
+
+/* Audio thread: `item' onto `queue', or freed here when the queue is full.
+   That free tears a synth tree down inside the callback, so it is counted
+   (thSynth::retireFrees) for a test to hold at zero. A NULL queue is a
+   caller with nobody to hand it to, and is freed uncounted. */
+void thRetire (thRetireQueue *queue, thRetired &item);
 
 #endif /* TH_SYNTH_COMMAND_H */

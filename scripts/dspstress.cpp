@@ -146,6 +146,9 @@ static const char *levelName (int level)
     }
 }
 
+/* The render pool's threads, for the level's own synth. */
+static int renderThreads = 0;
+
 /* Deterministic so a failing run can be repeated. */
 static unsigned int rngState = 0x1234567u;
 
@@ -309,6 +312,8 @@ static int runLevel (const string &pluginPath, const char *file, int level,
     }
 
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    synth.setThreads(renderThreads);
 
     if (synth.loadTree(file, 0, 100) == NULL)
     {
@@ -524,13 +529,14 @@ static void usage (const char *argv0)
        compile-time install path, so it is data: a prefix with a `%' in it
        would otherwise be read as a conversion and eat an argument that was
        never passed. */
-    printf("usage: %s [-p PATH] [-t MS] [-l LEVEL] [-s SEED] file.dsp\n"
+    printf("usage: %s [-p PATH] [-t MS] [-l LEVEL] [-s SEED] [-j N] file.dsp\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
            "                          (default: %s)\n"
            "  -t, --time MS           milliseconds per level (default 2000)\n"
            "  -l, --level N           run only level N (default: 1..%d)\n"
-           "  -s, --seed N            RNG seed (default 0x1234567)\n",
+           "  -s, --seed N            RNG seed (default 0x1234567)\n"
+           "  -j, --threads N         render pool threads (default 0: none)\n",
            argv0, PLUGIN_PATH, LVL_MAX);
 }
 
@@ -562,6 +568,11 @@ int main (int argc, char **argv)
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
             rngState = (unsigned int)strtoul(argv[i], NULL, 0);
+        }
+        else if (!strcmp(argv[i], "-j") || !strcmp(argv[i], "--threads"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            renderThreads = atoi(argv[i]);
         }
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
         {

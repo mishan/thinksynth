@@ -7242,6 +7242,10 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
         rendered_ += n;
     }
 
+    /* The worklet's one thread is the GUI thread too: free here what the
+       quantum retired, rather than when the page next calls in. */
+    synth_->collect();
+
     return block_.data();
 }
 
@@ -7383,6 +7387,8 @@ EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
 
         rendered_ += len;
     }
+
+    synth_->collect();
 
     return rendered_;
 }

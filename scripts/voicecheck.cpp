@@ -1746,6 +1746,52 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a burst the retire queue cannot hold ---------------------------- */
+
+    /* 1536 voices released together finish while nothing on the GUI side
+       calls in to collect them, which is more than the synth's retire
+       queue holds. What it cannot take waits for a collect rather than
+       being freed on the audio thread, with the render pool off and on. */
+    if (writeFile(file, graph("    poly = 0;\n", "freq->out", "", "100 ms")))
+    {
+        const int chans = 12, keys = 128;
+
+        for (int threads = 0; threads <= 2; threads += 2)
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned long before = thSynth::retireFrees();
+            const string pool = threads ? "pool on" : "pool off";
+
+            synth.setThreads(threads);
+
+            for (int c = 0; c < chans; c++)
+                synth.loadTree(file, c, 100);
+
+            for (int pass = 0; pass < 2; pass++)
+                for (int c = 0; c < chans; c++)
+                {
+                    for (int k = 0; k < keys; k++)
+                        if (pass == 0)
+                            synth.addNote(c, (float)k, 100);
+                        else
+                            synth.delNote(c, (float)k);
+
+                    if (c % 4 == 3)
+                        synth.process();
+                }
+
+            for (int w = 0; w < 60; w++)
+                synth.process();
+
+            okOrFail(thSynth::retireFrees() == before,
+                     "burst: no voice is freed on the audio thread (" +
+                     pool + ")",
+                     std::to_string(thSynth::retireFrees() - before) +
+                     " freed there");
+        }
+    }
+
     remove(octave.c_str());
     remove(file.c_str());
 
