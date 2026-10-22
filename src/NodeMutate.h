@@ -95,6 +95,8 @@ struct Voice {
 
 struct Shape {
     vector<Wire> wires;
+    vector<Wire> tied;          /* io outputs that read what one in `wires'
+                                   does: an edit there is made on them too */
     vector<Slot> slots;
     vector<Voice> voices;
     vector<string> names;
@@ -208,7 +210,8 @@ bool grow (thSynth *synth, const string &text, const string &base,
            vector<string> &grown, vector<string> &what, string &why);
 
 /* The level grow() judges by: `text' played on `synth' as that phrase, its
-   RMS and peak; false for a graph that does not load or goes non-finite.
+   RMS on its quietest output and peak on any; false for a graph that does
+   not load or goes non-finite.
    keepsLevel() is grow()'s rule against the declared graph's. */
 bool level (thSynth &synth, const string &text, double &rms, double &peak);
 bool keepsLevel (double rms, double peak, double baseRms, double basePeak);

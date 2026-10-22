@@ -129,6 +129,66 @@ int main (int argc, char **argv)
     okOrFail(wire, "a wire carrying the sound is a place a splice can go",
              std::to_string(shape.wires.size()) + " wires");
 
+    /* bass.dsp sends vca->out to both sides: an edit on one is made on
+       both, and a graph that drops one side does not keep the level. */
+    {
+        vector<Splice> pool;
+        bool both = false;
+
+        buildPool(synth.getPluginManager(), pool);
+
+        for (const Edit &e : edits(bass, shape, genes, pool))
+            if (e.kind == "splice" && e.op.wire.node == "ionode")
+            {
+                thSynthTree *t = parse(synth, e.source);
+                vector<Gene> g;
+                Shape after;
+                std::set<string> from;
+
+                if (t != NULL)
+                    read(t, e.source, &g, &after);
+
+                delete t;
+
+                after.wires.insert(after.wires.end(), after.tied.begin(),
+                                   after.tied.end());
+
+                for (const Wire &w : after.wires)
+                    if (w.node == "ionode")
+                        from.insert(w.srcNode);
+
+                both = after.tied.size() == 1 && from.size() == 1 &&
+                       !from.count("vca");
+                break;
+            }
+
+        string oneSide = bass;
+        double rms, peak, baseRms, basePeak;
+
+        oneSide.replace(oneSide.find("out1 = vca->out;"),
+                        strlen("out1 = vca->out;"), "out1 = quiet->out;");
+        oneSide += "node quiet math::mul { in0 = vca->out; in1 = 0.1; };\n";
+
+        thSynth ear(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        const string mono =
+            "node ionode { channels = 1; out0 = o->out; play = env->play; };\n"
+            "io ionode;\n"
+            "node o osc::simple { freq = ionode->note; amp = env->out; };\n"
+            "node env env::ad { a = 1 ms; d = 300 ms; "
+            "trigger = ionode->trigger; };\n";
+        double monoRms, monoPeak;
+
+        okOrFail(both && level(ear, bass, baseRms, basePeak) &&
+                     level(ear, oneSide, rms, peak) &&
+                     !keepsLevel(rms, peak, baseRms, basePeak) &&
+                     level(ear, mono, monoRms, monoPeak),
+                 "a splice on one output is made on the other that sounds "
+                 "the same, one side 20 dB down does not keep the level, and "
+                 "a mono graph's one side is its level",
+                 std::to_string(rms / baseRms));
+    }
+
     /* A ranged gene comes back from past its wall at the wall. */
     for (size_t g = 0; g < genes.size(); g++)
         if (genes[g].choices.empty() && genes[g].ranged && !genes[g].octaves)

@@ -356,8 +356,11 @@ struct Breeding {
     {
         double r, p;
 
-        return ear.level(text, r, p) && NodeMutate::keepsLevel(r, p, rms,
-                                                               peak);
+        /* Half the declared level at most, not growth's quarter: a
+           flock's champion replaces the instrument every generation, and
+           one that drops away reads as the piece stopping. */
+        return ear.level(text, r, p) &&
+               NodeMutate::keepsLevel(r, p, rms, peak) && r >= rms * 0.5;
     }
 
     /* `ops' one edit on, or at the depth allowed one edit back; false if

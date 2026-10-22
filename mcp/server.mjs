@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { Call, PLUGINS, REPO, inside, json, onEvict, source } from './lib/engine.mjs';
 import { readTape } from './lib/tape.mjs';
 import { readWav } from './lib/wav.mjs';
-import { collapse, describe, findings, measure, wholeLoudness, windows }
+import { collapse, describe, findings, lapses, measure, wholeLoudness, windows }
     from './lib/analyze.mjs';
 
 const server = new McpServer({ name: 'thinksynth', version: '0.1.0' });
@@ -284,7 +284,7 @@ tool('audio_analyze',
      'played, each bar, or a number of seconds), the mix\'s loudness, brightness (spectral ' +
      'centroid), low/mid/high balance and busyness (onsets per second), the same per instrument ' +
      'from the stems, and plain findings -- an instrument buried far under another, two fighting ' +
-     'over one band, clipping.',
+     'over one band, one dropping out for a window, one side far under the other, clipping.',
      { render: z.string().optional().describe('an id from piece_render'),
        wav: z.string().optional().describe('or any 16-bit WAV, with no stems'),
        window: z.union([z.enum(['section', 'bar']), z.number().positive()]).default('section') },
@@ -313,11 +313,14 @@ tool('audio_analyze',
                  stems.push({ instrument: f.replace(/^\d+-/, '').replace(/\.wav$/, ''),
                               ...await measured(path.join(r.stems, f), () => mix.spans) });
 
+         const lapsed = stems.length
+             ? stems.map(st => lapses(st.instrument, st.per))
+             : [lapses('the mix', mix.per)];
          const per = mix.spans.map((w, index) =>
          {
              const parts = stems.map(st => ({ instrument: st.instrument, ...st.per[index] }))
                                 .filter(p => p.lufs !== null);
-             const found = findings(parts);
+             const found = findings(parts).concat(...lapsed.map(l => l[index]));
 
              if (mix.peak >= 0.999 && mix.per[index].peakDb >= -0.01)
                  found.push('the mix reaches full scale');

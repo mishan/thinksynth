@@ -44,7 +44,7 @@ Pieces and instruments go in as text, or as a path relative to the tree; a path 
 | `piece_render` | a WAV and a stem per instrument; loudness per instrument and section; the sections as they played; knobs moved on a timeline, as a game moves them |
 | `piece_tape` | every note by name, bar and beat, per instrument |
 | `piece_compare` | how much each instrument changes when one knob moves |
-| `audio_analyze` | per section, bar or span: loudness, brightness, low/mid/high balance, busyness, per instrument from the stems, and findings such as "strings is 21 LU under toms" |
+| `audio_analyze` | per section, bar or span: loudness, brightness, low/mid/high balance, left against right, busyness, per instrument from the stems, and findings such as "strings is 21 LU under toms", "pad drops 12 LU under the windows either side" or "bass's left is 20 dB under its right" |
 | `piece_profile` | render cost against real time, worst window, and each instrument's share |
 | `dsp_check` | whether a graph loads, renders finite audio, and stays safe across every control's range |
 | `dsp_levels` | peak against voice count |
