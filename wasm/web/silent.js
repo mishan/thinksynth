@@ -48,8 +48,10 @@ export async function createSilent ({ bytes, windowlen, sampleRate }, log)
     M._tw_grow_mode(1);
 
     /* And hears through the page's ear worker, as the worklet does: a
-       render here would hold up the worker's own work. */
+       render here would hold up the worker's own work. A gen::graft
+       generation, seconds of renders, is bred there too. */
     M._tw_ear_mode(2);
+    M._tw_graft_mode(2);
 
     /* Before anything is loaded: it is a kind of synth and not a mode a
        running one flips (thSynth::setSilent). */
@@ -100,6 +102,15 @@ export function answer (M, m)
             return true;
         }
 
+        /* What the ear worker bred for this instance's scheduler. */
+        case 'bred':
+            M.ccall('tw_graft_answer', null,
+                    ['number', 'number', 'string', 'string', 'number',
+                     'string'],
+                    [m.ticket, m.ok ? 1 : 0, m.flock, m.champion, m.depth,
+                     m.why]);
+            return true;
+
         /* What the ear worker heard for this instance's scheduler. */
         case 'heard':
             M.ccall('tw_ear_answer', null,
@@ -117,9 +128,13 @@ export function answer (M, m)
     return false;
 }
 
-/* What this instance's scheduler asked to hear, after each message. */
+/* What this instance's scheduler asked to hear, or to breed, after each
+   message. */
 export function askToHear (M)
 {
     for (let ask; M !== null && (ask = M.UTF8ToString(M._tw_ear_next())); )
         postMessage({ type: 'hear', ask });
+
+    for (let ask; M !== null && (ask = M.UTF8ToString(M._tw_graft_next())); )
+        postMessage({ type: 'graft', ask });
 }

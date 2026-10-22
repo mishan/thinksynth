@@ -1002,8 +1002,13 @@ the flock is gone. A generation is dozens of renders, more with a target:
 `genwav` breeds in the tick, so a piece that grafts replays exactly, and the
 application breeds on threads of its own and puts the champion on when the
 generation is done, a moment or a few seconds after the event, with anything
-that comes for the channel meanwhile waiting behind it. The page does not breed
-yet, and says so.
+that comes for the channel meanwhile waiting behind it. In the page the ear
+worker breeds it: the worklet and the mirror each ask, as they ask to hear, and
+the page asks the worker once for both, so the champion goes on a moment after
+the event there too. In a room every peer breeds the same flock from the same
+seed, each putting the champion on when its own ear has bred it. On the page the
+stage's params popover lists what the channel holds and has Keep, as a growing
+stage's does.
 
 **All four are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
