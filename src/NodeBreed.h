@@ -64,6 +64,11 @@ struct Params {
     string kinds;               /* as gen::grow's; empty for all         */
     int tune = 6;               /* generations an edit is tuned toward a
                                    target before it is judged            */
+
+    /* What a distance is heard against -- the target and the values the
+       graphs are played with -- in any spelling that changes when they
+       do: a member's distance is kept only while this is what it was. */
+    string heard;
 };
 
 /* The renders a generation judges by, the host's. */
@@ -104,6 +109,7 @@ struct Flock {
     vector<Member> members;
     unsigned int generations = 0;
     string played;              /* the champion last named               */
+    string heard;               /* Params::heard its distances are of    */
 };
 
 string save (const Flock &flock);

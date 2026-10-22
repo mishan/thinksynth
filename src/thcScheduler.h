@@ -856,6 +856,19 @@ public:
 
     void setGrafter (const Grafter &fn) { grafter_ = fn; }
 
+    /* `channel''s flock as the grafter left it, for a host to show; false
+       while it has none. */
+    bool flockText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.flock.empty())
+            return false;
+
+        text = g->second.flock;
+        return true;
+    }
+
     /* `text' on `channel' as growth would put it there, one step up the
        same stack: heard at once, gone with a step back or a rewind, and
        what Keep writes. What a search that finished offers to be heard. */

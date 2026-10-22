@@ -5985,9 +5985,14 @@ thcScheduler::reset (void)
     landMarked_.clear();
     started_ = false;
 
-    /* A growth still being heard was asked for by a play that is over. */
+    /* A growth still being heard was asked for by a play that is over,
+       and a flock was bred by it -- even one whose champion never left
+       the declared graph, which put nothing on to take back off. */
     for (auto &e : grown_)
+    {
         forgetHearing(e.second);
+        e.second.flock.clear();
+    }
 
     /* The embedded nodes rewind too, or a replay would start with an
        LFO wherever the last play left it -- which is the same

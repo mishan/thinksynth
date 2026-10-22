@@ -6772,6 +6772,7 @@ graftedFor (const std::map<std::string, thcPlugin *> &plugins,
         std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
 
         out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "instrument same { dsp \"bass.dsp\"; };\n"
                "chain melody {\n    stage s gen::eno_line { notes = "
                "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
                "    sink { instrument = pad; };\n};\n"
@@ -6835,6 +6836,9 @@ graftedFor (const std::map<std::string, thcPlugin *> &plugins,
                 sched.reset();
                 drainSynth();
                 grafted = nodesOn(synth, ch);
+
+                if (sched.flockText(ch, text))
+                    fail("a rewind left gen::graft's flock to breed on");
             }
         }
     }
@@ -6899,6 +6903,14 @@ checkGraft (const std::map<std::string, thcPlugin *> &plugins,
     }
     else
         fail("there was no bred graph to keep");
+
+    /* Bred toward its own graph, the declared one stays the champion and
+       nothing goes on; a rewind still leaves no flock to breed on (checked
+       in graftedFor). */
+    if (graftedFor(plugins, synth, 2.5, again, true, NULL, NULL,
+                   "target = \"same\"; tune = 0;") != declared)
+        fail("a rewind after gen::graft toward its own graph did not leave "
+             "the declared graph");
 
     /* A target that is neither an instrument nor a sound file breeds
        nothing, and says so. */

@@ -239,8 +239,9 @@ static bool opOf (const vector<string> &f, Op &op)
 string save (const Flock &flock)
 {
     string out = "flock\t" + std::to_string(flock.generations) + "\t" +
-                 std::to_string(flock.played.size()) + "\n" + flock.played +
-                 "\n";
+                 std::to_string(flock.played.size()) + "\t" +
+                 std::to_string(flock.heard.size()) + "\n" + flock.played +
+                 flock.heard + "\n";
 
     for (const Member &m : flock.members)
     {
@@ -264,16 +265,17 @@ bool load (const string &text, Flock &flock)
 
     const vector<string> head = fields(line, '\t');
 
-    if (head.size() != 3 || head[0] != "flock")
+    if (head.size() != 4 || head[0] != "flock")
         return false;
 
     f.generations = (unsigned int)strtoul(head[1].c_str(), NULL, 10);
+    f.played.resize((size_t)strtoull(head[2].c_str(), NULL, 10));
+    f.heard.resize((size_t)strtoull(head[3].c_str(), NULL, 10));
 
-    const size_t len = (size_t)strtoull(head[2].c_str(), NULL, 10);
-
-    f.played.resize(len);
-
-    if (!in.read(&f.played[0], (std::streamsize)len) ||
+    if ((!f.played.empty() &&
+         !in.read(&f.played[0], (std::streamsize)f.played.size())) ||
+        (!f.heard.empty() &&
+         !in.read(&f.heard[0], (std::streamsize)f.heard.size())) ||
         !std::getline(in, line) || !line.empty())
         return false;
 
@@ -467,6 +469,24 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
         }
     }
 
+    /* Heard against something else now -- another target, the values
+       moved -- so no distance kept is one; and a member past a depth that
+       has come down is held to it. */
+    if (flock.heard != params.heard)
+    {
+        for (Member &m : flock.members)
+            m.near = -1;
+
+        flock.heard = params.heard;
+    }
+
+    for (Member &m : flock.members)
+        while (m.ops.size() > params.depth)
+        {
+            m.ops.erase(m.ops.begin() + dice.below(m.ops.size()));
+            m.near = -1;
+        }
+
     /* Scored, lower nearer: from the target, or from the champion just
        played -- novelty, up to a point. */
     const string &played = flock.played.empty() ? base : flock.played;
@@ -600,8 +620,19 @@ bool step (thSynth *synth, const string &base, const string &flock,
     const Ear ear = localEar(synth->getPluginManager()->pluginPath(), base,
                              targetGraph, targetWav, values, targetValues,
                              rate);
+    Params p = params;
 
-    if (!generation(synth, base, f, params, dice, ear, champion, depth, why))
+    p.heard = targetGraph + '\n' + targetWav + '\n' + bits(rate);
+
+    for (const Values *v : { &values, &targetValues })
+    {
+        p.heard += '\n';
+
+        for (const auto &one : *v)
+            p.heard += one.first + "=" + bits(one.second) + ";";
+    }
+
+    if (!generation(synth, base, f, p, dice, ear, champion, depth, why))
         return false;
 
     flockOut = save(f);
