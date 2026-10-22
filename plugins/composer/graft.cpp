@@ -28,7 +28,8 @@
  * flock is scored by how near each sounds to it, each new edit tuned
  * toward it first: a population climbing. With none, by how far each
  * sounds from the champion just played, up to a point, so the
- * instrument keeps changing.
+ * instrument keeps changing, each new edit tuned for that and none let
+ * stray far from the declared graph's brightness or low end.
  */
 
 #include <random>
@@ -61,8 +62,8 @@ composer_init (thcComposerInfo *info)
         { "target",     "an instrument of the piece, or a sound file, to "
           "breed toward; omit to keep changing", THC_PARAM_STRING,
           0, 0, 0, "", NULL },
-        { "tune",       "generations each new edit is tuned toward "
-          "`target' first; 0 for none", THC_PARAM_INT, 0, 40, 6, NULL,
+        { "tune",       "generations each new edit is tuned before it "
+          "is judged; 0 for none", THC_PARAM_INT, 0, 40, 6, NULL,
           NULL },
     };
 

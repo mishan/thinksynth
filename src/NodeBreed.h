@@ -86,7 +86,16 @@ struct Ear {
 
     /* How far `text' sounds from `from', in dB: what novelty is. */
     std::function<double (const string &text, const string &from)> apart;
+
+    /* As `level', from the same render, and how the phrase sounds: its
+       spectral centroid in Hz and the share of its power under LOW_HZ.
+       May be empty, and the flock is then judged by level alone. */
+    std::function<bool (const string &text, double &rms, double &peak,
+                        double &centroid, double &low)> tone;
 };
+
+/* Where a bass's power is: what a member with no target must not lose. */
+const double LOW_HZ = 250;
 
 typedef vector<pair<string, float> > Values;
 
