@@ -22,7 +22,10 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <map>
+#include <random>
 
 #include "think.h"
 #include "thDynLib.h"
@@ -555,12 +558,18 @@ void buildPool (thPluginManager *pm, vector<Splice> &pool)
 }
 
 /* `sp' spliced into `wire'. */
+/* A node's name with an op's tag, if it has one. */
+static string tagged (const string &name, const string &tag)
+{
+    return tag.empty() ? name : name + "_" + tag;
+}
+
 bool splice (string &source, const Shape &shape, const Wire &wire,
-                    const Splice &sp, string &name)
+                    const Splice &sp, string &name, const string &tag)
 {
     string why;
 
-    name = NodeCatalog::suggestName(sp.name, shape.names);
+    name = NodeCatalog::suggestName(tagged(sp.name, tag), shape.names);
 
     return NodeEdit::Text::addNode(source, name, sp.spelling, sp.initial, why) == NodeEdit::OK &&
            NodeEdit::Text::connect(source, name, sp.in, wire.srcNode, wire.srcPort, why) == NodeEdit::OK &&
@@ -572,15 +581,18 @@ bool splice (string &source, const Shape &shape, const Wire &wire,
    and its ratio are choice genes from then on, so what it starts as is
    only where the race begins. */
 bool addVoice (string &source, Shape &shape, const Wire &wire,
-                      const Voice &voice, int kind, string &what)
+                      const Voice &voice, int kind, string &what,
+                      const string &tag)
 {
     string why;
     vector<pair<string, double> > init;
-    const string osc = NodeCatalog::suggestName("voice", shape.names);
+    const string osc = NodeCatalog::suggestName(tagged("voice", tag),
+                                                shape.names);
 
     shape.names.push_back(osc);
 
-    const string sum = NodeCatalog::suggestName("sum", shape.names);
+    const string sum = NodeCatalog::suggestName(tagged("sum", tag),
+                                                shape.names);
 
     shape.names.push_back(sum);
 
@@ -612,20 +624,23 @@ bool addVoice (string &source, Shape &shape, const Wire &wire,
    of the range otherwise, and is a constant the search then tunes, as
    are the base and the modulator's own args. */
 bool modulate (string &source, Shape &shape, const vector<Slot> &slots,
-                      int kind, string &what)
+                      int kind, string &what, const string &tag)
 {
     const Slot &slot = slots[0];
     string why;
     vector<pair<string, double> > init;
-    const string mod = NodeCatalog::suggestName(kind ? "lfo" : "env", shape.names);
+    const string mod = NodeCatalog::suggestName(tagged(kind ? "lfo" : "env", tag),
+                                                shape.names);
 
     shape.names.push_back(mod);
 
-    const string mul = NodeCatalog::suggestName("depth", shape.names);
+    const string mul = NodeCatalog::suggestName(tagged("depth", tag),
+                                                shape.names);
 
     shape.names.push_back(mul);
 
-    const string add = NodeCatalog::suggestName("base", shape.names);
+    const string add = NodeCatalog::suggestName(tagged("base", tag),
+                                                shape.names);
 
     shape.names.push_back(add);
 
@@ -743,6 +758,9 @@ vector<Edit> edits (const string &source, const Shape &shape,
             if (!splice(e.source, shape, shape.wires[w], pool[p], name))
                 continue;
 
+            e.op.kind = e.kind;
+            e.op.wire = shape.wires[w];
+            e.op.splice = pool[p].spelling + "->" + pool[p].out;
             e.what = pool[p].spelling + "->" + pool[p].out + " into " +
                 shape.wires[w].node + "." + shape.wires[w].arg + " = " +
                 shape.wires[w].srcNode + "->" + shape.wires[w].srcPort;
@@ -790,6 +808,14 @@ vector<Edit> edits (const string &source, const Shape &shape,
                                          e.what))
                         continue;
 
+                    e.op.kind = e.kind;
+                    e.op.variant = kind;
+                    e.op.selected = v < values;
+                    e.op.selector = v < values ? sel[0]->choices[v] : 0;
+
+                    for (const Slot &one : forms[f])
+                        e.op.slots.push_back({ one.node, one.arg });
+
                     if (v < values)
                     {
                         char with[64];
@@ -828,9 +854,17 @@ vector<Edit> edits (const string &source, const Shape &shape,
                 Edit e = { "voice", "", source };
                 Shape scratch = shape;
 
-                if (addVoice(e.source, scratch, shape.wires[w], pitches[v],
-                             kind, e.what))
-                    out.push_back(e);
+                if (!addVoice(e.source, scratch, shape.wires[w], pitches[v],
+                              kind, e.what))
+                    continue;
+
+                e.op.kind = e.kind;
+                e.op.wire = shape.wires[w];
+                e.op.variant = kind;
+                e.op.pitch.freqNode = pitches[v].freqNode;
+                e.op.pitch.freqPort = pitches[v].freqPort;
+                e.op.pitch.freqControl = pitches[v].freqControl;
+                out.push_back(e);
             }
 
     if (voices != NULL)
@@ -995,6 +1029,304 @@ bool grow (thSynth *synth, const string &text, const string &base,
 
     why = "the edits tried all move the level too far";
     return false;
+}
+
+/* `text' read on `synth' through the registry an inline graph uses. */
+static bool parsed (thSynth *synth, const string &text, vector<Gene> *genes,
+                    Shape *shape)
+{
+    static unsigned int serial = 0;
+    const string name = "lineage#" + std::to_string(++serial) + ".dsp";
+    thSynthTree *tree;
+
+    {
+        thUtil::GraphHold hold = thUtil::addGraphText(name, text);
+
+        tree = synth->parseTree(name);
+    }
+
+    if (tree == NULL)
+        return false;
+
+    read(tree, text, genes, shape);
+    delete tree;
+
+    return true;
+}
+
+static bool sameWire (const Wire &a, const Wire &b)
+{
+    return a.node == b.node && a.arg == b.arg && a.srcNode == b.srcNode &&
+           a.srcPort == b.srcPort;
+}
+
+/* The nodes `after' has and `before' does not, in name order. */
+static vector<string> added (const Shape &before, const Shape &after)
+{
+    vector<string> out;
+
+    for (const string &n : after.names)
+        if (std::find(before.names.begin(), before.names.end(), n) ==
+            before.names.end())
+            out.push_back(n);
+
+    std::sort(out.begin(), out.end());
+
+    return out;
+}
+
+/* An op's tag: a name for what it adds that is the op's own, so an op
+   made on a node an earlier one added finds it whatever else the lineage
+   has done or passed over. FNV-1a over its key, which names those nodes
+   by their tags in turn. */
+static string tagOf (const Op &op)
+{
+    uint32_t h = 2166136261u;
+
+    for (unsigned char c : key(op))
+        h = (h ^ c) * 16777619u;
+
+    char hex[16];
+
+    snprintf(hex, sizeof hex, "%08x", (unsigned)h);
+
+    return hex;
+}
+
+static bool applyWith (thSynth *synth, string &source, const Op &op,
+                       string &what, const vector<Splice> &pool,
+                       const string &tag)
+{
+    vector<Gene> genes;
+    Shape shape;
+
+    if (synth == NULL || !parsed(synth, source, &genes, &shape))
+        return false;
+
+    string text = source;
+    bool done = false;
+
+    if (op.kind == "splice")
+    {
+        for (const Wire &w : shape.wires)
+            for (const Splice &sp : pool)
+                if (!done && sameWire(w, op.wire) &&
+                    sp.spelling + "->" + sp.out == op.splice)
+                {
+                    string name;
+
+                    done = splice(text, shape, w, sp, name, tag);
+                    what = sp.spelling + "->" + sp.out + " into " + w.node +
+                           "." + w.arg + " = " + w.srcNode + "->" + w.srcPort;
+                }
+    }
+    else if (op.kind == "modulate")
+    {
+        vector<Slot> slots;
+
+        for (const auto &want : op.slots)
+            for (const Slot &sl : shape.slots)
+                if (sl.node == want.first && sl.arg == want.second)
+                    slots.push_back(sl);
+
+        if (slots.size() == op.slots.size() && !slots.empty())
+        {
+            const vector<const Gene *> sel = selectorsOf(genes, slots);
+
+            done = !op.selected || !sel.empty();
+
+            for (size_t i = 0; done && op.selected && i < sel.size(); i++)
+                done = write(text, *sel[i], op.selector);
+
+            done = done && modulate(text, shape, slots, op.variant, what,
+                                    tag);
+
+            if (done && op.selected)
+            {
+                char with[64];
+
+                snprintf(with, sizeof with, " with %s = %g",
+                         sel[0]->arg.c_str(), op.selector);
+                what += with;
+            }
+        }
+    }
+    else if (op.kind == "voice")
+    {
+        for (const Wire &w : shape.wires)
+            for (const Voice &v : shape.voices)
+                if (!done && sameWire(w, op.wire) &&
+                    v.freqNode == op.pitch.freqNode &&
+                    v.freqPort == op.pitch.freqPort &&
+                    v.freqControl == op.pitch.freqControl)
+                {
+                    Shape scratch = shape;
+
+                    done = addVoice(text, scratch, w, v, op.variant, what,
+                                    tag);
+                }
+    }
+
+    if (!done)
+        return false;
+
+    if (!op.tuned.empty())
+    {
+        vector<Gene> now;
+        Shape after;
+
+        if (!parsed(synth, text, &now, &after))
+            return false;
+
+        const vector<string> fresh = added(shape, after);
+
+        for (const Op::Tuned &t : op.tuned)
+            for (const Gene &g : now)
+                if (t.node < fresh.size() && g.node == fresh[t.node] &&
+                    g.arg == t.arg)
+                    write(text, g, t.value);
+    }
+
+    source = text;
+
+    return true;
+}
+
+static vector<Splice> poolOf (thSynth *synth, const Op &op)
+{
+    vector<Splice> pool;
+
+    if (synth != NULL && op.kind == "splice")
+        buildPool(synth->getPluginManager(), pool);
+
+    return pool;
+}
+
+bool apply (thSynth *synth, string &source, const Op &op, string &what)
+{
+    return applyWith(synth, source, op, what, poolOf(synth, op), "");
+}
+
+bool applyTagged (thSynth *synth, string &source, const Op &op,
+                  string &what)
+{
+    return applyWith(synth, source, op, what, poolOf(synth, op),
+                     tagOf(op));
+}
+
+bool replay (thSynth *synth, const string &base, const vector<Op> &ops,
+             string &text, vector<Op> *kept)
+{
+    if (synth == NULL || !parsed(synth, base, NULL, NULL))
+        return false;
+
+    vector<Splice> pool;
+
+    buildPool(synth->getPluginManager(), pool);
+    text = base;
+
+    if (kept != NULL)
+        kept->clear();
+
+    for (const Op &op : ops)
+    {
+        string what;
+
+        if (applyWith(synth, text, op, what, pool, tagOf(op)) &&
+            kept != NULL)
+            kept->push_back(op);
+    }
+
+    return true;
+}
+
+void tunedOf (thSynth *synth, const string &before, const string &after,
+              Op &op)
+{
+    vector<Gene> genes;
+    Shape was, now;
+
+    op.tuned.clear();
+
+    if (!parsed(synth, before, NULL, &was) ||
+        !parsed(synth, after, &genes, &now))
+        return;
+
+    const vector<string> fresh = added(was, now);
+
+    for (size_t n = 0; n < fresh.size(); n++)
+        for (const Gene &g : genes)
+            if (g.node == fresh[n])
+                op.tuned.push_back({ n, g.arg, g.value });
+}
+
+string key (const Op &op)
+{
+    string k = op.kind + " " + op.wire.node + "." + op.wire.arg + "=" +
+               op.wire.srcNode + "->" + op.wire.srcPort + " " + op.splice +
+               " " + std::to_string(op.variant);
+
+    for (const auto &sl : op.slots)
+        k += " " + sl.first + "." + sl.second;
+
+    /* In millionths, which no locale spells differently: the key names
+       nodes every host has to agree on. */
+    if (op.selected)
+        k += " =" + std::to_string(std::llround(op.selector * 1e6));
+
+    if (op.kind == "voice")
+        k += " " + op.pitch.freqNode + "->" + op.pitch.freqPort + " @" +
+             op.pitch.freqControl;
+
+    return k;
+}
+
+vector<Op> cross (const vector<Op> &fitter, const vector<Op> &other,
+                  unsigned int seed)
+{
+    /* The dice as bits of a fixed generator, not a distribution, which
+       the standard leaves to each library. */
+    std::mt19937 dice(seed);
+    std::map<string, size_t> inFitter;
+    vector<vector<Op> > after(fitter.size() + 1);
+
+    for (size_t i = 0; i < fitter.size(); i++)
+        inFitter[key(fitter[i])] = i;
+
+    /* Each op only `other' has goes after the last of `fitter''s it
+       followed, so an op is still made after the ones it was made on. */
+    size_t last = 0;
+
+    for (const Op &op : other)
+    {
+        const auto m = inFitter.find(key(op));
+
+        if (m != inFitter.end())
+        {
+            last = std::max(last, m->second + 1);
+            continue;
+        }
+
+        if (dice() & 1)
+            after[last].push_back(op);
+    }
+
+    vector<Op> child(after[0]);
+
+    for (size_t i = 0; i < fitter.size(); i++)
+    {
+        Op op = fitter[i];
+
+        /* Both have it: tuned as either. */
+        for (const Op &o : other)
+            if (key(o) == key(op) && (dice() & 1))
+                op.tuned = o.tuned;
+
+        child.push_back(op);
+        child.insert(child.end(), after[i + 1].begin(), after[i + 1].end());
+    }
+
+    return child;
 }
 
 }

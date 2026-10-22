@@ -108,12 +108,39 @@ struct Splice {
     vector<pair<string, double> > initial;
 };
 
+/* An edit as where it goes rather than as the text it made, so it can be
+   made again on another graph of the same lineage: the wire, the slots or
+   the pitch source it names, what goes there, and the values it was tuned
+   to -- each a constant of the `node'th node it added, counted in the
+   order of their names. The names themselves depend on what the graph
+   already has, but the nodes one edit adds differ by role (`env', `depth',
+   `base'), so their order does not. */
+struct Op {
+    string kind;                 /* "splice", "modulate" or "voice" */
+    Wire wire;                   /* splice, voice */
+    string splice;               /* splice: the pool entry, spelling->out */
+    vector<pair<string, string> > slots;  /* modulate: node, arg */
+    int variant = 0;             /* modulate: env/LFO; voice: sub/unison */
+    bool selected = false;       /* modulate: the selector set to... */
+    double selector = 0;
+    Voice pitch;                 /* voice: freq{Node,Port,Control} only */
+
+    struct Tuned {
+        size_t node;
+        string arg;
+        double value;
+    };
+    vector<Tuned> tuned;
+};
+
 /* One candidate: which kind of edit -- "splice", "modulate" or "voice" --
-   what was done, in words, and the text it was done to. */
+   what was done, in words, the text it was done to, and how to do it
+   again. */
 struct Edit {
     string kind;
     string what;
     string source;
+    Op op;
 };
 
 /* The genes of `source' and the places an edit can go, as `tree' -- its
@@ -137,13 +164,15 @@ int argIndex (thPlugin *plugin, const string &arg);
 void buildPool (thPluginManager *pm, vector<Splice> &pool);
 
 /* The three edits, each on `source' in place; false if the text would not
-   take it. `name' and `what' say what was added. */
+   take it. `name' and `what' say what was added, and a `tag' goes in the
+   names of the nodes it adds. */
 bool splice (string &source, const Shape &shape, const Wire &wire,
-             const Splice &sp, string &name);
+             const Splice &sp, string &name, const string &tag = "");
 bool addVoice (string &source, Shape &shape, const Wire &wire,
-               const Voice &voice, int kind, string &what);
+               const Voice &voice, int kind, string &what,
+               const string &tag = "");
 bool modulate (string &source, Shape &shape, const vector<Slot> &slots,
-               int kind, string &what);
+               int kind, string &what, const string &tag = "");
 
 vector<Slot> siblings (const Shape &shape, const Slot &one);
 vector<const Gene *> selectorsOf (const vector<Gene> &genes,
@@ -177,6 +206,46 @@ vector<Edit> edits (const string &source, const Shape &shape,
 bool grow (thSynth *synth, const string &text, const string &base,
            unsigned int choice, const string &kinds, size_t want,
            vector<string> &grown, vector<string> &what, string &why);
+
+/* ---- a graph as its lineage ----
+ *
+ * Every graph a population breeds descends from the one the piece
+ * declares, so one is that graph and the ops made on it in turn. Two are
+ * crossed by crossing their lists, and the child is made by doing its ops
+ * again on the declared graph; nothing has to merge two graphs.
+ */
+
+/* `op' made on `source', parsed on `synth', and its tuned values written
+   into what it added; false, `source' untouched, if the graph no longer
+   has where it goes. `what' says what was done. apply() names what it
+   adds as the edit it came from did; applyTagged() and replay() put the
+   op's own tag in the names, so an op made on a node an earlier op added
+   finds that node whatever else its lineage has done or passed over. */
+bool apply (thSynth *synth, string &source, const Op &op, string &what);
+bool applyTagged (thSynth *synth, string &source, const Op &op,
+                  string &what);
+
+/* `ops' made on `base' in turn into `text'; one that no longer fits is
+   passed over, and `kept', if given, gets the ones that were made. False
+   only for a `base' that does not parse. */
+bool replay (thSynth *synth, const string &base, const vector<Op> &ops,
+             string &text, vector<Op> *kept = NULL);
+
+/* What `op' did to `before' to make `after' as its tuned values: the
+   constants of the nodes it added, as `after' has them. */
+void tunedOf (thSynth *synth, const string &before, const string &after,
+              Op &op);
+
+/* Where an op goes and what it puts there, without its tuning: two ops
+   with one key are the same edit, as two parents inherited it. */
+string key (const Op &op);
+
+/* A child of `fitter' and `other': their ops in `fitter''s order, those
+   both have once with either parent's tuning, those only `fitter' has
+   all, and each only `other' has with even odds, after the last op of
+   `fitter' it followed. The dice are `seed''s, so a host replays it. */
+vector<Op> cross (const vector<Op> &fitter, const vector<Op> &other,
+                  unsigned int seed);
 
 }
 

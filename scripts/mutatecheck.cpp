@@ -39,6 +39,7 @@
 #include <chrono>
 #include <thread>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -199,6 +200,297 @@ int main (int argc, char **argv)
              std::to_string(parsed) + " of " + std::to_string(all.size()));
     okOrFail(back, "a graph with its saturator taken out is offered it back, "
              "between the filter and the vca", "");
+
+    /* Each edit made again from where it goes rather than from its text. */
+    int again = 0;
+
+    for (size_t e = 0; e < all.size(); e++)
+    {
+        string text = ablated, what;
+
+        again += apply(&synth, text, all[e].op, what) &&
+                 text == all[e].source && what == all[e].what;
+    }
+
+    okOrFail(again == (int)all.size(), "every edit made again from its op "
+             "is the same graph", std::to_string(again) + " of " +
+             std::to_string(all.size()));
+
+    /* Lineages from bass.dsp: each step an edit the graph as it stands
+       offers, made tagged as a lineage makes it, the last of each with a
+       constant it added moved as a tune would. */
+    auto lineage = [&](const vector<size_t> &picks, vector<Op> &ops,
+                       string &text)
+    {
+        text = bass;
+        ops.clear();
+
+        for (size_t k = 0; k < picks.size(); k++)
+        {
+            thSynthTree *t = parse(synth, text);
+            vector<Gene> g;
+            Shape s;
+
+            if (t == NULL)
+                return false;
+
+            read(t, text, &g, &s);
+            delete t;
+
+            const vector<Edit> can = edits(text, s, g, pool);
+
+            if (can.empty())
+                return false;
+
+            Op op = can[picks[k] % can.size()].op;
+            string next = text, what;
+
+            if (!applyTagged(&synth, next, op, what))
+                return false;
+
+            if (k + 1 == picks.size())
+            {
+                thSynthTree *u = parse(synth, next);
+                vector<Gene> ng;
+                Shape ns;
+
+                if (u == NULL)
+                    return false;
+
+                read(u, next, &ng, &ns);
+                delete u;
+
+                for (const Gene &one : ng)
+                    if (std::find(s.names.begin(), s.names.end(), one.node) ==
+                        s.names.end())
+                    {
+                        write(next, one, moved(one, one.value, 3));
+                        break;
+                    }
+            }
+
+            tunedOf(&synth, text, next, op);
+            ops.push_back(op);
+            text = next;
+        }
+
+        return true;
+    };
+    vector<Op> a, b;
+    string aText, bText, made;
+
+    const bool built = lineage({ 5, 40, 77 }, a, aText) &&
+                       lineage({ 5, 13, 21 }, b, bText);
+
+    okOrFail(built && replay(&synth, bass, a, made) && made == aText &&
+                 !a.back().tuned.empty(),
+             "a lineage made again on the declared graph is the graph it "
+             "made, tuning and all", "");
+
+    vector<Op> kept;
+    Op nowhere = a[0];
+
+    nowhere.wire.node = "nowhere";
+    nowhere.slots.assign(1, { "nowhere", "in" });
+    a.insert(a.begin() + 1, nowhere);
+
+    okOrFail(replay(&synth, bass, a, made, &kept) && made == aText &&
+                 kept.size() == a.size() - 1,
+             "an op whose place the graph does not have is passed over",
+             std::to_string(kept.size()) + " of " + std::to_string(a.size()));
+    a.erase(a.begin() + 1);
+
+    /* Crossed: each key once and only the parents', each parent's ops in
+       that parent's order, all of the fitter's, and the same child --
+       tuning and all -- from the same dice. */
+    auto inOrder = [](const vector<Op> &child, const vector<Op> &parent)
+    {
+        size_t at = 0;
+
+        for (const Op &op : child)
+            for (size_t i = at; i < parent.size(); i++)
+                if (key(parent[i]) == key(op))
+                {
+                    at = i + 1;
+                    break;
+                }
+                else if (i + 1 == parent.size())
+                {
+                    bool later = false;
+
+                    for (size_t j = 0; j < at; j++)
+                        later |= key(parent[j]) == key(op);
+
+                    if (later)
+                        return false;
+                }
+
+        return true;
+    };
+    std::set<string> parents, fromB;
+
+    for (const Op &op : a)
+        parents.insert(key(op));
+
+    for (const Op &op : b)
+        parents.insert(key(op));
+
+    bool crossed = built;
+
+    for (unsigned int seed = 1; crossed && seed <= 16; seed++)
+    {
+        const vector<Op> child = cross(a, b, seed), twin = cross(a, b, seed);
+        std::set<string> seen;
+        size_t fromA = 0;
+
+        for (const Op &op : child)
+        {
+            crossed &= parents.count(key(op)) && seen.insert(key(op)).second;
+
+            bool mine = false;
+
+            for (const Op &x : a)
+                mine |= key(x) == key(op);
+
+            fromA += mine;
+
+            if (!mine)
+                fromB.insert(key(op));
+        }
+
+        crossed &= fromA == a.size() && inOrder(child, a) &&
+                   inOrder(child, b) && twin.size() == child.size() &&
+                   std::equal(twin.begin(), twin.end(), child.begin(),
+                              [](const Op &x, const Op &y)
+                              { return key(x) == key(y) &&
+                                       x.tuned.size() == y.tuned.size() &&
+                                       std::equal(x.tuned.begin(),
+                                                  x.tuned.end(),
+                                                  y.tuned.begin(),
+                                                  [](const Op::Tuned &p,
+                                                     const Op::Tuned &q)
+                                                  { return p.value ==
+                                                           q.value; }); });
+    }
+
+    okOrFail(crossed && !fromB.empty(),
+             "a child has each parent's ops in that parent's order, all the "
+             "fitter's and the other's at even odds, each once, and the same "
+             "child from the same dice",
+             std::to_string(fromB.size()) + " of the other's taken");
+
+    /* The other made Y after B, though it made A after both and the
+       fitter made A first: Y still follows B in every child that has it.
+       Ops told apart by key alone; nothing is made. */
+    {
+        auto named = [](const string &n) { Op op; op.wire.node = n; return op; };
+        auto where = [](const vector<Op> &child, const Op &op)
+        {
+            for (size_t i = 0; i < child.size(); i++)
+                if (key(child[i]) == key(op))
+                    return (long)i;
+
+            return -1L;
+        };
+        const Op A = named("A"), B = named("B"), X = named("X"),
+                 Y = named("Y");
+        bool after = true, taken = false;
+
+        for (unsigned int seed = 1; seed <= 16; seed++)
+        {
+            const vector<Op> child = cross({ A, B }, { B, X, A, Y }, seed);
+            const long y = where(child, Y);
+
+            taken |= y >= 0;
+            after &= y < 0 || y > where(child, B);
+        }
+
+        okOrFail(after && taken, "an op of the other parent's is not put "
+                 "before one it was made after", "");
+    }
+
+    /* The fitter splices a filter and then modulates its cutoff; the other
+       splices the same filter into another wire. Whichever comes first in
+       a child, the modulation is on the fitter's filter, not the other's. */
+    {
+        thSynthTree *t = parse(synth, bass);
+        vector<Gene> g;
+        Shape s;
+
+        read(t, bass, &g, &s);
+        delete t;
+
+        const vector<Edit> can = edits(bass, s, g, pool);
+        const Edit *first = NULL, *second = NULL;
+
+        for (const Edit &e : can)
+            if (e.op.splice != "filt::svf->out_low")
+                continue;
+            else if (first == NULL)
+                first = &e;
+            else if (second == NULL &&
+                     (e.op.wire.node != first->op.wire.node ||
+                      e.op.wire.arg != first->op.wire.arg))
+                second = &e;
+
+        bool aimed = first != NULL && second != NULL;
+        string mine, filter;
+
+        if (aimed)
+        {
+            string what;
+
+            mine = bass;
+            aimed = applyTagged(&synth, mine, first->op, what);
+
+            thSynthTree *u = aimed ? parse(synth, mine) : NULL;
+            vector<Gene> ng;
+            Shape ns;
+
+            if (u != NULL)
+            {
+                read(u, mine, &ng, &ns);
+                delete u;
+            }
+
+            for (const string &n : ns.names)
+                if (std::find(s.names.begin(), s.names.end(), n) ==
+                    s.names.end())
+                    filter = n;
+
+            const vector<Edit> next = edits(mine, ns, ng, pool);
+            const Edit *mod = NULL;
+
+            for (const Edit &e : next)
+                if (mod == NULL && e.kind == "modulate" &&
+                    e.op.slots.size() == 1 &&
+                    e.op.slots[0].first == filter &&
+                    e.op.slots[0].second == "cutoff")
+                    mod = &e;
+
+            aimed = mod != NULL;
+
+            for (unsigned int seed = 1; aimed && seed <= 16; seed++)
+            {
+                const vector<Op> child = cross({ first->op, mod->op },
+                                               { second->op }, seed);
+
+                aimed = replay(&synth, bass, child, made, &kept) &&
+                        kept.size() == child.size();
+
+                const size_t at = made.find("node " + filter + " ");
+                const size_t end = made.find("}", at);
+                const size_t cut = made.find("cutoff = base_", at);
+
+                aimed &= at != string::npos && cut != string::npos &&
+                         cut < end;
+            }
+        }
+
+        okOrFail(aimed, "an op on a node its lineage added finds that node "
+                 "whatever the other parent added first",
+                 filter.empty() ? "no filter spliced" : filter);
+    }
 
     /* And the search that uses it, on a thread of its own: an enveloped
        sine with its sustain moved, searched toward itself as written,
