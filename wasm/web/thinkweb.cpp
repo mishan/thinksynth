@@ -3219,12 +3219,17 @@ EMSCRIPTEN_KEEPALIVE void tw_graft_mode (int mode)
     {
         char numbers[256];
 
+        /* A chance wired to something that went non-finite would print as
+           no JSON at all, and the ask would never be answered: as none,
+           which is what breeding makes of it anyway. */
+        const auto finite = [] (double v) { return std::isfinite(v) ? v : 0; };
+
         snprintf(numbers, sizeof numbers,
                  "{\"ticket\":%u,\"dice\":%u,\"population\":%d,"
                  "\"elites\":%d,\"crossover\":%.17g,\"mutation\":%.17g,"
                  "\"depth\":%d,\"tune\":%d,\"rate\":%.17g",
-                 ticket, a.dice, a.population, a.elites, a.crossover,
-                 a.mutation, a.depth, a.tune, a.rate);
+                 ticket, a.dice, a.population, a.elites, finite(a.crossover),
+                 finite(a.mutation), a.depth, a.tune, finite(a.rate));
 
         std::string ask = numbers;
         const std::pair<const char *, std::string> texts[] = {
