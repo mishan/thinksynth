@@ -14,7 +14,8 @@ add_library(think_nodemodel OBJECT
     NodeLayout.cpp
     NodeCatalog.cpp
     NodeMutate.cpp
-    NodeEvolve.cpp)
+    NodeEvolve.cpp
+    NodeBreed.cpp)
 
 target_include_directories(think_nodemodel PUBLIC
     "${PROJECT_SOURCE_DIR}"

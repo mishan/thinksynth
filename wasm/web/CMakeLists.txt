@@ -190,6 +190,7 @@ add_library(thinkweb_parts OBJECT
     "${THINK_TOP}/src/NodeCatalog.cpp"
     "${THINK_TOP}/src/NodeMutate.cpp"
     "${THINK_TOP}/src/NodeEvolve.cpp"
+    "${THINK_TOP}/src/NodeBreed.cpp"
     "${THINK_TOP}/src/DspCatalog.cpp"
     "${THINK_TOP}/src/GenCatalog.cpp"
     "${THINK_TOP}/src/PanelModel.cpp"

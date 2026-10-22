@@ -207,6 +207,12 @@ bool grow (thSynth *synth, const string &text, const string &base,
            unsigned int choice, const string &kinds, size_t want,
            vector<string> &grown, vector<string> &what, string &why);
 
+/* The level grow() judges by: `text' played on `synth' as that phrase, its
+   RMS and peak; false for a graph that does not load or goes non-finite.
+   keepsLevel() is grow()'s rule against the declared graph's. */
+bool level (thSynth &synth, const string &text, double &rms, double &peak);
+bool keepsLevel (double rms, double peak, double baseRms, double basePeak);
+
 /* ---- a graph as its lineage ----
  *
  * Every graph a population breeds descends from the one the piece
