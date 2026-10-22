@@ -133,6 +133,29 @@ int main (int argc, char **argv)
                      NodeBreed::save(loaded) == NodeBreed::save(flock),
                  "a flock bred toward a target, saved and loaded, breeds on "
                  "as it would have", why);
+
+        /* Toward another target now: what each member carried is how near
+           it is to that one. */
+        const NodeBreed::Ear other = NodeBreed::localEar(pluginPath, bare,
+                                                         bare, "");
+        NodeBreed::Params toward = params;
+        bool rescored = true;
+
+        toward.heard = "the bare graph";
+        rescored = NodeBreed::generation(&synth, bare, flock, toward, 3,
+                                         other, again, depthAgain, why);
+
+        for (const NodeBreed::Member &m : flock.members)
+        {
+            string text;
+
+            if (m.near >= 0)
+                rescored &= NodeMutate::replay(&synth, bare, m.ops, text) &&
+                            m.near == other.target(text);
+        }
+
+        okOrFail(rescored, "a flock heard against another target is "
+                 "scored against it", why);
     }
 
     /* The same dice, the same flock -- one of them saved and loaded
@@ -172,6 +195,7 @@ int main (int argc, char **argv)
         }
         NodeBreed::Flock kept, carried;
         bool same = true, changed = false, level = true, deep = true;
+        size_t da0 = 0;
         string last;
         double rms, peak, baseRms = 0, basePeak = 0;
 
@@ -213,8 +237,17 @@ int main (int argc, char **argv)
                  "loaded between generations or not", why);
         okOrFail(changed && level, "with no target the champion keeps "
                  "changing, and keeps its level", "");
+        /* And a depth that comes down holds every member to it, the
+           carried ones too. */
+        params.depth = 0;
+        deep &= NodeBreed::generation(&synth, noisy, kept, params, 200, ear,
+                                      last, da0, why);
+
+        for (const NodeBreed::Member &m : kept.members)
+            deep &= m.ops.empty();
+
         okOrFail(deep, "no member is more edits from the declared graph "
-                 "than the depth allowed", "");
+                 "than the depth allowed, nor once it comes down", why);
     }
 
     /* Nothing to grow is a flock of the declared graph. */

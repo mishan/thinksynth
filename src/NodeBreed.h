@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "NodeMutate.h"
+#include "think.h"
 
 class thSynth;
 
@@ -63,6 +64,15 @@ struct Params {
     string kinds;               /* as gen::grow's; empty for all         */
     int tune = 6;               /* generations an edit is tuned toward a
                                    target before it is judged            */
+
+    /* What a distance is heard against -- the target and the values the
+       graphs are played with -- in any spelling that changes when they
+       do: a member's distance is kept only while this is what it was. */
+    string heard;
+
+    /* Asked between renders: true gives the generation up, the flock as
+       it was. May be empty. */
+    std::function<bool ()> stop;
 };
 
 /* The renders a generation judges by, the host's. */
@@ -78,11 +88,17 @@ struct Ear {
     std::function<double (const string &text, const string &from)> apart;
 };
 
+typedef vector<pair<string, float> > Values;
+
 /* An Ear on synths of its own, from `pluginPath', for a flock bred on
    `base': the target a graph's text or a sound file's path, whichever is
-   not empty, or neither. */
+   not empty, or neither. A member is heard with `values' set on it, and a
+   target graph with `targetValues', in the terms of a synth at `rate'. */
 Ear localEar (const string &pluginPath, const string &base,
-              const string &targetGraph, const string &targetWav);
+              const string &targetGraph, const string &targetWav,
+              const Values &values = Values(),
+              const Values &targetValues = Values(),
+              double rate = TH_DEFAULT_SAMPLES);
 
 /* Novelty is rewarded this far and no further, in dB: past it a member
    is new enough, and what decides is the dice. */
@@ -97,6 +113,7 @@ struct Flock {
     vector<Member> members;
     unsigned int generations = 0;
     string played;              /* the champion last named               */
+    string heard;               /* Params::heard its distances are of    */
 };
 
 string save (const Flock &flock);
@@ -106,10 +123,20 @@ bool load (const string &text, Flock &flock);
    `synth': scored, its champion's text in `champion' and how many edits
    it is from `base' in `depth', and the next bred from `dice'. A flock
    with no members starts as `base' and mutants of it. False, with `why',
-   for a base that does not parse or makes no sound. */
+   for a base that does not parse or makes no sound, or a generation that
+   was stopped. */
 bool generation (thSynth *synth, const string &base, Flock &flock,
                  const Params &params, unsigned int dice, const Ear &ear,
                  string &champion, size_t &depth, string &why);
+
+/* generation() for a host that keeps the flock as text: `flock' as it
+   was, empty for none yet, and `flockOut' as it is after, heard on a
+   localEar of these. */
+bool step (thSynth *synth, const string &base, const string &flock,
+           const Params &params, unsigned int dice,
+           const string &targetGraph, const string &targetWav,
+           const Values &values, const Values &targetValues, double rate,
+           string &flockOut, string &champion, size_t &depth, string &why);
 
 }
 

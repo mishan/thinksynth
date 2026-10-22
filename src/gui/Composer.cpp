@@ -31,6 +31,7 @@
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
+#include "NodeGraft.h"
 #include "NodeMutate.h"
 #include "thSoundFile.h"
 #include "thcGenFile.h"
@@ -300,6 +301,11 @@ Composer::start (void)
         { return NodeMutate::grow(synth_, text, base, choice, kinds, want,
                                   grown, w, why); });
     sched_->setTuner(NodeEvolve::tuneAdded);
+
+    /* A generation is dozens of renders, which the window's thread cannot
+       spare: bred on threads of the worker's, answered at the draw. */
+    graft_.reset(new GraftWorker(synth_->getPluginManager()->pluginPath()));
+    sched_->setGraftRequest(graft_->request());
     sched_->setInstrumentLoader(
         [this](const thcInstrument &inst, std::string &why)
         { return loadInstrument(inst, why); });
@@ -370,6 +376,7 @@ Composer::~Composer (void)
        be put on a scheduler that is about to go. */
     evolvePoll_.disconnect();
     evolve_.reset();
+    graft_.reset();
     delete evolveWin_;
     tick_.disconnect();
     drawTimer_.disconnect();
@@ -2641,6 +2648,9 @@ Composer::onDrawTimer (void)
     if (seqShown_)
         seq_.tick();
 
+    if (graft_)
+        graft_->deliver(*sched_);
+
     for (GrowthView *view : growthViews_)
         view->tick();
 
@@ -4680,12 +4690,18 @@ Composer::buildStageSelection (size_t ci, size_t si)
     /* What a growing stage has made of its instrument, kept: a decision
        about the piece, as a capture is, and so a button here and nothing
        the stage does by itself. */
-    if (stage.category == "gen" && stage.plugin == "grow")
+    if (stage.category == "gen" &&
+        (stage.plugin == "grow" || stage.plugin == "graft"))
     {
-        Gtk::Button *keep = manage(new Gtk::Button("Keep the grown graph"));
+        const bool bred = stage.plugin == "graft";
+        Gtk::Button *keep = manage(new Gtk::Button(
+            bred ? "Keep the bred graph" : "Keep the grown graph"));
 
-        keep->set_tooltip_text("Write the graph the instrument has grown "
-                               "into the piece, as its dsp { }");
+        keep->set_tooltip_text(bred
+            ? "Write the graph the flock is playing now into the piece, as "
+              "its instrument's dsp { }"
+            : "Write the graph the instrument has grown into the piece, as "
+              "its dsp { }");
 
         keep->signal_clicked().connect(
             [this, ci]

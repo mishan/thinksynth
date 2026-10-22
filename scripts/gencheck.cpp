@@ -67,6 +67,7 @@
 #include "thcGenEdit.h"
 #include "thcMidiExport.h"
 #include "NodeEvolve.h"
+#include "NodeGraft.h"
 #include "NodeMutate.h"
 #include "thcNodeHost.h"
 #include "thcAudition.h"
@@ -6752,6 +6753,207 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
     }
     else
         fail("there was no grown graph to keep");
+}
+
+/* gen::graft, a flock of bass.dsp bred while a melody plays on it, a
+ * generation every two seconds; the scheduler stepped `seconds' along with
+ * `more' in the stage. Returns the nodes on the channel then, and
+ * `declared' gets them as loaded, `depth' how many graphs the channel's
+ * stack holds, and `kept' a copy of the piece with the champion kept.
+ * `threaded', each generation is bred on a GraftWorker's thread as the
+ * application breeds it, and its answer taken once the run is over --
+ * after the rewind, with `rewind'. */
+static std::string
+graftedFor (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth, double seconds, std::string &declared,
+            bool rewind, size_t *stacked = NULL, std::string *kept = NULL,
+            const std::string &more = "", bool threaded = false)
+{
+    const std::string path = thUtil::tempFile("gencheck-graft-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "seed 11;\ninstrument pad { dsp \"bass.dsp\"; };\n"
+               "instrument same { dsp \"bass.dsp\"; };\n"
+               "chain melody {\n    stage s gen::eno_line { notes = "
+               "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
+               "    sink { instrument = pad; };\n};\n"
+               "chain flock {\n    stage g gen::graft { every = 2 s; "
+               "population = 3; depth = 2; kinds = \"splice\"; " << more
+            << " };\n    sink { instrument = pad; };\n};\n";
+    }
+
+    clearChannels(synth);
+
+    std::string grafted;
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        GraftWorker worker(synth->getPluginManager()->pluginPath());
+        auto answered = [&]
+        {
+            while (worker.busy())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                worker.deliver(sched);
+            }
+        };
+
+        sched.setAuditionSynchronous(true);
+
+        if (threaded)
+            sched.setGraftRequest(worker.request());
+        else
+            sched.setGrafter(nodeBreedGrafter(synth));
+
+        if (!loader.load(path, &sched))
+            fail("the grafting piece does not load");
+        else
+        {
+            const int ch = sched.instrument("pad")->channel;
+
+            drainSynth();
+            declared = nodesOn(synth, ch);
+            sched.start();
+
+            for (double t = 0; t < seconds; t += 0.05)
+            {
+                sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            if (!rewind)
+            {
+                answered();
+                drainSynth();
+            }
+
+            grafted = nodesOn(synth, ch);
+
+            std::vector<std::string> stack;
+            std::vector<thcScheduler::GrowthStep> log;
+
+            if (stacked != NULL)
+                *stacked = sched.growth(ch, stack, log) ? stack.size() : 0;
+
+            std::string text, why;
+
+            if (kept != NULL && sched.grownText(ch, text))
+            {
+                *kept = thUtil::tempFile("gencheck-kept-");
+                std::filesystem::copy_file(
+                    path, *kept,
+                    std::filesystem::copy_options::overwrite_existing);
+
+                if (thcGenEdit::setInlineGraph(*kept, "pad", "\n" + text +
+                                               "\n", why) != thcGenEdit::OK)
+                    fail("a bred graph could not be written into the "
+                         "piece: " + why);
+            }
+
+            if (rewind)
+            {
+                sched.reset();
+                answered();
+                drainSynth();
+                grafted = nodesOn(synth, ch);
+
+                if (sched.flockText(ch, text))
+                    fail("a rewind left gen::graft's flock to breed on");
+            }
+        }
+    }
+
+    clearChannels(synth);
+    std::remove(path.c_str());
+
+    return grafted;
+}
+
+static void
+checkGraft (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth)
+{
+    std::string declared, again, kept;
+    size_t stacked = 0;
+
+    /* The first fire arms the clock; the second, at 2 s, breeds. */
+    const std::string one = graftedFor(plugins, synth, 2.5, declared, false);
+
+    if (one.empty() || one == declared)
+        fail("gen::graft did not put a bred graph on: " + one);
+
+    if (graftedFor(plugins, synth, 2.5, again, false) != one)
+        fail("gen::graft does not replay: the same seed bred another graph");
+
+    /* Two generations on, the channel holds the declared graph and the
+       champion, not a stack of every champion. */
+    const std::string two = graftedFor(plugins, synth, 4.5, again, false,
+                                       &stacked, &kept);
+
+    if (stacked != 2)
+        fail("after two generations of gen::graft the channel's stack holds "
+             + std::to_string(stacked) + " graphs, not the declared one and "
+             "the champion");
+
+    if (graftedFor(plugins, synth, 4.5, again, true) != declared)
+        fail("a rewind did not put the declared graph back after "
+             "gen::graft");
+
+    if (!kept.empty())
+    {
+        clearChannels(synth);
+
+        {
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(kept, &sched))
+                fail("a piece with its bred graph kept does not load");
+            else
+            {
+                drainSynth();
+
+                if (nodesOn(synth, sched.instrument("pad")->channel) != two)
+                    fail("a kept graph is not the champion that was bred");
+            }
+        }
+
+        clearChannels(synth);
+        std::remove(kept.c_str());
+    }
+    else
+        fail("there was no bred graph to keep");
+
+    /* Bred on threads, the generations answered after the run: the same
+       champion, the second generation having waited for the first. And a
+       rewind with one still out takes nothing from its answer. */
+    if (graftedFor(plugins, synth, 4.5, again, false, NULL, NULL, "",
+                   true) != two)
+        fail("gen::graft bred on threads does not breed what it breeds in "
+             "the tick");
+
+    if (graftedFor(plugins, synth, 2.5, again, true, NULL, NULL, "",
+                   true) != declared)
+        fail("a generation answered after a rewind put its champion on");
+
+    /* Bred toward its own graph, the declared one stays the champion and
+       nothing goes on; a rewind still leaves no flock to breed on (checked
+       in graftedFor). */
+    if (graftedFor(plugins, synth, 2.5, again, true, NULL, NULL,
+                   "target = \"same\"; tune = 0;") != declared)
+        fail("a rewind after gen::graft toward its own graph did not leave "
+             "the declared graph");
+
+    /* A target that is neither an instrument nor a sound file breeds
+       nothing, and says so. */
+    if (graftedFor(plugins, synth, 2.5, again, false, NULL, NULL,
+                   "target = \"nowhere at all\";") != declared)
+        fail("gen::graft toward a target that is not there changed the "
+             "graph");
 }
 
 /* What happens to a growth while it is being heard. */
@@ -16269,6 +16471,7 @@ main (int argc, char *argv[])
         checkNodes(plugins, &synth, genFile);
         checkStructureEdits(plugins, &synth, genFile);
         checkGrow(plugins, &synth);
+        checkGraft(plugins, &synth);
         checkGrowToward(plugins, &synth);
         checkGrowDepth(plugins, &synth);
         checkGrowQueue(plugins, &synth);

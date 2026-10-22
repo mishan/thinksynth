@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -39,7 +40,8 @@ using NodeMutate::Shape;
 using NodeMutate::Splice;
 
 Ear localEar (const string &pluginPath, const string &base,
-              const string &targetGraph, const string &targetWav)
+              const string &targetGraph, const string &targetWav,
+              const Values &values, const Values &targetValues, double rate)
 {
     auto levels = std::make_shared<thSynth>(pluginPath,
                                             TH_DEFAULT_WINDOW_LENGTH,
@@ -63,6 +65,9 @@ Ear localEar (const string &pluginPath, const string &base,
         spec.start = base;
         spec.targetGraph = targetGraph;
         spec.targetWav = targetWav;
+        spec.startArgs = values;
+        spec.targetArgs = targetValues;
+        spec.rate = rate;
 
         auto heard = std::make_shared<NodeEvolve::Listener>(spec);
         auto open = std::make_shared<int>(-1);
@@ -88,7 +93,8 @@ Ear localEar (const string &pluginPath, const string &base,
     auto last = std::make_shared<std::pair<string,
                     std::shared_ptr<NodeEvolve::Listener> > >();
 
-    ear.apart = [pluginPath, last] (const string &text, const string &from)
+    ear.apart = [pluginPath, last, values, rate] (const string &text,
+                                                  const string &from)
     {
         if (!last->second || last->first != from)
         {
@@ -98,6 +104,9 @@ Ear localEar (const string &pluginPath, const string &base,
             spec.pluginPath = pluginPath;
             spec.start = from;
             spec.targetGraph = from;
+            spec.startArgs = values;
+            spec.targetArgs = values;
+            spec.rate = rate;
             last->first = from;
             last->second = std::make_shared<NodeEvolve::Listener>(spec);
             last->second->synth().setSeed(1);
@@ -231,8 +240,9 @@ static bool opOf (const vector<string> &f, Op &op)
 string save (const Flock &flock)
 {
     string out = "flock\t" + std::to_string(flock.generations) + "\t" +
-                 std::to_string(flock.played.size()) + "\n" + flock.played +
-                 "\n";
+                 std::to_string(flock.played.size()) + "\t" +
+                 std::to_string(flock.heard.size()) + "\n" + flock.played +
+                 flock.heard + "\n";
 
     for (const Member &m : flock.members)
     {
@@ -256,16 +266,17 @@ bool load (const string &text, Flock &flock)
 
     const vector<string> head = fields(line, '\t');
 
-    if (head.size() != 3 || head[0] != "flock")
+    if (head.size() != 4 || head[0] != "flock")
         return false;
 
     f.generations = (unsigned int)strtoul(head[1].c_str(), NULL, 10);
+    f.played.resize((size_t)strtoull(head[2].c_str(), NULL, 10));
+    f.heard.resize((size_t)strtoull(head[3].c_str(), NULL, 10));
 
-    const size_t len = (size_t)strtoull(head[2].c_str(), NULL, 10);
-
-    f.played.resize(len);
-
-    if (!in.read(&f.played[0], (std::streamsize)len) ||
+    if ((!f.played.empty() &&
+         !in.read(&f.played[0], (std::streamsize)f.played.size())) ||
+        (!f.heard.empty() &&
+         !in.read(&f.heard[0], (std::streamsize)f.heard.size())) ||
         !std::getline(in, line) || !line.empty())
         return false;
 
@@ -306,7 +317,7 @@ struct Dice {
 static bool parsedOn (thSynth *synth, const string &text, vector<Gene> &genes,
                       Shape &shape)
 {
-    static unsigned int serial = 0;
+    static std::atomic<unsigned int> serial { 0 };
     const string name = "breed#" + std::to_string(++serial) + ".dsp";
     thSynthTree *tree;
 
@@ -420,10 +431,22 @@ struct Breeding {
 
 }
 
-bool generation (thSynth *synth, const string &base, Flock &flock,
+bool generation (thSynth *synth, const string &base, Flock &flock_,
                  const Params &params, unsigned int dice_, const Ear &ear,
                  string &champion, size_t &depth, string &why)
 {
+    /* Bred on a copy, so a generation stopped half way leaves the flock
+       as it was. */
+    Flock flock = flock_;
+    const auto stopped = [&params, &why] ()
+    {
+        if (!params.stop || !params.stop())
+            return false;
+
+        why = "stopped";
+        return true;
+    };
+
     vector<Gene> genes;
     Shape shape;
     Dice dice(dice_);
@@ -459,6 +482,24 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
         }
     }
 
+    /* Heard against something else now -- another target, the values
+       moved -- so no distance kept is one; and a member past a depth that
+       has come down is held to it. */
+    if (flock.heard != params.heard)
+    {
+        for (Member &m : flock.members)
+            m.near = -1;
+
+        flock.heard = params.heard;
+    }
+
+    for (Member &m : flock.members)
+        while (m.ops.size() > params.depth)
+        {
+            m.ops.erase(m.ops.begin() + dice.below(m.ops.size()));
+            m.near = -1;
+        }
+
     /* Scored, lower nearer: from the target, or from the champion just
        played -- novelty, up to a point. */
     const string &played = flock.played.empty() ? base : flock.played;
@@ -468,6 +509,9 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
     for (size_t i = 0; i < flock.members.size(); i++)
     {
         Member &m = flock.members[i];
+
+        if (stopped())
+            return false;
 
         if (!b.text(m.ops, texts[i]))
             score[i] = NodeEvolve::DEAD;
@@ -517,6 +561,9 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
 
     while (next.size() < population)
     {
+        if (stopped())
+            return false;
+
         const size_t a = pick();
         Member child = flock.members[a];
 
@@ -565,6 +612,50 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
 
     flock.members.swap(next);
     flock.generations++;
+    flock_ = flock;
+
+    return true;
+}
+
+bool step (thSynth *synth, const string &base, const string &flock,
+           const Params &params, unsigned int dice,
+           const string &targetGraph, const string &targetWav,
+           const Values &values, const Values &targetValues, double rate,
+           string &flockOut, string &champion, size_t &depth, string &why)
+{
+    Flock f;
+
+    if (!flock.empty() && !load(flock, f))
+    {
+        why = "the flock does not read back";
+        return false;
+    }
+
+    if (synth == NULL)
+    {
+        why = "no synth to breed with";
+        return false;
+    }
+
+    const Ear ear = localEar(synth->getPluginManager()->pluginPath(), base,
+                             targetGraph, targetWav, values, targetValues,
+                             rate);
+    Params p = params;
+
+    p.heard = targetGraph + '\n' + targetWav + '\n' + bits(rate);
+
+    for (const Values *v : { &values, &targetValues })
+    {
+        p.heard += '\n';
+
+        for (const auto &one : *v)
+            p.heard += one.first + "=" + bits(one.second) + ";";
+    }
+
+    if (!generation(synth, base, f, p, dice, ear, champion, depth, why))
+        return false;
+
+    flockOut = save(f);
 
     return true;
 }

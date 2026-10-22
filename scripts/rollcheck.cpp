@@ -354,6 +354,14 @@ main (int argc, char *argv[])
 
     std::map<std::string, thcPlugin *> plugins;
 
+    /* Gone after the scheduler and the loader that use them, on every way
+       out. */
+    struct Unload
+    {
+        std::map<std::string, thcPlugin *> &all;
+        ~Unload () { for (auto &p : all) delete p.second; }
+    } unload { plugins };
+
     loadComposers(pluginDir, plugins);
 
     if (plugins.empty())
