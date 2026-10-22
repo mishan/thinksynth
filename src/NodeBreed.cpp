@@ -46,8 +46,12 @@ Ear localEar (const string &pluginPath, const string &base,
                                             TH_DEFAULT_SAMPLES);
     Ear ear;
 
+    /* Each render with the noise streams started over, so what one
+       measures is not what the synth rendered before it: a host that has
+       bred for an hour and one that has just loaded the flock agree. */
     ear.level = [levels] (const string &text, double &rms, double &peak)
     {
+        levels->setSeed(1);
         return NodeMutate::level(*levels, text, rms, peak);
     };
 
@@ -68,7 +72,12 @@ Ear localEar (const string &pluginPath, const string &base,
             string why;
 
             if (*open < 0)
+            {
+                heard->synth().setSeed(1);
                 *open = heard->open(why);
+            }
+
+            heard->synth().setSeed(1);
 
             return *open ? heard->distance(text) : NodeEvolve::DEAD;
         };
@@ -91,13 +100,18 @@ Ear localEar (const string &pluginPath, const string &base,
             spec.targetGraph = from;
             last->first = from;
             last->second = std::make_shared<NodeEvolve::Listener>(spec);
+            last->second->synth().setSeed(1);
 
             if (!last->second->open(why))
                 last->second.reset();
         }
 
-        return last->second ? last->second->distance(text)
-                            : NodeEvolve::DEAD;
+        if (!last->second)
+            return NodeEvolve::DEAD;
+
+        last->second->synth().setSeed(1);
+
+        return last->second->distance(text);
     };
 
     return ear;
@@ -341,6 +355,9 @@ struct Breeding {
     {
         if (ops.size() >= params.depth)
         {
+            if (ops.empty())
+                return false;
+
             ops.erase(ops.begin() + dice.below(ops.size()));
             return true;
         }
@@ -462,7 +479,14 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
             score[i] = m.near;
         }
         else
-            score[i] = -std::min(ear.apart(texts[i], played), NOVELTY_DB);
+        {
+            /* One that cannot be heard is no novelty. */
+            const double apart = ear.apart(texts[i], played);
+
+            score[i] = apart >= NodeEvolve::DEAD ? NodeEvolve::DEAD
+                                                 : -std::min(apart,
+                                                             NOVELTY_DB);
+        }
     }
 
     vector<size_t> order(flock.members.size());
@@ -516,6 +540,10 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
 
             if (dice.chance(params.mutation))
                 changed |= b.mutate(ops);
+
+            /* Two parents can hold more between them than one may. */
+            while (ops.size() > params.depth)
+                ops.erase(ops.begin() + dice.below(ops.size()));
 
             string text;
             vector<Op> kept;
