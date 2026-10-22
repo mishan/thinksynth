@@ -968,7 +968,39 @@ the channel — with the nodes it added to the declared graph titled in green, a
 follows each step as it lands. Saving it there writes it into the piece as Keep
 does, with whatever was edited.
 
-**All three are events**, and that is the whole rate limit: scheduled, so they
+**A flock** breeds the instrument rather than walking it. `gen::graft` keeps a
+population of graphs descended from the declared one, and every `every` is a
+generation: the host scores the flock, puts the best on the channel, and breeds
+the next.
+
+```
+chain flock {
+    stage g gen::graft { every = 20 s; population = 6; depth = 4;
+                         kinds = "splice modulate"; };
+    sink { instrument = pad; };
+};
+```
+
+A member is the declared graph and the edits made on it in turn, the same edits
+`gen::grow` makes, so two are crossed by crossing their lists of edits and
+making the child's again on the declared graph (`src/NodeMutate`, `src/NodeBreed`).
+Each generation carries the best `elites` (1 unless set) as they are and breeds
+the rest: a parent by a tournament of two, a second with chance `crossover` (0.7),
+one edit more of `kinds` with chance `mutation` (0.8) — or, at `depth` (4) edits,
+one fewer — and a child that moves the level as growth would not is bred again.
+With no `target`, a member scores by how far it sounds from the champion just
+played, up to 6 dB, so the instrument keeps changing; with one — an instrument
+of the piece or a sound file, as `gen::grow` takes — by how near it sounds to
+it, each new edit tuned toward it for `tune` generations (6) first, so the flock
+climbs. The stage sends the generation's dice and the host does the rest, so a
+piece that grafts replays from its seed.
+
+The channel then holds the declared graph and the champion, which is what Keep
+writes; a rewind puts the declared graph back and the flock is gone. A
+generation is dozens of renders, more with a target, and for now only `genwav`
+breeds: the application and the page say they cannot.
+
+**All four are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from
 the seed, so a piece sounds the same twice; and drawn on the roll, so you can
 watch one coming. A rewind puts every instrument back as the file declares it,
@@ -1381,6 +1413,7 @@ reading `chain category { ... }` is a trap rather than a feature.
 | `gen::swap`            | `THC_EV_PATCH`: the sink's channel is rebuilt        |
 | `gen::reshape`         | `THC_EV_NODEARG`: a constant in that channel's graph |
 | `gen::grow`            | `THC_EV_GROW`: that channel's graph an edit on, or back |
+| `gen::graft`           | `THC_EV_GRAFT`: a generation of that channel's flock |
 | param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |

@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "NodeMutate.h"
+#include "think.h"
 
 class thSynth;
 
@@ -78,11 +79,17 @@ struct Ear {
     std::function<double (const string &text, const string &from)> apart;
 };
 
+typedef vector<pair<string, float> > Values;
+
 /* An Ear on synths of its own, from `pluginPath', for a flock bred on
    `base': the target a graph's text or a sound file's path, whichever is
-   not empty, or neither. */
+   not empty, or neither. A member is heard with `values' set on it, and a
+   target graph with `targetValues', in the terms of a synth at `rate'. */
 Ear localEar (const string &pluginPath, const string &base,
-              const string &targetGraph, const string &targetWav);
+              const string &targetGraph, const string &targetWav,
+              const Values &values = Values(),
+              const Values &targetValues = Values(),
+              double rate = TH_DEFAULT_SAMPLES);
 
 /* Novelty is rewarded this far and no further, in dB: past it a member
    is new enough, and what decides is the dice. */
@@ -110,6 +117,15 @@ bool load (const string &text, Flock &flock);
 bool generation (thSynth *synth, const string &base, Flock &flock,
                  const Params &params, unsigned int dice, const Ear &ear,
                  string &champion, size_t &depth, string &why);
+
+/* generation() for a host that keeps the flock as text: `flock' as it
+   was, empty for none yet, and `flockOut' as it is after, heard on a
+   localEar of these. */
+bool step (thSynth *synth, const string &base, const string &flock,
+           const Params &params, unsigned int dice,
+           const string &targetGraph, const string &targetWav,
+           const Values &values, const Values &targetValues, double rate,
+           string &flockOut, string &champion, size_t &depth, string &why);
 
 }
 

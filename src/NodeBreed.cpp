@@ -39,7 +39,8 @@ using NodeMutate::Shape;
 using NodeMutate::Splice;
 
 Ear localEar (const string &pluginPath, const string &base,
-              const string &targetGraph, const string &targetWav)
+              const string &targetGraph, const string &targetWav,
+              const Values &values, const Values &targetValues, double rate)
 {
     auto levels = std::make_shared<thSynth>(pluginPath,
                                             TH_DEFAULT_WINDOW_LENGTH,
@@ -63,6 +64,9 @@ Ear localEar (const string &pluginPath, const string &base,
         spec.start = base;
         spec.targetGraph = targetGraph;
         spec.targetWav = targetWav;
+        spec.startArgs = values;
+        spec.targetArgs = targetValues;
+        spec.rate = rate;
 
         auto heard = std::make_shared<NodeEvolve::Listener>(spec);
         auto open = std::make_shared<int>(-1);
@@ -88,7 +92,8 @@ Ear localEar (const string &pluginPath, const string &base,
     auto last = std::make_shared<std::pair<string,
                     std::shared_ptr<NodeEvolve::Listener> > >();
 
-    ear.apart = [pluginPath, last] (const string &text, const string &from)
+    ear.apart = [pluginPath, last, values, rate] (const string &text,
+                                                  const string &from)
     {
         if (!last->second || last->first != from)
         {
@@ -98,6 +103,9 @@ Ear localEar (const string &pluginPath, const string &base,
             spec.pluginPath = pluginPath;
             spec.start = from;
             spec.targetGraph = from;
+            spec.startArgs = values;
+            spec.targetArgs = values;
+            spec.rate = rate;
             last->first = from;
             last->second = std::make_shared<NodeEvolve::Listener>(spec);
             last->second->synth().setSeed(1);
@@ -565,6 +573,38 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
 
     flock.members.swap(next);
     flock.generations++;
+
+    return true;
+}
+
+bool step (thSynth *synth, const string &base, const string &flock,
+           const Params &params, unsigned int dice,
+           const string &targetGraph, const string &targetWav,
+           const Values &values, const Values &targetValues, double rate,
+           string &flockOut, string &champion, size_t &depth, string &why)
+{
+    Flock f;
+
+    if (!flock.empty() && !load(flock, f))
+    {
+        why = "the flock does not read back";
+        return false;
+    }
+
+    if (synth == NULL)
+    {
+        why = "no synth to breed with";
+        return false;
+    }
+
+    const Ear ear = localEar(synth->getPluginManager()->pluginPath(), base,
+                             targetGraph, targetWav, values, targetValues,
+                             rate);
+
+    if (!generation(synth, base, f, params, dice, ear, champion, depth, why))
+        return false;
+
+    flockOut = save(f);
 
     return true;
 }

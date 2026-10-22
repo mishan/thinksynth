@@ -1471,6 +1471,12 @@ thcScheduler::runQueued (int channel)
         }
         else if (q.put)
             putGraph(channel, q.graph, q.over, q.strict, q.done);
+        else if (q.graft)
+        {
+            if (!graftInstrument(channel, q.ask, why))
+                fprintf(stderr, "thcScheduler: breeding channel %d: %s\n",
+                        channel + 1, why.c_str());
+        }
         else if (q.nodeArg)
         {
             if (!setNodeArg(channel, q.node, q.arg, q.value, why))
@@ -2309,6 +2315,8 @@ thcScheduler::putOn (const thcInstrument &put, std::string &why)
     return true;
 }
 
+static bool instrumentText (const thcInstrument &inst, std::string &text);
+
 bool
 thcScheduler::graphText (int channel, std::string &text) const
 {
@@ -2317,16 +2325,24 @@ thcScheduler::graphText (int channel, std::string &text) const
 
     const thcInstrument *inst = instrument(holding(channel));
 
-    if (channelOf(channel) == NULL || inst == NULL || inst->dsp.empty())
+    if (channelOf(channel) == NULL || inst == NULL)
         return false;
 
-    /* The text the instrument declares, as its graph is loaded: an inline
-       graph's from the registry, a file's from the disk. */
-    if (!thUtil::findGraphText(inst->dsp, text))
+    return instrumentText(*inst, text);
+}
+
+/* The text an instrument declares, as its graph is loaded: an inline
+   graph's from the registry, a file's from the disk. */
+static bool instrumentText (const thcInstrument &inst, std::string &text)
+{
+    if (inst.dsp.empty())
+        return false;
+
+    if (!thUtil::findGraphText(inst.dsp, text))
     {
         const std::string path = thUtil::findDataFile(
-            inst->dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
-        std::ifstream in((path.empty() ? inst->dsp : path).c_str(),
+            inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+        std::ifstream in((path.empty() ? inst.dsp : path).c_str(),
                          std::ios::binary);
 
         text.assign(std::istreambuf_iterator<char>(in),
@@ -2344,6 +2360,97 @@ thcScheduler::growInstrument (int channel, unsigned int choice, bool shrink,
 {
     return stepGraph(channel, shrink, NULL, choice, kinds, target, listen,
                      tune, depth, why);
+}
+
+bool
+thcScheduler::graftInstrument (int channel, const GraftAsk &given,
+                               std::string &why)
+{
+    Growth *g = growthOf(channel, why);
+
+    if (g == NULL)
+        return false;
+
+    if (!grafter_)
+    {
+        why = "this host cannot breed a graph";
+        return false;
+    }
+
+    forgetHearing(*g);
+
+    GraftAsk ask = given;
+    thcAuditioner::Instrument heard;
+
+    ask.rate = (double)synth_->getSampleRate();
+
+    if (auditionInstrument(*instrument(holding(channel)), heard))
+        ask.args = heard.chanargs;
+
+    /* The target as hearAgainst finds it: an instrument of the piece, or
+       a sound file as written or among the samples. */
+    if (!ask.target.empty())
+    {
+        const thcInstrument *other = instrument(ask.target);
+
+        if (other != NULL)
+        {
+            if (!instrumentText(*other, ask.targetGraph))
+            {
+                why = "'" + other->dsp + "' could not be read";
+                return false;
+            }
+
+            if (auditionInstrument(*other, heard))
+                ask.targetArgs = heard.chanargs;
+        }
+        else if (std::filesystem::exists(ask.target))
+            ask.targetWav = ask.target;
+        else
+        {
+            ask.targetWav = thUtil::findDataFile("samples/" + ask.target,
+                                                 "dsp", "THINK_DSP_PATH",
+                                                 DSP_PATH);
+
+            if (ask.targetWav.empty())
+            {
+                why = "no instrument or sound file '" + ask.target + "'";
+                return false;
+            }
+        }
+    }
+
+    std::string flock, champion;
+    size_t depth = 0;
+
+    if (!grafter_(g->texts[0], g->flock, ask, flock, champion, depth, why))
+        return false;
+
+    g->flock = flock;
+
+    if (champion == g->texts.back())
+        return true;
+
+    if (depth == 0)
+        return placeStep(channel, 0, "", "", GrowthStep(), why);
+
+    /* The champion over the declared graph, in place of the last. */
+    const std::string what = "bred, " + std::to_string(depth) +
+                             (depth == 1 ? " edit" : " edits");
+
+    if (!placeStep(channel, std::string::npos, champion, what, GrowthStep(),
+                   why))
+        return false;
+
+    const size_t top = g->texts.size() - 1;
+
+    g->texts.erase(g->texts.begin() + 1, g->texts.begin() + (long)top);
+    g->holds.erase(g->holds.begin() + 1, g->holds.begin() + (long)top);
+    g->whats.erase(g->whats.begin() + 1, g->whats.begin() + (long)top);
+    g->levels.erase(g->levels.begin() + 1, g->levels.begin() + (long)top);
+    g->log.back().depth = 1;
+
+    return true;
 }
 
 bool
@@ -4757,7 +4864,7 @@ thcScheduler::landReplay (Replay &r)
             k += *p.chanargName;
         else if (p.ev.type == THC_EV_NODEARG)
             k += *p.text + "->" + *p.text2;
-        else if (p.ev.type == THC_EV_GROW)
+        else if (p.ev.type == THC_EV_GROW || p.ev.type == THC_EV_GRAFT)
             k += std::to_string(pendingSeq_);
 
         p.seq = pendingSeq_++;
@@ -5064,6 +5171,15 @@ thcScheduler::queuePending (const thcEvent &ev,
                                                        : ""));
         p.ev.u.grow.target = p.text2->c_str();
     }
+    else if (ev.type == THC_EV_GRAFT)
+    {
+        p.text.reset(new std::string(ev.u.graft.kinds ? ev.u.graft.kinds
+                                                      : ""));
+        p.ev.u.graft.kinds = p.text->c_str();
+        p.text2.reset(new std::string(ev.u.graft.target ? ev.u.graft.target
+                                                        : ""));
+        p.ev.u.graft.target = p.text2->c_str();
+    }
     else if (ev.type == THC_EV_NODEARG)
     {
         p.text.reset(new std::string(ev.u.nodearg.node
@@ -5344,6 +5460,40 @@ thcScheduler::deliver (const thcEvent &ev)
                                 ev.u.grow.listen, ev.u.grow.tune, why,
                                 ev.u.grow.depth))
                 fprintf(stderr, "thcScheduler: growing channel %d: %s\n",
+                        ev.channel + 1, why.c_str());
+            break;
+        }
+        case THC_EV_GRAFT:
+        {
+            std::string why;
+            const auto g = grown_.find(ev.channel);
+            GraftAsk ask;
+
+            ask.dice = ev.u.graft.dice;
+            ask.kinds = ev.u.graft.kinds ? ev.u.graft.kinds : "";
+            ask.target = ev.u.graft.target ? ev.u.graft.target : "";
+            ask.population = ev.u.graft.population;
+            ask.elites = ev.u.graft.elites;
+            ask.crossover = ev.u.graft.crossover;
+            ask.mutation = ev.u.graft.mutation;
+            ask.depth = ev.u.graft.depth;
+            ask.tune = ev.u.graft.tune;
+
+            /* Behind a growth still waiting for its answer, as a step of
+               grow's waits. */
+            if (g != grown_.end() &&
+                (g->second.asked != 0 || !g->second.options.empty()))
+            {
+                Growth::Queued q;
+
+                q.graft = true;
+                q.ask = ask;
+                g->second.queued.push_back(q);
+                break;
+            }
+
+            if (!graftInstrument(ev.channel, ask, why))
+                fprintf(stderr, "thcScheduler: breeding channel %d: %s\n",
                         ev.channel + 1, why.c_str());
             break;
         }

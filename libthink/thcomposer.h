@@ -171,7 +171,21 @@ typedef enum {
      * it could sound rather than as its defaults. Live, the step is taken
      * once the answers are in, not when the event is. Without an ear, the
      * first. */
-    THC_EV_GROW
+    THC_EV_GROW,
+
+    /* A generation of a population of the instrument's graphs, bred.
+     *
+     * As with GROW the composer holds no graph: the host keeps a flock
+     * of graphs descended from the declared one, scores it -- against
+     * `target' if there is one, each new edit tuned toward it for `tune'
+     * generations first, or by how far each sounds from the champion
+     * last played if not -- puts the best on the channel as a swap does,
+     * and breeds the next from `dice': `elites' carried, the rest by
+     * tournament, `crossover' the chance of a second parent, `mutation'
+     * the chance of one edit more of `kinds', at most `depth' edits on
+     * the declared graph. A rewind puts the declared graph back and the
+     * flock is gone. */
+    THC_EV_GRAFT
 } thcEventType;
 
 /* The longest phoneme run one note carries, its ending 0 included: a
@@ -243,6 +257,17 @@ typedef struct {
                                      `shrink' then a wish to go back; 0:
                                      `shrink' is the step                */
         } grow;
+        struct {
+            unsigned int dice;    /* the generation's draws             */
+            const char  *kinds;   /* as grow's; copied                  */
+            const char  *target;  /* as grow's; copied                  */
+            int          population;
+            int          elites;
+            float        crossover;
+            float        mutation;
+            int          depth;
+            int          tune;
+        } graft;
     } u;
     unsigned char reserved[THC_EVENT_RESERVED];  /* 0; see above         */
 } thcEvent;

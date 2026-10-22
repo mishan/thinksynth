@@ -116,6 +116,7 @@
 #include "libthink/thDynLib.h"
 #include "thcPlugin.h"
 #include "NodeEvolve.h"
+#include "NodeGraft.h"
 #include "NodeMutate.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
@@ -823,6 +824,7 @@ int main (int argc, char **argv)
                     { return NodeMutate::grow(&synth, text, base, choice,
                                               kinds, want, grown, w, why); });
     sched.setTuner(NodeEvolve::tuneAdded);
+    sched.setGrafter(nodeBreedGrafter(&synth));
 
     synth.setThreads(threads);
 

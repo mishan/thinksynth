@@ -154,6 +154,8 @@ RollCanvas::onDelivered (const thcEvent &ev)
             label = ev.u.patch.name ? ev.u.patch.name : "?";
         else if (ev.type == THC_EV_GROW)
             label = ev.u.grow.shrink ? "grow back" : "grow";
+        else if (ev.type == THC_EV_GRAFT)
+            label = "graft";
         else
         {
             char buf[96];

@@ -785,7 +785,8 @@ public:
        have to agree about which events are which. */
     static bool isStructureEdit (thcEventType t)
     {
-        return t == THC_EV_PATCH || t == THC_EV_NODEARG || t == THC_EV_GROW;
+        return t == THC_EV_PATCH || t == THC_EV_NODEARG ||
+               t == THC_EV_GROW || t == THC_EV_GRAFT;
     }
 
     /* ---- structure edits ----
@@ -818,6 +819,42 @@ public:
                          const std::string &kinds, const std::string &target,
                          int listen, int tune, std::string &why,
                          int depth = 0);
+
+    /* THC_EV_GRAFT: what a generation is asked to breed with, as the
+       event says it and with its target found -- an instrument of the
+       piece as its graph and values, or a sound file -- and the values
+       the channel's own instrument plays its graph with, in the terms of
+       a synth at `rate'. */
+    struct GraftAsk
+    {
+        unsigned int dice = 0;
+        std::string kinds, target;
+        int population = 6, elites = 1, depth = 4, tune = 6;
+        double crossover = 0.7, mutation = 0.8;
+
+        std::string targetGraph, targetWav;
+        std::vector<std::pair<std::string, float> > args, targetArgs;
+        double rate = 0;
+    };
+
+    /* One generation of `channel''s flock, and its champion put on as
+       growth puts a graph: the channel then holds the declared graph and
+       the champion, which is what Keep writes. Only on a channel the piece
+       declares an instrument for, in a host with a grafter. */
+    bool graftInstrument (int channel, const GraftAsk &ask,
+                          std::string &why);
+
+    /* What breeds: the flock as it was -- empty for none yet -- the
+       declared graph, and the ask; the flock as it is now, its champion's
+       text and how many edits that is on the declared graph. A hook, as
+       Grower is (NodeBreed). */
+    typedef std::function<bool (const std::string &base,
+                                const std::string &flock,
+                                const GraftAsk &ask, std::string &flockOut,
+                                std::string &champion, size_t &depth,
+                                std::string &why)> Grafter;
+
+    void setGrafter (const Grafter &fn) { grafter_ = fn; }
 
     /* `text' on `channel' as growth would put it there, one step up the
        same stack: heard at once, gone with a step back or a rewind, and
@@ -1877,6 +1914,10 @@ private:
             std::string node, arg;
             float value = 0;
 
+            /* Or a generation of the flock. */
+            bool graft = false;
+            GraftAsk ask;
+
             /* Or a host's: growBackTo's `back', or putGraph's. */
             int back = -1;
             bool put = false, strict = false;
@@ -1885,10 +1926,14 @@ private:
         };
 
         std::deque<Queued> queued;
+
+        /* The flock a grafting stage breeds, as NodeBreed saves it. */
+        std::string flock;
     };
 
     std::map<int, Growth> grown_;
     Grower grower_;
+    Grafter grafter_;
     GrowRequest growRequest_;
     unsigned int growTicket_ = 0;
     thcAuditioner::Tuner tuner_;
