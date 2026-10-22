@@ -630,7 +630,7 @@ tool('breed_report',
              const spans = [{ start: 0, end: report.phraseSeconds },
                             ...run.generations.map(g => ({ start: g.start, end: g.end }))];
              const heard = await measured(wav, () => spans);
-             const found = lapses('the champion', heard.per);
+             const found = lapses('the champion', heard.per, { edges: true });
 
              run.wav = wav;
              run.declared = heard.per[0];

@@ -436,7 +436,8 @@ struct Breeding {
 
 bool generation (thSynth *synth, const string &base, Flock &flock_,
                  const Params &params, unsigned int dice_, const Ear &ear,
-                 string &champion, size_t &depth, string &why)
+                 string &champion, size_t &depth, string &why,
+                 vector<Op> *championOps)
 {
     /* Bred on a copy, so a generation stopped half way leaves the flock
        as it was. */
@@ -548,6 +549,9 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
     champion = texts[order[0]];
     depth = flock.members[order[0]].ops.size();
     flock.played = champion;
+
+    if (championOps != NULL)
+        *championOps = flock.members[order[0]].ops;
 
     /* The next: the best carried, the rest bred from tournaments of two. */
     auto pick = [&] ()

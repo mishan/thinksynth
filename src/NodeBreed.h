@@ -121,13 +121,15 @@ bool load (const string &text, Flock &flock);
 
 /* One generation of `flock' on `base', the declared graph, parsed on
    `synth': scored, its champion's text in `champion' and how many edits
-   it is from `base' in `depth', and the next bred from `dice'. A flock
+   it is from `base' in `depth', its edits in `championOps' if given,
+   and the next bred from `dice'. A flock
    with no members starts as `base' and mutants of it. False, with `why',
    for a base that does not parse or makes no sound, or a generation that
    was stopped. */
 bool generation (thSynth *synth, const string &base, Flock &flock,
                  const Params &params, unsigned int dice, const Ear &ear,
-                 string &champion, size_t &depth, string &why);
+                 string &champion, size_t &depth, string &why,
+                 vector<Op> *championOps = NULL);
 
 /* generation() for a host that keeps the flock as text: `flock' as it
    was, empty for none yet, and `flockOut' as it is after, heard on a

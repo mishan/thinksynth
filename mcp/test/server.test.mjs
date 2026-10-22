@@ -190,6 +190,16 @@ test('an instrument heard: harder is louder, longer decay rings longer', async (
     assert.deepEqual(levels.map(l => l.voices), [1, 2]);
 });
 
+test('a last window that goes quiet is a lapse only where the edges count', async () =>
+{
+    const { lapses } = await import('../lib/analyze.mjs');
+    const parts = [{ lufs: -14 }, { lufs: -14 }, { lufs: -30 }];
+
+    assert.deepEqual(lapses('x', parts).flat(), []);
+    assert.deepEqual(lapses('x', parts, { edges: true }).flat(),
+                     ['x drops 16 LU under the window beside it']);
+});
+
 test('a breeding report hears every champion after the declared graph', async () =>
 {
     // Bred toward itself, the declared graph is where the target is.

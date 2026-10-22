@@ -50,6 +50,7 @@
 #include <vector>
 
 #include "think.h"
+#include "thSoundFile.h"
 #include "JsonOut.h"
 #include "NodeBreed.h"
 
@@ -65,38 +66,6 @@ static bool readText (const string &path, string &text)
     text = s.str();
 
     return in.good() || in.eof();
-}
-
-/* 16-bit PCM as it is, not normalized: the levels are what is compared. */
-static bool writeWav (const string &path, const vector<float> &x,
-                      int channels, int rate)
-{
-    FILE *f = fopen(path.c_str(), "wb");
-
-    if (f == NULL)
-        return false;
-
-    auto u32 = [f] (uint32_t v) { fwrite(&v, 4, 1, f); };
-    auto u16 = [f] (uint16_t v) { fwrite(&v, 2, 1, f); };
-    const uint32_t bytes = (uint32_t)x.size() * 2;
-
-    fwrite("RIFF", 1, 4, f);
-    u32(36 + bytes);
-    fwrite("WAVEfmt ", 1, 8, f);
-    u32(16);
-    u16(1);
-    u16((uint16_t)channels);
-    u32((uint32_t)rate);
-    u32((uint32_t)(rate * channels * 2));
-    u16((uint16_t)(channels * 2));
-    u16(16);
-    fwrite("data", 1, 4, f);
-    u32(bytes);
-
-    for (float v : x)
-        u16((uint16_t)(int16_t)lrintf(fmaxf(-1, fminf(1, v)) * 32767));
-
-    return fclose(f) == 0;
 }
 
 static void jsonKey (string &out, const char *key)
@@ -191,13 +160,16 @@ int main (int argc, char **argv)
 
     string base, target;
 
-    if (basePath.empty() || !readText(basePath, base) ||
-        (!targetPath.empty() && !readText(targetPath, target)))
+    if (basePath.empty() || !readText(basePath, base))
     {
         fprintf(stderr, "%s: cannot read %s\n", argv[0],
-                basePath.empty() ? "a base graph" :
-                !target.empty() || targetPath.empty() ? basePath.c_str()
-                                                      : targetPath.c_str());
+                basePath.empty() ? "a base graph" : basePath.c_str());
+        return 2;
+    }
+
+    if (!targetPath.empty() && !readText(targetPath, target))
+    {
+        fprintf(stderr, "%s: cannot read %s\n", argv[0], targetPath.c_str());
         return 2;
     }
 
@@ -266,11 +238,12 @@ int main (int argc, char **argv)
         {
             string champion;
             size_t depth = 0;
+            vector<NodeMutate::Op> ops;
             const auto t0 = std::chrono::steady_clock::now();
 
             ok = NodeBreed::generation(&synth, base, flock, params,
                                        seeds[s] * 1000003u + g, ear,
-                                       champion, depth, why);
+                                       champion, depth, why, &ops);
 
             const double ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
@@ -278,24 +251,14 @@ int main (int argc, char **argv)
             if (!ok)
                 break;
 
-            /* The champion's edits, in words, from the member it is. */
+            /* The champion's edits, in words, made again as replay makes
+               them. */
             vector<string> edits;
+            string made = base, what;
 
-            for (const NodeBreed::Member &m : flock.members)
-            {
-                string text = base, what;
-                vector<string> said;
-
-                for (const NodeMutate::Op &op : m.ops)
-                    if (NodeMutate::applyTagged(&synth, text, op, what))
-                        said.push_back(what);
-
-                if (text == champion)
-                {
-                    edits = said;
-                    break;
-                }
-            }
+            for (const NodeMutate::Op &op : ops)
+                if (NodeMutate::applyTagged(&synth, made, op, what))
+                    edits.push_back(what);
 
             double rms = 0, peak = 0;
             const size_t from = audio.size();
@@ -349,8 +312,8 @@ int main (int argc, char **argv)
         out += "}";
 
         if (!outDir.empty() &&
-            !writeWav(outDir + "/seed-" + std::to_string(seeds[s]) + ".wav",
-                      audio, channels, rate))
+            !thsound::writePcm(outDir + "/seed-" + std::to_string(seeds[s]) +
+                               ".wav", audio, channels, rate))
         {
             fprintf(stderr, "%s: cannot write under %s\n", argv[0],
                     outDir.c_str());
