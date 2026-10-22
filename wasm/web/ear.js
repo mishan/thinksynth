@@ -20,7 +20,8 @@
  * The worklet has a few milliseconds a quantum, and the mirror draws the
  * composer view, so neither renders them. Each asks (thinkweb.cpp,
  * tw_ear_mode 2); the page brings the request here, and the answer goes
- * back to whichever asked (host.js).
+ * back to whichever asked (host.js). A gen::graft generation -- seconds of
+ * renders -- is asked and bred here the same way (tw_graft_mode 2).
  *
  * A request names its graphs by their texts' hashes, and the texts come
  * with the first request that names them (`texts') and are kept here, so
@@ -105,6 +106,32 @@ function receive (m)
         }
 
         postMessage({ type: 'heard', id: m.id, ...r });
+        return;
+    }
+
+    /* A gen::graft generation, bred: NodeBreed, on synths of its own. */
+    if (m.type === 'graft')
+    {
+        const a = m.ask;
+        let r;
+
+        try
+        {
+            r = JSON.parse(M.ccall('tw_graft', 'string',
+                ['string', 'string', 'string', 'string', 'string', 'string',
+                 'string', 'number', 'number', 'number', 'number', 'number',
+                 'number', 'number', 'number'],
+                [a.base, a.flock, a.kinds, a.tgraph, a.twav, a.args, a.targs,
+                 a.dice, a.population, a.elites, a.crossover, a.mutation,
+                 a.depth, a.tune, a.rate]));
+        }
+        catch (e)
+        {
+            r = { ok: false, flock: '', champion: '', depth: 0,
+                  why: `ear: ${e}` };
+        }
+
+        postMessage({ type: 'bred', id: m.id, ...r });
         return;
     }
 

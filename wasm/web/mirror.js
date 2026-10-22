@@ -333,11 +333,13 @@ function panelOf (chain, stage)
     return M.UTF8ToString(M._tw_panel_json());
 }
 
-/* What a gen::grow stage's chain has grown, beside its panel
-   (thinkweb.cpp, tw_growth_json); null for any other stage. */
+/* What a gen::grow or gen::graft stage's chain has grown or bred, beside
+   its panel (thinkweb.cpp, tw_growth_json); null for any other stage. */
 function growthOf (chain, panel)
 {
-    return panel !== null && JSON.parse(panel).subtitle === 'gen::grow'
+    const subtitle = panel !== null ? JSON.parse(panel).subtitle : null;
+
+    return subtitle === 'gen::grow' || subtitle === 'gen::graft'
         ? M.UTF8ToString(M._tw_growth_json(chain)) : null;
 }
 

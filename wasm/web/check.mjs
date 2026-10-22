@@ -639,6 +639,99 @@ for (const name of names)
                              'and spliced\n');
 }
 
+/* gen::graft in the browser module: the worklet's instance asks for each
+ * generation and another breeds it with tw_graft, as the ear worker does
+ * -- answered as it is asked, or only once every generation has been, as
+ * an ear busy for seconds would. Both breed the same champion, and it is
+ * not the declared graph. */
+{
+    const piece =
+        'seed 11;\n' +
+        'instrument pad { dsp {\n' +
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity;\n' +
+        '    waveform = 1; };\n' +
+        'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n' +
+        '}; };\n' +
+        'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+        '    prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::graft { every = 1 s; population = 3;\n' +
+        '    depth = 2; kinds = "splice"; }; sink { instrument = pad; }; };\n';
+    const ear = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    ear._tw_create(RATE, 256, 128);
+    ear._tw_silent();
+
+    const bredBy = async (late) =>
+    {
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+        const held = [];
+        const answer = (ask) =>
+        {
+            const a = JSON.parse(ask);
+            const r = JSON.parse(ear.ccall('tw_graft', 'string',
+                ['string', 'string', 'string', 'string', 'string', 'string',
+                 'string', 'number', 'number', 'number', 'number', 'number',
+                 'number', 'number', 'number'],
+                [a.base, a.flock, a.kinds, a.tgraph, a.twav, a.args, a.targs,
+                 a.dice, a.population, a.elites, a.crossover, a.mutation,
+                 a.depth, a.tune, a.rate]));
+
+            M.ccall('tw_graft_answer', null,
+                    ['number', 'number', 'string', 'string', 'number',
+                     'string'],
+                    [a.ticket, r.ok ? 1 : 0, r.flock, r.champion, r.depth,
+                     r.why]);
+        };
+        const asks = () =>
+        {
+            const out = [];
+
+            for (let ask; (ask = M.UTF8ToString(M._tw_graft_next())); )
+                out.push(ask);
+
+            return out;
+        };
+
+        M._tw_create(RATE, 256, 128);
+        M._tw_graft_mode(2);
+
+        const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                           [piece, 1]) !== 0;
+
+        M._tw_transport(0, 0, 0);       /* TW_START */
+
+        for (let done = 0; ok && done < RATE * 2.5; done += 128)
+        {
+            M._tw_render(128);
+
+            for (const ask of asks())
+                late ? held.push(ask) : answer(ask);
+        }
+
+        /* Each answer lets the generation queued behind it ask in turn. */
+        for (let ask; (ask = held.shift() ?? asks()[0]); )
+            answer(ask);
+
+        return M.ccall('tw_grown_text', 'string', ['string'], ['pad']);
+    };
+
+    const asked = await bredBy(false);
+    const late = await bredBy(true);
+
+    if (asked === '')
+        fail('graft: nothing was bred in the browser module');
+    else if (late !== asked)
+        fail('graft: answered late, the generations bred otherwise');
+    else
+        process.stdout.write('ok    graft          bred by another instance, '
+                             + 'answered at once or late: the same champion\n');
+}
+
 /* The ear in the browser: three instances as the page has them -- the
  * worklet's, which asks to grow and to hear; the mirror's, which grows;
  * and the ear worker's, which hears -- carried between by hand. A growth

@@ -111,6 +111,7 @@
 #include "PatchSet.h"
 #include "KnobPanel.h"
 #include "NodeEvolve.h"
+#include "NodeGraft.h"
 #include "NodeMutate.h"
 #include "thcAudition.h"
 #include "NodePanel.h"
@@ -3196,6 +3197,120 @@ EMSCRIPTEN_KEEPALIVE const char *tw_hear (const char *dsp, const char *effect,
     earJson_ += "}";
 
     return earJson_.c_str();
+}
+
+/* gen::graft. A generation is dozens of renders, seconds of them, so
+ * neither the worklet nor the mirror breeds: each asks (mode 2), with the
+ * flock as it has it, and the page carries the request to the ear worker,
+ * which breeds it with tw_graft and sends back what it bred to
+ * tw_graft_answer. The two realms ask the same question of the same flock,
+ * so the page asks it once (host.js). */
+static std::deque<std::string> graftAsks_;
+static std::string graftJson_;
+
+EMSCRIPTEN_KEEPALIVE void tw_graft_mode (int mode)
+{
+    if (mode != 2)
+        return;
+
+    sched_->setGraftRequest([] (unsigned int ticket, const std::string &base,
+                                const std::string &flock,
+                                const thcScheduler::GraftAsk &a)
+    {
+        char numbers[256];
+
+        snprintf(numbers, sizeof numbers,
+                 "{\"ticket\":%u,\"dice\":%u,\"population\":%d,"
+                 "\"elites\":%d,\"crossover\":%.17g,\"mutation\":%.17g,"
+                 "\"depth\":%d,\"tune\":%d,\"rate\":%.17g",
+                 ticket, a.dice, a.population, a.elites, a.crossover,
+                 a.mutation, a.depth, a.tune, a.rate);
+
+        std::string ask = numbers;
+        const std::pair<const char *, std::string> texts[] = {
+            { "kinds", a.kinds }, { "base", base }, { "flock", flock },
+            { "tgraph", a.targetGraph }, { "twav", a.targetWav },
+            { "args", argText(a.args) }, { "targs", argText(a.targetArgs) } };
+
+        for (const auto &t : texts)
+        {
+            ask += std::string(",\"") + t.first + "\":";
+            jsonString(ask, t.second);
+        }
+
+        ask += "}";
+        graftAsks_.push_back(ask);
+    });
+}
+
+/* The next generation this realm's scheduler has asked for, as JSON, or
+   "". */
+EMSCRIPTEN_KEEPALIVE const char *tw_graft_next (void)
+{
+    graftJson_.clear();
+
+    if (!graftAsks_.empty())
+    {
+        graftJson_ = graftAsks_.front();
+        graftAsks_.pop_front();
+    }
+
+    return graftJson_.c_str();
+}
+
+/* One generation bred here, the ear worker's: {"ok":..., "flock":...,
+   "champion":..., "depth":..., "why":...}. */
+EMSCRIPTEN_KEEPALIVE const char *tw_graft (const char *base, const char *flock,
+                                           const char *kinds,
+                                           const char *tgraph,
+                                           const char *twav, const char *args,
+                                           const char *targs,
+                                           unsigned int dice, int population,
+                                           int elites, double crossover,
+                                           double mutation, int depth,
+                                           int tune, double rate)
+{
+    thcScheduler::GraftAsk a;
+    std::string bred, champion, why;
+    size_t edits = 0;
+
+    a.dice = dice;
+    a.kinds = kinds ? kinds : "";
+    a.population = population;
+    a.elites = elites;
+    a.crossover = crossover;
+    a.mutation = mutation;
+    a.depth = depth;
+    a.tune = tune;
+    a.rate = rate;
+    a.targetGraph = tgraph ? tgraph : "";
+    a.targetWav = twav ? twav : "";
+    a.args = argsOf(args);
+    a.targetArgs = argsOf(targs);
+
+    const bool ok = graftStep(synth_, base ? base : "", flock ? flock : "", a,
+                              graftParams(a), bred, champion, edits, why);
+
+    graftJson_ = std::string("{\"ok\":") + (ok ? "true" : "false") +
+                 ",\"depth\":" + std::to_string(edits) + ",\"flock\":";
+    jsonString(graftJson_, bred);
+    graftJson_ += ",\"champion\":";
+    jsonString(graftJson_, champion);
+    graftJson_ += ",\"why\":";
+    jsonString(graftJson_, why);
+    graftJson_ += "}";
+
+    return graftJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_graft_answer (unsigned int ticket, int ok,
+                                           const char *flock,
+                                           const char *champion, int depth,
+                                           const char *why)
+{
+    sched_->graftAnswer(ticket, ok != 0, flock ? flock : "",
+                        champion ? champion : "", (size_t)std::max(depth, 0),
+                        why ? why : "");
 }
 
 /* Evolve toward (src/NodeEvolve.h). A search is minutes of renders, so it

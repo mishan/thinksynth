@@ -195,8 +195,10 @@ class ThinkProcessor extends AudioWorkletProcessor
            (thinkweb.cpp, tw_grow_mode). */
         M._tw_grow_mode(2);
 
-        /* Hearing too: asked of the page's ear worker (ear.js). */
+        /* Hearing too: asked of the page's ear worker (ear.js), and a
+           gen::graft generation, which is seconds. */
         M._tw_ear_mode(2);
+        M._tw_graft_mode(2);
 
         /* Asked for once, and once is enough: it is an address inside the
            wasm memory, and growing that appends pages rather than moving
@@ -300,6 +302,18 @@ class ThinkProcessor extends AudioWorkletProcessor
             this.M.ccall('tw_ear_answer', null,
                          ['number', 'number', 'number', 'string'],
                          [m.ticket, m.ok ? 1 : 0, m.distance, m.tuned]);
+            return;
+        }
+
+        /* What the ear worker bred for one of this scheduler's
+           generations. */
+        if (m.type === 'bred')
+        {
+            this.M.ccall('tw_graft_answer', null,
+                         ['number', 'number', 'string', 'string', 'number',
+                          'string'],
+                         [m.ticket, m.ok ? 1 : 0, m.flock, m.champion,
+                          m.depth, m.why]);
             return;
         }
 
@@ -929,6 +943,9 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         for (let ask; (ask = this.M.UTF8ToString(this.M._tw_ear_next())); )
             this.port.postMessage({ type: 'hear', ask });
+
+        for (let ask; (ask = this.M.UTF8ToString(this.M._tw_graft_next())); )
+            this.port.postMessage({ type: 'graft', ask });
 
         /* A rewind or a load inside the batch: what is held so far is
            the old run's, and goes out under the old run's epoch before

@@ -181,7 +181,10 @@ export async function createSynth (ctx, { windowlen = 128,
        after it was answered, is not asked again: every render once. A
        question is its request less the asker's ticket and the texts that
        came with it. If the ear fails, every question is answered failed,
-       as one it could not hear: a stage then goes on without it. */
+       as one it could not hear: a stage then goes on without it.
+
+       It breeds too: a gen::graft generation is seconds of renders that
+       neither realm can spare, asked and answered the same way. */
     let ear = null;
     let earStart = null;
     let earDead = false;
@@ -191,12 +194,21 @@ export async function createSynth (ctx, { windowlen = 128,
     const outFor = new Map();       /* key -> id                         */
     const answers = new Map();      /* key -> answer, the latest few     */
     const ANSWERS_KEPT = 256;
+    const FAILED = {
+        hear: { ok: false, distance: 0, tuned: '' },
+        graft: { ok: false, flock: '', champion: '', depth: 0,
+                 why: 'the ear worker failed' },
+    };
     const reply = (waiters, r) =>
     {
         for (const w of waiters)
             (w.to === 'mirror' ? mirror : node.port)?.postMessage(
-                { type: 'heard', ticket: w.ticket, ok: r.ok,
-                  distance: r.distance, tuned: r.tuned });
+                w.kind === 'graft'
+                    ? { type: 'bred', ticket: w.ticket, ok: r.ok,
+                        flock: r.flock, champion: r.champion,
+                        depth: r.depth, why: r.why }
+                    : { type: 'heard', ticket: w.ticket, ok: r.ok,
+                        distance: r.distance, tuned: r.tuned });
     };
     const failEar = (text) =>
     {
@@ -204,15 +216,15 @@ export async function createSynth (ctx, { windowlen = 128,
         onLog(text);
 
         for (const { waiters } of asking.values())
-            reply(waiters, { ok: false, distance: 0, tuned: '' });
+            reply(waiters, FAILED[waiters[0].kind]);
 
         asking.clear();
         outFor.clear();
     };
-    const hear = (to, ask) =>
+    const hear = (to, ask, kind = 'hear') =>
     {
         const a = JSON.parse(ask);
-        const waiter = { to, ticket: a.ticket };
+        const waiter = { to, ticket: a.ticket, kind };
 
         if (ear === null && earStart !== null && !earDead)
         {
@@ -222,7 +234,7 @@ export async function createSynth (ctx, { windowlen = 128,
             {
                 const m = e.data;
 
-                if (m.type === 'heard')
+                if (m.type === 'heard' || m.type === 'bred')
                 {
                     const out = asking.get(m.id);
 
@@ -252,17 +264,17 @@ export async function createSynth (ctx, { windowlen = 128,
 
         if (ear === null || earDead)
         {
-            reply([waiter], { ok: false, distance: 0, tuned: '' });
+            reply([waiter], FAILED[kind]);
             return;
         }
 
-        if (Object.keys(a.texts).length > 0)
+        if (Object.keys(a.texts ?? {}).length > 0)
             ear.postMessage({ type: 'texts', texts: a.texts });
 
         delete a.ticket;
         delete a.texts;
 
-        const key = JSON.stringify(a);
+        const key = kind + JSON.stringify(a);
         const known = answers.get(key);
 
         if (known !== undefined)
@@ -283,7 +295,7 @@ export async function createSynth (ctx, { windowlen = 128,
 
         asking.set(id, { key, waiters: [waiter] });
         outFor.set(key, id);
-        ear.postMessage({ type: 'hear', id, ask: a });
+        ear.postMessage({ type: kind, id, ask: a });
     };
 
     /* A growth the mirror made for the worklet goes straight back to it,
@@ -301,6 +313,8 @@ export async function createSynth (ctx, { windowlen = 128,
             }
             else if (e.data.type === 'hear')
                 hear('mirror', e.data.ask);
+            else if (e.data.type === 'graft')
+                hear('mirror', e.data.ask, 'graft');
             else
                 onMirror(e.data);
         };
@@ -353,6 +367,9 @@ export async function createSynth (ctx, { windowlen = 128,
                 break;
             case 'hear':
                 hear('worklet', m.ask);
+                break;
+            case 'graft':
+                hear('worklet', m.ask, 'graft');
                 break;
             case 'log':
                 onLog(m.text);

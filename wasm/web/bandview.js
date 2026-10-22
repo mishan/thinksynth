@@ -126,6 +126,7 @@ const IDEAS = {
     'gen::ca': 'a cellular pattern', 'gen::evolve': 'an evolving phrase',
     'gen::steps': 'a step pattern', 'gen::walk': 'a drifting sound',
     'gen::breed': 'a bred sound', 'gen::grow': 'a growing sound',
+    'gen::graft': 'a bred instrument',
     'gen::reshape': 'a reshaped sound', 'gen::pump': 'a pumping swell',
     'gen::morph': 'a morphing sound', 'gen::stutter': 'a stuttered end',
     'gen::swap': 'changing sounds',
@@ -150,7 +151,7 @@ const CONTROLS = new Set(['life', 'ca', 'grid', 'euclid', 'accent',
 const RANDOM = new Set(['arp', 'cloud', 'humanize', 'chance', 'evolve',
                         'stutter', 'eno_line', 'markov', 'walk', 'swap',
                         'progression', 'ratchet', 'vary', 'breed', 'run',
-                        'grow', 'life', 'ca']);
+                        'grow', 'graft', 'life', 'ca']);
 
 /* An xform::vary's rows that draw from the seed. */
 const VARIES = ['rest', 'leap', 'push', 'double', 'approach', 'ornament',
