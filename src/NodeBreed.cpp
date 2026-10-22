@@ -502,7 +502,11 @@ struct Breeding {
 
         NodeMutate::read(tree, next, &genes, &is);
 
-        const double hz = centroid * std::pow(2.0, (double)dice.below(4) - 1);
+        /* On a semitone: a centroid two hosts' maths put a hair apart
+           still gives both the one constant, so a room breeds alike. */
+        const double hz = 440 * std::pow(2.0, std::round(12 * std::log2(
+                                                   centroid / 440)) / 12 +
+                                                   dice.below(4) - 1.0);
         string why;
 
         for (const Gene &g : genes)
@@ -592,9 +596,15 @@ struct Breeding {
             if (params.tune > 0)
                 next = NodeEvolve::tuneAdded(
                     *synth, now, next, params.tune,
-                    ear.target ? ear.target
-                               : [this] (const string &t)
-                                 { return novelty(t); });
+                    [this] (const string &t)
+                    {
+                        /* A stop asked lets the tune run out unheard,
+                           which is at once, rather than at its end. */
+                        if (params.stop && params.stop())
+                            return NodeEvolve::DEAD;
+
+                        return ear.target ? ear.target(t) : novelty(t);
+                    });
 
             NodeMutate::tunedOf(synth, now, next, op);
 
